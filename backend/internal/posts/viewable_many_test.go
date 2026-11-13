@@ -84,6 +84,27 @@ func TestViewableMany_CallerBlockedAuthor(t *testing.T) {
 	if len(got) != 1 || got[pidMine] == nil {
 		t.Fatalf("visible = %v, want only %s", keysOf(got), pidMine)
 	}
+	// A QUOTE of a post whose author the caller blocked is dropped too; the caller's own QUOTE of it as well.
+	const pidQuote, pidOwnQuote = "0000000000000000311", "0000000000000000312"
+	for id, author := range map[string]string{pidQuote: "uid-quoter", pidOwnQuote: testUID} {
+		q := post(id, author)
+		q.Kind, q.QuoteOfID, q.EmbeddedAuthorID = KindQuote, pidOther, otherUID
+		q.Embedded = &Embedded{PostID: pidOther, Author: AuthorSnapshot{UserID: otherUID}}
+		e.repo.docs[id] = q
+	}
+	e.dir.profiles["uid-quoter"] = e.dir.profiles[testUID]
+	e.graph.snap = graph.Snapshot{}
+	if got, err := e.svc.ViewableMany(context.Background(), testUID, []string{pidQuote, pidOwnQuote}); err != nil || len(got) != 2 {
+		t.Fatalf("without the block = %v, %v; want both QUOTEs", keysOf(got), err)
+	}
+	e.graph.snap = graph.Snapshot{Blocked: map[string]bool{otherUID: true}}
+	got, err = e.svc.ViewableMany(context.Background(), testUID, []string{pidQuote, pidOwnQuote})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("visible = %v, want no QUOTE of a blocked author", keysOf(got))
+	}
 	e.graph.errs = map[string]error{testUID: errBoom}
 	if _, err := e.svc.ViewableMany(context.Background(), testUID, []string{pidOther}); err == nil {
 		t.Fatal("an unknown block set must fail the batch, never show the card")

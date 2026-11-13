@@ -27,8 +27,10 @@ func (n messageNotifier) MessageSent(ctx context.Context, e messaging.MessageEve
 }
 
 // postShareCheck implements messaging.PostShareCheck over posts.Engagement (shares design D3): the GetPost rules
-// (Viewable; a REPOST id is checked on itself and on its original), then the RepostPost rule for a protected author
-// (RefuseShare: PROTECTED_ACCOUNT for anyone but the author).
+// (Viewable; a REPOST id is checked on itself and on its original), then the card's rule on the original (ViewableMany:
+// a block either way, so a caller who blocked the author, or a QUOTE's embedded author, gets the same NOT_FOUND as for
+// an invisible post and never sends a post its own card would show as unavailable), then the RepostPost rule for a
+// protected author (RefuseShare: PROTECTED_ACCOUNT for anyone but the author).
 type postShareCheck struct{ posts posts.Engagement }
 
 var _ messaging.PostShareCheck = postShareCheck{}
@@ -45,6 +47,13 @@ func (c postShareCheck) CheckShare(ctx context.Context, uid, postID string) (mes
 		if p, err = c.viewable(ctx, uid, p.RepostOfID); err != nil {
 			return messaging.SharedPost{}, err
 		}
+	}
+	card, err := c.posts.ViewableMany(ctx, uid, []string{p.ID})
+	if err != nil {
+		return messaging.SharedPost{}, err
+	}
+	if card[p.ID] == nil {
+		return messaging.SharedPost{}, messaging.ErrPostNotVisible
 	}
 	if err := c.posts.RefuseShare(ctx, uid, p); err != nil {
 		return messaging.SharedPost{}, err

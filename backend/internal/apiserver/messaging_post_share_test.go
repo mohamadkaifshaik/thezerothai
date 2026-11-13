@@ -18,6 +18,7 @@ import (
 type sharePosts struct {
 	visible   map[string]*posts.Post
 	protected map[string]bool
+	blocks    map[string]string // caller uid => the author uid that caller blocked (ViewableMany drops it, Viewable shows it)
 	manyErr   error
 }
 
@@ -28,13 +29,13 @@ func (f sharePosts) Viewable(_ context.Context, _, id string) (*posts.Post, erro
 	return nil, posts.ErrNotFound
 }
 
-func (f sharePosts) ViewableMany(_ context.Context, _ string, ids []string) (map[string]*posts.Post, error) {
+func (f sharePosts) ViewableMany(_ context.Context, caller string, ids []string) (map[string]*posts.Post, error) {
 	if f.manyErr != nil {
 		return nil, f.manyErr
 	}
 	out := map[string]*posts.Post{}
 	for _, id := range ids {
-		if p, ok := f.visible[id]; ok && p.Kind != posts.KindRepost {
+		if p, ok := f.visible[id]; ok && p.Kind != posts.KindRepost && f.blocks[caller] != p.AuthorID {
 			out[id] = p
 		}
 	}
@@ -73,6 +74,7 @@ func shareWorld() sharePosts {
 			spNoOrig:    {ID: spNoOrig, AuthorID: "dave", Kind: posts.KindRepost},
 		},
 		protected: map[string]bool{"erin": true},
+		blocks:    map[string]string{"bob": "carol"},
 	}
 }
 
@@ -91,6 +93,9 @@ func TestPostShareCheck(t *testing.T) {
 		{"a REPOST without an original", "alice", spNoOrig, messaging.SharedPost{}, true, false},
 		{"protected author, another caller", "alice", spProtected, messaging.SharedPost{}, false, true},
 		{"protected author, the author", "erin", spProtected, messaging.SharedPost{ID: spProtected, AuthorID: "erin"}, false, false},
+		{"the caller blocked the author", "bob", spOrig, messaging.SharedPost{}, true, false},
+		{"the caller blocked the original's author of a REPOST", "bob", spRepost, messaging.SharedPost{}, true, false},
+		{"the caller blocked someone else", "bob", spProtected, messaging.SharedPost{}, false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -128,5 +133,14 @@ func TestPostCards(t *testing.T) {
 	w.manyErr = errors.New("boom")
 	if _, err := (postCards{posts: w}).Cards(context.Background(), "alice", []string{spOrig}); err == nil {
 		t.Fatal("a batch error must be returned")
+	}
+}
+
+// An unknown block set fails the share check (never a send the card would refuse).
+func TestPostShareCheck_BatchError(t *testing.T) {
+	w := shareWorld()
+	w.manyErr = errors.New("boom")
+	if _, err := (postShareCheck{posts: w}).CheckShare(context.Background(), "alice", spOrig); err == nil || errors.Is(err, messaging.ErrPostNotVisible) {
+		t.Fatalf("err = %v, want the batch error", err)
 	}
 }

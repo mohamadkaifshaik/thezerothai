@@ -745,7 +745,8 @@ type Engagement interface {
 	Viewable(ctx context.Context, callerUID, postID string) (*Post, error)
 	// ViewableMany is Viewable over a batch (the direct-message post cards, shares design §4.2): the posts the caller may
 	// see by the GetPost rules, keyed by id; an id the caller may not see (missing, hidden, an inactive author, a block
-	// either way, a protected author the caller does not follow, a QUOTE whose embedded author blocks the caller) is absent.
+	// either way with the author or a QUOTE's embedded author, a protected author the caller does not follow) is absent.
+	// The direct-message send applies the same rule to the post it shares.
 	// A REPOST id is absent too (cards name originals). The posts come from one cache-first GetMany and their authors from
 	// one cache-first Directory batch; the caller's graph snapshot is cached 60 s. At most MaxGetMany ids.
 	ViewableMany(ctx context.Context, callerUID string, postIDs []string) (map[string]*Post, error)
