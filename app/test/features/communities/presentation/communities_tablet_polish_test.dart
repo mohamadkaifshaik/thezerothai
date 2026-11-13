@@ -10,6 +10,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:fixnum/fixnum.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
@@ -163,10 +164,9 @@ void main() {
     });
   });
 
-  group('4. the desktop log banner: loaded entries only, in the list', () {
-    testWidgets('loaded: the first item of the log, and it scrolls with it', (
-      tester,
-    ) async {
+  group('4. the desktop log box: loaded entries only, in the side column', () {
+    testWidgets('loaded: in the side column, and it stays while the log '
+        'scrolls', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
       rig.server.logEntries = _bans(12);
@@ -174,13 +174,17 @@ void main() {
       final banner = find.byType(ModerationLogAbout);
       expect(banner, findsOneWidget);
       expect(
-        find.ancestor(of: banner, matching: find.byType(ListView)),
+        find.ancestor(of: banner, matching: find.byType(AppSideColumn)),
         findsOneWidget,
+      );
+      expect(
+        find.ancestor(of: banner, matching: find.byType(ListView)),
+        findsNothing,
       );
       final before = tester.getRect(banner).top;
       await tester.drag(find.byType(ListView), const Offset(0, -80));
       await tester.pumpAndSettle();
-      expect(tester.getRect(banner).top, closeTo(before - 80, 1));
+      expect(tester.getRect(banner).top, closeTo(before, 1));
     });
 
     testWidgets('loading: no banner', (tester) async {

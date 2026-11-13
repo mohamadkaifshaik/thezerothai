@@ -501,7 +501,7 @@ void main() {
       for (final on in [true, false]) {
         testWidgets(
           '$w, community_member_search ${on ? 'on' : 'off'}: '
-          '${!on ? 'no field, no search call' : 'the field above the tabs, no pane'}',
+          '${!on ? 'no field, no search call' : 'the field above the tabs (the side column on desktop), no pane'}',
           (tester) async {
             final rig = CommunitiesTabletRig();
             rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
@@ -519,10 +519,21 @@ void main() {
             }
             expect(_field(kSearchMembersHint), findsOneWidget);
             final field = inCommunitiesPage(_field(kSearchMembersHint));
-            expect(
-              tester.getRect(field).bottom,
-              lessThanOrEqualTo(tester.getRect(find.byType(AppTabBar)).top),
-            );
+            if (w >= 1200) {
+              // The desktop's field is the side column's, beside the tabs.
+              expect(field, findsNothing);
+              expect(
+                tester.getRect(_field(kSearchMembersHint)).left,
+                greaterThanOrEqualTo(
+                  tester.getRect(find.byType(AppTabBar)).right,
+                ),
+              );
+            } else {
+              expect(
+                tester.getRect(field).bottom,
+                lessThanOrEqualTo(tester.getRect(find.byType(AppTabBar)).top),
+              );
+            }
             // Typing searches the Members tab by handle; results replace it.
             await tester.enterText(_field(kSearchMembersHint), '@Mem');
             await tester.pump(const Duration(milliseconds: 299));
