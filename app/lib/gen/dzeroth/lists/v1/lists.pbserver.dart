@@ -37,6 +37,16 @@ abstract class ListServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $3.RemoveListMemberRequest request);
   $async.Future<$3.ListListMembersResponse> listListMembers(
       $pb.ServerContext ctx, $3.ListListMembersRequest request);
+  $async.Future<$3.FollowListResponse> followList(
+      $pb.ServerContext ctx, $3.FollowListRequest request);
+  $async.Future<$3.UnfollowListResponse> unfollowList(
+      $pb.ServerContext ctx, $3.UnfollowListRequest request);
+  $async.Future<$3.ListFollowedListsResponse> listFollowedLists(
+      $pb.ServerContext ctx, $3.ListFollowedListsRequest request);
+  $async.Future<$3.DiscoverListsResponse> discoverLists(
+      $pb.ServerContext ctx, $3.DiscoverListsRequest request);
+  $async.Future<$3.ListSuggestedMembersResponse> listSuggestedMembers(
+      $pb.ServerContext ctx, $3.ListSuggestedMembersRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -56,6 +66,16 @@ abstract class ListServiceBase extends $pb.GeneratedService {
         return $3.RemoveListMemberRequest();
       case 'ListListMembers':
         return $3.ListListMembersRequest();
+      case 'FollowList':
+        return $3.FollowListRequest();
+      case 'UnfollowList':
+        return $3.UnfollowListRequest();
+      case 'ListFollowedLists':
+        return $3.ListFollowedListsRequest();
+      case 'DiscoverLists':
+        return $3.DiscoverListsRequest();
+      case 'ListSuggestedMembers':
+        return $3.ListSuggestedMembersRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -80,6 +100,17 @@ abstract class ListServiceBase extends $pb.GeneratedService {
         return removeListMember(ctx, request as $3.RemoveListMemberRequest);
       case 'ListListMembers':
         return listListMembers(ctx, request as $3.ListListMembersRequest);
+      case 'FollowList':
+        return followList(ctx, request as $3.FollowListRequest);
+      case 'UnfollowList':
+        return unfollowList(ctx, request as $3.UnfollowListRequest);
+      case 'ListFollowedLists':
+        return listFollowedLists(ctx, request as $3.ListFollowedListsRequest);
+      case 'DiscoverLists':
+        return discoverLists(ctx, request as $3.DiscoverListsRequest);
+      case 'ListSuggestedMembers':
+        return listSuggestedMembers(
+            ctx, request as $3.ListSuggestedMembersRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
