@@ -12,7 +12,6 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
@@ -118,6 +117,9 @@ func (s *service) PublishScheduledNow(ctx context.Context, uid, idempotencyKey, 
 		if !ok || cur.SchemaVersion > ScheduledSchemaVersion {
 			return nil, notPending("this scheduled post cannot be published")
 		}
+		if err := s.authorizePostText(ctx, uid, params.Draft.Text); err != nil {
+			return nil, err
+		}
 		params.ExpectUpdateTime = cur.UpdateTime
 		res, err := s.sweep.Repo.PublishScheduled(ctx, params)
 		if err != nil {
@@ -215,15 +217,16 @@ func (s *service) UpdateScheduled(ctx context.Context, uid string, in UpdateSche
 	}
 	var newText *string
 	if in.Text != nil {
-		parse := text.Parse
-		if cur.Draft != nil && len(cur.Draft.Media) > 0 {
-			parse = text.ParseOptional
-		}
-		parsed, perr := parse(*in.Text)
+		parsed, perr := s.parsePostText(*in.Text, cur.Draft != nil && len(cur.Draft.Media) > 0)
 		if perr != nil {
 			return nil, perr
 		}
 		logger.SetRequestField(ctx, fieldTextLen, len([]rune(parsed.Text)))
+		if cur.Draft == nil || parsed.Text != cur.Draft.Text {
+			if err := s.authorizePostText(ctx, uid, parsed.Text); err != nil {
+				return nil, err
+			}
+		}
 		newText = &parsed.Text
 	}
 	// 4. The transaction re-reads the item: state, the 60 s lockout, the window cap, then the write.

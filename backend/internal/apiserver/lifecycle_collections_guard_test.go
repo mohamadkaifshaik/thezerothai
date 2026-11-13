@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/billing"
+
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
@@ -69,6 +71,8 @@ type collectionRow struct {
 // lifecycleCollections is the table: every collection in the data model plus the ones the code names
 // today. A slice that adds a collection adds its row in its own PR.
 var lifecycleCollections = []collectionRow{
+	{Name: "billingCustomers", Disposition: erasedByStep, Step: "billing_bindings", Section: "billing_bindings", Owner: "billing", Cite: "ADR-0011 Q1; runbook releases/SUBSCRIPTIONS.md: binding erasure also removes the verified snapshot; export omits private provider identifiers"},
+	{Name: "billingCustomerOwners", Disposition: erasedByStep, Step: "billing_bindings", ExportNote: "private reverse identity mapping, removed with the forward binding and never exported", Owner: "billing", Cite: "ADR-0011 Q1; runbook releases/SUBSCRIPTIONS.md: paired transactional binding erasure"},
 	{Name: "articles", Disposition: erasedByStep, Step: "articles", Section: "articles", Owner: "articles", Cite: "ADR-0011 Q1/Q10: article eraser and export cover owned drafts and published bodies"},
 	{Name: "users", Disposition: erasedByStep, Step: "users_doc", Section: "profile", Owner: "identity", Cite: "ADR-0011 Q1 step 7 (users/{uid} last)"},
 	{Name: "private", Sub: true, Disposition: erasedByStep, Step: "identity", ExportNote: "reserved for PII, none at Stage 0 (ADR-0003 row users/{uid}/private)", Owner: "identity", Cite: "ADR-0011 Q1 step 5"},
@@ -382,6 +386,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerOutboxLifecycle(l, outbox.New(nil, outbox.Config{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerBillingLifecycle(l, billing.NewFirestoreBindings(nil)); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()

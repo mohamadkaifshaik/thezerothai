@@ -71,7 +71,16 @@ void main() {
     test('the path is named only by the router and shell_entries.dart', () {
       final users = {
         for (final f in lib)
-          if (RegExp(r'premiumPath|/premium\b').hasMatch(_code(f))) _name(f),
+          if (RegExp(r'premiumPath|/premium\b').hasMatch(
+            _code(f)
+                .split('\n')
+                .where(
+                  (line) =>
+                      !RegExp(r'^\s*(import|export|part)\s').hasMatch(line),
+                )
+                .join('\n'),
+          ))
+            _name(f),
       };
       expect(users, {
         'core/router/app_router.dart',

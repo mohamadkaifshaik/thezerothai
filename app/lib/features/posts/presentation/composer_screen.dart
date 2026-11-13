@@ -1,3 +1,5 @@
+import 'post_subscription_policy.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -72,10 +74,9 @@ const kDraftNeedsNoMediaMessage =
 const kCommunityNotAddedMessage =
     'Your post was sent without its community, so everyone can see it.';
 
-/// Upper bound on what the field accepts. It is far above the 280 limit so
-/// the counter can go negative (the user sees how much to cut), while a huge
-/// paste never makes every keystroke expensive.
-const kComposerInputCap = 1000;
+/// Absolute paid text bound. The current verified tier controls the counter
+/// and submit rules; a huge paste never makes every keystroke expensive.
+const kComposerInputCap = 15000;
 
 /// `/compose`: write a text post. 280 code points counted after NFC
 ///At most 10 lines; Post is disabled otherwise. The server
@@ -207,6 +208,8 @@ class ComposerScreen extends StatelessWidget {
                 : null,
             initialCommunityId: communityId,
             postsRepository: context.read<PostsRepository>(),
+            postTextLimit: () => subscriptionPostLimit(context),
+            postPolicyChanges: subscriptionPostChanges(context),
             pending: context.read<PendingPostsCubit>(),
             author: viewerAuthorSnapshot(profile),
             quoteOfPostId: quoteOfPostId,

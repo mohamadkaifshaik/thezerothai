@@ -288,6 +288,8 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// viewer's [author] snapshot.
   ComposerCubit({
     required PostsRepository postsRepository,
+    int Function()? postTextLimit,
+    Stream<Object?>? postPolicyChanges,
     required PendingPostsCubit pending,
     required common.AuthorSnapshot author,
     this.quoteOfPostId = '',
@@ -309,7 +311,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     ComposerDraft? initialDraft,
     UsageReporter usage = const UsageReporter.none(),
     SessionEpoch? sessionEpoch,
-  }) : replyToPostId = '',
+  }) : _postTextLimit = postTextLimit,
+       replyToPostId = '',
        _session = sessionEpoch ?? SessionEpoch(),
        _communities = communities,
        _pendingCommunityId = initialCommunityId.isNotEmpty
@@ -336,6 +339,14 @@ class ComposerCubit extends Cubit<ComposerState> {
          ),
        ) {
     _baseline = _base;
+    revalidateTextLimit();
+    _postPolicySub = postPolicyChanges?.listen((_) => revalidateTextLimit());
+    if (postTextLimit != null) {
+      _postPolicyTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => revalidateTextLimit(),
+      );
+    }
     _openedSession = _session.value;
     _sessionSub = _session.ended.listen((_) => _sessionHasEnded());
     // Also the tile's Retry, which the grid calls on the attachments directly.
@@ -348,12 +359,15 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// own pending row while [ComposerState.isSubmitting].
   ComposerCubit.reply({
     required PostsRepository postsRepository,
+    int Function()? postTextLimit,
+    Stream<Object?>? postPolicyChanges,
     required this.replyToPostId,
     Uuid? uuid,
     DateTime Function()? clock,
     UsageReporter usage = const UsageReporter.none(),
     SessionEpoch? sessionEpoch,
-  }) : quoteOfPostId = '',
+  }) : _postTextLimit = postTextLimit,
+       quoteOfPostId = '',
        _session = sessionEpoch ?? SessionEpoch(),
        _usage = usage,
        _repository = postsRepository,
@@ -379,6 +393,32 @@ class ComposerCubit extends Cubit<ComposerState> {
     _baseline = _base;
     _openedSession = _session.value;
     _sessionSub = _session.ended.listen((_) => _sessionHasEnded());
+    revalidateTextLimit();
+    _postPolicySub = postPolicyChanges?.listen((_) => revalidateTextLimit());
+    if (postTextLimit != null) {
+      _postPolicyTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => revalidateTextLimit(),
+      );
+    }
+  }
+
+  final int Function()? _postTextLimit;
+  StreamSubscription<Object?>? _postPolicySub;
+  Timer? _postPolicyTimer;
+
+  PostDraft _analyze(String raw) => analyzePostDraft(
+    raw,
+    maxCodePoints: _postTextLimit?.call() ?? kMaxPostCodePoints,
+  );
+
+  void revalidateTextLimit() {
+    if (isClosed || state.isSubmitting) return;
+    final draft = _analyze(state.draft.text);
+    if (draft.maxCodePoints != state.draft.maxCodePoints ||
+        draft.problem != state.draft.problem) {
+      emit(state.copyWith(draft: draft));
+    }
   }
 
   static ComposerDraft _baseDraft(
@@ -525,7 +565,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     _loadingDraft = true;
     emit(
       state.copyWith(
-        draft: analyzePostDraft(draft.text),
+        draft: _analyze(draft.text),
         poll: loadsPoll ? draft.poll : null,
         clearPoll: !loadsPoll,
         pollDurationClamped: false,
@@ -946,6 +986,8 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   @override
   Future<void> close() async {
+    _postPolicyTimer?.cancel();
+    await _postPolicySub?.cancel();
     await _sessionSub?.cancel();
     await _attachmentsSub?.cancel();
     return super.close();
@@ -955,7 +997,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     if (state.isSubmitting) return;
     emit(
       ComposerState(
-        draft: analyzePostDraft(raw),
+        draft: _analyze(raw),
         status: ComposerStatus.editing,
         hasAttachments: state.hasAttachments,
         attachmentsReady: state.attachmentsReady,
@@ -1352,6 +1394,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   }
 
   Future<void> submit() async {
+    revalidateTextLimit();
     final force = _forceNewKey;
     _forceNewKey = false;
     if (!state.canSubmit) return;
@@ -1563,7 +1606,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       if (isClosed) return;
       emit(
         ComposerState(
-          draft: analyzePostDraft(''),
+          draft: _analyze(''),
           scheduledNotice: scheduled,
           communityChoices: state.communityChoices,
           sessionEnded: state.sessionEnded,

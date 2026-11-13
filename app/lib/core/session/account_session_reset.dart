@@ -21,6 +21,8 @@
 ///   `ConversationsSession` (the hoisted inbox and Requests
 ///   `ConversationsCubit`s and the split page's scroll memory: closed and
 ///   dropped; also dropped when Messages access turns `hidden`).
+/// - SubscriptionCubit and its repository memory are reset together when billing
+///   is configured; the SDK operation queue survives account switches.
 /// - Drift cache, wiped by `wipeSessionData` / `claimCacheFor` in
 ///   `wireAuthSession` (runs on sign-out and on a switch; writes in flight are
 ///   dropped by the shared `SessionEpoch`): `TimelineRepository` (also its

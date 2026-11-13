@@ -18,7 +18,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
+	"connectrpc.com/connect"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -67,6 +69,18 @@ func (s *service) sweepItem(ctx context.Context, run runRef, it *ScheduledPost, 
 		return
 	}
 
+	// Revalidate paid access at publication, including renewals and revocations.
+	// A confirmed limit violation is invalid content under the current plan;
+	// verification outages use the existing bounded transient retry policy.
+	if err := s.authorizePostText(ctx, it.UID, params.Draft.Text); err != nil {
+		var policyError *apierr.Error
+		if errors.As(err, &policyError) && policyError.Code == connect.CodeInvalidArgument {
+			s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: FailureInvalidContent}, tally)
+			return
+		}
+		s.transient(ctx, it, err, tally)
+		return
+	}
 	// 3. The publish transaction.
 	res, err := s.sweep.Repo.PublishScheduled(ctx, params)
 	switch {
@@ -102,11 +116,7 @@ func (s *service) publishParams(it *ScheduledPost) (PublishParams, bool) {
 	if validateMedia(mediaIDs, alts) != nil {
 		return PublishParams{}, false
 	}
-	parse := text.Parse
-	if len(mediaIDs) > 0 {
-		parse = text.ParseOptional // an image-only post is valid, exactly as SchedulePost accepted it
-	}
-	parsed, err := parse(d.Text)
+	parsed, err := s.parsePostText(d.Text, len(mediaIDs) > 0)
 	if err != nil {
 		return PublishParams{}, false
 	}
@@ -116,6 +126,7 @@ func (s *service) publishParams(it *ScheduledPost) (PublishParams, bool) {
 	}
 	p := PublishParams{
 		UID: it.UID, ID: it.ID,
+		ExpectUpdateTime: it.UpdateTime,
 		Draft: Post{
 			Kind: KindPost, Text: parsed.Text, Hashtags: hashtags, Visibility: VisibilityPublic,
 			PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI, ReplyPolicy: d.ReplyPolicy,

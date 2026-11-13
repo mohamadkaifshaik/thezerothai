@@ -21,8 +21,10 @@ import (
 	"connectrpc.com/connect"
 	firebase "firebase.google.com/go/v4"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/billing/v1/billingv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/articles"
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
+	"github.com/dzeroth/dzeroth/backend/internal/billing"
 
 	beaconsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
@@ -326,7 +328,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if bo.inlinePostDeleteJobs != nil {
 		inlinePostDeleteJobs = bo.inlinePostDeleteJobs(inlinePostDeleteJobs)
 	}
+	var subscriptionPostLimit func(context.Context, string) (int, error)
 	postsSvc := posts.New(posts.Deps{
+		PostTextLimit: func(ctx context.Context, uid string) (int, error) {
+			if subscriptionPostLimit == nil {
+				return 280, nil
+			}
+			return subscriptionPostLimit(ctx, uid)
+		},
 		Repo: postsRepo, Cache: postsCache, Events: postNotifier{slot: notifSlot},
 		Jobs:      inlinePostDeleteJobs,
 		Outbox:    ob,
@@ -624,6 +633,106 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// Every route goes through the route table (routes.go): Connect services always get the interceptor chain above,
 	// /internal/* always gets protectInternal, and only the patterns in publicRoutes are served without auth.
 	routes := newRouteTable(interceptors, protectInternal)
+	billingBindings := billing.NewFirestoreBindings(fsClient)
+	if e := registerBillingLifecycle(lifecycle, billingBindings); e != nil {
+		return nil, nil, e
+	}
+	var billingWebhookRecovery trendsStep
+	if cfg.BillingWebhook.Enabled {
+		if (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled {
+			return nil, nil, fmt.Errorf("production billing webhooks require dev/prod without emulators or sandbox checkout")
+		}
+		products := map[string]billing.Product{}
+		for id, product := range cfg.BillingWebhook.Products {
+			products[id] = billing.Product{Store: product.Store, Entitlement: product.Entitlement}
+		}
+		provider, e := billing.NewRevenueCatProvider(cfg.BillingWebhook.SecretAPIKey, products, nil)
+		if e != nil {
+			return nil, nil, fmt.Errorf("billing webhook provider configuration invalid")
+		}
+		reconciler, e := billing.NewReconciler(billingBindings, provider, nil)
+		if e != nil {
+			return nil, nil, fmt.Errorf("billing webhook reconciliation configuration invalid")
+		}
+		processor, e := billing.NewWebhookProcessor(billingBindings, reconciler)
+		if e != nil {
+			return nil, nil, e
+		}
+		processor.ReadOnly = cfg.Degraded == config.DegradedReadonly
+		if e = routes.revenuecat(processor, cfg.BillingWebhook.Authorization, cfg.BillingWebhook.SigningSecret, cfg.BillingWebhook.AppIDs); e != nil {
+			return nil, nil, fmt.Errorf("billing webhook authentication configuration invalid")
+		}
+		billingWebhookRecovery = processor
+		routes.internal("/internal/cron/billing-webhooks", billingRecoveryHandler(processor, log, cfg.ProjectID))
+	}
+	billingServer := billing.NewServer(nil, nil, nil)
+	// A missing checker intentionally denies all new article publication in
+	// every environment; disabling sales must not bypass paid authorization.
+	var articlePublishingAccess func(context.Context, string) error
+	if cfg.BillingSandbox.Enabled {
+		if cfg.Env != "local" || cfg.ProjectID != "demo-dzeroth-local" || !cfg.AuthEmulator {
+			return nil, nil, fmt.Errorf("billing sandbox requires local demo project and Auth emulator")
+		}
+		bindings := billingBindings
+		provider, e := billing.NewRevenueCatProvider(cfg.BillingSandbox.SecretAPIKey,
+			map[string]billing.Product{"monthly": {Store: "test_store", Entitlement: billing.ProEntitlement}}, nil)
+		if e != nil {
+			return nil, nil, fmt.Errorf("billing provider configuration invalid")
+		}
+		identities, e := billing.NewIdentityService(bindings, billing.Sandbox, nil)
+		if e != nil {
+			return nil, nil, fmt.Errorf("billing identity configuration invalid")
+		}
+		reconciler, e := billing.NewReconciler(bindings, provider, nil)
+		if e != nil {
+			return nil, nil, fmt.Errorf("billing reconciliation configuration invalid")
+		}
+		server := billing.NewServer(identities, bindings, reconciler)
+		subscriptionPostLimit = func(ctx context.Context, uid string) (int, error) {
+			b, err := bindings.LookupBinding(ctx, uid)
+			if errors.Is(err, billing.ErrNotFound) {
+				return 280, nil
+			}
+			if err != nil {
+				return 0, connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
+			}
+			snapshot, err := reconciler.Refresh(ctx, uid)
+			if err != nil {
+				return 0, connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
+			}
+			tier, err := billing.EffectiveTier(b, snapshot, time.Now())
+			if err != nil {
+				return 0, connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
+			}
+			return billing.CapabilitiesFor(tier, billing.FeatureAvailability{LongPosts: true}).MaxPostRunes, nil
+		}
+		articlePublishingAccess = func(ctx context.Context, uid string) error {
+			b, err := bindings.LookupBinding(ctx, uid)
+			if errors.Is(err, billing.ErrNotFound) {
+				return connect.NewError(connect.CodePermissionDenied, errors.New("premium subscription required"))
+			}
+			if err != nil {
+				return connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
+			}
+			snapshot, err := reconciler.Refresh(ctx, uid)
+			if err != nil {
+				return connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
+			}
+			tier, err := billing.EffectiveTier(b, snapshot, time.Now())
+			if err != nil {
+				return connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
+			}
+			if tier != billing.TierPremium {
+				return connect.NewError(connect.CodePermissionDenied, errors.New("premium subscription required"))
+			}
+			return nil
+		}
+		server.EnableSandboxPurchases()
+		billingServer = server
+	}
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return billingv1connect.NewBillingServiceHandler(billingServer, o...)
+	})
 	// /health is the canonical path: Cloud Run's Google front end reserves URL paths ending in "z" on
 	// *.run.app, so external requests to /healthz never reach the container. /healthz stays as an alias.
 	routes.public("/health", http.HandlerFunc(health.Handler()))
@@ -647,7 +756,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return articlesv1connect.NewArticleServiceHandler(articles.NewServer(fsClient, postsSvc, featureFlags, func(ctx context.Context, uid, id string) (string, error) {
 			ref, err := mediaMod.library.ResolvePostCover(ctx, uid, id)
 			return ref.URL, err
-		}), o...)
+		}).WithPublishingAccess(articlePublishingAccess), o...)
 	})
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
@@ -824,7 +933,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// The outbox sweep rides the same tick, after the publish sweep and never changing its status (outbox_wiring.go);
 	// /internal/cron/outbox-sweep runs it alone (dev has no Scheduler jobs).
 	outboxStep := outboxSweepStep{sweeper: ob, readOnly: cfg.Degraded == config.DegradedReadonly, log: log}
-	routes.internal("/internal/cron/publish-scheduled", withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now))
+	routes.internal("/internal/cron/publish-scheduled", withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingWebhookRecovery, log))
 	routes.internal("/internal/cron/outbox-sweep", outboxSweepHandler(outboxStep, log, cfg.ProjectID))
 	// The notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
 	// FEATURE_NOTIFICATIONS flag and DEGRADED_MODE=readonly are checked per event inside the handler, which then

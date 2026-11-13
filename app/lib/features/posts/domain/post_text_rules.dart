@@ -34,6 +34,7 @@ class PostDraft {
     required this.codePoints,
     required this.lines,
     this.problem,
+    this.maxCodePoints = kMaxPostCodePoints,
   });
 
   /// The text as the server would store it (steps 2-4 applied). Meaningful
@@ -48,12 +49,13 @@ class PostDraft {
 
   /// Null when the draft may be posted.
   final PostDraftProblem? problem;
+  final int maxCodePoints;
 
   bool get canPost => problem == null;
 
   /// Code points left; negative when over the limit (the counter shows -1 at
   /// 281).
-  int get remaining => kMaxPostCodePoints - codePoints;
+  int get remaining => maxCodePoints - codePoints;
 }
 
 // D9 step 4 / G4: the explicit invisible set trimmed at both ends. Spelled
@@ -115,7 +117,13 @@ bool _isTrimmable(int r) => _isGoSpace(r) || _isTrimInvisible(r);
 
 /// Applies D9 steps 2-8 to [raw]. Pure; cheap enough for every keystroke
 /// (the composer caps its input length).
-PostDraft analyzePostDraft(String raw) {
+PostDraft analyzePostDraft(
+  String raw, {
+  int maxCodePoints = kMaxPostCodePoints,
+}) {
+  if (maxCodePoints != 3000 && maxCodePoints != 15000) {
+    maxCodePoints = kMaxPostCodePoints;
+  }
   // Step 2 (+G2): line endings, U+2028/U+2029 -> \n, TAB -> one space.
   final folded = raw
       .replaceAll('\r\n', '\n')
@@ -145,7 +153,7 @@ PostDraft analyzePostDraft(String raw) {
     problem = PostDraftProblem.empty;
   } else if (kept.any(_isForbidden)) {
     problem = PostDraftProblem.forbiddenCharacter;
-  } else if (codePoints > kMaxPostCodePoints) {
+  } else if (codePoints > maxCodePoints) {
     problem = PostDraftProblem.tooLong;
   } else if (lines > kMaxPostLines) {
     problem = PostDraftProblem.tooManyLines;
@@ -155,6 +163,7 @@ PostDraft analyzePostDraft(String raw) {
     codePoints: codePoints,
     lines: lines,
     problem: problem,
+    maxCodePoints: maxCodePoints,
   );
 }
 

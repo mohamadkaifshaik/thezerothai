@@ -28,12 +28,20 @@ import (
 // ownership/media validation and timeline events.
 type Server struct {
 	articlesv1connect.UnimplementedArticleServiceHandler
-	repo         repository
-	posts        posts.Service
-	audience     Audience
-	flags        posts.FlagChecker
-	now          func() time.Time
-	resolveCover func(context.Context, string, string) (string, error)
+	repo             repository
+	posts            posts.Service
+	audience         Audience
+	flags            posts.FlagChecker
+	now              func() time.Time
+	resolveCover     func(context.Context, string, string) (string, error)
+	publishingAccess func(context.Context, string) error
+}
+
+// WithPublishingAccess is a server-injected entitlement check. Nil fails closed
+// for new publication; completed replays remain reads under the audience rules.
+func (s *Server) WithPublishingAccess(check func(context.Context, string) error) *Server {
+	s.publishingAccess = check
+	return s
 }
 
 // Audience is the authorized-read seam: posts.Service.GetForViewer delegates
@@ -285,11 +293,35 @@ func (s *Server) PublishArticle(ctx context.Context, req *connect.Request[av.Pub
 	if len([]rune(m.GetCaption())) > 280 {
 		return nil, apierr.Validation("caption", "caption is too long")
 	}
+	current, err := s.repo.get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err = own(current, uid); err != nil {
+		return nil, err
+	}
+	publicationVerified := false
+	// Avoid a provider call for completed reads, but the transaction below must
+	// independently confirm that this is still a completed publication.
+	if !current.Published || current.PendingKey != m.GetIdempotencyKey() {
+		if s.publishingAccess == nil {
+			return nil, connect.NewError(connect.CodeUnavailable, errors.New("article subscription verification unavailable"))
+		}
+		if err = s.publishingAccess(ctx, uid); err != nil {
+			return nil, err
+		}
+		publicationVerified = true
+	}
 	a, err := s.repo.change(ctx, id, func(current *record) (*record, error) {
 		if e := own(current, uid); e != nil {
 			return nil, e
 		}
 		if current.Revision != m.GetExpectedRevision() {
+			return nil, conflict()
+		}
+		// A delete/recreate (including the same ID and revision) must never
+		// inherit the old article's exemption. No network I/O inside retries.
+		if !current.Published && !publicationVerified {
 			return nil, conflict()
 		}
 		if current.PendingKey != "" {

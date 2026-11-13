@@ -4,6 +4,7 @@
 package text
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -16,10 +17,11 @@ import (
 
 // Limits. The proto and the client use the same numbers.
 const (
-	MaxRunes    = 280 // code points of the NFC text
-	MaxLines    = 10  // at most MaxLines-1 newlines
-	MaxMentions = 10
-	MaxHashtags = 10
+	MaxRunes     = 280   // code points of the NFC text
+	MaxPaidRunes = 15000 // hard ceiling; callers must separately authorize the account tier
+	MaxLines     = 10    // at most MaxLines-1 newlines
+	MaxMentions  = 10
+	MaxHashtags  = 10
 
 	maxHashtagLen = 50 // code points of the hashtag body
 )
@@ -41,7 +43,19 @@ type Parsed struct {
 // Parse normalises and validates raw, then extracts mentions and hashtags. Every failure is a VALIDATION error
 // with field "text" (an *apierr.Error), so the service can return it unchanged.
 func Parse(raw string) (Parsed, error) {
-	t, err := Normalize(raw)
+	return ParseWithLimit(raw, MaxRunes, false)
+}
+
+// ParseWithLimit preserves every grammar rule while varying only the rune cap.
+// It does not authorize paid access. Optional permits an image-only post.
+func ParseWithLimit(raw string, maxRunes int, optional bool) (Parsed, error) {
+	if maxRunes < MaxRunes || maxRunes > MaxPaidRunes {
+		return Parsed{}, bad("invalid text limit")
+	}
+	if optional && utf8.ValidString(raw) && !hasVisible(raw) {
+		return Parsed{}, nil
+	}
+	t, err := normalizeWithLimit(raw, maxRunes)
 	if err != nil {
 		return Parsed{}, err
 	}
@@ -62,6 +76,10 @@ func ParseOptional(raw string) (Parsed, error) {
 // and tab to one space; NFC; trim of whitespace and the invisible set; non-empty (visible content); control and
 // bidi-control rejection; at most 280 code points; at most 10 lines.
 func Normalize(raw string) (string, error) {
+	return normalizeWithLimit(raw, MaxRunes)
+}
+
+func normalizeWithLimit(raw string, maxRunes int) (string, error) {
 	if !utf8.ValidString(raw) {
 		return "", bad("text must be valid UTF-8")
 	}
@@ -80,8 +98,8 @@ func Normalize(raw string) (string, error) {
 			return "", bad("text contains a disallowed control character")
 		}
 	}
-	if utf8.RuneCountInString(s) > MaxRunes {
-		return "", bad("text must be at most 280 characters")
+	if utf8.RuneCountInString(s) > maxRunes {
+		return "", bad(fmt.Sprintf("text must be at most %d characters", maxRunes))
 	}
 	if strings.Count(s, "\n") > MaxLines-1 {
 		return "", bad("text must be at most 10 lines")

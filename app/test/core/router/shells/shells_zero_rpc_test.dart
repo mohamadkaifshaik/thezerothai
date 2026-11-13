@@ -82,7 +82,15 @@ void main() {
   });
 
   group('structural: coming-soon features never reach the network', () {
-    final files = plannedFeatureFiles();
+    // Premium now has an explicitly configured billing repository. Its dark
+    // shell behavior remains covered above; sales/session guards have their
+    // own behavioral tests in features/premium and app/app_widget_test.dart.
+    final files = plannedFeatureFiles()
+        .where(
+          (file) =>
+              !file.path.replaceAll(r'\', '/').contains('/features/premium/'),
+        )
+        .toList();
     String code(File f) => f
         .readAsLinesSync()
         .map((l) => l.replaceFirst(RegExp(r'//.*$'), ''))
@@ -93,7 +101,17 @@ void main() {
         .join('\n');
 
     test('there are files to check', () {
-      expect(files.length, greaterThanOrEqualTo(8));
+      expect(files, isNotEmpty);
+      for (final feature in ['advertise', 'calls', 'creator_studio']) {
+        expect(
+          files.any(
+            (file) =>
+                file.path.replaceAll(r'\', '/').contains('/features/$feature/'),
+          ),
+          isTrue,
+          reason: 'The remaining static feature $feature must stay covered',
+        );
+      }
     });
 
     test('no import of a data/ repository, ApiClient, a generated client '

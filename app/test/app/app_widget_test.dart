@@ -1,5 +1,10 @@
 import 'dart:async';
 
+import 'package:dzeroth/features/premium/domain/subscription_repository.dart';
+import 'package:dzeroth/features/premium/domain/subscription_models.dart';
+import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart'
+    as identity_pb;
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
@@ -79,6 +84,9 @@ class MockGraphRepository extends Mock implements GraphRepository {}
 class MockAccountRepository extends Mock implements AccountRepository {}
 
 class MockAuthRepository extends Mock implements AuthRepository {}
+
+class MockSubscriptionRepository extends Mock
+    implements SubscriptionRepository {}
 
 class MockPostsRepository extends Mock implements PostsRepository {}
 
@@ -173,6 +181,7 @@ void main() {
     HomeTabsRepository? homeTabsRepository,
     PostsRepository? postsRepository,
     SearchRepository? searchRepository,
+    SubscriptionRepository? subscriptionRepository,
     BeaconsRepository? beaconsRepository,
     MessagingRepository? messagingRepository,
     OwnPrivacyStore? ownPrivacyStore,
@@ -193,6 +202,7 @@ void main() {
         accountRepository: MockAccountRepository(),
         authRepository: MockAuthRepository(),
         database: database,
+        subscriptionRepository: subscriptionRepository,
         postsRepository: postsRepository ?? MockPostsRepository(),
         searchRepository: searchRepository,
         timelineRepository: MockTimelineRepository(),
@@ -241,6 +251,36 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.byType(ServicePausedView), findsNothing);
+  });
+
+  testWidgets('billing starts after onboarding and is cleared on sign-out', (
+    tester,
+  ) async {
+    final billing = MockSubscriptionRepository();
+    when(() => billing.getAccess(any())).thenAnswer(
+      (call) async => SubscriptionAccess(
+        uid: call.positionalArguments.first as String,
+        tier: SubscriptionTier.free,
+        verification: SubscriptionVerification.noSubscription,
+      ),
+    );
+    await pump(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(status: OnboardingStatus.loading),
+      subscriptionRepository: billing,
+    );
+    verifyNever(() => billing.getAccess(any()));
+    onboardingStates.add(
+      ready().copyWith(profile: identity_pb.Profile(userId: user.uid)),
+    );
+    await tester.pump();
+    await tester.pump();
+    verify(() => billing.getAccess(user.uid)).called(1);
+    verify(billing.clearSession).called(1);
+    authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+    await tester.pump();
+    verify(billing.clearSession).called(1);
   });
 
   testWidgets('a ready GetMe with the flag on seeds the badge and starts push '
