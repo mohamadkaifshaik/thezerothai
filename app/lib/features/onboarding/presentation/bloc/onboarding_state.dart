@@ -63,9 +63,21 @@ abstract class OnboardingState with _$OnboardingState {
     // flags stay whatever this session loaded (none on a cold start; flags
     // are never persisted). Cleared by the next successful GetMe.
     @Default(false) bool refreshFailed,
+    // A cached profile is showing (status ready) but this session's first
+    // GetMe has not answered, so `enabledFeatures` is not known yet: the shell
+    // keeps the splash instead of drawing the flags-off placeholder and the
+    // legacy chrome. Cleared by any GetMe outcome.
+    @Default(false) bool flagsPending,
   }) = _OnboardingState;
 
   const OnboardingState._();
+
+  /// The caller is signed in but the server's flag set is not known yet (no
+  /// answer from `GetMe`, cached or otherwise), so no flagged UI may draw.
+  bool get featuresPending =>
+      flagsPending ||
+      status == OnboardingStatus.unknown ||
+      status == OnboardingStatus.loading;
 
   bool get canSubmit =>
       !isSubmitting &&
