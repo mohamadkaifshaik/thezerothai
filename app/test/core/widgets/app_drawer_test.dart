@@ -692,7 +692,7 @@ void main() {
       await openDrawer(tester);
 
       final style = tester.widget<Text>(find.text('Profile')).style!;
-      // titleLarge: Manrope 20 sp w800 (ADR-0033); restyled in PR 3.4.
+      // titleLarge: Inter 20 sp w800 (ADR-0033); restyled in PR 3.4.
       expect(style.fontSize, 20);
       expect(style.fontWeight, FontWeight.w800);
       // (person_outline is also the avatar fallback; settings_outlined is

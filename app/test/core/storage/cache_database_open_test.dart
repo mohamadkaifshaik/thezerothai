@@ -347,10 +347,10 @@ void main() {
         expect(transport.calledProcedures, hasLength(1));
         // The feed is read back from the cache, which holds the rows for
         // the session.
-        expect([for (final p in snapshot.posts) p.post.postId], [
-          postId(2),
-          postId(1),
-        ]);
+        expect(
+          [for (final p in snapshot.posts) p.post.postId],
+          [postId(2), postId(1)],
+        );
         expect(snapshot.sinceToken, 's1');
         // Nothing older: no call.
         await timeline.loadOlder(const FeedKey.home());

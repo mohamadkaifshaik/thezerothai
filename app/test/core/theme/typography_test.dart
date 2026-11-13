@@ -38,21 +38,21 @@ Map<String, TextStyle> _styles(TextTheme t) => {
 
 // (family, size, weight, line height) per style; PR 1.4 of the redesign plan.
 const _scale = <String, (String, double, FontWeight, double)>{
-  'displayLarge': ('Manrope', 52, FontWeight.w800, 1.02),
-  'displayMedium': ('Manrope', 40, FontWeight.w800, 1.02),
-  'displaySmall': ('Manrope', 28, FontWeight.w800, 1.02),
-  'headlineLarge': ('Manrope', 24, FontWeight.w800, 1.25),
-  'headlineMedium': ('Manrope', 22, FontWeight.w800, 1.25),
-  'headlineSmall': ('Manrope', 20, FontWeight.w800, 1.25),
-  'titleLarge': ('Manrope', 20, FontWeight.w800, 1.25),
-  'titleMedium': ('DM Sans', 17, FontWeight.w700, 1.3),
-  'titleSmall': ('DM Sans', 15, FontWeight.w700, 1.33),
-  'bodyLarge': ('DM Sans', 15, FontWeight.w500, 1.42),
-  'bodyMedium': ('DM Sans', 14, FontWeight.w500, 1.4),
-  'bodySmall': ('DM Sans', 13, FontWeight.w500, 1.35),
-  'labelLarge': ('DM Sans', 15, FontWeight.w700, 1.33),
-  'labelMedium': ('DM Sans', 14, FontWeight.w600, 1.33),
-  'labelSmall': ('DM Sans', 12, FontWeight.w600, 1.33),
+  'displayLarge': ('Inter', 52, FontWeight.w800, 1.02),
+  'displayMedium': ('Inter', 40, FontWeight.w800, 1.02),
+  'displaySmall': ('Inter', 28, FontWeight.w800, 1.02),
+  'headlineLarge': ('Inter', 24, FontWeight.w800, 1.25),
+  'headlineMedium': ('Inter', 22, FontWeight.w800, 1.25),
+  'headlineSmall': ('Inter', 20, FontWeight.w800, 1.25),
+  'titleLarge': ('Inter', 20, FontWeight.w800, 1.25),
+  'titleMedium': ('Inter', 17, FontWeight.w700, 1.3),
+  'titleSmall': ('Inter', 15, FontWeight.w700, 1.33),
+  'bodyLarge': ('Inter', 15, FontWeight.w500, 1.42),
+  'bodyMedium': ('Inter', 14, FontWeight.w500, 1.4),
+  'bodySmall': ('Inter', 13, FontWeight.w500, 1.35),
+  'labelLarge': ('Inter', 15, FontWeight.w700, 1.33),
+  'labelMedium': ('Inter', 14, FontWeight.w600, 1.33),
+  'labelSmall': ('Inter', 12, FontWeight.w600, 1.33),
 };
 
 class _Specimen extends StatelessWidget {
@@ -101,7 +101,7 @@ const _weights = [
 void main() {
   setUpAll(loadAppFonts);
 
-  // Spike (redesign plan §1.2): DM Sans and Manrope are single variable TTFs
+  // Spike (redesign plan §1.2): Inter are single variable TTFs
   // declared without `weight:` entries. If the engine maps `fontWeight` onto
   // the `wght` axis, a string measures exactly as wide as with the matching
   // `FontVariation('wght', w)` (outcome A: the theme sets `fontWeight` only).
@@ -110,7 +110,7 @@ void main() {
   // Evidence scope: the flutter_tester host engine only. CanvasKit (web) and
   // Android need a manual check; this test stays as a regression guard.
   group('variable weight axis (spike)', () {
-    for (final family in ['DM Sans', 'Manrope']) {
+    for (final family in ['Inter']) {
       test('$family: fontWeight drives the wght axis', () {
         double byWeight(FontWeight w) =>
             _width(TextStyle(fontFamily: family, fontSize: 20, fontWeight: w));
@@ -167,7 +167,11 @@ void main() {
           expect(style.fontWeight, weight, reason: key);
           expect(style.height, closeTo(height, 0.001), reason: key);
           // Weight comes from fontWeight alone (outcome A).
-          expect(style.fontVariations, isNull, reason: key);
+          expect(
+            style.fontVariations?.where((v) => v.axis == 'wght'),
+            anyOf(isNull, isEmpty),
+            reason: key,
+          );
         }
       });
 
@@ -193,7 +197,7 @@ void main() {
         }
       });
 
-      test('$name: text uses onSurface; default family is DM Sans', () {
+      test('$name: text uses onSurface; default family is Inter', () {
         for (final MapEntry(:key, :value) in styles.entries) {
           expect(value.color, theme.colorScheme.onSurface, reason: key);
         }
@@ -293,4 +297,18 @@ void main() {
     textScales: kRedesignTextScales,
     heights: kRedesignHeights,
   );
+
+  group('Inter optical size', () {
+    test('headings (20 sp and up) use Inter Display, text uses Inter', () {
+      final theme = buildAppTextTheme();
+      double? opsz(TextStyle s) =>
+          s.fontVariations?.firstWhere((v) => v.axis == 'opsz').value;
+      for (final s in [theme.titleLarge!, theme.displaySmall!]) {
+        expect(opsz(s), AppTypeTokens.opszDisplay);
+      }
+      for (final s in [theme.bodyLarge!, theme.labelSmall!]) {
+        expect(opsz(s), AppTypeTokens.opszText);
+      }
+    });
+  });
 }

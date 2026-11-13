@@ -317,7 +317,7 @@ void main() {
       icon: Icons.notifications_none,
       selectedIcon: Icons.notifications,
       label: 'Notifications',
-          badgeLabel: '7',
+      badgeLabel: '7',
       badgeSemanticLabel: '7 unread',
     );
     const unreadMessages = AppNavDestination(
@@ -503,7 +503,7 @@ void main() {
               icon: Icons.notifications_none,
               selectedIcon: Icons.notifications,
               label: 'Notifications',
-                          badgeLabel: '7',
+              badgeLabel: '7',
               badgeSemanticLabel: '7 unread',
             ),
             AppNavDestination(

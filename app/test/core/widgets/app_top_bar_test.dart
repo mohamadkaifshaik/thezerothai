@@ -193,7 +193,7 @@ void main() {
       expect(find.text('Notifications'), findsOneWidget);
     });
 
-    testWidgets('title is Manrope titleLarge w800 and a semantics header', (
+    testWidgets('title is Inter titleLarge w800 and a semantics header', (
       tester,
     ) async {
       final handle = tester.ensureSemantics();
@@ -209,7 +209,10 @@ void main() {
       expect(style.fontWeight, FontWeight.w800);
       expect(style.fontFamily, AppFonts.display);
       // Weight through `fontWeight` only (ADR-0033 amendment 2).
-      expect(style.fontVariations, isNull);
+      expect(
+        style.fontVariations?.where((v) => v.axis == 'wght'),
+        anyOf(isNull, isEmpty),
+      );
       expect(
         tester.getSemantics(find.text('Notifications')),
         isSemantics(label: 'Notifications', isHeader: true),
@@ -400,7 +403,10 @@ void main() {
       final text = tester.widget<Text>(find.text('DZEROTH'));
       expect(text.style, AppTextStyles.wordmark(appLightTheme));
       expect(text.style!.fontWeight, AppTypeTokens.wordmarkWeight);
-      expect(text.style!.fontVariations, isNull);
+      expect(
+        text.style!.fontVariations?.where((v) => v.axis == 'wght'),
+        anyOf(isNull, isEmpty),
+      );
       expect(tester.getCenter(find.text('DZEROTH')).dx, closeTo(180, 1));
       expect(
         tester.getSemantics(find.text('DZEROTH')),
