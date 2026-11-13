@@ -64,9 +64,10 @@ func (s *service) ViewableMany(ctx context.Context, callerUID string, postIDs []
 		if p.Kind == KindRepost {
 			continue
 		}
-		// GetPost shows a post whose author the caller blocked; a card does not (a block either way, design D2). The
-		// snapshot is the one viewable just read (cached), loaded at most once per batch.
-		if p.AuthorID != callerUID {
+		// GetPost shows a post whose author (or QUOTE's embedded author) the caller blocked; a card does not, nor may the
+		// caller send it (a block either way, design D2). The snapshot is the one viewable just read (cached), loaded at
+		// most once per batch.
+		if ea := p.EmbeddedAuthor(); p.AuthorID != callerUID || (ea != "" && ea != callerUID) {
 			if snap == nil {
 				got, err := s.graph.Snapshot(ctx, callerUID)
 				if err != nil {
@@ -74,7 +75,7 @@ func (s *service) ViewableMany(ctx context.Context, callerUID string, postIDs []
 				}
 				snap = &got
 			}
-			if snap.Blocked[p.AuthorID] {
+			if callerBlocked(*snap, callerUID, p) {
 				continue
 			}
 		}
@@ -216,4 +217,14 @@ func (s *service) releaseEngagement(ctx context.Context, p *Post) {
 // RefuseShare implements Engagement.
 func (s *service) RefuseShare(ctx context.Context, callerUID string, p *Post) error {
 	return s.aud.RefuseShare(ctx, callerUID, p)
+}
+
+// callerBlocked reports whether the caller blocked the post's author or, for a QUOTE, its embedded author (never the
+// caller's own post or copy): the half of "a block either way" the GetPost rules leave to the lists.
+func callerBlocked(snap graph.Snapshot, callerUID string, p *Post) bool {
+	if p.AuthorID != callerUID && snap.Blocked[p.AuthorID] {
+		return true
+	}
+	ea := p.EmbeddedAuthor()
+	return ea != "" && ea != callerUID && snap.Blocked[ea]
 }
