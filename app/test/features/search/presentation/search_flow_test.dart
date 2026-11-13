@@ -217,7 +217,7 @@ void main() {
 
         // Explore: the trends list and W3's card, one GetTrends so far.
         expect(path(), '/explore');
-        expect(find.text('Trending today'), findsOneWidget);
+        expect(find.text('Trending'), findsOneWidget);
         expect(find.text('#launch'), findsOneWidget);
         expect(find.text('Who to follow'), findsOneWidget);
         expect(trendsCalls(), hasLength(1));
@@ -292,8 +292,8 @@ void main() {
 
       appRouter.router.go('/explore');
       await tester.pumpAndSettle();
-      expect(find.text('Trending today'), findsOneWidget);
-      expect(find.text("What's happening"), findsOneWidget);
+      expect(find.text('Trending'), findsOneWidget);
+      expect(find.text("What's happening"), findsNothing);
       expect(
         find.byType(AppSearchField),
         findsOneWidget,
@@ -354,11 +354,11 @@ void main() {
               await tester.pumpAndSettle();
               if (!reachable) {
                 expect(path(), '/home', reason: 'redirected');
-                expect(find.text('Trending today'), findsNothing);
+                expect(find.text('Trending'), findsNothing);
               } else {
                 expect(path(), '/explore');
                 expect(
-                  find.text('Trending today'),
+                  find.text('Trending'),
                   t ? findsOneWidget : findsNothing,
                 );
                 // At desktop width the side column's "You might like" is the

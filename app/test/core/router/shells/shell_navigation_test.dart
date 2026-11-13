@@ -87,11 +87,9 @@ void main() {
           double top(String label) =>
               tester.getTopLeft(find.text(label).last).dy;
           final order = [
-            top('Profile'),
             top('Articles'),
-            top('Lists'),
             top('Communities'),
-            top('History'),
+            top('Profile'),
             top('Creator Studio'),
             top('Premium'),
             top('Advertise'),
@@ -100,16 +98,33 @@ void main() {
             top('Sign out'),
           ];
           expect(order, orderedEquals([...order]..sort()));
-          // The divider sits between History and Creator Studio, 1dp thick.
+          // Tiles share rows (Lists beside Articles, History beside
+          // Communities). Dividers: tiles | Profile group, then Profile group |
+          // shell entries, each 1dp thick.
+          double cell(String label) => tester
+              .getTopLeft(
+                find
+                    .ancestor(
+                      of: find.text(label),
+                      matching: find.byType(InkWell),
+                    )
+                    .first,
+              )
+              .dy;
+          expect(cell('Lists'), cell('Articles'));
+          expect(cell('History'), cell('Communities'));
           final dividers = find.descendant(
             of: find.byType(AppDrawer),
             matching: find.byType(Divider),
           );
-          expect(dividers, findsOneWidget);
-          final divider = tester.getRect(dividers);
-          expect(divider.height, 1);
-          expect(divider.top, greaterThan(top('History')));
-          expect(divider.top, lessThan(top('Creator Studio')));
+          expect(dividers, findsNWidgets(2));
+          final first = tester.getRect(dividers.first);
+          final second = tester.getRect(dividers.last);
+          expect(first.height, 1);
+          expect(first.top, greaterThan(top('Communities')));
+          expect(first.top, lessThan(top('Profile')));
+          expect(second.top, greaterThan(top('Profile')));
+          expect(second.top, lessThan(top('Creator Studio')));
           expectNoOverflow(tester);
         });
       }
