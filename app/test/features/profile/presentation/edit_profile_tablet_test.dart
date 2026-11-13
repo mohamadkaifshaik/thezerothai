@@ -178,7 +178,7 @@ void main() {
       expect(style.fontFamily, theme.textTheme.titleLarge!.fontFamily);
 
       final avatar = tester.getRect(_inPreview(find.byType(AppAvatar)));
-      // Narrower than 600: the hero's 76 dp avatar.
+      // Narrower than 600: the hero's 64 dp avatar.
       expect(avatar.width, AppProfileLayout.phoneAvatar);
       // It sits inside the preview's frame.
       final frame = tester.getRect(find.byType(EditProfilePreview));

@@ -238,7 +238,8 @@ class _PageLabel extends StatelessWidget {
           list.name,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleMedium,
+          // The wide mocks' row title is 15 (dz.css `.row b`); the phone's 17.
+          style: lock ? theme.textTheme.titleSmall : theme.textTheme.titleMedium,
         ),
         Row(
           children: [

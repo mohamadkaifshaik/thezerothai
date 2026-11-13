@@ -122,6 +122,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         state.copyWith(
           status: OnboardingStatus.ready,
           profile: _identityRepository.profileFromCache(cached),
+          flagsPending: !_flagsLoaded,
         ),
       );
     } else {
@@ -136,7 +137,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       if (stale()) return;
       // Suspended (or pending deletion): a cached profile must not keep the
       // app looking normal. AuthGate shows the account-restricted view.
-      emit(state.copyWith(accountRestricted: true));
+      emit(state.copyWith(accountRestricted: true, flagsPending: false));
     } on ProfileRequiredException catch (e) {
       if (stale()) return;
       if (_profileCreated) {
@@ -163,7 +164,11 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         // ready with whatever flags this session loaded and let the shell
         // offer Retry.
         emit(
-          state.copyWith(status: OnboardingStatus.ready, refreshFailed: true),
+          state.copyWith(
+            status: OnboardingStatus.ready,
+            refreshFailed: true,
+            flagsPending: false,
+          ),
         );
       }
     }
@@ -186,6 +191,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),
         accountRestricted: false,
         refreshFailed: false,
+        flagsPending: false,
         isSubmitting: isSubmitting ?? state.isSubmitting,
         error: null,
       ),

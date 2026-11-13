@@ -851,6 +851,9 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     // tealElectric (9.61 on navy, 7.60 on navy2).
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
+      // A swipe to the right dismisses it (not Material's down swipe). The
+      // shell's Scaffold lifts it above the floating bar and the button.
+      dismissDirection: DismissDirection.startToEnd,
       elevation: 0,
       backgroundColor: isDark
           ? colorScheme.surfaceContainerHigh
@@ -1161,6 +1164,13 @@ abstract final class AppTypeTokens {
   static const double displayTracking = -0.035;
   static const double displayLineHeight = 1.02;
   static const double eyebrowSize = 12;
+
+  /// Tablet and desktop scale (dz.css, `--type-scale` 1): captions 12-13,
+  /// secondary 14, body and row titles 15, buttons and the Post pill 17, the
+  /// desktop rail labels 17 (one step with the Post pill under them), card
+  /// and section titles 19, bar titles 20.
+  static const double railLabelSize = 17;
+  static const double cardTitleSize = 19;
   static const FontWeight eyebrowWeight = FontWeight.w700;
   static const double eyebrowTracking = 0.24;
   static const double wordmarkSize = 15;
@@ -1274,6 +1284,24 @@ abstract final class AppTextStyles {
     height: 1.33,
     tracking: AppTypeTokens.eyebrowTracking,
   ).copyWith(color: theme.colorScheme.onSurfaceVariant);
+
+  /// The title of a side-column card ("What's happening", "You might like",
+  /// "Follow requests"; dz.css `.box h3`): Manrope 19 sp w800.
+  static TextStyle cardTitle(ThemeData theme) => _type(
+    AppFonts.display,
+    AppTypeTokens.cardTitleSize,
+    AppTypeTokens.weightDisplay,
+    height: 1.25,
+    tracking: -0.01,
+  ).copyWith(color: theme.colorScheme.onSurface);
+
+  /// [cardTitle] from 600 dp up; the phone keeps its 17 sp w700 title.
+  static TextStyle? cardTitleFor(BuildContext context) {
+    final theme = Theme.of(context);
+    return MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile
+        ? cardTitle(theme)
+        : theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700);
+  }
 
   /// The "DZEROTH" wordmark: Manrope 15 sp w700, +0.13 em.
   static TextStyle wordmark(ThemeData theme) => _type(
@@ -1768,38 +1796,38 @@ abstract final class AppProfileLayout {
   // Phone (< 600).
   static const double phonePaddingH = 20;
   static const double phonePaddingTop = 8;
-  static const double phonePaddingBottom = 18;
-  static const double phoneGap = 14;
-  static const double phoneChipGap = 8;
-  static const double phoneAvatar = 76;
-  static const double phoneAvatarGap = 16;
-  static const double phoneNameSize = 28;
-  static const double phoneHandleSize = 14;
+  static const double phonePaddingBottom = 14;
+  static const double phoneGap = 10;
+  static const double phoneChipGap = 6;
+  static const double phoneAvatar = 64;
+  static const double phoneAvatarGap = 14;
+  static const double phoneNameSize = 24;
+  static const double phoneHandleSize = 13;
   static const double phoneBioSize = 14;
-  static const double phoneStatValueSize = 20;
+  static const double phoneStatValueSize = 18;
   static const double phoneStatLabelSize = 12;
-  static const double phoneStatsPaddingV = 10;
-  static const double phoneButtonHeight = 42;
-  static const double phoneButtonGap = 10;
+  static const double phoneStatsPaddingV = 8;
+  static const double phoneButtonHeight = 40;
+  static const double phoneButtonGap = 8;
   static const double phoneIconButton = 44;
 
   // Tablet and desktop (>= 600).
   static const double widePaddingH = 24;
-  static const double widePaddingTop = 20;
-  static const double widePaddingBottom = 26;
-  static const double wideGap = 16;
-  static const double wideChipGap = 10;
-  static const double wideAvatar = 120;
+  static const double widePaddingTop = 14;
+  static const double widePaddingBottom = 18;
+  static const double wideGap = 12;
+  static const double wideChipGap = 8;
+  static const double wideAvatar = 88;
   static const double wideAvatarRing = 4;
-  static const double wideAvatarGap = 22;
-  static const double wideNameSize = 48;
-  static const double wideHandleSize = 16;
-  static const double wideBioSize = 17;
-  static const double wideStatValueSize = 24;
-  static const double wideStatLabelSize = 14;
-  static const double wideStatsPaddingV = 14;
-  static const double wideButtonHeight = 44;
-  static const double wideButtonGap = 12;
+  static const double wideAvatarGap = 18;
+  static const double wideNameSize = 30;
+  static const double wideHandleSize = 14;
+  static const double wideBioSize = 15;
+  static const double wideStatValueSize = 20;
+  static const double wideStatLabelSize = 13;
+  static const double wideStatsPaddingV = 10;
+  static const double wideButtonHeight = 40;
+  static const double wideButtonGap = 10;
   static const double wideIconButton = 40;
 
   /// Corner of the stats pill.

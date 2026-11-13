@@ -205,6 +205,9 @@ class _PlansRouteState extends State<_PlansRoute> {
     }
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the scroll view runs behind
+        // it and ends with the bar's inset.
+        bottom: false,
         child: AppMainColumn(
           child: PlansList(
             session: _session,

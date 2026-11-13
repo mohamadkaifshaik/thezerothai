@@ -447,14 +447,16 @@ void main() {
               (s) => s.profile?.displayName,
               'profile.displayName',
               'Kaif (cached)',
-            ),
+            )
+            .having((s) => s.flagsPending, 'flagsPending', isTrue),
         isA<OnboardingState>()
             .having((s) => s.status, 'status', OnboardingStatus.ready)
             .having(
               (s) => s.profile?.displayName,
               'profile.displayName',
               'Kaif (fresh)',
-            ),
+            )
+            .having((s) => s.flagsPending, 'flagsPending', isFalse),
       ],
     );
 
