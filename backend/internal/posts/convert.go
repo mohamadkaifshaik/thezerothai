@@ -56,6 +56,10 @@ func toProtoAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Pos
 	out.Media = mediaRefsToProto(p.Media)
 	out.Poll = pollToProto(p, vs, viewer, now)
 	out.Beacon = beaconToProto(p, vs)
+	// share_count is the original's: a REPOST row carries 0 (read the embed's original), whatever its own doc says.
+	if p.Kind != KindRepost {
+		out.ShareCount = p.ShareCount
+	}
 	return out
 }
 

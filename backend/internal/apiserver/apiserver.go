@@ -404,6 +404,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Audience: engAudience,
 		// VotePoll: the vote batch, the vote doc TTL and the lazy userLikes trim are config.
 		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept, PollVoteChangesMax: cfg.Composer.PollVoteChangesMax,
+		// RecordPostShare and the direct-message share seam: the postShares markers (shares design D4).
+		ShareRepo: engagementRepo,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
