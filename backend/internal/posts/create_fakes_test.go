@@ -28,6 +28,9 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 		}
 		return CreateResult{ReplayID: rec.postID, Attempts: 1}, nil
 	}
+	if p.TextAccessError != nil {
+		return CreateResult{}, p.TextAccessError
+	}
 	if p.ParentID != "" {
 		if _, ok := r.docs[p.ParentID]; !ok || r.parentGone {
 			return CreateResult{Attempts: 1}, ErrParentGone

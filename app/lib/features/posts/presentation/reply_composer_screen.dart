@@ -1,3 +1,5 @@
+import 'post_subscription_policy.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -45,6 +47,8 @@ class ReplyComposerScreen extends StatelessWidget {
     builder: (context, view) => BlocProvider(
       create: (context) => ComposerCubit.reply(
         postsRepository: context.read<PostsRepository>(),
+        postTextLimit: () => subscriptionPostLimit(context),
+        postPolicyChanges: subscriptionPostChanges(context),
         replyToPostId: postId,
         usage: UsageScope.of(context),
       ),

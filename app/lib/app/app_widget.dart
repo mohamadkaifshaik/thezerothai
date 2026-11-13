@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import '../features/premium/domain/subscription_repository.dart';
+import '../features/premium/presentation/bloc/subscription_cubit.dart';
+
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 
@@ -84,6 +87,7 @@ class AppWidget extends StatefulWidget {
     required this.database,
     required this.postsRepository,
     this.articlesRepository,
+    this.subscriptionRepository,
     required this.timelineRepository,
     required this.postsGate,
     required this.mediaRepository,
@@ -125,6 +129,7 @@ class AppWidget extends StatefulWidget {
   final AppDatabase database;
   final PostsRepository postsRepository;
   final ArticlesRepository? articlesRepository;
+  final SubscriptionRepository? subscriptionRepository;
   final TimelineRepository timelineRepository;
   final PostsFeatureGate postsGate;
   final NotificationsRepository notificationsRepository;
@@ -212,6 +217,13 @@ class AppWidget extends StatefulWidget {
 }
 
 class _AppWidgetState extends State<AppWidget> {
+  late final SubscriptionCubit? _subscription =
+      widget.subscriptionRepository == null
+      ? null
+      : SubscriptionCubit(
+          repository: widget.subscriptionRepository!,
+          sessionEpoch: widget.database.sessionEpoch,
+        );
   // Optimistic posts live for the session only; sign-out drops them.
   final PendingPostsCubit _pendingPosts = PendingPostsCubit();
   // The session's like/repost overlay; sign-out forgets it.
@@ -304,6 +316,12 @@ class _AppWidgetState extends State<AppWidget> {
   final AccountSessionReset _accountReset = AccountSessionReset();
 
   void _registerAccountState() {
+    if (_subscription case final subscription?) {
+      _accountReset.register(
+        'subscriptions',
+        () => unawaited(subscription.setAccount(null)),
+      );
+    }
     _accountReset
       ..register(
         'snackbars',
@@ -436,6 +454,11 @@ class _AppWidgetState extends State<AppWidget> {
     // empty.
     if (flagsChanged) _polls?.flagsChanged();
     final uid = state.profile?.userId;
+    // Onboarding starts only after the session cache/epoch has been claimed.
+    // Do not start billing reads in the earlier auth notification race.
+    if (uid != null && uid == _accountUid && _subscription?.state.uid != uid) {
+      unawaited(_subscription?.setAccount(uid));
+    }
     if (flagsChanged || uid != _probedUid) {
       _probedUid = uid;
       unawaited(widget.messagingRepository.probeAccess());
@@ -485,6 +508,7 @@ class _AppWidgetState extends State<AppWidget> {
     _pushOptIn.close();
     _telemetryConsentCubit?.close();
     _messagesBadge.close();
+    _subscription?.close();
     super.dispose();
   }
 
@@ -544,6 +568,8 @@ class _AppWidgetState extends State<AppWidget> {
       child: MultiBlocProvider(
         providers: [
           BlocProvider.value(value: widget.authBloc),
+          if (_subscription case final subscription?)
+            BlocProvider.value(value: subscription),
           BlocProvider.value(value: widget.onboardingBloc),
           BlocProvider.value(value: _pendingPosts),
           BlocProvider.value(value: _engagement),

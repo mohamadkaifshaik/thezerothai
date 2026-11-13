@@ -127,11 +127,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		return nil, err
 	}
 	// An image-only post is allowed: empty text is valid exactly when at least one image is attached.
-	parse := text.Parse
-	if len(in.MediaIDs) > 0 {
-		parse = text.ParseOptional
-	}
-	parsed, err := parse(in.Text)
+	parsed, err := s.parsePostText(in.Text, len(in.MediaIDs) > 0)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +199,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	reqHash = articleRequestHash(reqHash, in.Article)
 	reqHash = beaconRequestHash(reqHash, in.BeaconID)
 	params := CreateParams{
+		TextAccessError:    s.authorizePostText(ctx, uid, parsed.Text),
 		ArticlePublication: in.ArticlePublication,
 		AuthorID:           uid,
 		IdemKey:            idempotency.Key(uid, createRPC, in.IdempotencyKey),

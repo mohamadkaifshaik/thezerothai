@@ -29,6 +29,8 @@ const MaxTimelineTokenTTL = 2160 * time.Hour
 
 // Config is the full process configuration. Constructed once in main via Load/MustLoad.
 type Config struct {
+	BillingSandbox BillingSandboxConfig
+	BillingWebhook BillingWebhookConfig
 	// Port is the HTTP listen port. Cloud Run sets PORT explicitly in dev/prod; defaults to 8081 in local
 	// dev (M10) so it never collides with the Firestore emulator's fixed port 8080 (firebase.json).
 	Port string
@@ -1008,7 +1010,17 @@ func Load() (Config, error) {
 	}
 	corsOrigins = append(corsOrigins, splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS"))...)
 
+	billingWebhook, err := loadBillingWebhook(env)
+	if err != nil {
+		return Config{}, err
+	}
+	billingSandbox, err := loadBillingSandbox(env)
+	if err != nil {
+		return Config{}, err
+	}
 	return Config{
+		BillingSandbox:               billingSandbox,
+		BillingWebhook:               billingWebhook,
 		Port:                         getenv("PORT", portDefault),
 		ProjectID:                    projectID,
 		Env:                          env,

@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import '../features/premium/data/connect_subscription_status_source.dart';
+import '../features/premium/data/revenuecat_purchase_gateway.dart';
+import '../features/premium/data/server_subscription_repository.dart';
+
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:firebase_core/firebase_core.dart';
@@ -393,6 +397,18 @@ Future<void> bootstrap() async {
       accountRepository: AccountRepository(apiClient: apiClient),
       authRepository: authRepository,
       database: database,
+      subscriptionRepository:
+          const String.fromEnvironment('REVENUECAT_PUBLIC_API_KEY').isEmpty
+          ? null
+          : ServerSubscriptionRepository(
+              source: ConnectSubscriptionStatusSource(
+                api: apiClient,
+                currentUid: () => authRepository.currentUser?.uid,
+              ),
+              gateway: RevenueCatPurchaseGateway.fromEnvironment(),
+              sessionEpoch: database.sessionEpoch,
+              currentUid: () => authRepository.currentUser?.uid,
+            ),
       postsRepository: postsRepository,
       articlesRepository: articlesRepository,
       timelineRepository: timelineRepository,

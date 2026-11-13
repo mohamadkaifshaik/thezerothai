@@ -164,7 +164,9 @@ func (p *fakePosts) Delete(context.Context, string, string, string) error {
 func setup() (*Server, *memoryRepo, *fakePosts, context.Context) {
 	r := &memoryRepo{rows: map[string]*record{}}
 	p := &fakePosts{created: map[string]*posts.Post{}}
-	s := &Server{repo: r, posts: p, audience: p, flags: testFlags(true), now: func() time.Time { return time.Unix(1800000000, 0) }}
+	// The standard fixture represents a verified publisher. Missing/denied
+	// verification is exercised explicitly by the subscription regressions.
+	s := &Server{repo: r, posts: p, audience: p, flags: testFlags(true), now: func() time.Time { return time.Unix(1800000000, 0) }, publishingAccess: func(context.Context, string) error { return nil }}
 	return s, r, p, authn.WithClaims(context.Background(), authn.Claims{UID: "alice"})
 }
 func save(t *testing.T, s *Server, ctx context.Context) *av.Article {

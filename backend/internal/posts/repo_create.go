@@ -56,6 +56,9 @@ type IDGenerator interface{ Generate() string }
 // CreateParams is everything the transaction needs. Draft carries every post field except the id,
 // conversationId and createdAt, which the transaction sets from the id drawn in each attempt.
 type CreateParams struct {
+	// TextAccessError is evaluated before the transaction, enforced only after
+	// the replay lookup. A completed publication survives later plan expiry.
+	TextAccessError    error
 	ArticlePublication ArticlePublication
 	AuthorID           string
 	IdemKey            string // idempotency.Key(uid, "CreatePost", key)
@@ -169,6 +172,10 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		return CreateResult{ReplayID: id}, nil
 	case !errors.Is(err, idempotency.ErrNotFound):
 		return CreateResult{}, fmt.Errorf("posts: idempotency lookup: %w", err)
+	}
+
+	if p.TextAccessError != nil {
+		return CreateResult{}, p.TextAccessError
 	}
 
 	var articleClaim ArticlePublicationClaim

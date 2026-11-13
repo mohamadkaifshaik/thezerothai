@@ -1,3 +1,5 @@
+import 'post_subscription_policy.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -99,6 +101,8 @@ class ThreadScreen extends StatelessWidget {
         ),
         BlocProvider<ComposerCubit>(
           create: (context) => ComposerCubit.reply(
+            postTextLimit: () => subscriptionPostLimit(context),
+            postPolicyChanges: subscriptionPostChanges(context),
             postsRepository: context.read<PostsRepository>(),
             replyToPostId: postId,
             usage: UsageScope.of(context),

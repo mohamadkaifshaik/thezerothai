@@ -6,11 +6,13 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/dzeroth/dzeroth/backend/internal/billing"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 )
 
 // Secure by default: every route this process serves is registered through a routeTable, and the table offers only
-// three ways in, one per protection class. There is no way to hand it a bare handler.
+// four ways in, one per protection class. Authenticated external callbacks have a
+// fixed path and a constructor that always installs signature verification.
 //
 //	connect   a generated Connect service. The full interceptor chain (logging, recover, App Check, ID
 //	          token, verified identity, rate limit, degraded mode, account status, error mapping) and the decompressed
@@ -33,9 +35,10 @@ var publicRoutes = map[string]string{
 type routeClass string
 
 const (
-	routeConnect  routeClass = "connect"
-	routeInternal routeClass = "internal"
-	routePublic   routeClass = "public"
+	routeConnect        routeClass = "connect"
+	routeInternal       routeClass = "internal"
+	routePublic         routeClass = "public"
+	routeBillingWebhook routeClass = "billing_webhook"
 )
 
 // routeRecord is one registered route, kept so tests can assert on the whole table.
@@ -45,7 +48,7 @@ type routeRecord struct {
 }
 
 // routeTable owns the process's ServeMux. Nothing outside this file holds the mux, so every registration goes
-// through one of the three methods below.
+// through one of the protection methods below.
 type routeTable struct {
 	mux             *http.ServeMux
 	connectOpts     []connect.HandlerOption
@@ -87,6 +90,17 @@ func (t *routeTable) public(pattern string, h http.Handler) {
 		panic(fmt.Sprintf("apiserver: %q is not an allowed public route (see publicRoutes)", pattern))
 	}
 	t.add(pattern, h, routePublic)
+}
+
+// revenuecat has a fixed path and constructs its own authentication wrapper.
+// Callers cannot mount a bare handler or choose an unauthenticated fallback.
+func (t *routeTable) revenuecat(inbox billing.EventInbox, authorization, signingSecret string, appIDs []string) error {
+	h, err := billing.NewSignedWebhookHandler(inbox, authorization, signingSecret, billing.Production, appIDs, nil)
+	if err != nil {
+		return err
+	}
+	t.add("/webhooks/revenuecat", h, routeBillingWebhook)
+	return nil
 }
 
 func (t *routeTable) add(pattern string, h http.Handler, class routeClass) {

@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'bloc/subscription_cubit.dart';
+import '../domain/subscription_models.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/primitives/app_status_pill.dart';
@@ -8,9 +13,9 @@ import '../domain/premium_plans.dart';
 /// The Premium shell (`/premium`, a shell of plan W8): a modal dialog over the
 /// current page, reached only by `push`. Full screen below 600 dp; a centred
 /// card at most 600 dp wide from 600 dp. The title and a Close button are its
-/// only chrome; Escape, system Back and a tap on the barrier close it. No RPC.
-/// The body is the coming-soon hero and two static plan cards
-///Nothing in it can be bought, reserved or followed.
+/// only chrome; Escape, system Back and a tap on the barrier close it.
+/// With billing configured, the body shows account status and server-gated
+/// billing actions. Otherwise it retains the informational coming-soon cards.
 class PremiumDialog extends StatelessWidget {
   const PremiumDialog({super.key});
 
@@ -57,7 +62,19 @@ class PremiumDialog extends StatelessWidget {
           ),
         ),
         const Divider(height: 1),
-        const Flexible(child: SingleChildScrollView(child: _PremiumBody())),
+        Flexible(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (context.read<SubscriptionCubit?>() case final cubit?)
+                  _SubscriptionActions(cubit: cubit),
+                if (context.read<SubscriptionCubit?>() == null)
+                  const _PremiumBody(),
+              ],
+            ),
+          ),
+        ),
       ],
     );
     if (MediaQuery.sizeOf(context).width < AppBreakpoints.mobile) {
@@ -78,6 +95,103 @@ class PremiumDialog extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SubscriptionActions extends StatelessWidget {
+  const _SubscriptionActions({required this.cubit});
+  final SubscriptionCubit cubit;
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => BlocBuilder<SubscriptionCubit, SubscriptionState>(
+    bloc: cubit,
+    builder: (context, state) {
+      final busy =
+          state.phase == SubscriptionPhase.purchasing ||
+          state.phase == SubscriptionPhase.loading;
+      final tier = state.access?.effectiveTier(DateTime.now());
+      final native =
+          !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS);
+      final canBuy =
+          native &&
+          state.phase == SubscriptionPhase.ready &&
+          state.access?.purchasesAvailable == true &&
+          tier == SubscriptionTier.free;
+      final message = switch (state.phase) {
+        SubscriptionPhase.signedOut => 'Sign in to view your subscription.',
+        SubscriptionPhase.loading => 'Loading subscription…',
+        SubscriptionPhase.purchasing =>
+          'Complete the subscription action in the store.',
+        SubscriptionPhase.verifying =>
+          'Checking your subscription. Refresh in a moment.',
+        SubscriptionPhase.pending => 'Payment is pending approval.',
+        SubscriptionPhase.unavailable =>
+          'Subscription status is unavailable. Please try again.',
+        SubscriptionPhase.ready => switch (tier) {
+          SubscriptionTier.premium => 'Your Premium subscription is active.',
+          SubscriptionTier.plus => 'Your Plus subscription is active.',
+          _ =>
+            state.access?.purchasesAvailable == true
+                ? 'You are on the Free plan.'
+                : 'Subscriptions are not available to purchase yet.',
+        },
+      };
+      return Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Semantics(liveRegion: true, child: Text(message)),
+            if (canBuy)
+              ...state.offerings.map(
+                (offering) => ListTile(
+                  title: Text(
+                    offering.tier == SubscriptionTier.premium
+                        ? 'Premium'
+                        : 'Plus',
+                  ),
+                  subtitle: Text('${offering.localizedPrice} / month'),
+                ),
+              ),
+            if (busy) const LinearProgressIndicator(),
+            if (canBuy)
+              FilledButton(
+                onPressed: cubit.showPaywall,
+                child: const Text('View subscription plans'),
+              ),
+            if (state.uid != null)
+              Wrap(
+                spacing: AppSpacing.sm,
+                children: [
+                  TextButton(
+                    onPressed: busy ? null : cubit.refresh,
+                    child: const Text('Refresh status'),
+                  ),
+                  TextButton(
+                    onPressed: busy || state.phase == SubscriptionPhase.pending
+                        ? null
+                        : cubit.restore,
+                    child: Text(
+                      kIsWeb
+                          ? 'Recover subscription status'
+                          : 'Restore purchases',
+                    ),
+                  ),
+                  if (native)
+                    TextButton(
+                      onPressed: busy ? null : cubit.manageSubscription,
+                      child: const Text('Manage subscription'),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 /// The page of the Premium route: a barrier-dismissible dialog on the root

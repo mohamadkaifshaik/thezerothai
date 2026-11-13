@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+// Billing status is server-authoritative. Purchase SDK data and checkout return
+// parameters cannot grant API permissions. All RPCs require the existing full
+// protected interceptor chain. Owner identity comes from Firebase authentication;
+// callers cannot request another user's billing account.
+package dzeroth.billing.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/billing/v1;billingv1";
+
+service BillingService {
+  // A missing subscription is Free; unavailable verification is explicitly
+  // reported as unknown, never silently converted to a confirmed Free tier.
+  rpc GetMySubscription(GetMySubscriptionRequest) returns (GetMySubscriptionResponse);
+  // Informational plan catalog. Localized provider/store data, not this message,
+  // is the purchase price authority. No plan is purchasable during foundation.
+  rpc GetAvailablePlans(GetAvailablePlansRequest) returns (GetAvailablePlansResponse);
+  // Idempotent allocation/lookup for this authenticated active account only.
+  // The returned opaque ID is PRIVATE; never put it in profiles, logs, analytics
+  // or shared URLs. This RPC alone does not enable a purchase or grant access.
+  rpc EnsureBillingIdentity(EnsureBillingIdentityRequest) returns (EnsureBillingIdentityResponse);
+}
+
+enum SubscriptionTier {
+  SUBSCRIPTION_TIER_UNSPECIFIED = 0;
+  SUBSCRIPTION_TIER_FREE = 1;
+  SUBSCRIPTION_TIER_PLUS = 2;
+  SUBSCRIPTION_TIER_PREMIUM = 3;
+}
+
+enum VerificationState {
+  VERIFICATION_STATE_UNSPECIFIED = 0;
+  VERIFICATION_STATE_NO_SUBSCRIPTION = 1;
+  VERIFICATION_STATE_VERIFIED = 2;
+  VERIFICATION_STATE_UNAVAILABLE = 3;
+}
+
+message GetMySubscriptionRequest {}
+
+message GetMySubscriptionResponse {
+  SubscriptionTier tier = 1;
+  VerificationState verification_state = 2;
+  google.protobuf.Timestamp verified_at = 3;
+  google.protobuf.Timestamp access_until = 4;
+  int32 policy_version = 5;
+  bool purchases_available = 6;
+}
+
+message GetAvailablePlansRequest {}
+
+message GetAvailablePlansResponse {
+  repeated SubscriptionPlan plans = 1;
+}
+
+message SubscriptionPlan {
+  SubscriptionTier tier = 1;
+  string entitlement_id = 2;
+  // Informational logical period: "monthly". Annual is not offered yet.
+  string period = 3;
+  bool purchasable = 4;
+}
+
+message EnsureBillingIdentityRequest {
+  // Standard repository idempotency key: 16..64 [A-Za-z0-9_-]. The natural-key
+  // binding is reused across all keys, devices and retries for the same owner.
+  string idempotency_key = 1;
+}
+
+message EnsureBillingIdentityResponse {
+  string app_user_id = 1;
+}

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/dzeroth/dzeroth/backend/internal/billing"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -164,4 +165,25 @@ func TestLinkedServices_AreAllUnary(t *testing.T) {
 		}
 		return true
 	})
+}
+
+type routeInbox struct{ calls int }
+
+func (i *routeInbox) AcceptEvent(context.Context, billing.InboxEvent) error { i.calls++; return nil }
+func TestRevenueCatRouteRequiresSignature(t *testing.T) {
+	rt := newRouteTable(rejectingInterceptor(), denyInternal)
+	inbox := &routeInbox{}
+	if err := rt.revenuecat(inbox, strings.Repeat("a", 32), strings.Repeat("b", 32), []string{"app-production"}); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/revenuecat", strings.NewReader(`{"event":{}}`))
+	req.Header.Set("Authorization", strings.Repeat("a", 32))
+	rt.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized || inbox.calls != 0 {
+		t.Fatal("unsigned webhook reached storage")
+	}
+	if rt.records[0].class != routeBillingWebhook {
+		t.Fatal("wrong protection class")
+	}
 }

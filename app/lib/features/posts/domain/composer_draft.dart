@@ -21,7 +21,7 @@ const kMaxDrafts = 50;
 
 /// Most code points of text a draft keeps (the composer's own limits are
 /// lower; this is a storage bound, not a rule).
-const kMaxDraftCodePoints = 2000;
+const kMaxDraftCodePoints = 15000;
 
 /// The poll part of a draft, as plain Dart. It is mapped to the generated
 /// `PollDraft` (choices, `duration_minutes`) when the poll builder lands, so

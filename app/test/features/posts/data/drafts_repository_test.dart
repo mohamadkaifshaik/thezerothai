@@ -131,6 +131,15 @@ void main() {
     expect(got.text.runes.length, kMaxDraftCodePoints);
   });
 
+  test(
+    'a 15000-code-point Premium draft survives saving without truncation',
+    () async {
+      final text = '\u{1F600}' * 15000;
+      await repo.upsert(draft('premium-long', text: text));
+      expect((await repo.read('u1', 'premium-long'))!.text, text);
+    },
+  );
+
   test('an empty draft is not kept and removes its row', () async {
     await repo.upsert(draft('a'));
     expect(await repo.upsert(draft('a', text: '  ')), DraftSaveResult.skipped);

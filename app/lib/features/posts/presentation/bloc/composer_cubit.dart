@@ -279,6 +279,8 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// viewer's [author] snapshot.
   ComposerCubit({
     required PostsRepository postsRepository,
+    int Function()? postTextLimit,
+    Stream<Object?>? postPolicyChanges,
     required PendingPostsCubit pending,
     required common.AuthorSnapshot author,
     this.quoteOfPostId = '',
@@ -299,7 +301,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     String uid = '',
     ComposerDraft? initialDraft,
     UsageReporter usage = const UsageReporter.none(),
-  }) : replyToPostId = '',
+  }) : _postTextLimit = postTextLimit,
+       replyToPostId = '',
        _communities = communities,
        _pendingCommunityId = initialCommunityId.isNotEmpty
            ? initialCommunityId
@@ -325,6 +328,14 @@ class ComposerCubit extends Cubit<ComposerState> {
          ),
        ) {
     _baseline = _base;
+    revalidateTextLimit();
+    _postPolicySub = postPolicyChanges?.listen((_) => revalidateTextLimit());
+    if (postTextLimit != null) {
+      _postPolicyTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => revalidateTextLimit(),
+      );
+    }
     _watchAttachments();
   }
 
@@ -333,11 +344,14 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// own pending row while [ComposerState.isSubmitting].
   ComposerCubit.reply({
     required PostsRepository postsRepository,
+    int Function()? postTextLimit,
+    Stream<Object?>? postPolicyChanges,
     required this.replyToPostId,
     Uuid? uuid,
     DateTime Function()? clock,
     UsageReporter usage = const UsageReporter.none(),
-  }) : quoteOfPostId = '',
+  }) : _postTextLimit = postTextLimit,
+       quoteOfPostId = '',
        _usage = usage,
        _repository = postsRepository,
        _pending = null,
@@ -360,6 +374,32 @@ class ComposerCubit extends Cubit<ComposerState> {
        _base = _baseDraft('', null, clock ?? DateTime.now),
        super(ComposerState(draft: analyzePostDraft(''))) {
     _baseline = _base;
+    revalidateTextLimit();
+    _postPolicySub = postPolicyChanges?.listen((_) => revalidateTextLimit());
+    if (postTextLimit != null) {
+      _postPolicyTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => revalidateTextLimit(),
+      );
+    }
+  }
+
+  final int Function()? _postTextLimit;
+  StreamSubscription<Object?>? _postPolicySub;
+  Timer? _postPolicyTimer;
+
+  PostDraft _analyze(String raw) => analyzePostDraft(
+    raw,
+    maxCodePoints: _postTextLimit?.call() ?? kMaxPostCodePoints,
+  );
+
+  void revalidateTextLimit() {
+    if (isClosed || state.isSubmitting) return;
+    final draft = _analyze(state.draft.text);
+    if (draft.maxCodePoints != state.draft.maxCodePoints ||
+        draft.problem != state.draft.problem) {
+      emit(state.copyWith(draft: draft));
+    }
   }
 
   static ComposerDraft _baseDraft(
@@ -497,7 +537,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     _loadingDraft = true;
     emit(
       state.copyWith(
-        draft: analyzePostDraft(draft.text),
+        draft: _analyze(draft.text),
         poll: loadsPoll ? draft.poll : null,
         clearPoll: !loadsPoll,
         pollDurationClamped: false,
@@ -814,6 +854,8 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   @override
   Future<void> close() async {
+    _postPolicyTimer?.cancel();
+    await _postPolicySub?.cancel();
     await _attachmentsSub?.cancel();
     return super.close();
   }
@@ -822,7 +864,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     if (state.isSubmitting) return;
     emit(
       ComposerState(
-        draft: analyzePostDraft(raw),
+        draft: _analyze(raw),
         status: ComposerStatus.editing,
         hasAttachments: state.hasAttachments,
         attachmentsReady: state.attachmentsReady,
@@ -1208,6 +1250,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   }
 
   Future<void> submit() async {
+    revalidateTextLimit();
     final force = _forceNewKey;
     _forceNewKey = false;
     if (!state.canSubmit) return;
@@ -1406,7 +1449,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       if (isClosed) return;
       emit(
         ComposerState(
-          draft: analyzePostDraft(''),
+          draft: _analyze(''),
           scheduledNotice: scheduled,
           communityChoices: state.communityChoices,
         ),

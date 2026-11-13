@@ -13,7 +13,6 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
@@ -143,11 +142,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 	if in.PublishAt.IsZero() {
 		return nil, apierr.Validation("publish_at", "publish_at must be a valid time")
 	}
-	parse := text.Parse
-	if len(in.MediaIDs) > 0 {
-		parse = text.ParseOptional // an image-only post is valid
-	}
-	parsed, err := parse(in.Text)
+	parsed, err := s.parsePostText(in.Text, len(in.MediaIDs) > 0)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +168,10 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		return s.answerStored(ctx, stored, hash)
 	case !errors.Is(err, ErrScheduledNotFound):
 		return nil, logger.ScrubErr(fmt.Errorf("posts: schedule replay lookup: %w", err), uid)
+	}
+
+	if err := s.authorizePostText(ctx, uid, parsed.Text); err != nil {
+		return nil, err
 	}
 
 	// 5. The time bounds, on the stored (truncated) time: that is the minute the item will be published.

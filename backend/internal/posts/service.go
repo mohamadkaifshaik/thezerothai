@@ -26,9 +26,11 @@ const fieldMediaJob = "post_delete_job"
 
 // Deps is everything New needs.
 type Deps struct {
-	Repo   Repo
-	Cache  *Cache
-	Events PostEvents
+	// PostTextLimit verifies paid access for new long content. Nil keeps 280.
+	PostTextLimit func(context.Context, string) (int, error)
+	Repo          Repo
+	Cache         *Cache
+	Events        PostEvents
 	// Jobs publishes the post_delete job for a deleted post that carried images. Nil disables it.
 	Jobs PostDeleteJobs
 	// Outbox makes the post_delete publish durable: an item staged in the delete batch, removed once Jobs published.
@@ -57,20 +59,21 @@ type Deps struct {
 }
 
 type service struct {
-	repo      Repo
-	cache     *Cache
-	events    PostEvents
-	jobs      PostDeleteJobs
-	outbox    PostDeleteOutbox
-	links     RepostLinks
-	directory identity.Directory
-	graph     graph.Reader
-	now       func() time.Time
-	cursorKey []byte
-	scheduled ScheduledRepo
-	schedule  ScheduleLimits
-	poll      PollLimits
-	sweep     SweepDeps
+	postTextLimit func(context.Context, string) (int, error)
+	repo          Repo
+	cache         *Cache
+	events        PostEvents
+	jobs          PostDeleteJobs
+	outbox        PostDeleteOutbox
+	links         RepostLinks
+	directory     identity.Directory
+	graph         graph.Reader
+	now           func() time.Time
+	cursorKey     []byte
+	scheduled     ScheduledRepo
+	schedule      ScheduleLimits
+	poll          PollLimits
+	sweep         SweepDeps
 	// sweepTimeLeft is a test seam: the time left in the sweep run. Nil means the context deadline against real time.
 	sweepTimeLeft func(ctx context.Context) time.Duration
 
@@ -103,7 +106,8 @@ func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
 // New builds the posts service. A nil Events defaults to the no-op hook.
 func New(d Deps, opts ...Option) Service {
 	s := &service{
-		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, outbox: d.Outbox, links: d.Links, now: d.Now,
+		postTextLimit: d.PostTextLimit,
+		repo:          d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, outbox: d.Outbox, links: d.Links, now: d.Now,
 		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey, scheduled: d.Scheduled, schedule: d.Schedule, poll: d.Poll, sweep: d.Sweep,
 	}
 	for _, o := range opts {
