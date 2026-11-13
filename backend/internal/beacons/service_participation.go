@@ -51,10 +51,16 @@ func (s *service) RequestToJoin(ctx context.Context, uid, key, beaconID, note st
 		return ViewerState{}, mapErr(ctx, "request", uid, beaconID, ErrOrganiser)
 	}
 	now := s.now()
-	res, err := s.d.Repo.Request(ctx, RequestParams{
+	params := RequestParams{
 		UID: uid, BeaconID: beaconID, IdemKey: idempotency.Key(uid, rpcRequestToJoin, key), RequestHash: requestHash(beaconID, n),
 		Note: n, MaxPending: s.d.Limits.MaxPendingRequests, Now: now,
-	})
+	}
+	if n == "" && s.quickJoinOn(uid) {
+		// After the idempotency lookup and the state checks, so a same-key retry of a committed one-tap join replays
+		// its answer even if the organiser has since unfollowed, and a full or already-requested beacon keeps its reason.
+		params.Precheck = s.noteGate(a.beacon.OrganiserID, uid)
+	}
+	res, err := s.d.Repo.Request(ctx, params)
 	if err != nil {
 		return ViewerState{}, mapErr(ctx, "request", uid, beaconID, err)
 	}

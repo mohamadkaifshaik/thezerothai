@@ -200,6 +200,12 @@ type Config struct {
 	// you share" strip of a chat. On for the caller on top of FEATURE_BEACONS not globally off.
 	// FEATURE_CHAT_SHARED_PLANS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureChatSharedPlans flags.Spec
+	// FeatureBeaconQuickJoin is the flag (wire name `beacon_quick_join`) gating the follow-gated empty note of
+	// BeaconService.RequestToJoin: with it on for the caller, an empty note is accepted only when the organiser follows the
+	// caller (else FAILED_PRECONDITION "note_required"), and ViewerState.quick_join_allowed is computed by GetBeacon and the
+	// beacon lists. On for the caller on top of FEATURE_BEACONS on for the caller.
+	// FEATURE_BEACON_QUICK_JOIN[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureBeaconQuickJoin flags.Spec
 	// FeatureReadReceipts is the flag (wire name `read_receipts`) gating read receipts (F3): UpdateProfile.read_receipts=true,
 	// the receipt stamp of MarkConversationRead and Conversation.peer_read_at of ListMessages need it on for the caller (peer_read_at
 	// also for the peer); Profile.read_receipts is shown unless it is globally off. Needs `messaging` for any effect.
@@ -901,6 +907,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1075,6 +1085,7 @@ func Load() (Config, error) {
 		FeatureBeacons:               featureBeacons,
 		FeaturePostBeaconEmbed:       featurePostBeaconEmbed,
 		FeatureChatSharedPlans:       featureChatSharedPlans,
+		FeatureBeaconQuickJoin:       featureBeaconQuickJoin,
 		FeatureReadReceipts:          featureReadReceipts,
 		FeatureProfileExtras:         featureProfileExtras,
 		FeatureProfileTabs:           featureProfileTabs,

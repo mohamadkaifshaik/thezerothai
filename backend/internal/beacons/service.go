@@ -359,6 +359,9 @@ func mapErr(ctx context.Context, op, uid, beaconID string, err error) error {
 	case errors.Is(err, ErrOrganiser):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:organiser")
 		return stateConflict("organiser")
+	case errors.Is(err, ErrNoteRequired):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:note_required")
+		return stateConflict("note_required")
 	case errors.Is(err, ErrPendingLimit):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
 		logger.SetRequestField(ctx, "limit", limitPending)
