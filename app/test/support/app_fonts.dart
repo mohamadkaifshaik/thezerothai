@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-/// Loads the bundled app fonts (`DM Sans`, `Manrope`) into the test engine.
+/// Loads the bundled app fonts (`Inter`, upright and italic) into the test engine.
 ///
 /// Call it from `setUpAll` in golden and typography tests only. It is not
 /// wired into a global `flutter_test_config.dart` on purpose: loading the
@@ -10,8 +10,7 @@ import 'package:flutter/services.dart';
 ///
 /// Paths resolve from `app/`, the working directory of `flutter test`.
 Future<void> loadAppFonts() async {
-  await _load('DM Sans', 'assets/fonts/DMSans.ttf');
-  await _load('Manrope', 'assets/fonts/Manrope.ttf');
+  await _load('Inter', 'assets/fonts/Inter.ttf');
 }
 
 Future<void> _load(String family, String path) async {

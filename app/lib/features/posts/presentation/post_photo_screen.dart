@@ -1,14 +1,20 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/tablet_layout.dart';
+import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../engagement/domain/engagement_feature_flag.dart';
+import '../../engagement/presentation/widgets/post_engagement_bar.dart';
 import '../../../shared/widgets/primitives/app_side_sheet.dart';
 import '../../media/domain/processed_image.dart' show kGifContentType;
 import 'post_detail_screen.dart';
@@ -191,17 +197,46 @@ class _PhotoViewer extends StatefulWidget {
 
 class _PhotoViewerState extends State<_PhotoViewer> {
   bool _showDetails = true;
+  bool _zoomed = false;
   final _transform = TransformationController();
+  late final PageController _pages;
+
+  @override
+  void initState() {
+    super.initState();
+    final last = math.max(0, widget.view.post.media.length - 1);
+    _pages = PageController(initialPage: (widget.index - 1).clamp(0, last));
+    _transform.addListener(_onTransform);
+  }
+
+  /// Paging is allowed only while the picture is not zoomed, so a pan on a
+  /// zoomed picture never turns the page.
+  void _onTransform() {
+    final zoomed = _transform.value.getMaxScaleOnAxis() > 1.01;
+    if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+  }
 
   @override
   void didUpdateWidget(covariant _PhotoViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.index != widget.index) _transform.value = Matrix4.identity();
+    if (oldWidget.index != widget.index) {
+      _transform.value = Matrix4.identity();
+      final target = widget.index - 1;
+      if (_pages.hasClients &&
+          target >= 0 &&
+          target < widget.view.post.media.length &&
+          _pages.page?.round() != target) {
+        _pages.jumpToPage(target);
+      }
+    }
   }
 
   @override
   void dispose() {
-    _transform.dispose();
+    _transform
+      ..removeListener(_onTransform)
+      ..dispose();
+    _pages.dispose();
     super.dispose();
   }
 
@@ -220,11 +255,110 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     builder: (_) => PostDetailScreen(postId: widget.view.post.postId),
   );
 
+  /// Arrows and keys: turn the page; [_onPage] then updates the location.
   void _move(int offset) {
     final next = widget.index + offset;
     if (next < 1 || next > widget.view.post.media.length) return;
-    // Replace the selected-image location so Close still returns to the post.
-    context.replace(AppRouter.postPhotoPath(widget.view.post.postId, next));
+    if (!_pages.hasClients) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pages.jumpToPage(next - 1);
+    } else {
+      unawaited(
+        _pages.animateToPage(
+          next - 1,
+          duration: AppMotion.expoOutShort,
+          curve: AppMotion.expoOut,
+        ),
+      );
+    }
+  }
+
+  int? _mouseStartPage;
+
+  void _mouseDown(PointerDownEvent e) {
+    _mouseStartPage =
+        e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kPrimaryButton &&
+            !_zoomed &&
+            _pages.hasClients
+        ? _pages.page?.round()
+        : null;
+  }
+
+  void _mouseMove(PointerMoveEvent e) {
+    if (_mouseStartPage == null || !_pages.hasClients) return;
+    final position = _pages.position;
+    position.jumpTo(
+      (position.pixels - e.delta.dx).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
+    );
+  }
+
+  void _mouseEnd(PointerEvent e) {
+    final start = _mouseStartPage;
+    _mouseStartPage = null;
+    if (start == null || !_pages.hasClients) return;
+    final moved = (_pages.page ?? start.toDouble()) - start;
+    // A fifth of a page is enough to turn it, as a fling would.
+    final target = moved > .2
+        ? start + 1
+        : moved < -.2
+        ? start - 1
+        : start;
+    final last = widget.view.post.media.length - 1;
+    unawaited(
+      _pages.animateToPage(
+        target.clamp(0, last),
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : AppMotion.expoOutShort,
+        curve: AppMotion.expoOut,
+      ),
+    );
+  }
+
+  /// A page turn (swipe, drag, arrow or key). Replaces the selected-image
+  /// location so Close still returns to the post.
+  void _onPage(int page) {
+    if (page + 1 == widget.index) return;
+    context.replace(AppRouter.postPhotoPath(widget.view.post.postId, page + 1));
+  }
+
+  Widget _page(BuildContext context, int i, List<common.MediaRef> media) {
+    final item = media[i];
+    // Opening a viewer must not silently start an animated GIF.
+    final url = item.contentType == kGifContentType ? item.thumbUrl : item.url;
+    final image = Center(
+      child: Semantics(
+        image: true,
+        label: item.altText.isEmpty
+            ? 'Image ${i + 1} of ${media.length}'
+            : item.altText,
+        child: url.isEmpty
+            ? const Icon(
+                Icons.broken_image_outlined,
+                color: AppColors.onPhotoBackground,
+              )
+            : CachedNetworkImage(
+                imageUrl: url,
+                fit: BoxFit.contain,
+                placeholder: (_, _) => const CircularProgressIndicator(),
+                errorWidget: (_, _, _) => const Icon(
+                  Icons.broken_image_outlined,
+                  color: AppColors.onPhotoBackground,
+                ),
+              ),
+      ),
+    );
+    if (i + 1 != widget.index) return image;
+    return InteractiveViewer(
+      transformationController: _transform,
+      minScale: 1,
+      maxScale: 4,
+      child: image,
+    );
   }
 
   @override
@@ -238,9 +372,6 @@ class _PhotoViewerState extends State<_PhotoViewer> {
         ),
       );
     }
-    final item = media[widget.index - 1];
-    // Opening a viewer must not silently start an animated GIF.
-    final url = item.contentType == kGifContentType ? item.thumbUrl : item.url;
     // The tablet layout (both flags, 600-1199dp; tablet plan section 4.1,
     // PostPhoto row) decides on the window width: the details pane from
     // 840dp (band B), `min(380, 0.4 * W)` wide; below it (band A) "Show
@@ -249,6 +380,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     // pushes the post (phones, desktop: ruling R-1).
     final tablet = tabletLayoutAt(context);
     final window = MediaQuery.sizeOf(context).width;
+    final engagement = isFeatureEnabled(context, kFeatureEngagement);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
@@ -267,6 +399,9 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                 ? math.min(_paneWidth, window * .4)
                 : _paneWidth;
             final sheet = tablet && !wide;
+            // With the details pane beside the photo the post's own action
+            // row is there; otherwise it sits under the photo.
+            final showActions = engagement && !(wide && _showDetails);
             return Row(
               children: [
                 Expanded(
@@ -274,36 +409,28 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                     children: [
                       Positioned.fill(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 64,
-                            horizontal: 48,
+                          padding: EdgeInsets.fromLTRB(
+                            48,
+                            64,
+                            48,
+                            showActions ? AppPostsLayout.photoActionsInset : 64,
                           ),
-                          child: InteractiveViewer(
-                            transformationController: _transform,
-                            minScale: 1,
-                            maxScale: 4,
-                            child: Center(
-                              child: Semantics(
-                                image: true,
-                                label: item.altText.isEmpty
-                                    ? 'Image ${widget.index} of ${media.length}'
-                                    : item.altText,
-                                child: url.isEmpty
-                                    ? const Icon(
-                                        Icons.broken_image_outlined,
-                                        color: AppColors.onPhotoBackground,
-                                      )
-                                    : CachedNetworkImage(
-                                        imageUrl: url,
-                                        fit: BoxFit.contain,
-                                        placeholder: (_, _) =>
-                                            const CircularProgressIndicator(),
-                                        errorWidget: (_, _, _) => const Icon(
-                                          Icons.broken_image_outlined,
-                                          color: AppColors.onPhotoBackground,
-                                        ),
-                                      ),
-                              ),
+                          // A mouse drag is turned into a page drag here: the
+                          // zoom viewer's gesture claims it first otherwise.
+                          child: Listener(
+                            onPointerDown: _mouseDown,
+                            onPointerMove: _mouseMove,
+                            onPointerUp: _mouseEnd,
+                            onPointerCancel: _mouseEnd,
+                            child: PageView.builder(
+                              controller: _pages,
+                              physics: _zoomed
+                                  ? const NeverScrollableScrollPhysics()
+                                  : const PageScrollPhysics(),
+                              itemCount: media.length,
+                              onPageChanged: _onPage,
+                              itemBuilder: (context, i) =>
+                                  _page(context, i, media),
                             ),
                           ),
                         ),
@@ -373,6 +500,11 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 _PhotoCaption(post: widget.view.post),
+                                if (engagement)
+                                  Theme(
+                                    data: appDarkTheme,
+                                    child: PostEngagementBar(view: widget.view),
+                                  ),
                                 if (window < AppBreakpoints.mobile &&
                                     media.length > 1) ...[
                                   const SizedBox(height: AppSpacing.smd),

@@ -36,7 +36,7 @@ const _five = [
   ),
 ];
 
-/// With the bundled DM Sans (the default test font draws every glyph 1 em
+/// With the bundled Inter (the default test font draws every glyph 1 em
 /// wide, so the label widths are only real here).
 void main() {
   setUpAll(loadAppFonts);
@@ -105,7 +105,13 @@ void main() {
           findsNothing,
           reason: d.label,
         );
-        final lines = d.label == 'Notifications' ? 2 : 1;
+        // Inter is wider than the old body font: "Messages" also wraps (two
+        // balanced lines) from 1.3.
+        final lines =
+            d.label == 'Notifications' ||
+                (d.label == 'Messages' && scale >= 1.3)
+            ? 2
+            : 1;
         expect(
           tester.getSize(text).height,
           closeTo(lines * line, 1),
