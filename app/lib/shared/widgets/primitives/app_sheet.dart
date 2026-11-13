@@ -50,14 +50,16 @@ enum AppSheetOnTablet {
 /// [showAppSheet]'s `material`: outside the tablet layout the sheet is
 /// exactly `showModalBottomSheet` with these (and the builder, unchanged), so
 /// phones, desktop and the 600-1199 dp layout with `ui_tablet` off keep
-/// today's sheet (ruling R-1). The defaults are `showModalBottomSheet`'s.
+/// today's sheet (ruling R-1). The defaults are `showModalBottomSheet`'s,
+/// except [useRootNavigator]: a sheet opens over the phone shell's floating
+/// bar and button, not under them.
 @immutable
 class MaterialSheetOptions {
   const MaterialSheetOptions({
     this.showDragHandle,
     this.isScrollControlled = false,
     this.useSafeArea = false,
-    this.useRootNavigator = false,
+    this.useRootNavigator = true,
     this.constraints,
   });
 

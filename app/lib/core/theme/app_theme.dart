@@ -851,6 +851,9 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     // tealElectric (9.61 on navy, 7.60 on navy2).
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
+      // A swipe to the right dismisses it (not Material's down swipe). The
+      // shell's Scaffold lifts it above the floating bar and the button.
+      dismissDirection: DismissDirection.startToEnd,
       elevation: 0,
       backgroundColor: isDark
           ? colorScheme.surfaceContainerHigh
