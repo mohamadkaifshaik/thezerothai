@@ -60,8 +60,16 @@ expect usage-index-too-big 2 shard flutter-files 3/3
 # --- fixture tree ---
 fx=$tmp/fx
 mkdir -p "$fx/app/test/b" "$fx/app/test/support" "$fx/app/lib" "$fx/backend/p1/testdata" "$fx/backend/p2"
-touch "$fx/app/test/a_test.dart" "$fx/app/test/b/c_test.dart" "$fx/app/test/z_test.dart" "$fx/app/test/b/a_test.dart" \
-	"$fx/app/test/support/helpers.dart" "$fx/app/lib/not_test.dart.txt"
+# bytes <n>: n bytes (x) on stdout
+bytes() { head -c "$1" /dev/zero | tr '\0' x; }
+bytes 10 >"$fx/app/test/a_test.dart"
+bytes 30 >"$fx/app/test/b/a_test.dart"
+bytes 20 >"$fx/app/test/b/c_test.dart"
+bytes 20 >"$fx/app/test/z_test.dart"
+printf 'aaaaa\nbbbbb\n' >"$fx/app/test/lf_test.dart"         # 12 bytes
+printf 'aaaaa\r\nbbbbb\r\n' >"$fx/app/test/crlf_test.dart" # 14 bytes, 12 without CRs
+: >"$fx/app/test/e_test.dart"
+touch "$fx/app/test/support/helpers.dart" "$fx/app/lib/not_test.dart.txt"
 cat >"$fx/backend/p1/a_test.go" <<'EOF'
 package p1
 
@@ -85,12 +93,30 @@ echo 'func TestInTestdata(t *testing.T) {}' >"$fx/backend/p1/testdata/x_test.go"
 echo 'func TestNotATestFile(t *testing.T) {}' >"$fx/backend/p1/a.go"
 fxenv=(env APP_DIR="$fx/app" BACKEND_DIR="$fx/backend")
 
-# Sorted (LC_ALL=C): test/a_test.dart test/b/a_test.dart test/b/c_test.dart test/z_test.dart
-expect_out flutter-all "$(printf '%s\n' test/a_test.dart test/b/a_test.dart test/b/c_test.dart test/z_test.dart)" \
-	"${fxenv[@]}" bash "$ci/shard.sh" flutter-files 0/1
-expect_out flutter-0of2 "$(printf '%s\n' test/a_test.dart test/b/c_test.dart)" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 0/2
-expect_out flutter-1of2 "$(printf '%s\n' test/b/a_test.dart test/z_test.dart)" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 1/2
-expect_err flutter-empty "is empty" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 4/5
+# Bin packing, largest first, ties by name: b/a 30, b/c 20, z 20, crlf 12, lf 12, a 10, e 0; each into the lightest
+# shard, ties to the lowest index. Output is byte-sorted.
+lines() { printf '%s\n' "$@"; }
+expect_out flutter-all "$(lines test/a_test.dart test/b/a_test.dart test/b/c_test.dart test/crlf_test.dart test/e_test.dart \
+	test/lf_test.dart test/z_test.dart)" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 0/1
+# 2 shards: 0 gets b/a(30) crlf(42) a(52) e(52, tie to 0); 1 gets b/c(20) z(40) lf(52)
+expect_out flutter-0of2 "$(lines test/a_test.dart test/b/a_test.dart test/crlf_test.dart test/e_test.dart)" \
+	"${fxenv[@]}" bash "$ci/shard.sh" flutter-files 0/2
+expect_out flutter-1of2 "$(lines test/b/c_test.dart test/lf_test.dart test/z_test.dart)" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 1/2
+# 3 shards pin both tie rules: b/c before z (by name, so b/c gets the empty shard 1), crlf before lf (by name) into
+# shard 1 (lowest index of the equal loads 20/20), e into shard 1 (lowest index of the equal loads 32/32).
+expect_out flutter-0of3 "$(lines test/a_test.dart test/b/a_test.dart)" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 0/3
+expect_out flutter-1of3 "$(lines test/b/c_test.dart test/crlf_test.dart test/e_test.dart)" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 1/3
+expect_out flutter-2of3 "$(lines test/lf_test.dart test/z_test.dart)" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 2/3
+expect_out flutter-leading-zero "$(lines test/lf_test.dart test/z_test.dart)" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 02/03
+expect_err flutter-empty "is empty" "${fxenv[@]}" bash "$ci/shard.sh" flutter-files 7/8
+# CRs do not count: p is 25 bytes, q 30 in CRLF but 24 without CRs, so p is the larger and goes first (to shard 0).
+crlf=$tmp/crlf
+mkdir -p "$crlf/app/test"
+printf 'aaaa\n%.0s' 1 2 3 4 5 >"$crlf/app/test/p_test.dart"
+printf 'aaa\r\n%.0s' 1 2 3 4 5 6 >"$crlf/app/test/q_test.dart"
+expect_out flutter-crlf "test/p_test.dart" env APP_DIR="$crlf/app" bash "$ci/shard.sh" flutter-files 0/2
+mkdir -p "$tmp/noapp/test"
+expect_err flutter-no-tests "is empty" env APP_DIR="$tmp/noapp" bash "$ci/shard.sh" flutter-files 0/1
 
 # Names, sorted and unique (TestA is in both packages; TestMain, testdata/, non-_test.go and indented decls are out):
 # ExampleA FuzzParse TestA TestB TestC_sub
@@ -104,17 +130,35 @@ expect_err go-no-tests "is empty" env BACKEND_DIR="$tmp/nobackend" bash "$ci/sha
 
 expect_out go-names-1of2 "$(printf '%s\n' FuzzParse TestB)" "${fxenv[@]}" bash "$ci/shard.sh" go-names 1/2
 
+# Packages: every directory with a unit test file (not testdata/, .x/ or _x/). p2 has only an integration-tagged test
+# file, so it is out. p1 also gets a 5000-byte integration file that weighs 0: p3 (1000+) is the heaviest and packs first.
+mkdir -p "$fx/backend/p3" "$fx/backend/.hidden" "$fx/backend/_skip"
+{ echo 'package p3'; bytes 1000; echo; } >"$fx/backend/p3/c_test.go"
+{ printf '//go:build integration\n\npackage p1\n'; bytes 5000; echo; } >"$fx/backend/p1/big_integration_test.go"
+echo 'package h' >"$fx/backend/.hidden/h_test.go"
+echo 'package s' >"$fx/backend/_skip/s_test.go"
+expect_out go-packages-all "$(lines ./p1 ./p3)" "${fxenv[@]}" bash "$ci/shard.sh" go-packages 0/1
+expect_out go-packages-0of2 ./p3 "${fxenv[@]}" bash "$ci/shard.sh" go-packages 0/2
+expect_out go-packages-1of2 ./p1 "${fxenv[@]}" bash "$ci/shard.sh" go-packages 1/2
+expect_err go-packages-empty "is empty" "${fxenv[@]}" bash "$ci/shard.sh" go-packages 2/3
+# Only the exact `//go:build integration` line marks an integration file: a package whose only test is !integration
+# (or any other constraint) is a unit package and must be listed, never silently dropped.
+mkdir -p "$fx/backend/p4"
+printf '//go:build !integration\n\npackage p4\n' >"$fx/backend/p4/d_test.go"
+expect_out go-packages-not-integration "$(lines ./p1 ./p3 ./p4)" "${fxenv[@]}" bash "$ci/shard.sh" go-packages 0/1
+expect_err go-packages-none "is empty" env BACKEND_DIR="$tmp/nobackend" bash "$ci/shard.sh" go-packages 0/1
+
 # --- this checkout: for several shard counts the shards are disjoint and together are exactly the whole suite ---
 # go-names is the whole list (one regex for every name is over go-run's size limit); go-run must hold the same names.
 items_of() { # <mode> <spec>: one item per line (go-run regexes are unpacked into names)
 	if [ "$1" = go-run ]; then shard go-run "$2" | sed -E 's/^\^\(//; s/\)\$$//' | tr '|' '\n'; else shard "$1" "$2"; fi
 }
-for mode in flutter-files go-run; do
+for mode in flutter-files go-run go-packages; do
 	full=$mode
 	[ "$mode" = go-run ] && full=go-names
 	shard "$full" 0/1 >"$tmp/all" || { echo "FAIL repo-$mode: shard.sh $full 0/1 failed"; failed=$((failed + 1)); continue; }
 	[ -s "$tmp/all" ] || { echo "FAIL repo-$mode: no items in this checkout"; failed=$((failed + 1)); continue; }
-	for n in 2 3 4 7; do
+	for n in 2 3 4 6 7; do
 		: >"$tmp/union"
 		for ((i = 0; i < n; i++)); do items_of "$mode" "$i/$n" >>"$tmp/union"; done
 		if [ "$(LC_ALL=C sort "$tmp/union")" = "$(LC_ALL=C sort "$tmp/all")" ]; then
