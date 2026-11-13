@@ -229,6 +229,9 @@ class _ThreadView extends StatelessWidget {
               onBack: () => leavePostScreen(context),
             ),
             body: SafeArea(
+              // The floating bar overlays the page: the scroll view runs
+              // behind it and ends with the bar's inset.
+              bottom: false,
               child: Center(
                 child: ConstrainedBox(
                   // 680 on the tablet layout (the readable column), else

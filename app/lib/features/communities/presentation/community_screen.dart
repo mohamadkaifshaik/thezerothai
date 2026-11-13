@@ -291,6 +291,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
               // pad the top itself; the plain states below do.
               body: SafeArea(
                 top: false,
+                // The floating bar overlays the page: the scroll view runs
+                // behind it and ends with the bar's inset.
+                bottom: false,
                 child: BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
                   builder: (context, state) {
                     if (state.status == CommunityDetailStatus.unavailable) {
