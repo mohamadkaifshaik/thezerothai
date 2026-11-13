@@ -470,10 +470,11 @@ void main() {
     for (final MapEntry(key: mode, value: flags)
         in kCommunitiesFlagModes.entries) {
       for (final w in _widths) {
-        // The desktop mock's side box leads the log; no other width has it.
+        // The desktop mock's side box is the shell's side column's; no other
+        // width has it.
         final desktop = w >= AppBreakpoints.tablet;
         testWidgets('$mode at $w: About this log '
-            '${desktop ? 'inline' : 'not shown'}', (tester) async {
+            '${desktop ? 'in the side column' : 'not shown'}', (tester) async {
           final rig = CommunitiesTabletRig();
           rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
           await rig.pump(tester, location: _logPath, width: w, flags: flags);
@@ -484,8 +485,13 @@ void main() {
             desktop ? findsOneWidget : findsNothing,
           );
           expect(
-            inCommunitiesPage(find.text(kModerationLogAboutText)),
+            find.text(kModerationLogAboutText),
             desktop ? findsOneWidget : findsNothing,
+          );
+          // Beside the page, not in it.
+          expect(
+            inCommunitiesPage(find.text(kModerationLogAboutText)),
+            findsNothing,
           );
           // The log itself is unchanged: three entries, one call.
           expect(find.textContaining('@member1'), findsWidgets);
@@ -495,19 +501,17 @@ void main() {
     }
 
     for (final w in <double>[1200, 1440]) {
-      testWidgets('at $w the banner sits between the header and the log', (
+      testWidgets('at $w the box sits in the side column, beside the log', (
         tester,
       ) async {
         final rig = CommunitiesTabletRig();
         rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
         await rig.pump(tester, location: _logPath, width: w);
         final banner = tester.getRect(find.byType(ModerationLogAbout));
-        final header = tester.getRect(find.text('Moderation log'));
         final firstEntry = tester.getRect(
           find.textContaining('@member1').first,
         );
-        expect(banner.top, greaterThan(header.bottom));
-        expect(banner.bottom, lessThanOrEqualTo(firstEntry.top));
+        expect(banner.left, greaterThanOrEqualTo(firstEntry.right));
       });
     }
 
@@ -536,10 +540,14 @@ void main() {
         in kCommunitiesFlagModes.entries) {
       for (final w in _widths) {
         final wide = w >= AppBreakpoints.mobile;
+        // The desktop shows the preview in the side column instead.
+        final desktop = w >= AppBreakpoints.tablet;
         testWidgets('$mode at $w: preview '
-            '${wide ? 'behind the header action' : 'not shown'}', (
-          tester,
-        ) async {
+            '${desktop
+                ? 'in the side column'
+                : wide
+                ? 'behind the header action'
+                : 'not shown'}', (tester) async {
           final rig = CommunitiesTabletRig();
           await rig.pump(
             tester,
@@ -551,9 +559,12 @@ void main() {
 
           expect(
             find.widgetWithText(TextButton, 'Preview'),
-            wide ? findsOneWidget : findsNothing,
+            wide && !desktop ? findsOneWidget : findsNothing,
           );
-          expect(find.byType(CommunityPreview), findsNothing);
+          expect(
+            find.byType(CommunityPreview),
+            desktop ? findsOneWidget : findsNothing,
+          );
           // The form is the same everywhere.
           expect(find.text('Create a community'), findsOneWidget);
           expect(rig.server.calls, isEmpty);
@@ -661,7 +672,7 @@ void main() {
         expect(field.textEditingValue.text, '  Go club ');
         expect(
           find.widgetWithText(TextButton, 'Preview'),
-          w >= 600 ? findsOneWidget : findsNothing,
+          w >= 600 && w < 1200 ? findsOneWidget : findsNothing,
           reason: '$w',
         );
       }
