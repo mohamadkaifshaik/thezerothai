@@ -124,7 +124,13 @@ void main() {
           // pane, pills beside the headline on the page.
           final pills = !phone && size.width < 840 || desktop;
           expect(_pillMyPlans, pills ? findsOneWidget : findsNothing);
-          expect(_pillNewPlan, pills ? findsOneWidget : findsNothing);
+          // The tablet's empty detail pane carries a content-sized New plan
+          // pill too.
+          final placeholderPill = !phone && !desktop && size.width >= 840;
+          expect(
+            _pillNewPlan,
+            pills || placeholderPill ? findsOneWidget : findsNothing,
+          );
           expect(
             find.byTooltip('My plans'),
             pills ? findsNothing : findsOneWidget,
