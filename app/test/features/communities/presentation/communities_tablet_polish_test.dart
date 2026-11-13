@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/user/user_list_skeleton.dart';
 import 'dart:async';
 
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -192,7 +193,7 @@ void main() {
       rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
       final hold = rig.server.holdLog = Completer<void>();
       await rig.pump(tester, location: _logPath, width: 1440, settle: false);
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(UserListSkeleton), findsOneWidget);
       expect(find.byType(ModerationLogAbout), findsNothing);
       hold.complete();
       await tester.pumpAndSettle();

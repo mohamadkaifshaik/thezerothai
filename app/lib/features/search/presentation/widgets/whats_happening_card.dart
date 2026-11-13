@@ -91,7 +91,6 @@ class WhatsHappeningCard extends StatelessWidget {
   }
 
   Widget _frame(BuildContext context, Widget body) {
-    final theme = Theme.of(context);
     return AppSurface(
       margin: margin,
       padding: EdgeInsets.zero,
@@ -109,9 +108,7 @@ class WhatsHappeningCard extends StatelessWidget {
               header: true,
               child: Text(
                 "What's happening",
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: AppTextStyles.cardTitleFor(context),
               ),
             ),
           ),

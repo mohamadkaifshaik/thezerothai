@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_page_transitions.dart';
+
 /// Design tokens shared by every screen. Never hard-code a `Color(0x...)` or
 /// a raw size outside this file.
 ///
@@ -636,6 +638,7 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     visualDensity: VisualDensity.standard,
     materialTapTargetSize: MaterialTapTargetSize.padded,
     extensions: [appColors],
+    pageTransitionsTheme: appPageTransitionsTheme,
     // Elevation stays 0 everywhere; depth comes only from AppShadows, which
     // the phase 2 primitives paint.
     dividerTheme: DividerThemeData(
@@ -1140,6 +1143,13 @@ class AppMotion {
   static const Duration expoOutShort = Duration(milliseconds: 300);
   static const Duration expoOutLong = Duration(milliseconds: 450);
   static const Duration backOutDuration = Duration(milliseconds: 350);
+  /// A page push: a short fade and a slight slide, ease-out (see
+  /// `AppPageTransitionsBuilder`). Not used under reduced motion.
+  static const Duration pageTransition = Duration(milliseconds: 240);
+  static const Curve pageCurve = Curves.easeOutCubic;
+
+  /// How far a page slides in, as a fraction of its width.
+  static const double pageSlide = 0.04;
   static const Duration headlineStaggerMin = Duration(milliseconds: 80);
   static const Duration headlineStaggerMax = Duration(milliseconds: 200);
 
@@ -1164,6 +1174,18 @@ abstract final class AppTypeTokens {
   static const double displayTracking = -0.035;
   static const double displayLineHeight = 1.02;
   static const double eyebrowSize = 12;
+
+  /// Tablet and desktop scale (dz.css, `--type-scale` 1): captions 12-13,
+  /// secondary 14, body and row titles 15, buttons and the Post pill 17, the
+  /// desktop rail labels 17 (one step with the Post pill under them), card
+  /// and section titles 19, bar titles 20.
+  static const double railLabelSize = 17;
+
+  /// Inter optical sizes: text 14, display 32 from 20 sp up.
+  static const double opszText = 14;
+  static const double opszDisplay = 32;
+  static const double displayOpszFrom = 20;
+  static const double cardTitleSize = 19;
   static const FontWeight eyebrowWeight = FontWeight.w700;
   static const double eyebrowTracking = 0.24;
   static const double wordmarkSize = 15;
@@ -1186,16 +1208,19 @@ abstract final class AppTypeTokens {
   static const FontWeight weightBody = FontWeight.w500;
 }
 
-/// The two bundled families (`pubspec.yaml`; each is one variable TTF). The
-/// engine maps `fontWeight` onto their `wght` axis (outcome A of the redesign
-/// plan §1.2, `test/core/theme/typography_test.dart`), so styles set
-/// `fontWeight` only, never `fontVariations`.
+/// The bundled family (`pubspec.yaml`: `Inter.ttf`, one variable TTF with the
+/// `wght` 100-900 and `opsz` 14-32 axes, plus `Inter-Italic.ttf`). The mocks
+/// use Inter, and Inter Display for headings; [display] and [body] are the
+/// same family, and [_type] picks the optical size from the text size (14 for
+/// text, 32 from [AppTypeTokens.displayOpszFrom] sp up, which is Inter
+/// Display). Weight is `fontWeight` only (the engine maps it onto `wght`,
+/// `test/core/theme/typography_test.dart`); only `opsz` is a variation.
 abstract final class AppFonts {
   /// Display, headings, screen titles, wordmark and eyebrow.
-  static const String display = 'Manrope';
+  static const String display = 'Inter';
 
   /// Body, UI labels, buttons, inputs and post text.
-  static const String body = 'DM Sans';
+  static const String body = 'Inter';
 }
 
 TextStyle _type(
@@ -1208,6 +1233,15 @@ TextStyle _type(
   fontFamily: family,
   fontSize: size,
   fontWeight: weight,
+  fontVariations: [
+    // Inter Display (opsz 32) for headings, Inter (opsz 14) for text.
+    FontVariation(
+      'opsz',
+      size >= AppTypeTokens.displayOpszFrom
+          ? AppTypeTokens.opszDisplay
+          : AppTypeTokens.opszText,
+    ),
+  ],
   height: height,
   // Tracking is relative to size (em), never an absolute value.
   letterSpacing: tracking * size,
@@ -1267,7 +1301,7 @@ TextTheme buildAppTextTheme() {
 /// Redesign text styles outside the Material text theme. Each takes the
 /// active theme so it carries the scheme's colours.
 abstract final class AppTextStyles {
-  /// Small uppercase kicker above a heading: Manrope 12 sp w700, +0.24 em.
+  /// Small uppercase kicker above a heading: Inter 12 sp w700, +0.24 em.
   /// Uppercase the string at the call site (`toUpperCase()`); it is never the
   /// only carrier of information (ADR-0033 §4).
   static TextStyle eyebrow(ThemeData theme) => _type(
@@ -1278,7 +1312,25 @@ abstract final class AppTextStyles {
     tracking: AppTypeTokens.eyebrowTracking,
   ).copyWith(color: theme.colorScheme.onSurfaceVariant);
 
-  /// The "DZEROTH" wordmark: Manrope 15 sp w700, +0.13 em.
+  /// The title of a side-column card ("What's happening", "You might like",
+  /// "Follow requests"; dz.css `.box h3`): Inter Display 19 sp w800.
+  static TextStyle cardTitle(ThemeData theme) => _type(
+    AppFonts.display,
+    AppTypeTokens.cardTitleSize,
+    AppTypeTokens.weightDisplay,
+    height: 1.25,
+    tracking: -0.01,
+  ).copyWith(color: theme.colorScheme.onSurface);
+
+  /// [cardTitle] from 600 dp up; the phone keeps its 17 sp w700 title.
+  static TextStyle? cardTitleFor(BuildContext context) {
+    final theme = Theme.of(context);
+    return MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile
+        ? cardTitle(theme)
+        : theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700);
+  }
+
+  /// The "DZEROTH" wordmark: Inter 15 sp w700, +0.13 em.
   static TextStyle wordmark(ThemeData theme) => _type(
     AppFonts.display,
     AppTypeTokens.wordmarkSize,
@@ -1287,7 +1339,7 @@ abstract final class AppTextStyles {
     tracking: AppTypeTokens.wordmarkTracking,
   ).copyWith(color: theme.colorScheme.onSurface);
 
-  /// The opened post's text: DM Sans 17 sp on a 24 dp line.
+  /// The opened post's text: Inter 17 sp on a 24 dp line.
   static TextStyle focalPost(ThemeData theme) => _type(
     AppFonts.body,
     AppTypeTokens.focalPostSize,
@@ -1344,6 +1396,9 @@ abstract final class AppPostsLayout {
   /// A page dot and the selected page's elongated dot (phone viewer).
   static const double photoDot = 6;
   static const double photoDotSelected = 18;
+
+  /// The stage's bottom inset when the action row sits under the photo.
+  static const double photoActionsInset = 150;
 
   /// The draft icon square of a Drafts row on the wide layouts, and its tint.
   static const double draftIcon = 40;
@@ -1771,38 +1826,38 @@ abstract final class AppProfileLayout {
   // Phone (< 600).
   static const double phonePaddingH = 20;
   static const double phonePaddingTop = 8;
-  static const double phonePaddingBottom = 18;
-  static const double phoneGap = 14;
-  static const double phoneChipGap = 8;
-  static const double phoneAvatar = 76;
-  static const double phoneAvatarGap = 16;
-  static const double phoneNameSize = 28;
-  static const double phoneHandleSize = 14;
+  static const double phonePaddingBottom = 14;
+  static const double phoneGap = 10;
+  static const double phoneChipGap = 6;
+  static const double phoneAvatar = 64;
+  static const double phoneAvatarGap = 14;
+  static const double phoneNameSize = 24;
+  static const double phoneHandleSize = 13;
   static const double phoneBioSize = 14;
-  static const double phoneStatValueSize = 20;
+  static const double phoneStatValueSize = 18;
   static const double phoneStatLabelSize = 12;
-  static const double phoneStatsPaddingV = 10;
-  static const double phoneButtonHeight = 42;
-  static const double phoneButtonGap = 10;
+  static const double phoneStatsPaddingV = 8;
+  static const double phoneButtonHeight = 40;
+  static const double phoneButtonGap = 8;
   static const double phoneIconButton = 44;
 
   // Tablet and desktop (>= 600).
   static const double widePaddingH = 24;
-  static const double widePaddingTop = 20;
-  static const double widePaddingBottom = 26;
-  static const double wideGap = 16;
-  static const double wideChipGap = 10;
-  static const double wideAvatar = 120;
+  static const double widePaddingTop = 14;
+  static const double widePaddingBottom = 18;
+  static const double wideGap = 12;
+  static const double wideChipGap = 8;
+  static const double wideAvatar = 88;
   static const double wideAvatarRing = 4;
-  static const double wideAvatarGap = 22;
-  static const double wideNameSize = 48;
-  static const double wideHandleSize = 16;
-  static const double wideBioSize = 17;
-  static const double wideStatValueSize = 24;
-  static const double wideStatLabelSize = 14;
-  static const double wideStatsPaddingV = 14;
-  static const double wideButtonHeight = 44;
-  static const double wideButtonGap = 12;
+  static const double wideAvatarGap = 18;
+  static const double wideNameSize = 30;
+  static const double wideHandleSize = 14;
+  static const double wideBioSize = 15;
+  static const double wideStatValueSize = 20;
+  static const double wideStatLabelSize = 13;
+  static const double wideStatsPaddingV = 10;
+  static const double wideButtonHeight = 40;
+  static const double wideButtonGap = 10;
   static const double wideIconButton = 40;
 
   /// Corner of the stats pill.

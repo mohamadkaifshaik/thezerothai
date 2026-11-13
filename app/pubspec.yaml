@@ -90,9 +90,8 @@ flutter:
     - assets/branding/icon.png
     - assets/branding/auth-icon.png
   fonts:
-    - family: Manrope
+    - family: Inter
       fonts:
-        - asset: assets/fonts/Manrope.ttf
-    - family: DM Sans
-      fonts:
-        - asset: assets/fonts/DMSans.ttf
+        - asset: assets/fonts/Inter.ttf
+        - asset: assets/fonts/Inter-Italic.ttf
+          style: italic
