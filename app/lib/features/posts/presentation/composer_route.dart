@@ -26,6 +26,13 @@ enum ComposerPresentation {
   /// [kLegacyReplyDialogFrom]: today's 600 x 85 % `Dialog`, unchanged
   /// (ruling R-1).
   legacyDialog,
+
+  /// New-post compose on the desktop (>= 1200 dp) with a page under the
+  /// route: the reply's desktop dialog pattern (600 dp wide, hung under the
+  /// top of the window), taller for the media and poll builders, over the
+  /// page it was opened from with a scrim. A cold start (a deep link) is
+  /// full screen, as on the tablet.
+  desktopDialog,
 }
 
 /// The reply route's dialog threshold outside the tablet layout (today's
@@ -52,6 +59,9 @@ ComposerPresentation composerPresentationFor({
   }
   if (reply && width >= kLegacyReplyDialogFrom) {
     return ComposerPresentation.legacyDialog;
+  }
+  if (!reply && hasPageBelow && width >= AppBreakpoints.tablet) {
+    return ComposerPresentation.desktopDialog;
   }
   return ComposerPresentation.fullScreen;
 }
@@ -93,17 +103,19 @@ class _ComposerPageRoute<T> extends PageRoute<T>
 
   ComposerPage<T> get _page => settings as ComposerPage<T>;
 
-  /// The presentation is the tablet dialog: the route is then not opaque.
+  /// The presentation is a dialog: the route is then not opaque.
   bool _dialog = false;
 
-  bool _dialogIn(BuildContext context) =>
-      composerPresentationFor(
-        width: MediaQuery.sizeOf(context).width,
-        tabletLayout: tabletFlagsOn(context, listen: false),
-        hasPageBelow: !isFirst,
-        reply: false,
-      ) ==
-      ComposerPresentation.tabletDialog;
+  bool _dialogIn(BuildContext context) {
+    final presentation = composerPresentationFor(
+      width: MediaQuery.sizeOf(context).width,
+      tabletLayout: tabletFlagsOn(context, listen: false),
+      hasPageBelow: !isFirst,
+      reply: false,
+    );
+    return presentation == ComposerPresentation.tabletDialog ||
+        presentation == ComposerPresentation.desktopDialog;
+  }
 
   @override
   void install() {
@@ -228,7 +240,7 @@ class _ComposerRouteFrameState extends State<ComposerRouteFrame> {
         return editor;
       case ComposerPresentation.legacyDialog
           when MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet:
-        return _DesktopReplyDialog(editor: editor);
+        return _DesktopComposerDialog(editor: editor);
       case ComposerPresentation.legacyDialog:
         return LayoutBuilder(
           builder: (context, constraints) => Dialog(
@@ -239,6 +251,13 @@ class _ComposerRouteFrameState extends State<ComposerRouteFrame> {
               child: editor,
             ),
           ),
+        );
+      case ComposerPresentation.desktopDialog:
+        return _DesktopComposerDialog(
+          editor: editor,
+          semanticLabel: widget.semanticLabel,
+          drawScrim: widget.drawScrim,
+          maxHeight: AppSize.composerDialogMaxHeight,
         );
       case ComposerPresentation.tabletDialog:
         return _TabletComposerDialog(
@@ -368,16 +387,29 @@ class _TabletComposerDialog extends StatelessWidget {
   }
 }
 
-/// The reply dialog on desktop (>= 1200 dp; the desktop ReplyComposer mock):
-/// 600 dp wide, hung [AppSize.desktopModalTop] under the top of the window
-/// and at most [AppSize.replyDialogDesktopHeight] tall (the body scrolls
-/// past that). Escape closes it the way Close does, asking first when
+/// The composer dialog on desktop (>= 1200 dp; the desktop ReplyComposer and
+/// Composer mocks): 600 dp wide, hung [AppSize.desktopModalTop] under the top
+/// of the window and at most [maxHeight] tall (the reply: the short
+/// [AppSize.replyDialogDesktopHeight]; a new post: the taller
+/// [AppSize.composerDialogMaxHeight] for media and polls); the body scrolls
+/// past that. Escape closes it the way Close does, asking first when
 /// something was typed. Under 1200 dp off the tablet layout the reply keeps
 /// the centred 600 x 85 % dialog.
-class _DesktopReplyDialog extends StatelessWidget {
-  const _DesktopReplyDialog({required this.editor});
+///
+/// [drawScrim] draws the scrim for a route with no barrier of its own (the
+/// post composer's `ComposerPage`); the reply's page has one.
+class _DesktopComposerDialog extends StatelessWidget {
+  const _DesktopComposerDialog({
+    required this.editor,
+    this.semanticLabel,
+    this.drawScrim = false,
+    this.maxHeight = AppSize.replyDialogDesktopHeight,
+  });
 
   final Widget editor;
+  final String? semanticLabel;
+  final bool drawScrim;
+  final double maxHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -393,18 +425,28 @@ class _DesktopReplyDialog extends StatelessWidget {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
             Navigator.of(context).maybePop(),
       },
-      child: Dialog(
-        alignment: Alignment.topCenter,
-        insetPadding: inset,
-        clipBehavior: Clip.antiAlias,
-        child: SizedBox(
-          width: AppSize.composerDialogMax,
-          height: math.min(
-            AppSize.replyDialogDesktopHeight,
-            size.height - inset.vertical,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (drawScrim)
+            ModalBarrier(color: context.appColors.scrim, dismissible: false),
+          Semantics(
+            label: semanticLabel,
+            namesRoute: semanticLabel != null,
+            scopesRoute: semanticLabel != null,
+            explicitChildNodes: true,
+            child: Dialog(
+              alignment: Alignment.topCenter,
+              insetPadding: inset,
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                width: AppSize.composerDialogMax,
+                height: math.min(maxHeight, size.height - inset.vertical),
+                child: editor,
+              ),
+            ),
           ),
-          child: editor,
-        ),
+        ],
       ),
     );
   }
