@@ -287,7 +287,7 @@ func (f *fakeLCRepo) CreateExport(_ context.Context, p CreateExportParams) (Expo
 			return *e, true, nil
 		}
 	}
-	e := &ExportDoc{ID: p.ID, UID: p.UID, Status: ExportPending, ObjectPath: p.ObjectPath, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention), UpdateTime: utOf(1)}
+	e := &ExportDoc{ID: p.ID, UID: p.UID, Status: ExportPending, ObjectPath: p.ObjectPath, Format: p.Format, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention), UpdateTime: utOf(1)}
 	f.exports[p.ID] = e
 	f.writes++
 	f.log.add("repo.CreateExport")
