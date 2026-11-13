@@ -1378,3 +1378,199 @@ variable "feature_share_count_percent" {
     error_message = "feature_share_count_percent must be an integer 0-100."
   }
 }
+
+variable "feature_handle_suggestions" {
+  description = "FEATURE_HANDLE_SUGGESTIONS rollout mode for free handle suggestions when a chosen handle is taken: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_handle_suggestions)
+    error_message = "feature_handle_suggestions must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_handle_suggestions_allowlist" {
+  description = "FEATURE_HANDLE_SUGGESTIONS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_handle_suggestions_percent" {
+  description = "FEATURE_HANDLE_SUGGESTIONS_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_handle_suggestions_percent >= 0 && var.feature_handle_suggestions_percent <= 100 && floor(var.feature_handle_suggestions_percent) == var.feature_handle_suggestions_percent
+    error_message = "feature_handle_suggestions_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_list_follows" {
+  description = "FEATURE_LIST_FOLLOWS rollout mode for following a public List, its follower count and Discover lists: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_list_follows)
+    error_message = "feature_list_follows must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_list_follows_allowlist" {
+  description = "FEATURE_LIST_FOLLOWS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_list_follows_percent" {
+  description = "FEATURE_LIST_FOLLOWS_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_list_follows_percent >= 0 && var.feature_list_follows_percent <= 100 && floor(var.feature_list_follows_percent) == var.feature_list_follows_percent
+    error_message = "feature_list_follows_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_list_suggestions" {
+  description = "FEATURE_LIST_SUGGESTIONS rollout mode for suggested members on a List the caller owns: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_list_suggestions)
+    error_message = "feature_list_suggestions must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_list_suggestions_allowlist" {
+  description = "FEATURE_LIST_SUGGESTIONS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_list_suggestions_percent" {
+  description = "FEATURE_LIST_SUGGESTIONS_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_list_suggestions_percent >= 0 && var.feature_list_suggestions_percent <= 100 && floor(var.feature_list_suggestions_percent) == var.feature_list_suggestions_percent
+    error_message = "feature_list_suggestions_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_bookmark_history" {
+  description = "FEATURE_BOOKMARK_HISTORY rollout mode for the Bookmarks History tab (recently opened posts): off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_bookmark_history)
+    error_message = "feature_bookmark_history must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_bookmark_history_allowlist" {
+  description = "FEATURE_BOOKMARK_HISTORY_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_bookmark_history_percent" {
+  description = "FEATURE_BOOKMARK_HISTORY_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_bookmark_history_percent >= 0 && var.feature_bookmark_history_percent <= 100 && floor(var.feature_bookmark_history_percent) == var.feature_bookmark_history_percent
+    error_message = "feature_bookmark_history_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_article_images" {
+  description = "FEATURE_ARTICLE_IMAGES rollout mode for image blocks inside articles: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_article_images)
+    error_message = "feature_article_images must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_article_images_allowlist" {
+  description = "FEATURE_ARTICLE_IMAGES_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_article_images_percent" {
+  description = "FEATURE_ARTICLE_IMAGES_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_article_images_percent >= 0 && var.feature_article_images_percent <= 100 && floor(var.feature_article_images_percent) == var.feature_article_images_percent
+    error_message = "feature_article_images_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_export_zip" {
+  description = "FEATURE_EXPORT_ZIP rollout mode for data export delivered as one ZIP archive: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_export_zip)
+    error_message = "feature_export_zip must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_export_zip_allowlist" {
+  description = "FEATURE_EXPORT_ZIP_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_export_zip_percent" {
+  description = "FEATURE_EXPORT_ZIP_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_export_zip_percent >= 0 && var.feature_export_zip_percent <= 100 && floor(var.feature_export_zip_percent) == var.feature_export_zip_percent
+    error_message = "feature_export_zip_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_message_search" {
+  description = "FEATURE_MESSAGE_SEARCH rollout mode for searching the caller's own direct messages: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_message_search)
+    error_message = "feature_message_search must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_message_search_allowlist" {
+  description = "FEATURE_MESSAGE_SEARCH_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_message_search_percent" {
+  description = "FEATURE_MESSAGE_SEARCH_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_message_search_percent >= 0 && var.feature_message_search_percent <= 100 && floor(var.feature_message_search_percent) == var.feature_message_search_percent
+    error_message = "feature_message_search_percent must be an integer 0-100."
+  }
+}

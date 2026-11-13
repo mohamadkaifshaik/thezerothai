@@ -208,6 +208,27 @@ type Config struct {
 	// a direct-message share is recorded for Post.share_count while it is not globally off. Clients show the count only
 	// when it is on for the viewer. FEATURE_SHARE_COUNT[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureShareCount flags.Spec
+	// FeatureHandleSuggestions is the flag (wire name `handle_suggestions`) gating free handle suggestions offered when a chosen handle is taken (sign-up and Change handle): on for the caller.
+	// FEATURE_HANDLE_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureHandleSuggestions flags.Spec
+	// FeatureListFollows is the flag (wire name `list_follows`) gating following a public List, its follower count and the Discover lists page: on for the caller.
+	// FEATURE_LIST_FOLLOWS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureListFollows flags.Spec
+	// FeatureListSuggestions is the flag (wire name `list_suggestions`) gating suggested members on a List the caller owns: on for the caller.
+	// FEATURE_LIST_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureListSuggestions flags.Spec
+	// FeatureBookmarkHistory is the flag (wire name `bookmark_history`) gating the History tab beside Bookmarks (posts the caller recently opened): on for the caller.
+	// FEATURE_BOOKMARK_HISTORY[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureBookmarkHistory flags.Spec
+	// FeatureArticleImages is the flag (wire name `article_images`) gating image blocks inside an article body: on for the caller.
+	// FEATURE_ARTICLE_IMAGES[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureArticleImages flags.Spec
+	// FeatureExportZip is the flag (wire name `export_zip`) gating a data export delivered as one ZIP archive: on for the caller.
+	// FEATURE_EXPORT_ZIP[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureExportZip flags.Spec
+	// FeatureMessageSearch is the flag (wire name `message_search`) gating searching the caller's own direct messages: on for the caller.
+	// FEATURE_MESSAGE_SEARCH[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureMessageSearch flags.Spec
 	// FeatureBeaconQuickJoin is the flag (wire name `beacon_quick_join`) gating the follow-gated empty note of
 	// BeaconService.RequestToJoin: with it on for the caller, an empty note is accepted only when the organiser follows the
 	// caller (else FAILED_PRECONDITION "note_required"), and ViewerState.quick_join_allowed is computed by GetBeacon and the
@@ -935,6 +956,34 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureHandleSuggestions, err := flags.LoadSpec("HANDLE_SUGGESTIONS", "handle_suggestions", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureListFollows, err := flags.LoadSpec("LIST_FOLLOWS", "list_follows", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureListSuggestions, err := flags.LoadSpec("LIST_SUGGESTIONS", "list_suggestions", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureBookmarkHistory, err := flags.LoadSpec("BOOKMARK_HISTORY", "bookmark_history", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureArticleImages, err := flags.LoadSpec("ARTICLE_IMAGES", "article_images", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureExportZip, err := flags.LoadSpec("EXPORT_ZIP", "export_zip", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureMessageSearch, err := flags.LoadSpec("MESSAGE_SEARCH", "message_search", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1115,6 +1164,13 @@ func Load() (Config, error) {
 		FeatureChatSharedPlans:       featureChatSharedPlans,
 		FeatureDMPostShare:           featureDMPostShare,
 		FeatureShareCount:            featureShareCount,
+		FeatureHandleSuggestions:     featureHandleSuggestions,
+		FeatureListFollows:           featureListFollows,
+		FeatureListSuggestions:       featureListSuggestions,
+		FeatureBookmarkHistory:       featureBookmarkHistory,
+		FeatureArticleImages:         featureArticleImages,
+		FeatureExportZip:             featureExportZip,
+		FeatureMessageSearch:         featureMessageSearch,
 		FeatureBeaconQuickJoin:       featureBeaconQuickJoin,
 		FeatureReadReceipts:          featureReadReceipts,
 		FeatureProfileExtras:         featureProfileExtras,
