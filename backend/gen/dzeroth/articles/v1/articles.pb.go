@@ -7,6 +7,7 @@
 package articlesv1
 
 import (
+	v11 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -41,7 +42,12 @@ type Article struct {
 	PublicationReplyPolicy v1.ReplyPolicy         `protobuf:"varint,12,opt,name=publication_reply_policy,json=publicationReplyPolicy,proto3,enum=dzeroth.posts.v1.ReplyPolicy" json:"publication_reply_policy,omitempty"`
 	// Plain-text excerpt of the body (whitespace collapsed, at most 280 Unicode code points), computed by the
 	// server on read. Set on every response, including ListArticles where body_json is empty. Never HTML.
-	Excerpt       string `protobuf:"bytes,13,opt,name=excerpt,proto3" json:"excerpt,omitempty"`
+	Excerpt string `protobuf:"bytes,13,opt,name=excerpt,proto3" json:"excerpt,omitempty"`
+	// Inline image blocks of body_json, resolved on read (GetArticle and PublishArticle; empty elsewhere). One entry per
+	// image the reader can show: a block whose media was deleted, withheld or is not usable is simply absent, and the
+	// client shows a placeholder for it. Match an entry to its block by media_id. The alt text and caption stay in
+	// body_json. Never sent by SaveArticle; the server ignores it on input.
+	Images        []*v11.MediaRef `protobuf:"bytes,14,rep,name=images,proto3" json:"images,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -165,6 +171,13 @@ func (x *Article) GetExcerpt() string {
 		return x.Excerpt
 	}
 	return ""
+}
+
+func (x *Article) GetImages() []*v11.MediaRef {
+	if x != nil {
+		return x.Images
+	}
+	return nil
 }
 
 type GetArticleRequest struct {
@@ -691,7 +704,7 @@ var File_dzeroth_articles_v1_articles_proto protoreflect.FileDescriptor
 
 const file_dzeroth_articles_v1_articles_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/articles/v1/articles.proto\x12\x13dzeroth.articles.v1\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x80\x04\n" +
+	"\"dzeroth/articles/v1/articles.proto\x12\x13dzeroth.articles.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb5\x04\n" +
 	"\aArticle\x12\x1d\n" +
 	"\n" +
 	"article_id\x18\x01 \x01(\tR\tarticleId\x12\x1b\n" +
@@ -708,7 +721,8 @@ const file_dzeroth_articles_v1_articles_proto_rawDesc = "" +
 	" \x01(\bR\x12publicationPending\x12/\n" +
 	"\x13publication_caption\x18\v \x01(\tR\x12publicationCaption\x12W\n" +
 	"\x18publication_reply_policy\x18\f \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\x16publicationReplyPolicy\x12\x18\n" +
-	"\aexcerpt\x18\r \x01(\tR\aexcerpt\"2\n" +
+	"\aexcerpt\x18\r \x01(\tR\aexcerpt\x123\n" +
+	"\x06images\x18\x0e \x03(\v2\x1b.dzeroth.common.v1.MediaRefR\x06images\"2\n" +
 	"\x11GetArticleRequest\x12\x1d\n" +
 	"\n" +
 	"article_id\x18\x01 \x01(\tR\tarticleId\"|\n" +
@@ -778,34 +792,36 @@ var file_dzeroth_articles_v1_articles_proto_goTypes = []any{
 	(*PublishArticleResponse)(nil), // 10: dzeroth.articles.v1.PublishArticleResponse
 	(*timestamppb.Timestamp)(nil),  // 11: google.protobuf.Timestamp
 	(v1.ReplyPolicy)(0),            // 12: dzeroth.posts.v1.ReplyPolicy
-	(*v1.PostView)(nil),            // 13: dzeroth.posts.v1.PostView
+	(*v11.MediaRef)(nil),           // 13: dzeroth.common.v1.MediaRef
+	(*v1.PostView)(nil),            // 14: dzeroth.posts.v1.PostView
 }
 var file_dzeroth_articles_v1_articles_proto_depIdxs = []int32{
 	11, // 0: dzeroth.articles.v1.Article.updated_at:type_name -> google.protobuf.Timestamp
 	12, // 1: dzeroth.articles.v1.Article.publication_reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	0,  // 2: dzeroth.articles.v1.GetArticleResponse.article:type_name -> dzeroth.articles.v1.Article
-	13, // 3: dzeroth.articles.v1.GetArticleResponse.post:type_name -> dzeroth.posts.v1.PostView
-	0,  // 4: dzeroth.articles.v1.ListArticlesResponse.articles:type_name -> dzeroth.articles.v1.Article
-	0,  // 5: dzeroth.articles.v1.SaveArticleRequest.article:type_name -> dzeroth.articles.v1.Article
-	0,  // 6: dzeroth.articles.v1.SaveArticleResponse.article:type_name -> dzeroth.articles.v1.Article
-	12, // 7: dzeroth.articles.v1.PublishArticleRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	0,  // 8: dzeroth.articles.v1.PublishArticleResponse.article:type_name -> dzeroth.articles.v1.Article
-	13, // 9: dzeroth.articles.v1.PublishArticleResponse.post:type_name -> dzeroth.posts.v1.PostView
-	1,  // 10: dzeroth.articles.v1.ArticleService.GetArticle:input_type -> dzeroth.articles.v1.GetArticleRequest
-	3,  // 11: dzeroth.articles.v1.ArticleService.ListArticles:input_type -> dzeroth.articles.v1.ListArticlesRequest
-	5,  // 12: dzeroth.articles.v1.ArticleService.SaveArticle:input_type -> dzeroth.articles.v1.SaveArticleRequest
-	7,  // 13: dzeroth.articles.v1.ArticleService.DeleteArticle:input_type -> dzeroth.articles.v1.DeleteArticleRequest
-	9,  // 14: dzeroth.articles.v1.ArticleService.PublishArticle:input_type -> dzeroth.articles.v1.PublishArticleRequest
-	2,  // 15: dzeroth.articles.v1.ArticleService.GetArticle:output_type -> dzeroth.articles.v1.GetArticleResponse
-	4,  // 16: dzeroth.articles.v1.ArticleService.ListArticles:output_type -> dzeroth.articles.v1.ListArticlesResponse
-	6,  // 17: dzeroth.articles.v1.ArticleService.SaveArticle:output_type -> dzeroth.articles.v1.SaveArticleResponse
-	8,  // 18: dzeroth.articles.v1.ArticleService.DeleteArticle:output_type -> dzeroth.articles.v1.DeleteArticleResponse
-	10, // 19: dzeroth.articles.v1.ArticleService.PublishArticle:output_type -> dzeroth.articles.v1.PublishArticleResponse
-	15, // [15:20] is the sub-list for method output_type
-	10, // [10:15] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	13, // 2: dzeroth.articles.v1.Article.images:type_name -> dzeroth.common.v1.MediaRef
+	0,  // 3: dzeroth.articles.v1.GetArticleResponse.article:type_name -> dzeroth.articles.v1.Article
+	14, // 4: dzeroth.articles.v1.GetArticleResponse.post:type_name -> dzeroth.posts.v1.PostView
+	0,  // 5: dzeroth.articles.v1.ListArticlesResponse.articles:type_name -> dzeroth.articles.v1.Article
+	0,  // 6: dzeroth.articles.v1.SaveArticleRequest.article:type_name -> dzeroth.articles.v1.Article
+	0,  // 7: dzeroth.articles.v1.SaveArticleResponse.article:type_name -> dzeroth.articles.v1.Article
+	12, // 8: dzeroth.articles.v1.PublishArticleRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
+	0,  // 9: dzeroth.articles.v1.PublishArticleResponse.article:type_name -> dzeroth.articles.v1.Article
+	14, // 10: dzeroth.articles.v1.PublishArticleResponse.post:type_name -> dzeroth.posts.v1.PostView
+	1,  // 11: dzeroth.articles.v1.ArticleService.GetArticle:input_type -> dzeroth.articles.v1.GetArticleRequest
+	3,  // 12: dzeroth.articles.v1.ArticleService.ListArticles:input_type -> dzeroth.articles.v1.ListArticlesRequest
+	5,  // 13: dzeroth.articles.v1.ArticleService.SaveArticle:input_type -> dzeroth.articles.v1.SaveArticleRequest
+	7,  // 14: dzeroth.articles.v1.ArticleService.DeleteArticle:input_type -> dzeroth.articles.v1.DeleteArticleRequest
+	9,  // 15: dzeroth.articles.v1.ArticleService.PublishArticle:input_type -> dzeroth.articles.v1.PublishArticleRequest
+	2,  // 16: dzeroth.articles.v1.ArticleService.GetArticle:output_type -> dzeroth.articles.v1.GetArticleResponse
+	4,  // 17: dzeroth.articles.v1.ArticleService.ListArticles:output_type -> dzeroth.articles.v1.ListArticlesResponse
+	6,  // 18: dzeroth.articles.v1.ArticleService.SaveArticle:output_type -> dzeroth.articles.v1.SaveArticleResponse
+	8,  // 19: dzeroth.articles.v1.ArticleService.DeleteArticle:output_type -> dzeroth.articles.v1.DeleteArticleResponse
+	10, // 20: dzeroth.articles.v1.ArticleService.PublishArticle:output_type -> dzeroth.articles.v1.PublishArticleResponse
+	16, // [16:21] is the sub-list for method output_type
+	11, // [11:16] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_articles_v1_articles_proto_init() }

@@ -18,8 +18,8 @@ import 'dart:typed_data' as $typed_data;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
     as $0;
 
-import '../../common/v1/common.pbjson.dart' as $2;
-import '../../posts/v1/posts.pbjson.dart' as $1;
+import '../../common/v1/common.pbjson.dart' as $1;
+import '../../posts/v1/posts.pbjson.dart' as $2;
 
 @$core.Deprecated('Use articleDescriptor instead')
 const Article$json = {
@@ -64,6 +64,14 @@ const Article$json = {
       '10': 'publicationReplyPolicy'
     },
     {'1': 'excerpt', '3': 13, '4': 1, '5': 9, '10': 'excerpt'},
+    {
+      '1': 'images',
+      '3': 14,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.common.v1.MediaRef',
+      '10': 'images'
+    },
   ],
 };
 
@@ -78,7 +86,8 @@ final $typed_data.Uint8List articleDescriptor = $convert.base64Decode(
     'bGljYXRpb25QZW5kaW5nEi8KE3B1YmxpY2F0aW9uX2NhcHRpb24YCyABKAlSEnB1YmxpY2F0aW'
     '9uQ2FwdGlvbhJXChhwdWJsaWNhdGlvbl9yZXBseV9wb2xpY3kYDCABKA4yHS5kemVyb3RoLnBv'
     'c3RzLnYxLlJlcGx5UG9saWN5UhZwdWJsaWNhdGlvblJlcGx5UG9saWN5EhgKB2V4Y2VycHQYDS'
-    'ABKAlSB2V4Y2VycHQ=');
+    'ABKAlSB2V4Y2VycHQSMwoGaW1hZ2VzGA4gAygLMhsuZHplcm90aC5jb21tb24udjEuTWVkaWFS'
+    'ZWZSBmltYWdlcw==');
 
 @$core.Deprecated('Use getArticleRequestDescriptor instead')
 const GetArticleRequest$json = {
@@ -337,17 +346,17 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.articles.v1.GetArticleResponse': GetArticleResponse$json,
   '.dzeroth.articles.v1.Article': Article$json,
   '.google.protobuf.Timestamp': $0.Timestamp$json,
-  '.dzeroth.posts.v1.PostView': $1.PostView$json,
-  '.dzeroth.posts.v1.Post': $1.Post$json,
-  '.dzeroth.common.v1.AuthorSnapshot': $2.AuthorSnapshot$json,
-  '.dzeroth.common.v1.MediaRef': $2.MediaRef$json,
-  '.dzeroth.posts.v1.EmbeddedPost': $1.EmbeddedPost$json,
-  '.dzeroth.posts.v1.Poll': $1.Poll$json,
-  '.dzeroth.posts.v1.PollChoice': $1.PollChoice$json,
-  '.dzeroth.posts.v1.ArticlePreview': $1.ArticlePreview$json,
-  '.dzeroth.posts.v1.Mention': $1.Mention$json,
-  '.dzeroth.posts.v1.CommunityRef': $1.CommunityRef$json,
-  '.dzeroth.posts.v1.BeaconPreview': $1.BeaconPreview$json,
+  '.dzeroth.common.v1.MediaRef': $1.MediaRef$json,
+  '.dzeroth.posts.v1.PostView': $2.PostView$json,
+  '.dzeroth.posts.v1.Post': $2.Post$json,
+  '.dzeroth.common.v1.AuthorSnapshot': $1.AuthorSnapshot$json,
+  '.dzeroth.posts.v1.EmbeddedPost': $2.EmbeddedPost$json,
+  '.dzeroth.posts.v1.Poll': $2.Poll$json,
+  '.dzeroth.posts.v1.PollChoice': $2.PollChoice$json,
+  '.dzeroth.posts.v1.ArticlePreview': $2.ArticlePreview$json,
+  '.dzeroth.posts.v1.Mention': $2.Mention$json,
+  '.dzeroth.posts.v1.CommunityRef': $2.CommunityRef$json,
+  '.dzeroth.posts.v1.BeaconPreview': $2.BeaconPreview$json,
   '.dzeroth.articles.v1.ListArticlesRequest': ListArticlesRequest$json,
   '.dzeroth.articles.v1.ListArticlesResponse': ListArticlesResponse$json,
   '.dzeroth.articles.v1.SaveArticleRequest': SaveArticleRequest$json,
