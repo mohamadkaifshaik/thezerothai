@@ -1,33 +1,20 @@
 import 'package:bloc_test/bloc_test.dart';
-import 'package:drift/native.dart';
-import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
-import 'package:dzeroth/core/storage/app_database.dart';
-import 'package:dzeroth/features/posts/data/drafts_repository.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
-import 'package:dzeroth/features/account/domain/account_feature_flag.dart';
-import 'package:dzeroth/features/account/presentation/data_export_screen.dart';
-import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
-import 'package:dzeroth/features/notifications/data/push_opt_in_store.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
-import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
-import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart';
-import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-
-import '../../support/fake_push_opt_in_store.dart';
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
