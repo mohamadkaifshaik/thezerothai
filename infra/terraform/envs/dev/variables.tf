@@ -1226,6 +1226,34 @@ variable "feature_chat_shared_plans_percent" {
   }
 }
 
+variable "feature_beacon_quick_join" {
+  description = "FEATURE_BEACON_QUICK_JOIN rollout mode for the one-tap join of a beacon: RequestToJoin with an empty note only when the organiser follows the caller (else note_required), and GetBeacon's quick_join_allowed; needs FEATURE_BEACONS on for the caller: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_beacon_quick_join)
+    error_message = "feature_beacon_quick_join must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_beacon_quick_join_allowlist" {
+  description = "FEATURE_BEACON_QUICK_JOIN_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_beacon_quick_join_percent" {
+  description = "FEATURE_BEACON_QUICK_JOIN_PERCENT: 0-100, only meaningful when feature_beacon_quick_join = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_beacon_quick_join_percent >= 0 && var.feature_beacon_quick_join_percent <= 100 && floor(var.feature_beacon_quick_join_percent) == var.feature_beacon_quick_join_percent
+    error_message = "feature_beacon_quick_join_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_read_receipts" {
   description = "FEATURE_READ_RECEIPTS rollout mode for read receipts (F3): UpdateProfile.read_receipts=true, the MarkConversationRead receipt and ListMessages peer_read_at; needs messaging for any effect: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
   type        = string

@@ -193,7 +193,7 @@ void main() {
       expect(find.text('Notifications'), findsOneWidget);
     });
 
-    testWidgets('title is Manrope titleLarge w800 and a semantics header', (
+    testWidgets('title is Inter titleLarge w800 and a semantics header', (
       tester,
     ) async {
       final handle = tester.ensureSemantics();
@@ -209,7 +209,10 @@ void main() {
       expect(style.fontWeight, FontWeight.w800);
       expect(style.fontFamily, AppFonts.display);
       // Weight through `fontWeight` only (ADR-0033 amendment 2).
-      expect(style.fontVariations, isNull);
+      expect(
+        style.fontVariations?.where((v) => v.axis == 'wght'),
+        anyOf(isNull, isEmpty),
+      );
       expect(
         tester.getSemantics(find.text('Notifications')),
         isSemantics(label: 'Notifications', isHeader: true),
@@ -400,7 +403,10 @@ void main() {
       final text = tester.widget<Text>(find.text('DZEROTH'));
       expect(text.style, AppTextStyles.wordmark(appLightTheme));
       expect(text.style!.fontWeight, AppTypeTokens.wordmarkWeight);
-      expect(text.style!.fontVariations, isNull);
+      expect(
+        text.style!.fontVariations?.where((v) => v.axis == 'wght'),
+        anyOf(isNull, isEmpty),
+      );
       expect(tester.getCenter(find.text('DZEROTH')).dx, closeTo(180, 1));
       expect(
         tester.getSemantics(find.text('DZEROTH')),
@@ -453,6 +459,33 @@ void main() {
         ),
       );
       expectNoOverflow(tester);
+    });
+
+    testWidgets('two AppTopBarActions keep an 8dp gap', (tester) async {
+      await pump(
+        tester,
+        uiShell: true,
+        bar: (context) => AppTopBar.of(
+          context,
+          title: 'Messages',
+          actions: [
+            AppTopBarAction(
+              icon: Icons.mail_outline,
+              tooltip: 'New message',
+              onPressed: () {},
+            ),
+            AppTopBarAction(
+              icon: Icons.settings_outlined,
+              tooltip: 'Settings',
+              onPressed: () {},
+            ),
+          ],
+        ),
+      );
+
+      final first = tester.getRect(find.byTooltip('New message'));
+      final second = tester.getRect(find.byTooltip('Settings'));
+      expect(second.left - first.right, greaterThanOrEqualTo(AppSpacing.sm));
     });
 
     testWidgets('AppTopBarAction is a raised 48dp AppIconButton at the end', (

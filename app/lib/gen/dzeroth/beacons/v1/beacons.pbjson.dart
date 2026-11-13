@@ -343,6 +343,13 @@ const ViewerState$json = {
     {'1': 'can_withdraw', '3': 4, '4': 1, '5': 8, '10': 'canWithdraw'},
     {'1': 'can_leave', '3': 5, '4': 1, '5': 8, '10': 'canLeave'},
     {'1': 'can_manage', '3': 6, '4': 1, '5': 8, '10': 'canManage'},
+    {
+      '1': 'quick_join_allowed',
+      '3': 7,
+      '4': 1,
+      '5': 8,
+      '10': 'quickJoinAllowed'
+    },
   ],
 };
 
@@ -352,7 +359,8 @@ final $typed_data.Uint8List viewerStateDescriptor = $convert.base64Decode(
     'JvbGVSBHJvbGUSUQoRcGFydGljaXBhbnRfc3RhdGUYAiABKA4yJC5kemVyb3RoLmJlYWNvbnMu'
     'djEuUGFydGljaXBhbnRTdGF0ZVIQcGFydGljaXBhbnRTdGF0ZRIfCgtjYW5fcmVxdWVzdBgDIA'
     'EoCFIKY2FuUmVxdWVzdBIhCgxjYW5fd2l0aGRyYXcYBCABKAhSC2NhbldpdGhkcmF3EhsKCWNh'
-    'bl9sZWF2ZRgFIAEoCFIIY2FuTGVhdmUSHQoKY2FuX21hbmFnZRgGIAEoCFIJY2FuTWFuYWdl');
+    'bl9sZWF2ZRgFIAEoCFIIY2FuTGVhdmUSHQoKY2FuX21hbmFnZRgGIAEoCFIJY2FuTWFuYWdlEi'
+    'wKEnF1aWNrX2pvaW5fYWxsb3dlZBgHIAEoCFIQcXVpY2tKb2luQWxsb3dlZA==');
 
 @$core.Deprecated('Use beaconViewDescriptor instead')
 const BeaconView$json = {

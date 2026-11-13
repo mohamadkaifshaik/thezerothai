@@ -125,7 +125,11 @@ service BeaconService {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
   // Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
-  // (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
+  // (FAILED_PRECONDITION "organiser"). note 0-140 code points; it is trimmed, so whitespace only is empty. With
+  // FEATURE_BEACON_QUICK_JOIN on for the caller an empty note is accepted only when the organiser follows the caller
+  // (ViewerState.quick_join_allowed); otherwise FAILED_PRECONDITION "note_required", checked after the idempotency
+  // lookup (a same-key retry replays its stored answer) and after the full, already_requested and accepted checks, only
+  // when a new request would be written. With the flag off the note stays optional. A REQUESTED row
   // already there => FAILED_PRECONDITION "already_requested"; an ACCEPTED one => success with the idempotency doc
   // only; a DECLINED, WITHDRAWN, LEFT or REMOVED row may request again. At
   // BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
@@ -303,6 +307,16 @@ message ViewerState {
   bool can_withdraw = 4;
   bool can_leave = 5;
   bool can_manage = 6;
+  // True when the caller may join with one tap, sending RequestToJoin with an empty note: FEATURE_BEACONS and
+  // FEATURE_BEACON_QUICK_JOIN are on for the caller, can_request is true and the organiser follows the caller (the
+  // follow edge organiser -> caller; a pending follow request is not a follow). Computed by GetBeacon, ListBeacons,
+  // ListMyBeacons and ListSharedBeacons. Cost: nothing while a flag is off or no row is requestable; otherwise one
+  // batched follow lookup per response for the distinct organisers of its requestable rows (at most 50: at most 2
+  // batched edge reads, answered from a 60 s cache first), never one read per row. A failed lookup leaves the field
+  // false (the response still succeeds). Always false in the responses of the participation RPCs; post embeds
+  // (dzeroth.posts.v1.BeaconPreview) carry no viewer state. Advisory and up to 60 s stale: RequestToJoin re-checks the
+  // same edge when it writes, so a one-tap send can still answer FAILED_PRECONDITION "note_required" (show the note).
+  bool quick_join_allowed = 7;
 }
 
 message BeaconView {

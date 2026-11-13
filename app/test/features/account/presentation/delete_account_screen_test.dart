@@ -145,7 +145,7 @@ void main() {
           uid: 'uid-1',
           email: 'a@example.com',
           emailVerified: true,
-          isPasswordProvider: true,
+          isPasswordProvider: false,
         ),
       ),
     );
@@ -158,6 +158,7 @@ void main() {
       ),
     );
     when(() => auth.reauthNeedsGesture).thenReturn(false);
+    when(() => auth.canSkipDeleteReauth).thenReturn(false);
     when(
       () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
     ).thenAnswer((_) async => const ReauthResult());
@@ -248,7 +249,10 @@ void main() {
   }
 
   Future<void> typeHandle(WidgetTester tester, String text) async {
-    await tester.enterText(find.byType(TextField), text);
+    await tester.enterText(
+      find.byKey(const ValueKey('delete-account-handle')),
+      text,
+    );
     await tester.pump();
   }
 
@@ -486,7 +490,7 @@ void main() {
           uid: 'uid-1',
           email: 'a@example.com',
           emailVerified: true,
-          isPasswordProvider: true,
+          isPasswordProvider: false,
         ),
       ),
     );
@@ -623,74 +627,188 @@ void main() {
     verifyNever(() => authBloc.add(any()));
   });
 
-  group('password prompt (password accounts)', () {
-    // The screen's re-auth asks for the password through the shared dialog.
-    void stubPasswordReauth() {
-      when(
-        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
-      ).thenAnswer((invocation) async {
-        final prompt =
-            invocation.namedArguments[#promptPassword]
-                as Future<String?> Function();
-        final password = await prompt();
-        if (password == null) throw const AuthFailure.cancelled();
-        passwordSeen = password;
-        return const ReauthResult();
-      });
-    }
+  void signInAs({required bool password}) => whenListen(
+    authBloc,
+    const Stream<AuthState>.empty(),
+    initialState: AuthState(
+      status: AuthStatus.authenticated,
+      user: AppUser(
+        uid: 'uid-1',
+        email: 'a@example.com',
+        emailVerified: true,
+        isPasswordProvider: password,
+      ),
+    ),
+  );
 
-    testWidgets('Cancel cancels the flow and sends nothing', (tester) async {
+  Future<void> typePassword(WidgetTester tester, String text) async {
+    await tester.enterText(
+      find.byKey(const ValueKey('delete-account-password')),
+      text,
+    );
+    await tester.pump();
+  }
+
+  /// The re-auth reads the inline field through the prompt, like Firebase
+  /// would; [wrong] makes it fail the way a bad password does.
+  void stubPasswordReauth({String? wrong}) {
+    when(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).thenAnswer((invocation) async {
+      final prompt =
+          invocation.namedArguments[#promptPassword]
+              as Future<String?> Function();
+      final password = await prompt();
+      passwordSeen = password;
+      if (password == wrong) throw const AuthFailure.invalidCredentials();
+      return const ReauthResult();
+    });
+  }
+
+  void verifyDeletes(int n) => verify(
+    () => accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
+  ).called(n);
+
+  group('inline password (password accounts)', () {
+    setUp(() => signInAs(password: true));
+
+    testWidgets('no dialog: the field is on the page and Delete needs it', (
+      tester,
+    ) async {
       stubPasswordReauth();
-      await pump(tester);
+      await pump(tester, size: const Size(800, 1400));
+      expect(find.text('Enter your password to confirm'), findsOneWidget);
       await typeHandle(tester, 'kaif');
+      expect(enabled(tester), isFalse);
+      await typePassword(tester, 's3cret');
+      expect(enabled(tester), isTrue);
 
       await tester.tap(button());
-      // The in-button spinner never settles while the dialog is open.
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.tap(
-        find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.text('Cancel'),
-        ),
-      );
       await tester.pumpAndSettle();
 
-      expect(passwordSeen, isNull);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(passwordSeen, 's3cret');
+      verifyDeletes(1);
+      verifyNever(() => auth.canSkipDeleteReauth);
+      expect(find.text('A fresh start.'), findsOneWidget);
+    });
+
+    testWidgets('a wrong password shows the error under the field and '
+        'deletes nothing; fixing it retries with the same key', (tester) async {
+      stubPasswordReauth(wrong: 'bad');
+      final keys = <String>[];
+      when(
+        () => accounts.deleteAccount(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((i) async {
+        keys.add(i.namedArguments[#idempotencyKey] as String);
+        return DateTime(2026);
+      });
+      await pump(tester, size: const Size(800, 1400));
+      await typeHandle(tester, 'kaif');
+      await typePassword(tester, 'bad');
+
+      await tester.tap(button());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Incorrect password. Try again.'), findsOneWidget);
+      // Shown once, inline: not repeated as the generic status line.
+      expect(find.text('Incorrect email or password.'), findsNothing);
+      expect(keys, isEmpty);
+      verifyNever(() => authBloc.add(any()));
+
+      await typePassword(tester, 'good');
+      expect(find.text('Incorrect password. Try again.'), findsNothing);
+      await tester.tap(button());
+      await tester.pumpAndSettle();
+      expect(keys, hasLength(1));
+      expect(find.text('A fresh start.'), findsOneWidget);
+    });
+  });
+
+  group('federated accounts (Google / Apple)', () {
+    setUp(() => signInAs(password: false));
+
+    testWidgets('no password field; the handle gate tolerates case and @', (
+      tester,
+    ) async {
+      await pump(tester);
+      expect(
+        find.byKey(const ValueKey('delete-account-password')),
+        findsNothing,
+      );
+      expect(enabled(tester), isFalse);
+      await typeHandle(tester, 'someone-else');
+      expect(enabled(tester), isFalse);
+      await typeHandle(tester, '@KAIF');
+      expect(enabled(tester), isTrue);
+      await typeHandle(tester, ' kaif ');
+      expect(enabled(tester), isTrue);
+      await typeHandle(tester, 'kaif2');
+      expect(enabled(tester), isFalse);
+    });
+
+    testWidgets('the provider re-auth runs once, then the delete', (
+      tester,
+    ) async {
+      await pump(tester);
+      await typeHandle(tester, '@kaif');
+      await tester.tap(button());
+      await tester.pumpAndSettle();
+      verify(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).called(1);
+      verifyDeletes(1);
+    });
+
+    testWidgets('a recent Google sign-in skips the picker', (tester) async {
+      when(() => auth.canSkipDeleteReauth).thenReturn(true);
+      await pump(tester);
+      await typeHandle(tester, 'kaif');
+      await tester.tap(button());
+      await tester.pumpAndSettle();
+      verifyNever(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      );
+      verifyDeletes(1);
+    });
+
+    testWidgets('Apple: the fresh code is revoked before the delete', (
+      tester,
+    ) async {
+      when(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).thenAnswer(
+        (_) async => const ReauthResult(appleAuthorizationCode: 'c'),
+      );
+      when(() => auth.revokeAppleToken(any())).thenAnswer((_) async {});
+      await pump(tester);
+      await typeHandle(tester, 'kaif');
+      await tester.tap(button());
+      await tester.pumpAndSettle();
+      verifyInOrder([
+        () => auth.revokeAppleToken('c'),
+        () => accounts.deleteAccount(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ]);
+    });
+
+    testWidgets('cancelling the provider sheet sends nothing', (tester) async {
+      when(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).thenThrow(const AuthFailure.cancelled());
+      await pump(tester);
+      await typeHandle(tester, 'kaif');
+      await tester.tap(button());
+      await tester.pumpAndSettle();
       expect(find.textContaining('Nothing was changed'), findsOneWidget);
       verifyNever(
         () => accounts.deleteAccount(
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
       );
-    });
-
-    testWidgets('Continue is disabled while empty and passes the text', (
-      tester,
-    ) async {
-      stubPasswordReauth();
-      await pump(tester);
-      await typeHandle(tester, 'kaif');
-
-      await tester.tap(button());
-      // The in-button spinner never settles while the dialog is open.
-      await tester.pump(const Duration(milliseconds: 400));
-
-      final continueButton = find.widgetWithText(FilledButton, 'Continue');
-      expect(tester.widget<FilledButton>(continueButton).onPressed, isNull);
-
-      await tester.enterText(find.byType(TextField).last, 's3cret');
-      await tester.pump();
-      expect(tester.widget<FilledButton>(continueButton).onPressed, isNotNull);
-
-      await tester.tap(continueButton);
-      await tester.pumpAndSettle();
-
-      expect(passwordSeen, 's3cret');
-      verify(
-        () => accounts.deleteAccount(
-          idempotencyKey: any(named: 'idempotencyKey'),
-        ),
-      ).called(1);
     });
   });
 

@@ -26,7 +26,6 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../data/account_repository.dart';
 import 'bloc/account_cubit.dart';
-import 'widgets/password_prompt_dialog.dart';
 
 /// Friendly text for a failed DeleteAccount (never the raw server message).
 String deleteAccountErrorMessage(AppException error) {
@@ -81,6 +80,13 @@ class DeleteAccountScreen extends StatefulWidget {
 class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   late final AccountCubit _cubit;
   final _handleController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  // Password accounts type the password right here (it feeds the same
+  // re-authentication); Google and Apple accounts have none and re-confirm
+  // through their provider after the handle gate.
+  late final bool _usesPassword;
+  late final AuthRepository _auth;
 
   // The account being deleted, read before anything signs it out (the auth
   // listener below can fire after the user is already gone).
@@ -93,14 +99,17 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   @override
   void initState() {
     super.initState();
-    _uid = context.read<AuthBloc>().state.user?.uid;
+    final user = context.read<AuthBloc>().state.user;
+    _uid = user?.uid;
+    _usesPassword = user?.isPasswordProvider ?? false;
+    _auth = context.read<AuthRepository>();
     _optInStore = context.read<PushOptInStore>();
     _telemetryForget = TelemetryForgetScope.of(context);
     _drafts = context.read<DraftsRepository>();
     _reportUnexpected = context.read<UnexpectedErrorReporter>();
     _cubit = AccountCubit(
       accountRepository: context.read<AccountRepository>(),
-      authRepository: context.read<AuthRepository>(),
+      authRepository: _auth,
       onUnexpectedError: context.read<UnexpectedErrorReporter>(),
     );
   }
@@ -111,10 +120,22 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     _cubit.reset();
     _cubit.close();
     _handleController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  Future<String?> _promptPassword() => showPasswordPromptDialog(context);
+  /// The inline field's text; an empty field (never sendable: the button is
+  /// disabled) reads as "cancelled".
+  Future<String?> _typedPassword() async => _passwordController.text;
+
+  void _delete() {
+    // Straight from the tap: the web re-auth popup must open inside the user
+    // gesture, so nothing is awaited before the cubit starts.
+    _cubit.deleteAccount(
+      promptPassword: _typedPassword,
+      skipReauth: !_usesPassword && _auth.canSkipDeleteReauth,
+    );
+  }
 
   void _onState(BuildContext context, AccountState state) {
     if (state.status != AccountStatus.deleted) return;
@@ -184,8 +205,16 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
           final confirmed = hasProfile
               ? handleMatches(_handleController.text, handle)
               : confirmWordMatches(_handleController.text);
+          final passwordOk =
+              !_usesPassword || _passwordController.text.isNotEmpty;
           final enabled =
-              !working && confirmed && state.status != AccountStatus.deleted;
+              !working &&
+              confirmed &&
+              passwordOk &&
+              state.status != AccountStatus.deleted;
+          // A wrong password belongs under the password field.
+          final wrongPassword =
+              _usesPassword && state.authFailure is AuthInvalidCredentials;
           return AppFormPage(
             title: 'Delete account',
             // The tablet layout with nothing to pop: up to Your account
@@ -205,11 +234,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
               variant: AppButtonVariant.danger,
               busy: working,
               busySemanticsLabel: 'Deleting account',
-              // Straight from the tap: the web re-auth popup must open
-              // inside the user gesture.
-              onPressed: enabled
-                  ? () => _cubit.deleteAccount(promptPassword: _promptPassword)
-                  : null,
+              onPressed: enabled ? _delete : null,
             ),
             secondary: AppFormAction(
               label: 'Cancel',
@@ -241,6 +266,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                   ),
                 ),
               TextField(
+                key: const ValueKey('delete-account-handle'),
                 controller: _handleController,
                 enabled: !working,
                 autocorrect: false,
@@ -252,7 +278,32 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 ),
                 onChanged: (_) => setState(() {}),
               ),
-              _StatusMessage(state: state),
+              if (_usesPassword)
+                TextField(
+                  key: const ValueKey('delete-account-password'),
+                  controller: _passwordController,
+                  enabled: !working,
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textInputAction: TextInputAction.done,
+                  autofillHints: const [AutofillHints.password],
+                  decoration: InputDecoration(
+                    labelText: 'Enter your password to confirm',
+                    errorText: wrongPassword
+                        ? 'Incorrect password. Try again.'
+                        : null,
+                  ),
+                  onChanged: (_) {
+                    _cubit.dismissMessage();
+                    setState(() {});
+                  },
+                  onSubmitted: (_) {
+                    if (enabled) _delete();
+                  },
+                ),
+
+              _StatusMessage(state: state, hideAuthFailure: wrongPassword),
             ],
           );
         },
@@ -274,12 +325,16 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
 }
 
 class _StatusMessage extends StatelessWidget {
-  const _StatusMessage({required this.state});
+  const _StatusMessage({required this.state, this.hideAuthFailure = false});
 
   final AccountState state;
 
+  /// The failure is shown inline under a field instead.
+  final bool hideAuthFailure;
+
   @override
   Widget build(BuildContext context) {
+    if (hideAuthFailure) return const SizedBox.shrink();
     final text = switch (state.status) {
       AccountStatus.cancelled =>
         'Confirmation cancelled. Nothing was changed or deleted.',

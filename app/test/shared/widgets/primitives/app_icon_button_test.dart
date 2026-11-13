@@ -42,7 +42,7 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('raised is a disc with a shadow', (tester) async {
+    testWidgets('raised is a flat white disc: no shadow', (tester) async {
       await tester.pumpWidget(
         _host(
           AppIconButton(
@@ -53,15 +53,19 @@ void main() {
           ),
         ),
       );
-      final box = tester.widget<DecoratedBox>(
-        find
-            .descendant(
+      final shadowed = tester
+          .widgetList<DecoratedBox>(
+            find.descendant(
               of: find.byType(AppIconButton),
               matching: find.byType(DecoratedBox),
-            )
-            .first,
-      );
-      expect((box.decoration as BoxDecoration).boxShadow, AppShadows.card);
+            ),
+          )
+          .where(
+            (b) =>
+                b.decoration is BoxDecoration &&
+                (b.decoration as BoxDecoration).boxShadow != null,
+          );
+      expect(shadowed, isEmpty);
     });
 
     forEachThemeAndWidth(

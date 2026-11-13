@@ -198,6 +198,7 @@ class ComposerScreen extends StatelessWidget {
               gifPreparer: featureEnabledSnapshot(context, kFeatureGif)
                   ? context.read<GifPreparer>()
                   : null,
+              gifEnabled: featureEnabledSnapshot(context, kFeatureGif),
             ),
           ),
         BlocProvider<ComposerCubit>(
@@ -722,6 +723,24 @@ class _ComposerViewState extends State<_ComposerView> {
         disabledBorder: InputBorder.none,
       ),
       onChanged: cubit.textChanged,
+      // A GIF or image from the keyboard (Gboard's GIF tab) joins the
+      // attachments like a picked one; same rules, same limits.
+      contentInsertionConfiguration: widget.mediaEnabled
+          ? ContentInsertionConfiguration(
+              allowedMimeTypes: AttachmentsCubit.insertableMimeTypes,
+              onContentInserted: (content) {
+                final data = content.data;
+                if (data == null) return;
+                unawaited(
+                  context.read<AttachmentsCubit>().insertContent(
+                    mimeType: content.mimeType,
+                    bytes: data,
+                    rules: cubit.rules,
+                  ),
+                );
+              },
+            )
+          : null,
     );
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.md),

@@ -67,10 +67,14 @@ void main() {
           find.text(phone ? 'YOUR ACCOUNT' : 'CREATOR TOOLS'),
           findsOneWidget,
         );
-        expect(find.textContaining('reach'), findsOneWidget);
+        // On the desktop the Settings categories are beside the page and
+        // say "Your account" and "Your reach" too: look inside the page.
+        final page = find.byType(CreatorStudioScreen);
+        Finder onPage(Finder f) => find.descendant(of: page, matching: f);
+        expect(onPage(find.textContaining('reach')), findsOneWidget);
         // The bar's subtitle is the wide look's only.
         expect(
-          find.text('Your account'),
+          onPage(find.text('Your account')),
           phone ? findsNothing : findsOneWidget,
         );
         for (final label in ['Followers', 'Following', 'Posts']) {
