@@ -1,3 +1,6 @@
+import '../../../shared/widgets/primitives/app_surface.dart';
+import '../../../core/widgets/shell_side_column.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -74,6 +77,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
 
   @override
   void dispose() {
+    _sideColumn.dispose();
     _draft.dispose();
     _name.dispose();
     _description.dispose();
@@ -125,6 +129,36 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
       ],
     ),
   );
+
+  final _sideColumn = ShellSideColumnLease();
+
+  /// The desktop side column's preview card, over the form as typed.
+  Widget _sidePreview(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+          child: Text(
+            _previewTitle.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: context.appColors.accentText,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+        AppSurface(
+          margin: const EdgeInsets.only(bottom: AppSpacing.md),
+          padding: EdgeInsets.zero,
+          child: ValueListenableBuilder<CommunityDraft>(
+            valueListenable: _draft,
+            builder: (context, draft, _) => CommunityPreview(draft: draft),
+          ),
+        ),
+      ],
+    );
+  }
 
   void _cancel() {
     if (context.canPop()) {
@@ -183,6 +217,11 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
+    // Inside the desktop shell the preview is the side column's (the
+    // CreateCommunity mock), live over the form; elsewhere it is the
+    // header's Preview dialog.
+    final beside = shellSideColumnBeside(context);
+    _sideColumn.set(context, active: beside, builder: _sidePreview);
     return Scaffold(
       body: SafeArea(
         // The floating bar overlays the page: the form scrolls behind it and
@@ -206,8 +245,8 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                     busySemanticsLabel: 'Creating community',
                     onCancel: _cancel,
                     onAction: _canCreate && !busy ? _create : null,
-                    secondaryLabel: wide ? _previewTitle : null,
-                    onSecondary: wide ? _openPreview : null,
+                    secondaryLabel: wide && !beside ? _previewTitle : null,
+                    onSecondary: wide && !beside ? _openPreview : null,
                   ),
                   Expanded(
                     child: SingleChildScrollView(

@@ -90,6 +90,36 @@ class AuthRepository implements AuthTokenProvider {
   /// continuation.
   bool get reauthNeedsGesture => _isWeb;
 
+  /// How recent a sign-in must be for [canSkipDeleteReauth]. Under the
+  /// server's default `ACCOUNT_DELETE_REAUTH_MAX_AGE` (5 min) with room for
+  /// the round trip; a longer server window is never assumed.
+  static const kRecentSignInWindow = Duration(minutes: 3);
+
+  /// When this device last completed [reauthenticate].
+  DateTime? _lastReauthAt;
+
+  /// True when DeleteAccount may skip the provider re-auth because the
+  /// current sign-in is recent enough for the server. Google accounts only
+  /// (no password, and not Apple: its revoke needs a fresh authorization
+  /// code every time). Best effort: the server still has the last word and a
+  /// `REAUTH_REQUIRED` gets one re-auth + retry.
+  bool get canSkipDeleteReauth {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return false;
+    final providers = user.providerData.map((p) => p.providerId).toSet();
+    if (providers.contains('password') ||
+        providers.contains('apple.com') ||
+        !providers.contains('google.com')) {
+      return false;
+    }
+    final last = [_lastReauthAt, user.metadata.lastSignInTime]
+        .whereType<DateTime>()
+        .fold<DateTime?>(null, (a, b) => a == null || b.isAfter(a) ? b : a);
+    if (last == null) return false;
+    final age = _clock().difference(last);
+    return !age.isNegative && age <= kRecentSignInWindow;
+  }
+
   /// Emits the current [AppUser], or null when signed out. Uses
   /// `userChanges()` (not `authStateChanges()`) so profile reloads —
   /// e.g. after the user confirms email verification — are reflected too.
@@ -401,6 +431,7 @@ class AuthRepository implements AuthTokenProvider {
       // Anything else propagates to the caller's catch-all (reported there).
       throw const AuthFailure.unknown('Sign-in failed. Please try again.');
     }
+    _lastReauthAt = _clock();
     return ReauthResult(appleAuthorizationCode: appleCode);
   }
 
