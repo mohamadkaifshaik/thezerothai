@@ -1,6 +1,11 @@
+import 'package:uuid/uuid.dart';
+
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../gen/dzeroth/engagement/v1/engagement.pb.dart' as pb;
+import '../../../gen/dzeroth/engagement/v1/engagement.pbenum.dart'
+    show ShareChannel;
 import '../../timeline/data/timeline_store.dart';
 
 /// Talks to `EngagementService` (like, unlike, repost, undo repost) behind the
@@ -19,19 +24,88 @@ import '../../timeline/data/timeline_store.dart';
 ///   restart still shows the caller's own like/repost; a failing cache write
 ///   never turns a server success into an error.
 ///
+/// [recordPostShare] reports a share made outside the app and rides its own
+/// gate ([shareGate], the `share_count` flag): a refusal of that call never
+/// switches off likes or reposts, and the other way round.
+///
 /// `postId` is always the target: the original for a REPOST row.
 class EngagementRepository {
   EngagementRepository({
     required ApiClient apiClient,
     required ServiceFeatureGate gate,
+    ServiceFeatureGate? shareGate,
     TimelineStore? store,
+    Uuid? uuid,
   }) : _apiClient = apiClient,
        _gate = gate,
-       _store = store;
+       _shareGate = shareGate,
+       _store = store,
+       _uuid = uuid ?? const Uuid();
 
   final ApiClient _apiClient;
   final ServiceFeatureGate _gate;
+  final ServiceFeatureGate? _shareGate;
   final TimelineStore? _store;
+  final Uuid _uuid;
+
+  /// Posts whose outside share this session already reported (the server
+  /// counts one account once per post, so a second report can only be a
+  /// wasted request), and those being reported now.
+  final Set<String> _reportedShares = {};
+  final Set<String> _sharesInFlight = {};
+  int _shareSession = 0;
+
+  /// Sign-out: forgets which shares were reported, and drops answers still in
+  /// flight.
+  void clearShareSession() {
+    _shareSession++;
+    _reportedShares.clear();
+    _sharesInFlight.clear();
+  }
+
+  /// Reports that the caller shared [postId] outside the app ("Copy link"
+  /// succeeded, or the share sheet reported a completed share): one
+  /// `RecordPostShare`, once per post per session. Returns the post's
+  /// engagement (its `share_count`) as the server now sees it, or null when
+  /// nothing was reported or learned: the flag is off for the caller, the post
+  /// was already reported, a report is in flight, or the call failed.
+  ///
+  /// Fire and forget: it never throws and is never retried (the share itself
+  /// already happened). A failed call is forgotten, so a later share of the
+  /// same post may report again. Callers must call it only after the copy or
+  /// share really succeeded.
+  Future<pb.PostEngagement?> recordPostShare({
+    required String postId,
+    required ShareChannel channel,
+  }) async {
+    final gate = _shareGate;
+    if (postId.isEmpty || gate == null || !gate.enabled) return null;
+    if (_reportedShares.contains(postId) || !_sharesInFlight.add(postId)) {
+      return null;
+    }
+    final session = _shareSession;
+    try {
+      final response = await gate.run(
+        () => _apiClient.engagement.recordPostShare(
+          pb.RecordPostShareRequest(
+            idempotencyKey: _uuid.v4(),
+            postId: postId,
+            channel: channel,
+          ),
+        ),
+      );
+      if (session != _shareSession) return null;
+      _reportedShares.add(postId);
+      return response.engagement;
+    } on AppException {
+      // Silent by design: the share happened, the count is only a tally.
+      return null;
+    } catch (_) {
+      return null;
+    } finally {
+      if (session == _shareSession) _sharesInFlight.remove(postId);
+    }
+  }
 
   /// Whether engagement RPCs may be sent at all right now.
   bool get enabled => _gate.enabled;

@@ -371,7 +371,10 @@ class _AppWidgetState extends State<AppWidget> {
         () => _messengerKey.currentState?.clearSnackBars(),
       )
       ..register('pending posts', _pendingPosts.clear)
-      ..register('engagement', _engagement.reset)
+      ..register('engagement', () {
+        _engagement.reset();
+        widget.engagementRepository.clearShareSession();
+      })
       ..register('polls', () => _polls?.reset())
       ..register('bookmarks', _bookmarks.reset)
       ..register('suggestions', _suggestions.reset)

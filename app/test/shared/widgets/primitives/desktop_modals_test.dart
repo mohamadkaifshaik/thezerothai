@@ -36,7 +36,8 @@ class _NoNativeShare implements NativeShare {
   bool get isAvailable => false;
 
   @override
-  Future<void> shareUrl(String url, {Rect? anchor}) async {}
+  Future<NativeShareStatus> shareUrl(String url, {Rect? anchor}) async =>
+      NativeShareStatus.completed;
 }
 
 const _desktopWidths = [1200.0, 1280.0, 1366.0, 1440.0, 1920.0];

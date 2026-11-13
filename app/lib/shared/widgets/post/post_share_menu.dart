@@ -31,6 +31,12 @@ Rect targetRectOf(BuildContext context) {
 /// post only for its author); picking it closes the menu and calls it, so
 /// `shared/` knows nothing of the Messages feature. Null: no such row.
 ///
+/// [onShared] is called once with [PostShareChoice.copyLink] after the
+/// clipboard accepted the link, or with [PostShareChoice.shareVia] after the
+/// share sheet reported a completed share ([NativeShareStatus.completed]); a
+/// dismissed or unreported sheet, a refused clipboard and "Send in a message"
+/// never call it. The caller decides what that means (the share count).
+///
 /// Everything is local: no RPC, no stream. The only thing that leaves the
 /// device is [url], by the user's choice. "Copy link" writes exactly [url]
 /// to the clipboard and answers with the toast "Copied to clipboard"; if the
@@ -43,6 +49,7 @@ Future<void> showPostShareMenu(
   required Rect anchor,
   String title = 'Share post',
   VoidCallback? onSendInMessage,
+  ValueChanged<PostShareChoice>? onShared,
 }) async {
   // Everything the context is needed for is read before the first await: the
   // card under it may be gone by the time the user picks a row.
@@ -76,9 +83,13 @@ Future<void> showPostShareMenu(
         return;
       }
       _toast(messenger, 'Copied to clipboard');
+      onShared?.call(PostShareChoice.copyLink);
     case PostShareChoice.shareVia:
       try {
-        await nativeShare.shareUrl(url, anchor: anchor);
+        final status = await nativeShare.shareUrl(url, anchor: anchor);
+        if (status == NativeShareStatus.completed) {
+          onShared?.call(PostShareChoice.shareVia);
+        }
       } catch (_) {
         _toast(messenger, "Couldn't open the share sheet. Try again.");
       }
