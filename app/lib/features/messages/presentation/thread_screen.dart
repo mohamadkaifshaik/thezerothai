@@ -461,6 +461,10 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     }
   }
 
+  /// A shared post's card opens the post in the app (GetPost decides again).
+  void _openPost(String postId) =>
+      unawaited(context.push<void>(AppRouter.postPath(postId)));
+
   void _jumpToNewest(ThreadCubit cubit) {
     cubit.showNew();
     if (!_controller.hasClients) return;
@@ -905,6 +909,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                             item.message,
                           ),
                           onOpenLink: _openLink,
+                          onOpenPost: _openPost,
                           onReport:
                               reportsEnabled &&
                                   conversation != null &&

@@ -5,6 +5,15 @@ import 'package:share_plus/share_plus.dart';
 
 import 'native_share_capability.dart';
 
+/// How a share sheet ended, as far as the platform can tell.
+///
+/// Only [completed] means the link went somewhere (the share counts); a
+/// sheet the user closed is [dismissed], and a platform that cannot report
+/// the outcome (some browsers, Windows, Linux) is [unavailable]. The caller
+/// records a share on [completed] only, so a share that may not have happened
+/// is never counted.
+enum NativeShareStatus { completed, dismissed, unavailable }
+
 /// The platform's own share sheet, behind one small seam so the share menu
 /// can be tested without touching a plugin.
 abstract interface class NativeShare {
@@ -14,8 +23,9 @@ abstract interface class NativeShare {
 
   /// Opens the sheet for [url] only (no text, title or author). [anchor] is
   /// the global rectangle of the control that was tapped; iPad and macOS need
-  /// it to place the popover.
-  Future<void> shareUrl(String url, {Rect? anchor});
+  /// it to place the popover. Completes with how the sheet ended
+  /// ([NativeShareStatus]).
+  Future<NativeShareStatus> shareUrl(String url, {Rect? anchor});
 }
 
 /// [NativeShare] over `share_plus` (BSD-3-Clause).
@@ -44,8 +54,8 @@ class SharePlusNativeShare implements NativeShare {
         };
 
   @override
-  Future<void> shareUrl(String url, {Rect? anchor}) async {
-    await SharePlus.instance.share(
+  Future<NativeShareStatus> shareUrl(String url, {Rect? anchor}) async {
+    final result = await SharePlus.instance.share(
       ShareParams(
         uri: Uri.parse(url),
         sharePositionOrigin: anchor,
@@ -53,5 +63,10 @@ class SharePlusNativeShare implements NativeShare {
         mailToFallbackEnabled: false,
       ),
     );
+    return switch (result.status) {
+      ShareResultStatus.success => NativeShareStatus.completed,
+      ShareResultStatus.dismissed => NativeShareStatus.dismissed,
+      ShareResultStatus.unavailable => NativeShareStatus.unavailable,
+    };
   }
 }
