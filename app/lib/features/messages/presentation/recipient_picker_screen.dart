@@ -390,20 +390,20 @@ class _PickerViewState extends State<_PickerView> {
               child: NotEncryptedNote(),
             ),
           ),
-          _ToField(
-            dialog: widget.dialog,
-            controller: _controller,
-            onChanged: _picker.queryChanged,
-            onClear: () {
-              _controller.clear();
-              _picker.queryChanged('');
-            },
-          ),
-          const _ResolveError(),
+          if (_share == null) ..._search() else _shareSearch(),
           Expanded(
-            child: BlocBuilder<RecipientPickerCubit, RecipientPickerState>(
-              builder: (context, state) => _body(state),
-            ),
+            child: _share == null
+                ? _list()
+                : BlocSelector<SharePostCubit, SharePostState, bool>(
+                    selector: (state) => state.started,
+                    // Once Send was pressed the list is exactly the chosen
+                    // people in send order, each with its result: a person
+                    // picked through "Send to @handle", or hidden by what is
+                    // typed, has a row too.
+                    builder: (context, started) => started
+                        ? _ShareResults(dialog: widget.dialog)
+                        : _list(),
+                  ),
           ),
           if (_share != null)
             SharePostBar(
@@ -412,6 +412,42 @@ class _PickerViewState extends State<_PickerView> {
             ),
         ],
       ),
+    );
+  }
+
+  List<Widget> _search() => [
+    _ToField(
+      dialog: widget.dialog,
+      controller: _controller,
+      onChanged: _picker.queryChanged,
+      onClear: () {
+        _controller.clear();
+        _picker.queryChanged('');
+      },
+    ),
+    const _ResolveError(),
+  ];
+
+  /// Share mode: the "To:" field and, under it, the chosen people as
+  /// removable chips (an off-list pick is visible and can be dropped). Both
+  /// leave once Send was pressed (the results list takes over).
+  Widget _shareSearch() {
+    return BlocSelector<SharePostCubit, SharePostState, bool>(
+      selector: (state) => state.started,
+      builder: (context, started) => started
+          ? const SizedBox.shrink()
+          : Column(
+              children: [
+                ..._search(),
+                _ShareChips(dialog: widget.dialog),
+              ],
+            ),
+    );
+  }
+
+  Widget _list() {
+    return BlocBuilder<RecipientPickerCubit, RecipientPickerState>(
+      builder: (context, state) => _body(state),
     );
   }
 
@@ -478,6 +514,7 @@ class _PickerViewState extends State<_PickerView> {
               return listed
                   ? const SizedBox.shrink()
                   : _HandleRow(
+                      verb: _share == null ? 'Message' : 'Send to',
                       dialog: widget.dialog,
                       handle: candidate,
                       busy: state.resolving,
@@ -853,12 +890,15 @@ class _PickerRow extends StatelessWidget {
 /// Following rows; resolved with `GetProfile` on tap.
 class _HandleRow extends StatelessWidget {
   const _HandleRow({
+    required this.verb,
     required this.dialog,
     required this.handle,
     required this.busy,
     required this.onTap,
   });
 
+  /// "Message" (the new-message picker) or "Send to" (the share picker).
+  final String verb;
   final bool dialog;
   final String handle;
   final bool busy;
@@ -871,7 +911,7 @@ class _HandleRow extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: !busy,
-      label: 'Message @$handle',
+      label: '$verb @$handle',
       excludeSemantics: true,
       onTap: busy ? null : onTap,
       child: InkWell(
@@ -907,7 +947,7 @@ class _HandleRow extends StatelessWidget {
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: Text(
-                        'Message @$handle',
+                        '$verb @$handle',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleSmall,
@@ -926,6 +966,93 @@ class _HandleRow extends StatelessWidget {
             const Divider(height: 1),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The people chosen so far, as removable chips (share mode, before Send).
+/// Empty: nothing is drawn.
+class _ShareChips extends StatelessWidget {
+  const _ShareChips({required this.dialog});
+
+  final bool dialog;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<SharePostCubit, SharePostState>(
+      buildWhen: (a, b) =>
+          a.recipients.length != b.recipients.length ||
+          !_sameIds(a.recipients, b.recipients),
+      builder: (context, state) {
+        if (state.recipients.isEmpty) return const SizedBox.shrink();
+        final gutter = dialog
+            ? AppPickerLayout.dialogGutter
+            : AppPickerLayout.phoneGutter;
+        return Padding(
+          padding: EdgeInsetsDirectional.fromSTEB(
+            gutter,
+            0,
+            gutter,
+            AppSpacing.xs,
+          ),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                for (final r in state.recipients)
+                  InputChip(
+                    key: ValueKey('share-chip-${r.peer.userId}'),
+                    label: Text(
+                      r.peer.displayName.isEmpty
+                          ? '@${r.peer.handle}'
+                          : r.peer.displayName,
+                    ),
+                    deleteButtonTooltipMessage: 'Remove @${r.peer.handle}',
+                    onDeleted: () =>
+                        context.read<SharePostCubit>().toggle(r.peer),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  static bool _sameIds(List<ShareRecipient> a, List<ShareRecipient> b) {
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].peer.userId != b[i].peer.userId) return false;
+    }
+    return true;
+  }
+}
+
+/// After Send: exactly the chosen people, in send order, each with the result
+/// of their send (sending, sent, the reason it failed, or not sent). Whoever
+/// was chosen has a row, however they were found.
+class _ShareResults extends StatelessWidget {
+  const _ShareResults({required this.dialog});
+
+  final bool dialog;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<SharePostCubit, SharePostState>(
+      buildWhen: (a, b) => a.recipients != b.recipients,
+      builder: (context, state) => ListView(
+        children: [
+          for (final r in state.recipients)
+            _PickerRow(
+              key: ValueKey('share-result-${r.peer.userId}'),
+              item: graph.UserListItem(user: r.peer),
+              dialog: dialog,
+              share: true,
+              onTap: () {},
+            ),
+        ],
       ),
     );
   }
