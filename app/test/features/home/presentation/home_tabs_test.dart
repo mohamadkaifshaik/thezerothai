@@ -263,6 +263,30 @@ void main() {
       expect(find.text('post 3'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
+    testWidgets('the pinned button is the white disc in light mode and the '
+        'plain grey icon (no disc) in dark mode', (tester) async {
+      for (final brightness in Brightness.values) {
+        await openHome(tester, brightness: brightness);
+        final style = tester
+            .widget<IconButton>(
+              find.descendant(
+                of: find.byType(PinnedTimelinesButton),
+                matching: find.byType(IconButton),
+              ),
+            )
+            .style!;
+        final fill = style.backgroundColor?.resolve(<WidgetState>{});
+        final ink = style.foregroundColor?.resolve(<WidgetState>{});
+        if (brightness == Brightness.light) {
+          expect(fill, AppPalette.white);
+          expect(ink, AppPalette.navy);
+        } else {
+          expect(fill, isNull, reason: 'no white disc in dark mode');
+          expect(ink, isNull, reason: 'the theme grey, like Explore');
+        }
+      }
+    });
+
     testWidgets('no list timeline is asked for before its tab is opened', (
       tester,
     ) async {
