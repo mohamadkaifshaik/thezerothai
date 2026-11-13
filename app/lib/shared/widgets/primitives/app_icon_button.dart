@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 
-/// A 48 x 48 icon button (dz.css `.iconbtn`). [raised] is the white disc with
-/// a soft shadow (`.iconbtn.raised`). A [tooltip] is required: it is the
+/// A 48 x 48 icon button (dz.css `.iconbtn`). [raised] is the flat white disc
+/// (`.iconbtn.raised`) with no shadow, like the Feed's pinned-timelines
+/// button. A [tooltip] is required: it is the
 /// semantics label and the long-press hint.
 class AppIconButton extends StatelessWidget {
   const AppIconButton({
@@ -39,13 +40,6 @@ class AppIconButton extends StatelessWidget {
         disabledForegroundColor: colors.disabledPillLabel,
       ),
     );
-    if (!raised || onPressed == null) return button;
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: AppShadows.card,
-      ),
-      child: button,
-    );
+    return button;
   }
 }
