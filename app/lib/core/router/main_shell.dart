@@ -417,8 +417,13 @@ class MainShell extends StatelessWidget {
     // never swapped out. The scaffold and `SettingsScreen` take the same
     // 840 / 1200 decisions from the same flags and width.
     final onSettings = isSettingsLocation(location);
+    // Creator Studio, Calls and Advertise sit in the same master-detail on
+    // the desktop, as rows of the categories list, with their own routes.
+    final onSidePage = isSettingsSidePage(location);
     final masterDetail =
-        newShell && onSettings && width >= AppBreakpoints.tablet;
+        newShell &&
+        (onSettings || onSidePage) &&
+        width >= AppBreakpoints.tablet;
     final settingsListDetail =
         tabletLayout && onSettings && ShellBand.of(width) == ShellBand.expanded;
     // Plans is list-detail in band B too (T5), on `/plans` and `/plans/:id`
@@ -527,11 +532,14 @@ class MainShell extends StatelessWidget {
             // The desktop mock: the categories beside the open one (Your
             // account when none is chosen) or its leaf page.
             ? SettingsCategoriesPane(
-                selected:
-                    settingsCategoryForUri(uri ?? Uri.parse(location)) ??
-                    (location == AppRouter.settingsPath
-                        ? SettingsCategory.account
-                        : null),
+                selected: onSidePage
+                    ? null
+                    : settingsCategoryForUri(uri ?? Uri.parse(location)) ??
+                          (location == AppRouter.settingsPath
+                              ? SettingsCategory.account
+                              : null),
+                sidePages: shellEntries,
+                selectedSidePage: onSidePage ? location : null,
               )
             : settingsListDetail
             ? SettingsCategoriesPane(
