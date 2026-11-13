@@ -59,7 +59,8 @@ Future<MessagingFlowRig> _open(
   double textScale = 1,
 }) async {
   final rig = MessagingFlowRig(
-    server: tabletServer(),
+    // A suite-wide timestamp can age past "1m" before the desktop case runs.
+    server: tabletServer(now: DateTime.now().toUtc()),
     flags: kMessagesTabletFlags,
   );
   await rig.pump(

@@ -50,7 +50,9 @@ String peerName(int n) => 'Peer $n';
 
 /// A [FakeMessagingServer] with the tablet inbox, two requests, and two
 /// messages in each conversation.
-FakeMessagingServer tabletServer() {
+/// [now] refreshes the inbox's relative times for clock-sensitive layout tests.
+FakeMessagingServer tabletServer({DateTime? now}) {
+  final base = now ?? kMsgBase;
   pb.Conversation row(
     String id, {
     required String name,
@@ -59,7 +61,7 @@ FakeMessagingServer tabletServer() {
     Folder folder = Folder.FOLDER_INBOX,
   }) {
     final at = ts.Timestamp.fromDateTime(
-      kMsgBase.subtract(Duration(minutes: minutesAgo)),
+      base.subtract(Duration(minutes: minutesAgo)),
     );
     return pb.Conversation(
       id: id,
