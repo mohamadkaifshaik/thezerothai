@@ -289,7 +289,7 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	// empty thread (ListMessages hides createdAt <= clearedAt). It also holds whatever the clock skew between instances.
 	now := stampAfterClear(wireTime(p.Now), conv)
 	b := store.NewFirestoreTxBatch(tx)
-	msg := MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: now}
+	msg := MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: now, SharedPostID: p.SharedPostID}
 	b.Create(r.msgRef(p.ConvID, p.MsgID), msg)
 
 	switch {
@@ -320,12 +320,12 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	// not touched; createdAt is set when this send created the conversation.
 	own := map[string]any{
 		"peerId": p.PeerUID, "peer": p.Peer.fields(), "lastMessageAt": now, "changedAt": now, "silent": p.CallerSilent,
-		"last": LastDoc{MessageID: p.MsgID, FromSelf: true, Snippet: snippet, State: msgVisible}.fields(),
+		"last": LastDoc{MessageID: p.MsgID, FromSelf: true, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != ""}.fields(),
 	}
 	// The recipient's entry: dmRequests while the request is unaccepted, else dmInbox.
 	other := map[string]any{
 		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "changedAt": now, "silent": res.Silent,
-		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible}.fields(),
+		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != ""}.fields(),
 	}
 	if !res.Silent {
 		other["unreadCount"] = firestore.Increment(1)

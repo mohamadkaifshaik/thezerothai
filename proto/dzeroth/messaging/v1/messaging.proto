@@ -31,7 +31,8 @@ syntax = "proto3";
 //   since_token | idempotency_key | shared_post_id (and folder, ListConversations only); before any lookup.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "messaging".
 // - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id may also answer NOT_FOUND
-//   "post not found" (the GetPost bytes) when the caller may not see the post.
+//   "post not found" (the GetPost bytes) when the caller may not see the post or a block in either direction stands
+//   between the caller and its author.
 // - FAILED_PRECONDITION + ERROR_REASON_PROTECTED_ACCOUNT: SendMessage sharing a protected account's post by anyone but
 //   that account; FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "dm_post_share" for a share with that
 //   flag off for the caller.
@@ -104,8 +105,9 @@ service MessagingService {
   // - shared_post_id: 19 digits (else VALIDATION "shared_post_id", before any lookup). A REPOST id shares its original;
   //   the stored and returned id is the original's.
   // - The post must be visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or deleting
-  //   author, an author who blocks the caller, a QUOTE or REPOST whose embedded author blocks the caller => NOT_FOUND
-  //   "post not found", byte-identical to GetPost, writing nothing).
+  //   author, an author who blocks the caller, a QUOTE or REPOST whose embedded author blocks the caller), and by the
+  //   card's rule: no block in either direction, so a caller who blocked the author (or a QUOTE's embedded author) may
+  //   not send it either. Every case => NOT_FOUND "post not found", byte-identical to GetPost, writing nothing.
   // - Protected authors: a post by a protected account may be sent only by that account (the RepostPost rule); any
   //   other caller who can see it => FAILED_PRECONDITION + PROTECTED_ACCOUNT, writing nothing.
   // - The client sends a text even without a caption: the canonical post URL (so a client that predates the card shows a

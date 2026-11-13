@@ -25,6 +25,7 @@ type Server struct {
 	bookmarks Bookmarks
 	likes     LikesList
 	polls     Polls
+	shares    PostShares
 	flags     posts.FlagChecker
 }
 
@@ -53,6 +54,9 @@ func NewServer(svc Service, fc posts.FlagChecker, opts ...ServerOption) *Server 
 	if p, ok := svc.(Polls); ok {
 		s.polls = p
 	}
+	if p, ok := svc.(PostShares); ok {
+		s.shares = p
+	}
 	for _, o := range opts {
 		o(s)
 	}
@@ -78,7 +82,7 @@ func (s *Server) guard(ctx context.Context) (context.Context, context.CancelFunc
 func toProto(r Result) *engagementv1.PostEngagement {
 	return &engagementv1.PostEngagement{
 		PostId: r.PostID, LikeCount: r.LikeCount, RepostCount: r.RepostCount,
-		LikedByViewer: r.LikedByViewer, RepostedByViewer: r.RepostedByViewer,
+		LikedByViewer: r.LikedByViewer, RepostedByViewer: r.RepostedByViewer, ShareCount: r.ShareCount,
 	}
 }
 

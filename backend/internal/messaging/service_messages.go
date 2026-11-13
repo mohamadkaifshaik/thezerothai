@@ -232,9 +232,15 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		return nil, s.messagesErr(ctx, uid, in.convID, err, peer)
 	}
 
+	// Shared posts: one batched card read for the page's distinct ids, decided for this reader; nothing when none.
+	cards := s.sharedCards(ctx, uid, rows)
 	msgs := make([]*messagingv1.Message, 0, len(rows))
 	for _, r := range rows {
-		msgs = append(msgs, messageOf(r, in.convID, uid))
+		m := messageOf(r, in.convID, uid)
+		if m.State == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && r.SharedPostID != "" {
+			m.SharedPost = cards[r.SharedPostID]
+		}
+		msgs = append(msgs, m)
 	}
 	logger.SetRequestField(ctx, fieldResults, len(msgs))
 

@@ -137,6 +137,7 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 			b := store.NewFirestoreTxBatch(tx)
 			b.Update(r.msgRef(convID, msgID), []firestore.Update{
 				{Path: "state", Value: msgRemoved}, {Path: "text", Value: ""}, {Path: "requestHash", Value: ""},
+				{Path: "sharedPostId", Value: firestore.Delete}, // the shared post's id goes with the text
 				{Path: "removedAt", Value: firestore.ServerTimestamp},
 			})
 			// The thread revision: every ListMessages since token issued before this commit is retired at its next poll, even
@@ -152,7 +153,7 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 			for _, ref := range previews {
 				// changedAt in server time (not the operator's clock) puts the entry in every cached device's next since refresh.
 				b.Update(ref, []firestore.Update{
-					{Path: "last.snippet", Value: removedSnippet}, {Path: "last.state", Value: msgRemoved},
+					{Path: "last.snippet", Value: removedSnippet}, {Path: "last.state", Value: msgRemoved}, {Path: "last.sharedPost", Value: false},
 					{Path: "changedAt", Value: firestore.ServerTimestamp},
 				})
 			}

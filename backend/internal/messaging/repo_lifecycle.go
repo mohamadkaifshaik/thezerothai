@@ -123,7 +123,7 @@ func (r *FirestoreRepo) MarkGone(ctx context.Context, uid, convID string) (goneR
 			if peerRef != nil {
 				ups := []firestore.Update{{Path: "peer", Value: PeerDoc{DisplayName: DeletedAccountName}.fields()}, {Path: "peerId", Value: DeletedUID}, {Path: "changedAt", Value: wireTime(r.now())}, {Path: "requestPending", Value: firestore.Delete}} // requestPending (W7-25): a request whose recipient is gone is read-only, never "waiting" (+0). changedAt: the peer's next inbox since refresh returns the rewritten entry
 				if !peerEntry.Last.FromSelf {
-					ups = append(ups, firestore.Update{Path: "last.snippet", Value: deletedSnippet}, firestore.Update{Path: "last.state", Value: msgDeletedAccount})
+					ups = append(ups, firestore.Update{Path: "last.snippet", Value: deletedSnippet}, firestore.Update{Path: "last.state", Value: msgDeletedAccount}, firestore.Update{Path: "last.sharedPost", Value: false})
 				}
 				b.Update(peerRef, ups)
 			}
@@ -162,7 +162,8 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 		// Update fails on a missing document, so a message deleted meanwhile (the peer's eraser, both gone) is never recreated.
 		ups := []firestore.Update{{Path: "senderId", Value: DeletedUID}}
 		if st, _ := d.DataAt("state"); st == msgVisible {
-			ups = append(ups, firestore.Update{Path: "text", Value: ""}, firestore.Update{Path: "requestHash", Value: ""}, firestore.Update{Path: "state", Value: msgDeletedAccount})
+			ups = append(ups, firestore.Update{Path: "text", Value: ""}, firestore.Update{Path: "requestHash", Value: ""}, firestore.Update{Path: "state", Value: msgDeletedAccount},
+				firestore.Update{Path: "sharedPostId", Value: firestore.Delete}) // the shared post's id goes with the text
 		}
 		// LastUpdateTime: a moderator takedown that commits between this query and the batch changes the document, the
 		// write fails with FailedPrecondition and the step's retry re-reads it as REMOVED, so a takedown is never
@@ -297,6 +298,8 @@ type ExportMsg struct {
 	Text      string
 	State     string
 	CreatedAt time.Time
+	// SharedPostID is the post the message shares ("" for none).
+	SharedPostID string
 }
 
 // ExportConversations returns every conversation of uid, in pages of 500 by __name__ (`participants array-contains
@@ -350,7 +353,7 @@ func (r *FirestoreRepo) ExportMessages(ctx context.Context, uid, convID string, 
 		if derr := d.DataTo(&m); derr != nil {
 			return nil, redactErr(fmt.Errorf("messaging: decode message %s: %w", d.Ref.ID, derr), uid, convID, d.Ref.ID)
 		}
-		out = append(out, ExportMsg{ID: d.Ref.ID, FromSelf: m.SenderID == uid, Text: m.Text, State: m.State, CreatedAt: m.CreatedAt.UTC()})
+		out = append(out, ExportMsg{ID: d.Ref.ID, FromSelf: m.SenderID == uid, Text: m.Text, State: m.State, CreatedAt: m.CreatedAt.UTC(), SharedPostID: m.SharedPostID})
 	}
 	return out, nil
 }

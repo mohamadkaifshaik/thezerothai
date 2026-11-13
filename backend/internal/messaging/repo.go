@@ -119,7 +119,9 @@ type SendParams struct {
 	MsgID        string
 	// Text is the normalised message; RequestHash the digest that tells a replay from a reused key.
 	Text, RequestHash string
-	Now               time.Time
+	// SharedPostID is the original post this message shares ("" for none): stored on the message, flagged on both previews.
+	SharedPostID string
+	Now          time.Time
 	// CallerFollowsPeer: the caller follows the recipient (from the caller.s cached graph, 60 s). Mutual = this AND the
 	// recipient.s FRESH Following[caller] read in the transaction; it only decides the state of a conversation this send
 	// creates.
