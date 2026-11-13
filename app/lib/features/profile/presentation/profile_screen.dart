@@ -308,6 +308,9 @@ class _ProfileViewState extends State<_ProfileView> {
         appBar: _appBar(context),
         body: SafeArea(
           top: false,
+          // The floating bar overlays the page: the scroll view runs behind it
+          // and ends with the bar's inset (ShellBottomInsetSliver).
+          bottom: false,
           child: SizedBox.expand(
             key: _bodyKey,
             child: BlocBuilder<ProfileCubit, ProfileState>(

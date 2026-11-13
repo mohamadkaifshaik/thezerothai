@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -213,6 +214,9 @@ class _BeaconScreenState extends State<BeaconScreen> {
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(content: Text(state.actionError!))),
         builder: (context, state) => SafeArea(
+          // The floating bar overlays the page: the scroll view runs behind
+          // it and ends with the bar's inset.
+          bottom: false,
           child: AppMainColumn(
             // The ready page opens with its own hero (Back and the menu in
             // it); the loading and failed pages keep the plain header. The
@@ -321,6 +325,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
       onRefresh: _cubit.load,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
+        padding: shellBottomInsets(context),
         child: _Details(
           view: state.view!,
           busy: state.busy,

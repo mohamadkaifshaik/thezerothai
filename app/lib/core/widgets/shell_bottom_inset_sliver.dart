@@ -25,3 +25,20 @@ class ShellBottomInsetSliver extends StatelessWidget {
     return SliverToBoxAdapter(child: SizedBox(height: bottom));
   }
 }
+
+/// The bottom inset of the shell as padding, for a scroll view that is not a
+/// sliver list (a `SingleChildScrollView`, a `ListView` with its own padding):
+/// the same height as [ShellBottomInsetSliver], so its last child clears the
+/// floating bar. Add it to the view's own bottom padding when it has one.
+EdgeInsets shellBottomInsets(BuildContext context) =>
+    EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom);
+
+/// The bottom inset as a box, for the end of a `Column` that holds the last
+/// thing on a page (a footer link, a submit button) so it clears the bar.
+class ShellBottomInsetBox extends StatelessWidget {
+  const ShellBottomInsetBox({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(height: MediaQuery.paddingOf(context).bottom);
+}
