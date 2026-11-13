@@ -1342,6 +1342,9 @@ abstract final class AppPostsLayout {
   static const double photoDot = 6;
   static const double photoDotSelected = 18;
 
+  /// The stage's bottom inset when the action row sits under the photo.
+  static const double photoActionsInset = 150;
+
   /// The draft icon square of a Drafts row on the wide layouts, and its tint.
   static const double draftIcon = 40;
   static const double draftIconTint = 0.12;
