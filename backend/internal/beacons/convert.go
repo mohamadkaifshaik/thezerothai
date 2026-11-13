@@ -129,6 +129,7 @@ func toViewerState(s ViewerState) *beaconsv1.ViewerState {
 	return &beaconsv1.ViewerState{
 		Role: role, ParticipantState: participantStateToProto(s.ParticipantState),
 		CanRequest: s.CanRequest, CanWithdraw: s.CanWithdraw, CanLeave: s.CanLeave, CanManage: s.CanManage,
+		QuickJoinAllowed: s.QuickJoinAllowed,
 	}
 }
 

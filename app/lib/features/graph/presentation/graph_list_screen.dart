@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/user/user_list_skeleton.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -100,6 +101,9 @@ class _GraphListScreenState extends State<GraphListScreen> {
     final named = name != null && name.isNotEmpty;
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the scroll view runs behind
+        // it and ends with the bar's inset.
+        bottom: false,
         child: AppMainColumn(
           child: Column(
             children: [
@@ -120,7 +124,7 @@ class _GraphListScreenState extends State<GraphListScreen> {
   @override
   Widget build(BuildContext context) {
     if (_resolving) {
-      return _frame(body: const Center(child: CircularProgressIndicator()));
+      return _frame(body: const UserListSkeleton());
     }
     final error = _resolveError;
     if (error != null) {

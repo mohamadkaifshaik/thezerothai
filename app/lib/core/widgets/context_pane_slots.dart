@@ -76,6 +76,12 @@ class ContextPaneSlots extends ChangeNotifier {
   static ContextPaneSlots? maybeOf(BuildContext context) =>
       context.getInheritedWidgetOfExactType<_ContextPaneSlotsScope>()?.slots;
 
+  /// The slots of the side column's page boxes (`ShellSideColumn`), or null
+  /// (no `MainShell`).
+  static ContextPaneSlots? sideColumnOf(BuildContext context) => context
+      .getInheritedWidgetOfExactType<_ContextPaneSlotsScope>()
+      ?.sideColumn;
+
   static String _normalized(String location) {
     final segments = [
       for (final s in Uri.parse(location).pathSegments)
@@ -108,22 +114,34 @@ class ContextPaneSlotsHost extends StatefulWidget {
 
 class _ContextPaneSlotsHostState extends State<ContextPaneSlotsHost> {
   final _slots = ContextPaneSlots();
+  final _sideColumn = ContextPaneSlots();
 
   @override
   void dispose() {
     _slots.dispose();
+    _sideColumn.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _ContextPaneSlotsScope(slots: _slots, child: widget.child);
+  Widget build(BuildContext context) => _ContextPaneSlotsScope(
+    slots: _slots,
+    sideColumn: _sideColumn,
+    child: widget.child,
+  );
 }
 
 class _ContextPaneSlotsScope extends InheritedWidget {
-  const _ContextPaneSlotsScope({required this.slots, required super.child});
+  const _ContextPaneSlotsScope({
+    required this.slots,
+    required this.sideColumn,
+    required super.child,
+  });
 
   final ContextPaneSlots slots;
+
+  /// The boxes pages lend to the whole side column (`ShellSideColumn`).
+  final ContextPaneSlots sideColumn;
 
   @override
   bool updateShouldNotify(_ContextPaneSlotsScope oldWidget) =>

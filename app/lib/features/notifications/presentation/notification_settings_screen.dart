@@ -47,6 +47,9 @@ class NotificationSettingsScreen extends StatelessWidget {
         title: const Text(kNotificationSettingsTitle),
       ),
       body: SafeArea(
+        // The floating bar overlays the page: the content scrolls behind it and
+        // ends with the bar's inset.
+        bottom: false,
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(

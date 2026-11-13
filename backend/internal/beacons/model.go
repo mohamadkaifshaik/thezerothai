@@ -223,6 +223,10 @@ type ViewerState struct {
 	CanWithdraw      bool
 	CanLeave         bool
 	CanManage        bool
+	// QuickJoinAllowed: the caller may request with an empty note (FEATURE_BEACON_QUICK_JOIN, the organiser follows the
+	// caller). Set by GetBeacon and the list reads (markQuickJoin, one batched lookup per page); false in the
+	// participation answers.
+	QuickJoinAllowed bool
 }
 
 // View is one beacon as the caller may see it: the beacon with its effective status, the organiser's live profile row and
@@ -327,13 +331,20 @@ var (
 	ErrPendingLimit = errors.New("beacons: pending request limit reached")
 	// ErrOrganiser: the organiser asked to join their own beacon.
 	ErrOrganiser = errors.New("beacons: the organiser cannot join")
+	// ErrNoteRequired: an empty note under FEATURE_BEACON_QUICK_JOIN from a caller the organiser does not follow.
+	ErrNoteRequired = errors.New("beacons: note required")
 )
 
 // RequestParams is one RequestToJoin write. Now decides the beacon's state and stamps requestedAt.
+//
+// Precheck, when set, runs inside the transaction after the idempotency lookup missed and after the beacon and the
+// caller's row were checked (organiser, ended, cancelled, full, already requested, accepted), just before the pending
+// count: only a request that would be written runs it, a replay never does, and its error refuses the write.
 type RequestParams struct {
 	UID, BeaconID, IdemKey, RequestHash, Note string
 	MaxPending                                int
 	Now                                       time.Time
+	Precheck                                  func(context.Context) error
 }
 
 // ParticipantResult is what the five participation writes answer: the beacon and the caller's (or the target's)
@@ -543,7 +554,14 @@ type Deps struct {
 	Communities communities.Reader
 	// CommunityFlags is the FEATURE_COMMUNITIES gate a community audience adds (the same registry as the beacons flag).
 	CommunityFlags FlagChecker
-	IDs            IDSource
+	// Flags is the beacons sub-flag gate the service reads itself (FEATURE_BEACON_QUICK_JOIN, and FEATURE_BEACONS for
+	// ViewerState.quick_join_allowed); the same registry as CommunityFlags. Nil is off for everyone.
+	Flags FlagChecker
+	// Follows answers "which of these organisers follow the viewer" (graph.FollowLookup: the follow edges, cache-first,
+	// batched) for the one-tap join (FEATURE_BEACON_QUICK_JOIN). Nil is "nobody follows": no read, quick_join_allowed
+	// false, and an empty note under the flag is note_required.
+	Follows graph.FollowLookup
+	IDs     IDSource
 	// CursorKey seals the page tokens of ListBeacons (cfg.CursorHMACKey).
 	CursorKey []byte
 	Limits    Limits

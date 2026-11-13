@@ -186,7 +186,11 @@ type BeaconServiceClient interface {
 	// set). limit is clamped (0 = 20, above 50 = 50).
 	ListMyBeacons(context.Context, *connect.Request[v1.ListMyBeaconsRequest]) (*connect.Response[v1.ListMyBeaconsResponse], error)
 	// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
-	// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
+	// (FAILED_PRECONDITION "organiser"). note 0-140 code points; it is trimmed, so whitespace only is empty. With
+	// FEATURE_BEACON_QUICK_JOIN on for the caller an empty note is accepted only when the organiser follows the caller
+	// (ViewerState.quick_join_allowed); otherwise FAILED_PRECONDITION "note_required", checked after the idempotency
+	// lookup (a same-key retry replays its stored answer) and after the full, already_requested and accepted checks, only
+	// when a new request would be written. With the flag off the note stays optional. A REQUESTED row
 	// already there => FAILED_PRECONDITION "already_requested"; an ACCEPTED one => success with the idempotency doc
 	// only; a DECLINED, WITHDRAWN, LEFT or REMOVED row may request again. At
 	// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
@@ -455,7 +459,11 @@ type BeaconServiceHandler interface {
 	// set). limit is clamped (0 = 20, above 50 = 50).
 	ListMyBeacons(context.Context, *connect.Request[v1.ListMyBeaconsRequest]) (*connect.Response[v1.ListMyBeaconsResponse], error)
 	// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
-	// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
+	// (FAILED_PRECONDITION "organiser"). note 0-140 code points; it is trimmed, so whitespace only is empty. With
+	// FEATURE_BEACON_QUICK_JOIN on for the caller an empty note is accepted only when the organiser follows the caller
+	// (ViewerState.quick_join_allowed); otherwise FAILED_PRECONDITION "note_required", checked after the idempotency
+	// lookup (a same-key retry replays its stored answer) and after the full, already_requested and accepted checks, only
+	// when a new request would be written. With the flag off the note stays optional. A REQUESTED row
 	// already there => FAILED_PRECONDITION "already_requested"; an ACCEPTED one => success with the idempotency doc
 	// only; a DECLINED, WITHDRAWN, LEFT or REMOVED row may request again. At
 	// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
