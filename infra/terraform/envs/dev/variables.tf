@@ -1226,6 +1226,62 @@ variable "feature_chat_shared_plans_percent" {
   }
 }
 
+variable "feature_dm_post_share" {
+  description = "FEATURE_DM_POST_SHARE rollout mode for sending a post in a direct message (SendMessageRequest.shared_post_id; every Message.shared_post card is unavailable while globally off); needs FEATURE_MESSAGING and FEATURE_POSTS on for the caller: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_dm_post_share)
+    error_message = "feature_dm_post_share must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_dm_post_share_allowlist" {
+  description = "FEATURE_DM_POST_SHARE_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_dm_post_share_percent" {
+  description = "FEATURE_DM_POST_SHARE_PERCENT: 0-100, only meaningful when feature_dm_post_share = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_dm_post_share_percent >= 0 && var.feature_dm_post_share_percent <= 100 && floor(var.feature_dm_post_share_percent) == var.feature_dm_post_share_percent
+    error_message = "feature_dm_post_share_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_share_count" {
+  description = "FEATURE_SHARE_COUNT rollout mode for EngagementService.RecordPostShare (on for the caller) and the direct-message share record of Post.share_count (while not globally off); clients show the count only when it is on for the viewer: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_share_count)
+    error_message = "feature_share_count must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_share_count_allowlist" {
+  description = "FEATURE_SHARE_COUNT_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_share_count_percent" {
+  description = "FEATURE_SHARE_COUNT_PERCENT: 0-100, only meaningful when feature_share_count = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_share_count_percent >= 0 && var.feature_share_count_percent <= 100 && floor(var.feature_share_count_percent) == var.feature_share_count_percent
+    error_message = "feature_share_count_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_read_receipts" {
   description = "FEATURE_READ_RECEIPTS rollout mode for read receipts (F3): UpdateProfile.read_receipts=true, the MarkConversationRead receipt and ListMessages peer_read_at; needs messaging for any effect: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
   type        = string
