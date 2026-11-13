@@ -8,6 +8,7 @@ import 'package:dzeroth/features/communities/presentation/widgets/moderation_log
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tile_icon.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -159,7 +160,11 @@ void main() {
           await tester.pumpAndSettle();
           expect(rig.pinCalls, 1);
           await _tapTab(tester, 'About');
-          expect(find.text('Be kind'), findsOneWidget);
+          // The desktop's side column lists the rules too.
+          expect(
+            find.text('Be kind'),
+            desktop ? findsNWidgets(2) : findsOneWidget,
+          );
           await _tapTab(tester, 'Posts');
           await tester.tap(find.text('5 members'));
           await tester.pumpAndSettle();
@@ -213,16 +218,27 @@ void main() {
         testWidgets('Preview from 600 dp; Add a rule adds a rule at every '
             'width', (tester) async {
           await _open(tester, _pages['create']!, size);
+          // The desktop's preview is the side column's, live beside the form.
           expect(
             find.widgetWithText(TextButton, 'Preview'),
-            phone ? findsNothing : findsOneWidget,
+            phone || desktop ? findsNothing : findsOneWidget,
           );
           final add = find.widgetWithText(AppPillButton, 'Add a rule');
           expect(tester.widget<AppPillButton>(add).compact, !phone);
           await tester.tap(add);
           await tester.pumpAndSettle();
           expect(createFormField('Rule 1 title'), findsOneWidget);
-          if (!phone) {
+          if (desktop) {
+            await tester.enterText(createFormField('Name'), 'Go club');
+            await tester.pump();
+            expect(
+              find.descendant(
+                of: find.byType(AppSideColumn),
+                matching: find.text('Go club'),
+              ),
+              findsOneWidget,
+            );
+          } else if (!phone) {
             await tester.enterText(createFormField('Name'), 'Go club');
             await tester.tap(find.widgetWithText(TextButton, 'Preview'));
             await tester.pumpAndSettle();

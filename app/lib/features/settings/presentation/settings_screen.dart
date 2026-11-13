@@ -8,6 +8,7 @@ import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/router/shell_entries.dart';
 import '../../../core/telemetry/telemetry_consent_copy.dart';
 import '../../../core/telemetry/telemetry_consent_store.dart';
 import '../../../core/theme/app_theme.dart';
@@ -141,10 +142,22 @@ class SettingsDetailPlaceholder extends StatelessWidget {
 /// The list pane of Settings on the tablet layout from 840dp (band B), built
 /// by the shell beside the [SettingsScreen] detail: the categories, then
 /// Sign out. [selected] (from the URL) is highlighted.
+///
+/// On the desktop the shell also passes [sidePages] (the shells the caller
+/// has: Creator Studio, Calls, Advertise); they are listed after Scheduled
+/// posts, as in the desktop mock, and open as detail pages of their own
+/// routes. [selectedSidePage] is the path of the one open.
 class SettingsCategoriesPane extends StatelessWidget {
-  const SettingsCategoriesPane({super.key, this.selected});
+  const SettingsCategoriesPane({
+    super.key,
+    this.selected,
+    this.sidePages = const [],
+    this.selectedSidePage,
+  });
 
   final SettingsCategory? selected;
+  final List<ShellEntry> sidePages;
+  final String? selectedSidePage;
 
   @override
   Widget build(BuildContext context) {
@@ -166,6 +179,8 @@ class SettingsCategoriesPane extends StatelessWidget {
             rows: rows,
             selected: selected,
             open: context.go,
+            sidePages: settingsSidePagesOf(sidePages),
+            selectedSidePage: selectedSidePage,
           );
         },
       ),
@@ -296,11 +311,17 @@ class _CategoriesList extends StatefulWidget {
     required this.rows,
     required this.open,
     this.selected,
+    this.sidePages = const [],
+    this.selectedSidePage,
   });
 
   final _SettingsRows rows;
   final void Function(String location) open;
   final SettingsCategory? selected;
+
+  /// The desktop's extra rows ([settingsSidePagesOf]).
+  final List<ShellEntry> sidePages;
+  final String? selectedSidePage;
 
   static const _icons = {
     SettingsCategory.account: Icons.person_outline,
@@ -345,6 +366,18 @@ class _CategoriesListState extends State<_CategoriesList> {
     final rows = widget.rows;
     final selected = widget.selected;
     final indicator = context.appColors.selectedIndicator;
+    Widget markSelected(Widget row) => DecoratedBox(
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        border: BorderDirectional(
+          end: BorderSide(
+            color: indicator,
+            width: AppSettingsLayout.selectedBarWidth,
+          ),
+        ),
+      ),
+      child: row,
+    );
     Widget categoryRow(SettingsCategory category) {
       final row = SettingsRow(
         icon: _CategoriesList._icons[category]!,
@@ -353,19 +386,18 @@ class _CategoriesListState extends State<_CategoriesList> {
         selected: category == selected,
         onTap: () => widget.open(settingsCategoryLocation(category)),
       );
-      if (category != selected) return row;
-      return DecoratedBox(
-        position: DecorationPosition.foreground,
-        decoration: BoxDecoration(
-          border: BorderDirectional(
-            end: BorderSide(
-              color: indicator,
-              width: AppSettingsLayout.selectedBarWidth,
-            ),
-          ),
-        ),
-        child: row,
+      return category == selected ? markSelected(row) : row;
+    }
+
+    Widget sidePageRow(ShellEntry entry) {
+      final row = SettingsRow(
+        icon: entry.icon,
+        title: entry.label,
+        subtitle: _sidePageSummary(entry.kind),
+        selected: entry.path == widget.selectedSidePage,
+        onTap: () => widget.open(entry.path),
       );
+      return entry.path == widget.selectedSidePage ? markSelected(row) : row;
     }
 
     final visible = [
@@ -379,6 +411,7 @@ class _CategoriesListState extends State<_CategoriesList> {
         for (final category in visible)
           if (category != SettingsCategory.about) categoryRow(category),
         ?rows.scheduled,
+        for (final entry in widget.sidePages) sidePageRow(entry),
         if (visible.contains(SettingsCategory.about))
           categoryRow(SettingsCategory.about),
       ];
@@ -390,6 +423,8 @@ class _CategoriesListState extends State<_CategoriesList> {
         if (rows.scheduled case final scheduled?
             when matches(ScheduledPostsRow.title))
           scheduled,
+        for (final entry in widget.sidePages)
+          if (matches(entry.label)) sidePageRow(entry),
         for (final category in visible)
           for (final row in rows.of(category))
             if (_titleOf(row) case (final title, final icon)
@@ -432,6 +467,23 @@ class _CategoriesListState extends State<_CategoriesList> {
     );
   }
 }
+
+/// The shells the desktop lists beside the categories, in the desktop mock's
+/// order (Creator Studio, Calls, Advertise); Premium is a dialog, so it is
+/// not one of them. Only the entries the caller has ([entries]).
+List<ShellEntry> settingsSidePagesOf(List<ShellEntry> entries) => [
+  for (final kind in const [
+    ShellKind.creatorStudio,
+    ShellKind.calls,
+    ShellKind.advertise,
+  ])
+    ...entries.where((e) => e.kind == kind),
+];
+
+String _sidePageSummary(ShellKind kind) => switch (kind) {
+  ShellKind.creatorStudio => 'Your reach',
+  _ => 'Coming soon',
+};
 
 /// The "Search settings" pill of the tablet / desktop mocks (dz.css
 /// `.search`): white, a hairline, fully rounded, a search icon.

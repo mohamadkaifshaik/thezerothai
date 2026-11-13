@@ -1,3 +1,5 @@
+import '../../../core/widgets/shell_side_column.dart';
+
 import 'package:flutter/material.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -85,6 +87,7 @@ class _CommunityModerationLogScreenState
 
   @override
   void dispose() {
+    _sideColumn.dispose();
     _scroll.dispose();
     _log.close();
     _moderation.close();
@@ -222,12 +225,32 @@ class _CommunityModerationLogScreenState
     );
   }
 
+  final _sideColumn = ShellSideColumnLease();
+
   @override
   Widget build(BuildContext context) {
     // "About this log" is the desktop mock's side box; the desktop side
     // column is the shell's, so it leads the log instead.
-    final aboutInline =
-        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
+    // Inside the desktop shell the box is the side column's (the ModLog
+    // mock), while the log lists entries; elsewhere it leads the log.
+    final beside = shellSideColumnBeside(context);
+    _sideColumn.set(
+      context,
+      active: beside,
+      builder: (_) =>
+          BlocBuilder<CommunityModerationLogCubit, ModerationLogState>(
+            bloc: _log,
+            buildWhen: (a, b) =>
+                moderationLogListed(a) != moderationLogListed(b),
+            builder: (context, log) => moderationLogListed(log)
+                ? const ModerationLogAbout(
+                    key: ValueKey('moderation-log-about'),
+                  )
+                : const SizedBox.shrink(),
+          ),
+    );
+    final aboutInline = wide && !beside;
     return Scaffold(
       body: SafeArea(
         // The floating bar overlays the page: the scroll view runs behind
