@@ -167,8 +167,8 @@ func TestRepo_ShareCountRepair(t *testing.T) {
 		t.Fatal("SetShareCount on a missing post must fail")
 	}
 	// The post converter reads the counter back.
-	p, err := e.posts.Get(ctx, pid)
-	if err != nil || p.ShareCount != 4 {
-		t.Fatalf("post ShareCount = %v, %v; want 4", p, err)
+	got, err := e.posts.GetAll(ctx, []string{pid})
+	if err != nil || got[pid] == nil || got[pid].ShareCount != 4 {
+		t.Fatalf("post = %v, %v; want ShareCount 4", got[pid], err)
 	}
 }
