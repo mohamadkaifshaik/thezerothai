@@ -67,6 +67,20 @@ String? localHandleIssue(String handle) {
   return null;
 }
 
+/// The `enabled_features` name of handle suggestions (Change handle only; the
+/// sign-up form has no flag set yet and relies on the server's answer).
+const kFeatureHandleSuggestions = 'handle_suggestions';
+
+/// How many suggestion chips at most (the server sends 0-5).
+const kMaxHandleSuggestions = 5;
+
+/// Whether the answer says the handle is merely taken: not available and
+/// neither a format problem nor reserved. Suggestions are only asked then.
+bool isHandleTakenAnswer(identity.CheckHandleAvailabilityResponse response) =>
+    !response.available &&
+    response.reason != 'invalid_format' &&
+    response.reason != 'reserved';
+
 /// A resolved availability check: the status plus the text to show (empty for
 /// `available`).
 typedef HandleCheck = ({HandleCheckStatus status, String message});

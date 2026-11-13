@@ -34,6 +34,8 @@ void main() {
     identityRepository = MockIdentityRepository();
     when(() => identityRepository.cachedOwnProfile(any()))
         .thenAnswer((_) async => null);
+    when(() => identityRepository.suggestHandles(any()))
+        .thenAnswer((_) async => const []);
   });
 
   group('OnboardingProfileUpdated (P2 edit profile / change handle)', () {
