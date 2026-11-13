@@ -23,6 +23,8 @@ const Map<String, String> kScreenNames = {
   '/home/pinned': 'pinned',
   '/follow-requests': 'follow_requests',
   '/explore': 'explore',
+  '/explore/trending': 'explore_trending',
+  '/explore/media': 'explore_media',
   '/search': 'search',
   '/notifications': 'notifications',
   '/compose': 'compose',

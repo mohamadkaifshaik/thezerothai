@@ -163,7 +163,15 @@ abstract final class AppSize {
   static const double sideColumn = 350;
 
   /// Width of the avatar drawer (capped at 85 % of the screen).
-  static const double drawerWidth = 277;
+  static const double drawerWidth = 320;
+
+  /// The drawer header avatar, a tile's icon, and the decorative corner glow.
+  static const double drawerAvatar = 64;
+
+  /// Minimum height of a quick tile of the drawer grid.
+  static const double drawerTile = 96;
+  static const double drawerTileIcon = 32;
+  static const double drawerGlow = 200;
 
   /// Avatars.
   static const double avatarSm = 32;
@@ -1057,6 +1065,20 @@ abstract final class AppPalette {
 
   /// Text field fill on dark: dz.css `rgba(250,250,250,.06)` (pearl at 6 %).
   static const Color fieldFillDark = Color(0x0FFAFAFA);
+
+  // The avatar drawer (Quick Access Navigation Drawer): alternating tinted
+  // tiles, the divider and the aqua corner glow. Decorative; labels and icons
+  // keep the theme's text and primary colours (AA on every tint).
+  static const Color drawerTileBlue = Color(0xFFE2EFFB);
+  static const Color drawerTileTeal = Color(0xFFDCF4EF);
+  static const Color drawerTileBlueDark = Color(0xFF172C48);
+  static const Color drawerTileTealDark = Color(0xFF123A3C);
+  static const Color drawerDividerLight = Color(0xFFCADFEF);
+  static const Color drawerDividerDark = Color(0xFF2A3D5A);
+  static const Color drawerGlowAqua = Color(0xFFD3F0F8);
+  static const Color drawerGlowMint = Color(0xFFBDEBE3);
+  static const Color drawerGlowAquaDark = Color(0xFF1A4458);
+  static const Color drawerGlowMintDark = Color(0xFF14544F);
 }
 
 /// Redesign gradients. Declared only here.
@@ -1106,6 +1128,27 @@ abstract final class AppGradients {
     radius: .9,
     colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
     stops: [0, .55, 1],
+  );
+}
+
+/// The decorative corner glow of the avatar drawer header: a large aqua
+/// disc and a smaller mint one over it, faded to transparent at the edge.
+abstract final class AppDrawerGlow {
+  static const RadialGradient aquaLight = RadialGradient(
+    colors: [AppPalette.drawerGlowAqua, Color(0x00D3F0F8)],
+    stops: [0.6, 1],
+  );
+  static const RadialGradient mintLight = RadialGradient(
+    colors: [AppPalette.drawerGlowMint, Color(0x00BDEBE3)],
+    stops: [0.6, 1],
+  );
+  static const RadialGradient aquaDark = RadialGradient(
+    colors: [AppPalette.drawerGlowAquaDark, Color(0x001A4458)],
+    stops: [0.6, 1],
+  );
+  static const RadialGradient mintDark = RadialGradient(
+    colors: [AppPalette.drawerGlowMintDark, Color(0x0014544F)],
+    stops: [0.6, 1],
   );
 }
 
@@ -1688,6 +1731,18 @@ abstract final class AppExplorePeopleLayout {
   static const double trendRankGap = 14;
   static const double trendPaddingPhone = 20;
   static const double trendPaddingWide = 16;
+
+  /// Explore's Trending and Media sections (the Explore reference): the
+  /// section title's size, the gap above a section, the media row's target
+  /// tile width (columns = row width / this, 3 to [mediaMaxColumns]), the
+  /// tile's width : height and the See all page's grid gap.
+  static const double sectionTitleSize = 22;
+  static const double sectionGap = 20;
+  static const double mediaTileTarget = 150;
+  static const int mediaMinColumns = 3;
+  static const int mediaMaxColumns = 6;
+  static const double mediaTileAspect = 0.75;
+  static const double mediaGap = 6;
 
   /// Edit profile: the flat band behind the avatar (a phone's inset card, a
   /// wide layout's full-width strip), how far the avatar hangs over its
