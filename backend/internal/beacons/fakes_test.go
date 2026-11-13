@@ -55,6 +55,8 @@ type fakeRepo struct {
 	pqueries      []ParticipantQuery
 	beaconBatches [][]string
 	respondDone   map[string]ParticipantResult // idempotency key + request hash -> committed Respond result
+	requestDone   map[string]ParticipantResult // idempotency key + request hash -> committed Request result
+	prechecks     int                          // Request prechecks run
 	// GetParticipants calls: the uid and the beacon ids of each batch.
 	participantBatches []participantBatch
 }
@@ -79,10 +81,37 @@ func (f *fakeRepo) GetParticipants(_ context.Context, uid string, beaconIDs []st
 
 func (f *fakeRepo) pkey(beaconID, uid string) string { return beaconID + "|" + uid }
 
-func (f *fakeRepo) Request(_ context.Context, p RequestParams) (ParticipantResult, error) {
+// Request emulates the repository's idempotency like Respond: a key in requestDone replays its stored result without
+// running p.Precheck; otherwise a canned perr refuses first (the beacon and row checks precede Precheck), then Precheck
+// runs (a refusal writes nothing and is not recorded) and a success is stored.
+func (f *fakeRepo) Request(ctx context.Context, p RequestParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	if res, ok := f.requestDone[p.IdemKey+"|"+p.RequestHash]; ok {
+		f.mu.Unlock()
+		res.Outcome = Replayed
+		return res, nil
+	}
+	if f.perr != nil {
+		defer f.mu.Unlock()
+		f.requestedBy = append(f.requestedBy, p)
+		return f.presult, f.perr
+	}
+	f.mu.Unlock()
+	if p.Precheck != nil {
+		f.mu.Lock()
+		f.prechecks++
+		f.mu.Unlock()
+		if err := p.Precheck(ctx); err != nil {
+			return ParticipantResult{}, err
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requestedBy = append(f.requestedBy, p)
+	if f.requestDone == nil {
+		f.requestDone = map[string]ParticipantResult{}
+	}
+	f.requestDone[p.IdemKey+"|"+p.RequestHash] = f.presult
 	return f.presult, f.perr
 }
 
@@ -286,6 +315,33 @@ type fakeGraph struct {
 	errs  map[string]error
 	mu    sync.Mutex
 	calls map[string]int
+	// lookups records the candidates of each FollowersAmong call (graph.FollowLookup); lookupErr fails every call.
+	lookups   [][]string
+	lookupErr error
+}
+
+// FollowersAmong answers from the candidates' own snapshots (Following[viewer]: the candidate follows the viewer; a
+// Requested entry is not a follow) and records the call; it reads no snapshot (calls is untouched).
+func (g *fakeGraph) FollowersAmong(_ context.Context, viewer string, candidates []string) (map[string]bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lookups = append(g.lookups, append([]string(nil), candidates...))
+	if g.lookupErr != nil {
+		return nil, g.lookupErr
+	}
+	out := map[string]bool{}
+	for _, c := range candidates {
+		if g.snaps[c].Following[viewer] {
+			out[c] = true
+		}
+	}
+	return out, nil
+}
+
+func (g *fakeGraph) lookupCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return len(g.lookups)
 }
 
 func (g *fakeGraph) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
@@ -377,6 +433,7 @@ type env struct {
 	flags  fakeFlags
 	events *fakeEvents
 	now    time.Time
+	deps   Deps
 	svc    Service
 }
 
@@ -421,12 +478,20 @@ func newEnv() *env {
 		events: &fakeEvents{},
 		now:    testNow,
 	}
-	e.svc = New(Deps{
-		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, IDs: fakeIDs{},
+	e.deps = Deps{
+		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, Flags: e.flags, Follows: e.graph, IDs: fakeIDs{},
 		CursorKey: []byte("0123456789abcdef0123456789abcdef"), Limits: Limits{MaxOpenPerUser: 5, MaxPendingRequests: 10, MaxOpenSpots: 20},
 		Events: e.events, Now: func() time.Time { return e.now },
-	})
+	}
+	e.svc = New(e.deps)
 	return e
+}
+
+// rebuild is a service over the same fakes with mod applied to the dependencies.
+func (e *env) rebuild(mod func(*Deps)) Service {
+	d := e.deps
+	mod(&d)
+	return New(d)
 }
 
 type fakeIDs struct{}

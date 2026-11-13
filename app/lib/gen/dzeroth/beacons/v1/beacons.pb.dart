@@ -319,6 +319,7 @@ class ViewerState extends $pb.GeneratedMessage {
     $core.bool? canWithdraw,
     $core.bool? canLeave,
     $core.bool? canManage,
+    $core.bool? quickJoinAllowed,
   }) {
     final result = ViewerState._();
     if (role != null) result.role = role;
@@ -327,6 +328,7 @@ class ViewerState extends $pb.GeneratedMessage {
     if (canWithdraw != null) result.canWithdraw = canWithdraw;
     if (canLeave != null) result.canLeave = canLeave;
     if (canManage != null) result.canManage = canManage;
+    if (quickJoinAllowed != null) result.quickJoinAllowed = quickJoinAllowed;
     return result;
   }
 
@@ -352,6 +354,7 @@ class ViewerState extends $pb.GeneratedMessage {
     ..aOB(4, _omitFieldNames ? '' : 'canWithdraw')
     ..aOB(5, _omitFieldNames ? '' : 'canLeave')
     ..aOB(6, _omitFieldNames ? '' : 'canManage')
+    ..aOB(7, _omitFieldNames ? '' : 'quickJoinAllowed')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -430,6 +433,24 @@ class ViewerState extends $pb.GeneratedMessage {
   $core.bool hasCanManage() => $_has(5);
   @$pb.TagNumber(6)
   void clearCanManage() => $_clearField(6);
+
+  /// True when the caller may join with one tap, sending RequestToJoin with an empty note: FEATURE_BEACONS and
+  /// FEATURE_BEACON_QUICK_JOIN are on for the caller, can_request is true and the organiser follows the caller (the
+  /// follow edge organiser -> caller; a pending follow request is not a follow). Computed by GetBeacon, ListBeacons,
+  /// ListMyBeacons and ListSharedBeacons. Cost: nothing while a flag is off or no row is requestable; otherwise one
+  /// batched follow lookup per response for the distinct organisers of its requestable rows (at most 50: at most 2
+  /// batched edge reads, answered from a 60 s cache first), never one read per row. A failed lookup leaves the field
+  /// false (the response still succeeds). Always false in the responses of the participation RPCs; post embeds
+  /// (dzeroth.posts.v1.BeaconPreview) carry no viewer state. Advisory and up to 60 s stale: RequestToJoin re-checks the
+  /// same edge when it writes, so a one-tap send can still answer FAILED_PRECONDITION "note_required" (show the note).
+  @$pb.TagNumber(7)
+  $core.bool get quickJoinAllowed => $_getBF(6);
+  @$pb.TagNumber(7)
+  set quickJoinAllowed($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasQuickJoinAllowed() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearQuickJoinAllowed() => $_clearField(7);
 }
 
 class BeaconView extends $pb.GeneratedMessage {
@@ -2814,7 +2835,11 @@ class BeaconServiceApi {
           'ListMyBeacons', request, ListMyBeaconsResponse());
 
   /// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
-  /// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
+  /// (FAILED_PRECONDITION "organiser"). note 0-140 code points; it is trimmed, so whitespace only is empty. With
+  /// FEATURE_BEACON_QUICK_JOIN on for the caller an empty note is accepted only when the organiser follows the caller
+  /// (ViewerState.quick_join_allowed); otherwise FAILED_PRECONDITION "note_required", checked after the idempotency
+  /// lookup (a same-key retry replays its stored answer) and after the full, already_requested and accepted checks, only
+  /// when a new request would be written. With the flag off the note stays optional. A REQUESTED row
   /// already there => FAILED_PRECONDITION "already_requested"; an ACCEPTED one => success with the idempotency doc
   /// only; a DECLINED, WITHDRAWN, LEFT or REMOVED row may request again. At
   /// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A

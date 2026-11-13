@@ -351,7 +351,8 @@ void main() {
       });
     }
 
-    testWidgets('desktop (1200) keeps the full-screen thread (R-1)', (
+    testWidgets('desktop (1200): the thread is inside the shell with no '
+        'list beside it (the Chat mock has the peer column instead)', (
       tester,
     ) async {
       await open(
@@ -364,7 +365,7 @@ void main() {
           of: find.byType(ThreadScreen),
           matching: find.byType(MainShell),
         ),
-        findsNothing,
+        findsOneWidget,
       );
       expect(findMessagesPane(), findsNothing);
       await done(tester);
@@ -540,8 +541,14 @@ void main() {
   group('the boundaries (section 5.5)', () {
     for (final width in kBoundaryWidths) {
       final split = width >= 840 && width < 1200;
+      // From 1200 the thread is inside the shell, without a list.
+      final inShell = width >= 840;
       testWidgets('${width.toInt()}: a thread is '
-          '${split ? 'the split page' : 'full screen'}', (tester) async {
+          '${split
+              ? 'the split page'
+              : inShell
+              ? 'in the shell'
+              : 'full screen'}', (tester) async {
         await open(
           tester,
           width: width,
@@ -553,7 +560,7 @@ void main() {
             of: find.byType(ThreadScreen),
             matching: find.byType(MainShell),
           ),
-          split ? findsOneWidget : findsNothing,
+          inShell ? findsOneWidget : findsNothing,
         );
         expect(tester.takeException(), isNull);
         await done(tester);

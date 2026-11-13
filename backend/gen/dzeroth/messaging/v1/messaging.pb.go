@@ -32,9 +32,13 @@
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in text | conversation_id | recipient_user_id | page_token |
-//   since_token | idempotency_key (and folder, ListConversations only); before any lookup.
+//   since_token | idempotency_key | shared_post_id (and folder, ListConversations only); before any lookup.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "messaging".
-// - NOT_FOUND: one message for every cause (above).
+// - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id may also answer NOT_FOUND
+//   "post not found" (the GetPost bytes) when the caller may not see the post.
+// - FAILED_PRECONDITION + ERROR_REASON_PROTECTED_ACCOUNT: SendMessage sharing a protected account's post by anyone but
+//   that account; FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "dm_post_share" for a share with that
+//   flag off for the caller.
 // - FAILED_PRECONDITION + ERROR_REASON_CANNOT_MESSAGE: one reason, with identical bytes, for a block in either
 //   direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose peer
 //   deleted the account. It is no oracle beyond what GetProfile's NOT_FOUND already reveals.
@@ -66,6 +70,7 @@ package messagingv1
 
 import (
 	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	v11 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -438,9 +443,13 @@ type MessagePreview struct {
 	// At most 100 code points of the text; empty for a tombstone.
 	Snippet string `protobuf:"bytes,1,opt,name=snippet,proto3" json:"snippet,omitempty"`
 	// True when the caller sent it (render "You: ").
-	FromSelf      bool                   `protobuf:"varint,2,opt,name=from_self,json=fromSelf,proto3" json:"from_self,omitempty"`
-	State         MessageState           `protobuf:"varint,3,opt,name=state,proto3,enum=dzeroth.messaging.v1.MessageState" json:"state,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	FromSelf  bool                   `protobuf:"varint,2,opt,name=from_self,json=fromSelf,proto3" json:"from_self,omitempty"`
+	State     MessageState           `protobuf:"varint,3,opt,name=state,proto3,enum=dzeroth.messaging.v1.MessageState" json:"state,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// True when the message shares a post. The snippet is then the sender's text (the caption or the post URL), never
+	// the post's own text: the preview is frozen on the entry and must not outlive a delete, a takedown or a protect.
+	// Render "Shared a post" when the snippet is the post URL.
+	SharedPost    bool `protobuf:"varint,5,opt,name=shared_post,json=sharedPost,proto3" json:"shared_post,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -503,6 +512,13 @@ func (x *MessagePreview) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *MessagePreview) GetSharedPost() bool {
+	if x != nil {
+		return x.SharedPost
+	}
+	return false
+}
+
 type Message struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 32 lower-case hex, opaque; derived from the sender and the idempotency_key. Dedupe by it.
@@ -514,7 +530,16 @@ type Message struct {
 	Text  string       `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
 	State MessageState `protobuf:"varint,5,opt,name=state,proto3,enum=dzeroth.messaging.v1.MessageState" json:"state,omitempty"`
 	// Server time of the send; the sort key (newest first).
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// The post this message shares (SendMessageRequest.shared_post_id), decided for the reader of THIS response, live
+	// (never a copy frozen at send time). When the reader may see the post by the GetPost rules every field is its
+	// current value; otherwise only post_id and unavailable = true are set ("Post unavailable"), one form for every
+	// cause: deleted, hidden by a moderator, author suspended or deleting, a block in either direction between the
+	// reader and the author (or a QUOTE's embedded author), a protected author the reader does not follow. A mute is not
+	// a block: the card is shown. Unset when the message shares no post and on a tombstone (state DELETED_ACCOUNT or
+	// REMOVED). EmbeddedPost.author is a frozen-copy AuthorSnapshot (is_private false). A tap opens /post/:id
+	// (PostService.GetPost decides again).
+	SharedPost    *v11.EmbeddedPost `protobuf:"bytes,8,opt,name=shared_post,json=sharedPost,proto3" json:"shared_post,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -591,6 +616,13 @@ func (x *Message) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Message) GetSharedPost() *v11.EmbeddedPost {
+	if x != nil {
+		return x.SharedPost
+	}
+	return nil
+}
+
 type SendMessageRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
@@ -599,8 +631,12 @@ type SendMessageRequest struct {
 	//	*SendMessageRequest_ConversationId
 	//	*SendMessageRequest_RecipientUserId
 	Target isSendMessageRequest_Target `protobuf_oneof:"target"`
-	// NFC, <= 280 code points, <= 10 lines (the post grammar).
-	Text          string `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
+	// NFC, <= 280 code points, <= 10 lines (the post grammar). Required, also when shared_post_id is set: the caption,
+	// or the canonical post URL when the user typed none.
+	Text string `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
+	// Optional: share this post in the message (FEATURE_DM_POST_SHARE). 19-digit post id; a REPOST id shares its
+	// original. Rules in the SendMessage comment.
+	SharedPostId  string `protobuf:"bytes,5,opt,name=shared_post_id,json=sharedPostId,proto3" json:"shared_post_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -670,6 +706,13 @@ func (x *SendMessageRequest) GetRecipientUserId() string {
 func (x *SendMessageRequest) GetText() string {
 	if x != nil {
 		return x.Text
+	}
+	return ""
+}
+
+func (x *SendMessageRequest) GetSharedPostId() string {
+	if x != nil {
+		return x.SharedPostId
 	}
 	return ""
 }
@@ -1305,7 +1348,7 @@ var File_dzeroth_messaging_v1_messaging_proto protoreflect.FileDescriptor
 
 const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\n" +
-	"$dzeroth/messaging/v1/messaging.proto\x12\x14dzeroth.messaging.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x04\n" +
+	"$dzeroth/messaging/v1/messaging.proto\x12\x14dzeroth.messaging.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x04\n" +
 	"\fConversation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\x04kind\x18\x02 \x01(\x0e2&.dzeroth.messaging.v1.ConversationKindR\x04kind\x125\n" +
@@ -1320,13 +1363,15 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"updated_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12<\n" +
 	"\fpeer_read_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"peerReadAt\"\xbc\x01\n" +
+	"peerReadAt\"\xdd\x01\n" +
 	"\x0eMessagePreview\x12\x18\n" +
 	"\asnippet\x18\x01 \x01(\tR\asnippet\x12\x1b\n" +
 	"\tfrom_self\x18\x02 \x01(\bR\bfromSelf\x128\n" +
 	"\x05state\x18\x03 \x01(\x0e2\".dzeroth.messaging.v1.MessageStateR\x05state\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xee\x01\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1f\n" +
+	"\vshared_post\x18\x05 \x01(\bR\n" +
+	"sharedPost\"\xaf\x02\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x1b\n" +
@@ -1334,12 +1379,15 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\x04text\x18\x04 \x01(\tR\x04text\x128\n" +
 	"\x05state\x18\x05 \x01(\x0e2\".dzeroth.messaging.v1.MessageStateR\x05state\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAtJ\x04\b\a\x10\b\"\xb4\x01\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12?\n" +
+	"\vshared_post\x18\b \x01(\v2\x1e.dzeroth.posts.v1.EmbeddedPostR\n" +
+	"sharedPostJ\x04\b\a\x10\b\"\xda\x01\n" +
 	"\x12SendMessageRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12)\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tH\x00R\x0econversationId\x12,\n" +
 	"\x11recipient_user_id\x18\x03 \x01(\tH\x00R\x0frecipientUserId\x12\x12\n" +
-	"\x04text\x18\x04 \x01(\tR\x04textB\b\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\x12$\n" +
+	"\x0eshared_post_id\x18\x05 \x01(\tR\fsharedPostIdB\b\n" +
 	"\x06target\"\x96\x01\n" +
 	"\x13SendMessageResponse\x127\n" +
 	"\amessage\x18\x01 \x01(\v2\x1d.dzeroth.messaging.v1.MessageR\amessage\x12F\n" +
@@ -1443,6 +1491,7 @@ var file_dzeroth_messaging_v1_messaging_proto_goTypes = []any{
 	(*DeleteConversationResponse)(nil),   // 18: dzeroth.messaging.v1.DeleteConversationResponse
 	(*v1.AuthorSnapshot)(nil),            // 19: dzeroth.common.v1.AuthorSnapshot
 	(*timestamppb.Timestamp)(nil),        // 20: google.protobuf.Timestamp
+	(*v11.EmbeddedPost)(nil),             // 21: dzeroth.posts.v1.EmbeddedPost
 }
 var file_dzeroth_messaging_v1_messaging_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.messaging.v1.Conversation.kind:type_name -> dzeroth.messaging.v1.ConversationKind
@@ -1456,29 +1505,30 @@ var file_dzeroth_messaging_v1_messaging_proto_depIdxs = []int32{
 	20, // 8: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
 	3,  // 9: dzeroth.messaging.v1.Message.state:type_name -> dzeroth.messaging.v1.MessageState
 	20, // 10: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	6,  // 11: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
-	4,  // 12: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
-	2,  // 13: dzeroth.messaging.v1.ListConversationsRequest.folder:type_name -> dzeroth.messaging.v1.Folder
-	4,  // 14: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
-	6,  // 15: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
-	4,  // 16: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
-	7,  // 17: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
-	9,  // 18: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
-	11, // 19: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
-	13, // 20: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
-	15, // 21: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
-	17, // 22: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
-	8,  // 23: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
-	10, // 24: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
-	12, // 25: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
-	14, // 26: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
-	16, // 27: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
-	18, // 28: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
-	23, // [23:29] is the sub-list for method output_type
-	17, // [17:23] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	21, // 11: dzeroth.messaging.v1.Message.shared_post:type_name -> dzeroth.posts.v1.EmbeddedPost
+	6,  // 12: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
+	4,  // 13: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
+	2,  // 14: dzeroth.messaging.v1.ListConversationsRequest.folder:type_name -> dzeroth.messaging.v1.Folder
+	4,  // 15: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
+	6,  // 16: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
+	4,  // 17: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
+	7,  // 18: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
+	9,  // 19: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
+	11, // 20: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
+	13, // 21: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
+	15, // 22: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
+	17, // 23: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
+	8,  // 24: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
+	10, // 25: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
+	12, // 26: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
+	14, // 27: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
+	16, // 28: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
+	18, // 29: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
+	24, // [24:30] is the sub-list for method output_type
+	18, // [18:24] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_messaging_v1_messaging_proto_init() }

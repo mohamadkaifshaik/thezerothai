@@ -12,14 +12,17 @@ import 'bloc/conversations_session.dart';
 /// Whether the root thread routes (`/messages/:id`, `/messages/new/draft`)
 /// draw the Messages split page now (tablet plan section 5.3): the tablet
 /// layout (`ui_shell` + `ui_tablet`) in band B (840-1199dp), with the app's
-/// hoisted [ConversationsSession]. Phones, band A, desktop (ruling R-1) and
-/// either flag off keep today's full-screen thread.
+/// hoisted [ConversationsSession]. From 1200dp (desktop) the thread is inside
+/// the shell too, without a list (the Chat mock has the peer's side column
+/// instead: `ThreadSideBoxes`). Phones, band A and either flag off keep
+/// today's full-screen thread.
 ///
 /// [listen] subscribes [context] to the flags (a build); off, it reads them
 /// once (a route's transition and duration).
 bool messagesSplitPageAt(BuildContext context, {bool listen = true}) {
   final width = MediaQuery.sizeOf(context).width;
-  if (ShellBand.of(width) != ShellBand.expanded) return false;
+  final band = ShellBand.of(width);
+  if (band != ShellBand.expanded && band != ShellBand.desktop) return false;
   try {
     final flags = listen
         ? isFeatureEnabled(context, kFeatureUiShell) &&
@@ -112,7 +115,8 @@ class _ThreadPageRoute<T> extends PageRoute<T>
 
 /// The child of the root thread routes (tablet plan section 5.2, "Thread
 /// across 839↔840"): today's thread below 840dp, the Messages split page at
-/// 840-1199dp (`MainShell` with the conversation list beside the thread).
+/// 840-1199dp (`MainShell` with the conversation list beside the thread) and
+/// the thread inside the desktop shell from 1200dp.
 ///
 /// It owns one `GlobalKey` and puts it on the [thread] in both branches, so a
 /// resize across 840dp re-parents the thread (its cubits, scroll position,

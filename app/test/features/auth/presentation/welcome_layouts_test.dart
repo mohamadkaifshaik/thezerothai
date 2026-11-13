@@ -67,8 +67,8 @@ void main() {
   setUpAll(() async {
     registerFallbackValue(const AuthGoogleSignInRequested());
     if (!_screenshots) return;
-    for (final family in ['Manrope', 'DM Sans']) {
-      final font = family == 'Manrope' ? 'Manrope' : 'DMSans';
+    for (final family in ['Inter']) {
+      const font = 'Inter';
       await (FontLoader(
         family,
       )..addFont(rootBundle.load('assets/fonts/$font.ttf'))).load();

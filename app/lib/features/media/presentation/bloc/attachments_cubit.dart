@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/media/v1/media.pb.dart' as pb;
+import '../../../posts/domain/composer_attachment_rules.dart';
 import '../../data/gif_source.dart';
 import '../../data/image_picker_service.dart';
 import '../../data/media_uploader.dart';
@@ -11,6 +12,14 @@ import '../../domain/image_processor.dart';
 import '../../domain/media_feature_flag.dart';
 import '../../domain/processed_image.dart';
 import '../../domain/processing_cancellation.dart';
+
+/// Shown when a keyboard GIF arrives while GIFs are off.
+const kGifOffMessage = 'GIFs are not available right now.';
+
+/// Whether [bytes] start like a GIF.
+bool looksLikeGif(Uint8List bytes) =>
+    bytes.length >= 6 &&
+    String.fromCharCodes(bytes.sublist(0, 6)).startsWith('GIF8');
 
 /// What an attachment is. A post has up to [kMaxPostImages] photos, or one
 /// GIF, never both (the rule lives in `ComposerAttachmentRules`).
@@ -163,6 +172,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     required MediaUploader uploader,
     GifSource? gifSource,
     GifPreparer? gifPreparer,
+    this.gifEnabled = false,
     Uuid? uuid,
   }) : _picker = picker,
        _processor = processor,
@@ -178,6 +188,11 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   final GifSource _gifSource;
   final GifPreparer _gifPreparer;
   final Uuid _uuid;
+
+  /// Whether this composer offers GIFs (`FEATURE_GIF` and `media`). With it a
+  /// single GIF chosen in the photo picker stays a GIF; without it the file
+  /// is processed as a still photo, as before.
+  final bool gifEnabled;
 
   /// Opens the picker for the remaining slots and processes each choice.
   Future<void> pick() async {
@@ -197,6 +212,15 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
         return;
       }
       if (isClosed || files.isEmpty) return;
+      // A lone GIF from the gallery keeps its animation: it goes the GIF way
+      // (checked, not re-encoded) instead of becoming a still photo.
+      if (gifEnabled &&
+          state.isEmpty &&
+          files.length == 1 &&
+          looksLikeGif(files.single)) {
+        await _attachGif(files.single);
+        return;
+      }
       await addImages(files);
     } finally {
       _picking = false;
@@ -222,30 +246,90 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
         return;
       }
       if (isClosed || bytes == null) return;
-      final id = _uuid.v4();
-      emit(
-        AttachmentsState(
-          items: [Attachment(id: id, kind: AttachmentKind.gif)],
-        ),
-      );
-      try {
-        final gif = await _gifPreparer.prepare(bytes);
-        _update(
-          id,
-          (a) => a.copyWith(status: AttachmentStatus.ready, image: gif),
-        );
-      } on GifRefusedException catch (refused) {
-        // Nothing is kept: the user picks another file.
-        if (!isClosed) emit(AttachmentsState(refusal: refused.message));
-      } catch (_) {
-        if (!isClosed) {
-          emit(AttachmentsState(refusal: GifRefusedException.notGif.message));
-        }
-      }
+      await _attachGif(bytes);
     } finally {
       _picking = false;
     }
   }
+
+  /// Checks [bytes] as a GIF and attaches it (the picker's lock is held by the
+  /// caller). A refusal keeps nothing.
+  Future<void> _attachGif(Uint8List bytes) async {
+    final id = _uuid.v4();
+    emit(
+      AttachmentsState(
+        items: [Attachment(id: id, kind: AttachmentKind.gif)],
+      ),
+    );
+    try {
+      final gif = await _gifPreparer.prepare(bytes);
+      _update(
+        id,
+        (a) => a.copyWith(status: AttachmentStatus.ready, image: gif),
+      );
+    } on GifRefusedException catch (refused) {
+      // Nothing is kept: the user picks another file.
+      if (!isClosed) emit(AttachmentsState(refusal: refused.message));
+    } catch (_) {
+      if (!isClosed) {
+        emit(AttachmentsState(refusal: GifRefusedException.notGif.message));
+      }
+    }
+  }
+
+  /// Content a keyboard inserted into the text field (Gboard's GIF tab, a
+  /// sticker): [mimeType] and [bytes]. A GIF becomes the post's GIF (checked,
+  /// never re-encoded); a PNG, JPEG or WebP becomes a photo. Both follow the
+  /// toolbar's [rules], so a refused insert says why, as its button would.
+  /// Any other type is ignored.
+  Future<void> insertContent({
+    required String mimeType,
+    required Uint8List bytes,
+    required ComposerAttachmentRules rules,
+  }) async {
+    final type = mimeType.toLowerCase();
+    final isGif = type == kGifContentType;
+    if (!isGif && !_photoMimeTypes.contains(type)) return;
+    if (_picking || isClosed || bytes.isEmpty) return;
+    if (!rules.mediaOn) return;
+    if (isGif) {
+      if (!rules.showGif) return _refuse(kGifOffMessage);
+      final block = rules.gif;
+      if (block != ComposerBlock.none) return _refuse(block.gifTooltip);
+      _picking = true;
+      try {
+        await _attachGif(bytes);
+      } finally {
+        _picking = false;
+      }
+      return;
+    }
+    final block = rules.photo;
+    if (block != ComposerBlock.none) return _refuse(block.photoTooltip);
+    if (state.photoCount >= kMaxPostImages) {
+      return _refuse('You can add up to $kMaxPostImages photos.');
+    }
+    _picking = true;
+    try {
+      await addImages([bytes]);
+    } finally {
+      _picking = false;
+    }
+  }
+
+  void _refuse(String message) {
+    if (!isClosed) emit(AttachmentsState(items: state.items, refusal: message));
+  }
+
+  /// The mime types a keyboard may insert (the field's allowed list).
+  static const List<String> insertableMimeTypes = [
+    kGifContentType,
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+  ];
+
+  static const _photoMimeTypes = {'image/png', 'image/jpeg', 'image/webp'};
 
   /// The screen showed the GIF refusal.
   void refusalShown() {

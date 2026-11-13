@@ -228,6 +228,11 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 			res = ParticipantResult{Outcome: Unchanged, Beacon: d.beacon(p.BeaconID), Participant: pd.participant(p.BeaconID)}
 			return nil
 		}
+		if p.Precheck != nil {
+			if err := p.Precheck(ctx); err != nil {
+				return err
+			}
+		}
 		n, err := r.countPending(ctx, tx, p.UID, p.MaxPending, p.Now)
 		if err != nil {
 			return err

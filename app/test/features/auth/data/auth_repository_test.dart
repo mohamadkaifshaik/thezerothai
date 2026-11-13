@@ -18,6 +18,8 @@ class _MockUser extends Mock implements fb.User {}
 
 class _MockUserInfo extends Mock implements fb.UserInfo {}
 
+class _MockUserMetadata extends Mock implements fb.UserMetadata {}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late _MockFirebaseAuth firebaseAuth;
@@ -514,6 +516,43 @@ void main() {
     test('reauthNeedsGesture is true only on web', () {
       expect(repo(isWeb: true).reauthNeedsGesture, isTrue);
       expect(repo().reauthNeedsGesture, isFalse);
+    });
+
+    group('canSkipDeleteReauth', () {
+      final now = DateTime.now();
+      late _MockUserMetadata meta;
+
+      AuthRepository clocked() => AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+        clock: () => now,
+      );
+
+      void signedIn(String provider, Duration ago) {
+        stubProviders(provider);
+        meta = _MockUserMetadata();
+        when(() => meta.lastSignInTime).thenReturn(now.subtract(ago));
+        when(() => user.metadata).thenReturn(meta);
+      }
+
+      test('google: true inside the window, false outside it', () {
+        signedIn('google.com', const Duration(minutes: 1));
+        expect(clocked().canSkipDeleteReauth, isTrue);
+        signedIn('google.com', const Duration(minutes: 4));
+        expect(clocked().canSkipDeleteReauth, isFalse);
+      });
+
+      test('apple and password never skip', () {
+        signedIn('apple.com', const Duration(seconds: 5));
+        expect(clocked().canSkipDeleteReauth, isFalse);
+        signedIn('password', const Duration(seconds: 5));
+        expect(clocked().canSkipDeleteReauth, isFalse);
+      });
+
+      test('signed out: false', () {
+        when(() => firebaseAuth.currentUser).thenReturn(null);
+        expect(clocked().canSkipDeleteReauth, isFalse);
+      });
     });
 
     group('Apple code gate', () {

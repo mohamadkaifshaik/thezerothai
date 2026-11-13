@@ -3,6 +3,7 @@ package apiserver
 import (
 	"testing"
 
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
@@ -131,5 +132,74 @@ func TestFeatureRegistry_IncludesUITablet(t *testing.T) {
 				t.Errorf("globally off = %v, want %v", got, tc.globallyOff)
 			}
 		})
+	}
+}
+
+// TestFeatureRegistry_IncludesShareFlags (shares design §4.6): every mode of FEATURE_DM_POST_SHARE and
+// FEATURE_SHARE_COUNT reaches the registry Build wires, and unset is off for everyone.
+func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
+	for _, flag := range []struct{ env, wire string }{
+		{"FEATURE_DM_POST_SHARE", "dm_post_share"},
+		{"FEATURE_SHARE_COUNT", "share_count"},
+	} {
+		for _, tc := range []struct {
+			name        string
+			mode, list  string
+			percent     string
+			inA, inZ    bool
+			globallyOff bool
+		}{
+			{"unset is off", "", "", "", false, false, true},
+			{"off", "off", "", "", false, false, true},
+			{"allowlist", "allowlist", "uid-a", "", true, false, false},
+			{"percent 100", "percent", "", "100", true, true, false},
+			{"on", "on", "", "", true, true, false},
+		} {
+			t.Run(flag.wire+"/"+tc.name, func(t *testing.T) {
+				t.Setenv(flag.env, tc.mode)
+				t.Setenv(flag.env+"_ALLOWLIST", tc.list)
+				t.Setenv(flag.env+"_PERCENT", tc.percent)
+				cfg, err := config.Load()
+				if err != nil {
+					t.Fatalf("config.Load: %v", err)
+				}
+				reg := featureRegistry(cfg)
+				if got := reg.Enabled("uid-a", flag.wire); got != tc.inA {
+					t.Errorf("uid-a enabled = %v, want %v", got, tc.inA)
+				}
+				if got := reg.Enabled("uid-z", flag.wire); got != tc.inZ {
+					t.Errorf("uid-z enabled = %v, want %v", got, tc.inZ)
+				}
+				if got := reg.GloballyOff(flag.wire); got != tc.globallyOff {
+					t.Errorf("globally off = %v, want %v", got, tc.globallyOff)
+				}
+			})
+		}
+	}
+}
+
+// TestFeatureRegistry_IncludesBeaconQuickJoin: `beacon_quick_join` defaults off, is on for an allowlisted caller only, and
+// the config name is the one the beacons service checks (a drift or a spec left out of featureRegistry would leave it
+// silently off for everyone).
+func TestFeatureRegistry_IncludesBeaconQuickJoin(t *testing.T) {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if featureRegistry(cfg).Enabled("uid-a", beacons.QuickJoinFlagName) {
+		t.Error("beacon_quick_join must default off")
+	}
+	if cfg.FeatureBeaconQuickJoin.Name != beacons.QuickJoinFlagName {
+		t.Errorf("config flag name %q != beacons.QuickJoinFlagName", cfg.FeatureBeaconQuickJoin.Name)
+	}
+	t.Setenv("FEATURE_BEACON_QUICK_JOIN", "allowlist")
+	t.Setenv("FEATURE_BEACON_QUICK_JOIN_ALLOWLIST", "uid-a")
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	reg := featureRegistry(cfg)
+	if !reg.Enabled("uid-a", beacons.QuickJoinFlagName) || reg.Enabled("uid-z", beacons.QuickJoinFlagName) {
+		t.Error("beacon_quick_join should be on for uid-a only")
 	}
 }
