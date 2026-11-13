@@ -127,6 +127,9 @@ Future<W6ComposerRig> pumpW6Composer(
     drafts: features.contains(kFeatureDrafts) ? drafts : null,
   );
   addTearDown(rig.pending.close);
+  // A frozen schedule clock: the dialog's Confirm re-checks against it, so a
+  // moving clock fails whenever a test crosses a minute boundary.
+  final scheduleNow = DateTime.now().add(const Duration(hours: 1));
   rig.router = GoRouter(
     routes: [
       GoRoute(
@@ -138,7 +141,7 @@ Future<W6ComposerRig> pumpW6Composer(
         path: '/compose',
         builder: (context, state) => ComposerScreen(
           draftId: state.uri.queryParameters['draft'] ?? '',
-          scheduleClock: () => DateTime.now().add(const Duration(hours: 1)),
+          scheduleClock: () => scheduleNow,
         ),
       ),
       GoRoute(
