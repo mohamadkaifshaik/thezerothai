@@ -69,6 +69,7 @@ func clearEnv(t *testing.T) {
 		"COMMUNITIES_MAX_OWNED", "COMMUNITIES_MAX_JOINED", "COMMUNITY_MAX_MODERATORS", "COMMUNITY_MAX_RULES", "COMMUNITY_RECENT_REMOVALS_MAX", "COMMUNITY_MODLOG_MAX",
 		"CACHE_COMMUNITIES_ENTRIES", "CACHE_COMMUNITY_FEED_ENTRIES", "CACHE_COMMUNITY_MEMBERS_ENTRIES",
 		"FEATURE_BEACONS", "FEATURE_BEACONS_ALLOWLIST", "FEATURE_BEACONS_PERCENT",
+		"FEATURE_BEACON_QUICK_JOIN", "FEATURE_BEACON_QUICK_JOIN_ALLOWLIST", "FEATURE_BEACON_QUICK_JOIN_PERCENT",
 		"FEATURE_COMMUNITY_MEMBER_SEARCH", "FEATURE_COMMUNITY_MEMBER_SEARCH_ALLOWLIST", "FEATURE_COMMUNITY_MEMBER_SEARCH_PERCENT",
 		"FEATURE_DM_POST_SHARE", "FEATURE_DM_POST_SHARE_ALLOWLIST", "FEATURE_DM_POST_SHARE_PERCENT",
 		"FEATURE_SHARE_COUNT", "FEATURE_SHARE_COUNT_ALLOWLIST", "FEATURE_SHARE_COUNT_PERCENT",
@@ -798,5 +799,26 @@ func TestLoad_RemovedQuotaKeysIgnored(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestLoad_BeaconQuickJoin: FEATURE_BEACON_QUICK_JOIN defaults off in every environment and parses an allowlist.
+func TestLoad_BeaconQuickJoin(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.FeatureBeaconQuickJoin.Name != "beacon_quick_join" || cfg.FeatureBeaconQuickJoin.Mode != flags.Off {
+		t.Errorf("FeatureBeaconQuickJoin = %+v, want beacon_quick_join off", cfg.FeatureBeaconQuickJoin)
+	}
+	t.Setenv("FEATURE_BEACON_QUICK_JOIN", "allowlist")
+	t.Setenv("FEATURE_BEACON_QUICK_JOIN_ALLOWLIST", "uid-a,uid-b")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.FeatureBeaconQuickJoin.Mode != flags.Allowlist || len(cfg.FeatureBeaconQuickJoin.Allowlist) != 2 {
+		t.Errorf("FeatureBeaconQuickJoin = %+v, want an allowlist of 2", cfg.FeatureBeaconQuickJoin)
 	}
 }

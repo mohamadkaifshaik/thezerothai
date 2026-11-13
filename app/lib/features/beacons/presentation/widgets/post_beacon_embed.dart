@@ -21,6 +21,7 @@ import '../bloc/beacon_detail_cubit.dart';
 import '../bloc/beacon_detail_state.dart';
 import '../bloc/plans_session.dart';
 import 'join_note_sheet.dart';
+import 'quick_join.dart';
 
 /// The trailing label once the viewer has asked to join from this card.
 const kPlanRequested = 'Requested';
@@ -146,7 +147,16 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
         return;
       }
       setState(() => _busy = false);
-      final note = await showJoinNoteSheet(context, title: view.beacon.title);
+      // The card has no viewer state, but the GetBeacon above does: with
+      // `beacon_quick_join` on and the organiser not following the viewer,
+      // the note is required.
+      final note = await showJoinNoteSheet(
+        context,
+        title: view.beacon.title,
+        noteRequired:
+            quickJoinEnabled(context, listen: false) &&
+            !view.viewer.quickJoinAllowed,
+      );
       if (note == null || !mounted) return;
       setState(() => _busy = true);
       final ok = await cubit.request(note);

@@ -156,7 +156,7 @@ void main() {
       await rig.pump(tester, realForms: true);
       expect(findPlansPane(), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'New plan'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'New plan'));
       await tester.pumpAndSettle();
       expect(findPlansPane(), findsNothing);
       expect(_previewAction, findsOneWidget);

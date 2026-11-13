@@ -112,6 +112,7 @@ void main() {
     double textScale = 1,
     bool deepLink = false,
     bool settle = true,
+    double bottomInset = 0,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -166,8 +167,12 @@ void main() {
             routerConfig: router,
             theme: buildAppTheme(brightness: brightness),
             builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(textScale),
+                // The phone shell's floating bar reports its height here.
+                padding: EdgeInsets.only(bottom: bottomInset),
+                viewPadding: EdgeInsets.only(bottom: bottomInset),
+              ),
               child: child!,
             ),
           ),
@@ -185,6 +190,22 @@ void main() {
   Finder filledBookmark() => find.byIcon(Icons.bookmark);
   Finder rows() => find.byType(PostCard);
   Finder removedSnack() => find.text('Removed from Bookmarks');
+
+  group('behind the floating bar', () {
+    testWidgets('the list runs to the screen edge and its last row scrolls '
+        'clear of the bar', (tester) async {
+      server.pages[''] = () => _rows([for (var i = 12; i >= 1; i--) i]);
+      await open(tester, bottomInset: 90);
+
+      final list = find.byType(CustomScrollView);
+      expect(tester.getRect(list).bottom, 844, reason: 'behind the bar');
+
+      await tester.drag(list, const Offset(0, -20000));
+      await tester.pumpAndSettle();
+      final last = tester.getRect(rows().last);
+      expect(last.bottom, lessThanOrEqualTo(844 - 90));
+    });
+  });
 
   group('states', () {
     testWidgets('loading: a skeleton, announced', (tester) async {

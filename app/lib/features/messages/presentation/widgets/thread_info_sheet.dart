@@ -77,18 +77,18 @@ class ThreadInfoSheet extends StatelessWidget {
         const Divider(height: 1),
         const SizedBox(height: AppSpacing.xs),
         if (canBlock)
-          _ActionRow(
+          ThreadInfoActionRow(
             icon: Icons.block,
             label: 'Block$handle',
             onTap: () => choose(ThreadInfoAction.block),
           ),
         if (showReport)
-          _ActionRow(
+          ThreadInfoActionRow(
             icon: Icons.flag_outlined,
             label: 'Report$handle',
             onTap: canReport ? () => choose(ThreadInfoAction.report) : null,
           ),
-        _ActionRow(
+        ThreadInfoActionRow(
           icon: Icons.delete_outline,
           label: 'Delete conversation',
           destructive: true,
@@ -156,8 +156,9 @@ class _ProfileCard extends StatelessWidget {
 }
 
 /// One action of the sheet: the menu's row in a 48dp+ tap target.
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({
+class ThreadInfoActionRow extends StatelessWidget {
+  const ThreadInfoActionRow({
+    super.key,
     required this.icon,
     required this.label,
     required this.onTap,

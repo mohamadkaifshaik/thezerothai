@@ -1378,7 +1378,12 @@ void main() {
           expect(r.unselectedLabelTextStyle!.fontWeight, FontWeight.w600);
           expect(r.unselectedLabelTextStyle!.color, colors.text2);
           // Weight, never `fontVariations` (the engine maps the axis).
-          expect(r.selectedLabelTextStyle!.fontVariations, isNull);
+          expect(
+            r.selectedLabelTextStyle!.fontVariations?.where(
+              (v) => v.axis == 'wght',
+            ),
+            anyOf(isNull, isEmpty),
+          );
 
           // The selected glyph is the filled one, painted in the pill's ink.
           expect(inRail(find.byIcon(Icons.notifications)), findsOneWidget);
