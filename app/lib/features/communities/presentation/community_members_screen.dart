@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
@@ -632,6 +633,9 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the scroll view runs behind it
+        // and ends with the bar's inset.
+        bottom: false,
         child: AppMainColumn(
           child: Column(
             children: [
@@ -701,6 +705,8 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
                     AppRouter.communityModerationLogPath(widget.communityId),
                   ),
                 ),
+              // The last thing on the page clears the floating bar.
+              if (moderates) const ShellBottomInsetBox(),
             ],
           ),
         ),
