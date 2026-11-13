@@ -81,9 +81,9 @@ type fakeRepo struct {
 	edgeExistsCalls int
 	// edgeBatches records the followers of each FollowEdgesExist call (one call is one batched read); edgeBatchErr fails
 	// every call.
-	edgeBatches  [][]string
-	edgeBatchErr error
-	edgeExistsErr   error
+	edgeBatches   [][]string
+	edgeBatchErr  error
+	edgeExistsErr error
 
 	respondOutcome RespondOutcome
 	respondErr     error
