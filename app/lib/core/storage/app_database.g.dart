@@ -5108,6 +5108,276 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
   }
 }
 
+class $PostHistoryEntriesTable extends PostHistoryEntries
+    with TableInfo<$PostHistoryEntriesTable, PostHistoryRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PostHistoryEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _postIdMeta = const VerificationMeta('postId');
+  @override
+  late final GeneratedColumn<String> postId = GeneratedColumn<String>(
+    'post_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _openedAtMsMeta = const VerificationMeta(
+    'openedAtMs',
+  );
+  @override
+  late final GeneratedColumn<int> openedAtMs = GeneratedColumn<int>(
+    'opened_at_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [uid, postId, openedAtMs];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'post_history_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PostHistoryRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_uidMeta);
+    }
+    if (data.containsKey('post_id')) {
+      context.handle(
+        _postIdMeta,
+        postId.isAcceptableOrUnknown(data['post_id']!, _postIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_postIdMeta);
+    }
+    if (data.containsKey('opened_at_ms')) {
+      context.handle(
+        _openedAtMsMeta,
+        openedAtMs.isAcceptableOrUnknown(
+          data['opened_at_ms']!,
+          _openedAtMsMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_openedAtMsMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {uid, postId};
+  @override
+  PostHistoryRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PostHistoryRow(
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      )!,
+      postId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}post_id'],
+      )!,
+      openedAtMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}opened_at_ms'],
+      )!,
+    );
+  }
+
+  @override
+  $PostHistoryEntriesTable createAlias(String alias) {
+    return $PostHistoryEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class PostHistoryRow extends DataClass implements Insertable<PostHistoryRow> {
+  final String uid;
+  final String postId;
+
+  /// Milliseconds since the epoch, UTC. Integer on purpose: two opens in the
+  /// same second keep their order.
+  final int openedAtMs;
+  const PostHistoryRow({
+    required this.uid,
+    required this.postId,
+    required this.openedAtMs,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['uid'] = Variable<String>(uid);
+    map['post_id'] = Variable<String>(postId);
+    map['opened_at_ms'] = Variable<int>(openedAtMs);
+    return map;
+  }
+
+  PostHistoryEntriesCompanion toCompanion(bool nullToAbsent) {
+    return PostHistoryEntriesCompanion(
+      uid: Value(uid),
+      postId: Value(postId),
+      openedAtMs: Value(openedAtMs),
+    );
+  }
+
+  factory PostHistoryRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PostHistoryRow(
+      uid: serializer.fromJson<String>(json['uid']),
+      postId: serializer.fromJson<String>(json['postId']),
+      openedAtMs: serializer.fromJson<int>(json['openedAtMs']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'uid': serializer.toJson<String>(uid),
+      'postId': serializer.toJson<String>(postId),
+      'openedAtMs': serializer.toJson<int>(openedAtMs),
+    };
+  }
+
+  PostHistoryRow copyWith({String? uid, String? postId, int? openedAtMs}) =>
+      PostHistoryRow(
+        uid: uid ?? this.uid,
+        postId: postId ?? this.postId,
+        openedAtMs: openedAtMs ?? this.openedAtMs,
+      );
+  PostHistoryRow copyWithCompanion(PostHistoryEntriesCompanion data) {
+    return PostHistoryRow(
+      uid: data.uid.present ? data.uid.value : this.uid,
+      postId: data.postId.present ? data.postId.value : this.postId,
+      openedAtMs: data.openedAtMs.present
+          ? data.openedAtMs.value
+          : this.openedAtMs,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PostHistoryRow(')
+          ..write('uid: $uid, ')
+          ..write('postId: $postId, ')
+          ..write('openedAtMs: $openedAtMs')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(uid, postId, openedAtMs);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PostHistoryRow &&
+          other.uid == this.uid &&
+          other.postId == this.postId &&
+          other.openedAtMs == this.openedAtMs);
+}
+
+class PostHistoryEntriesCompanion extends UpdateCompanion<PostHistoryRow> {
+  final Value<String> uid;
+  final Value<String> postId;
+  final Value<int> openedAtMs;
+  final Value<int> rowid;
+  const PostHistoryEntriesCompanion({
+    this.uid = const Value.absent(),
+    this.postId = const Value.absent(),
+    this.openedAtMs = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PostHistoryEntriesCompanion.insert({
+    required String uid,
+    required String postId,
+    required int openedAtMs,
+    this.rowid = const Value.absent(),
+  }) : uid = Value(uid),
+       postId = Value(postId),
+       openedAtMs = Value(openedAtMs);
+  static Insertable<PostHistoryRow> custom({
+    Expression<String>? uid,
+    Expression<String>? postId,
+    Expression<int>? openedAtMs,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (uid != null) 'uid': uid,
+      if (postId != null) 'post_id': postId,
+      if (openedAtMs != null) 'opened_at_ms': openedAtMs,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PostHistoryEntriesCompanion copyWith({
+    Value<String>? uid,
+    Value<String>? postId,
+    Value<int>? openedAtMs,
+    Value<int>? rowid,
+  }) {
+    return PostHistoryEntriesCompanion(
+      uid: uid ?? this.uid,
+      postId: postId ?? this.postId,
+      openedAtMs: openedAtMs ?? this.openedAtMs,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (postId.present) {
+      map['post_id'] = Variable<String>(postId.value);
+    }
+    if (openedAtMs.present) {
+      map['opened_at_ms'] = Variable<int>(openedAtMs.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PostHistoryEntriesCompanion(')
+          ..write('uid: $uid, ')
+          ..write('postId: $postId, ')
+          ..write('openedAtMs: $openedAtMs, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -5134,6 +5404,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $AppSettingEntriesTable(this);
   late final $ComposerDraftEntriesTable composerDraftEntries =
       $ComposerDraftEntriesTable(this);
+  late final $PostHistoryEntriesTable postHistoryEntries =
+      $PostHistoryEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5151,6 +5423,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     messagingStateEntries,
     appSettingEntries,
     composerDraftEntries,
+    postHistoryEntries,
   ];
 }
 
@@ -8098,6 +8371,188 @@ typedef $$ComposerDraftEntriesTableProcessedTableManager =
       ComposerDraftRow,
       PrefetchHooks Function()
     >;
+typedef $$PostHistoryEntriesTableCreateCompanionBuilder =
+    PostHistoryEntriesCompanion Function({
+      required String uid,
+      required String postId,
+      required int openedAtMs,
+      Value<int> rowid,
+    });
+typedef $$PostHistoryEntriesTableUpdateCompanionBuilder =
+    PostHistoryEntriesCompanion Function({
+      Value<String> uid,
+      Value<String> postId,
+      Value<int> openedAtMs,
+      Value<int> rowid,
+    });
+
+class $$PostHistoryEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $PostHistoryEntriesTable> {
+  $$PostHistoryEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get postId => $composableBuilder(
+    column: $table.postId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get openedAtMs => $composableBuilder(
+    column: $table.openedAtMs,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$PostHistoryEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $PostHistoryEntriesTable> {
+  $$PostHistoryEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get postId => $composableBuilder(
+    column: $table.postId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get openedAtMs => $composableBuilder(
+    column: $table.openedAtMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PostHistoryEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PostHistoryEntriesTable> {
+  $$PostHistoryEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<String> get postId =>
+      $composableBuilder(column: $table.postId, builder: (column) => column);
+
+  GeneratedColumn<int> get openedAtMs => $composableBuilder(
+    column: $table.openedAtMs,
+    builder: (column) => column,
+  );
+}
+
+class $$PostHistoryEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PostHistoryEntriesTable,
+          PostHistoryRow,
+          $$PostHistoryEntriesTableFilterComposer,
+          $$PostHistoryEntriesTableOrderingComposer,
+          $$PostHistoryEntriesTableAnnotationComposer,
+          $$PostHistoryEntriesTableCreateCompanionBuilder,
+          $$PostHistoryEntriesTableUpdateCompanionBuilder,
+          (
+            PostHistoryRow,
+            BaseReferences<
+              _$AppDatabase,
+              $PostHistoryEntriesTable,
+              PostHistoryRow
+            >,
+          ),
+          PostHistoryRow,
+          PrefetchHooks Function()
+        > {
+  $$PostHistoryEntriesTableTableManager(
+    _$AppDatabase db,
+    $PostHistoryEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PostHistoryEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PostHistoryEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PostHistoryEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> uid = const Value.absent(),
+                Value<String> postId = const Value.absent(),
+                Value<int> openedAtMs = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PostHistoryEntriesCompanion(
+                uid: uid,
+                postId: postId,
+                openedAtMs: openedAtMs,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String uid,
+                required String postId,
+                required int openedAtMs,
+                Value<int> rowid = const Value.absent(),
+              }) => PostHistoryEntriesCompanion.insert(
+                uid: uid,
+                postId: postId,
+                openedAtMs: openedAtMs,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$PostHistoryEntriesTable, PostHistoryRow>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $PostHistoryEntriesTable,
+                    PostHistoryRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$PostHistoryEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PostHistoryEntriesTable,
+      PostHistoryRow,
+      $$PostHistoryEntriesTableFilterComposer,
+      $$PostHistoryEntriesTableOrderingComposer,
+      $$PostHistoryEntriesTableAnnotationComposer,
+      $$PostHistoryEntriesTableCreateCompanionBuilder,
+      $$PostHistoryEntriesTableUpdateCompanionBuilder,
+      (
+        PostHistoryRow,
+        BaseReferences<_$AppDatabase, $PostHistoryEntriesTable, PostHistoryRow>,
+      ),
+      PostHistoryRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -8129,4 +8584,6 @@ class $AppDatabaseManager {
       $$AppSettingEntriesTableTableManager(_db, _db.appSettingEntries);
   $$ComposerDraftEntriesTableTableManager get composerDraftEntries =>
       $$ComposerDraftEntriesTableTableManager(_db, _db.composerDraftEntries);
+  $$PostHistoryEntriesTableTableManager get postHistoryEntries =>
+      $$PostHistoryEntriesTableTableManager(_db, _db.postHistoryEntries);
 }
