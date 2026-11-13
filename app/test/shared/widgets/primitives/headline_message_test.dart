@@ -8,7 +8,7 @@ import '../../../support/theme_harness.dart';
 
 void main() {
   forEachThemeAndWidth(
-    'HeadlineMessage: Manrope header, muted body, contrast, no overflow',
+    'HeadlineMessage: Inter header, muted body, contrast, no overflow',
     (tester, env) async {
       final handle = tester.ensureSemantics();
       await pumpThemed(

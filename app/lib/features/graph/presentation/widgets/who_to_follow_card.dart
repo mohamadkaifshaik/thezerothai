@@ -134,7 +134,6 @@ class _CardState extends State<_Card> {
             ? items.take(kWhoToFollowCollapsedRows).toList()
             : items;
         final cubit = context.read<SuggestionsCubit>();
-        final theme = Theme.of(context);
         return AppSurface(
           margin: widget.margin,
           padding: EdgeInsets.zero,
@@ -152,9 +151,7 @@ class _CardState extends State<_Card> {
                   header: true,
                   child: Text(
                     widget.title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: AppTextStyles.cardTitleFor(context),
                   ),
                 ),
               ),

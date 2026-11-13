@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/user/user_list_skeleton.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -123,7 +124,7 @@ class _CommunityModerationLogScreenState
   Widget _body(ModerationLogState state, {required bool aboutInline}) {
     final error = state.error;
     if (state.status == ModerationLogStatus.loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const UserListSkeleton(semanticsLabel: 'Loading log');
     }
     if (state.status == ModerationLogStatus.error && error != null) {
       if (error is NotFoundException) {
@@ -229,6 +230,9 @@ class _CommunityModerationLogScreenState
         MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the scroll view runs behind
+        // it and ends with the bar's inset.
+        bottom: false,
         child: AppMainColumn(
           child: Column(
             children: [

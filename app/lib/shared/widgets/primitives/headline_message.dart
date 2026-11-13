@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 
-/// A Manrope heading over a muted line, start aligned, no illustration: the empty
+/// An Inter Display heading over a muted line, start aligned, no illustration: the empty
 /// Scheduled list, the empty Unsent posts tab and the "not available" state.
 /// Not [AppEmptyView], which centres an icon.
 class HeadlineMessage extends StatelessWidget {

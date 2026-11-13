@@ -78,6 +78,8 @@ Future<PostShareChoice?> _showSheet(
 }) {
   return showModalBottomSheet<PostShareChoice>(
     context: context,
+    // Over the phone shell's floating bar and button, not under them.
+    useRootNavigator: true,
     showDragHandle: true,
     useSafeArea: true,
     isScrollControlled: true,

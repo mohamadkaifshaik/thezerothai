@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
@@ -184,6 +185,9 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the form scrolls behind it and
+        // its content ends with the bar's inset.
+        bottom: false,
         child: AppMainColumn(
           child: BlocConsumer<CreateCommunityCubit, CreateCommunityState>(
             bloc: _cubit,
@@ -208,10 +212,12 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                   Expanded(
                     child: SingleChildScrollView(
                       // dz: 16 dp above and below, 20 dp each side.
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: _kFormInset,
-                        vertical: AppSpacing.md,
-                      ),
+                      padding:
+                          const EdgeInsets.symmetric(
+                            horizontal: _kFormInset,
+                            vertical: AppSpacing.md,
+                          ) +
+                          shellBottomInsets(context),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
