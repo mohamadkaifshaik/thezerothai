@@ -211,7 +211,12 @@ type Notification struct {
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED, BEACON_CANCELLED and BEACON_UPDATED only; empty otherwise). Tapping opens the
 	// beacon (BeaconService.GetBeacon).
-	BeaconId      string `protobuf:"bytes,7,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
+	BeaconId string `protobuf:"bytes,7,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
+	// Up to 3 distinct actors folded into this row, newest first, for the grouped avatar stack ("Riya and 2 others").
+	// Each is a live row hydrated from the identity directory (one batched lookup per page, cache first, up to 60 s
+	// stale); a hidden (blocked or muted) actor is never listed. Empty on rows that predate the field: clients fall
+	// back to `actor`.
+	Actors        []*v1.AuthorSnapshot `protobuf:"bytes,8,rep,name=actors,proto3" json:"actors,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -293,6 +298,13 @@ func (x *Notification) GetBeaconId() string {
 		return x.BeaconId
 	}
 	return ""
+}
+
+func (x *Notification) GetActors() []*v1.AuthorSnapshot {
+	if x != nil {
+		return x.Actors
+	}
+	return nil
 }
 
 type ListNotificationsRequest struct {
@@ -983,7 +995,7 @@ var File_dzeroth_notifications_v1_notifications_proto protoreflect.FileDescripto
 
 const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\n" +
-	",dzeroth/notifications/v1/notifications.proto\x12\x18dzeroth.notifications.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa9\x02\n" +
+	",dzeroth/notifications/v1/notifications.proto\x12\x18dzeroth.notifications.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe4\x02\n" +
 	"\fNotification\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12>\n" +
 	"\x04type\x18\x02 \x01(\x0e2*.dzeroth.notifications.v1.NotificationTypeR\x04type\x127\n" +
@@ -993,7 +1005,8 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\apost_id\x18\x05 \x01(\tR\x06postId\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1b\n" +
-	"\tbeacon_id\x18\a \x01(\tR\bbeaconId\"w\n" +
+	"\tbeacon_id\x18\a \x01(\tR\bbeaconId\x129\n" +
+	"\x06actors\x18\b \x03(\v2!.dzeroth.common.v1.AuthorSnapshotR\x06actors\"w\n" +
 	"\x18ListNotificationsRequest\x12\x1b\n" +
 	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
@@ -1102,30 +1115,31 @@ var file_dzeroth_notifications_v1_notifications_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.notifications.v1.Notification.type:type_name -> dzeroth.notifications.v1.NotificationType
 	16, // 1: dzeroth.notifications.v1.Notification.actor:type_name -> dzeroth.common.v1.AuthorSnapshot
 	17, // 2: dzeroth.notifications.v1.Notification.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 3: dzeroth.notifications.v1.ListNotificationsResponse.notifications:type_name -> dzeroth.notifications.v1.Notification
-	17, // 4: dzeroth.notifications.v1.ListNotificationsResponse.seen_at:type_name -> google.protobuf.Timestamp
-	17, // 5: dzeroth.notifications.v1.MarkNotificationsSeenResponse.seen_at:type_name -> google.protobuf.Timestamp
-	1,  // 6: dzeroth.notifications.v1.RegisterDeviceRequest.platform:type_name -> dzeroth.notifications.v1.DevicePlatform
-	11, // 7: dzeroth.notifications.v1.GetNotificationPrefsResponse.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
-	11, // 8: dzeroth.notifications.v1.UpdateNotificationPrefsRequest.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
-	11, // 9: dzeroth.notifications.v1.UpdateNotificationPrefsResponse.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
-	3,  // 10: dzeroth.notifications.v1.NotificationService.ListNotifications:input_type -> dzeroth.notifications.v1.ListNotificationsRequest
-	5,  // 11: dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen:input_type -> dzeroth.notifications.v1.MarkNotificationsSeenRequest
-	7,  // 12: dzeroth.notifications.v1.NotificationService.RegisterDevice:input_type -> dzeroth.notifications.v1.RegisterDeviceRequest
-	9,  // 13: dzeroth.notifications.v1.NotificationService.UnregisterDevice:input_type -> dzeroth.notifications.v1.UnregisterDeviceRequest
-	12, // 14: dzeroth.notifications.v1.NotificationService.GetNotificationPrefs:input_type -> dzeroth.notifications.v1.GetNotificationPrefsRequest
-	14, // 15: dzeroth.notifications.v1.NotificationService.UpdateNotificationPrefs:input_type -> dzeroth.notifications.v1.UpdateNotificationPrefsRequest
-	4,  // 16: dzeroth.notifications.v1.NotificationService.ListNotifications:output_type -> dzeroth.notifications.v1.ListNotificationsResponse
-	6,  // 17: dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen:output_type -> dzeroth.notifications.v1.MarkNotificationsSeenResponse
-	8,  // 18: dzeroth.notifications.v1.NotificationService.RegisterDevice:output_type -> dzeroth.notifications.v1.RegisterDeviceResponse
-	10, // 19: dzeroth.notifications.v1.NotificationService.UnregisterDevice:output_type -> dzeroth.notifications.v1.UnregisterDeviceResponse
-	13, // 20: dzeroth.notifications.v1.NotificationService.GetNotificationPrefs:output_type -> dzeroth.notifications.v1.GetNotificationPrefsResponse
-	15, // 21: dzeroth.notifications.v1.NotificationService.UpdateNotificationPrefs:output_type -> dzeroth.notifications.v1.UpdateNotificationPrefsResponse
-	16, // [16:22] is the sub-list for method output_type
-	10, // [10:16] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	16, // 3: dzeroth.notifications.v1.Notification.actors:type_name -> dzeroth.common.v1.AuthorSnapshot
+	2,  // 4: dzeroth.notifications.v1.ListNotificationsResponse.notifications:type_name -> dzeroth.notifications.v1.Notification
+	17, // 5: dzeroth.notifications.v1.ListNotificationsResponse.seen_at:type_name -> google.protobuf.Timestamp
+	17, // 6: dzeroth.notifications.v1.MarkNotificationsSeenResponse.seen_at:type_name -> google.protobuf.Timestamp
+	1,  // 7: dzeroth.notifications.v1.RegisterDeviceRequest.platform:type_name -> dzeroth.notifications.v1.DevicePlatform
+	11, // 8: dzeroth.notifications.v1.GetNotificationPrefsResponse.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
+	11, // 9: dzeroth.notifications.v1.UpdateNotificationPrefsRequest.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
+	11, // 10: dzeroth.notifications.v1.UpdateNotificationPrefsResponse.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
+	3,  // 11: dzeroth.notifications.v1.NotificationService.ListNotifications:input_type -> dzeroth.notifications.v1.ListNotificationsRequest
+	5,  // 12: dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen:input_type -> dzeroth.notifications.v1.MarkNotificationsSeenRequest
+	7,  // 13: dzeroth.notifications.v1.NotificationService.RegisterDevice:input_type -> dzeroth.notifications.v1.RegisterDeviceRequest
+	9,  // 14: dzeroth.notifications.v1.NotificationService.UnregisterDevice:input_type -> dzeroth.notifications.v1.UnregisterDeviceRequest
+	12, // 15: dzeroth.notifications.v1.NotificationService.GetNotificationPrefs:input_type -> dzeroth.notifications.v1.GetNotificationPrefsRequest
+	14, // 16: dzeroth.notifications.v1.NotificationService.UpdateNotificationPrefs:input_type -> dzeroth.notifications.v1.UpdateNotificationPrefsRequest
+	4,  // 17: dzeroth.notifications.v1.NotificationService.ListNotifications:output_type -> dzeroth.notifications.v1.ListNotificationsResponse
+	6,  // 18: dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen:output_type -> dzeroth.notifications.v1.MarkNotificationsSeenResponse
+	8,  // 19: dzeroth.notifications.v1.NotificationService.RegisterDevice:output_type -> dzeroth.notifications.v1.RegisterDeviceResponse
+	10, // 20: dzeroth.notifications.v1.NotificationService.UnregisterDevice:output_type -> dzeroth.notifications.v1.UnregisterDeviceResponse
+	13, // 21: dzeroth.notifications.v1.NotificationService.GetNotificationPrefs:output_type -> dzeroth.notifications.v1.GetNotificationPrefsResponse
+	15, // 22: dzeroth.notifications.v1.NotificationService.UpdateNotificationPrefs:output_type -> dzeroth.notifications.v1.UpdateNotificationPrefsResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_notifications_v1_notifications_proto_init() }

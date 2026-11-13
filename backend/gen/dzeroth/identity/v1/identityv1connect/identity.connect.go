@@ -48,6 +48,9 @@ const (
 	// IdentityServiceCheckHandleAvailabilityProcedure is the fully-qualified name of the
 	// IdentityService's CheckHandleAvailability RPC.
 	IdentityServiceCheckHandleAvailabilityProcedure = "/dzeroth.identity.v1.IdentityService/CheckHandleAvailability"
+	// IdentityServiceSuggestHandlesProcedure is the fully-qualified name of the IdentityService's
+	// SuggestHandles RPC.
+	IdentityServiceSuggestHandlesProcedure = "/dzeroth.identity.v1.IdentityService/SuggestHandles"
 	// IdentityServiceGetMeProcedure is the fully-qualified name of the IdentityService's GetMe RPC.
 	IdentityServiceGetMeProcedure = "/dzeroth.identity.v1.IdentityService/GetMe"
 	// IdentityServiceGetProfileProcedure is the fully-qualified name of the IdentityService's
@@ -85,6 +88,12 @@ type IdentityServiceClient interface {
 	// "Taken" is reported even when the handle's owner blocked the caller (accepted residual).
 	// Free handles are negatively cached 10 s per instance (a just-freed handle may read "taken" for <= 60 s).
 	CheckHandleAvailability(context.Context, *connect.Request[v1.CheckHandleAvailabilityRequest]) (*connect.Response[v1.CheckHandleAvailabilityResponse], error)
+	// Up to 5 free handles to offer when the handle the caller chose is taken (sign-up and Change handle). Read-only.
+	// Gated by FEATURE_HANDLE_SUGGESTIONS (FEATURE_DISABLED feature=handle_suggestions while off) and shares the
+	// CheckHandleAvailability limiter bucket and its verified-identity gate. Candidates are derived from the input
+	// (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
+	// input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
+	SuggestHandles(context.Context, *connect.Request[v1.SuggestHandlesRequest]) (*connect.Response[v1.SuggestHandlesResponse], error)
 	// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
 	// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).
 	// enabled_features comes from server env config, with no lookup.
@@ -206,6 +215,13 @@ func NewIdentityServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		suggestHandles: connect.NewClient[v1.SuggestHandlesRequest, v1.SuggestHandlesResponse](
+			httpClient,
+			baseURL+IdentityServiceSuggestHandlesProcedure,
+			connect.WithSchema(identityServiceMethods.ByName("SuggestHandles")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		getMe: connect.NewClient[v1.GetMeRequest, v1.GetMeResponse](
 			httpClient,
 			baseURL+IdentityServiceGetMeProcedure,
@@ -258,6 +274,7 @@ func NewIdentityServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 type identityServiceClient struct {
 	createProfile           *connect.Client[v1.CreateProfileRequest, v1.CreateProfileResponse]
 	checkHandleAvailability *connect.Client[v1.CheckHandleAvailabilityRequest, v1.CheckHandleAvailabilityResponse]
+	suggestHandles          *connect.Client[v1.SuggestHandlesRequest, v1.SuggestHandlesResponse]
 	getMe                   *connect.Client[v1.GetMeRequest, v1.GetMeResponse]
 	getProfile              *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
 	updateProfile           *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
@@ -275,6 +292,11 @@ func (c *identityServiceClient) CreateProfile(ctx context.Context, req *connect.
 // CheckHandleAvailability calls dzeroth.identity.v1.IdentityService.CheckHandleAvailability.
 func (c *identityServiceClient) CheckHandleAvailability(ctx context.Context, req *connect.Request[v1.CheckHandleAvailabilityRequest]) (*connect.Response[v1.CheckHandleAvailabilityResponse], error) {
 	return c.checkHandleAvailability.CallUnary(ctx, req)
+}
+
+// SuggestHandles calls dzeroth.identity.v1.IdentityService.SuggestHandles.
+func (c *identityServiceClient) SuggestHandles(ctx context.Context, req *connect.Request[v1.SuggestHandlesRequest]) (*connect.Response[v1.SuggestHandlesResponse], error) {
+	return c.suggestHandles.CallUnary(ctx, req)
 }
 
 // GetMe calls dzeroth.identity.v1.IdentityService.GetMe.
@@ -327,6 +349,12 @@ type IdentityServiceHandler interface {
 	// "Taken" is reported even when the handle's owner blocked the caller (accepted residual).
 	// Free handles are negatively cached 10 s per instance (a just-freed handle may read "taken" for <= 60 s).
 	CheckHandleAvailability(context.Context, *connect.Request[v1.CheckHandleAvailabilityRequest]) (*connect.Response[v1.CheckHandleAvailabilityResponse], error)
+	// Up to 5 free handles to offer when the handle the caller chose is taken (sign-up and Change handle). Read-only.
+	// Gated by FEATURE_HANDLE_SUGGESTIONS (FEATURE_DISABLED feature=handle_suggestions while off) and shares the
+	// CheckHandleAvailability limiter bucket and its verified-identity gate. Candidates are derived from the input
+	// (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
+	// input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
+	SuggestHandles(context.Context, *connect.Request[v1.SuggestHandlesRequest]) (*connect.Response[v1.SuggestHandlesResponse], error)
 	// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
 	// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).
 	// enabled_features comes from server env config, with no lookup.
@@ -444,6 +472,13 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	identityServiceSuggestHandlesHandler := connect.NewUnaryHandler(
+		IdentityServiceSuggestHandlesProcedure,
+		svc.SuggestHandles,
+		connect.WithSchema(identityServiceMethods.ByName("SuggestHandles")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	identityServiceGetMeHandler := connect.NewUnaryHandler(
 		IdentityServiceGetMeProcedure,
 		svc.GetMe,
@@ -495,6 +530,8 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 			identityServiceCreateProfileHandler.ServeHTTP(w, r)
 		case IdentityServiceCheckHandleAvailabilityProcedure:
 			identityServiceCheckHandleAvailabilityHandler.ServeHTTP(w, r)
+		case IdentityServiceSuggestHandlesProcedure:
+			identityServiceSuggestHandlesHandler.ServeHTTP(w, r)
 		case IdentityServiceGetMeProcedure:
 			identityServiceGetMeHandler.ServeHTTP(w, r)
 		case IdentityServiceGetProfileProcedure:
@@ -524,6 +561,10 @@ func (UnimplementedIdentityServiceHandler) CreateProfile(context.Context, *conne
 
 func (UnimplementedIdentityServiceHandler) CheckHandleAvailability(context.Context, *connect.Request[v1.CheckHandleAvailabilityRequest]) (*connect.Response[v1.CheckHandleAvailabilityResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.identity.v1.IdentityService.CheckHandleAvailability is not implemented"))
+}
+
+func (UnimplementedIdentityServiceHandler) SuggestHandles(context.Context, *connect.Request[v1.SuggestHandlesRequest]) (*connect.Response[v1.SuggestHandlesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.identity.v1.IdentityService.SuggestHandles is not implemented"))
 }
 
 func (UnimplementedIdentityServiceHandler) GetMe(context.Context, *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error) {

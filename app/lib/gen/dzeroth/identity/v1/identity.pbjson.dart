@@ -200,6 +200,32 @@ final $typed_data.Uint8List checkHandleAvailabilityResponseDescriptor =
         'Ch9DaGVja0hhbmRsZUF2YWlsYWJpbGl0eVJlc3BvbnNlEhwKCWF2YWlsYWJsZRgBIAEoCFIJYX'
         'ZhaWxhYmxlEhYKBnJlYXNvbhgCIAEoCVIGcmVhc29u');
 
+@$core.Deprecated('Use suggestHandlesRequestDescriptor instead')
+const SuggestHandlesRequest$json = {
+  '1': 'SuggestHandlesRequest',
+  '2': [
+    {'1': 'handle', '3': 1, '4': 1, '5': 9, '10': 'handle'},
+  ],
+};
+
+/// Descriptor for `SuggestHandlesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List suggestHandlesRequestDescriptor =
+    $convert.base64Decode(
+        'ChVTdWdnZXN0SGFuZGxlc1JlcXVlc3QSFgoGaGFuZGxlGAEgASgJUgZoYW5kbGU=');
+
+@$core.Deprecated('Use suggestHandlesResponseDescriptor instead')
+const SuggestHandlesResponse$json = {
+  '1': 'SuggestHandlesResponse',
+  '2': [
+    {'1': 'handles', '3': 1, '4': 3, '5': 9, '10': 'handles'},
+  ],
+};
+
+/// Descriptor for `SuggestHandlesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List suggestHandlesResponseDescriptor =
+    $convert.base64Decode(
+        'ChZTdWdnZXN0SGFuZGxlc1Jlc3BvbnNlEhgKB2hhbmRsZXMYASADKAlSB2hhbmRsZXM=');
+
 @$core.Deprecated('Use getMeRequestDescriptor instead')
 const GetMeRequest$json = {
   '1': 'GetMeRequest',
@@ -617,6 +643,12 @@ const $core.Map<$core.String, $core.dynamic> IdentityServiceBase$json = {
       '4': {'34': 1},
     },
     {
+      '1': 'SuggestHandles',
+      '2': '.dzeroth.identity.v1.SuggestHandlesRequest',
+      '3': '.dzeroth.identity.v1.SuggestHandlesResponse',
+      '4': {'34': 1},
+    },
+    {
       '1': 'GetMe',
       '2': '.dzeroth.identity.v1.GetMeRequest',
       '3': '.dzeroth.identity.v1.GetMeResponse',
@@ -668,6 +700,8 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
       CheckHandleAvailabilityRequest$json,
   '.dzeroth.identity.v1.CheckHandleAvailabilityResponse':
       CheckHandleAvailabilityResponse$json,
+  '.dzeroth.identity.v1.SuggestHandlesRequest': SuggestHandlesRequest$json,
+  '.dzeroth.identity.v1.SuggestHandlesResponse': SuggestHandlesResponse$json,
   '.dzeroth.identity.v1.GetMeRequest': GetMeRequest$json,
   '.dzeroth.identity.v1.GetMeResponse': GetMeResponse$json,
   '.dzeroth.common.v1.HomeTab': $1.HomeTab$json,
@@ -694,17 +728,19 @@ final $typed_data.Uint8List identityServiceDescriptor = $convert.base64Decode(
     'EuQ3JlYXRlUHJvZmlsZVJlcXVlc3QaKi5kemVyb3RoLmlkZW50aXR5LnYxLkNyZWF0ZVByb2Zp'
     'bGVSZXNwb25zZRKJAQoXQ2hlY2tIYW5kbGVBdmFpbGFiaWxpdHkSMy5kemVyb3RoLmlkZW50aX'
     'R5LnYxLkNoZWNrSGFuZGxlQXZhaWxhYmlsaXR5UmVxdWVzdBo0LmR6ZXJvdGguaWRlbnRpdHku'
-    'djEuQ2hlY2tIYW5kbGVBdmFpbGFiaWxpdHlSZXNwb25zZSIDkAIBElMKBUdldE1lEiEuZHplcm'
-    '90aC5pZGVudGl0eS52MS5HZXRNZVJlcXVlc3QaIi5kemVyb3RoLmlkZW50aXR5LnYxLkdldE1l'
-    'UmVzcG9uc2UiA5ACARJiCgpHZXRQcm9maWxlEiYuZHplcm90aC5pZGVudGl0eS52MS5HZXRQcm'
-    '9maWxlUmVxdWVzdBonLmR6ZXJvdGguaWRlbnRpdHkudjEuR2V0UHJvZmlsZVJlc3BvbnNlIgOQ'
-    'AgESZgoNVXBkYXRlUHJvZmlsZRIpLmR6ZXJvdGguaWRlbnRpdHkudjEuVXBkYXRlUHJvZmlsZV'
-    'JlcXVlc3QaKi5kemVyb3RoLmlkZW50aXR5LnYxLlVwZGF0ZVByb2ZpbGVSZXNwb25zZRJjCgxD'
-    'aGFuZ2VIYW5kbGUSKC5kemVyb3RoLmlkZW50aXR5LnYxLkNoYW5nZUhhbmRsZVJlcXVlc3QaKS'
-    '5kemVyb3RoLmlkZW50aXR5LnYxLkNoYW5nZUhhbmRsZVJlc3BvbnNlEmYKDURlbGV0ZUFjY291'
-    'bnQSKS5kemVyb3RoLmlkZW50aXR5LnYxLkRlbGV0ZUFjY291bnRSZXF1ZXN0GiouZHplcm90aC'
-    '5pZGVudGl0eS52MS5EZWxldGVBY2NvdW50UmVzcG9uc2USewoUUmVxdWVzdEFjY291bnRFeHBv'
-    'cnQSMC5kemVyb3RoLmlkZW50aXR5LnYxLlJlcXVlc3RBY2NvdW50RXhwb3J0UmVxdWVzdBoxLm'
-    'R6ZXJvdGguaWRlbnRpdHkudjEuUmVxdWVzdEFjY291bnRFeHBvcnRSZXNwb25zZRJ0ChBHZXRB'
-    'Y2NvdW50RXhwb3J0EiwuZHplcm90aC5pZGVudGl0eS52MS5HZXRBY2NvdW50RXhwb3J0UmVxdW'
-    'VzdBotLmR6ZXJvdGguaWRlbnRpdHkudjEuR2V0QWNjb3VudEV4cG9ydFJlc3BvbnNlIgOQAgE=');
+    'djEuQ2hlY2tIYW5kbGVBdmFpbGFiaWxpdHlSZXNwb25zZSIDkAIBEm4KDlN1Z2dlc3RIYW5kbG'
+    'VzEiouZHplcm90aC5pZGVudGl0eS52MS5TdWdnZXN0SGFuZGxlc1JlcXVlc3QaKy5kemVyb3Ro'
+    'LmlkZW50aXR5LnYxLlN1Z2dlc3RIYW5kbGVzUmVzcG9uc2UiA5ACARJTCgVHZXRNZRIhLmR6ZX'
+    'JvdGguaWRlbnRpdHkudjEuR2V0TWVSZXF1ZXN0GiIuZHplcm90aC5pZGVudGl0eS52MS5HZXRN'
+    'ZVJlc3BvbnNlIgOQAgESYgoKR2V0UHJvZmlsZRImLmR6ZXJvdGguaWRlbnRpdHkudjEuR2V0UH'
+    'JvZmlsZVJlcXVlc3QaJy5kemVyb3RoLmlkZW50aXR5LnYxLkdldFByb2ZpbGVSZXNwb25zZSID'
+    'kAIBEmYKDVVwZGF0ZVByb2ZpbGUSKS5kemVyb3RoLmlkZW50aXR5LnYxLlVwZGF0ZVByb2ZpbG'
+    'VSZXF1ZXN0GiouZHplcm90aC5pZGVudGl0eS52MS5VcGRhdGVQcm9maWxlUmVzcG9uc2USYwoM'
+    'Q2hhbmdlSGFuZGxlEiguZHplcm90aC5pZGVudGl0eS52MS5DaGFuZ2VIYW5kbGVSZXF1ZXN0Gi'
+    'kuZHplcm90aC5pZGVudGl0eS52MS5DaGFuZ2VIYW5kbGVSZXNwb25zZRJmCg1EZWxldGVBY2Nv'
+    'dW50EikuZHplcm90aC5pZGVudGl0eS52MS5EZWxldGVBY2NvdW50UmVxdWVzdBoqLmR6ZXJvdG'
+    'guaWRlbnRpdHkudjEuRGVsZXRlQWNjb3VudFJlc3BvbnNlEnsKFFJlcXVlc3RBY2NvdW50RXhw'
+    'b3J0EjAuZHplcm90aC5pZGVudGl0eS52MS5SZXF1ZXN0QWNjb3VudEV4cG9ydFJlcXVlc3QaMS'
+    '5kemVyb3RoLmlkZW50aXR5LnYxLlJlcXVlc3RBY2NvdW50RXhwb3J0UmVzcG9uc2USdAoQR2V0'
+    'QWNjb3VudEV4cG9ydBIsLmR6ZXJvdGguaWRlbnRpdHkudjEuR2V0QWNjb3VudEV4cG9ydFJlcX'
+    'Vlc3QaLS5kemVyb3RoLmlkZW50aXR5LnYxLkdldEFjY291bnRFeHBvcnRSZXNwb25zZSIDkAIB');
