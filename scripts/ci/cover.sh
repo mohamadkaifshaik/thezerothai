@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: cover.sh gate <profile> <threshold> <label>      fail when the profile's total coverage is under <threshold>%
 #        cover.sh merge <out> <shard profile>...          merge one run's shard profiles (*-shard-<i>-of-<n>.out) into <out>
-# The coverage gates of `make test` (pkg/platform) and `make test-int` / `make test-int-cover` (internal/,
+# The coverage gates of `make test` / `make test-cover` (pkg/platform) and `make test-int` / `make test-int-cover` (internal/,
 # 70%). gate runs `go tool cover` from the profile's directory, which must be the Go module (backend/), because the
 # tool reads the source files to find functions.
 # merge refuses an incomplete or mixed set (every index 0..n-1 exactly once, one n, one mode line), so a missing shard
