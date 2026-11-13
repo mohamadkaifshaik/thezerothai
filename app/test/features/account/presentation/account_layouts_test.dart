@@ -81,7 +81,7 @@ void main() {
           uid: 'uid-1',
           email: 'a@example.com',
           emailVerified: true,
-          isPasswordProvider: true,
+          isPasswordProvider: false,
         ),
       ),
     );
@@ -94,6 +94,7 @@ void main() {
       ),
     );
     when(() => auth.reauthNeedsGesture).thenReturn(false);
+    when(() => auth.canSkipDeleteReauth).thenReturn(false);
   });
 
   setUpAll(() async {
@@ -230,7 +231,10 @@ void main() {
           tester.widget<AppPillButton>(pill('Delete my account')).onPressed,
           isNull,
         );
-        await tester.enterText(find.byType(TextField), 'kaif');
+        await tester.enterText(
+          find.byKey(const ValueKey('delete-account-handle')),
+          'kaif',
+        );
         await tester.pump();
         expect(
           tester.widget<AppPillButton>(pill('Delete my account')).onPressed,
@@ -244,6 +248,67 @@ void main() {
       await pump(tester, screen, size: phone, textScale: 2);
       expectNoOverflow(tester);
     });
+
+    group('password account (inline password)', () {
+      setUp(() {
+        whenListen(
+          authBloc,
+          const Stream<AuthState>.empty(),
+          initialState: const AuthState(
+            status: AuthStatus.authenticated,
+            user: AppUser(
+              uid: 'uid-1',
+              email: 'a@example.com',
+              emailVerified: true,
+              isPasswordProvider: true,
+            ),
+          ),
+        );
+      });
+
+      for (final size in [phone, tablet, desktop]) {
+        testWidgets('${size.width.toInt()}: handle and password both '
+            'enable delete; no overflow', (tester) async {
+          await pump(tester, screen, size: size);
+          final password = find.byKey(
+            const ValueKey('delete-account-password'),
+          );
+          final handle = find.byKey(const ValueKey('delete-account-handle'));
+          expect(password, findsOneWidget);
+          expect(find.text('Enter your password to confirm'), findsOneWidget);
+          // The same column width as the handle field.
+          expect(tester.getSize(password).width, tester.getSize(handle).width);
+          bool canDelete() =>
+              tester
+                  .widget<AppPillButton>(pill('Delete my account'))
+                  .onPressed !=
+              null;
+          await tester.enterText(handle, 'kaif');
+          await tester.pump();
+          expect(canDelete(), isFalse);
+          await tester.enterText(password, 'pw');
+          await tester.pump();
+          expect(canDelete(), isTrue);
+          expectNoOverflow(tester);
+        });
+      }
+
+      testWidgets('phone at text scale 2.0: no overflow', (tester) async {
+        await pump(tester, screen, size: phone, textScale: 2);
+        expectNoOverflow(tester);
+      });
+    });
+
+    for (final size in [phone, tablet, desktop]) {
+      testWidgets('${size.width.toInt()}: a federated account has no '
+          'password field', (tester) async {
+        await pump(tester, screen, size: size);
+        expect(
+          find.byKey(const ValueKey('delete-account-password')),
+          findsNothing,
+        );
+      });
+    }
   });
 
   group('Download my data', () {
