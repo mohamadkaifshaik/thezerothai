@@ -81,6 +81,8 @@ missing or mismatched plan cannot inherit the reviewed monthly product's access.
 
 These inputs are repository/environment variables consumed by `deploy-dev.yml`.
 They are not secret values. Keep the opt-in unset until all inputs exist.
+First prepare the **disabled** webhook described in section 5 and obtain its
+one-time HMAC signing secret; then provision the backend secret versions below.
 
 | Variable | Initial value / purpose |
 | --- | --- |
@@ -117,13 +119,21 @@ restore and paid-feature enforcement are independent of the new-sales switch.
 
 ## 5. Connect RevenueCat webhooks to the deployed dev API
 
-After the billing-configured revision is serving, add a RevenueCat webhook:
+Before provisioning backend secrets, create a RevenueCat webhook configuration
+with **Webhook status = Disabled** and these settings:
 
 - URL: `https://dzeroth-dev.web.app/api/webhooks/revenuecat`
 - Filter to the real RevenueCat Play app ID and the selected receipt environment.
 - Configure a strong Authorization value matching the backend secret.
-- Enable HMAC signing and store the corresponding signing secret in the backend.
+- Enable HMAC signing and copy the one-time signing secret directly to Secret
+  Manager for the backend. It cannot be retrieved later; rotation invalidates
+  the previous secret immediately.
 - Include the subscription lifecycle/transfer events; avoid a purchase-only filter.
+
+Keep purchases off while provisioning and deploying. Once the billing-configured
+revision is serving, send a dashboard test event while the webhook is still
+disabled, verify delivery, then set its status to **Active** before purchase
+testing. Events occurring while disabled are not replayed on activation.
 
 Use the stable dev URL, not a temporary candidate tag. The handler verifies the
 signature over the original wire bytes, enforces app/environment filters, deduplicates
