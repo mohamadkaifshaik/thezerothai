@@ -28,6 +28,7 @@ import '../../features/beacons/presentation/create_beacon_screen.dart';
 import '../../features/beacons/presentation/edit_beacon_screen.dart';
 import '../../features/beacons/presentation/my_beacons_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
+import '../../features/lists/presentation/discover_lists_screen.dart';
 import '../../features/lists/presentation/list_detail_screen.dart';
 import '../../features/lists/presentation/list_members_screen.dart';
 import '../../features/lists/presentation/manage_pinned_screen.dart';
@@ -218,6 +219,8 @@ class AppRouter {
   // The caller's Lists. `/lists/:id` (the detail) is under the
   // same `lists` flag redirect.
   static const listsPath = '/lists';
+  // Discover public Lists (needs `list_follows`); declared before `/lists/:id`.
+  static const discoverListsPath = '/lists/discover';
   static String listPath(String listId) =>
       '/lists/${Uri.encodeComponent(listId)}';
   static String listMembersPath(String listId) => '${listPath(listId)}/members';
@@ -522,6 +525,11 @@ class AppRouter {
           GoRoute(
             path: listsPath,
             builder: (context, state) => const AuthGate(child: ListsScreen()),
+          ),
+          GoRoute(
+            path: discoverListsPath,
+            builder: (context, state) =>
+                const AuthGate(child: DiscoverListsScreen()),
           ),
           GoRoute(
             path: '/lists/:id',
@@ -1217,6 +1225,9 @@ class AppRouter {
           : homePath;
     }
     if (!_listsRoutes.hasMatch(loc)) return null;
+    if (loc == discoverListsPath && !features.contains(kFeatureListFollows)) {
+      return homePath;
+    }
     return features.contains(kFeatureLists) ? null : homePath;
   }
 

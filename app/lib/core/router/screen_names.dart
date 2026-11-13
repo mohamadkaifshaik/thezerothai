@@ -38,6 +38,7 @@ const Map<String, String> kScreenNames = {
   '/drafts': 'drafts',
   '/bookmarks': 'bookmarks',
   '/lists': 'lists',
+  '/lists/discover': 'lists_discover',
   '/lists/:id': 'list_detail',
   '/lists/:id/members': 'list_members',
   '/communities': 'communities',
