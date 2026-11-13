@@ -69,6 +69,14 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
   /// The last RequestToJoin note.
   String? lastNote;
 
+  /// Every RequestToJoin note, in order.
+  final List<String> notes = [];
+
+  /// An empty-note RequestToJoin fails with FAILED_PRECONDITION
+  /// `note_required` (the flag is on and the organiser does not follow the
+  /// caller).
+  bool noteRequiredOnEmpty = false;
+
   int pageSize = 20;
   int _nextId = 1234567890123456800;
 
@@ -260,6 +268,10 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     _refuse('request');
     receivedKeys.add(idempotencyKey);
     lastNote = note;
+    notes.add(note);
+    if (noteRequiredOnEmpty && note.isEmpty) {
+      throw StateConflictException('note_required');
+    }
     final view = _find(beaconId);
     if (view.beacon.status == pb.BeaconStatus.BEACON_STATUS_FULL) {
       throw StateConflictException('full');

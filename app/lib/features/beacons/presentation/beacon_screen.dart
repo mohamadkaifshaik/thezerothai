@@ -31,6 +31,7 @@ import 'bloc/beacon_detail_state.dart';
 import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
 import 'widgets/join_note_sheet.dart';
+import 'widgets/quick_join.dart';
 import 'widgets/plan_skeletons.dart';
 import 'widgets/plan_summary.dart';
 import '../../../shared/widgets/primitives/app_card.dart';
@@ -156,12 +157,31 @@ class _BeaconScreenState extends State<BeaconScreen> {
   }
 
   Future<void> _request() async {
+    final viewer = _cubit.state.view?.viewer;
+    final title = _cubit.state.view?.beacon.title ?? 'this plan';
+    // `beacon_quick_join` on and the organiser does not follow the viewer:
+    // the note is required.
+    final noteRequired =
+        quickJoinEnabled(context, listen: false) &&
+        !(viewer?.quickJoinAllowed ?? false);
     final note = await showJoinNoteSheet(
       context,
-      title: _cubit.state.view?.beacon.title ?? 'this plan',
+      title: title,
+      noteRequired: noteRequired,
     );
     if (note == null || !mounted) return;
     await _cubit.request(note);
+    _listChanged();
+  }
+
+  /// "I'm in": RequestToJoin with an empty note; a `note_required` answer
+  /// opens the sheet.
+  Future<void> _quickJoin() async {
+    await quickJoin(
+      context,
+      _cubit,
+      title: _cubit.state.view?.beacon.title ?? 'this plan',
+    );
     _listChanged();
   }
 
@@ -335,6 +355,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
               openConversationWith(context, state.view!.beacon.organiser),
           onCancel: _cancel,
           onRequest: _request,
+          onQuickJoin: _quickJoin,
           onWithdraw: _withdraw,
           onLeave: _leave,
           onPeople: () => _open(AppRouter.planPeoplePath(widget.beaconId)),
@@ -377,6 +398,7 @@ class _Details extends StatelessWidget {
     required this.onMessage,
     required this.onCancel,
     required this.onRequest,
+    required this.onQuickJoin,
     required this.onWithdraw,
     required this.onLeave,
     required this.onPeople,
@@ -393,6 +415,7 @@ class _Details extends StatelessWidget {
   final VoidCallback onMessage;
   final VoidCallback onCancel;
   final VoidCallback onRequest;
+  final VoidCallback onQuickJoin;
   final VoidCallback onWithdraw;
   final VoidCallback onLeave;
   final VoidCallback onPeople;
@@ -418,6 +441,7 @@ class _Details extends StatelessWidget {
         ? '@${b.organiser.handle}'
         : b.organiser.displayName;
     final mayList = v.canManage || v.canLeave;
+    final quick = showsQuickJoin(context, v);
     Widget action({
       required String label,
       required AppButtonVariant variant,
@@ -500,10 +524,10 @@ class _Details extends StatelessWidget {
               ],
               if (v.canRequest)
                 action(
-                  label: 'Ask to join',
+                  label: quick ? kPlanImIn : 'Ask to join',
                   variant: AppButtonVariant.primary,
                   kind: BeaconAction.request,
-                  onPressed: onRequest,
+                  onPressed: quick ? onQuickJoin : onRequest,
                   busyLabel: 'Sending request',
                   note: '$organiser approves each request.',
                 ),

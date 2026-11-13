@@ -40,6 +40,7 @@
 	featureChatSharedPlans, err := flags.LoadSpec("CHAT_SHARED_PLANS", "chat_shared_plans", flags.Off)
 	featureDMPostShare, err := flags.LoadSpec("DM_POST_SHARE", "dm_post_share", flags.Off)
 	featureShareCount, err := flags.LoadSpec("SHARE_COUNT", "share_count", flags.Off)
+	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
 	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
 	featureDMPolicy, err := flags.LoadSpec("DM_POLICY", "dm_policy", flags.Off)
 	featureNotificationPrefs, err := flags.LoadSpec("NOTIFICATION_PREFS", "notification_prefs", flags.Off)

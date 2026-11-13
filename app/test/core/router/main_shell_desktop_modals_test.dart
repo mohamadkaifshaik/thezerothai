@@ -57,7 +57,9 @@ Future<void> _pump(
 void main() {
   for (final width in [1200.0, 1440.0, 1920.0]) {
     for (final (location, master) in [
-      (AppRouter.creatorStudioPath, false),
+      (AppRouter.homePath, false),
+      // The shells are in the Settings master-detail on the desktop.
+      (AppRouter.creatorStudioPath, true),
       (AppRouter.settingsPath, true),
     ]) {
       testWidgets('${width.toInt()} dp on $location: the formula is the '
@@ -115,7 +117,12 @@ void main() {
   testWidgets('1440 dp, right to left: on the column left of the rail', (
     tester,
   ) async {
-    await _pump(tester, width: 1440, textDirection: TextDirection.rtl);
+    await _pump(
+      tester,
+      width: 1440,
+      location: AppRouter.homePath,
+      textDirection: TextDirection.rtl,
+    );
     final column = _renderedColumn(tester);
     expect(
       column,
@@ -142,7 +149,12 @@ void main() {
   testWidgets('1440 dp with ui_tablet off: centred on the window, as before', (
     tester,
   ) async {
-    await _pump(tester, width: 1440, flags: kShellFlags);
+    await _pump(
+      tester,
+      width: 1440,
+      location: AppRouter.homePath,
+      flags: kShellFlags,
+    );
 
     AppConfirmDialog.show(
       _shell(tester),

@@ -3,6 +3,7 @@ package apiserver
 import (
 	"testing"
 
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
@@ -174,5 +175,31 @@ func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestFeatureRegistry_IncludesBeaconQuickJoin: `beacon_quick_join` defaults off, is on for an allowlisted caller only, and
+// the config name is the one the beacons service checks (a drift or a spec left out of featureRegistry would leave it
+// silently off for everyone).
+func TestFeatureRegistry_IncludesBeaconQuickJoin(t *testing.T) {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if featureRegistry(cfg).Enabled("uid-a", beacons.QuickJoinFlagName) {
+		t.Error("beacon_quick_join must default off")
+	}
+	if cfg.FeatureBeaconQuickJoin.Name != beacons.QuickJoinFlagName {
+		t.Errorf("config flag name %q != beacons.QuickJoinFlagName", cfg.FeatureBeaconQuickJoin.Name)
+	}
+	t.Setenv("FEATURE_BEACON_QUICK_JOIN", "allowlist")
+	t.Setenv("FEATURE_BEACON_QUICK_JOIN_ALLOWLIST", "uid-a")
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	reg := featureRegistry(cfg)
+	if !reg.Enabled("uid-a", beacons.QuickJoinFlagName) || reg.Enabled("uid-z", beacons.QuickJoinFlagName) {
+		t.Error("beacon_quick_join should be on for uid-a only")
 	}
 }

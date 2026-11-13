@@ -2,6 +2,12 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../domain/beacons_feature_flag.dart';
 
+/// Whether [error] is the server asking for a note: a one-tap join (empty
+/// note) the organiser's follow does not cover.
+bool isNoteRequired(AppException error) =>
+    error is StateConflictException &&
+    error.reason == kBeaconNoteRequiredReason;
+
 /// Friendly, typed text for a failed Plans action. Never the raw server
 /// message, and one fixed text for [NotFoundException] whatever the cause
 /// (missing, hidden, blocked, not visible). A state conflict reads by its
