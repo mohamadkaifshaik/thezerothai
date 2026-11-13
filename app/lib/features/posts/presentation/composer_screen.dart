@@ -13,14 +13,17 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/router/close_routes_above.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_avatar.dart';
-import '../../../shared/widgets/primitives/app_form_header.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
 import '../../../shared/widgets/post/embedded_post_card.dart';
+import '../../../shared/widgets/post/post_card.dart' show kPostAvatarGap;
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
 import '../../communities/data/communities_repository.dart';
@@ -40,11 +43,13 @@ import '../data/drafts_repository.dart';
 import '../data/posts_repository.dart';
 import '../domain/composer_attachment_rules.dart';
 import '../domain/composer_draft.dart';
+import '../domain/post_text_rules.dart' show kMaxPostCodePoints;
 import '../domain/posts_feature_flag.dart';
 import '../domain/reply_audience.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
+import 'composer_route.dart';
 import 'post_error_messages.dart';
 import 'quote_gate.dart';
 import 'widgets/audience_pill.dart';
@@ -57,6 +62,7 @@ import 'widgets/reply_audience_sheet.dart';
 import 'widgets/schedule_controls.dart';
 import 'widgets/schedule_dialog.dart';
 import 'widgets/send_conflict_dialog.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// Shown when a picked draft could not be opened.
 const kDraftGoneMessage = 'That draft is no longer available.';
@@ -134,9 +140,13 @@ class ComposerScreen extends StatelessWidget {
     }
     // Unsent posts: `drafts` on, a signed-in account, and a new root
     // post (a quote never has a draft). Nothing draft-related is read from
-    // the tree otherwise.
+    // the tree otherwise. On the pure-Dart session cache (the web start-up
+    // fallback without sqlite) a draft would be gone on reload, so drafts
+    // act as off there.
     final uid =
-        quoteOfPostId.isEmpty && featureEnabledSnapshot(context, kFeatureDrafts)
+        quoteOfPostId.isEmpty &&
+            featureEnabledSnapshot(context, kFeatureDrafts) &&
+            !(context.read<AppDatabase?>()?.keepsNothing ?? false)
         ? (context.read<AuthBloc>().state.user?.uid ?? '')
         : '';
     if (uid.isNotEmpty && draftId.isNotEmpty) {
@@ -226,6 +236,11 @@ class ComposerScreen extends StatelessWidget {
             uid: uid,
             initialDraft: initial,
             usage: UsageScope.of(context),
+            // The session the posts repository writes under: a send that
+            // outlives it (sign-out, account switch) is not sent. The app
+            // always provides the database; a test tree without one gets a
+            // private epoch that never ends.
+            sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
           )..loadAudiences(),
         ),
       ],
@@ -490,9 +505,11 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 
   Future<void> _loadPicked(ComposerCubit cubit, String? draftId) async {
-    if (draftId == null || !mounted || cubit.isClosed) return;
+    if (draftId == null || !mounted || _left || cubit.isClosed) return;
     final result = await cubit.loadSavedDraft(draftId);
-    if (!mounted) return;
+    // Leaving meanwhile, or about to (the session ended): no notice on the
+    // page under it.
+    if (!mounted || _left || cubit.sessionEnded) return;
     switch (result) {
       case DraftLoadResult.loaded:
         _controller.text = cubit.state.draft.text;
@@ -582,6 +599,14 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 
   void _onState(BuildContext context, ComposerState state) {
+    // Leaving already (posted, closed, or the session ended): the cubit may
+    // still emit until the route is gone, and none of it may act again.
+    if (_left) return;
+    // Signed out, or another account now (the composer was opened in an
+    // ended session): leave at once, with any dialog or sheet open over it.
+    // Nothing is asked and nothing is saved; the cubit sends nothing from
+    // here on.
+    if (state.sessionEnded) return _leave(context);
     final notice = state.audienceNotice;
     if (notice != null) {
       context.read<ComposerCubit>().audienceNoticeShown();
@@ -612,12 +637,7 @@ class _ComposerViewState extends State<_ComposerView> {
             const SnackBar(content: Text(kReplyPolicyNotAppliedMessage)),
           );
       }
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(AppRouter.homePath);
-      }
-      return;
+      return _leave(context);
     }
     final error = state.error;
     // The server refused the time (too soon, too far): reopen the dialog
@@ -656,6 +676,14 @@ class _ComposerViewState extends State<_ComposerView> {
     }
   }
 
+  /// The post text: 20 sp in either presentation (the Composer mocks).
+  TextStyle? _fieldStyle(BuildContext context) =>
+      Theme.of(context).textTheme.bodyLarge?.copyWith(
+        fontSize: AppTypeTokens.replyFieldSizeDialog,
+        height: AppTypeTokens.replyFieldLineHeightDialog,
+        fontWeight: AppTypeTokens.weightBody,
+      );
+
   /// The avatar and the post text. Fills the available height without a
   /// poll; with one it is the poll's question (two lines to start, growing),
   /// inside the scroll view that also holds the builder.
@@ -678,17 +706,15 @@ class _ComposerViewState extends State<_ComposerView> {
       keyboardType: TextInputType.multiline,
       textCapitalization: TextCapitalization.sentences,
       inputFormatters: [LengthLimitingTextInputFormatter(kComposerInputCap)],
-      style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 18),
+      style: _fieldStyle(context),
       decoration: InputDecoration(
         hintText: hasPoll
             ? kPollQuestionHint
             : isQuote
             ? 'Add a comment'
             : "What's happening?",
-        hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-          fontSize: 18,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        hintStyle: _fieldStyle(context)
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
         filled: false,
         border: InputBorder.none,
         enabledBorder: InputBorder.none,
@@ -702,8 +728,14 @@ class _ComposerViewState extends State<_ComposerView> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ExcludeSemantics(child: AppAvatar(url: widget.avatarUrl)),
-          const SizedBox(width: AppSpacing.sm),
+          ExcludeSemantics(
+            child: AppAvatar.sized(
+              url: widget.avatarUrl,
+              size: AppAvatarSize.post,
+              name: '',
+            ),
+          ),
+          const SizedBox(width: kPostAvatarGap),
           Expanded(
             // The audience pill sits above the text, next to the
             // avatar, as on X; without it the field is laid out as before.
@@ -713,11 +745,15 @@ class _ComposerViewState extends State<_ComposerView> {
                     mainAxisSize: hasPoll ? MainAxisSize.min : MainAxisSize.max,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      AudiencePill(
-                        audience: state.audience,
-                        onTap: state.isSubmitting
-                            ? null
-                            : () => _chooseAudience(context, state),
+                      // The pill's own context: the tablet menu hangs
+                      // from it.
+                      Builder(
+                        builder: (pill) => AudiencePill(
+                          audience: state.audience,
+                          onTap: state.isSubmitting
+                              ? null
+                              : () => _chooseAudience(context, state, pill),
+                        ),
                       ),
                       if (hasPoll) field else Expanded(child: field),
                     ],
@@ -732,12 +768,14 @@ class _ComposerViewState extends State<_ComposerView> {
   Future<void> _chooseAudience(
     BuildContext context,
     ComposerState state,
+    BuildContext anchor,
   ) async {
     final cubit = context.read<ComposerCubit>();
     final picked = await showAudienceSheet(
       context,
       selected: state.audience,
       communities: state.communityChoices,
+      anchor: anchor,
     );
     if (picked != null && !cubit.isClosed) cubit.audienceChanged(picked);
   }
@@ -748,7 +786,7 @@ class _ComposerViewState extends State<_ComposerView> {
   /// the old "Discard this post?" because media is never kept. Never while the
   /// post is being sent.
   Future<void> _requestClose(BuildContext context, ComposerState state) async {
-    if (state.isSubmitting) return;
+    if (_left || state.isSubmitting) return;
     final cubit = context.read<ComposerCubit>();
     final gif =
         widget.mediaEnabled && context.read<AttachmentsCubit>().state.hasGif;
@@ -756,7 +794,7 @@ class _ComposerViewState extends State<_ComposerView> {
       case LeaveAction.none:
         break;
       case LeaveAction.discardMedia:
-        final discard = await showDialog<bool>(
+        final discard = await showAppMaterialDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Discard this post?'),
@@ -800,6 +838,21 @@ class _ComposerViewState extends State<_ComposerView> {
         }
     }
     if (!context.mounted) return;
+    _leave(context);
+  }
+
+  /// Set by the first [_leave]: the composer leaves once. A second pop would
+  /// take the page under it (or `go` Home would reset the stack).
+  bool _left = false;
+
+  /// Back to where the composer was opened from (Home when it was the first
+  /// page), closing first whatever is open over it. Once only.
+  void _leave(BuildContext context) {
+    if (_left) return;
+    _left = true;
+    // Already off the stack (a sign-out redirect replaced it): popping or
+    // going Home now would take the new stack's page.
+    if (!closeRoutesAbove(context)) return;
     if (context.canPop()) {
       context.pop();
     } else {
@@ -814,6 +867,7 @@ class _ComposerViewState extends State<_ComposerView> {
       // (pop, snackbar) must run once per status or error change only.
       listenWhen: (prev, curr) =>
           prev.status != curr.status ||
+          prev.sessionEnded != curr.sessionEnded ||
           !identical(prev.error, curr.error) ||
           prev.sendConflict != curr.sendConflict ||
           prev.audienceNotice != curr.audienceNotice ||
@@ -836,12 +890,26 @@ class _ComposerViewState extends State<_ComposerView> {
         // owns it so its own guards read the same answer.
         final rules = cubit.rules;
         final poll = state.poll;
+        // Composer mocks: full screen (phones, a cold start) puts Post in the
+        // header; the tablet and desktop dialogs put it in the footer, by the
+        // character ring.
+        final phone =
+            ComposerPresentationScope.of(context) ==
+            ComposerPresentation.fullScreen;
+        final post = AppPillButton(
+          label: scheduling ? 'Schedule' : 'Post',
+          compact: true,
+          busy: state.isSubmitting,
+          busySemanticsLabel: scheduling ? 'Scheduling post' : null,
+          onPressed: state.canSubmit ? cubit.submit : null,
+        );
         // Back (system gesture, browser) is blocked while the post is being
         // sent, and asks first when photos are attached. There is no cancel
         // for an upload in flight. Applies to the verify-email view too: it
         // replaces the composer, but the attachments are still held.
         final canLeaveFreely =
             state.status == ComposerStatus.posted ||
+            state.sessionEnded ||
             (!state.isSubmitting && cubit.leaveAction == LeaveAction.none);
         if (state.error is EmailNotVerifiedException) {
           return PopScope(
@@ -867,15 +935,15 @@ class _ComposerViewState extends State<_ComposerView> {
               child: AppMainColumn(
                 child: Column(
                   children: [
-                    AppFormHeader(
+                    _ComposerHeader(
                       title: isQuote ? 'Quote' : 'New post',
-                      busy: state.isSubmitting,
-                      busySemanticsLabel: scheduling ? 'Scheduling post' : null,
-                      onCancel: () => _requestClose(context, state),
-                      secondaryLabel: cubit.draftsActive ? 'Drafts' : null,
-                      onSecondary: () => _openDrafts(context),
-                      actionLabel: scheduling ? 'Schedule' : 'Post',
-                      onAction: state.canSubmit ? cubit.submit : null,
+                      onClose: state.isSubmitting
+                          ? null
+                          : () => _requestClose(context, state),
+                      onDrafts: cubit.draftsActive
+                          ? () => _openDrafts(context)
+                          : null,
+                      post: phone ? post : null,
                     ),
                     // The header announces "Scheduling post"; this bar is
                     // only the picture of it.
@@ -951,45 +1019,67 @@ class _ComposerViewState extends State<_ComposerView> {
                       // Photos at the start, the counter at the end; the hint
                       // (when there is one) takes the space between.
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
+                          // Scrolls sideways when the ring and the count leave
+                          // it too little room (large text on a small phone).
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (widget.mediaEnabled)
+                                    _AddPhotoButton(block: rules.photo),
+                                  if (rules.showGif)
+                                    ComposerGifButton(
+                                      block: rules.gif,
+                                      enabled:
+                                          !state.isSubmitting && !attachBusy,
+                                      onPressed: () => context
+                                          .read<AttachmentsCubit>()
+                                          .pickGif(),
+                                    ),
+                                  if (rules.showPoll)
+                                    ComposerPollButton(
+                                      block: rules.poll,
+                                      enabled: !state.isSubmitting,
+                                      selected: state.hasPoll,
+                                      // Open: it only takes you back to the
+                                      // question (Remove poll is in the builder).
+                                      onPressed: state.hasPoll
+                                          ? _questionFocus.requestFocus
+                                          : cubit.pollAdded,
+                                    ),
+                                  if (cubit.canSchedule)
+                                    ScheduleButton(
+                                      scheduled: scheduling,
+                                      enabled:
+                                          !state.isSubmitting &&
+                                          rules.schedule == ComposerBlock.none,
+                                      tooltip: rules.schedule.scheduleTooltip,
+                                      onPressed: () => _openSchedule(context),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          DraftProblemHint(problem: state.draft.problem),
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (widget.mediaEnabled)
-                                _AddPhotoButton(block: rules.photo),
-                              if (rules.showGif)
-                                ComposerGifButton(
-                                  block: rules.gif,
-                                  enabled: !state.isSubmitting && !attachBusy,
-                                  onPressed: () => context
-                                      .read<AttachmentsCubit>()
-                                      .pickGif(),
-                                ),
-                              if (rules.showPoll)
-                                ComposerPollButton(
-                                  block: rules.poll,
-                                  enabled: !state.isSubmitting,
-                                  selected: state.hasPoll,
-                                  // Open: it only takes you back to the
-                                  // question (Remove poll is in the builder).
-                                  onPressed: state.hasPoll
-                                      ? _questionFocus.requestFocus
-                                      : cubit.pollAdded,
-                                ),
-                              if (cubit.canSchedule)
-                                ScheduleButton(
-                                  scheduled: scheduling,
-                                  enabled:
-                                      !state.isSubmitting &&
-                                      rules.schedule == ComposerBlock.none,
-                                  tooltip: rules.schedule.scheduleTooltip,
-                                  onPressed: () => _openSchedule(context),
-                                ),
+                              CharacterCounter.ring(
+                                remaining: state.draft.remaining,
+                                ringOf: kMaxPostCodePoints,
+                                ringSize: phone
+                                    ? AppSize.counterRingPhone
+                                    : AppSize.counterRing,
+                              ),
+                              if (!phone) ...[
+                                const SizedBox(width: AppSpacing.smd),
+                                post,
+                              ],
                             ],
                           ),
-                          DraftProblemHint(problem: state.draft.problem),
-                          CharacterCounter(remaining: state.draft.remaining),
                         ],
                       ),
                     ),
@@ -1002,6 +1092,74 @@ class _ComposerViewState extends State<_ComposerView> {
       },
     );
   }
+}
+
+/// Close at the start; Drafts (when kept) and, full screen, the Post pill at
+/// the end. The dialogs carry Post in the footer. [title] is only the screen
+/// reader's heading: the designs draw none.
+class _ComposerHeader extends StatelessWidget {
+  const _ComposerHeader({
+    required this.title,
+    required this.onClose,
+    required this.onDrafts,
+    required this.post,
+  });
+
+  final String title;
+  final VoidCallback? onClose;
+  final VoidCallback? onDrafts;
+  final Widget? post;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsetsDirectional.fromSTEB(
+      AppSpacing.sm,
+      0,
+      AppSpacing.md,
+      0,
+    ),
+    // Grows with the pill at large text instead of clipping it.
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: AppSize.headerRow),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Close',
+            onPressed: onClose,
+            icon: const Icon(Icons.close),
+          ),
+          Semantics(header: true, label: title, child: const SizedBox.shrink()),
+          Expanded(
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onDrafts != null)
+                    Flexible(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size.square(
+                            AppSpacing.minTapTarget,
+                          ),
+                        ),
+                        onPressed: onDrafts,
+                        child: const Text(
+                          'Drafts',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  if (post case final post?) Flexible(child: post),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// The L-9 note under the "Will send on" line, at most two tap targets high:
@@ -1080,8 +1238,13 @@ class _ReplyAudienceLink extends StatelessWidget {
   final bool enabled;
   final ValueChanged<ReplyAudience> onChanged;
 
-  Future<void> _open(BuildContext context) async {
-    final picked = await showReplyAudienceSheet(context, selected: audience);
+  /// [anchor] is the link's own context (the tablet menu hangs from it).
+  Future<void> _open(BuildContext anchor) async {
+    final picked = await showReplyAudienceSheet(
+      anchor,
+      selected: audience,
+      anchor: anchor,
+    );
     if (picked != null) onChanged(picked);
   }
 
@@ -1093,38 +1256,40 @@ class _ReplyAudienceLink extends StatelessWidget {
         : theme.colorScheme.onSurfaceVariant;
     return Align(
       alignment: AlignmentDirectional.centerStart,
-      child: Semantics(
-        button: true,
-        enabled: enabled,
-        label: audience.linkLabel,
-        hint: 'Choose who can reply',
-        excludeSemantics: true,
-        onTap: enabled ? () => _open(context) : null,
-        child: InkWell(
-          onTap: enabled ? () => _open(context) : null,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: AppSpacing.xxl),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    replyAudienceIcon(audience),
-                    size: AppIconSize.sm,
-                    color: color,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Flexible(
-                    child: Text(
-                      audience.linkLabel,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.w600,
+      child: Builder(
+        builder: (link) => Semantics(
+          button: true,
+          enabled: enabled,
+          label: audience.linkLabel,
+          hint: 'Choose who can reply',
+          excludeSemantics: true,
+          onTap: enabled ? () => _open(link) : null,
+          child: InkWell(
+            onTap: enabled ? () => _open(link) : null,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: AppSpacing.xxl),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      replyAudienceIcon(audience),
+                      size: AppIconSize.sm,
+                      color: color,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Flexible(
+                      child: Text(
+                        audience.linkLabel,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

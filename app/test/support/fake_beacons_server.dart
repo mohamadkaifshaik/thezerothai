@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
@@ -35,6 +37,22 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
   /// The caller's own plans as ListMyBeacons answers them (not filtered by
   /// window or role: the test sets what the server would return).
   final List<pb.BeaconView> mine = [];
+
+  /// The `limit` of every ListMyBeacons, in order (the tablet "Your plans"
+  /// section asks for 2, My plans for 20).
+  final List<int> mineLimits = [];
+
+  /// Thrown by the next ListMyBeacons calls only, one per call (before
+  /// [refusals]).
+  final List<AppException> mineRefusals = [];
+
+  /// While set and not completed, GetBeacon waits for it (a plan still
+  /// loading).
+  Completer<void>? holdGet;
+
+  /// While set and not completed, ListBeacons and ListMyBeacons wait for it
+  /// (a list still loading).
+  Completer<void>? holdList;
 
   /// ACCEPTED and REQUESTED rows per beacon id.
   final Map<String, List<pb.Participant>> going = {};
@@ -95,16 +113,34 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     );
   }
 
+  /// The `activity` of every ListBeacons, in order (F29; UNSPECIFIED = All).
+  final List<pb.BeaconActivity> listActivities = [];
+
+  /// A server from before F29: it ignores `activity` and answers the whole
+  /// list.
+  bool ignoresActivity = false;
+
   @override
   Future<BeaconsPage> listBeacons({
     String communityId = '',
     int limit = 0,
     String pageToken = '',
+    pb.BeaconActivity activity = pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
   }) async {
+    listActivities.add(activity);
+    if (holdList case final hold?) await hold.future;
     _refuse('list:$communityId');
-    final source = communityId.isEmpty
+    final audience = communityId.isEmpty
         ? public
-        : (byCommunity[communityId] ?? const []);
+        : (byCommunity[communityId] ?? const <pb.BeaconView>[]);
+    final source =
+        ignoresActivity ||
+            activity == pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED
+        ? audience
+        : [
+            for (final v in audience)
+              if (v.beacon.activity == activity) v,
+          ];
     return _page(source, limit, pageToken);
   }
 
@@ -115,12 +151,19 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     int limit = 0,
     String pageToken = '',
   }) async {
+    mineLimits.add(limit);
+    if (holdList case final hold?) await hold.future;
+    if (mineRefusals.isNotEmpty) {
+      calls.add('mine');
+      throw mineRefusals.removeAt(0);
+    }
     _refuse('mine');
     return _page(mine, limit, pageToken);
   }
 
   @override
   Future<pb.BeaconView> getBeacon(String beaconId) async {
+    if (holdGet case final hold?) await hold.future;
     _refuse('get');
     return _find(beaconId);
   }
@@ -161,6 +204,10 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     return view;
   }
 
+  /// A server from before F28: it ignores `start_at`, `duration_minutes` and
+  /// `cost` on UpdateBeacon, answers OK and returns the old values.
+  bool ignoresSchedule = false;
+
   @override
   Future<pb.BeaconView> updateBeacon({
     required String idempotencyKey,
@@ -174,6 +221,13 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     if (request.hasTitle()) b.title = request.title;
     if (request.hasDetails()) b.details = request.details;
     if (request.hasVenue()) b.venue = request.venue;
+    if (!ignoresSchedule) {
+      if (request.hasStartAt()) b.startAt = request.startAt;
+      if (request.hasDurationMinutes()) {
+        b.durationMinutes = request.durationMinutes;
+      }
+      if (request.hasCost()) b.cost = request.cost;
+    }
     if (request.hasOpenSpots()) {
       if (request.openSpots < b.acceptedCount) {
         throw ValidationException(

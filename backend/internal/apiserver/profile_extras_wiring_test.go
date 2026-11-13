@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// wiring: the banner adapter over media.Reader, the late-bound pin checker and the post_delete chain's
+// wiring: the avatar adapter over media.Reader, the late-bound pin checker and the post_delete chain's
 // identity step. The whole stack over the emulators is covered by profile_extras_integration_test.go.
 
 type fakeMediaReader struct {
@@ -21,16 +21,12 @@ type fakeMediaReader struct {
 	calls []string
 }
 
-func (f *fakeMediaReader) ResolveAvatar(context.Context, string, string) (media.Ref, error) {
-	return media.Ref{}, errors.New("unexpected ResolveAvatar")
-}
-
-func (f *fakeMediaReader) ResolveBanner(_ context.Context, uid, mediaID string) (media.Ref, error) {
+func (f *fakeMediaReader) ResolveAvatar(_ context.Context, uid, mediaID string) (media.Ref, error) {
 	f.calls = append(f.calls, uid+"/"+mediaID)
 	return f.ref, f.err
 }
 
-func TestBannerResolver(t *testing.T) {
+func TestAvatarResolver(t *testing.T) {
 	mediaOn := flags.NewRegistry(flags.Spec{Name: media.FlagName, Mode: flags.On})
 	mediaOff := flags.NewRegistry(flags.Spec{Name: media.FlagName, Mode: flags.Off})
 	mediaListed := flags.NewRegistry(flags.Spec{Name: media.FlagName, Mode: flags.Allowlist, Allowlist: map[string]struct{}{"someone-else": {}}})
@@ -39,25 +35,25 @@ func TestBannerResolver(t *testing.T) {
 		name      string
 		reg       *flags.Registry
 		lib       *fakeMediaReader
-		want      identity.BannerRef
+		want      identity.AvatarRef
 		wantErr   error
 		wantCalls int
 	}{
-		{"ready banner maps URL and thumbnail", mediaOn, &fakeMediaReader{ref: media.Ref{URL: "https://m/b.webp", ThumbURL: "https://m/b_t.webp", Width: 1500, Height: 500}},
-			identity.BannerRef{URL: "https://m/b.webp", ThumbURL: "https://m/b_t.webp"}, nil, 1},
-		{"not ready is ErrBannerNotReady", mediaOn, &fakeMediaReader{err: media.ErrNotReady}, identity.BannerRef{}, identity.ErrBannerNotReady, 1},
-		{"a wrapped not-ready is ErrBannerNotReady", mediaOn, &fakeMediaReader{err: fmt.Errorf("resolve: %w", media.ErrNotReady)}, identity.BannerRef{}, identity.ErrBannerNotReady, 1},
-		{"FEATURE_MEDIA off is the same answer and reads nothing", mediaOff, &fakeMediaReader{ref: media.Ref{URL: "https://m/b.webp"}}, identity.BannerRef{}, identity.ErrBannerNotReady, 0},
-		{"FEATURE_MEDIA off for this caller reads nothing", mediaListed, &fakeMediaReader{ref: media.Ref{URL: "https://m/b.webp"}}, identity.BannerRef{}, identity.ErrBannerNotReady, 0},
-		{"a real failure is not collapsed into not ready", mediaOn, &fakeMediaReader{err: boom}, identity.BannerRef{}, boom, 1},
+		{"ready avatar maps URL and thumbnail", mediaOn, &fakeMediaReader{ref: media.Ref{URL: "https://m/a.webp", ThumbURL: "https://m/a_t.webp", Width: 400, Height: 400}},
+			identity.AvatarRef{URL: "https://m/a.webp", ThumbURL: "https://m/a_t.webp"}, nil, 1},
+		{"not ready is ErrAvatarNotReady", mediaOn, &fakeMediaReader{err: media.ErrNotReady}, identity.AvatarRef{}, identity.ErrAvatarNotReady, 1},
+		{"a wrapped not-ready is ErrAvatarNotReady", mediaOn, &fakeMediaReader{err: fmt.Errorf("resolve: %w", media.ErrNotReady)}, identity.AvatarRef{}, identity.ErrAvatarNotReady, 1},
+		{"FEATURE_MEDIA off is the same answer and reads nothing", mediaOff, &fakeMediaReader{ref: media.Ref{URL: "https://m/a.webp"}}, identity.AvatarRef{}, identity.ErrAvatarNotReady, 0},
+		{"FEATURE_MEDIA off for this caller reads nothing", mediaListed, &fakeMediaReader{ref: media.Ref{URL: "https://m/a.webp"}}, identity.AvatarRef{}, identity.ErrAvatarNotReady, 0},
+		{"a real failure is not collapsed into not ready", mediaOn, &fakeMediaReader{err: boom}, identity.AvatarRef{}, boom, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := bannerResolver{lib: tt.lib, flags: tt.reg}.ResolveBanner(context.Background(), "uid-1", "0000000000000000202")
+			got, err := avatarResolver{lib: tt.lib, flags: tt.reg}.ResolveAvatar(context.Background(), "uid-1", "0000000000000000202")
 			if !errors.Is(err, tt.wantErr) || (tt.wantErr == nil && err != nil) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
-			if errors.Is(err, identity.ErrBannerNotReady) && tt.wantErr != identity.ErrBannerNotReady {
+			if errors.Is(err, identity.ErrAvatarNotReady) && tt.wantErr != identity.ErrAvatarNotReady {
 				t.Fatalf("err = %v: an infrastructure failure became not-ready", err)
 			}
 			if got != tt.want {

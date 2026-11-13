@@ -83,7 +83,6 @@ func TestGIF_CreateUploadMatrix(t *testing.T) {
 		{"gif with a gif thumbnail", PurposePost, []UploadItem{with(g, func(i *UploadItem) { i.ThumbContentType = ContentTypeGIF })}, "items[0].thumb_content_type"},
 		{"gif with a png thumbnail", PurposePost, []UploadItem{with(g, func(i *UploadItem) { i.ThumbContentType = "image/png" })}, "items[0].thumb_content_type"},
 		{"avatar gif", PurposeAvatar, []UploadItem{g}, "items[0].content_type"},
-		{"banner gif", PurposeBanner, []UploadItem{g}, "items[0].content_type"},
 		{"gif plus a photo", PurposePost, []UploadItem{g, photo}, "items"},
 		{"photo plus a gif", PurposePost, []UploadItem{photo, g}, "items"},
 		{"two gifs", PurposePost, []UploadItem{g, g}, "items"},
@@ -385,7 +384,7 @@ func TestGIF_CleanupNamesUseTheThumbnailsOwnExtension(t *testing.T) {
 func TestGIF_ServerFlagModes(t *testing.T) {
 	const alice, bob = "uid-alice", "uid-bob"
 	mk := func(spec flags.Spec) FlagChecker {
-		return flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, flags.Spec{Name: ProfileExtrasFlagName, Mode: flags.On}, spec)
+		return flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, spec)
 	}
 	allow := map[string]struct{}{alice: {}}
 	tests := []struct {

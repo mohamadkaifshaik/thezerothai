@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../../core/theme/app_theme.dart';
 
@@ -42,9 +43,13 @@ enum AppButtonSize {
 /// exactly once, as an enabled or disabled button.
 ///
 /// [compact] draws a 36dp pill (header and composer buttons) inside the same
-/// 48dp tap target; the default is a [size] tall pill (forms). The label wraps
+/// 48dp tap target, and a tap anywhere in that box presses the pill; the
+/// default is a [size] tall pill (forms). The label wraps
 /// and the button grows at large text scales; it is never ellipsised.
 class AppPillButton extends StatelessWidget {
+  /// The outline variant's boundary (dz.css `1.5px`).
+  static const double _borderWidth = 1.5;
+
   const AppPillButton({
     super.key,
     required this.label,
@@ -90,15 +95,21 @@ class AppPillButton extends StatelessWidget {
     final look = _resolve(theme, colors, enabled);
     final labelColor = look.label;
     final pillHeight = compact ? AppSize.pillCompact : size.height;
+    final borderInset = look.border == null ? 0.0 : 2 * _borderWidth;
     final textStyle = theme.textTheme.labelLarge?.copyWith(
       color: labelColor,
       fontSize: size == AppButtonSize.large && !compact ? 16 : null,
     );
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    // A compact pill is centred (and shrinks) inside its 48dp tap box; the
+    // A compact pill is centred (and shrinks) inside its 48dp tap box, and a
+    // tap anywhere in the box is the pill's (only while it is enabled); the
     // regular pill fills the width its parent gives it (forms).
-    Widget wrap({required Widget child}) =>
-        compact ? Center(widthFactor: 1, heightFactor: 1, child: child) : child;
+    Widget wrap({required Widget child}) => compact
+        ? _BoxTapsToPill(
+            enabled: enabled,
+            child: Center(widthFactor: 1, heightFactor: 1, child: child),
+          )
+        : child;
     // The visual subtree is excluded from semantics and replaced by this one
     // node, so the label is spoken once (not once here and once from the Text).
     return Semantics(
@@ -126,7 +137,7 @@ class AppPillButton extends StatelessWidget {
                 boxShadow: look.shadow,
                 border: look.border == null
                     ? null
-                    : Border.all(color: look.border!, width: 1.5),
+                    : Border.all(color: look.border!, width: _borderWidth),
               ),
               child: InkWell(
                 borderRadius: radius,
@@ -134,8 +145,10 @@ class AppPillButton extends StatelessWidget {
                 onTap: enabled ? onPressed : null,
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    minHeight: pillHeight,
-                    minWidth: AppSpacing.minButtonWidth,
+                    // The Ink pads its child by the border, so a bordered
+                    // pill is as tall as a filled one.
+                    minHeight: pillHeight - borderInset,
+                    minWidth: AppSpacing.minButtonWidth - borderInset,
                   ),
                   child: Padding(
                     padding: EdgeInsets.symmetric(
@@ -228,6 +241,54 @@ class AppPillButton extends StatelessWidget {
           shadow: AppShadows.card,
         );
     }
+  }
+}
+
+/// Gives a tap anywhere in the compact pill's 48dp box to the 36dp pill, so
+/// the pointer target matches the tap target (and the semantics rect).
+///
+/// A hit inside the box that misses the pill is moved to the pill's centre,
+/// as Material's padded buttons do (`_RenderInputPadding`): the pill's own
+/// [InkWell] takes the press, so its highlight, ripple, hover and focus stay
+/// clipped to the pill. It paints nothing, adds no semantics and claims
+/// nothing outside its own box, so siblings in a Row, Column or Wrap keep
+/// their taps. A disabled pill keeps the 36dp target it always had.
+class _BoxTapsToPill extends SingleChildRenderObjectWidget {
+  const _BoxTapsToPill({required this.enabled, required super.child});
+
+  final bool enabled;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderBoxTapsToPill(enabled: enabled);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderBoxTapsToPill renderObject,
+  ) {
+    renderObject.enabled = enabled;
+  }
+}
+
+class _RenderBoxTapsToPill extends RenderProxyBox {
+  _RenderBoxTapsToPill({required bool enabled}) : _enabled = enabled;
+
+  bool _enabled;
+  set enabled(bool value) => _enabled = value;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (super.hitTest(result, position: position)) return true;
+    final child = this.child;
+    if (!_enabled || child == null || !size.contains(position)) return false;
+    // The child is the 48dp box with the pill centred in it.
+    final centre = child.size.center(Offset.zero);
+    return result.addWithRawTransform(
+      transform: MatrixUtils.forceToPoint(centre),
+      position: centre,
+      hitTest: (result, position) => child.hitTest(result, position: centre),
+    );
   }
 }
 

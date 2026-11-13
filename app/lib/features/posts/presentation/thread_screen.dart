@@ -10,16 +10,18 @@ import 'package:go_router/go_router.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
-import '../../../shared/widgets/primitives/app_surface.dart';
 import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/post/conversation_row.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
@@ -71,6 +73,16 @@ CommunitiesRepository? _communitiesRepositoryIfOn(BuildContext context) {
   }
 }
 
+/// Back from a post page: the previous page, or Home when there is none (a
+/// deep link).
+void leavePostScreen(BuildContext context) {
+  if (context.canPop()) {
+    context.pop();
+  } else {
+    context.go(AppRouter.homePath);
+  }
+}
+
 class ThreadScreen extends StatelessWidget {
   const ThreadScreen({
     super.key,
@@ -106,6 +118,10 @@ class ThreadScreen extends StatelessWidget {
             postsRepository: context.read<PostsRepository>(),
             replyToPostId: postId,
             usage: UsageScope.of(context),
+            // Bound to the session the thread was opened in: after a
+            // sign-out or an account switch the reply bar empties and sends
+            // nothing (the thread page itself stays).
+            sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
           ),
         ),
       ],
@@ -118,14 +134,6 @@ class _ThreadView extends StatelessWidget {
   const _ThreadView({required this.fallbackBuilder});
 
   final WidgetBuilder fallbackBuilder;
-
-  void _leave(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRouter.homePath);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -145,7 +153,7 @@ class _ThreadView extends StatelessWidget {
           listenWhen: (before, after) =>
               after.status == ThreadStatus.deleted &&
               before.status != ThreadStatus.deleted,
-          listener: (context, state) => _leave(context),
+          listener: (context, state) => leavePostScreen(context),
         ),
         BlocListener<ThreadCubit, ThreadState>(
           listenWhen: (before, after) =>
@@ -208,13 +216,25 @@ class _ThreadView extends StatelessWidget {
           if (state.status == ThreadStatus.disabled) {
             return fallbackBuilder(context);
           }
+          // The header lists the posts of a self-thread; it follows the
+          // loaded chain, not only the status.
+          final chain = context.select(
+            (ThreadCubit c) => c.state.selfThreadLength,
+          );
           return Scaffold(
-            appBar: AppBar(title: const Text('Post')),
+            appBar: AppTopBar.of(
+              context,
+              title: 'Post',
+              subtitle: chain > 0 ? 'Thread · $chain posts' : null,
+              onBack: () => leavePostScreen(context),
+            ),
             body: SafeArea(
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: AppLayout.mainColumnMaxWidth,
+                  // 680 on the tablet layout (the readable column), else
+                  // 600.
+                  constraints: BoxConstraints(
+                    maxWidth: ShellGeometry.readableMaxWidth(context),
                   ),
                   child: switch (state.status) {
                     ThreadStatus.loading ||
@@ -273,26 +293,19 @@ class _ThreadBodyState extends State<_ThreadBody> {
       final focal = c.state.focal;
       return focal == null ? kReplyNotAllowedHint : replyNotAllowedHint(focal);
     });
-    // From the mobile breakpoint up the composer sits in the list right under
-    // the open post (X on desktop); narrower, it stays docked at the bottom.
-    final inline = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
-    _ReplyComposer composer() => _ReplyComposer(
+    // The reply entry is the row right under the open post at every width
+    // (the PostDetail designs); below the mobile breakpoint it is the compact
+    // one: a 36 dp avatar, a plain prompt and a compact Reply.
+    final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final composer = _ReplyComposer(
       focusNode: _replyFocus,
       blocked: replyBlocked,
       blockedHint: blockedHint,
-      inline: inline,
+      compact: compact,
     );
-    // One tree either way, so crossing the width keeps the list's scroll.
-    return Column(
-      children: [
-        Expanded(
-          child: _ThreadList(
-            onReply: canReply ? _replyFocus.requestFocus : null,
-            inlineComposer: canReply && inline ? composer() : null,
-          ),
-        ),
-        if (canReply && !inline) composer(),
-      ],
+    return _ThreadList(
+      onReply: canReply ? _replyFocus.requestFocus : null,
+      inlineComposer: canReply ? composer : null,
     );
   }
 }
@@ -347,9 +360,28 @@ class _ThreadList extends StatelessWidget {
                 },
               )
             : null;
-        final replies = state.visibleReplies;
+        // A self-thread (PostThread mock): the open post and the author's
+        // replies that continue it are one chain of equal cards joined by
+        // the rail; the reply entry and everyone else's replies follow it.
+        final selfThread = state.selfThreadLength > 0;
+        final tail = state.selfThreadTail;
+        final tailIds = {for (final v in tail) v.post.postId};
+        final replies = tail.isEmpty
+            ? state.visibleReplies
+            : [
+                for (final r in state.visibleReplies)
+                  if (!tailIds.contains(r.post.postId)) r,
+              ];
         void onRelationship(graph.Relationship r) =>
             cubit.setAuthorHidden(r.userId, hidden: r.blocking || r.muting);
+        Future<void> replyTo(pb.PostView view) async {
+          final created = await context.push<pb.PostView>(
+            AppRouter.composeReplyPath(view.post.postId),
+          );
+          if (created != null && !cubit.isClosed) {
+            cubit.replyPosted(created);
+          }
+        }
 
         // Root above parent. A first-level reply has the same post as parent
         // and root: it is shown once.
@@ -435,30 +467,58 @@ class _ThreadList extends StatelessWidget {
                         authorId: focal.post.author.userId,
                         handle: focal.post.author.handle,
                         graphEnabled: graphEnabled,
-                        child: ConversationRow(
-                          connectBefore:
-                              isReply &&
-                              (state.parent ??
-                                          (sameContext ? state.root : null))
-                                      ?.post
-                                      .postId ==
-                                  focal.post.replyToPostId,
-                          child: PostCard(
-                            view: focal,
-                            focal: true,
-                            viewerUserId: viewerUserId,
-                            graphActionsEnabled: graphEnabled,
-                            reportsEnabled: reportsEnabled,
-                            engagementEnabled: engagementEnabled,
-                            // Reply focuses the composer; with replies closed
-                            // there is no composer and no Reply.
-                            showReply: onReply != null,
-                            onReply: onReply,
-                            onDelete: cubit.deletePost,
-                            onRelationshipChanged: onRelationship,
+                        child: _OpenPostHighlight(
+                          // In a self-thread the open post is one of the
+                          // chain's cards, told apart by a light tint.
+                          on: selfThread,
+                          child: ConversationRow(
+                            connectBefore:
+                                isReply &&
+                                (state.parent ??
+                                            (sameContext ? state.root : null))
+                                        ?.post
+                                        .postId ==
+                                    focal.post.replyToPostId,
+                            connectAfter: tail.isNotEmpty,
+                            child: PostCard(
+                              view: focal,
+                              focal: !selfThread,
+                              viewerUserId: viewerUserId,
+                              graphActionsEnabled: graphEnabled,
+                              reportsEnabled: reportsEnabled,
+                              engagementEnabled: engagementEnabled,
+                              // Reply focuses the composer; with replies
+                              // closed there is no composer and no Reply.
+                              showReply: onReply != null,
+                              onReply: onReply,
+                              onDelete: cubit.deletePost,
+                              onRelationshipChanged: onRelationship,
+                            ),
                           ),
                         ),
                       ),
+                      for (final (i, view) in tail.indexed)
+                        InkWell(
+                          key: ValueKey('chain-${view.post.postId}'),
+                          onTap: () => context.push(
+                            AppRouter.postPath(view.post.postId),
+                          ),
+                          child: ConversationRow(
+                            connectBefore: true,
+                            connectAfter: i + 1 < tail.length,
+                            child: PostCard(
+                              view: view,
+                              viewerUserId: viewerUserId,
+                              graphActionsEnabled: graphEnabled,
+                              reportsEnabled: reportsEnabled,
+                              engagementEnabled: engagementEnabled,
+                              moderationControl: replyModeration,
+                              onDelete: cubit.deletePost,
+                              onRelationshipChanged: onRelationship,
+                              onReply: () => replyTo(view),
+                            ),
+                          ),
+                        ),
                       if (inlineComposer case final composer?)
                         composer
                       else
@@ -509,14 +569,7 @@ class _ThreadList extends StatelessWidget {
                               moderationControl: replyModeration,
                               onDelete: cubit.deletePost,
                               onRelationshipChanged: onRelationship,
-                              onReply: () async {
-                                final created = await context.push<pb.PostView>(
-                                  AppRouter.composeReplyPath(view.post.postId),
-                                );
-                                if (created != null && !cubit.isClosed) {
-                                  cubit.replyPosted(created);
-                                }
-                              },
+                              onReply: () => replyTo(view),
                             ),
                           ),
                         ),
@@ -526,7 +579,11 @@ class _ThreadList extends StatelessWidget {
                   },
                 ),
                 SliverToBoxAdapter(
-                  child: _Footer(state: state, empty: replies.isEmpty),
+                  child: _Footer(
+                    state: state,
+                    // The chain's own replies are the conversation so far.
+                    empty: replies.isEmpty && tail.isEmpty,
+                  ),
                 ),
                 const ShellBottomInsetSliver(),
               ],

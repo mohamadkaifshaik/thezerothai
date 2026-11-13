@@ -2,20 +2,27 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/character_counter.dart';
+import '../../../../shared/widgets/primitives/app_sheet.dart';
 import '../../../lists/domain/list_text_rules.dart' show normalizeListText;
 import '../../domain/beacon_text_rules.dart';
 import '../../domain/beacons_feature_flag.dart';
 
 /// Asks for the optional note of a join request (0-140 code points, one
-/// line). Answers the normalised note, or null when dismissed.
+/// line). Answers the normalised note, or null when dismissed. A bottom
+/// sheet, or a dialog on the tablet layout (600-1199 dp).
 Future<String?> showJoinNoteSheet(
   BuildContext context, {
   required String title,
-}) => showModalBottomSheet<String>(
+}) => showAppSheet<String>(
   context: context,
-  isScrollControlled: true,
-  showDragHandle: true,
-  useSafeArea: true,
+  material: const MaterialSheetOptions(
+    isScrollControlled: true,
+    showDragHandle: true,
+    useSafeArea: true,
+    // Over the phone shell's floating bar, not under it.
+    useRootNavigator: true,
+  ),
+  tabletScrollable: true,
   builder: (context) => JoinNoteSheet(title: title),
 );
 

@@ -241,7 +241,8 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	}
 
 	// The profile section carries the extras. Fixed literals, because the golden normalizer only rewrites
-	// post ids under `posts`; the thumbnail is derived data and must stay out of the export.
+	// post ids under `posts`. The legacy banner fields (the removed feature) are still on the document and must stay out
+	// of the export: the golden has no bannerUrl.
 	if _, err := e.fs.Doc("users/"+a.uid).Update(ctx, []firestore.Update{
 		{Path: "bannerUrl", Value: "https://media.example/m/0000000000000000601.webp"},
 		{Path: "bannerThumbUrl", Value: "https://media.example/m/0000000000000000601_t.webp"},

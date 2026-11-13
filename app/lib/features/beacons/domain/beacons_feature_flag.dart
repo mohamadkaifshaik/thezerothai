@@ -5,6 +5,11 @@
 /// else.
 const kFeatureBeacons = 'beacons';
 
+/// Name of the plan-embeds-in-posts flag (`FEATURE_POST_BEACON_EMBED`, F5) in
+/// `GetMeResponse.enabled_features`: a post's plan card (`Post.beacon`) is
+/// drawn only while it is listed. Its Join needs [kFeatureBeacons] as well.
+const kFeaturePostBeaconEmbed = 'post_beacon_embed';
+
 /// `metadata["limit"]` of LIMIT_REACHED (read as `LimitReachedException.quota`):
 /// 5 OPEN/FULL plans per organiser.
 const kBeaconsOpenLimit = 'beacons_open';
@@ -14,6 +19,10 @@ const kBeaconRequestsPendingLimit = 'beacon_requests_pending';
 
 /// open_spots above the server's cap (20).
 const kBeaconParticipantsLimit = 'beacon_participants';
+
+/// F28: a new start, duration or cost on a plan with more request and
+/// participant rows than one transaction can move (200).
+const kBeaconEditRowsLimit = 'beacon_edit_rows';
 
 /// The server's caps, for copy and for disabling an action with the reason
 /// before a wasted call. The server stays authoritative.

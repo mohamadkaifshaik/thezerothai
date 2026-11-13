@@ -342,12 +342,12 @@ void main() {
       expect(find.byType(AppFloatingBottomBar), findsNothing);
       final barTop = tester.getRect(find.byType(AppBottomBar)).top;
       expect(barTop, height - 56);
-      // The list keeps its 24 dp bottom padding: the docked bar takes the
-      // inset.
+      // The list keeps its 24 dp bottom padding (the phone list adds its
+      // side and top padding): the docked bar takes the inset.
       final list = tester.widget<ListView>(
         find.ancestor(of: signOut(), matching: find.byType(ListView)),
       );
-      expect(list.padding, const EdgeInsets.only(bottom: 24));
+      expect((list.padding! as EdgeInsets).bottom, 24);
       final after = tester.getRect(signOut());
       expect(after.bottom, lessThanOrEqualTo(barTop));
       expect(after.bottom, lessThanOrEqualTo(before.bottom));

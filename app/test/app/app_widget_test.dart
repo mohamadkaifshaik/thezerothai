@@ -7,6 +7,8 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart'
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
+import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
+import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/app/app_widget.dart';
 import 'package:dzeroth/core/network/service_paused_cubit.dart';
 import 'package:dzeroth/core/router/app_router.dart';
@@ -20,6 +22,8 @@ import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
+import 'package:dzeroth/features/beacons/presentation/bloc/plans_session.dart';
 import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/data/likes_repository.dart';
@@ -35,6 +39,10 @@ import 'package:dzeroth/gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
+import 'package:dzeroth/features/messages/data/messaging_store.dart';
+import 'package:dzeroth/features/messages/presentation/bloc/conversations_session.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
@@ -54,6 +62,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../support/beacons_fixtures.dart';
+import '../support/fake_beacons_server.dart';
 import '../support/fake_push_messaging.dart';
 import '../support/fake_transport.dart';
 import '../support/poll_fixtures.dart';
@@ -172,6 +182,9 @@ void main() {
     PostsRepository? postsRepository,
     SearchRepository? searchRepository,
     SubscriptionRepository? subscriptionRepository,
+    BeaconsRepository? beaconsRepository,
+    MessagingRepository? messagingRepository,
+    OwnPrivacyStore? ownPrivacyStore,
   }) async {
     whenListen(authBloc, authStates.stream, initialState: auth);
     whenListen(
@@ -196,7 +209,7 @@ void main() {
         postsGate: PostsFeatureGate(isPostsEnabled: () => false),
         mediaRepository: MockMediaRepository(),
         notificationsRepository: notifications,
-        messagingRepository: MockMessagingRepository(),
+        messagingRepository: messagingRepository ?? MockMessagingRepository(),
         moderationRepository: MockModerationRepository(),
         engagementRepository: MockEngagementRepository(),
         bookmarksRepository: MockBookmarksRepository()..stubEvents(),
@@ -207,6 +220,8 @@ void main() {
         pollRepository: pollRepository,
         listsRepository: listsRepository,
         homeTabsRepository: homeTabsRepository,
+        beaconsRepository: beaconsRepository,
+        ownPrivacyStore: ownPrivacyStore,
       ),
     );
     await tester.pump();
@@ -371,6 +386,46 @@ void main() {
     expect(suggestions.clears, 1);
   });
 
+  group('message privacy belongs to the account (R4)', () {
+    for (final (label, next) in [
+      ('sign-out', const AuthState(status: AuthStatus.unauthenticated)),
+      (
+        'a direct switch to another account',
+        const AuthState(
+          status: AuthStatus.authenticated,
+          user: AppUser(
+            uid: 'uid-2',
+            email: 'b@example.com',
+            emailVerified: true,
+            isPasswordProvider: true,
+          ),
+        ),
+      ),
+    ]) {
+      testWidgets('$label forgets the read receipts and DM policy', (
+        tester,
+      ) async {
+        final store = OwnPrivacyStore()
+          ..record(identity.Profile(userId: 'uid-1', readReceipts: true));
+        await pump(
+          tester,
+          auth: const AuthState(status: AuthStatus.authenticated, user: user),
+          onboarding: ready(),
+          ownPrivacyStore: store,
+        );
+        expect(store.value?.readReceipts, isTrue);
+
+        authStates.add(next);
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+
+        expect(store.value, isNull);
+      });
+    }
+  });
+
   testWidgets('sign-out releases the posts and search rate-limit holds', (
     tester,
   ) async {
@@ -532,6 +587,305 @@ void main() {
         isNull,
         reason: "uid-2 must not be handed the name of uid-1's private list",
       );
+    });
+  });
+
+  // Tablet T5 (plan section 5.2): the `/plans` list is hoisted above the
+  // router, so it is per-account state like the others.
+  group('the hoisted Plans list belongs to the account (T5)', () {
+    const other = AppUser(
+      uid: 'uid-2',
+      email: 'b@example.com',
+      emailVerified: true,
+      isPasswordProvider: true,
+    );
+    late FakeBeaconsServer beacons;
+
+    setUp(() {
+      beacons = FakeBeaconsServer()
+        ..public.add(
+          beaconView(startAt: DateTime.now().add(const Duration(hours: 1))),
+        );
+    });
+
+    PlansSession session(WidgetTester tester) =>
+        tester.element(find.byType(MaterialApp)).read<PlansSession>();
+
+    Future<void> settle(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+
+    Future<PlansSession> startWithAList(WidgetTester tester) async {
+      await pump(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: ready(flags: {'beacons'}),
+        beaconsRepository: beacons,
+      );
+      final s = session(tester);
+      await tester.runAsync(() => s.list.ensureLoaded());
+      expect(s.list.state.views, hasLength(1));
+      return s;
+    }
+
+    testWidgets('provided, and nothing is created or sent at app start', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: ready(flags: {'beacons'}),
+        beaconsRepository: beacons,
+      );
+      expect(session(tester).listIfCreated, isNull);
+      expect(session(tester).yourPlansIfCreated, isNull);
+      expect(beacons.calls, isEmpty);
+    });
+
+    testWidgets('without a beacons repository there is none', (tester) async {
+      await pump(tester, onboarding: ready());
+      expect(
+        tester.element(find.byType(MaterialApp)).read<PlansSession?>(),
+        isNull,
+      );
+    });
+
+    testWidgets('sign-out closes and drops it', (tester) async {
+      final s = await startWithAList(tester);
+      final list = s.list;
+
+      authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+      await settle(tester);
+
+      expect(list.isClosed, isTrue);
+      expect(s.listIfCreated, isNull);
+    });
+
+    testWidgets('a direct switch to another account drops it too', (
+      tester,
+    ) async {
+      final s = await startWithAList(tester);
+      final list = s.list;
+
+      authStates.add(
+        const AuthState(status: AuthStatus.authenticated, user: other),
+      );
+      await settle(tester);
+
+      expect(
+        list.isClosed,
+        isTrue,
+        reason: "uid-2 must not be shown uid-1's plans",
+      );
+      expect(s.listIfCreated, isNull);
+    });
+
+    testWidgets('beacons turning off in a fresh GetMe drops it', (
+      tester,
+    ) async {
+      final s = await startWithAList(tester);
+      final list = s.list;
+
+      onboardingStates.add(ready());
+      await settle(tester);
+
+      expect(list.isClosed, isTrue);
+      expect(s.listIfCreated, isNull);
+    });
+
+    testWidgets('a fresh GetMe that keeps beacons (and communities) keeps it', (
+      tester,
+    ) async {
+      final s = await startWithAList(tester);
+      final list = s.list;
+
+      onboardingStates.add(ready(flags: {'beacons', 'notifications'}));
+      await settle(tester);
+
+      expect(s.list, same(list));
+      expect(list.isClosed, isFalse);
+    });
+  });
+
+  // Tablet T6 (plan section 5.2): the inbox and Requests folders are hoisted
+  // above the router, so they are per-account state like the others, and
+  // go when Messages turns `hidden`.
+  group('the hoisted Messages folders belong to the account (T6)', () {
+    const other = AppUser(
+      uid: 'uid-2',
+      email: 'b@example.com',
+      emailVerified: true,
+      isPasswordProvider: true,
+    );
+    late MessagingFeatureGate gate;
+    late MockMessagingRepository messagingRepo;
+
+    setUpAll(() => registerFallbackValue(Folder.FOLDER_INBOX));
+
+    setUp(() {
+      // The gate follows the flag set, as the app's does.
+      gate = MessagingFeatureGate(
+        isMessagingEnabled: () =>
+            onboardingBloc.state.enabledFeatures.contains('messaging'),
+      );
+      messagingRepo = MockMessagingRepository();
+      when(() => messagingRepo.gate).thenReturn(gate);
+      when(() => messagingRepo.rateLimitedFor()).thenReturn(null);
+      when(() => messagingRepo.conversationsChanged)
+          .thenAnswer((_) => const Stream<void>.empty());
+      when(() => messagingRepo.cachedConversations(any()))
+          .thenAnswer((_) async => const ConversationsSnapshot());
+      when(() => messagingRepo.refreshConversations(any())).thenAnswer(
+        (_) async => const ConversationsResult(ConversationsSnapshot()),
+      );
+    });
+
+    ConversationsSession session(WidgetTester tester) =>
+        tester.element(find.byType(MaterialApp)).read<ConversationsSession>();
+
+    Future<void> settle(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+
+    Future<ConversationsSession> startWithAnInbox(WidgetTester tester) async {
+      await pump(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: ready(flags: {'messaging'}),
+        messagingRepository: messagingRepo,
+      );
+      final s = session(tester);
+      await tester.runAsync(() => s.cubitFor(Folder.FOLDER_INBOX).open());
+      s.cubitFor(Folder.FOLDER_REQUESTS);
+      return s;
+    }
+
+    testWidgets('provided, and nothing is created or sent at app start', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: ready(flags: {'messaging'}),
+        messagingRepository: messagingRepo,
+      );
+      expect(session(tester).ifCreated(Folder.FOLDER_INBOX), isNull);
+      expect(session(tester).ifCreated(Folder.FOLDER_REQUESTS), isNull);
+      verifyNever(() => messagingRepo.refreshConversations(any()));
+      verifyNever(() => messagingRepo.cachedConversations(any()));
+    });
+
+    testWidgets('sign-out closes and drops both folders', (tester) async {
+      final s = await startWithAnInbox(tester);
+      final inbox = s.cubitFor(Folder.FOLDER_INBOX);
+      final requests = s.cubitFor(Folder.FOLDER_REQUESTS);
+
+      authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+      await settle(tester);
+
+      expect(inbox.isClosed, isTrue);
+      expect(requests.isClosed, isTrue);
+      expect(s.ifCreated(Folder.FOLDER_INBOX), isNull);
+      expect(s.ifCreated(Folder.FOLDER_REQUESTS), isNull);
+    });
+
+    testWidgets('a direct switch to another account drops them too', (
+      tester,
+    ) async {
+      final s = await startWithAnInbox(tester);
+      final inbox = s.cubitFor(Folder.FOLDER_INBOX);
+
+      authStates.add(
+        const AuthState(status: AuthStatus.authenticated, user: other),
+      );
+      await settle(tester);
+
+      expect(
+        inbox.isClosed,
+        isTrue,
+        reason: "uid-2 must not be shown uid-1's conversations",
+      );
+      expect(s.ifCreated(Folder.FOLDER_INBOX), isNull);
+    });
+
+    testWidgets('messaging turning off (access hidden) in a fresh GetMe '
+        'drops them', (tester) async {
+      final s = await startWithAnInbox(tester);
+      final inbox = s.cubitFor(Folder.FOLDER_INBOX);
+
+      when(() => onboardingBloc.state).thenReturn(ready());
+      onboardingStates.add(ready());
+      await settle(tester);
+
+      expect(inbox.isClosed, isTrue);
+      expect(s.ifCreated(Folder.FOLDER_INBOX), isNull);
+    });
+
+    testWidgets('read-only access keeps them through a flag change', (
+      tester,
+    ) async {
+      final s = await startWithAnInbox(tester);
+      final inbox = s.cubitFor(Folder.FOLDER_INBOX);
+      when(() => onboardingBloc.state).thenReturn(ready());
+      // The caller left the rollout but holds conversations: read-only.
+      await tester.runAsync(
+        () => gate.probe(hasCached: () async => true, refresh: () async {}),
+      );
+      expect(gate.access, MessagingAccess.readOnly);
+
+      onboardingStates.add(ready());
+      await settle(tester);
+
+      expect(s.ifCreated(Folder.FOLDER_INBOX), same(inbox));
+      expect(inbox.isClosed, isFalse);
+    });
+
+    testWidgets('messaging found globally off (the gate) drops them', (
+      tester,
+    ) async {
+      final s = await startWithAnInbox(tester);
+      final inbox = s.cubitFor(Folder.FOLDER_INBOX);
+      when(() => onboardingBloc.state).thenReturn(ready());
+      await tester.runAsync(
+        () => gate.probe(hasCached: () async => true, refresh: () async {}),
+      );
+      onboardingStates.add(ready());
+      await settle(tester);
+      expect(inbox.isClosed, isFalse);
+
+      await tester.runAsync(() async {
+        try {
+          await gate.runRead<void>(
+            () => throw const FeatureDisabledException('off'),
+          );
+        } on FeatureDisabledException {
+          // Expected: the read is refused.
+        }
+      });
+      await settle(tester);
+
+      expect(gate.access, MessagingAccess.hidden);
+      expect(inbox.isClosed, isTrue);
+      expect(s.ifCreated(Folder.FOLDER_INBOX), isNull);
+    });
+
+    testWidgets('a fresh GetMe that keeps messaging keeps them', (
+      tester,
+    ) async {
+      final s = await startWithAnInbox(tester);
+      final inbox = s.cubitFor(Folder.FOLDER_INBOX);
+
+      onboardingStates.add(ready(flags: {'messaging', 'notifications'}));
+      await settle(tester);
+
+      expect(s.ifCreated(Folder.FOLDER_INBOX), same(inbox));
+      expect(inbox.isClosed, isFalse);
     });
   });
 

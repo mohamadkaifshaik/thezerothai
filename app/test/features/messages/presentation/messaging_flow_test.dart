@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
 import 'package:dzeroth/features/messages/presentation/report_conversation.dart';
@@ -24,9 +25,9 @@ void main() {
   ) async {
     await rig.pump(tester);
     expect(find.byType(ConversationsScreen), findsOneWidget);
-    expect(find.text('Message requests (1)'), findsOneWidget);
+    expect(find.text('1 person wants to say hello'), findsOneWidget);
 
-    await tester.tap(find.text('Message requests (1)'));
+    await tester.tap(find.text('Message requests'));
     await tester.pumpAndSettle();
     // The folder is a pushed page inside the shell: it has Back.
     expect(find.byTooltip('Back'), findsOneWidget);
@@ -103,7 +104,7 @@ void main() {
     await tester.tap(find.text('Block @sam'));
     await tester.pumpAndSettle();
     expect(find.text('Block this account?'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
     await tester.pumpAndSettle();
     expect(server.blocks.single.userId, 'u-sam');
     expect(find.text(kThreadReadOnlyText), findsOneWidget);
@@ -155,7 +156,7 @@ void main() {
     // The thread is open; sign out. The router leaves it for sign-in.
     await rig.signOut(tester);
 
-    expect(rig.path, AppRouter.signInPath);
+    expect(rig.path, AppRouter.welcomePath);
     expect(find.byType(ThreadScreen), findsNothing);
     final after = await tester.runAsync(rig.messagingRowCounts);
     expect(after!.conversations, 0);

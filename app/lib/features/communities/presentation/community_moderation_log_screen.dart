@@ -14,6 +14,7 @@ import 'bloc/community_moderation_cubit.dart';
 import 'bloc/community_moderation_log_cubit.dart';
 import 'communities_error_messages.dart';
 import 'widgets/community_unavailable_view.dart';
+import 'widgets/moderation_log_about.dart';
 import 'widgets/moderation_log_row.dart';
 
 /// `/communities/:id/moderation-log`: what the moderators did, newest
@@ -51,9 +52,15 @@ class _CommunityModerationLogScreenState
   )..load();
   final _scroll = ScrollController();
 
+  /// The community's name for the header's second line ("Chess club ·
+  /// Moderators only", the design's subtitle); empty until `GetCommunity`
+  /// answers (its one call; the line is kept so the page does not move).
+  String _communityName = '';
+
   @override
   void initState() {
     super.initState();
+    _loadName();
     _scroll.addListener(() {
       if (!_scroll.hasClients) return;
       final p = _scroll.position;
@@ -61,6 +68,18 @@ class _CommunityModerationLogScreenState
         _log.loadMore();
       }
     });
+  }
+
+  Future<void> _loadName() async {
+    try {
+      final r = await context.read<CommunitiesRepository>().getCommunity(
+        widget.communityId,
+      );
+      if (!mounted) return;
+      setState(() => _communityName = r.community.name);
+    } on AppException {
+      // No name, no subtitle; the log reports its own errors.
+    }
   }
 
   @override
@@ -98,7 +117,10 @@ class _CommunityModerationLogScreenState
   Widget _centered(Widget child) =>
       Center(child: SingleChildScrollView(child: child));
 
-  Widget _body(ModerationLogState state) {
+  /// The log for [state]. [aboutInline] (desktop) puts "About this log"
+  /// first in the list once there are entries, so it scrolls with them; the
+  /// loading, empty, locked and not-found states go without it.
+  Widget _body(ModerationLogState state, {required bool aboutInline}) {
     final error = state.error;
     if (state.status == ModerationLogStatus.loading) {
       return const Center(child: CircularProgressIndicator());
@@ -143,13 +165,26 @@ class _CommunityModerationLogScreenState
     final now = widget.now ?? DateTime.now();
     final footer =
         state.status == ModerationLogStatus.loadingMore || state.loadMoreFailed;
+    final lead = aboutInline ? 1 : 0;
     return RefreshIndicator(
       onRefresh: _log.load,
       child: ListView.builder(
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
-        itemCount: state.entries.length + (footer ? 1 : 0),
-        itemBuilder: (context, i) {
+        itemCount: lead + state.entries.length + (footer ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index < lead) {
+            return const ModerationLogAbout(
+              key: ValueKey('moderation-log-about'),
+              margin: EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.md,
+                AppSpacing.sm,
+              ),
+            );
+          }
+          final i = index - lead;
           if (i == state.entries.length) {
             if (state.loadMoreFailed) {
               return TextButton(
@@ -188,18 +223,70 @@ class _CommunityModerationLogScreenState
 
   @override
   Widget build(BuildContext context) {
+    // "About this log" is the desktop mock's side box; the desktop side
+    // column is the shell's, so it leads the log instead.
+    final aboutInline =
+        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
           child: Column(
             children: [
-              AppBackHeader(title: 'Moderation log', onBack: _back),
+              AppBackHeader(
+                title: 'Moderation log',
+                onBack: _back,
+                titleContent: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Moderation log',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    // Not over a log the viewer cannot read (locked, gone, failed):
+                    // "Moderators only" would say it twice. The line is kept
+                    // either way.
+                    BlocBuilder<
+                      CommunityModerationLogCubit,
+                      ModerationLogState
+                    >(
+                      bloc: _log,
+                      buildWhen: (a, b) => a.status != b.status,
+                      builder: (context, log) {
+                        final show =
+                            _communityName.isNotEmpty &&
+                            log.status != ModerationLogStatus.error;
+                        return ExcludeSemantics(
+                          excluding: !show,
+                          child: Text(
+                            show ? '$_communityName · Moderators only' : ' ',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            // dz: 12 w600, muted.
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: context.appColors.secondaryOnRaised,
+                                ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
               Expanded(
                 child:
                     BlocBuilder<
                       CommunityModerationLogCubit,
                       ModerationLogState
-                    >(bloc: _log, builder: (context, state) => _body(state)),
+                    >(
+                      bloc: _log,
+                      builder: (context, state) =>
+                          _body(state, aboutInline: aboutInline),
+                    ),
               ),
             ],
           ),

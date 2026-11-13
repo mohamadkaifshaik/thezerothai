@@ -636,7 +636,7 @@ void main() {
       final router = GoRouter.of(tester.element(find.byType(Navigator).first));
       expect(
         router.routeInformationProvider.value.uri.path,
-        AppRouter.signInPath,
+        AppRouter.welcomePath,
       );
 
       final signedIn = ready(flags: {'notifications', 'messaging'});

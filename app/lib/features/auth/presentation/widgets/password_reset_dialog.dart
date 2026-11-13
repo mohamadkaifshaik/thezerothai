@@ -3,11 +3,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../data/auth_repository.dart';
 import '../bloc/password_reset_cubit.dart';
-import 'auth_design.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/primitives/app_accent_headline.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 
 Future<void> showPasswordResetDialog(BuildContext context, String email) {
   final repository = context.read<AuthRepository>();
-  return showDialog<void>(
+  return showAppMaterialDialog<void>(
     context: context,
     builder: (_) => BlocProvider(
       create: (_) => PasswordResetCubit(repository),
@@ -42,7 +45,23 @@ class _PasswordResetDialogState extends State<_PasswordResetDialog> {
   Widget build(BuildContext context) =>
       BlocBuilder<PasswordResetCubit, PasswordResetState>(
         builder: (context, state) => AlertDialog(
-          title: const Text('Let’s get you back in.'),
+          // PasswordReset.html: the accent eyebrow over the display headline.
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Account access'.toUpperCase(),
+                style: AppTextStyles.eyebrow(Theme.of(context))
+                    .copyWith(color: context.appColors.accentText),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              const AppAccentHeadline(
+                lead: 'Find your ',
+                accent: 'way back',
+                size: AppAccountLayout.dialogHeadline,
+              ),
+            ],
+          ),
           content: SizedBox(
             width: 320,
             child: state.sent
@@ -98,9 +117,8 @@ class _PasswordResetDialogState extends State<_PasswordResetDialog> {
               child: Text(state.sent ? 'Done' : 'Cancel'),
             ),
             if (!state.sent)
-              AuthActionButton(
+              AppPillButton(
                 label: 'Send reset link',
-                primary: true,
                 busy: state.busy,
                 onPressed: _send,
               ),

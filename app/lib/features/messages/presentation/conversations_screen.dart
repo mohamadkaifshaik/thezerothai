@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -14,6 +13,7 @@ import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
@@ -21,17 +21,22 @@ import '../../notifications/presentation/bloc/push_cubit.dart';
 import '../data/messaging_repository.dart';
 import '../domain/messaging_feature_gate.dart';
 import 'bloc/conversations_cubit.dart';
+import 'bloc/conversations_session.dart';
 import 'bloc/messages_badge_cubit.dart';
 import 'messaging_error_messages.dart';
+import 'messages_list_detail.dart';
 import 'widgets/conversation_row.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
+import '../../settings/presentation/widgets/message_settings_action.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_geometry.dart';
+import '../../../core/widgets/shell_fab.dart';
 
 /// `/messages` and `/messages/requests`: the inbox.
 ///
 /// One screen, two folders: [Folder.FOLDER_INBOX] (title "Messages", the
-/// "New message" action and the "Message requests (N)" row) and
+/// "New message" action and the "Message requests" card) and
 /// [Folder.FOLDER_REQUESTS] (a back header, the received requests).
 ///
 /// The cached list renders at once; one `since` refresh follows on open and
@@ -77,6 +82,33 @@ class ConversationsScreen extends StatelessWidget {
             ),
           );
         }
+        final newMessage = access == MessagingAccess.full ? onNewMessage : null;
+        Widget list(BuildContext context) => ConversationsList(
+          folder: folder,
+          onOpenConversation: onOpenConversation,
+          onNewMessage: newMessage,
+          canCompose: access == MessagingAccess.full,
+        );
+        // The app's hoisted folders (tablet plan section 5.2): the same
+        // cubit for this route, the band B list pane and the split page, so
+        // crossing 840dp sends nothing. Without one (a screen test) the
+        // screen owns its cubit, as before.
+        final session = context.read<ConversationsSession?>();
+        if (session != null) {
+          return ConversationsSessionScope(
+            session: session,
+            folder: folder,
+            // Every visit opens (cache, then one refresh), as a new screen
+            // cubit did.
+            open: true,
+            builder: (context) =>
+                // Band B with the list pane beside this page (`MainShell`
+                // decides): the detail placeholder instead of the list.
+                ConversationsMasterScope.shownOf(context)
+                ? ConversationsDetailPlaceholder(onNewMessage: newMessage)
+                : list(context),
+          );
+        }
         return BlocProvider<ConversationsCubit>(
           create: (context) => ConversationsCubit(
             repository: context.read<MessagingRepository>(),
@@ -90,24 +122,35 @@ class ConversationsScreen extends StatelessWidget {
                 .read<MessagesBadgeCubit>()
                 .resync(rows, hasMore: hasMore),
           )..load(),
-          child: _ConversationsView(
-            folder: folder,
-            onOpenConversation: onOpenConversation,
-            onNewMessage: access == MessagingAccess.full ? onNewMessage : null,
-            canCompose: access == MessagingAccess.full,
-          ),
+          child: Builder(builder: list),
         );
       },
     );
   }
 }
 
-class _ConversationsView extends StatefulWidget {
-  const _ConversationsView({
+/// The list of one folder over the [ConversationsCubit] above it: the
+/// `/messages` route's body, and the tablet list panes' (band B), which pass
+/// [selectedId] and their own navigation.
+///
+/// - [onOpenConversation] opens a row; null draws the rows without a tap.
+/// - [onOpenRequests] opens the Requests folder from the inbox's "Message
+///   requests (N)" row; default `push('/messages/requests')`.
+/// - [onBack] is the Requests folder's back; default pop, or `go('/messages')`
+///   with nothing to pop.
+/// - [storage] keeps the scroll offset across remounts (the split page's
+///   list pane, one bucket per folder).
+class ConversationsList extends StatefulWidget {
+  const ConversationsList({
+    super.key,
     required this.folder,
     required this.onOpenConversation,
     required this.onNewMessage,
     required this.canCompose,
+    this.selectedId,
+    this.onOpenRequests,
+    this.onBack,
+    this.storage,
   });
 
   final Folder folder;
@@ -117,11 +160,17 @@ class _ConversationsView extends StatefulWidget {
   /// False in read-only mode: no New message action.
   final bool canCompose;
 
+  /// The conversation open beside the list (band B), highlighted.
+  final String? selectedId;
+  final VoidCallback? onOpenRequests;
+  final VoidCallback? onBack;
+  final PageStorageBucket? storage;
+
   @override
-  State<_ConversationsView> createState() => _ConversationsViewState();
+  State<ConversationsList> createState() => _ConversationsViewState();
 }
 
-class _ConversationsViewState extends State<_ConversationsView>
+class _ConversationsViewState extends State<ConversationsList>
     with WidgetsBindingObserver {
   final ScrollController _controller = ScrollController();
   late DateTime _now = DateTime.now();
@@ -209,6 +258,11 @@ class _ConversationsViewState extends State<_ConversationsView>
   }
 
   void _back() {
+    final onBack = widget.onBack;
+    if (onBack != null) {
+      onBack();
+      return;
+    }
     if (context.canPop()) {
       context.pop();
     } else {
@@ -221,101 +275,118 @@ class _ConversationsViewState extends State<_ConversationsView>
     final cubit = context.read<ConversationsCubit>();
     // A foreground message push refreshes the list: an
     // FCM nudge, throttled, never a timer.
-    return BlocListener<PushCubit, PushState>(
+    final view = BlocListener<PushCubit, PushState>(
       listenWhen: (a, b) => b.messagePushes > a.messagePushes,
       listener: (context, push) =>
           _onMessagePush(push.lastMessageConversationId),
-      child: Scaffold(
-        floatingActionButton:
-            _isInbox &&
-                widget.canCompose &&
-                MediaQuery.sizeOf(context).width < AppBreakpoints.mobile
-            ? FloatingActionButton(
-                tooltip: 'New message',
-                onPressed: widget.onNewMessage,
-                child: const Icon(Icons.mail_outline),
+      // The phone's floating button (the shell's) starts a new message.
+      child: ShellFab(
+        action: _isInbox && widget.canCompose && widget.onNewMessage != null
+            ? ShellFabAction(
+                tooltip: kNewMessageLabel,
+                icon: Icons.mail_outline,
+                onPressed: widget.onNewMessage!,
               )
             : null,
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final inset = math.max(
-              0.0,
-              (constraints.maxWidth - AppBreakpoints.mobile) / 2,
-            );
-            return BlocBuilder<ConversationsCubit, ConversationsState>(
-              builder: (context, state) {
-                return RefreshIndicator(
-                  onRefresh: cubit.refresh,
-                  child: CustomScrollView(
-                    controller: _controller,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      if (_isInbox)
-                        AppTopBar.sliver(
-                          title: 'Messages',
-                          centerTitle: true,
-                          actions: [
-                            if (widget.canCompose &&
-                                MediaQuery.sizeOf(context).width >=
-                                    AppBreakpoints.mobile)
-                              AppTopBarAction(
-                                icon: Icons.mail_outline,
-                                tooltip: 'New message',
-                                onPressed: widget.onNewMessage,
+        child: Scaffold(
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              final inset = ShellGeometry.readableInset(
+                context,
+                constraints.maxWidth,
+              );
+              return BlocBuilder<ConversationsCubit, ConversationsState>(
+                builder: (context, state) {
+                  return RefreshIndicator(
+                    onRefresh: cubit.refresh,
+                    child: CustomScrollView(
+                      key: widget.storage == null
+                          ? null
+                          : PageStorageKey<String>(
+                              'conversations-${widget.folder.value}',
+                            ),
+                      controller: _controller,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        if (_isInbox)
+                          AppTopBar.sliver(
+                            title: 'Messages',
+                            actions: [
+                              if (widget.canCompose &&
+                                  MediaQuery.sizeOf(context).width >=
+                                      AppBreakpoints.mobile)
+                                AppTopBarAction(
+                                  icon: Icons.mail_outline,
+                                  tooltip: kNewMessageLabel,
+                                  onPressed: widget.onNewMessage,
+                                ),
+                              const MessageSettingsAction(),
+                            ],
+                          )
+                        else
+                          _inset(
+                            inset,
+                            SliverToBoxAdapter(
+                              child: AppBackHeader(
+                                title: 'Message requests',
+                                onBack: _back,
                               ),
-                          ],
-                        )
-                      else
-                        _inset(
-                          inset,
-                          SliverToBoxAdapter(
-                            child: AppBackHeader(
-                              title: 'Message requests',
-                              onBack: _back,
                             ),
                           ),
-                        ),
-                      if (state.notice != null)
-                        _inset(
-                          inset,
-                          SliverToBoxAdapter(
-                            child: AppNoticeBanner(
-                              message: conversationsNoticeMessage(
-                                state.notice!,
+                        if (state.notice != null)
+                          _inset(
+                            inset,
+                            SliverToBoxAdapter(
+                              child: AppNoticeBanner(
+                                message: conversationsNoticeMessage(
+                                  state.notice!,
+                                ),
+                                onRetry: noticeCanRetry(state.notice!)
+                                    ? cubit.refresh
+                                    : null,
                               ),
-                              onRetry: noticeCanRetry(state.notice!)
-                                  ? cubit.refresh
-                                  : null,
                             ),
                           ),
-                        ),
-                      if (_isInbox && (state.requestCount ?? 0) > 0)
-                        _inset(
-                          inset,
-                          SliverToBoxAdapter(
-                            child: _RequestsRow(
-                              count: state.requestCount!,
-                              onTap: () =>
-                                  context.push(AppRouter.messageRequestsPath),
+                        if (_isInbox && (state.requestCount ?? 0) > 0)
+                          _inset(
+                            inset,
+                            SliverToBoxAdapter(
+                              child: _RequestsRow(
+                                count: state.requestCount!,
+                                onTap:
+                                    widget.onOpenRequests ??
+                                    () => context.push(
+                                      AppRouter.messageRequestsPath,
+                                    ),
+                              ),
                             ),
                           ),
-                        ),
-                      ..._body(context, cubit, state, inset),
-                      const ShellBottomInsetSliver(),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
+                        ..._body(context, cubit, state, inset),
+                        const ShellBottomInsetSliver(),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );
+    // The Requests header's Back reaches the pane's edge (T8f).
+    final region = AppBleedHitRegion(allowsScrollView: true, child: view);
+    final storage = widget.storage;
+    return storage == null
+        ? region
+        : PageStorage(bucket: storage, child: region);
   }
 
+  /// [sliver] in the reading column. Its header's divider (the Requests
+  /// folder's back header) spans the pane: the inset is its bleed (0
+  /// wherever the column fills the pane).
   Widget _inset(double inset, Widget sliver) => SliverPadding(
     padding: EdgeInsets.symmetric(horizontal: inset),
-    sliver: sliver,
+    sliver: AppMainColumnBleed(bleed: inset, child: sliver),
   );
 
   List<Widget> _body(
@@ -384,6 +455,7 @@ class _ConversationsViewState extends State<_ConversationsView>
                 child: ConversationRow(
                   conversation: conversation,
                   now: _now,
+                  selected: conversation.id == widget.selectedId,
                   onTap: open == null ? null : () => open(conversation.id),
                 ),
               );
@@ -420,8 +492,9 @@ class _ConversationsViewState extends State<_ConversationsView>
   }
 }
 
-/// The "Message requests (N)" row above the inbox: an envelope, the label and
-/// a chevron in one 48dp+ tap target.
+/// The "Message requests" card above the inbox (dzeroth-mobile Conversations):
+/// a tinted rounded card with an envelope, the label, how many people want to
+/// say hello and a chevron, in one 48dp+ tap target.
 class _RequestsRow extends StatelessWidget {
   const _RequestsRow({required this.count, required this.onTap});
 
@@ -432,47 +505,83 @@ class _RequestsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final label = 'Message requests ($count)';
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final radius = BorderRadius.circular(
+      phone
+          ? AppMessagesLayout.requestsRadiusPhone
+          : AppMessagesLayout.requestsRadiusWide,
+    );
+    final inset = phone
+        ? AppMessagesLayout.requestsInsetPhone
+        : AppMessagesLayout.requestsInsetWide;
+    final who = count == 1
+        ? '1 person wants to say hello'
+        : '$count people want to say hello';
     return Semantics(
       button: true,
-      label: label,
+      label: 'Message requests ($count)',
       excludeSemantics: true,
       onTap: onTap,
-      child: InkWell(
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: AppSize.listRow),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.smd,
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: AppSpacing.xxl,
-                  child: Icon(
-                    Icons.mark_email_unread_outlined,
-                    size: AppIconSize.lg,
-                    color: colors.onSurface,
-                  ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          inset,
+          phone
+              ? AppMessagesLayout.requestsTopPhone
+              : AppMessagesLayout.requestsTopWide,
+          inset,
+          AppSpacing.xs,
+        ),
+        child: Material(
+          color: AppPalette.tealElectric.withValues(
+            alpha: AppMessagesLayout.requestsTint,
+          ),
+          borderRadius: radius,
+          child: InkWell(
+            borderRadius: radius,
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: AppSpacing.minTapTarget,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppMessagesLayout.requestsPaddingH,
+                  vertical: AppMessagesLayout.requestsPaddingV,
                 ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.mark_email_unread_outlined,
+                      size: AppIconSize.lg,
+                      color: context.appColors.accentText,
                     ),
-                  ),
+                    const SizedBox(width: AppMessagesLayout.rowGap),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Message requests',
+                            style: theme.textTheme.titleSmall,
+                          ),
+                          Text(
+                            who,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: colors.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Directionality.of(context) == TextDirection.rtl
+                          ? Icons.chevron_left
+                          : Icons.chevron_right,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ],
                 ),
-                Icon(
-                  Directionality.of(context) == TextDirection.rtl
-                      ? Icons.chevron_left
-                      : Icons.chevron_right,
-                  color: colors.onSurfaceVariant,
-                ),
-              ],
+              ),
             ),
           ),
         ),

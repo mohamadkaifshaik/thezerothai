@@ -213,13 +213,6 @@ type Profile struct {
 	PostsCount     int64 `protobuf:"varint,11,opt,name=posts_count,json=postsCount,proto3" json:"posts_count,omitempty"`
 	// Clients render "Joined Month YYYY" from this (no extra field).
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// Profile extras. Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
-	// pinned_post_id and website are withheld while the flag is globally off (D3, D9, Amendment 1 A1), in every Profile
-	// including the owner's own. Nothing stored is erased, and the banner and location are not withheld.
-	// 1500 x 500 banner (cover image, 3:1); empty if none. A new banner has a new URL (immutable object).
-	BannerUrl string `protobuf:"bytes,13,opt,name=banner_url,json=bannerUrl,proto3" json:"banner_url,omitempty"`
-	// 600 x 200 banner for small layouts; empty if none.
-	BannerThumbUrl string `protobuf:"bytes,14,opt,name=banner_thumb_url,json=bannerThumbUrl,proto3" json:"banner_thumb_url,omitempty"`
 	// Free-text location, <= 30 code points, single line; empty if none.
 	Location string `protobuf:"bytes,15,opt,name=location,proto3" json:"location,omitempty"`
 	// An absolute http(s) URL, <= 100 characters, as typed except the lower-cased scheme; empty if none.
@@ -362,20 +355,6 @@ func (x *Profile) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
-}
-
-func (x *Profile) GetBannerUrl() string {
-	if x != nil {
-		return x.BannerUrl
-	}
-	return ""
-}
-
-func (x *Profile) GetBannerThumbUrl() string {
-	if x != nil {
-		return x.BannerThumbUrl
-	}
-	return ""
 }
 
 func (x *Profile) GetLocation() string {
@@ -913,14 +892,8 @@ type UpdateProfileRequest struct {
 	// true protects the account (needs FEATURE_PRIVATE_ACCOUNTS on for the caller); false unprotects it, from any
 	// caller. Cap: see UpdateProfile.
 	IsPrivate *bool `protobuf:"varint,5,opt,name=is_private,json=isPrivate,proto3,oneof" json:"is_private,omitempty"`
-	// Profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
+	// Profile extras: setting any of the three fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
 	// exact value "" (a clear) never does (see UpdateProfile).
-	// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller; "" removes the banner.
-	// Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
-	// MEDIA_NOT_READY, one answer for every cause, a banner that was replaced or removed earlier (retired) included. A
-	// replaced or removed banner's objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE covers banners,
-	// otherwise kept until account deletion.
-	BannerMediaId *string `protobuf:"bytes,6,opt,name=banner_media_id,json=bannerMediaId,proto3,oneof" json:"banner_media_id,omitempty"`
 	// <= 30 code points after NFC and trim, single line; no control or bidi formatting characters (the bio rules);
 	// else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it.
 	Location *string `protobuf:"bytes,7,opt,name=location,proto3,oneof" json:"location,omitempty"`
@@ -1010,13 +983,6 @@ func (x *UpdateProfileRequest) GetIsPrivate() bool {
 		return *x.IsPrivate
 	}
 	return false
-}
-
-func (x *UpdateProfileRequest) GetBannerMediaId() string {
-	if x != nil && x.BannerMediaId != nil {
-		return *x.BannerMediaId
-	}
-	return ""
 }
 
 func (x *UpdateProfileRequest) GetLocation() string {
@@ -1506,7 +1472,7 @@ var File_dzeroth_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdc\x05\n" +
+	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xbd\x05\n" +
 	"\aProfile\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1524,16 +1490,14 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\vposts_count\x18\v \x01(\x03R\n" +
 	"postsCount\x129\n" +
 	"\n" +
-	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
-	"\n" +
-	"banner_url\x18\r \x01(\tR\tbannerUrl\x12(\n" +
-	"\x10banner_thumb_url\x18\x0e \x01(\tR\x0ebannerThumbUrl\x12\x1a\n" +
+	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1a\n" +
 	"\blocation\x18\x0f \x01(\tR\blocation\x12\x18\n" +
 	"\awebsite\x18\x10 \x01(\tR\awebsite\x12$\n" +
 	"\x0epinned_post_id\x18\x11 \x01(\tR\fpinnedPostId\x123\n" +
 	"\x15subscription_verified\x18\x12 \x01(\bR\x14subscriptionVerified\x12#\n" +
 	"\rread_receipts\x18\x14 \x01(\bR\freadReceipts\x12:\n" +
-	"\tdm_policy\x18\x13 \x01(\x0e2\x1d.dzeroth.identity.v1.DmPolicyR\bdmPolicy\"z\n" +
+	"\tdm_policy\x18\x13 \x01(\x0e2\x1d.dzeroth.identity.v1.DmPolicyR\bdmPolicyJ\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0fR\n" +
+	"banner_urlR\x10banner_thumb_url\"z\n" +
 	"\x14CreateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1560,33 +1524,31 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x06handle\x18\x02 \x01(\tH\x00R\x06handleB\b\n" +
 	"\x06target\"L\n" +
 	"\x12GetProfileResponse\x126\n" +
-	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\xee\x04\n" +
+	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\xc4\x04\n" +
 	"\x14UpdateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12&\n" +
 	"\fdisplay_name\x18\x02 \x01(\tH\x00R\vdisplayName\x88\x01\x01\x12\x15\n" +
 	"\x03bio\x18\x03 \x01(\tH\x01R\x03bio\x88\x01\x01\x12+\n" +
 	"\x0favatar_media_id\x18\x04 \x01(\tH\x02R\ravatarMediaId\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"is_private\x18\x05 \x01(\bH\x03R\tisPrivate\x88\x01\x01\x12+\n" +
-	"\x0fbanner_media_id\x18\x06 \x01(\tH\x04R\rbannerMediaId\x88\x01\x01\x12\x1f\n" +
-	"\blocation\x18\a \x01(\tH\x05R\blocation\x88\x01\x01\x12\x1d\n" +
-	"\awebsite\x18\b \x01(\tH\x06R\awebsite\x88\x01\x01\x12)\n" +
-	"\x0epinned_post_id\x18\t \x01(\tH\aR\fpinnedPostId\x88\x01\x01\x12(\n" +
-	"\rread_receipts\x18\v \x01(\bH\bR\freadReceipts\x88\x01\x01\x12?\n" +
+	"is_private\x18\x05 \x01(\bH\x03R\tisPrivate\x88\x01\x01\x12\x1f\n" +
+	"\blocation\x18\a \x01(\tH\x04R\blocation\x88\x01\x01\x12\x1d\n" +
+	"\awebsite\x18\b \x01(\tH\x05R\awebsite\x88\x01\x01\x12)\n" +
+	"\x0epinned_post_id\x18\t \x01(\tH\x06R\fpinnedPostId\x88\x01\x01\x12(\n" +
+	"\rread_receipts\x18\v \x01(\bH\aR\freadReceipts\x88\x01\x01\x12?\n" +
 	"\tdm_policy\x18\n" +
-	" \x01(\x0e2\x1d.dzeroth.identity.v1.DmPolicyH\tR\bdmPolicy\x88\x01\x01B\x0f\n" +
+	" \x01(\x0e2\x1d.dzeroth.identity.v1.DmPolicyH\bR\bdmPolicy\x88\x01\x01B\x0f\n" +
 	"\r_display_nameB\x06\n" +
 	"\x04_bioB\x12\n" +
 	"\x10_avatar_media_idB\r\n" +
-	"\v_is_privateB\x12\n" +
-	"\x10_banner_media_idB\v\n" +
+	"\v_is_privateB\v\n" +
 	"\t_locationB\n" +
 	"\n" +
 	"\b_websiteB\x11\n" +
 	"\x0f_pinned_post_idB\x10\n" +
 	"\x0e_read_receiptsB\f\n" +
 	"\n" +
-	"_dm_policy\"O\n" +
+	"_dm_policyJ\x04\b\x06\x10\aR\x0fbanner_media_id\"O\n" +
 	"\x15UpdateProfileResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"]\n" +
 	"\x13ChangeHandleRequest\x12'\n" +

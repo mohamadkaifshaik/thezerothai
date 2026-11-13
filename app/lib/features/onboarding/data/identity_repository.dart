@@ -14,7 +14,7 @@ const kPrivateAccountsRefusalBackoff = Duration(minutes: 10);
 
 /// Builds an `UpdateProfile` request where **field presence is the signal**: a null argument leaves the field out (unchanged), a
 /// non-null one sets it, and `""` is a real value that clears
-/// `banner_media_id`, `location`, `website` or `pinned_post_id`. Every
+/// `location`, `website` or `pinned_post_id`. Every
 /// `UpdateProfile` caller goes through this one place, so the pin menu
 /// shapes its request exactly like Edit profile.
 identity.UpdateProfileRequest buildUpdateProfileRequest({
@@ -22,21 +22,23 @@ identity.UpdateProfileRequest buildUpdateProfileRequest({
   String? displayName,
   String? bio,
   String? avatarMediaId,
-  String? bannerMediaId,
   String? location,
   String? website,
   String? pinnedPostId,
   bool? isPrivate,
+  bool? readReceipts,
+  identity.DmPolicy? dmPolicy,
 }) {
   final request = identity.UpdateProfileRequest(idempotencyKey: idempotencyKey);
   if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
   if (displayName != null) request.displayName = displayName;
   if (bio != null) request.bio = bio;
-  if (bannerMediaId != null) request.bannerMediaId = bannerMediaId;
   if (location != null) request.location = location;
   if (website != null) request.website = website;
   if (pinnedPostId != null) request.pinnedPostId = pinnedPostId;
   if (isPrivate != null) request.isPrivate = isPrivate;
+  if (readReceipts != null) request.readReceipts = readReceipts;
+  if (dmPolicy != null) request.dmPolicy = dmPolicy;
   return request;
 }
 
@@ -164,7 +166,7 @@ class IdentityRepository {
   /// [isPrivate] is the privacy switch; callers send it alone, through
   /// [setProtected].
   ///
-  /// [bannerMediaId], [location], [website] and [pinnedPostId] are the
+  /// [location], [website] and [pinnedPostId] are the
   /// `profile_extras` fields: the server refuses a **set** of any
   /// of them (a non-empty value, whitespace-only included), and a clear next
   /// to a set, with FEATURE_DISABLED unless `profile_extras` is on for the
@@ -172,6 +174,9 @@ class IdentityRepository {
   /// pin menu) and pass null otherwise. An exact `""` clears one and is
   /// accepted from any caller whatever the flag (Amendment 1 A2), so without
   /// the flag a caller sends clears alone.
+  /// [readReceipts] (F3) and [dmPolicy] (F9) are the message-privacy
+  /// settings; the Settings switches send each alone. Turning receipts on and
+  /// FOLLOWING_ONLY need their flags for the caller; the undo values never do.
   /// [idempotencyKey] must be reused when retrying the same edit. Updates
   /// the local profile cache with the server's copy.
   Future<identity.Profile> updateProfile({
@@ -179,11 +184,12 @@ class IdentityRepository {
     String? displayName,
     String? bio,
     String? avatarMediaId,
-    String? bannerMediaId,
     String? location,
     String? website,
     String? pinnedPostId,
     bool? isPrivate,
+    bool? readReceipts,
+    identity.DmPolicy? dmPolicy,
   }) {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
@@ -192,11 +198,12 @@ class IdentityRepository {
         displayName: displayName,
         bio: bio,
         avatarMediaId: avatarMediaId,
-        bannerMediaId: bannerMediaId,
         location: location,
         website: website,
         pinnedPostId: pinnedPostId,
         isPrivate: isPrivate,
+        readReceipts: readReceipts,
+        dmPolicy: dmPolicy,
       );
       final response = await _apiClient.identity.updateProfile(request);
       await _cacheProfile(response.profile, epoch);

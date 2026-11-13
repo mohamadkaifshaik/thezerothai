@@ -127,15 +127,19 @@ class ProtectedPostBox extends StatelessWidget {
       excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          border: Border.all(color: theme.dividerColor),
-          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: theme.colorScheme.outline),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(url: author.avatarUrl, radius: AppSpacing.md),
+              AppAvatar(
+                url: author.avatarUrl,
+                radius: 18,
+                name: author.displayName,
+              ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(

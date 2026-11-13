@@ -7,10 +7,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/scroll_constants.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -45,7 +47,9 @@ import 'widgets/message_bubble.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/outgoing_bubble.dart';
 import 'widgets/request_banner.dart';
+import 'widgets/thread_info_sheet.dart';
 import 'widgets/thread_push_scope.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The line that replaces the composer on a read-only conversation.
 const kThreadReadOnlyText = "You can't reply to this conversation";
@@ -91,7 +95,7 @@ typedef ThreadBannerBuilder = Widget? Function(
 /// `/messages/:id`: one conversation.
 ///
 /// - A reversed message list (newest at the bottom): own bubbles on the
-///   accent, the peer's on the raised surface, grouped by sender with the time
+///   brand gradient, the peer's on the light bubble, grouped by sender with the time
 ///   under the last of a group and a separator per day. Cache first, one
 ///   refresh on open, older pages on scroll up.
 /// - [ThreadPoller] runs while the app is in the foreground and this route is
@@ -102,7 +106,10 @@ typedef ThreadBannerBuilder = Widget? Function(
 ///   arrive while visible, only with unread above 0.
 /// - Info menu: Block (the graph flow), Report (the [onReport] seam;
 ///   hidden with `reports` off, disabled until it is wired) and Delete
-///   conversation.
+///   conversation. On the tablet layout (`ui_shell` + `ui_tablet`,
+///   600-1199dp) the same button opens the chat info side sheet instead
+///   ([ThreadInfoSheet]: the peer's profile card, then the same actions);
+///   phones and desktop keep the menu.
 /// - A long press on a peer's visible bubble offers "Report message"
 ///   (`reports` on): the shared report sheet with the message target; the
 ///   thread does not change.
@@ -248,7 +255,7 @@ class ThreadScreen extends StatelessWidget {
   }
 }
 
-enum _MenuAction { block, report, delete }
+enum _MenuAction { viewProfile, block, report, delete }
 
 class _ThreadView extends StatefulWidget {
   const _ThreadView({
@@ -391,6 +398,11 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     pb.Conversation conversation,
   ) async {
     switch (action) {
+      case _MenuAction.viewProfile:
+        if (conversation.peer.handle.isEmpty) return;
+        unawaited(
+          context.push<void>(AppRouter.profilePath(conversation.peer.handle)),
+        );
       case _MenuAction.block:
         await _block(cubit, conversation.peer);
       case _MenuAction.report:
@@ -444,7 +456,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
 
   Future<void> _delete(ThreadCubit cubit, {bool request = false}) async {
     if (cubit.state.accepting || cubit.state.deleting || _blocking) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
@@ -492,12 +504,19 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     // Read here: `select` is only allowed in `build`, not in a builder.
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
+    // The tablet layout (600-1199dp, `ui_shell` + `ui_tablet`) has the chat
+    // info side sheet in place of the menu (tablet plan section 4.2).
+    final infoSheet =
+        ShellBand.of(MediaQuery.sizeOf(context).width).isTablet &&
+        isFeatureEnabled(context, kFeatureUiShell) &&
+        isFeatureEnabled(context, kFeatureUiTablet);
     return MessagingAccessBuilder(
       builder: (context, access) => _scaffold(
         cubit,
         graphEnabled: graphEnabled,
         reportsEnabled: reportsEnabled,
         canAccept: access == MessagingAccess.full,
+        infoSheet: infoSheet,
       ),
     );
   }
@@ -507,6 +526,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     required bool graphEnabled,
     required bool reportsEnabled,
     required bool canAccept,
+    required bool infoSheet,
   }) {
     return Scaffold(
       body: SafeArea(
@@ -549,8 +569,13 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                       a.deleting != b.deleting ||
                       a.accepting != b.accepting ||
                       a.peerBlocked != b.peerBlocked,
-                  builder: (context, state) =>
-                      _header(cubit, state, graphEnabled, reportsEnabled),
+                  builder: (context, state) => _header(
+                    cubit,
+                    state,
+                    graphEnabled,
+                    reportsEnabled,
+                    infoSheet: infoSheet,
+                  ),
                 ),
                 Expanded(
                   child: BlocBuilder<ThreadCubit, ThreadState>(
@@ -581,8 +606,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     ThreadCubit cubit,
     ThreadState state,
     bool graphEnabled,
-    bool reportsEnabled,
-  ) {
+    bool reportsEnabled, {
+    required bool infoSheet,
+  }) {
     final conversation = state.conversation;
     if (state.status == ThreadStatus.unavailable || conversation == null) {
       return AppBackHeader(title: 'Conversation', onBack: _back);
@@ -597,16 +623,30 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       titleContent: ThreadPeerHeader(peer: peer),
       actions: [
         if (state.status == ThreadStatus.ready)
-          _InfoMenu(
-            enabled: !state.deleting && !state.accepting && !_blocking,
-            canBlock:
-                graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked,
-            peerHandle: peer.handle,
-            showReport: reportsEnabled,
-            // A deleted-account peer has no user id to report.
-            canReport: widget.onReport != null && peer.userId.isNotEmpty,
-            onSelected: (action) => _onMenu(action, cubit, conversation),
-          ),
+          infoSheet
+              ? _InfoSheetButton(
+                  enabled: !state.deleting && !state.accepting && !_blocking,
+                  peer: peer,
+                  canBlock:
+                      graphEnabled &&
+                      peer.userId.isNotEmpty &&
+                      !state.peerBlocked,
+                  showReport: reportsEnabled,
+                  canReport: widget.onReport != null && peer.userId.isNotEmpty,
+                  onSelected: (action) => _onMenu(action, cubit, conversation),
+                )
+              : _InfoMenu(
+                  enabled: !state.deleting && !state.accepting && !_blocking,
+                  canBlock:
+                      graphEnabled &&
+                      peer.userId.isNotEmpty &&
+                      !state.peerBlocked,
+                  peerHandle: peer.handle,
+                  showReport: reportsEnabled,
+                  // A deleted-account peer has no user id to report.
+                  canReport: widget.onReport != null && peer.userId.isNotEmpty,
+                  onSelected: (action) => _onMenu(action, cubit, conversation),
+                ),
       ],
     );
   }
@@ -702,6 +742,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         ? '@${peer?.handle ?? ''}'
         : peer.displayName;
     final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
+    final seenId = _seenMessageId(state, conversation);
     final keys = [
       for (final m in outgoing) 'outgoing-${m.localId}',
       for (final i in items) i.key,
@@ -766,6 +807,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                           firstOfGroup: item.firstOfGroup,
                           lastOfGroup: item.lastOfGroup,
                           use24Hour: use24Hour,
+                          seenAt: item.message.id == seenId
+                              ? conversation!.peerReadAt.toDateTime()
+                              : null,
                           linksEnabled: messageLinksEnabled(
                             conversation,
                             item.message,
@@ -815,6 +859,21 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
           ),
       ],
     );
+  }
+
+  /// The caller's newest message the peer has read ("Seen"), or null: the
+  /// server sets `peer_read_at` only with read receipts on for both sides.
+  String? _seenMessageId(ThreadState state, pb.Conversation? conversation) {
+    if (conversation == null || !conversation.hasPeerReadAt()) return null;
+    final readAt = conversation.peerReadAt.toDateTime();
+    for (final m in state.messages) {
+      if (m.fromSelf &&
+          m.hasCreatedAt() &&
+          !m.createdAt.toDateTime().isAfter(readAt)) {
+        return m.id;
+      }
+    }
+    return null;
   }
 
   Widget _olderFooter(ThreadCubit cubit, ThreadState state) {
@@ -958,8 +1017,12 @@ class ThreadPeerHeader extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
       child: Row(
         children: [
-          AppAvatar(url: peer.avatarUrl, radius: AppSpacing.md),
-          const SizedBox(width: AppSpacing.sm),
+          AppAvatar(
+            url: peer.avatarUrl,
+            radius: AppMessagesLayout.headerAvatar / 2,
+            name: name,
+          ),
+          const SizedBox(width: AppSpacing.smd),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -969,9 +1032,7 @@ class ThreadPeerHeader extends StatelessWidget {
                   name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: theme.textTheme.titleMedium,
                 ),
                 if (hasName && peer.handle.isNotEmpty)
                   Text(
@@ -1057,6 +1118,53 @@ class _InfoMenu extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The tablet layout's info button (600-1199dp): the same glyph and tooltip
+/// as the menu, opening the chat info side sheet. The chosen action runs the
+/// menu's flow from the thread's own context once the sheet has closed.
+class _InfoSheetButton extends StatelessWidget {
+  const _InfoSheetButton({
+    required this.enabled,
+    required this.peer,
+    required this.canBlock,
+    required this.showReport,
+    required this.canReport,
+    required this.onSelected,
+  });
+
+  final bool enabled;
+  final common.AuthorSnapshot peer;
+  final bool canBlock;
+  final bool showReport;
+  final bool canReport;
+  final ValueChanged<_MenuAction> onSelected;
+
+  Future<void> _open(BuildContext context) async {
+    final choice = await ThreadInfoSheet.show(
+      context,
+      peer: peer,
+      canBlock: canBlock,
+      showReport: showReport,
+      canReport: canReport,
+    );
+    if (choice == null || !context.mounted) return;
+    onSelected(switch (choice) {
+      ThreadInfoAction.viewProfile => _MenuAction.viewProfile,
+      ThreadInfoAction.block => _MenuAction.block,
+      ThreadInfoAction.report => _MenuAction.report,
+      ThreadInfoAction.delete => _MenuAction.delete,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: kConversationInfoLabel,
+      icon: const Icon(Icons.info_outline),
+      onPressed: enabled ? () => unawaited(_open(context)) : null,
     );
   }
 }

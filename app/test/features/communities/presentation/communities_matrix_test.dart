@@ -32,6 +32,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/communities_tablet_rig.dart' show createFormField;
 import '../../../support/geometry.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
@@ -138,25 +139,38 @@ void main() {
       stub();
       await open(tester, env);
       expectNoOverflow(tester);
-      expect(find.byTooltip('Create a Community'), findsOneWidget);
+      expect(find.byTooltip('Create a community'), findsOneWidget);
+      // R10 (F23): Explore is the second tab.
+      // R10 review item 3: the tab bar may scroll; bring the tab into view.
+      await tester.ensureVisible(find.text('Explore'));
+      await tester.pump();
+      await tester.tap(find.text('Explore'));
+      await tester.pumpAndSettle();
+      expectNoOverflow(tester);
       expect(find.text('No Communities to explore yet.'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
-    forEachThemeAndWidth('both sections failed: two Retry buttons fit', (
-      tester,
-      env,
-    ) async {
-      stub(
-        mineError: const NetworkException('offline'),
-        dirError: const NetworkException('offline'),
-      );
-      await open(tester, env);
-      expectNoOverflow(tester);
-      expect(find.text('Retry'), findsNWidgets(2));
-      for (final retry in find.text('Retry').evaluate()) {
-        expect(retry, isNotNull);
-      }
-    }, textScales: kMatrixTextScalesLarge);
+    forEachThemeAndWidth(
+      'both lists failed: each tab has its Retry, and fits',
+      (tester, env) async {
+        stub(
+          mineError: const NetworkException('offline'),
+          dirError: const NetworkException('offline'),
+        );
+        await open(tester, env);
+        expectNoOverflow(tester);
+        // R10 (F23): one list per tab, each with its own Retry.
+        expect(find.text('Retry'), findsOneWidget);
+        // R10 review item 3: the tab bar may scroll; bring the tab into view.
+        await tester.ensureVisible(find.text('Explore'));
+        await tester.pump();
+        await tester.tap(find.text('Explore'));
+        await tester.pumpAndSettle();
+        expectNoOverflow(tester);
+        expect(find.text('Retry'), findsOneWidget);
+      },
+      textScales: kMatrixTextScalesLarge,
+    );
 
     forEachThemeAndWidth('RPC not served yet: a calm note, no overflow', (
       tester,
@@ -167,6 +181,13 @@ void main() {
         dirError: const FeatureDisabledException('x', feature: 'communities'),
       );
       await open(tester, env);
+      expectNoOverflow(tester);
+      expect(find.text('Retry'), findsNothing);
+      // R10 review item 3: the tab bar may scroll; bring the tab into view.
+      await tester.ensureVisible(find.text('Explore'));
+      await tester.pump();
+      await tester.tap(find.text('Explore'));
+      await tester.pumpAndSettle();
       expectNoOverflow(tester);
       expect(find.text('Retry'), findsNothing);
     }, textScales: kMatrixTextScalesLarge);
@@ -321,7 +342,7 @@ void main() {
       stubCommunity(error: const NotFoundException('gone'));
       await open(tester, env);
       expectNoOverflow(tester);
-      expect(find.text('This Community is unavailable'), findsOneWidget);
+      expect(find.text('This community is unavailable'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
     forEachThemeAndWidth('load error with nothing cached: Retry fits', (
@@ -405,8 +426,8 @@ void main() {
         await tester.tap(find.byTooltip('More options').first);
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
-        expect(find.text('Remove from Community'), findsOneWidget);
-        await tester.tap(find.text('Remove from Community'));
+        expect(find.text('Remove from community'), findsOneWidget);
+        await tester.tap(find.text('Remove from community'));
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
         expect(find.text('Remove'), findsOneWidget);
@@ -495,7 +516,7 @@ void main() {
       stubMembers([], error: const NotFoundException('gone'));
       await open(tester, env);
       expectNoOverflow(tester);
-      expect(find.text('This Community is unavailable'), findsOneWidget);
+      expect(find.text('This community is unavailable'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
     forEachThemeAndWidth('network error: Retry', (tester, env) async {
@@ -539,6 +560,12 @@ void main() {
     setUp(() => communities = _MockCommunities());
 
     Future<void> open(WidgetTester tester, MatrixEnv env, {Object? error}) {
+      // The header's subtitle names the community (R10b: one GetCommunity).
+      when(() => communities.getCommunity(any())).thenAnswer(
+        (_) async => pb.GetCommunityResponse(
+          community: pb.Community(communityId: '77', name: 'Coffee club'),
+        ),
+      );
       when(
         () => communities.listModerationLog(
           communityId: any(named: 'communityId'),
@@ -593,7 +620,7 @@ void main() {
     ) async {
       await open(tester, env, error: const NotFoundException('gone'));
       expectNoOverflow(tester);
-      expect(find.text('This Community is unavailable'), findsOneWidget);
+      expect(find.text('This community is unavailable'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
     forEachThemeAndWidth('network error: Retry', (tester, env) async {
@@ -636,15 +663,12 @@ void main() {
           textScale: env.textScale,
           useScaffold: false,
         );
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Name'),
-          _names['rtl']!,
-        );
+        await tester.enterText(createFormField('Name'), _names['rtl']!);
         await tester.pump();
         await tester.tap(find.text('Create'));
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
-        expect(find.text('Create a Community'), findsOneWidget);
+        expect(find.text('Create a community'), findsOneWidget);
       },
       textScales: kMatrixTextScalesLarge,
       height: 1200,

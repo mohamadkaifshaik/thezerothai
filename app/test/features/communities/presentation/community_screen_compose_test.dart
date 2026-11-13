@@ -14,6 +14,7 @@ import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:fixnum/fixnum.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -112,7 +113,7 @@ void main() {
     ),
   );
 
-  final post = find.widgetWithText(OutlinedButton, 'Post');
+  final post = find.widgetWithText(AppPillButton, 'Post');
 
   testWidgets(
     'a member sees Post and it opens the composer on this community',

@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -22,6 +23,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/profile_hero_finders.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/timeline_fixtures.dart';
 
@@ -106,7 +108,7 @@ void main() {
     double textScale = 1,
     bool keepSize = false,
   }) async {
-    // The 3:1 banner and the taller header need a taller screen to
+    // The 3:1 band and the taller header need a taller screen to
     // build the first posts of the lazy list.
     if (!keepSize) {
       tester.view.physicalSize = const Size(800, 1600);
@@ -167,10 +169,10 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.text('Posts'),
+      find.descendant(of: find.byType(AppTabBar), matching: find.text('Posts')),
       findsOneWidget,
-    ); // the tab; the count is "2 Posts"
-    expect(find.text('2 Posts'), findsOneWidget);
+    ); // the tab; the hero's stat is "2" over "Posts"
+    expect(heroStatText('posts', 2), findsOneWidget);
     expect(find.text('post 2'), findsOneWidget);
     expect(find.text('post 1'), findsOneWidget);
     // Someone else's profile never shows the viewer's pending posts.
@@ -299,18 +301,18 @@ void main() {
     ).thenAnswer((_) async {});
 
     await open(tester);
-    expect(find.text('2 Posts'), findsOneWidget);
+    expect(heroStatText('posts', 2), findsOneWidget);
 
     await tester.tap(find.byTooltip('More options').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
     await tester.pumpAndSettle();
 
     expect(find.text('post 2'), findsNothing);
     expect(find.text('post 1'), findsOneWidget);
-    expect(find.text('1 Post'), findsOneWidget);
+    expect(heroStatText('posts', 1), findsOneWidget);
   });
 
   testWidgets('blocked by the viewer: banner first, posts only after "Show '
@@ -337,7 +339,7 @@ void main() {
     expect(find.text('You blocked @kaif ·'), findsNothing);
   });
 
-  testWidgets('muted author: no banner, posts stay visible', (tester) async {
+  testWidgets('muted author: posts stay visible', (tester) async {
     arrange(profileUserId: 'target-uid', features: const {'posts', 'graph'});
     when(() => graphRepository.profileRelationshipFor('target-uid')).thenAnswer(
       (_) async => ProfileRelationship(
@@ -374,7 +376,7 @@ void main() {
     await open(tester);
 
     expect(find.text("This profile's posts are coming soon."), findsOneWidget);
-    expect(find.text('2 Posts'), findsNothing);
+    expect(heroStat('posts'), findsNothing);
     verifyNever(() => timeline.cached(any()));
     verifyNever(() => timeline.refresh(any()));
   });

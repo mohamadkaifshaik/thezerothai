@@ -141,8 +141,8 @@ func printReport(out io.Writer, r moderation.Report) {
 		// The profile as the reporter saw it. No website here while profile_extras was
 		// globally off at report time; a reopened report refreshes all of it.
 		e := r.Evidence
-		fmt.Fprintf(out, "evidence profile @%s: display name %q, bio %q, location %q, website %q\nevidence avatar %q, banner %q\n",
-			e.AuthorHandle, e.DisplayName, e.Bio, e.Location, e.Website, e.AvatarURL, e.BannerURL)
+		fmt.Fprintf(out, "evidence profile @%s: display name %q, bio %q, location %q, website %q\nevidence avatar %q\n",
+			e.AuthorHandle, e.DisplayName, e.Bio, e.Location, e.Website, e.AvatarURL)
 	case r.TargetType == moderation.TargetAccount:
 		fmt.Fprintln(out, "evidence none (an account report filed before profile evidence was kept; look at the live profile)")
 	case r.TargetType == moderation.TargetList && r.Evidence != nil:

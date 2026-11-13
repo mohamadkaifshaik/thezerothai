@@ -16,19 +16,30 @@ enum GraphListTab { followers, following }
 
 /// `/profile/:handle/followers` and `/profile/:handle/following`: one
 /// screen, two tabs. The target's uid is normally passed via route `extra`
-/// (the caller already has it, e.g. from `ProfileHeader`); if not, this
-/// screen resolves it with one `GetProfile(handle)` call.
+/// ([GraphListExtra], the caller already has it, e.g. from `ProfileHeader`);
+/// if not, this screen resolves it with one `GetProfile(handle)` call and
+/// titles itself with the `@handle`.
 class GraphListScreen extends StatefulWidget {
   const GraphListScreen({
     super.key,
     required this.handle,
     this.userId,
+    this.displayName,
     this.initialTab = GraphListTab.followers,
+    this.viewerUserId,
   });
 
   final String handle;
   final String? userId;
+
+  /// The person's display name: the title, with `@handle` under it. Null
+  /// (or empty) titles the page `@handle` alone.
+  final String? displayName;
   final GraphListTab initialTab;
+
+  /// The signed-in user: on their own list everyone in Followers follows
+  /// them, so a person they do not follow back reads "Follow back".
+  final String? viewerUserId;
 
   @override
   State<GraphListScreen> createState() => _GraphListScreenState();
@@ -85,12 +96,18 @@ class _GraphListScreenState extends State<GraphListScreen> {
 
   /// The page frame: main-column width, the back header and [body].
   Widget _frame({required Widget body, Widget? tabs}) {
+    final name = widget.displayName;
+    final named = name != null && name.isNotEmpty;
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
           child: Column(
             children: [
-              AppBackHeader(title: '@${widget.handle}', onBack: _back),
+              AppBackHeader(
+                title: named ? name : '@${widget.handle}',
+                subtitle: named ? '@${widget.handle}' : null,
+                onBack: _back,
+              ),
               ?tabs,
               Expanded(child: body),
             ],
@@ -114,6 +131,7 @@ class _GraphListScreenState extends State<GraphListScreen> {
 
     final userId = _resolvedUserId!;
     final graphRepository = context.read<GraphRepository>();
+    final ownList = widget.viewerUserId == userId;
     return DefaultTabController(
       length: 2,
       initialIndex: widget.initialTab == GraphListTab.followers ? 0 : 1,
@@ -124,6 +142,7 @@ class _GraphListScreenState extends State<GraphListScreen> {
             _GraphTab(
               key: ValueKey('followers-$userId'),
               emptyMessage: 'No followers yet.',
+              followsViewer: ownList,
               protectedMessage:
                   'Only approved followers can see who follows @${widget.handle}.',
               fetchPage: ({required pageSize, required pageToken}) =>
@@ -192,9 +211,13 @@ class _GraphTab extends StatefulWidget {
     required this.fetchPage,
     required this.emptyMessage,
     required this.protectedMessage,
+    this.followsViewer = false,
   });
 
   final FetchGraphPage fetchPage;
+
+  /// Everyone here follows the viewer: their own Followers list.
+  final bool followsViewer;
   final String emptyMessage;
 
   /// Shown when the account is protected and the viewer is not approved
@@ -226,6 +249,7 @@ class _GraphTabState extends State<_GraphTab>
       cubit: _cubit,
       emptyMessage: widget.emptyMessage,
       protectedMessage: widget.protectedMessage,
+      followsViewer: widget.followsViewer,
     );
   }
 }

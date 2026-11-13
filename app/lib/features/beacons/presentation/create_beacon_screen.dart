@@ -8,41 +8,51 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
-import '../../../shared/format/scheduled_time.dart';
+import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_form_header.dart';
+import '../../../shared/widgets/primitives/app_labeled_field.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
-import '../../../shared/widgets/primitives/character_counter.dart';
+import '../../../shared/widgets/primitives/app_pickers.dart';
 import '../../communities/data/communities_repository.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
 import '../domain/beacon_text_rules.dart';
 import '../domain/beacons_feature_flag.dart';
+import '../domain/plan_preview.dart';
 import 'bloc/beacons_state.dart' show BeaconsAudience;
 import 'bloc/create_beacon_cubit.dart';
 import 'widgets/discard_plan_dialog.dart';
+import 'widgets/plan_form_fields.dart';
+import 'widgets/plan_preview.dart';
+import 'widgets/plan_tips.dart';
 
-/// Shows the date picker; null when dismissed. A seam so tests need not drive
-/// the platform dial.
-typedef BeaconPickDate = Future<DateTime?> Function(
+export 'widgets/plan_form_fields.dart' show BeaconPickDate, BeaconPickTime;
+
+/// The date picker the plan forms open by default (the [BeaconPickDate]
+/// seam): the Material one, on the content area on the tablet layout.
+Future<DateTime?> platformPickPlanDate(
   BuildContext context, {
   required DateTime initial,
   required DateTime first,
   required DateTime last,
-});
+}) => _platformPickDate(context, initial: initial, first: first, last: last);
 
-/// Shows the time picker; null when dismissed.
-typedef BeaconPickTime = Future<TimeOfDay?> Function(
+/// The time picker the plan forms open by default (the [BeaconPickTime]
+/// seam).
+Future<TimeOfDay?> platformPickPlanTime(
   BuildContext context, {
   required TimeOfDay initial,
-});
+}) => _platformPickTime(context, initial: initial);
 
 Future<DateTime?> _platformPickDate(
   BuildContext context, {
   required DateTime initial,
   required DateTime first,
   required DateTime last,
-}) => showDatePicker(
+}) => showAppDatePicker(
   context: context,
   initialDate: initial,
   firstDate: first,
@@ -53,11 +63,18 @@ Future<DateTime?> _platformPickDate(
 Future<TimeOfDay?> _platformPickTime(
   BuildContext context, {
   required TimeOfDay initial,
-}) => showTimePicker(context: context, initialTime: initial, helpText: 'Time');
+}) =>
+    showAppTimePicker(context: context, initialTime: initial, helpText: 'Time');
 
 /// `/plans/new` (R31): the fields of section 3 with the server's rules checked
 /// before sending; one CreateBeacon per submit. [now], [pickDate] and
 /// [pickTime] are seams for tests.
+///
+/// At every width the header has a Preview action that opens the plan page's
+/// own `PlanSummary` of what the form would create in a dialog, and the tips
+/// ("Tips for a good plan") sit inline at the top of the form, collapsed. Cost
+/// and Open spots share a row where the column has room for both. The date and
+/// time pickers are dialogs on the content area on the tablet layout.
 class CreateBeaconScreen extends StatefulWidget {
   const CreateBeaconScreen({
     super.key,
@@ -92,12 +109,19 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   var _audiences = const [BeaconsAudience.public()];
   var _audience = const BeaconsAudience.public();
 
+  /// The plan as typed, for the Preview dialog.
+  late final ValueNotifier<pb.Beacon> _draft;
+
+  /// The inline tips, open or closed.
+  var _tipsOpen = false;
+
   DateTime _now() => (widget.now ?? DateTime.now)();
 
   @override
   void initState() {
     super.initState();
     _startAt = _initialStart = _defaultStart(_now());
+    _draft = ValueNotifier(_draftPlan());
     _title.addListener(_changed);
     _details.addListener(_changed);
     _venue.addListener(_changed);
@@ -106,6 +130,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
 
   @override
   void dispose() {
+    _draft.dispose();
     _title.dispose();
     _details.dispose();
     _venue.dispose();
@@ -138,7 +163,61 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     }
   }
 
-  void _changed() => setState(() {});
+  void _changed() => _update(() {});
+
+  /// Every change to the form goes through here, so the preview follows it.
+  void _update(VoidCallback change) {
+    setState(change);
+    _draft.value = _draftPlan();
+  }
+
+  /// The plan the form would create, with the caller as its organiser when
+  /// the profile is loaded (nothing is fetched).
+  pb.Beacon _draftPlan() {
+    final profile = context.read<OnboardingBloc?>()?.state.profile;
+    final handle = profile?.handle ?? '';
+    return draftPlan(
+      activity: _activity,
+      title: _title.text,
+      details: _details.text,
+      venue: _venue.text,
+      startAt: _startAt,
+      durationMinutes: _durationMinutes,
+      openSpots: _openSpots,
+      cost: _cost,
+      chatPreference: _chat,
+      organiser: profile == null || handle.isEmpty
+          ? null
+          : common.AuthorSnapshot(
+              userId: profile.userId,
+              handle: handle,
+              displayName: profile.displayName,
+              avatarUrl: profile.avatarThumbUrl,
+            ),
+    );
+  }
+
+  /// The Preview dialog: it follows the form while it is open.
+  void _openPreview() => showAppDialog<void>(
+    context: context,
+    maxWidth: AppSize.dialogMax,
+    builder: (dialogContext) => AppDialog(
+      title: kPlanPreviewTitle,
+      body: ValueListenableBuilder<pb.Beacon>(
+        valueListenable: _draft,
+        // The dialog pads its title and body already: the preview's lines
+        // start where the title does.
+        builder: (context, draft, _) =>
+            PlanPreview(beacon: draft, showOrganiser: draft.hasOrganiser()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 
   void _cancel() {
     if (context.canPop()) {
@@ -200,7 +279,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       last: now.add(kBeaconMaxLead),
     );
     if (picked == null || !mounted) return;
-    setState(() {
+    _update(() {
       _startAt = DateTime(
         picked.year,
         picked.month,
@@ -217,7 +296,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       initial: TimeOfDay.fromDateTime(_startAt),
     );
     if (picked == null || !mounted) return;
-    setState(() {
+    _update(() {
       _startAt = DateTime(
         _startAt.year,
         _startAt.month,
@@ -255,8 +334,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     _cubit.create(request);
   }
 
-  Widget _counter(TextEditingController c, int max) =>
-      CharacterCounter(remaining: max - beaconTextLength(c.text));
+  int _left(TextEditingController c, int max) => max - beaconTextLength(c.text);
 
   @override
   Widget build(BuildContext context) {
@@ -287,6 +365,8 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                       busySemanticsLabel: 'Creating plan',
                       onCancel: _requestExit,
                       onAction: _canCreate && !busy ? _create : null,
+                      secondaryLabel: kPlanPreviewTitle,
+                      onSecondary: _openPreview,
                     ),
                     Expanded(
                       child: SingleChildScrollView(
@@ -294,9 +374,14 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            _Section(
+                            PlanTipsSection(
+                              expanded: _tipsOpen,
+                              onToggle: () =>
+                                  setState(() => _tipsOpen = !_tipsOpen),
+                            ),
+                            PlanFormSection(
                               title: 'What',
-                              child: _chips<pb.BeaconActivity>(
+                              child: PlanChoiceChips<pb.BeaconActivity>(
                                 values: pb.BeaconActivity.values
                                     .where(
                                       (a) =>
@@ -309,174 +394,89 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 selected: _activity,
                                 label: activityLabel,
                                 enabled: !busy,
-                                onSelected: (a) =>
-                                    setState(() => _activity = a),
+                                onSelected: (a) => _update(() => _activity = a),
                               ),
                             ),
-                            TextField(
+                            AppLabeledField(
+                              label: 'Title',
                               controller: _title,
                               enabled: !busy,
                               textInputAction: TextInputAction.next,
-                              decoration: InputDecoration(
-                                labelText: 'Title',
-                                errorText: beaconFieldError(
-                                  beaconTitleIssue(_title.text),
-                                  max: kBeaconTitleMaxLength,
-                                ),
-                                counter: _counter(
-                                  _title,
-                                  kBeaconTitleMaxLength,
-                                ),
+                              remaining: _left(_title, kBeaconTitleMaxLength),
+                              error: beaconFieldError(
+                                beaconTitleIssue(_title.text),
+                                max: kBeaconTitleMaxLength,
                               ),
                             ),
-                            const SizedBox(height: AppSpacing.md),
-                            TextField(
+                            AppLabeledField(
+                              label: 'Details',
                               controller: _details,
                               enabled: !busy,
                               minLines: 2,
                               maxLines: 4,
-                              decoration: InputDecoration(
-                                labelText: 'Details',
-                                errorText: beaconFieldError(
-                                  beaconDetailsIssue(_details.text),
-                                  max: kBeaconDetailsMaxLength,
-                                ),
-                                counter: _counter(
-                                  _details,
-                                  kBeaconDetailsMaxLength,
-                                ),
+                              remaining: _left(
+                                _details,
+                                kBeaconDetailsMaxLength,
+                              ),
+                              error: beaconFieldError(
+                                beaconDetailsIssue(_details.text),
+                                max: kBeaconDetailsMaxLength,
                               ),
                             ),
-                            const SizedBox(height: AppSpacing.md),
-                            TextField(
-                              controller: _venue,
+                            PlanWhenFields(
+                              start: _startAt,
                               enabled: !busy,
-                              textInputAction: TextInputAction.done,
-                              decoration: InputDecoration(
-                                labelText: 'Meeting point',
-                                helperText: 'A named place, never coordinates.',
-                                errorText: beaconFieldError(
-                                  beaconVenueIssue(_venue.text),
-                                  max: kBeaconVenueMaxLength,
-                                ),
-                                counter: _counter(
-                                  _venue,
-                                  kBeaconVenueMaxLength,
-                                ),
-                              ),
+                              onPickDate: _pickDate,
+                              onPickTime: _pickTime,
+                              error: beaconTimeError(_timeIssue),
                             ),
-                            _Section(
-                              title: 'When',
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Wrap(
-                                    spacing: AppSpacing.sm,
-                                    runSpacing: AppSpacing.xs,
-                                    children: [
-                                      Tooltip(
-                                        message: 'Pick a date',
-                                        child: OutlinedButton.icon(
-                                          onPressed: busy ? null : _pickDate,
-                                          icon: const Icon(
-                                            Icons.calendar_today_outlined,
-                                          ),
-                                          label: Text(
-                                            formatScheduledDate(_startAt),
-                                          ),
-                                        ),
-                                      ),
-                                      Tooltip(
-                                        message: 'Pick a time',
-                                        child: OutlinedButton.icon(
-                                          onPressed: busy ? null : _pickTime,
-                                          icon: const Icon(
-                                            Icons.schedule_outlined,
-                                          ),
-                                          label: Text(
-                                            formatScheduledClock(_startAt),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (beaconTimeError(_timeIssue) != null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                        top: AppSpacing.xs,
-                                      ),
-                                      child: Text(
-                                        beaconTimeError(_timeIssue)!,
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color: theme.colorScheme.error,
-                                            ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            _Section(
+                            // F34: Duration and Chat stay, though the
+                            // desktop design dropped them (a regression).
+                            PlanFormSection(
                               title: 'Duration',
-                              child: _chips<int>(
+                              child: PlanChoiceChips<int>(
                                 values: kBeaconDurations,
                                 selected: _durationMinutes,
                                 label: (m) => '$m min',
                                 enabled: !busy,
                                 onSelected: (m) =>
-                                    setState(() => _durationMinutes = m),
+                                    _update(() => _durationMinutes = m),
                               ),
                             ),
-                            _Section(
-                              title: 'Open spots',
-                              child: Row(
-                                children: [
-                                  IconButton(
-                                    tooltip: 'Fewer spots',
-                                    icon: const Icon(
-                                      Icons.remove_circle_outline,
-                                    ),
-                                    onPressed:
-                                        busy || _openSpots <= kBeaconMinSpots
-                                        ? null
-                                        : () => setState(() => _openSpots--),
-                                  ),
-                                  Semantics(
-                                    label: '$_openSpots open spots',
-                                    excludeSemantics: true,
-                                    child: Text(
-                                      '$_openSpots',
-                                      style: theme.textTheme.titleMedium,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'More spots',
-                                    icon: const Icon(Icons.add_circle_outline),
-                                    onPressed:
-                                        busy || _openSpots >= kBeaconMaxSpots
-                                        ? null
-                                        : () => setState(() => _openSpots++),
-                                  ),
-                                ],
+                            AppLabeledField(
+                              label: 'Meeting point',
+                              controller: _venue,
+                              enabled: !busy,
+                              textInputAction: TextInputAction.done,
+                              remaining: _left(_venue, kBeaconVenueMaxLength),
+                              helper: kMeetingPointNote,
+                              error: beaconFieldError(
+                                beaconVenueIssue(_venue.text),
+                                max: kBeaconVenueMaxLength,
                               ),
                             ),
-                            _Section(
-                              title: 'Cost',
-                              child: _chips<pb.BeaconCost>(
-                                values: const [
-                                  pb.BeaconCost.BEACON_COST_FREE,
-                                  pb.BeaconCost.BEACON_COST_EVERYONE_PAYS_OWN,
-                                  pb.BeaconCost.BEACON_COST_SPLIT_EVENLY,
-                                ],
-                                selected: _cost,
-                                label: costLabel,
+                            PlanPair(
+                              first: PlanFormSection(
+                                title: 'Cost',
+                                child: PlanChoiceChips<pb.BeaconCost>(
+                                  values: kPlanCosts,
+                                  selected: _cost,
+                                  label: costLabel,
+                                  enabled: !busy,
+                                  onSelected: (c) => _update(() => _cost = c),
+                                ),
+                              ),
+                              second: PlanSpotsStepper(
+                                value: _openSpots,
+                                min: kBeaconMinSpots,
+                                max: kBeaconMaxSpots,
                                 enabled: !busy,
-                                onSelected: (c) => setState(() => _cost = c),
+                                onChanged: (n) => _update(() => _openSpots = n),
                               ),
                             ),
-                            _Section(
+                            PlanFormSection(
                               title: 'Chat',
-                              child: _chips<pb.ChatPreference>(
+                              child: PlanChoiceChips<pb.ChatPreference>(
                                 values: const [
                                   pb.ChatPreference.CHAT_PREFERENCE_QUIET,
                                   pb
@@ -489,18 +489,17 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 selected: _chat,
                                 label: chatPreferenceLabel,
                                 enabled: !busy,
-                                onSelected: (c) => setState(() => _chat = c),
+                                onSelected: (c) => _update(() => _chat = c),
                               ),
                             ),
-                            _Section(
+                            PlanFormSection(
                               title: 'Who can see it',
-                              child: _chips<BeaconsAudience>(
+                              child: PlanChoiceChips<BeaconsAudience>(
                                 values: _audiences,
                                 selected: _audience,
                                 label: (a) => a.name,
                                 enabled: !busy,
-                                onSelected: (a) =>
-                                    setState(() => _audience = a),
+                                onSelected: (a) => _update(() => _audience = a),
                               ),
                             ),
                             if (state.error != null) ...[
@@ -526,51 +525,6 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
             },
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _chips<T>({
-    required List<T> values,
-    required T selected,
-    required String Function(T) label,
-    required bool enabled,
-    required ValueChanged<T> onSelected,
-  }) => Wrap(
-    spacing: AppSpacing.sm,
-    runSpacing: AppSpacing.xs,
-    children: [
-      for (final v in values)
-        ChoiceChip(
-          label: Text(label(v)),
-          selected: v == selected,
-          onSelected: enabled ? (_) => onSelected(v) : null,
-        ),
-    ],
-  );
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.child});
-
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.md, bottom: AppSpacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Semantics(
-            header: true,
-            child: Text(title, style: theme.textTheme.titleMedium),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          child,
-        ],
       ),
     );
   }

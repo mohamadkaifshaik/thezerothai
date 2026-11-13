@@ -12,6 +12,8 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
+    as ts;
 import 'package:uuid/uuid.dart';
 
 import '../../../support/messaging_fixtures.dart';
@@ -604,6 +606,34 @@ void main() {
 
       expect(cubit.state.messages, hasLength(5));
       expect(cubit.state.pendingNew, 0);
+    });
+
+    test('a pull keeps the read time of the first page (Seen)', () async {
+      final read = ts.Timestamp.fromDateTime(kMsgBase);
+      stubOpen(
+        snap(
+          thread(3),
+          conversation: threadConv().deepCopy()..peerReadAt = read,
+        ),
+        snap(
+          thread(3),
+          conversation: threadConv().deepCopy()..peerReadAt = read,
+        ),
+      );
+      make();
+      await cubit.load();
+      expect(cubit.state.conversation!.hasPeerReadAt(), isTrue);
+      when(() => repo.pollThread(kThreadId))
+          .thenAnswer((_) async => const PollResult(newMessages: true));
+      // A poll's cached header has no read time (the server sets it on a
+      // first page only).
+      when(() => repo.cachedThread(kThreadId))
+          .thenAnswer((_) async => snap(thread(5)));
+
+      await cubit.pull();
+
+      expect(cubit.state.messages, hasLength(5));
+      expect(cubit.state.conversation!.peerReadAt, read);
     });
 
     test('a pull while scrolled up is held back, then shown', () async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'app_main_column.dart';
 
 /// The header of a pushed list page (followers/following): a back button, the
 /// [title] (announced as a header, one line) and a divider underneath. Use it
@@ -9,23 +10,34 @@ import '../../../core/theme/app_theme.dart';
 ///
 /// [titleContent] replaces the one-line title text with richer content (the
 /// conversation header's avatar, name and handle); [title] is then only the
-/// accessible name of the header. [actions] sit at the end (an overflow
-/// menu); both default to nothing, so existing callers are unchanged.
+/// accessible name of the header. [subtitle] puts one muted line under the
+/// title (the viewer's @handle, "3 pending", the plan a People page is
+/// about). [actions] sit at the end (an overflow menu); all default to
+/// nothing, so existing callers are unchanged.
 class AppBackHeader extends StatelessWidget {
   const AppBackHeader({
     super.key,
     required this.title,
     required this.onBack,
     this.backTooltip = 'Back',
+    this.backIcon = Icons.arrow_back,
     this.titleContent,
+    this.subtitle,
     this.actions = const [],
     this.leading,
   });
 
   final String title;
-  final VoidCallback onBack;
+
+  /// Null leaves the button disabled (a form mid-save).
+  final VoidCallback? onBack;
   final String backTooltip;
+
+  /// The leading button's glyph: a form that closes instead of going back
+  /// uses [Icons.close].
+  final IconData backIcon;
   final Widget? titleContent;
+  final String? subtitle;
   final List<Widget> actions;
 
   /// Replaces the back button (a root destination leads with the account
@@ -35,42 +47,68 @@ class AppBackHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final subtitle = this.subtitle;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xs,
-            vertical: AppSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              leading ??
-                  IconButton(
-                    tooltip: backTooltip,
-                    icon: const Icon(Icons.arrow_back),
-                    onPressed: onBack,
+        // The controls across the pane on the tablet layout (T8f, one header
+        // rule): Back at the pane's leading edge, the actions at its
+        // trailing edge. A pass-through everywhere else.
+        AppFullBleed(
+          interactive: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xs,
+              vertical: AppSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                leading ??
+                    IconButton(
+                      tooltip: backTooltip,
+                      icon: Icon(backIcon),
+                      onPressed: onBack,
+                    ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Semantics(
+                    header: true,
+                    child:
+                        titleContent ??
+                        (subtitle == null
+                            ? _titleText(theme)
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _titleText(theme),
+                                  Text(
+                                    subtitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              )),
                   ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: Semantics(
-                  header: true,
-                  child:
-                      titleContent ??
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleLarge,
-                      ),
                 ),
-              ),
-              ...actions,
-            ],
+                ...actions,
+              ],
+            ),
           ),
         ),
-        const Divider(height: 1),
+        // Spans the pane on the tablet layout (the column's bleed).
+        const AppFullBleed(child: Divider(height: 1)),
       ],
     );
   }
+
+  Text _titleText(ThemeData theme) => Text(
+    title,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: theme.textTheme.titleLarge,
+  );
 }

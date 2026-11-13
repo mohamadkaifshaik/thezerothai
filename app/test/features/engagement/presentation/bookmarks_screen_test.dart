@@ -306,7 +306,7 @@ void main() {
     });
 
     testWidgets(
-      'header "History" and no tab bar while likes_list is off (W3-18)',
+      'header "Bookmarks" and no tab bar while likes_list is off (W3-18)',
       (tester) async {
         final handle = tester.ensureSemantics();
         server.pages[''] = () => _rows([1]);
@@ -316,7 +316,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(AppBackHeader),
-            matching: find.text('History'),
+            matching: find.text('Bookmarks'),
           ),
           findsOneWidget,
         );
@@ -704,7 +704,7 @@ void main() {
 
               expect(tester.takeException(), isNull);
               expect(rows(), findsWidgets);
-              expect(find.text('History'), findsWidgets);
+              expect(find.text('Bookmarks'), findsWidgets);
               expect(filledBookmark(), findsWidgets);
               // The column is capped on wide screens.
               final header = tester.getSize(find.byType(AppBackHeader)).width;

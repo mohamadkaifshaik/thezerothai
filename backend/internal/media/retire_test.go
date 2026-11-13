@@ -17,12 +17,18 @@ import (
 
 const (
 	idAvatarOld  = "0000000000000000701"
-	idBannerOld  = "0000000000000000702"
+	idAvatar2Old = "0000000000000000702"
 	idAvatarNew  = "0000000000000000703"
-	idBannerNew  = "0000000000000000704"
-	retireBase   = "https://cdn.test/media"
-	retireBucket = "https://storage.googleapis.com/proj-media"
+	idAvatar2New = "0000000000000000704"
+	// idLegacyBanner is a document of the removed BANNER purpose (legacyBannerPurpose), kept as a defensive case
+	// ().
+	idLegacyBanner = "0000000000000000705"
+	retireBase     = "https://cdn.test/media"
+	retireBucket   = "https://storage.googleapis.com/proj-media"
 )
+
+// legacyBannerPurpose is the stored purpose of the removed profile banner.
+const legacyBannerPurpose = Purpose("BANNER")
 
 var retireNow = time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
 
@@ -61,7 +67,7 @@ func newRetireEnv(mode config.ProfileMediaRetire) *retireEnv {
 	return e
 }
 
-// setCurrent sets what the fresh users/{uid} read reports: the avatar and banner URLs the profile shows now.
+// setCurrent sets what the fresh users/{uid} read reports: the avatar URLs the profile shows now.
 func (e *retireEnv) setCurrent(uid string, ids ...string) {
 	var urls []string
 	for _, id := range ids {
@@ -133,8 +139,8 @@ func TestObjectNameFromURL(t *testing.T) {
 
 func TestParseRetiredImage(t *testing.T) {
 	t.Parallel()
-	full, thumb := imgURLs(idBannerOld, "webp")
-	jpgFull, jpgThumb := imgURLs(idBannerOld, "jpg")
+	full, thumb := imgURLs(idAvatar2Old, "webp")
+	jpgFull, jpgThumb := imgURLs(idAvatar2Old, "jpg")
 	otherFull, otherThumb := imgURLs(idAvatarOld, "webp")
 	tests := []struct {
 		name          string
@@ -142,13 +148,13 @@ func TestParseRetiredImage(t *testing.T) {
 		wantID        string
 		wantParseable bool
 	}{
-		{"pair", full, thumb, idBannerOld, true},
-		{"full only", full, "", idBannerOld, true},
+		{"pair", full, thumb, idAvatar2Old, true},
+		{"full only", full, "", idAvatar2Old, true},
 		{"thumb as the full url", thumb, "", "", false},
 		{"full as the thumb url", full, full, "", false},
 		{"thumb of another image", full, otherThumb, "", false},
 		{"thumb with another extension", full, jpgThumb, "", false},
-		{"jpg pair", jpgFull, jpgThumb, idBannerOld, true},
+		{"jpg pair", jpgFull, jpgThumb, idAvatar2Old, true},
 		{"garbage full", "https://x.test/pic.png", thumb, "", false},
 		{"empty full", "", thumb, "", false},
 		{"other id pair", otherFull, otherThumb, idAvatarOld, true},
@@ -179,23 +185,23 @@ func TestRetire_Matrix(t *testing.T) {
 		retired                     bool
 	}{
 		{
-			name: "banner replaced, mode banner",
-			mode: config.ProfileMediaRetireBanner,
+			name: "a second avatar replaced, mode all",
+			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
-				e.setCurrent(uidA, idBannerNew)
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
+				e.setCurrent(uidA, idAvatar2New)
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "retired", userReads: 1, docReads: 1, tagged: 2, retired: true,
 		},
 		{
-			name: "banner removed (nothing current), mode all",
+			name: "avatar removed (nothing current), mode all",
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 				e.users.urls[uidA] = nil
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "retired", userReads: 1, docReads: 1, tagged: 2, retired: true,
 		},
 		{
@@ -226,37 +232,37 @@ func TestRetire_Matrix(t *testing.T) {
 			name: "the account's profile is gone: still retired (found is not an error)",
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "retired", userReads: 1, docReads: 1, tagged: 2, retired: true,
 		},
 		{
 			name: "switch off: acked before any read",
 			mode: config.ProfileMediaRetireOff,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "disabled",
 		},
 		{
 			name: "zero value mode is off",
 			mode: "",
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "disabled",
 		},
 		{
-			name: "mode banner never retires an avatar",
-			mode: config.ProfileMediaRetireBanner,
+			name: "a legacy BANNER message in flight is dropped before any read",
+			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idAvatarOld, uidA, PurposeAvatar, "webp")
+				seedProfileImage(e.repo, e.obj, idLegacyBanner, uidA, legacyBannerPurpose, "webp")
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatarOld, changed) },
-			want: "disabled",
+			msg:  func() RetireMessage { return retireMsg(uidA, legacyBannerPurpose, idLegacyBanner, changed) },
+			want: "dropped:invalid_message",
 		},
 		{
 			name: "the old url is still the current avatar",
@@ -269,23 +275,13 @@ func TestRetire_Matrix(t *testing.T) {
 			want: "still_current", userReads: 1,
 		},
 		{
-			name: "the old url is still the current banner",
-			mode: config.ProfileMediaRetireBanner,
-			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
-				e.setCurrent(uidA, idAvatarNew, idBannerOld)
-			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
-			want: "still_current", userReads: 1,
-		},
-		{
-			name: "a forged message naming the current avatar as a BANNER is still current (either purpose)",
+			name: "the old url is still current (the profile shows it with another image)",
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idAvatarOld, uidA, PurposeAvatar, "webp")
-				e.setCurrent(uidA, idAvatarOld)
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
+				e.setCurrent(uidA, idAvatarNew, idAvatar2Old)
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idAvatarOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "still_current", userReads: 1,
 		},
 		{
@@ -327,11 +323,11 @@ func TestRetire_Matrix(t *testing.T) {
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
 				seedProfileImage(e.repo, e.obj, idAvatarOld, uidA, PurposeAvatar, "webp")
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 			},
 			msg: func() RetireMessage {
 				m := retireMsg(uidA, PurposeAvatar, idAvatarOld, changed)
-				_, m.OldThumbURL = imgURLs(idBannerOld, "webp")
+				_, m.OldThumbURL = imgURLs(idAvatar2Old, "webp")
 				return m
 			},
 			want: "unparseable",
@@ -340,36 +336,36 @@ func TestRetire_Matrix(t *testing.T) {
 			name: "redelivery of a retired image: duplicate, 0 writes, no GCS call",
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 				done := changed
-				e.repo.docs[idBannerOld].RetiredAt = &done
+				e.repo.docs[idAvatar2Old].RetiredAt = &done
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "duplicate", userReads: 1, docReads: 1,
 		},
 		{
 			name:  "no media document: duplicate (gone with its account or its TTL)",
 			mode:  config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {},
-			msg:   func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:   func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want:  "duplicate", userReads: 1, docReads: 1,
 		},
 		{
 			name: "another owner's image is refused",
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidB, PurposeBanner, "webp")
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidB, PurposeAvatar, "webp")
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "refused", userReads: 1, docReads: 1,
 		},
 		{
-			name: "the wrong purpose is refused (an avatar named as a banner)",
+			name: "the wrong purpose is refused (a legacy BANNER document named as an avatar)",
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idAvatarOld, uidA, PurposeAvatar, "webp")
+				seedProfileImage(e.repo, e.obj, idLegacyBanner, uidA, legacyBannerPurpose, "webp")
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idAvatarOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idLegacyBanner, changed) },
 			want: "refused", userReads: 1, docReads: 1,
 		},
 		{
@@ -385,31 +381,31 @@ func TestRetire_Matrix(t *testing.T) {
 			name: "an unpublished document is refused",
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
-				seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
-				e.repo.docs[idBannerOld].Status = string(StatusPending)
+				seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
+				e.repo.docs[idAvatar2Old].Status = string(StatusPending)
 			},
-			msg:  func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, changed) },
+			msg:  func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed) },
 			want: "refused", userReads: 1, docReads: 1,
 		},
 		{
 			name:  "invalid uid",
 			mode:  config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {},
-			msg:   func() RetireMessage { return retireMsg("bad/uid", PurposeBanner, idBannerOld, changed) },
+			msg:   func() RetireMessage { return retireMsg("bad/uid", PurposeAvatar, idAvatar2Old, changed) },
 			want:  "dropped:invalid_message",
 		},
 		{
 			name:  "POST is not a profile purpose",
 			mode:  config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {},
-			msg:   func() RetireMessage { return retireMsg(uidA, PurposePost, idBannerOld, changed) },
+			msg:   func() RetireMessage { return retireMsg(uidA, PurposePost, idAvatar2Old, changed) },
 			want:  "dropped:invalid_message",
 		},
 		{
 			name:  "zero changedAt",
 			mode:  config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {},
-			msg:   func() RetireMessage { return retireMsg(uidA, PurposeBanner, idBannerOld, time.Time{}) },
+			msg:   func() RetireMessage { return retireMsg(uidA, PurposeAvatar, idAvatar2Old, time.Time{}) },
 			want:  "dropped:invalid_message",
 		},
 		{
@@ -417,7 +413,7 @@ func TestRetire_Matrix(t *testing.T) {
 			mode:  config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {},
 			msg: func() RetireMessage {
-				m := retireMsg(uidA, PurposeBanner, idBannerOld, changed)
+				m := retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed)
 				m.OldURL = ""
 				return m
 			},
@@ -428,7 +424,7 @@ func TestRetire_Matrix(t *testing.T) {
 			mode:  config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {},
 			msg: func() RetireMessage {
-				m := retireMsg(uidA, PurposeBanner, idBannerOld, changed)
+				m := retireMsg(uidA, PurposeAvatar, idAvatar2Old, changed)
 				m.OldURL = retireBase + "/m/" + strings.Repeat("0", 600) + ".webp"
 				return m
 			},
@@ -475,19 +471,19 @@ func TestRetire_Matrix(t *testing.T) {
 // changedAt and expireAt = changedAt + 72 h; the objects are the document's own two names.
 func TestRetire_WritesWhatTheDesignSays(t *testing.T) {
 	e := newRetireEnv(config.ProfileMediaRetireAll)
-	seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
-	e.setCurrent(uidA, idBannerNew)
+	seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
+	e.setCurrent(uidA, idAvatar2New)
 	at := retireNow.Add(-90 * time.Minute)
 
-	got, err := e.jobs.Retire(context.Background(), retireMsg(uidA, PurposeBanner, idBannerOld, at))
+	got, err := e.jobs.Retire(context.Background(), retireMsg(uidA, PurposeAvatar, idAvatar2Old, at))
 	if err != nil || got != "retired" {
 		t.Fatalf("Retire = %q, %v", got, err)
 	}
-	want := []taggedObject{{"m/" + idBannerOld + ".webp", at}, {"m/" + idBannerOld + "_t.webp", at}}
+	want := []taggedObject{{"m/" + idAvatar2Old + ".webp", at}, {"m/" + idAvatar2Old + "_t.webp", at}}
 	if len(e.tagger.calls) != 2 || e.tagger.calls[0] != want[0] || e.tagger.calls[1] != want[1] {
 		t.Errorf("tagged = %v, want %v", e.tagger.calls, want)
 	}
-	d := e.repo.docs[idBannerOld]
+	d := e.repo.docs[idAvatar2Old]
 	if d.RetiredAt == nil || !d.RetiredAt.Equal(at) || d.ExpireAt == nil || !d.ExpireAt.Equal(at.Add(72*time.Hour)) {
 		t.Errorf("doc retiredAt = %v, expireAt = %v; want %v and %v", d.RetiredAt, d.ExpireAt, at, at.Add(72*time.Hour))
 	}
@@ -503,8 +499,8 @@ func TestRetire_WritesWhatTheDesignSays(t *testing.T) {
 // document's TTL and escape the account eraser, so the step stamps at most "now".
 func TestRetire_FutureChangedAtIsClampedToNow(t *testing.T) {
 	e := newRetireEnv(config.ProfileMediaRetireAll)
-	seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
-	got, err := e.jobs.Retire(context.Background(), retireMsg(uidA, PurposeBanner, idBannerOld, retireNow.AddDate(3, 0, 0)))
+	seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
+	got, err := e.jobs.Retire(context.Background(), retireMsg(uidA, PurposeAvatar, idAvatar2Old, retireNow.AddDate(3, 0, 0)))
 	if err != nil || got != "retired" {
 		t.Fatalf("Retire = %q, %v", got, err)
 	}
@@ -513,7 +509,7 @@ func TestRetire_FutureChangedAtIsClampedToNow(t *testing.T) {
 			t.Errorf("tagged at %v, want the clamp %v", c.at, retireNow)
 		}
 	}
-	if d := e.repo.docs[idBannerOld]; !d.RetiredAt.Equal(retireNow) || !d.ExpireAt.Equal(retireNow.Add(RetiredDocTTL)) {
+	if d := e.repo.docs[idAvatar2Old]; !d.RetiredAt.Equal(retireNow) || !d.ExpireAt.Equal(retireNow.Add(RetiredDocTTL)) {
 		t.Errorf("doc = %v / %v", d.RetiredAt, d.ExpireAt)
 	}
 }
@@ -522,9 +518,9 @@ func TestRetire_FutureChangedAtIsClampedToNow(t *testing.T) {
 // writes and no GCS call.
 func TestRetire_RedeliveryAfterCompletionDoesNothing(t *testing.T) {
 	e := newRetireEnv(config.ProfileMediaRetireAll)
-	seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
-	e.setCurrent(uidA, idBannerNew)
-	msg := retireMsg(uidA, PurposeBanner, idBannerOld, retireNow.Add(-time.Hour))
+	seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
+	e.setCurrent(uidA, idAvatar2New)
+	msg := retireMsg(uidA, PurposeAvatar, idAvatar2Old, retireNow.Add(-time.Hour))
 	if got, err := e.jobs.Retire(context.Background(), msg); err != nil || got != "retired" {
 		t.Fatalf("first = %q, %v", got, err)
 	}
@@ -560,17 +556,17 @@ func TestRetire_CrashBetweenTheTagAndTheDocumentConverges(t *testing.T) {
 		},
 		{
 			name:   "the second object cannot be tagged",
-			break_: func(e *retireEnv) { e.tagger.failOn = "m/" + idBannerOld + "_t.webp" },
+			break_: func(e *retireEnv) { e.tagger.failOn = "m/" + idAvatar2Old + "_t.webp" },
 			fix:    func(e *retireEnv) { e.tagger.failOn = "" },
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newRetireEnv(config.ProfileMediaRetireAll)
-			seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
-			e.setCurrent(uidA, idBannerNew)
+			seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
+			e.setCurrent(uidA, idAvatar2New)
 			at := retireNow.Add(-time.Hour)
-			msg := retireMsg(uidA, PurposeBanner, idBannerOld, at)
+			msg := retireMsg(uidA, PurposeAvatar, idAvatar2Old, at)
 
 			tt.break_(e)
 			out, err := e.jobs.Retire(context.Background(), msg)
@@ -580,7 +576,7 @@ func TestRetire_CrashBetweenTheTagAndTheDocumentConverges(t *testing.T) {
 			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
 				t.Errorf("err = %v, want it to wrap %v", err, tt.wantErr)
 			}
-			if e.repo.docs[idBannerOld].RetiredAt != nil {
+			if e.repo.docs[idAvatar2Old].RetiredAt != nil {
 				t.Fatal("the document must not be retired by a failed delivery")
 			}
 
@@ -589,7 +585,7 @@ func TestRetire_CrashBetweenTheTagAndTheDocumentConverges(t *testing.T) {
 			if err != nil || out != "retired" {
 				t.Fatalf("redelivery = %q, %v; want retired", out, err)
 			}
-			if d := e.repo.docs[idBannerOld]; d.RetiredAt == nil || !d.RetiredAt.Equal(at) {
+			if d := e.repo.docs[idAvatar2Old]; d.RetiredAt == nil || !d.RetiredAt.Equal(at) {
 				t.Errorf("retiredAt = %v, want %v", d.RetiredAt, at)
 			}
 			for _, c := range e.tagger.calls {
@@ -607,9 +603,9 @@ func TestRetire_CrashBetweenTheTagAndTheDocumentConverges(t *testing.T) {
 
 func TestRetire_InfrastructureErrorsNack(t *testing.T) {
 	e := newRetireEnv(config.ProfileMediaRetireAll)
-	seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+	seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 	e.users.err = errors.New("users read failed")
-	if out, err := e.jobs.Retire(context.Background(), retireMsg(uidA, PurposeBanner, idBannerOld, retireNow)); err == nil {
+	if out, err := e.jobs.Retire(context.Background(), retireMsg(uidA, PurposeAvatar, idAvatar2Old, retireNow)); err == nil {
 		t.Fatalf("a failed users read must nack, got %q", out)
 	} else if strings.Contains(err.Error(), uidA) {
 		t.Errorf("the error leaks the uid: %v", err)
@@ -620,14 +616,14 @@ func TestRetire_InfrastructureErrorsNack(t *testing.T) {
 
 	// A step that is not wired is a loud error, never a silent ack that would hide a misconfiguration.
 	bare := NewJobs(newFakeRepo(), newFakeObjects(), fakePosts{}, nil).WithProfileRetire(RetireDeps{Mode: config.ProfileMediaRetireAll})
-	if _, err := bare.Retire(context.Background(), retireMsg(uidA, PurposeBanner, idBannerOld, retireNow)); err == nil {
+	if _, err := bare.Retire(context.Background(), retireMsg(uidA, PurposeAvatar, idAvatar2Old, retireNow)); err == nil {
 		t.Error("a retire step without a users reader or tagger must error")
 	}
 }
 
 func TestRetireHandler_Handle(t *testing.T) {
 	e := newRetireEnv(config.ProfileMediaRetireAll)
-	seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+	seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 	h := e.jobs.RetireHandler()
 
 	enc := func(t *testing.T, m RetireMessage) []byte {
@@ -638,7 +634,7 @@ func TestRetireHandler_Handle(t *testing.T) {
 		}
 		return b
 	}
-	good := retireMsg(uidA, PurposeBanner, idBannerOld, retireNow.Add(-time.Minute))
+	good := retireMsg(uidA, PurposeAvatar, idAvatar2Old, retireNow.Add(-time.Minute))
 	wrongKind := good
 	wrongKind.Kind = JobKindPostDelete
 
@@ -669,19 +665,17 @@ func TestRetireHandler_Handle(t *testing.T) {
 // the switch does not allow the purpose), and a published message carries exactly what the handler needs.
 func TestProfileImageReplaced_Publish(t *testing.T) {
 	at := retireNow.Add(-time.Second)
-	full, thumb := imgURLs(idBannerOld, "webp")
+	full, thumb := imgURLs(idAvatar2Old, "webp")
 	tests := []struct {
 		name    string
 		mode    config.ProfileMediaRetire
 		purpose Purpose
 		want    int
 	}{
-		{"off publishes nothing", config.ProfileMediaRetireOff, PurposeBanner, 0},
-		{"zero value publishes nothing", "", PurposeBanner, 0},
-		{"banner mode, banner", config.ProfileMediaRetireBanner, PurposeBanner, 1},
-		{"banner mode, avatar", config.ProfileMediaRetireBanner, PurposeAvatar, 0},
+		{"off publishes nothing", config.ProfileMediaRetireOff, PurposeAvatar, 0},
+		{"zero value publishes nothing", "", PurposeAvatar, 0},
 		{"all, avatar", config.ProfileMediaRetireAll, PurposeAvatar, 1},
-		{"all, banner", config.ProfileMediaRetireAll, PurposeBanner, 1},
+		{"all never publishes a legacy banner", config.ProfileMediaRetireAll, legacyBannerPurpose, 0},
 		{"all never publishes a post image", config.ProfileMediaRetireAll, PurposePost, 0},
 	}
 	for _, tt := range tests {
@@ -712,34 +706,35 @@ func TestProfileImageReplaced_Publish(t *testing.T) {
 	t.Run("a publisher failure is returned for the caller to log", func(t *testing.T) {
 		e := newRetireEnv(config.ProfileMediaRetireAll)
 		e.pub.err = errors.New("pubsub down")
-		if err := e.jobs.ProfileImageReplaced(context.Background(), uidA, PurposeBanner, full, thumb, at); err == nil {
+		if err := e.jobs.ProfileImageReplaced(context.Background(), uidA, PurposeAvatar, full, thumb, at); err == nil {
 			t.Fatal("want the publish error")
 		}
 	})
 	t.Run("no publisher is an error when the switch allows it", func(t *testing.T) {
 		j := NewJobs(newFakeRepo(), newFakeObjects(), fakePosts{}, nil).WithProfileRetire(RetireDeps{Mode: config.ProfileMediaRetireAll})
-		if err := j.ProfileImageReplaced(context.Background(), uidA, PurposeBanner, full, thumb, at); err == nil {
+		if err := j.ProfileImageReplaced(context.Background(), uidA, PurposeAvatar, full, thumb, at); err == nil {
 			t.Fatal("want an error")
 		}
 		off := NewJobs(newFakeRepo(), newFakeObjects(), fakePosts{}, nil)
-		if err := off.ProfileImageReplaced(context.Background(), uidA, PurposeBanner, full, thumb, at); err != nil {
+		if err := off.ProfileImageReplaced(context.Background(), uidA, PurposeAvatar, full, thumb, at); err != nil {
 			t.Fatalf("a switch that is off needs no publisher: %v", err)
 		}
 	})
 }
 
-// TestPurgeUser_CoversRetiredImagesInsideTheGrace: a retired AVATAR and BANNER still own their objects until the
-// document's TTL, so an account deleted during the grace loses the objects and the documents at once; the export still
-// lists them, with the retirement time.
+// TestPurgeUser_CoversRetiredImagesInsideTheGrace: retired AVATARs still own their objects until the document's TTL, so
+// an account deleted during the grace loses the objects and the documents at once; the export still lists them, with the
+// retirement time. A legacy BANNER document (the removed purpose) is exported and
+// erased the same way: the eraser never looks at the purpose.
 func TestPurgeUser_CoversRetiredImagesInsideTheGrace(t *testing.T) {
 	r, o := newFakeRepo(), newFakeObjects()
 	seedProfileImage(r, o, idAvatarOld, uidA, PurposeAvatar, "webp")
-	seedProfileImage(r, o, idBannerOld, uidA, PurposeBanner, "jpg")
-	seedProfileImage(r, o, idBannerNew, uidA, PurposeBanner, "webp") // the current banner, not retired
-	seedProfileImage(r, o, idAvatarNew, uidB, PurposeAvatar, "webp") // someone else's
+	seedProfileImage(r, o, idAvatar2Old, uidA, PurposeAvatar, "jpg")
+	seedProfileImage(r, o, idLegacyBanner, uidA, legacyBannerPurpose, "webp") // a legacy banner, never retired
+	seedProfileImage(r, o, idAvatarNew, uidB, PurposeAvatar, "webp")          // someone else's
 	at := retireNow.Add(-2 * time.Hour)
 	exp := at.Add(RetiredDocTTL)
-	for _, id := range []string{idAvatarOld, idBannerOld} {
+	for _, id := range []string{idAvatarOld, idAvatar2Old} {
 		d := r.docs[id]
 		d.RetiredAt, d.ExpireAt = &at, &exp
 	}
@@ -766,13 +761,13 @@ func TestPurgeUser_CoversRetiredImagesInsideTheGrace(t *testing.T) {
 	for _, m := range export.Media {
 		if m.RetiredAt != nil {
 			retired++
-			if !m.RetiredAt.Equal(at) || (m.ID != idAvatarOld && m.ID != idBannerOld) {
+			if !m.RetiredAt.Equal(at) || (m.ID != idAvatarOld && m.ID != idAvatar2Old) {
 				t.Errorf("retired entry %+v", m)
 			}
 		}
 	}
 	if retired != 2 {
-		t.Errorf("retired entries = %d, want 2 (the current banner is not retired)", retired)
+		t.Errorf("retired entries = %d, want 2 (the legacy banner is not retired)", retired)
 	}
 
 	_, done, err := p.PurgeUser(context.Background(), uidA, Checkpoint{})
@@ -783,7 +778,7 @@ func TestPurgeUser_CoversRetiredImagesInsideTheGrace(t *testing.T) {
 		t.Errorf("docs left = %v: only Bob's may remain (retired documents are erased with the account)", r.docs)
 	}
 	if len(o.public) != 2 {
-		t.Errorf("public objects left = %v: both of Alice's retired images and her current banner must be deleted at once", o.public)
+		t.Errorf("public objects left = %v: both of Alice's retired images and her legacy banner must be deleted at once", o.public)
 	}
 }
 
@@ -791,10 +786,10 @@ func TestPurgeUser_CoversRetiredImagesInsideTheGrace(t *testing.T) {
 // objects and on the document is the same microsecond-truncated time, however many nanoseconds the message carried.
 func TestRetire_ChangedAtIsStampedAtMicrosecondPrecision(t *testing.T) {
 	e := newRetireEnv(config.ProfileMediaRetireAll)
-	seedProfileImage(e.repo, e.obj, idBannerOld, uidA, PurposeBanner, "webp")
+	seedProfileImage(e.repo, e.obj, idAvatar2Old, uidA, PurposeAvatar, "webp")
 	at := retireNow.Add(-time.Hour).Add(123456789 * time.Nanosecond)
 	want := retireNow.Add(-time.Hour).Add(123456 * time.Microsecond)
-	if got, err := e.jobs.Retire(context.Background(), retireMsg(uidA, PurposeBanner, idBannerOld, at)); err != nil || got != "retired" {
+	if got, err := e.jobs.Retire(context.Background(), retireMsg(uidA, PurposeAvatar, idAvatar2Old, at)); err != nil || got != "retired" {
 		t.Fatalf("Retire = %q, %v", got, err)
 	}
 	for _, c := range e.tagger.calls {
@@ -802,7 +797,7 @@ func TestRetire_ChangedAtIsStampedAtMicrosecondPrecision(t *testing.T) {
 			t.Errorf("tagged at %v, want %v", c.at, want)
 		}
 	}
-	if d := e.repo.docs[idBannerOld]; !d.RetiredAt.Equal(want) || !d.ExpireAt.Equal(want.Add(RetiredDocTTL)) {
+	if d := e.repo.docs[idAvatar2Old]; !d.RetiredAt.Equal(want) || !d.ExpireAt.Equal(want.Add(RetiredDocTTL)) {
 		t.Errorf("doc = %v / %v, want %v and +72 h", d.RetiredAt, d.ExpireAt, want)
 	}
 }

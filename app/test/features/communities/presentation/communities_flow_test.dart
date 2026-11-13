@@ -35,6 +35,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:fixnum/fixnum.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -356,7 +357,12 @@ void main() {
       expect(tester.takeException(), isNull);
 
       // 1. Communities: the directory lists it, I am not in it. Join.
-      expect(find.text('Explore Communities'), findsOneWidget);
+      // R10 (F23): the directory is the Explore tab.
+      // R10 review item 3: the tab bar may scroll; bring the tab into view.
+      await tester.ensureVisible(find.text('Explore'));
+      await tester.pump();
+      await tester.tap(find.text('Explore'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Join'));
       await tester.pumpAndSettle();
       expect(joinedWith, [_id], reason: 'one JoinCommunity');
@@ -366,7 +372,7 @@ void main() {
       await tester.tap(find.text('Chess club').first);
       await tester.pumpAndSettle();
       expect(find.byType(CommunityScreen), findsOneWidget);
-      final post = find.widgetWithText(OutlinedButton, 'Post');
+      final post = find.widgetWithText(AppPillButton, 'Post');
       expect(post, findsOneWidget);
       expect(find.text('Join'), findsNothing);
 
@@ -400,7 +406,7 @@ void main() {
       expect(find.text('e4 is best'), findsOneWidget);
       await tester.tap(find.byTooltip('More options').first);
       await tester.pumpAndSettle();
-      expect(find.text('Remove from Community'), findsNothing);
+      expect(find.text('Remove from community'), findsNothing);
       await tester.tapAt(const Offset(5, 5)); // dismiss the menu
       await tester.pumpAndSettle();
 
@@ -413,7 +419,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('More options').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Remove from Community'));
+      await tester.tap(find.text('Remove from community'));
       await tester.pumpAndSettle();
       expect(find.text('Remove this post from Chess club?'), findsOneWidget);
       await tester.tap(find.text('Remove'));

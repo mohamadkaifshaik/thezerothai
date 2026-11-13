@@ -20,10 +20,12 @@ import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_consent_cubit.dart';
 import '../core/telemetry/telemetry_consent_store.dart';
 import '../core/theme/app_theme.dart';
+import '../core/theme/text_size_cubit.dart';
 import '../core/theme/theme_mode_cubit.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/usage_reporter.dart';
 import '../core/widgets/service_paused_view.dart';
+import '../core/widgets/tablet_modal.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
@@ -32,6 +34,7 @@ import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/beacons/data/beacons_repository.dart';
+import '../features/beacons/presentation/bloc/plans_session.dart';
 import '../features/communities/data/communities_repository.dart';
 import '../features/lists/data/home_tabs_repository.dart';
 import '../features/lists/data/lists_repository.dart';
@@ -49,6 +52,7 @@ import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
+import '../features/messages/presentation/bloc/conversations_session.dart';
 import '../features/search/data/recent_searches_store.dart';
 import '../features/search/data/search_repository.dart';
 import '../features/search/presentation/bloc/trends_cubit.dart';
@@ -61,6 +65,7 @@ import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/notifications/presentation/bloc/push_opt_in_cubit.dart';
 import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
+import '../features/settings/data/own_privacy_store.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/data/drafts_repository.dart';
@@ -111,6 +116,7 @@ class AppWidget extends StatefulWidget {
     this.telemetryConsent,
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
+    this.ownPrivacyStore,
     this.shareLinks,
     this.usage = const UsageReporter.none(),
     this.telemetryForget = const TelemetryDeviceForget.none(),
@@ -184,6 +190,11 @@ class AppWidget extends StatefulWidget {
   /// shares it with the API client. Null (tests) means never paused.
   final ServicePausedCubit? servicePausedCubit;
 
+  /// The caller's read receipts and DM policy as the server last answered
+  /// (F3, F9). Bootstrap creates it and feeds it every GetMe before the first
+  /// one can run; null (tests) makes one fed from `initState` on.
+  final OwnPrivacyStore? ownPrivacyStore;
+
   /// The share origin and native share sheet for the post Share action,
   /// from `AppConfig.shareOrigin`. Null (tests) means no Share action.
   final ShareLinks? shareLinks;
@@ -256,6 +267,29 @@ class _AppWidgetState extends State<AppWidget> {
   late final TrendsCubit? _trends = widget.searchRepository == null
       ? null
       : TrendsCubit(repository: widget.searchRepository!);
+  // The `/plans` list and its "Your plans" section, shared by the band A
+  // list and the band B list pane (tablet plan section 5.2). Its cubits are
+  // created on first read only (never at app start, never with `beacons`
+  // off); the account reset and the flag changes below drop or rebuild
+  // them. Null without a beacons repository (tests).
+  late final PlansSession? _plans = widget.beaconsRepository == null
+      ? null
+      : PlansSession(
+          repository: widget.beaconsRepository!,
+          communities: widget.communitiesRepository,
+        );
+  // The inbox and the Requests folder, shared by the `/messages` route, the
+  // band B list pane and the Messages split page (tablet plan sections 5.2
+  // and 5.3). Created on first read only, while Messages is available; the
+  // account reset and access turning `hidden` drop them.
+  late final ConversationsSession _conversations = ConversationsSession(
+    repository: widget.messagingRepository,
+    onUnexpectedError: reportUnexpectedError,
+    // A first Inbox page loaded: the Messages badge re-syncs from its rows
+    // (0 extra reads, D10).
+    onInboxSynced: (rows, {required hasMore}) =>
+        _messagesBadge.resync(rows, hasMore: hasMore),
+  );
   // The "Turn on notifications" card's memory: one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
@@ -291,6 +325,15 @@ class _AppWidgetState extends State<AppWidget> {
   late final ThemeModeCubit _themeMode = ThemeModeCubit(
     DatabaseThemeModeStore(widget.database),
   );
+  // The in-app text size (F7, 100 / 115 / 130 % of the system scale),
+  // saved on the device like the appearance.
+  late final TextSizeCubit _textSize = TextSizeCubit(
+    DatabaseTextSizeStore(widget.database),
+  );
+  // The caller's read receipts and DM policy as the server last answered
+  // (F3, F9): fed by every GetMe, reset with the account session.
+  late final OwnPrivacyStore _ownPrivacy =
+      widget.ownPrivacyStore ?? OwnPrivacyStore();
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
   late final ImageProcessor _imageProcessor =
@@ -339,6 +382,9 @@ class _AppWidgetState extends State<AppWidget> {
       ..register('search', () => widget.searchRepository?.clearSession())
       ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
       ..register('lists', () => widget.listsRepository?.clearSession())
+      ..register('plans', () => _plans?.reset())
+      ..register('conversations', _conversations.reset)
+      ..register('message privacy', _ownPrivacy.clear)
       ..register('badges', () {
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
@@ -360,6 +406,15 @@ class _AppWidgetState extends State<AppWidget> {
     _accountUid = widget.authBloc.state.user?.uid;
     _registerAccountState();
     unawaited(_themeMode.load());
+    unawaited(_textSize.load());
+    if (widget.ownPrivacyStore == null) {
+      feedOwnPrivacyStore(
+        _ownPrivacy,
+        identityRepository: widget.identityRepository,
+        database: widget.database,
+        isLive: () => mounted,
+      );
+    }
     _authSub = widget.authBloc.stream.listen((state) {
       unawaited(_pushOptIn.load(state.user?.uid));
       unawaited(_telemetryConsentCubit?.load(state.user?.uid));
@@ -389,7 +444,14 @@ class _AppWidgetState extends State<AppWidget> {
     // own: the badge costs 0 extra reads.
     _onboardingSub = widget.onboardingBloc.stream.listen(_onOnboarding);
     _onOnboarding(widget.onboardingBloc.state);
+    // The probe answering, or messaging turning out to be globally off.
+    widget.messagingRepository.gate.addListener(_onMessagingAccess);
   }
+
+  /// Messages became unavailable (`hidden`): the hoisted folders go. A
+  /// read-only caller keeps them (the list still works).
+  void _onMessagingAccess() =>
+      _conversations.accessChanged(widget.messagingRepository.gate.access);
 
   /// The user whose expired drafts were last purged.
   String? _purgedDraftsUid;
@@ -453,6 +515,11 @@ class _AppWidgetState extends State<AppWidget> {
     // It sends nothing when messaging is on for the caller or the cache is
     // empty.
     if (flagsChanged) _polls?.flagsChanged();
+    // `beacons` off drops the hoisted Plans list; `communities` changing
+    // rebuilds it (its audience chips are fixed at construction).
+    if (flagsChanged) _plans?.featuresChanged(state.enabledFeatures);
+    // `messaging` off with no read-only answer drops the hoisted folders.
+    if (flagsChanged) _onMessagingAccess();
     final uid = state.profile?.userId;
     // Onboarding starts only after the session cache/epoch has been claimed.
     // Do not start billing reads in the earlier auth notification race.
@@ -504,7 +571,12 @@ class _AppWidgetState extends State<AppWidget> {
     _bookmarks.close();
     _suggestions.close();
     _trends?.close();
+    _plans?.dispose();
+    widget.messagingRepository.gate.removeListener(_onMessagingAccess);
+    _conversations.dispose();
     _themeMode.close();
+    _textSize.close();
+    if (widget.ownPrivacyStore == null) _ownPrivacy.dispose();
     _pushOptIn.close();
     _telemetryConsentCubit?.close();
     _messagesBadge.close();
@@ -518,6 +590,7 @@ class _AppWidgetState extends State<AppWidget> {
     authBloc: widget.authBloc,
     onboardingBloc: widget.onboardingBloc,
     messagingGate: widget.messagingRepository.gate,
+    ownPrivacy: _ownPrivacy,
   );
 
   @override
@@ -543,6 +616,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.mediaRepository),
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
         RepositoryProvider<RecentSearchesStore>.value(value: _recentSearches),
+        RepositoryProvider<OwnPrivacyStore>.value(value: _ownPrivacy),
         RepositoryProvider<ImageProcessor>.value(value: _imageProcessor),
         RepositoryProvider<GifSource>.value(value: _gifSource),
         RepositoryProvider<GifPreparer>.value(value: widget.gifPreparer),
@@ -564,6 +638,9 @@ class _AppWidgetState extends State<AppWidget> {
           RepositoryProvider.value(value: widget.communitiesRepository!),
         if (widget.beaconsRepository != null)
           RepositoryProvider.value(value: widget.beaconsRepository!),
+        if (_plans case final plans?)
+          RepositoryProvider<PlansSession>.value(value: plans),
+        RepositoryProvider<ConversationsSession>.value(value: _conversations),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -584,6 +661,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: widget.unreadBadgeCubit),
           BlocProvider.value(value: _messagesBadge),
           BlocProvider.value(value: _themeMode),
+          BlocProvider.value(value: _textSize),
           BlocProvider.value(value: _servicePaused),
         ],
         child: ShareLinksScope(
@@ -619,8 +697,16 @@ class _AppWidgetState extends State<AppWidget> {
                       reporter: widget.usage,
                       child: TelemetryForgetScope(
                         forget: widget.telemetryForget,
-                        child: _PausedOverlay(
-                          child: child ?? const SizedBox.shrink(),
+                        // The text size multiplies the system scale for
+                        // every route, dialog and overlay below; the same
+                        // tree at every size (F7).
+                        child: AppTextSizeScope(
+                          child: _PausedOverlay(
+                            // Same tree at every width and flag state.
+                            child: TabletRouteSnackBars(
+                              child: child ?? const SizedBox.shrink(),
+                            ),
+                          ),
                         ),
                       ),
                     ),

@@ -27,7 +27,7 @@ type profileRetirer interface {
 }
 
 // parseClearArgs validates the clear-profile-fields flags before anything is opened or confirmed: --fields (one or more
-// of website, location, banner, avatar, bio; an unknown, empty or repeated name is a usage error, exit 2), --report
+// of website, location, avatar, bio; an unknown, empty or repeated name is a usage error, exit 2), --report
 // (a 32-character report id) and --note (only meaningful with --report).
 func parseClearArgs(a modArgs) ([]identity.ProfileField, error) {
 	fields, err := identity.ParseProfileFields(a.fields)
@@ -51,7 +51,7 @@ func parseClearArgs(a modArgs) ([]identity.ProfileField, error) {
 // A DELETING account is refused (the deletion job's checkpoints must not race an operator write) and a missing one is an
 // error, both exit 1. Each API instance keeps serving its cached profile for up to 60 s.
 //
-// Cleared banner and avatar images go through the A4 retire step in process once the clear has committed, so their
+// A cleared avatar goes through the A4 retire step in process once the clear has committed, so its
 // objects are deleted by the media bucket's lifecycle rule 24-48 h later. That needs PROFILE_MEDIA_RETIRE in the operator's
 // shell (this project's value; unset is off, which changes nothing and prints the objects for deleting by hand); an
 // invalid value is refused before any write. A retire failure after the clear does not undo it and does not skip the
@@ -112,7 +112,7 @@ func clearProfileFields(ctx context.Context, b *backends, project, uid string, f
 	return retireErr
 }
 
-// slicesHaveImage reports whether the requested fields include a banner or an avatar (the ones the retire step handles).
+// slicesHaveImage reports whether the requested fields include the avatar (the image the retire step handles).
 func slicesHaveImage(fields []identity.ProfileField) bool {
 	for _, f := range fields {
 		if _, ok := retirePurpose(f); ok {
@@ -125,15 +125,13 @@ func slicesHaveImage(fields []identity.ProfileField) bool {
 // retirePurpose maps a clearable image field to the media purpose the retire step takes.
 func retirePurpose(f identity.ProfileField) (string, bool) {
 	switch f {
-	case identity.ProfileFieldBanner:
-		return string(media.PurposeBanner), true
 	case identity.ProfileFieldAvatar:
 		return string(media.PurposeAvatar), true
 	}
 	return "", false
 }
 
-// retireClearedImages runs the A4 retire step in process for each cleared banner or avatar of a committed clear and
+// retireClearedImages runs the A4 retire step in process for a cleared avatar of a committed clear and
 // returns its outcome per field ("error" for a failed one) and the joined failures. No retirer wired counts as off.
 func retireClearedImages(ctx context.Context, b *backends, uid string, res identity.ClearResult, at time.Time) (map[identity.ProfileField]string, error) {
 	outcomes := map[identity.ProfileField]string{}
@@ -169,7 +167,7 @@ func quotedValues(values []string) string {
 	return strings.Join(q, " ")
 }
 
-// printImageObjects reports what happened to each cleared banner or avatar and names its bucket objects. Clearing the
+// printImageObjects reports what happened to a cleared avatar and names its bucket objects. Clearing the
 // field only stops the profile from pointing at the image: the public objects stay reachable by URL (and in older posts'
 // author snapshots) until they are deleted. With the A4 retire step switched on (PROFILE_MEDIA_RETIRE covering the
 // image) that is the bucket lifecycle rule, 24-48 h after the clear; otherwise the operator deletes the printed objects by

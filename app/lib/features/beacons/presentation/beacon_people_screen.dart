@@ -10,6 +10,8 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
+import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
@@ -19,10 +21,16 @@ import 'beacons_error_messages.dart';
 import 'bloc/beacon_people_cubit.dart';
 import 'bloc/beacon_people_state.dart';
 import 'widgets/participant_row.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// `/plans/:id/people` (R38): who is going, and for the organiser the
 /// requests with their notes and the controls (Accept; Decline, Decline and
 /// block; Remove). One GetBeacon tells whether the viewer manages the plan.
+///
+/// The header names the plan; under it, at every width, a summary says how
+/// many are going, the organiser's requests, the open spots, and who may see
+/// the list. A completed accept, decline or remove reads the plan again so
+/// the counts follow.
 class BeaconPeopleScreen extends StatefulWidget {
   const BeaconPeopleScreen({super.key, required this.beaconId});
 
@@ -83,6 +91,21 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
     }
   }
 
+  /// The counts after an action: one GetBeacon; a failure keeps the last
+  /// view (the lists themselves already reloaded).
+  Future<void> _refreshView() async {
+    try {
+      final view = await _repository.getBeacon(widget.beaconId);
+      if (mounted) setState(() => _view = view);
+    } on AppException {
+      return;
+    }
+  }
+
+  /// An accept, decline or remove that went through.
+  static bool _actionDone(BeaconPeopleState a, BeaconPeopleState b) =>
+      a.busyUserId != null && b.busyUserId == null && b.actionError == null;
+
   @override
   void dispose() {
     _going.close();
@@ -103,7 +126,7 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
     required String body,
     required String action,
   }) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
@@ -187,6 +210,17 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
                     b.actionError != null && a.actionError != b.actionError,
                 listener: (_, state) => _say(state.actionError!),
               ),
+              BlocListener<BeaconPeopleCubit, BeaconPeopleState>(
+                bloc: _going,
+                listenWhen: _actionDone,
+                listener: (_, _) => _refreshView(),
+              ),
+              if (requests != null)
+                BlocListener<BeaconPeopleCubit, BeaconPeopleState>(
+                  bloc: requests,
+                  listenWhen: _actionDone,
+                  listener: (_, _) => _refreshView(),
+                ),
               if (requests != null)
                 BlocListener<BeaconPeopleCubit, BeaconPeopleState>(
                   bloc: requests,
@@ -200,21 +234,47 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
             ],
             child: Column(
               children: [
-                AppBackHeader(title: 'People', onBack: _back),
+                AppBackHeader(
+                  title: 'People',
+                  subtitle: _view?.beacon.title,
+                  onBack: _back,
+                ),
+                if (_view case final view?)
+                  _PeopleSummary(
+                    view: view,
+                    requests: manages ? requests : null,
+                    // Locked out of the list: the page body already says
+                    // who may see it.
+                    showNote: _mayList,
+                  ),
                 if (manages && requests != null)
-                  AppTabBar(
-                    tabs: const [
-                      AppTab(label: 'Going'),
-                      AppTab(label: 'Requests'),
-                    ],
-                    selectedIndex: _tab,
-                    equalWidth: true,
-                    semanticLabel: 'People lists',
-                    onChanged: (i) {
-                      setState(() => _tab = i);
-                      // The other tab may have changed under an action here.
-                      (i == 0 ? _going : requests).load();
-                    },
+                  BlocBuilder<BeaconPeopleCubit, BeaconPeopleState>(
+                    bloc: requests,
+                    buildWhen: (a, b) =>
+                        a.status != b.status ||
+                        a.rows.length != b.rows.length ||
+                        a.hasMore != b.hasMore,
+                    builder: (context, state) => AppTabBar(
+                      // The counts of the designs' tabs: who is going, and the
+                      // requests loaded ("20+" while more pages exist).
+                      tabs: [
+                        AppTab(label: 'Going · ${_view!.beacon.acceptedCount}'),
+                        AppTab(
+                          label: state.status == PeopleLoad.ready
+                              ? 'Requests · ${state.rows.length}'
+                                    '${state.hasMore ? '+' : ''}'
+                              : 'Requests',
+                        ),
+                      ],
+                      selectedIndex: _tab,
+                      equalWidth: true,
+                      semanticLabel: 'People lists',
+                      onChanged: (i) {
+                        setState(() => _tab = i);
+                        // The other tab may have changed under an action here.
+                        (i == 0 ? _going : requests).load();
+                      },
+                    ),
                   )
                 else
                   const AppSectionHeader(title: 'Going'),
@@ -258,7 +318,8 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
                           cubit: requests,
                           empty: 'No requests yet',
                           showNote: true,
-                          trailing: (p) => _requestControls(p, requests),
+                          trailing: (p) => _requestMenu(p, requests),
+                          footer: (p) => _requestActions(p, requests),
                           onTap: _openProfile,
                         )
                       : _List(
@@ -279,35 +340,47 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
   void _openProfile(pb.Participant p) =>
       context.push(AppRouter.profileByIdPath(p.user.userId));
 
-  Widget _requestControls(pb.Participant p, BeaconPeopleCubit requests) {
+  /// A request's Decline and Accept, side by side under the row (the
+  /// designs' PlanPeople): halves of the row, never cut at large text.
+  Widget _requestActions(pb.Participant p, BeaconPeopleCubit requests) {
     final busy = requests.state.busyUserId != null;
-    final canBlock = context.read<GraphRepository?>() != null;
+    final busyHere = requests.state.busyUserId == p.user.userId;
     return Row(
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextButton(
-          onPressed: busy ? null : () => requests.accept(p.user.userId),
-          child: const Text('Accept'),
+        Expanded(
+          child: AppPillButton(
+            label: 'Decline',
+            variant: AppButtonVariant.outline,
+            onPressed: busy ? null : () => _decline(p, block: false),
+          ),
         ),
-        PopupMenuButton<String>(
-          tooltip: 'Request options',
-          icon: const Icon(Icons.more_horiz),
-          enabled: !busy,
-          onSelected: (value) => _decline(p, block: value == 'block'),
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'decline',
-              child: AppMenuItemRow(icon: Icons.close, label: 'Decline'),
-            ),
-            if (canBlock)
-              const PopupMenuItem(
-                value: 'block',
-                child: AppMenuItemRow(
-                  icon: Icons.block,
-                  label: 'Decline and block',
-                ),
-              ),
-          ],
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: AppPillButton(
+            label: 'Accept',
+            busy: busyHere,
+            busySemanticsLabel: 'Accepting',
+            onPressed: busy ? null : () => requests.accept(p.user.userId),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "Decline and block" (the request's menu; with no blocking, no menu).
+  /// Decline itself is the pill under the row, so it is not repeated here.
+  Widget? _requestMenu(pb.Participant p, BeaconPeopleCubit requests) {
+    if (context.read<GraphRepository?>() == null) return null;
+    return PopupMenuButton<String>(
+      tooltip: 'Request options',
+      icon: const Icon(Icons.more_horiz),
+      enabled: requests.state.busyUserId == null,
+      onSelected: (_) => _decline(p, block: true),
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: 'block',
+          child: AppMenuItemRow(icon: Icons.block, label: 'Decline and block'),
         ),
       ],
     );
@@ -337,12 +410,14 @@ class _List extends StatelessWidget {
     required this.onTap,
     this.showNote = false,
     this.trailing,
+    this.footer,
   });
 
   final BeaconPeopleCubit cubit;
   final String empty;
   final bool showNote;
-  final Widget Function(pb.Participant)? trailing;
+  final Widget? Function(pb.Participant)? trailing;
+  final Widget Function(pb.Participant)? footer;
   final void Function(pb.Participant) onTap;
 
   @override
@@ -401,6 +476,7 @@ class _List extends StatelessWidget {
                     showNote: showNote,
                     onTap: () => onTap(p),
                     trailing: trailing?.call(p),
+                    footer: footer?.call(p),
                   );
                 },
               ),
@@ -427,26 +503,88 @@ class _PendingBlockRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final who = handle.isEmpty ? 'this person' : '@$handle';
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Blocking $who failed.',
-              style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-          TextButton(
-            onPressed: busy ? null : onRetry,
-            child: const Text('Retry'),
-          ),
-        ],
+    // The designs' status banner: the shared notice with its 48 dp Retry
+    // (none while an action is in flight).
+    return AppNoticeBanner(
+      message: 'Blocking $who failed.',
+      onRetry: busy ? null : onRetry,
+    );
+  }
+}
+
+/// The plan's counts under the People header (the desktop PlanPeople's side
+/// box, at every width: going, requests, open spots, and who may see the
+/// list). Requests are the organiser's only, counted from the loaded Requests
+/// list ("20+" while more pages exist); there is no count on the wire.
+class _PeopleSummary extends StatelessWidget {
+  const _PeopleSummary({
+    required this.view,
+    required this.requests,
+    required this.showNote,
+  });
+
+  final pb.BeaconView view;
+  final BeaconPeopleCubit? requests;
+  final bool showNote;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final b = view.beacon;
+    final open = (b.openSpots - b.acceptedCount).clamp(0, b.openSpots);
+    String counts(String? requested) => [
+      '${b.acceptedCount} going',
+      ?requested,
+      open == 1 ? '1 open spot' : '$open open spots',
+    ].join(' · ');
+    final requests = this.requests;
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Padding(
+        key: const ValueKey('plan-people-summary'),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.smd,
+          AppSpacing.md,
+          AppSpacing.sm,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (requests == null)
+              Text(counts(null), style: theme.textTheme.bodyMedium)
+            else
+              BlocBuilder<BeaconPeopleCubit, BeaconPeopleState>(
+                bloc: requests,
+                buildWhen: (a, c) =>
+                    a.status != c.status ||
+                    a.rows.length != c.rows.length ||
+                    a.hasMore != c.hasMore,
+                builder: (context, state) {
+                  final requested = state.status != PeopleLoad.ready
+                      ? null
+                      : '${state.rows.length}${state.hasMore ? '+' : ''} '
+                            '${state.rows.length == 1 && !state.hasMore ? 'request' : 'requests'}';
+                  return Text(
+                    counts(requested),
+                    style: theme.textTheme.bodyMedium,
+                  );
+                },
+              ),
+            if (showNote) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                kPeopleListNote,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 }
+
+/// Who may see the Going list (the design's PlanPeople note).
+const kPeopleListNote = 'Only people who are going can see the Going list.';

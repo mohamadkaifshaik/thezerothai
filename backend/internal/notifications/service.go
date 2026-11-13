@@ -60,6 +60,9 @@ type Deps struct {
 	// Social is the caller's cached graph context: List hides rows whose actor the caller blocks or mutes, or who
 	// blocks the caller, as of read time (a block after the fan-out check must take effect). Required.
 	Social Social
+	// Blocks answers "which of these actors blocked the caller" when the caller's blockedBy overflowed its cap (the
+	// snapshot's BlockedBy is then incomplete). Never called otherwise. Nil with an overflowed caller fails the page.
+	Blocks BlockLookup
 	Seen   SeenStore
 	// Validator checks a FCM token with a dry-run send before RegisterDevice stores it (N-5). Nil accepts every token.
 	Validator TokenValidator
@@ -100,8 +103,10 @@ func clampPageSize(n int32) int {
 }
 
 // List: reads the page of rows (20 at the default page, 50 at the maximum) and the caller's graph snapshot
-// (cached 60 s; the blockedBy overflow is not consulted here, see visible). The seen_at profile is the account-status
-// interceptor's cached entry. It writes nothing.
+// (cached 60 s). Only when the caller's blockedBy overflowed its cap does it also ask graph.BlockLookup about the
+// page's actors: one call of at most graph.MaxBlockLookup users, each answered from the graph cache or by batched
+// GetAlls of up to 25 docs (see overflowBlockers). The seen_at profile is the account-status interceptor's cached entry. It
+// writes nothing.
 //
 // Filtering runs after the page query, so a page may come back shorter than page_size, or empty, while more rows
 // exist: the tokens are computed from the raw rows (what was scanned), never the filtered ones, and the client
@@ -147,9 +152,16 @@ func (s *service) List(ctx context.Context, uid string, in ListInput) (ListResul
 		if err != nil {
 			return ListResult{}, logger.RedactErr(fmt.Errorf("notifications: caller graph: %w", err), uid)
 		}
+		var ov *overflowBlocks
+		if snap.BlockedByOverflow {
+			ov, err = s.overflowBlockers(ctx, uid, rows, snap)
+			if err != nil {
+				return ListResult{}, err
+			}
+		}
 		shown = make([]Notification, 0, len(rows))
 		for _, n := range rows {
-			if v, ok := visible(n, snap); ok {
+			if v, ok := visible(n, snap, ov); ok {
 				shown = append(shown, v)
 			}
 		}
@@ -192,13 +204,77 @@ func (s *service) List(ctx context.Context, uid string, in ListInput) (ListResul
 	return res, nil
 }
 
+// overflowBlocks is what List established about the page's actors when the caller's blockedBy overflowed (F-04):
+// blockers are the actors the graph module says blocked the caller; checked are the actors it was asked about.
+type overflowBlocks struct {
+	blockers map[string]bool
+	checked  map[string]bool
+}
+
+// overflowBlockers asks graph.BlockLookup, in one batched call, which of the page's actors blocked the caller. Only
+// actors the snapshot does not already hide are asked: every distinct shown actor first (at most MaxPageSize, always
+// inside graph.MaxBlockLookup), then the folded ActorIDs in page order until the cap. A folded actor past the cap is
+// unchecked and visible() counts it as suppressed. A failed or unwired lookup fails the whole page, the same policy
+// as a failed caller-graph read: no row whose visibility is unknown is returned, and no token moves past rows that
+// were never shown.
+func (s *service) overflowBlockers(ctx context.Context, uid string, rows []Notification, snap graph.Snapshot) (*overflowBlocks, error) {
+	return lookupOverflowBlockers(ctx, s.d.Blocks, uid, rows, snap)
+}
+
+// lookupOverflowBlockers is overflowBlockers on an explicit lookup (List and the unread badge share it).
+func lookupOverflowBlockers(ctx context.Context, lookup BlockLookup, uid string, rows []Notification, snap graph.Snapshot) (*overflowBlocks, error) {
+	known := func(id string) bool { return id == "" || snapHides(snap, id) }
+	ov := &overflowBlocks{checked: map[string]bool{}}
+	candidates := make([]string, 0, graph.MaxBlockLookup)
+	add := func(id string) {
+		if len(candidates) < graph.MaxBlockLookup && !known(id) && !ov.checked[id] {
+			ov.checked[id] = true
+			candidates = append(candidates, id)
+		}
+	}
+	for _, n := range rows {
+		add(n.Actor.UserID)
+	}
+	for _, n := range rows {
+		for _, id := range n.ActorIDs {
+			add(id)
+		}
+	}
+	if len(candidates) == 0 {
+		return ov, nil
+	}
+	if lookup == nil {
+		return nil, logger.RedactErr(errors.New("notifications: caller blockedBy overflowed and no block lookup is wired"), uid)
+	}
+	blockers, err := lookup.BlockersAmong(ctx, uid, candidates)
+	if err != nil {
+		// The cause chain can name other users' graph documents: redact every uid the lookup was asked about.
+		return nil, logger.RedactErr(fmt.Errorf("notifications: overflow block lookup: %w", err), append([]string{uid}, candidates...)...)
+	}
+	ov.blockers = blockers
+	return ov, nil
+}
+
+// snapHides is the snapshot-only rule: the caller blocks or mutes id, or id is in the caller's blockedBy.
+func snapHides(snap graph.Snapshot, id string) bool {
+	return snap.Blocked[id] || snap.Muted[id] || snap.BlockedBy[id]
+}
+
 // visible applies the caller's social context at read time. A row is hidden when its displayed (most recent)
 // actor is blocked or muted by the caller, or blocks the caller: the same set the timelines and thread replies
-// use. For a collapsed row the other actors that are suppressed are subtracted from the count. The blockedBy
-// overflow flag is not consulted: it would cost one graph read per distinct actor on every page; the fan-out
-// check (which does consult it) and this filter together cover the realistic cases.
-func visible(n Notification, snap graph.Snapshot) (Notification, bool) {
-	hidden := func(id string) bool { return snap.Blocked[id] || snap.Muted[id] || snap.BlockedBy[id] }
+// use. For a collapsed row the other actors that are suppressed are subtracted from the count, and they are pruned
+// from the returned row's ActorIDs (a fresh slice; the input's backing array is never written).
+//
+// The pruning is what keeps the wire count right: ToProto sends max(ActorCount, len(ActorIDs)), and that max must
+// stay, because a row written before actorCount existed and folded once afterwards stores actorCount=1
+// (Increment on a missing field) with more ids than that. With the hidden ids pruned, both terms of the max exclude
+// the hidden actors, so neither can bring them back.
+//
+// ov is nil unless the caller's blockedBy overflowed; the snapshot alone then decides, with no read. When it is
+// set, an actor the graph lookup reports as a blocker is hidden by the same rule, and a folded actor the lookup did
+// not cover (past its cap) is treated as suppressed for the count: fail closed. The shown actor is always covered.
+func visible(n Notification, snap graph.Snapshot, ov *overflowBlocks) (Notification, bool) {
+	hidden := hiddenRule(snap, ov)
 	if hidden(n.Actor.UserID) {
 		return n, false
 	}
@@ -210,8 +286,26 @@ func visible(n Notification, snap graph.Snapshot) (Notification, bool) {
 	}
 	if suppressed > 0 {
 		n.ActorCount = max(max(n.ActorCount, len(n.ActorIDs))-suppressed, 1)
+		kept := make([]string, 0, len(n.ActorIDs)-suppressed)
+		for _, id := range n.ActorIDs {
+			if !hidden(id) {
+				kept = append(kept, id)
+			}
+		}
+		n.ActorIDs = kept
 	}
 	return n, true
+}
+
+// hiddenRule is the per-actor hide rule of one read: the snapshot alone, or with the overflow lookup's answer (a
+// reported blocker, or an actor the lookup did not cover, is hidden).
+func hiddenRule(snap graph.Snapshot, ov *overflowBlocks) func(id string) bool {
+	if ov == nil {
+		return func(id string) bool { return snapHides(snap, id) }
+	}
+	return func(id string) bool {
+		return snapHides(snap, id) || ov.blockers[id] || (id != "" && !ov.checked[id])
+	}
 }
 
 // sinceToken returns the token for the next refresh: the newest returned row trailing by SettleWindow, the old

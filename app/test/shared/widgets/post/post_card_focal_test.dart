@@ -108,8 +108,12 @@ void main() {
       closeTo(AppFocalPost.bodyLineHeight, 0.01),
     );
     expect(text.maxLines, isNull);
-    // Starts at the card's left padding, under the avatar, not beside it.
-    expect(tester.getTopLeft(find.byType(PostRichText)).dx, AppSpacing.md);
+    // Starts at the card's left padding, under the avatar, not beside it
+    // (the phone gutter is 20 dp since the R1 restyle; was 16).
+    expect(
+      tester.getTopLeft(find.byType(PostRichText)).dx,
+      postCardGutter(phone.size.width),
+    );
   });
 
   testWidgets('the action row is spread with larger glyphs', (tester) async {
@@ -122,7 +126,8 @@ void main() {
 
     final bar = tester.widget<PostActionBar>(find.byType(PostActionBar));
     expect(bar.spread, isTrue);
-    expect(bar.iconSize, AppFocalPost.actionIcon);
+    // 18 dp below 600 (the mobile design), 20 dp from 600 up.
+    expect(bar.iconSize, AppFocalPost.actionIconPhone);
     // The last button (Share) ends at the card's right padding; its 48dp box
     // starts the icon at its left, so Share is no longer right-aligned.
     final shareBox = tester.getRect(
@@ -131,7 +136,11 @@ void main() {
         matching: find.byType(InkResponse),
       ),
     );
-    expect(shareBox.right, closeTo(phone.size.width - AppSpacing.md, 1));
+    // The phone gutter is 20 dp since the R1 restyle (was 16).
+    expect(
+      shareBox.right,
+      closeTo(phone.size.width - postCardGutter(phone.size.width), 1),
+    );
     expect(
       tester.getTopLeft(find.byIcon(Icons.ios_share)).dx,
       closeTo(shareBox.left, 1),

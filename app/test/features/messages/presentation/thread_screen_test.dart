@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
@@ -763,7 +764,7 @@ void main() {
       await tester.tap(find.text('Block @sam'));
       await tester.pumpAndSettle();
       expect(find.text('Block this account?'), findsOneWidget);
-      await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
       await tester.pumpAndSettle();
 
       verify(
@@ -806,7 +807,7 @@ void main() {
       await openMenu(tester);
       await tester.tap(find.text('Block @sam'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
       await tester.pumpAndSettle();
 
       expect(find.byType(SnackBar), findsOneWidget);
@@ -1451,7 +1452,7 @@ void main() {
         await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
         await tester.pumpAndSettle();
         expect(find.text('Block this account?'), findsOneWidget);
-        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
         await tester.pumpAndSettle();
 
         verify(
@@ -1479,7 +1480,7 @@ void main() {
 
         await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
         await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
         await tester.pump();
 
         // All three are still drawn, none can be pressed.
@@ -1527,7 +1528,7 @@ void main() {
 
         await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
         await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
         await tester.pumpAndSettle();
 
         for (final key in [
@@ -1547,7 +1548,7 @@ void main() {
 
         await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
         await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
         await tester.pumpAndSettle();
 
         verify(() => repo.dropBlockedRequest(kThreadId)).called(1);
@@ -1565,7 +1566,7 @@ void main() {
 
         await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
         await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
         await tester.pumpAndSettle();
 
         verifyNever(() => repo.dropBlockedRequest(any()));
@@ -1594,7 +1595,7 @@ void main() {
 
         await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
         await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
         await tester.pumpAndSettle();
 
         expect(

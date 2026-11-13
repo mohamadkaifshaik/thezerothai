@@ -177,7 +177,7 @@ void main() {
 
   Future<void> hideReply(WidgetTester tester, int n) async {
     await openMenuOf(tester, n);
-    await tester.tap(find.text('Remove from Community'));
+    await tester.tap(find.text('Remove from community'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Remove'));
     await tester.pumpAndSettle();
@@ -190,7 +190,7 @@ void main() {
         stubRole(role);
         await open(tester);
         await openMenuOf(tester, 2);
-        expect(find.text('Remove from Community'), findsOneWidget);
+        expect(find.text('Remove from community'), findsOneWidget);
       });
     }
 
@@ -203,7 +203,7 @@ void main() {
       expect(menuOf(2), findsNothing);
       await openMenuOf(tester, 3);
       expect(find.text('Delete'), findsOneWidget);
-      expect(find.text('Remove from Community'), findsNothing);
+      expect(find.text('Remove from community'), findsNothing);
     });
 
     testWidgets('banned or not in the community: no entry', (tester) async {
@@ -263,7 +263,7 @@ void main() {
       stubHide();
       await open(tester);
       await openMenuOf(tester, 2);
-      await tester.tap(find.text('Remove from Community'));
+      await tester.tap(find.text('Remove from community'));
       await tester.pumpAndSettle();
       expect(find.text('Remove this reply from Chess club?'), findsOneWidget);
       await tester.tap(find.text('Remove'));
@@ -287,7 +287,7 @@ void main() {
       stubHide();
       await open(tester);
       await openMenuOf(tester, 2);
-      await tester.tap(find.text('Remove from Community'));
+      await tester.tap(find.text('Remove from community'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
@@ -378,8 +378,8 @@ void main() {
     await open(tester, env: env);
     expectNoOverflow(tester);
     await openMenuOf(tester, 2);
-    expect(find.text('Remove from Community'), findsOneWidget);
-    await tester.tap(find.text('Remove from Community'));
+    expect(find.text('Remove from community'), findsOneWidget);
+    await tester.tap(find.text('Remove from community'));
     await tester.pumpAndSettle();
     expectNoOverflow(tester);
     expect(find.text('Remove this reply from Chess club?'), findsOneWidget);

@@ -9,17 +9,35 @@ import 'my_beacons_state.dart';
 /// `/plans/mine` (R39): one ListMyBeacons of 20 per selection; a window or
 /// role change starts a fresh page; load-more appends; a stale answer is
 /// dropped.
+///
+/// With [pageSize] 2 it is the "Your plans" section of `/plans` on the
+/// tablet layout (tablet plan section 4.1: the caller's next plans, every
+/// role, upcoming; one extra list call, limit 2).
 class MyBeaconsCubit extends Cubit<MyBeaconsState> {
-  MyBeaconsCubit({required BeaconsRepository repository})
+  MyBeaconsCubit({required BeaconsRepository repository, int pageSize = 20})
     : _repository = repository,
+      _pageSize = pageSize,
       super(const MyBeaconsState());
 
-  static const _pageSize = 20;
+  final int _pageSize;
 
   final BeaconsRepository _repository;
   int _generation = 0;
 
+  /// First-page loads ([load], [select]) still running.
+  int _inFlight = 0;
+
   bool _stale(int generation) => isClosed || generation != _generation;
+
+  /// Whether a first page was ever asked for.
+  bool get started => _generation > 0;
+
+  /// [load] unless one was already started (a second placement of the same
+  /// hoisted cubit).
+  Future<void> ensureLoaded() => started ? Future.value() : load();
+
+  /// [load] unless a first page is already on its way.
+  Future<void> refresh() => _inFlight > 0 ? Future.value() : load();
 
   Future<void> load() {
     final generation = ++_generation;
@@ -29,7 +47,7 @@ class MyBeaconsCubit extends Cubit<MyBeaconsState> {
         clearError: true,
       ),
     );
-    return _loadFirstPage(generation);
+    return _tracked(_loadFirstPage(generation));
   }
 
   Future<void> select({pb.MyBeaconsWindow? window, pb.MyBeaconsRole? role}) {
@@ -45,7 +63,16 @@ class MyBeaconsCubit extends Cubit<MyBeaconsState> {
         clearError: true,
       ),
     );
-    return _loadFirstPage(generation);
+    return _tracked(_loadFirstPage(generation));
+  }
+
+  Future<void> _tracked(Future<void> load) async {
+    _inFlight++;
+    try {
+      await load;
+    } finally {
+      _inFlight--;
+    }
   }
 
   Future<void> loadMore() async {

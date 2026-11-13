@@ -8,13 +8,13 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
-import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/post/protected_posts_view.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../data/lists_repository.dart';
 import 'bloc/lists_cubit.dart';
 import 'bloc/lists_state.dart';
 import 'widgets/list_row.dart';
+import 'widgets/lists_page_chrome.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/u/:userId/lists`: another person's public Lists. 1 `ListUserLists`
@@ -23,6 +23,11 @@ import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 /// (the protected-account view). A person who is hidden from you
 /// (blocked, gone) answers NOT_FOUND, shown as one fixed text that hints at no
 /// cause.
+///
+/// The header is "Lists" over the person's @handle; the same rows at every
+/// width (the phone and wide mocks differ in gutters and tiles). Not built:
+/// the mocks' Follow button on a row (no RPC follows a List) and "Some of
+/// their Lists are private" (the client cannot know).
 class UserListsScreen extends StatefulWidget {
   const UserListsScreen({super.key, required this.userId, this.handle});
 
@@ -41,12 +46,6 @@ class _UserListsScreenState extends State<UserListsScreen> {
     ownerId: widget.userId,
   )..load();
 
-  @override
-  void dispose() {
-    _cubit.close();
-    super.dispose();
-  }
-
   void _back() {
     if (context.canPop()) {
       context.pop();
@@ -64,9 +63,13 @@ class _UserListsScreenState extends State<UserListsScreen> {
           child: Column(
             children: [
               AppBackHeader(
-                title: handle == null || handle.isEmpty
-                    ? 'Lists'
-                    : "@$handle's Lists",
+                title: 'Lists',
+                titleContent: ListsHeaderTitle(
+                  title: 'Lists',
+                  subtitle: handle == null || handle.isEmpty
+                      ? null
+                      : '@$handle',
+                ),
                 onBack: _back,
               ),
               Expanded(
@@ -130,11 +133,11 @@ class _UserListsScreenState extends State<UserListsScreen> {
             subtitle: "This person hasn't shared any Lists.",
           );
         }
+        final style = listsPageRowStyle(context);
         return RefreshIndicator(
           onRefresh: _cubit.load,
           child: CustomScrollView(
             slivers: [
-              const SliverToBoxAdapter(child: AppSectionHeader(title: 'Lists')),
               SliverList.builder(
                 itemCount: lists.length,
                 itemBuilder: (context, i) {
@@ -142,6 +145,7 @@ class _UserListsScreenState extends State<UserListsScreen> {
                   return ListRow(
                     key: ValueKey(list.listId),
                     list: list,
+                    style: style,
                     onTap: () => context.push(AppRouter.listPath(list.listId)),
                   );
                 },

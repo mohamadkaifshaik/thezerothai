@@ -6,8 +6,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../gen/dzeroth/articles/v1/articles.pb.dart' as pb;
-import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart';
 import '../../posts/domain/posts_feature_flag.dart';
+import '../../posts/domain/reply_audience.dart';
 import '../../timeline/data/timeline_store.dart';
 import '../../timeline/domain/feed_key.dart';
 import '../domain/article.dart';
@@ -19,14 +19,23 @@ class RpcArticlesRepository implements ArticlesRepository {
     required TimelineStore store,
     required PostsFeatureGate gate,
     required String? Function() currentUid,
+    required bool Function() isReplyAudienceEnabled,
   }) : _api = apiClient,
        _store = store,
        _gate = gate,
-       _uid = currentUid;
+       _uid = currentUid,
+       _replyAudienceFlag = isReplyAudienceEnabled;
   final ApiClient _api;
   final TimelineStore _store;
   final PostsFeatureGate _gate;
   final String? Function() _uid;
+
+  /// Whether `GetMe.enabled_features` lists [kFeatureReplyAudience].
+  final bool Function() _replyAudienceFlag;
+
+  @override
+  bool get canChooseReplyAudience =>
+      _replyAudienceFlag() && _gate.subFeatureEnabled(kFeatureReplyAudience);
 
   Future<T> _run<T>(Future<T> Function() call) async {
     final uid = _uid();
@@ -152,9 +161,18 @@ class RpcArticlesRepository implements ArticlesRepository {
     ArticleRecord article, {
     required String idempotencyKey,
     String caption = '',
-    String replyPolicy = 'everyone',
+    ReplyAudience replyAudience = ReplyAudience.everyone,
   }) async {
     final epoch = _store.session;
+    // A pending publication repeats the exact stored value (the server
+    // compares it raw on a retry under the pending key). Otherwise the choice
+    // maps like the composer's: Everyone is UNSPECIFIED, which posts.Create
+    // accepts with reply_audience off; any explicit value, EVERYONE included,
+    // is FEATURE_DISABLED then. No local refusal for a known-off flag: the
+    // server must see a pending retry to clear it.
+    final replyPolicy = article.publicationPending
+        ? article.publicationReplyPolicy
+        : replyAudience.wire;
     final response = await _run(
       () => _api.articles.publishArticle(
         pb.PublishArticleRequest(
@@ -162,11 +180,7 @@ class RpcArticlesRepository implements ArticlesRepository {
           expectedRevision: Int64(article.draft.revision),
           idempotencyKey: idempotencyKey,
           caption: caption,
-          replyPolicy: switch (replyPolicy) {
-            'following' => ReplyPolicy.REPLY_POLICY_FOLLOWING,
-            'mentioned' => ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY,
-            _ => ReplyPolicy.REPLY_POLICY_EVERYONE,
-          },
+          replyPolicy: replyPolicy,
         ),
       ),
     );
@@ -207,11 +221,7 @@ class RpcArticlesRepository implements ArticlesRepository {
       coverUrl: article.coverUrl,
       publicationPending: article.publicationPending,
       publicationCaption: article.publicationCaption,
-      publicationReplyPolicy: switch (article.publicationReplyPolicy) {
-        ReplyPolicy.REPLY_POLICY_FOLLOWING => 'following',
-        ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY => 'mentioned',
-        _ => 'everyone',
-      },
+      publicationReplyPolicy: article.publicationReplyPolicy,
       excerpt: article.excerpt,
     );
   }

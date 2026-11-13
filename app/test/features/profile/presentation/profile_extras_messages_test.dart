@@ -11,9 +11,7 @@ void main() {
   EditProfileState failed(
     AppException error, {
     bool avatarFailed = false,
-    bool bannerFailed = false,
     bool avatarDropped = false,
-    bool bannerDropped = false,
     bool pickFailed = false,
     bool extrasDisabled = false,
   }) => EditProfileState(
@@ -21,9 +19,7 @@ void main() {
     bio: '',
     error: error,
     avatarFailed: avatarFailed,
-    bannerFailed: bannerFailed,
     avatarDropped: avatarDropped,
-    bannerDropped: bannerDropped,
     pickFailed: pickFailed,
     extrasDisabled: extrasDisabled,
   );
@@ -39,7 +35,6 @@ void main() {
     const error = FeatureDisabledException('x', feature: kFeatureProfileExtras);
 
     expect(updateProfileErrorMessage(error), kProfileExtrasUnavailableMessage);
-    expect(bannerErrorMessage(error), kProfileExtrasUnavailableMessage);
     expect(kProfileExtrasUnavailableMessage, contains('name and bio'));
     expect(
       updateProfileErrorMessage(const FeatureDisabledException('x')),
@@ -62,30 +57,21 @@ void main() {
     );
   });
 
-  test('the banner words its failures for the banner, the avatar for the '
-      'photo', () {
-    expect(
-      bannerErrorMessage(const NetworkException('x')),
-      contains('Your banner was not saved'),
-    );
+  test('the avatar words its failures for the photo', () {
     expect(
       avatarErrorMessage(const NetworkException('x')),
       contains('Your photo was not saved'),
     );
     expect(
-      bannerErrorMessage(const MediaNotReadyException('x')),
-      "The banner didn't finish uploading. Try again.",
+      avatarErrorMessage(const MediaNotReadyException('x')),
+      "The photo didn't finish uploading. Try again.",
     );
     expect(
-      bannerErrorMessage(const UnknownApiException('x')),
-      "Couldn't update your banner. Please try again.",
+      avatarErrorMessage(const UnknownApiException('x')),
+      "Couldn't update your photo. Please try again.",
     );
     expect(
-      bannerErrorMessage(const QuotaExceededException('uploads')),
-      avatarErrorMessage(const QuotaExceededException('uploads')),
-    );
-    expect(
-      bannerErrorMessage(
+      avatarErrorMessage(
         const ValidationException('Not allowed', field: 'media'),
       ),
       'Not allowed',
@@ -100,27 +86,13 @@ void main() {
     );
     expect(
       editProfileErrorMessage(
-        failed(any, extrasDisabled: true, bannerFailed: true),
+        failed(any, extrasDisabled: true, avatarFailed: true),
       ),
       kProfileExtrasUnavailableMessage,
     );
     expect(
-      editProfileErrorMessage(
-        failed(any, avatarDropped: true, bannerDropped: true),
-      ),
-      kImagesGoneMessage,
-    );
-    expect(
       editProfileErrorMessage(failed(any, avatarDropped: true)),
       kAvatarGoneMessage,
-    );
-    expect(
-      editProfileErrorMessage(failed(any, bannerDropped: true)),
-      kBannerGoneMessage,
-    );
-    expect(
-      editProfileErrorMessage(failed(any, bannerFailed: true)),
-      "Couldn't update your banner. Please try again.",
     );
     expect(
       editProfileErrorMessage(failed(any, avatarFailed: true)),

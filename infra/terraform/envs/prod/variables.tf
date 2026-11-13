@@ -456,6 +456,34 @@ variable "feature_communities_percent" {
   }
 }
 
+variable "feature_beacons" {
+  description = "FEATURE_BEACONS rollout mode for Beacons/Plans (docs/beacons-plan.md; gates every BeaconService RPC): off | allowlist | percent | on. Default off in prod; the prod ceiling in scripts/promotion/flag-ceiling.json is off, so raising it needs a reviewed ceiling PR first. A community-audience plan still needs FEATURE_COMMUNITIES for the caller."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_beacons)
+    error_message = "feature_beacons must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_beacons_allowlist" {
+  description = "FEATURE_BEACONS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_beacons_percent" {
+  description = "FEATURE_BEACONS_PERCENT: 0-100, only meaningful when feature_beacons = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_beacons_percent >= 0 && var.feature_beacons_percent <= 100 && floor(var.feature_beacons_percent) == var.feature_beacons_percent
+    error_message = "feature_beacons_percent must be an integer 0-100."
+  }
+}
+
 variable "community_creators" {
   description = "COMMUNITY_CREATORS: comma-separated Firebase uids allowed to call CreateCommunity (ADR-0031 D10, F1; not a secret). At most 10, each 1-128 characters of [A-Za-z0-9-]; the API refuses to start otherwise. Default empty: nobody can create a community."
   type        = string
@@ -468,7 +496,7 @@ variable "community_creators" {
 }
 
 variable "feature_profile_extras" {
-  description = "FEATURE_PROFILE_EXTRAS rollout mode for profile_extras (ADR-0024 D9; gates UpdateProfile banner, location, website and pin fields and CreateUpload(BANNER), which also needs media): off | allowlist | percent | on. Default off; ramp deliberately."
+  description = "FEATURE_PROFILE_EXTRAS rollout mode for profile_extras (ADR-0024 D9; gates the UpdateProfile location, website and pin fields): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string
   default     = "off"
 
@@ -624,13 +652,24 @@ variable "suggested_user_ids" {
 }
 
 variable "profile_media_retire" {
-  description = "PROFILE_MEDIA_RETIRE (ADR-0024 Amendment 1 A4): which replaced or removed profile images the API deletes 24-48 h later. off = nothing (default) | banner | all (banners and avatars). Per-project retention, not a cohort flag. Set banner only after the media bucket's customTime lifecycle rule (modules/media-buckets) is applied in this project (a tagged object without the rule outlives its TTL'd media document and escapes the account eraser); set all only after the app release that shows a placeholder for an avatar that no longer loads."
+  description = "PROFILE_MEDIA_RETIRE (ADR-0024 Amendment 1 A4): which replaced or removed profile images the API deletes 24-48 h later. off = nothing (default) | all (avatars). The legacy value banner is still accepted and means off (the profile banner was removed; it never covered avatars). Per-project retention, not a cohort flag. Set all only after the media bucket's customTime lifecycle rule (modules/media-buckets) is applied in this project (a tagged object without the rule outlives its TTL'd media document and escapes the account eraser) and after the app release that shows a placeholder for an avatar that no longer loads."
   type        = string
   default     = "off"
 
   validation {
     condition     = contains(["off", "banner", "all"], var.profile_media_retire)
-    error_message = "profile_media_retire must be one of: off, banner, all (backend/pkg/platform/config/modes.go)."
+    error_message = "profile_media_retire must be one of: off, all, or the legacy banner (= off) (backend/pkg/platform/config/modes.go)."
+  }
+}
+
+variable "media_orphan_sweep" {
+  description = "MEDIA_ORPHAN_SWEEP: the media orphan sweep's kill switch. off = nothing (default) | mark = mark unattached READY images and restore held ones, never delete (soak) | delete = also delete marked images at least 12 h later. Per-project operations config, not a cohort flag. Raise to delete only after a mark-only soak in this project."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "mark", "delete"], var.media_orphan_sweep)
+    error_message = "media_orphan_sweep must be one of: off, mark, delete (backend/pkg/platform/config/modes.go)."
   }
 }
 
@@ -1085,5 +1124,173 @@ variable "feature_analytics_percent" {
   validation {
     condition     = var.feature_analytics_percent >= 0 && var.feature_analytics_percent <= 100 && floor(var.feature_analytics_percent) == var.feature_analytics_percent
     error_message = "feature_analytics_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_community_member_search" {
+  description = "FEATURE_COMMUNITY_MEMBER_SEARCH rollout mode for CommunityService SearchCommunityMembers (F36), checked after FEATURE_COMMUNITIES; never ramp ahead of it: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_community_member_search)
+    error_message = "feature_community_member_search must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_community_member_search_allowlist" {
+  description = "FEATURE_COMMUNITY_MEMBER_SEARCH_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_community_member_search_percent" {
+  description = "FEATURE_COMMUNITY_MEMBER_SEARCH_PERCENT: 0-100, only meaningful when feature_community_member_search = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_community_member_search_percent >= 0 && var.feature_community_member_search_percent <= 100 && floor(var.feature_community_member_search_percent) == var.feature_community_member_search_percent
+    error_message = "feature_community_member_search_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_post_beacon_embed" {
+  description = "FEATURE_POST_BEACON_EMBED rollout mode for sharing a plan on a root post (CreatePostRequest.beacon_id; Post.beacon stripped while globally off); needs FEATURE_BEACONS on for the caller: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_post_beacon_embed)
+    error_message = "feature_post_beacon_embed must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_post_beacon_embed_allowlist" {
+  description = "FEATURE_POST_BEACON_EMBED_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_post_beacon_embed_percent" {
+  description = "FEATURE_POST_BEACON_EMBED_PERCENT: 0-100, only meaningful when feature_post_beacon_embed = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_post_beacon_embed_percent >= 0 && var.feature_post_beacon_embed_percent <= 100 && floor(var.feature_post_beacon_embed_percent) == var.feature_post_beacon_embed_percent
+    error_message = "feature_post_beacon_embed_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_chat_shared_plans" {
+  description = "FEATURE_CHAT_SHARED_PLANS rollout mode for BeaconService.ListSharedBeacons, the 'plans you share' strip of a chat; needs FEATURE_BEACONS not globally off: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_chat_shared_plans)
+    error_message = "feature_chat_shared_plans must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_chat_shared_plans_allowlist" {
+  description = "FEATURE_CHAT_SHARED_PLANS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_chat_shared_plans_percent" {
+  description = "FEATURE_CHAT_SHARED_PLANS_PERCENT: 0-100, only meaningful when feature_chat_shared_plans = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_chat_shared_plans_percent >= 0 && var.feature_chat_shared_plans_percent <= 100 && floor(var.feature_chat_shared_plans_percent) == var.feature_chat_shared_plans_percent
+    error_message = "feature_chat_shared_plans_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_read_receipts" {
+  description = "FEATURE_READ_RECEIPTS rollout mode for read receipts (F3): UpdateProfile.read_receipts=true, the MarkConversationRead receipt and ListMessages peer_read_at; needs messaging for any effect: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_read_receipts)
+    error_message = "feature_read_receipts must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_read_receipts_allowlist" {
+  description = "FEATURE_READ_RECEIPTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_read_receipts_percent" {
+  description = "FEATURE_READ_RECEIPTS_PERCENT: 0-100, only meaningful when feature_read_receipts = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_read_receipts_percent >= 0 && var.feature_read_receipts_percent <= 100 && floor(var.feature_read_receipts_percent) == var.feature_read_receipts_percent
+    error_message = "feature_read_receipts_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_dm_policy" {
+  description = "FEATURE_DM_POLICY rollout mode for the 'Who can message me' setting (F9): UpdateProfile.dm_policy=FOLLOWING_ONLY and SendMessage applying it; needs messaging for any effect: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_dm_policy)
+    error_message = "feature_dm_policy must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_dm_policy_allowlist" {
+  description = "FEATURE_DM_POLICY_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_dm_policy_percent" {
+  description = "FEATURE_DM_POLICY_PERCENT: 0-100, only meaningful when feature_dm_policy = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_dm_policy_percent >= 0 && var.feature_dm_policy_percent <= 100 && floor(var.feature_dm_policy_percent) == var.feature_dm_policy_percent
+    error_message = "feature_dm_policy_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_notification_prefs" {
+  description = "FEATURE_NOTIFICATION_PREFS rollout mode for GetNotificationPrefs/UpdateNotificationPrefs; needs notifications for any effect: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_notification_prefs)
+    error_message = "feature_notification_prefs must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_notification_prefs_allowlist" {
+  description = "FEATURE_NOTIFICATION_PREFS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_notification_prefs_percent" {
+  description = "FEATURE_NOTIFICATION_PREFS_PERCENT: 0-100, only meaningful when feature_notification_prefs = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_notification_prefs_percent >= 0 && var.feature_notification_prefs_percent <= 100 && floor(var.feature_notification_prefs_percent) == var.feature_notification_prefs_percent
+    error_message = "feature_notification_prefs_percent must be an integer 0-100."
   }
 }

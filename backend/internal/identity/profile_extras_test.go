@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// UpdateProfile's banner, location, website and pinned_post_id, over fakeRepo. The
+// UpdateProfile's location, website and pinned_post_id, over fakeRepo. The
 // Firestore-backed paths are covered by the integration tests (the repo) and the apiserver chain test.
 
 const (
@@ -23,17 +23,6 @@ const (
 	pinID      = "0000000000000000301"
 	otherPinID = "0000000000000000302"
 )
-
-type fakeBanners struct {
-	ref   BannerRef
-	err   error
-	calls []string
-}
-
-func (f *fakeBanners) ResolveBanner(_ context.Context, uid, mediaID string) (BannerRef, error) {
-	f.calls = append(f.calls, uid+"/"+mediaID)
-	return f.ref, f.err
-}
 
 type fakePins struct {
 	can   bool
@@ -55,24 +44,22 @@ func extrasRegistry(mode flags.Mode, allow ...string) *flags.Registry {
 }
 
 type extrasEnv struct {
-	repo    *fakeRepo
-	svc     *service
-	banners *fakeBanners
-	pins    *fakePins
+	repo *fakeRepo
+	svc  *service
+	pins *fakePins
 }
 
-// newExtrasEnv builds a service with profile_extras on for extrasUID and a banner resolver and pin checker that accept.
+// newExtrasEnv builds a service with profile_extras on for extrasUID and a pin checker that accepts.
 func newExtrasEnv(t *testing.T, reg ExtrasFlags, opts ...Option) *extrasEnv {
 	t.Helper()
 	repo := newFakeRepo()
-	banners := &fakeBanners{ref: BannerRef{URL: "https://m/b.webp", ThumbURL: "https://m/b_t.webp"}}
 	pins := &fakePins{can: true}
-	all := append([]Option{WithBannerResolver(banners), WithPinChecker(pins), WithExtrasFlags(reg)}, opts...)
+	all := append([]Option{WithPinChecker(pins), WithExtrasFlags(reg)}, opts...)
 	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, all...).(*service)
 	if _, err := svc.CreateProfile(context.Background(), extrasUID, validKey, "Alice", "Alice A."); err != nil {
 		t.Fatal(err)
 	}
-	return &extrasEnv{repo: repo, svc: svc, banners: banners, pins: pins}
+	return &extrasEnv{repo: repo, svc: svc, pins: pins}
 }
 
 func (e *extrasEnv) update(ctx context.Context, p UpdateProfileParams) (Profile, error) {
@@ -157,14 +144,13 @@ func TestUpdateProfile_Extras_FlagModes(t *testing.T) {
 	}
 }
 
-// TestUpdateProfile_Extras_FlagOffGatesEverySet: every SET of the four fields is FEATURE_DISABLED while the flag is off. A
+// TestUpdateProfile_Extras_FlagOffGatesEverySet: every SET of the three fields is FEATURE_DISABLED while the flag is off. A
 // clear (the exact string "") is not gated; TestUpdateProfile_Extras_GateMatrix covers it.
 func TestUpdateProfile_Extras_FlagOffGatesEverySet(t *testing.T) {
 	tests := []struct {
 		name string
 		p    UpdateProfileParams
 	}{
-		{"banner", UpdateProfileParams{BannerMediaID: strp("0000000000000000201")}},
 		{"location", UpdateProfileParams{Location: strp("Pune")}},
 		{"website", UpdateProfileParams{Website: strp("https://example.com")}},
 		{"pin", UpdateProfileParams{PinnedPostID: strp(pinID)}},
@@ -176,8 +162,8 @@ func TestUpdateProfile_Extras_FlagOffGatesEverySet(t *testing.T) {
 			e := newExtrasEnv(t, extrasRegistry(flags.Off))
 			_, err := e.update(context.Background(), tt.p)
 			_ = wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "profile_extras")
-			if e.repo.updateCalls != 0 || len(e.banners.calls) != 0 || len(e.pins.calls) != 0 {
-				t.Fatalf("0 reads and 0 writes expected: updates=%d banner calls=%v pin calls=%v", e.repo.updateCalls, e.banners.calls, e.pins.calls)
+			if e.repo.updateCalls != 0 || len(e.pins.calls) != 0 {
+				t.Fatalf("0 reads and 0 writes expected: updates=%d pin calls=%v", e.repo.updateCalls, e.pins.calls)
 			}
 			if e.repo.profiles[extrasUID].DisplayName != "Alice A." {
 				t.Fatalf("a refused request changed the profile: %+v", e.repo.profiles[extrasUID])
@@ -290,81 +276,6 @@ func TestUpdateProfile_Website(t *testing.T) {
 	}
 }
 
-func TestUpdateProfile_Banner(t *testing.T) {
-	const mediaID = "0000000000000000202"
-	tests := []struct {
-		name      string
-		banners   *fakeBanners // nil: no resolver wired
-		wantErr   bool
-		wantCalls int
-	}{
-		{"resolved banner is copied into the profile", &fakeBanners{ref: BannerRef{URL: "https://m/b.webp", ThumbURL: "https://m/b_t.webp"}}, false, 1},
-		{"not ready is MEDIA_NOT_READY", &fakeBanners{err: ErrBannerNotReady}, true, 1},
-		{"a wrapped not-ready is still MEDIA_NOT_READY", &fakeBanners{err: errors.Join(errors.New("ctx"), ErrBannerNotReady)}, true, 1},
-		{"no resolver wired is MEDIA_NOT_READY", nil, true, 0},
-		{"infrastructure error is not an apierr", &fakeBanners{err: errors.New("firestore down")}, true, 1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := newFakeRepo()
-			opts := []Option{WithExtrasFlags(extrasRegistry(flags.On))}
-			if tt.banners != nil {
-				opts = append(opts, WithBannerResolver(tt.banners))
-			}
-			svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, opts...).(*service)
-			if _, err := svc.CreateProfile(context.Background(), extrasUID, validKey, "Alice", "Alice A."); err != nil {
-				t.Fatal(err)
-			}
-			id := mediaID
-			got, err := svc.UpdateProfile(context.Background(), extrasUID, UpdateProfileParams{IdempotencyKey: validKey, BannerMediaID: &id})
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.banners != nil && len(tt.banners.calls) != tt.wantCalls {
-				t.Fatalf("resolver calls = %v", tt.banners.calls)
-			}
-			if tt.banners != nil && tt.wantCalls == 1 && tt.banners.calls[0] != extrasUID+"/"+mediaID {
-				t.Fatalf("resolver asked %q: it must be asked for the caller's own uid", tt.banners.calls[0])
-			}
-			if err != nil {
-				var ae *apierr.Error
-				if errors.As(err, &ae) {
-					if ae.Code != connect.CodeFailedPrecondition || ae.Reason != commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY {
-						t.Fatalf("code=%v reason=%v", ae.Code, ae.Reason)
-					}
-				} else if strings.Contains(err.Error(), "firestore down") && strings.Contains(err.Error(), extrasUID) {
-					t.Fatalf("an infrastructure error leaks the uid: %v", err)
-				}
-				if repo.updateCalls != 0 {
-					t.Fatalf("updateCalls = %d: a rejected banner must write nothing", repo.updateCalls)
-				}
-				return
-			}
-			if got.BannerURL != "https://m/b.webp" || got.BannerThumbURL != "https://m/b_t.webp" {
-				t.Fatalf("profile banner = %q / %q", got.BannerURL, got.BannerThumbURL)
-			}
-		})
-	}
-}
-
-func TestUpdateProfile_Banner_EmptyIdRemovesWithoutResolving(t *testing.T) {
-	e := newExtrasEnv(t, extrasRegistry(flags.On))
-	if _, err := e.update(context.Background(), UpdateProfileParams{BannerMediaID: strp("0000000000000000202")}); err != nil {
-		t.Fatal(err)
-	}
-	e.banners.calls = nil
-	got, err := e.update(context.Background(), UpdateProfileParams{BannerMediaID: strp("")})
-	if err != nil || got.BannerURL != "" || got.BannerThumbURL != "" {
-		t.Fatalf("UpdateProfile = %+v, %v", got, err)
-	}
-	if len(e.banners.calls) != 0 {
-		t.Fatalf("removing a banner resolved %v", e.banners.calls)
-	}
-	if p := e.repo.profiles[extrasUID]; p.BannerURL != "" || p.BannerThumbURL != "" {
-		t.Fatalf("stored banner after removal: %+v", p)
-	}
-}
-
 func TestUpdateProfile_Pin(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -468,13 +379,13 @@ func TestUpdateProfile_Pin_EmptyUnpinsWithoutChecking(t *testing.T) {
 func TestUpdateProfile_Extras_AllFieldsInOneCall(t *testing.T) {
 	e := newExtrasEnv(t, extrasRegistry(flags.On))
 	got, err := e.update(context.Background(), UpdateProfileParams{
-		BannerMediaID: strp("0000000000000000202"), Location: strp("Pune"), Website: strp("https://example.com"), PinnedPostID: strp(pinID),
+		Location: strp("Pune"), Website: strp("https://example.com"), PinnedPostID: strp(pinID),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Profile{BannerURL: "https://m/b.webp", BannerThumbURL: "https://m/b_t.webp", Location: "Pune", Website: "https://example.com", PinnedPostID: pinID}
-	if got.BannerURL != want.BannerURL || got.BannerThumbURL != want.BannerThumbURL || got.Location != want.Location ||
+	want := Profile{Location: "Pune", Website: "https://example.com", PinnedPostID: pinID}
+	if got.Location != want.Location ||
 		got.Website != want.Website || got.PinnedPostID != want.PinnedPostID {
 		t.Fatalf("profile = %+v, want the extras of %+v", got, want)
 	}
@@ -483,7 +394,7 @@ func TestUpdateProfile_Extras_AllFieldsInOneCall(t *testing.T) {
 	}
 	// A later edit of one field leaves the others alone.
 	got, err = e.update(context.Background(), UpdateProfileParams{Location: strp("Delhi")})
-	if err != nil || got.Location != "Delhi" || got.Website != want.Website || got.PinnedPostID != pinID || got.BannerURL != want.BannerURL {
+	if err != nil || got.Location != "Delhi" || got.Website != want.Website || got.PinnedPostID != pinID {
 		t.Fatalf("second edit = %+v, %v", got, err)
 	}
 }
@@ -493,7 +404,6 @@ func TestUpdateProfile_Extras_NeverTouchTheAuthorSnapshot(t *testing.T) {
 	pub := &fakePublisher{log: &opLog{}}
 	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour,
 		WithProfileSnapshots(ProfileSnapshotDeps{Publisher: pub, Flags: fakeSnapFlags{on: true}}),
-		WithBannerResolver(&fakeBanners{ref: BannerRef{URL: "https://m/b.webp", ThumbURL: "https://m/b_t.webp"}}),
 		WithPinChecker(&fakePins{can: true}),
 		WithExtrasFlags(extrasRegistry(flags.On)),
 	).(*service)
@@ -503,7 +413,7 @@ func TestUpdateProfile_Extras_NeverTouchTheAuthorSnapshot(t *testing.T) {
 	}
 	before := repo.profiles[extrasUID].SnapshotVersion
 	got, err := svc.UpdateProfile(ctx, extrasUID, UpdateProfileParams{
-		IdempotencyKey: validKey, BannerMediaID: strp("0000000000000000202"), Location: strp("Pune"),
+		IdempotencyKey: validKey, Location: strp("Pune"),
 		Website: strp("https://example.com"), PinnedPostID: strp(pinID),
 	})
 	if err != nil {
@@ -521,7 +431,7 @@ func TestUpdateProfile_Extras_FieldsChangedLogsNamesNeverValues(t *testing.T) {
 	e := newExtrasEnv(t, extrasRegistry(flags.On))
 	ctx, _ := logger.WithRequestInfo(context.Background())
 	_, err := e.svc.UpdateProfile(ctx, extrasUID, UpdateProfileParams{
-		IdempotencyKey: validKey, DisplayName: strp("Secret Name"), Bio: strp("secret bio"), BannerMediaID: strp("0000000000000000202"),
+		IdempotencyKey: validKey, DisplayName: strp("Secret Name"), Bio: strp("secret bio"),
 		Location: strp("Secret City"), Website: strp("https://secret.example"), PinnedPostID: strp(pinID),
 	})
 	if err != nil {
@@ -529,7 +439,7 @@ func TestUpdateProfile_Extras_FieldsChangedLogsNamesNeverValues(t *testing.T) {
 	}
 	v, _ := logger.RequestField(ctx, "profile_fields_changed")
 	got, _ := v.(string)
-	if got != "display_name,bio,banner,location,website,pinned_post" {
+	if got != "display_name,bio,location,website,pinned_post" {
 		t.Fatalf("profile_fields_changed = %q", got)
 	}
 	for _, secret := range []string{"secret", "Secret", "0000000000000000202", pinID, "example"} {
@@ -552,7 +462,7 @@ func TestUpdateProfile_Extras_FieldsChangedLogsNamesNeverValues(t *testing.T) {
 
 // TestProfile_PinAndWebsiteOmittedOnlyWhileGloballyOff covers every RPC that returns a Profile (the profile_extras kill
 // switch): with profile_extras off for everyone the pin and the website are gone from the
-// response, the owner's own view included, while the banner and location stay; in a rollout (allowlist, even an empty
+// response, the owner's own view included, while the location stays; in a rollout (allowlist, even an empty
 // one, or percent 0) and on both are returned to every viewer, listed or not.
 func TestProfile_PinAndWebsiteOmittedOnlyWhileGloballyOff(t *testing.T) {
 	tests := []struct {
@@ -575,7 +485,7 @@ func TestProfile_PinAndWebsiteOmittedOnlyWhileGloballyOff(t *testing.T) {
 				t.Fatal(err)
 			}
 			p := repo.profiles[extrasUID]
-			p.BannerURL, p.BannerThumbURL, p.Location, p.Website, p.PinnedPostID = "https://m/b.webp", "https://m/b_t.webp", "Pune", "https://example.com", pinID
+			p.Location, p.Website, p.PinnedPostID = "Pune", "https://example.com", pinID
 			repo.profiles[extrasUID] = p
 			svc.Forget(extrasUID) // CreateProfile cached the unseeded profile
 
@@ -587,8 +497,8 @@ func TestProfile_PinAndWebsiteOmittedOnlyWhileGloballyOff(t *testing.T) {
 				if (got.Website != "") != tt.wantPin {
 					t.Errorf("%s: website = %q, want present=%v (it follows the pin: both are withheld only while globally off)", rpc, got.Website, tt.wantPin)
 				}
-				if got.BannerURL != "https://m/b.webp" || got.BannerThumbURL != "https://m/b_t.webp" || got.Location != "Pune" {
-					t.Errorf("%s: banner and location must be returned whatever the flag says: %+v", rpc, got)
+				if got.Location != "Pune" {
+					t.Errorf("%s: the location must be returned whatever the flag says: %+v", rpc, got)
 				}
 			}
 			me, err := svc.GetMe(ctx, extrasUID)

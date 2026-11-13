@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
@@ -25,6 +26,10 @@ class _MockCommunities extends Mock implements CommunitiesRepository {}
 /// `/plans`: skeleton, rows, empty state, error with retry, "Load more", the
 /// audience chips and the New plan entry, over a real cubit and the fake
 /// server.
+/// [text] inside a plan row: the activity chips (F29) carry "Coffee" too.
+Finder _inRow(String text) =>
+    find.descendant(of: find.byType(BeaconRow), matching: find.text(text));
+
 void main() {
   late FakeBeaconsServer server;
   // Tomorrow at noon local: always in the future, and the same time of day
@@ -80,11 +85,11 @@ void main() {
 
     expectNoOverflow(tester);
     expect(find.text('Plans'), findsOneWidget);
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(_inRow('Coffee'), findsOneWidget);
     expect(find.text('Run'), findsOneWidget);
-    expect(find.text(beaconWhenText(view.beacon)), findsOneWidget);
-    expect(find.text('Hall'), findsNWidgets(2));
-    expect(find.text('1 of 3 seats taken'), findsOneWidget);
+    expect(find.text('${beaconWhenText(view.beacon)} · Hall'), findsOneWidget);
+    expect(find.textContaining('· Hall'), findsNWidgets(2));
+    expect(find.text('1 going'), findsOneWidget);
     expect(find.text('Full'), findsOneWidget);
     expect(find.text('Open'), findsNothing);
     expect(find.byType(BeaconRow), findsNWidgets(2));
@@ -159,7 +164,7 @@ void main() {
     server.public.add(beaconView(startAt: start(2)));
     final router = await open(tester);
 
-    await tester.tap(find.text('Coffee'));
+    await tester.tap(_inRow('Coffee'));
     await tester.pumpAndSettle();
 
     expect(router.state.uri.path, AppRouter.planPath(kBeaconIdA));
@@ -179,7 +184,7 @@ void main() {
     server.public.add(beaconView(startAt: start(2)));
     await tester.tap(find.text('Try again'));
     await tester.pumpAndSettle();
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(_inRow('Coffee'), findsOneWidget);
     expect(server.calls, ['list:', 'list:']);
   });
 
@@ -197,7 +202,13 @@ void main() {
     }
     await open(tester);
 
-    final list = find.byType(Scrollable).first;
+    // The plans list, not the activity chips' sideways row (F29).
+    final list = find
+        .descendant(
+          of: find.byType(RefreshIndicator),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     await tester.scrollUntilVisible(
       find.text('Load more'),
       300,
@@ -232,7 +243,8 @@ void main() {
       'community shows its copy while Public still loads', (tester) async {
     server.public.add(beaconView(startAt: start(2)));
     await open(tester);
-    expect(find.byType(ChoiceChip), findsNothing);
+    // Audience pills only with communities (the activity row is F29's).
+    expect(find.widgetWithText(AppFilterPill, 'Public'), findsNothing);
 
     final communities = _MockCommunities();
     when(() => communities.enabled).thenReturn(true);
@@ -252,8 +264,8 @@ void main() {
     server.refusals.clear();
     await open(tester, communities: communities);
 
-    expect(find.widgetWithText(ChoiceChip, 'Public'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'Gardeners'), findsOneWidget);
+    expect(find.widgetWithText(AppFilterPill, 'Public'), findsOneWidget);
+    expect(find.widgetWithText(AppFilterPill, 'Gardeners'), findsOneWidget);
     server.refusals.add(
       CommunityForbiddenException(CommunityForbiddenReason.notMember),
     );
@@ -267,7 +279,7 @@ void main() {
 
     await tester.tap(find.text('Public'));
     await tester.pumpAndSettle();
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(_inRow('Coffee'), findsOneWidget);
   });
 
   testWidgets('returning from a plan or the New plan form reloads the list', (
@@ -275,7 +287,7 @@ void main() {
   ) async {
     server.public.add(beaconView(startAt: start(2)));
     final router = await open(tester);
-    await tester.tap(find.text('Coffee'));
+    await tester.tap(_inRow('Coffee'));
     await tester.pumpAndSettle();
     expect(server.calls, ['list:']);
 
@@ -288,6 +300,6 @@ void main() {
     router.pop();
     await tester.pumpAndSettle();
     expect(server.calls, ['list:', 'list:', 'list:']);
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(_inRow('Coffee'), findsOneWidget);
   });
 }

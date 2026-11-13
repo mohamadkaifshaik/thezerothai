@@ -9,10 +9,14 @@ import 'package:dzeroth/core/telemetry/telemetry_controller.dart';
 import 'package:dzeroth/core/telemetry/telemetry_device_forget.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
+import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
+import 'package:dzeroth/features/account/presentation/account_deleted_screen.dart';
 import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
@@ -32,6 +36,8 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -168,6 +174,7 @@ void main() {
     String initial = AppRouter.deleteAccountPath,
     TelemetryDeviceForget? telemetry,
     bool? floatingBar,
+    Widget Function(Widget screen)? wrapScreen,
   }) async {
     if (size != null) {
       tester.view.physicalSize = size;
@@ -179,7 +186,9 @@ void main() {
       routes: [
         GoRoute(
           path: AppRouter.deleteAccountPath,
-          builder: (_, _) => floatingBar == null
+          builder: (_, _) => wrapScreen != null
+              ? wrapScreen(const DeleteAccountScreen())
+              : floatingBar == null
               ? const DeleteAccountScreen()
               : _inShell(const DeleteAccountScreen(), floating: floatingBar),
         ),
@@ -231,9 +240,12 @@ void main() {
     return router;
   }
 
-  Finder button() => find.byType(FilledButton);
-  bool enabled(WidgetTester tester) =>
-      tester.widget<FilledButton>(button()).onPressed != null;
+  // R4: the action is the danger pill (DeleteAccount.dc.html).
+  Finder button() => find.widgetWithText(AppPillButton, 'Delete my account');
+  bool enabled(WidgetTester tester) {
+    final pill = tester.widget<AppPillButton>(button());
+    return pill.onPressed != null && !pill.busy;
+  }
 
   Future<void> typeHandle(WidgetTester tester, String text) async {
     await tester.enterText(find.byType(TextField), text);
@@ -281,9 +293,9 @@ void main() {
           accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
     ).called(1);
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
 
-    await tester.tap(find.text('Done'));
+    await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
     expect(find.text('sign in stub'), findsOneWidget);
   });
@@ -321,7 +333,7 @@ void main() {
 
     expect(optIn.forgotten, ['uid-1']);
     expect(optIn.records.keys, ['uid-2']);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   testWidgets('success forgets the device telemetry of the deleted uid before '
@@ -366,7 +378,7 @@ void main() {
     expect(await database.readSetting('telemetry_consent:usage:uid-1'), isNull);
     expect(await database.readSetting('telemetry_consent:crash:uid-2'), 'on');
     expect(log.calls, containsAll(['crash.deleteUnsent', 'usage.reset']));
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   testWidgets('a failed delete leaves the device telemetry alone', (
@@ -441,7 +453,7 @@ void main() {
 
     expect(reported, hasLength(1));
     expect(optIn.forgotten, ['uid-1']);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
   });
 
@@ -456,7 +468,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(reported, hasLength(1));
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
   });
 
@@ -492,7 +504,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(optIn.forgotten, ['uid-1']);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   testWidgets('cancelled re-auth sends nothing and says so', (tester) async {
@@ -635,7 +647,12 @@ void main() {
       await tester.tap(button());
       // The in-button spinner never settles while the dialog is open.
       await tester.pump(const Duration(milliseconds: 400));
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Cancel'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(passwordSeen, isNull);
@@ -677,32 +694,35 @@ void main() {
     });
   });
 
-  testWidgets('Done signs out again while still authenticated', (tester) async {
+  testWidgets('Back to log in signs out again while still authenticated', (
+    tester,
+  ) async {
     await pump(tester, initial: AppRouter.accountDeletedPath);
 
-    await tester.tap(find.text('Done'));
+    await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
 
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
     expect(find.text('sign in stub'), findsOneWidget);
   });
 
-  testWidgets('Done does not sign out again when already unauthenticated', (
-    tester,
-  ) async {
-    whenListen(
-      authBloc,
-      const Stream<AuthState>.empty(),
-      initialState: const AuthState(status: AuthStatus.unauthenticated),
-    );
-    await pump(tester, initial: AppRouter.accountDeletedPath);
+  testWidgets(
+    'Back to log in does not sign out again when already unauthenticated',
+    (tester) async {
+      whenListen(
+        authBloc,
+        const Stream<AuthState>.empty(),
+        initialState: const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await pump(tester, initial: AppRouter.accountDeletedPath);
 
-    await tester.tap(find.text('Done'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Back to log in'));
+      await tester.pumpAndSettle();
 
-    verifyNever(() => authBloc.add(any()));
-    expect(find.text('sign in stub'), findsOneWidget);
-  });
+      verifyNever(() => authBloc.add(any()));
+      expect(find.text('sign in stub'), findsOneWidget);
+    },
+  );
 
   testWidgets('without a profile: confirm word, no export link, client delete '
       'after PROFILE_REQUIRED', (tester) async {
@@ -730,7 +750,7 @@ void main() {
     await tester.pumpAndSettle();
 
     verify(() => auth.deleteCurrentUser()).called(1);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   test('confirmWordMatches ignores case and spaces', () {
@@ -790,20 +810,20 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(DeleteAccountScreen), findsOneWidget);
-    final list = tester.widget<ListView>(
+    final list = tester.widget<SingleChildScrollView>(
       find.descendant(
         of: find.byType(DeleteAccountScreen),
-        matching: find.byType(ListView),
+        matching: find.byType(SingleChildScrollView),
       ),
     );
-    // The page's own padding, exactly as before the floating bar: the
+    // The page's own padding, without the floating bar's inset: the
     // home-indicator inset is not added outside the shell.
-    expect(list.padding, const EdgeInsets.all(16));
+    expect(list.padding, const EdgeInsets.fromLTRB(24, 20, 24, 32));
   });
 
   group('under the shell bar (bottom inset)', () {
     Finder deleteButton() =>
-        find.widgetWithText(FilledButton, 'Delete my account');
+        find.widgetWithText(AppPillButton, 'Delete my account');
 
     /// The height at which the final action ends 40 dp above the bottom
     /// edge: inside the 90 dp of the floating bar, on a page that fits the
@@ -840,17 +860,119 @@ void main() {
       expect(find.byType(AppFloatingBottomBar), findsNothing);
       final barTop = tester.getRect(find.byType(AppBottomBar)).top;
       expect(barTop, height - 56);
-      // The list keeps its 16 dp padding: the docked bar takes the inset.
-      final list = tester.widget<ListView>(
-        find.ancestor(of: deleteButton(), matching: find.byType(ListView)),
+      // The page keeps its own padding: the docked bar takes the inset.
+      final list = tester.widget<SingleChildScrollView>(
+        find.ancestor(
+          of: deleteButton(),
+          matching: find.byType(SingleChildScrollView),
+        ),
       );
-      expect(list.padding, const EdgeInsets.all(16));
+      expect(list.padding, const EdgeInsets.fromLTRB(24, 20, 24, 32));
       expect(tester.getRect(deleteButton()).bottom, lessThanOrEqualTo(barTop));
       expect(
         tester.getRect(deleteButton()).bottom,
         lessThanOrEqualTo(before.bottom),
       );
     });
+  });
+  // T8e and the UX review: the readable column. As a Settings leaf on the
+  // tablet layout (in the shell, `ShellGeometry` above it) the page is at
+  // most 680; at `/onboarding/delete-account` (AU, tablet plan section 4.2:
+  // no shell) it keeps 600, as it does on phones and desktop.
+  group('the readable column', () {
+    void tabletFlags() => whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'u1', handle: 'Kaif'),
+        enabledFeatures: const {kFeatureUiShell, kFeatureUiTablet},
+      ),
+    );
+    double listWidth(WidgetTester tester) => tester
+        .getSize(
+          find.descendant(
+            of: find.byType(DeleteAccountScreen),
+            matching: find.byType(SingleChildScrollView),
+          ),
+        )
+        .width;
+
+    testWidgets('a Settings leaf on the tablet layout (1024): 680', (
+      tester,
+    ) async {
+      tabletFlags();
+      const window = Size(1024, 900);
+      await pump(
+        tester,
+        size: window,
+        wrapScreen: (screen) => ShellGeometry(
+          data: ShellGeometry.contentRectFor(
+            window,
+            EdgeInsets.zero,
+            ShellLayout.tablet,
+          ),
+          child: screen,
+        ),
+      );
+      expect(listWidth(tester), AppSize.readableMax);
+    });
+
+    for (final width in [600.0, 839.0, 1024.0, 1199.0]) {
+      testWidgets('the AU route at ${width.toInt()} (both flags, no shell): '
+          '600', (tester) async {
+        tabletFlags();
+        await pump(tester, size: Size(width, 900));
+        expect(listWidth(tester), 600);
+      });
+    }
+
+    for (final width in [360.0, 1440.0]) {
+      testWidgets('${width.toInt()}: the width as before', (tester) async {
+        tabletFlags();
+        await pump(tester, size: Size(width, 900));
+        expect(listWidth(tester), width < 600 ? width : 600);
+      });
+    }
+  });
+
+  group('R4 design fidelity', () {
+    testWidgets('DeleteAccount.dc.html: eyebrow, headline, data card, danger '
+        'pill', (tester) async {
+      await pump(tester, size: const Size(390, 844));
+      expect(find.text("THIS CAN'T BE UNDONE"), findsOneWidget);
+      expect(find.text('Leaving DZEROTH?'), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.text('Download my data first'),
+          matching: find.byType(AppSurface),
+        ),
+        findsOneWidget,
+      );
+      final pill = tester.widget<AppPillButton>(button());
+      expect(pill.variant, AppButtonVariant.danger);
+      expect(pill.size, AppButtonSize.large);
+    });
+
+    testWidgets(
+      'AccountDeleted.dc.html: eyebrow, headline, Back to log in pill',
+      (tester) async {
+        await pump(tester);
+        await typeHandle(tester, 'kaif');
+        await tester.tap(button());
+        await tester.pumpAndSettle();
+        expect(find.text('ACCOUNT STATUS'), findsOneWidget);
+        expect(find.text('A fresh start.'), findsOneWidget);
+        expect(
+          tester
+              .widget<AppPillButton>(
+                find.widgetWithText(AppPillButton, 'Back to log in'),
+              )
+              .variant,
+          AppButtonVariant.primary,
+        );
+      },
+    );
   });
 }
 

@@ -123,11 +123,11 @@ func (e *retireIntEnv) objectExists(t *testing.T, name string) bool {
 // after completion is a duplicate and makes no GCS call.
 func TestIntegration_RetireAndRedelivery(t *testing.T) {
 	e := newRetireIntEnv(t, config.ProfileMediaRetireAll)
-	id := e.seed(t, uidA, PurposeBanner, false)
+	id := e.seed(t, uidA, PurposeAvatar, false)
 	at := retireNow.Add(-30 * time.Minute)
 
 	ctx := context.Background()
-	out, err := e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, id, at))
+	out, err := e.jobs.Retire(ctx, e.msg(uidA, PurposeAvatar, id, at))
 	if err != nil || out != "retired" {
 		t.Fatalf("Retire = %q, %v", out, err)
 	}
@@ -139,7 +139,7 @@ func TestIntegration_RetireAndRedelivery(t *testing.T) {
 	}
 
 	ctx = context.Background()
-	out, err = e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, id, at))
+	out, err = e.jobs.Retire(ctx, e.msg(uidA, PurposeAvatar, id, at))
 	if err != nil || out != "duplicate" {
 		t.Fatalf("redelivery = %q, %v", out, err)
 	}
@@ -148,9 +148,9 @@ func TestIntegration_RetireAndRedelivery(t *testing.T) {
 	}
 
 	// A refused message writes nothing.
-	other := e.seed(t, uidB, PurposeBanner, false)
+	other := e.seed(t, uidB, PurposeAvatar, false)
 	ctx = context.Background()
-	if out, err = e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, other, at)); err != nil || out != "refused" {
+	if out, err = e.jobs.Retire(ctx, e.msg(uidA, PurposeAvatar, other, at)); err != nil || out != "refused" {
 		t.Fatalf("another owner's image = %q, %v", out, err)
 	}
 	if _, has := e.raw(t, other)["retiredAt"]; has {
@@ -228,14 +228,14 @@ func (r *failingRetireRepo) Retire(ctx context.Context, id string, updateTime, r
 
 func TestIntegration_RetireCrashBetweenTheObjectsAndTheDocumentConverges(t *testing.T) {
 	e := newRetireIntEnv(t, config.ProfileMediaRetireAll)
-	id := e.seed(t, uidA, PurposeBanner, true)
+	id := e.seed(t, uidA, PurposeAvatar, true)
 	at := retireNow.Add(-time.Hour)
 	flaky := &failingRetireRepo{Repo: e.repo}
 	jobs := NewJobs(flaky, e.buckets, fakePosts{}, nil).WithProfileRetire(RetireDeps{
 		Mode: config.ProfileMediaRetireAll, Users: e.users, Tagger: e.tagger, Now: func() time.Time { return retireNow },
 	})
 
-	if out, err := jobs.Retire(context.Background(), e.msg(uidA, PurposeBanner, id, at)); err == nil {
+	if out, err := jobs.Retire(context.Background(), e.msg(uidA, PurposeAvatar, id, at)); err == nil {
 		t.Fatalf("first delivery = %q, want the crash", out)
 	}
 	if _, has := e.raw(t, id)["retiredAt"]; has {
@@ -245,7 +245,7 @@ func TestIntegration_RetireCrashBetweenTheObjectsAndTheDocumentConverges(t *test
 		t.Fatalf("patches after the crash = %d, want the 2 objects tagged first (objects first, document last)", len(e.tagger.calls))
 	}
 
-	out, err := jobs.Retire(context.Background(), e.msg(uidA, PurposeBanner, id, at))
+	out, err := jobs.Retire(context.Background(), e.msg(uidA, PurposeAvatar, id, at))
 	if err != nil || out != "retired" {
 		t.Fatalf("redelivery = %q, %v, want retired", out, err)
 	}
@@ -260,36 +260,25 @@ func TestIntegration_RetireCrashBetweenTheObjectsAndTheDocumentConverges(t *test
 	if r, _ := e.raw(t, id)["retiredAt"].(time.Time); !r.Equal(at) {
 		t.Errorf("retiredAt = %v", e.raw(t, id)["retiredAt"])
 	}
-	if out, err = jobs.Retire(context.Background(), e.msg(uidA, PurposeBanner, id, at)); err != nil || out != "duplicate" {
+	if out, err = jobs.Retire(context.Background(), e.msg(uidA, PurposeAvatar, id, at)); err != nil || out != "duplicate" {
 		t.Errorf("third delivery = %q, %v", out, err)
 	}
 }
 
-// TestIntegration_RetiredImageIsRefusedByTheResolvers: ResolveAvatar and ResolveBanner answer the one MEDIA_NOT_READY
+// TestIntegration_RetiredImageIsRefusedByTheResolvers: ResolveAvatar answers the one MEDIA_NOT_READY
 // error for a retired image, so it can never be set again.
 func TestIntegration_RetiredImageIsRefusedByTheResolvers(t *testing.T) {
 	e := newRetireIntEnv(t, config.ProfileMediaRetireAll)
-	avatar, banner := e.seed(t, uidA, PurposeAvatar, false), e.seed(t, uidA, PurposeBanner, false)
+	avatar := e.seed(t, uidA, PurposeAvatar, false)
 	ctx := context.Background()
 	if _, err := e.lib.ResolveAvatar(ctx, uidA, avatar); err != nil {
 		t.Fatalf("before the retire: %v", err)
 	}
-	if _, err := e.lib.ResolveBanner(ctx, uidA, banner); err != nil {
-		t.Fatalf("before the retire: %v", err)
-	}
-	for _, c := range []struct {
-		purpose Purpose
-		id      string
-	}{{PurposeAvatar, avatar}, {PurposeBanner, banner}} {
-		if out, err := e.jobs.Retire(ctx, e.msg(uidA, c.purpose, c.id, retireNow.Add(-time.Minute))); err != nil || out != "retired" {
-			t.Fatalf("Retire %s = %q, %v", c.purpose, out, err)
-		}
+	if out, err := e.jobs.Retire(ctx, e.msg(uidA, PurposeAvatar, avatar, retireNow.Add(-time.Minute))); err != nil || out != "retired" {
+		t.Fatalf("Retire = %q, %v", out, err)
 	}
 	if _, err := e.lib.ResolveAvatar(ctx, uidA, avatar); !errors.Is(err, ErrNotReady) {
 		t.Errorf("ResolveAvatar of a retired image: err = %v, want ErrNotReady", err)
-	}
-	if _, err := e.lib.ResolveBanner(ctx, uidA, banner); !errors.Is(err, ErrNotReady) {
-		t.Errorf("ResolveBanner of a retired image: err = %v, want ErrNotReady", err)
 	}
 	if !IsNotReady(ErrNotReady) {
 		t.Error("ErrNotReady must map to MEDIA_NOT_READY")
@@ -302,22 +291,23 @@ func TestIntegration_RetiredImageIsRefusedByTheResolvers(t *testing.T) {
 }
 
 // TestIntegration_EraserCoversRetiredImagesInsideTheGrace: an account deleted between the retire and the document's TTL
-// loses the objects and the documents at once, and the export lists the retired documents until then.
+// loses the objects and the documents at once, and the export lists the retired documents until then. A legacy BANNER
+// document (the removed purpose) is exported and erased the same way.
 func TestIntegration_EraserCoversRetiredImagesInsideTheGrace(t *testing.T) {
 	e := newRetireIntEnv(t, config.ProfileMediaRetireAll)
 	ctx := context.Background()
-	avatar, banner := e.seed(t, uidA, PurposeAvatar, true), e.seed(t, uidA, PurposeBanner, true)
-	current := e.seed(t, uidA, PurposeBanner, true)
+	avatar, avatar2 := e.seed(t, uidA, PurposeAvatar, true), e.seed(t, uidA, PurposeAvatar, true)
+	current := e.seed(t, uidA, legacyBannerPurpose, true)
 	bobs := e.seed(t, uidB, PurposeAvatar, true)
 	for _, c := range []struct {
 		purpose Purpose
 		id      string
-	}{{PurposeAvatar, avatar}, {PurposeBanner, banner}} {
+	}{{PurposeAvatar, avatar}, {PurposeAvatar, avatar2}} {
 		if out, err := e.jobs.Retire(ctx, e.msg(uidA, c.purpose, c.id, retireNow.Add(-time.Minute))); err != nil || out != "retired" {
 			t.Fatalf("Retire %s = %q, %v", c.purpose, out, err)
 		}
 	}
-	for _, id := range []string{avatar, banner, current} {
+	for _, id := range []string{avatar, avatar2, current} {
 		if !e.objectExists(t, "m/"+id+".webp") || !e.objectExists(t, "m/"+id+"_t.webp") {
 			t.Fatalf("objects of %s must still exist during the grace (the step only tags them)", id)
 		}
@@ -335,7 +325,7 @@ func TestIntegration_EraserCoversRetiredImagesInsideTheGrace(t *testing.T) {
 		} `json:"media"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &export); err != nil || len(export.Media) != 3 {
-		t.Fatalf("export = %s (%v), want the retired avatar and banner and the current banner", out.String(), err)
+		t.Fatalf("export = %s (%v), want the two retired avatars and the legacy banner", out.String(), err)
 	}
 	retired := 0
 	for _, m := range export.Media {
@@ -353,7 +343,7 @@ func TestIntegration_EraserCoversRetiredImagesInsideTheGrace(t *testing.T) {
 		t.Fatalf("PurgeUser done=%v err=%v", done, err)
 	}
 	// Reads: one per document (3), deletes: one per document.
-	for _, id := range []string{avatar, banner, current} {
+	for _, id := range []string{avatar, avatar2, current} {
 		if e.objectExists(t, "m/"+id+".webp") || e.objectExists(t, "m/"+id+"_t.webp") {
 			t.Errorf("objects of %s survived the account purge", id)
 		}
@@ -383,11 +373,11 @@ func (e *retireIntEnv) seedSuffixed(t *testing.T, owner string, purpose Purpose)
 	return id, suffix
 }
 
-// TestIntegration_RetireSuffixedAvatarAndBanner: the retire step retires a replaced avatar and banner whose
+// TestIntegration_RetireSuffixedAvatar: the retire step retires a replaced avatar whose
 // objects carry the suffix: the message's URLs parse, the document's own names are tagged (2 customTime patches),
 // 1 read and 1 write, exactly like the old shape.
-func TestIntegration_RetireSuffixedAvatarAndBanner(t *testing.T) {
-	for _, purpose := range []Purpose{PurposeAvatar, PurposeBanner} {
+func TestIntegration_RetireSuffixedAvatar(t *testing.T) {
+	for _, purpose := range []Purpose{PurposeAvatar} {
 		t.Run(string(purpose), func(t *testing.T) {
 			e := newRetireIntEnv(t, config.ProfileMediaRetireAll)
 			id, sfx := e.seedSuffixed(t, uidA, purpose)

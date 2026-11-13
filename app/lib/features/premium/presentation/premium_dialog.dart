@@ -5,7 +5,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'bloc/subscription_cubit.dart';
 import '../domain/subscription_models.dart';
 
+import '../../../core/router/page_below.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/tablet_modal.dart';
+import '../../../shared/widgets/primitives/app_accent_headline.dart';
 import '../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../shared/widgets/primitives/app_surface.dart';
 import '../domain/premium_plans.dart';
@@ -16,8 +19,15 @@ import '../domain/premium_plans.dart';
 /// only chrome; Escape, system Back and a tap on the barrier close it.
 /// With billing configured, the body shows account status and server-gated
 /// billing actions. Otherwise it retains the informational coming-soon cards.
+///
+/// On the tablet layout ([host], tablet plan section 4.1 "Premium") the card
+/// is `min(600, C - 48)` wide and centred on the content area beside the
+/// rail; the barrier still covers the whole window, rail included.
 class PremiumDialog extends StatelessWidget {
-  const PremiumDialog({super.key});
+  const PremiumDialog({super.key, this.host});
+
+  /// The tablet presentation (`dialogPageHost`); null: today's.
+  final TabletModalHost? host;
 
   static const title = 'Premium';
   static const titleKey = ValueKey('premium-dialog-title');
@@ -81,7 +91,9 @@ class PremiumDialog extends StatelessWidget {
       return Dialog.fullscreen(child: SafeArea(child: body));
     }
     return Dialog(
-      insetPadding: const EdgeInsets.all(AppSpacing.lg),
+      insetPadding:
+          host?.dialogInsets(context, maxWidth: AppLayout.mainColumnMaxWidth) ??
+          const EdgeInsets.all(AppSpacing.lg),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.lg),
         side: BorderSide(color: theme.colorScheme.outlineVariant),
@@ -206,20 +218,23 @@ class PremiumDialogPage extends Page<void> {
       settings: this,
       barrierDismissible: true,
       barrierLabel: 'Close',
-      builder: (context) => const PremiumDialog(),
+      // [DialogPageFrame] adds the safe area (but on the tablet layout).
+      useSafeArea: false,
+      builder: (context) => DialogPageFrame(
+        builder: (context, host) => PremiumDialog(host: host),
+      ),
     );
   }
 }
 
-/// The hero, the two static plan cards and the footer. Nothing here is
+/// The headline, the two static plan cards and the footer. Nothing here is
 /// tappable and no price comes from anywhere but [kPremiumPlans].
 class _PremiumBody extends StatelessWidget {
   const _PremiumBody();
 
-  static const heroTitle = 'Premium is coming soon';
   static const heroSubtitle =
-      'Optional paid plans to help cover running costs. Nothing is for sale '
-      'yet.';
+      'Paid plans are not available yet. Planned monthly prices are '
+      'inclusive of GST.';
   static const footer = 'No payment details are asked for anywhere in the app.';
 
   @override
@@ -235,29 +250,17 @@ class _PremiumBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: AppSpacing.sm),
-          Center(
-            child: ExcludeSemantics(
-              child: Container(
-                width: AppSpacing.xxl + AppSpacing.md,
-                height: AppSpacing.xxl + AppSpacing.md,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: theme.colorScheme.surfaceContainerHigh,
-                ),
-                child: Icon(
-                  Icons.workspace_premium_outlined,
-                  size: AppSpacing.xl,
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
+          // Premium.html: the accent eyebrow, the display headline, the line.
           Text(
-            heroTitle,
-            style: theme.textTheme.titleLarge,
-            textAlign: TextAlign.center,
+            'Coming soon'.toUpperCase(),
+            style: AppTextStyles.eyebrow(theme)
+                .copyWith(color: context.appColors.accentText),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const AppAccentHeadline(
+            lead: 'A little ',
+            accent: 'extra',
+            size: AppAccountLayout.dialogHeadline,
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
@@ -265,7 +268,6 @@ class _PremiumBody extends StatelessWidget {
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.lg),
           if (sideBySide)
@@ -290,7 +292,6 @@ class _PremiumBody extends StatelessWidget {
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
-            textAlign: TextAlign.center,
           ),
         ],
       ),

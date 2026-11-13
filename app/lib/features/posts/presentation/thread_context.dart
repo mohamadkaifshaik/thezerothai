@@ -77,11 +77,13 @@ class _ReplyingTo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final gutter = postCardGutterOf(context);
     return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(
-        AppSpacing.md + AppSpacing.minTapTarget + AppSpacing.sm,
+      // Where the post body starts (the card's gutter, avatar column and gap).
+      padding: EdgeInsetsDirectional.fromSTEB(
+        gutter + kPostBodyStart,
         AppSpacing.sm,
-        AppSpacing.md,
+        gutter,
         0,
       ),
       child: Text(
@@ -94,4 +96,24 @@ class _ReplyingTo extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The open post among a self-thread's equal cards: the highlighted-row
+/// tint (as an unread notification), a hint only; the post's own semantics
+/// are unchanged. [on] false draws [child] alone.
+class _OpenPostHighlight extends StatelessWidget {
+  const _OpenPostHighlight({required this.on, required this.child});
+
+  final bool on;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => on
+      ? ColoredBox(
+          key: const ValueKey('open-post-highlight'),
+          color: Theme.of(context).colorScheme.primary
+              .withValues(alpha: AppOpacity.rowTint),
+          child: child,
+        )
+      : child;
 }

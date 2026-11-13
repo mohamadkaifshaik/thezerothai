@@ -210,9 +210,8 @@ type Config struct {
 	// off, and SendMessage applies a recipient's FOLLOWING_ONLY only when it is on for that recipient. Needs `messaging` for
 	// any effect. FEATURE_DM_POLICY[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureDMPolicy flags.Spec
-	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
-	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
-	// default off in every environment.
+	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile location, website and
+	// pin fields. FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureProfileExtras flags.Spec
 	// FeatureProfileTabs is the flag (wire name `profile_tabs`) gating GetUserTimeline tab MEDIA and REPOSTS
 	// (Posts and Replies stay ungated). FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT], default off in every environment.
@@ -350,6 +349,9 @@ type Config struct {
 	// ProfileMediaRetire is PROFILE_MEDIA_RETIRE (default off): which replaced or removed profile
 	// images the profile_media_retired step deletes after the grace. Per-project retention, not a FEATURE_ flag.
 	ProfileMediaRetire ProfileMediaRetire
+	// MediaOrphanSweep is MEDIA_ORPHAN_SWEEP (default off): the media orphan sweep's kill switch, off | mark (phase 1 and
+	// the restore paths, never a delete) | delete. Per-project operations config, not a FEATURE_ flag.
+	MediaOrphanSweep MediaOrphanSweep
 	// AuthIdentityAudit is AUTH_IDENTITY_AUDIT (default false): GetMe logs a WARN when the token's signing identity
 	// or email differs from what the account had at sign-up. Detection only, it never rejects or changes a
 	// response. A plain switch, not a FEATURE_ flag: a flag gates RPCs and would answer FAILED_PRECONDITION.
@@ -539,6 +541,8 @@ func Load() (Config, error) {
 		// SendMessage 20/min (per instance, 60 with 3); the read RPCs (lists, polls, mark-read) 30/min.
 		{"RATE_LIMIT_MESSAGES_SEND_PER_MIN", 20, &rl.MessagesSendPerUserPerMinute},
 		{"RATE_LIMIT_MESSAGES_READ_PER_MIN", 30, &rl.MessagesReadPerUserPerMinute},
+		// ListNotifications 30/min per instance (90 with 3); it used to fall back to the 60/min default.
+		{"RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", 30, &rl.NotificationsListPerUserPerMinute},
 		// The six list mutations 30/min, GetList / ListUserLists / ListListMembers 30/min, GetListTimeline 12/min (all per
 		// instance, x3 with 3 instances).
 		{"RATE_LIMIT_LISTS_WRITE_PER_MIN", 30, &rl.ListsWritePerUserPerMinute},
@@ -807,6 +811,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	profileMediaRetire, err := ParseProfileMediaRetire(os.Getenv("PROFILE_MEDIA_RETIRE"))
+	if err != nil {
+		return Config{}, err
+	}
+	mediaOrphanSweep, err := ParseMediaOrphanSweep(os.Getenv("MEDIA_ORPHAN_SWEEP"))
 	if err != nil {
 		return Config{}, err
 	}
@@ -1102,6 +1110,7 @@ func Load() (Config, error) {
 		MediaPublicBaseURL:           strings.TrimRight(getenv("MEDIA_PUBLIC_BASE_URL", "https://storage.googleapis.com/"+mediaBucket), "/"),
 		VisionScreenThumb:            visionScreenThumb,
 		ProfileMediaRetire:           profileMediaRetire,
+		MediaOrphanSweep:             mediaOrphanSweep,
 		AuthIdentityAudit:            authIdentityAudit,
 	}, nil
 }

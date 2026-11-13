@@ -552,4 +552,100 @@ void main() {
       expect(changes.hasListener, isFalse);
     });
   });
+  // Tablet T6: the hoisted cubit is opened by every route visit and only
+  // made sure of by the list panes (tablet plan section 5.2).
+  group('open and ensureLoaded (hoisted, T6)', () {
+    test(
+      'a new cubit has not started; open loads (cache, then one refresh)',
+      () async {
+        when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+            .thenAnswer((_) async => ConversationsResult(snap(['a'])));
+        final cubit = build();
+        addTearDown(cubit.close);
+        expect(cubit.started, isFalse);
+
+        await cubit.open();
+
+        expect(cubit.started, isTrue);
+        verify(() => repo.cachedConversations(Folder.FOLDER_INBOX)).called(1);
+        verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
+        expect(cubit.state.conversations.map((c) => c.id), ['a']);
+      },
+    );
+
+    test('two opens in one frame share one load', () async {
+      final network = Completer<ConversationsResult>();
+      when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+          .thenAnswer((_) => network.future);
+      final cubit = build();
+      addTearDown(cubit.close);
+
+      final first = cubit.open();
+      final second = cubit.open();
+      network.complete(ConversationsResult(snap(['a'])));
+      await Future.wait([first, second]);
+
+      verify(() => repo.cachedConversations(Folder.FOLDER_INBOX)).called(1);
+      verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
+    });
+
+    test(
+      'a later visit opens again (the rows stay while it refreshes)',
+      () async {
+        when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+            .thenAnswer((_) async => ConversationsResult(snap(['a'])));
+        final cubit = build();
+        addTearDown(cubit.close);
+        await cubit.open();
+        // The refresh wrote the row to the cache, as the repository does.
+        when(() => repo.cachedConversations(Folder.FOLDER_INBOX))
+            .thenAnswer((_) async => snap(['a']));
+        final network = Completer<ConversationsResult>();
+        when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+            .thenAnswer((_) => network.future);
+
+        final again = cubit.open();
+        await pumpEventQueue();
+        expect(cubit.state.conversations.map((c) => c.id), ['a']);
+        network.complete(ConversationsResult(snap(['b', 'a'])));
+        await again;
+
+        verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(2);
+        expect(cubit.state.conversations.map((c) => c.id), ['b', 'a']);
+      },
+    );
+
+    test('ensureLoaded loads once, and never after an open', () async {
+      when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+          .thenAnswer((_) async => ConversationsResult(snap(['a'])));
+      final pane = build();
+      addTearDown(pane.close);
+      await pane.ensureLoaded();
+      await pane.ensureLoaded();
+      verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
+
+      final opened = build();
+      addTearDown(opened.close);
+      await opened.open();
+      await opened.ensureLoaded();
+      verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
+    });
+
+    test('a failed first load counts as started; open retries', () async {
+      when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+          .thenThrow(const NetworkException('offline'));
+      final cubit = build();
+      addTearDown(cubit.close);
+      await cubit.ensureLoaded();
+      expect(cubit.started, isTrue);
+      expect(cubit.state.status, ConversationsStatus.error);
+
+      when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+          .thenAnswer((_) async => ConversationsResult(snap(['a'])));
+      await cubit.ensureLoaded();
+      expect(cubit.state.status, ConversationsStatus.error);
+      await cubit.open();
+      expect(cubit.state.status, ConversationsStatus.ready);
+    });
+  });
 }

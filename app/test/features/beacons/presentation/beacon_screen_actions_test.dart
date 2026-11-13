@@ -6,6 +6,7 @@ import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -142,10 +143,10 @@ void main() {
       expect(find.text("You're going"), findsOneWidget);
       expect(find.text('Leave plan'), findsOneWidget);
       // Going participants may see who else is going (ListParticipants).
-      expect(find.text('People · 2'), findsOneWidget);
+      expect(find.text('People · 2 going'), findsOneWidget);
       expect(find.text('Edit'), findsNothing);
       expect(find.text('Cancel plan'), findsNothing);
-      await tester.tap(find.text('People · 2'));
+      await tester.tap(find.text('People · 2 going'));
       await tester.pumpAndSettle();
       expect(router.state.uri.path, '/plans/$kBeaconIdA/people');
     });
@@ -155,11 +156,11 @@ void main() {
     ) async {
       server.public.add(view(canManage: true));
       final router = await open(tester);
-      expect(find.text('People · 2'), findsOneWidget);
+      expect(find.text('People · 2 going'), findsOneWidget);
       expect(find.text('Edit'), findsOneWidget);
       expect(find.text('Cancel plan'), findsOneWidget);
       expect(find.text('Ask to join'), findsNothing);
-      await tester.tap(find.text('People · 2'));
+      await tester.tap(find.text('People · 2 going'));
       await tester.pumpAndSettle();
       expect(router.state.uri.path, '/plans/$kBeaconIdA/people');
       router.pop();
@@ -274,18 +275,31 @@ void main() {
     expect(find.text('0 of 3 seats taken'), findsOneWidget);
   });
 
-  group('the menu', () {
-    testWidgets('Message organiser needs messaging on and not the organiser; '
-        'it opens the draft thread', (tester) async {
+  group('the menu and Message organiser', () {
+    testWidgets('Message organiser is a button when messaging is on and the '
+        'caller is not the organiser; it opens the draft thread', (
+      tester,
+    ) async {
       server.public.add(view(canRequest: true));
       await open(tester, features: const {'messaging'});
-      await tester.tap(find.byTooltip('Plan options'));
-      await tester.pumpAndSettle();
-      expect(find.text('Message organiser'), findsOneWidget);
-      expect(find.text('Report plan'), findsNothing);
-      await tester.tap(find.text('Message organiser'));
+      expect(find.byTooltip('Plan options'), findsNothing);
+      await tester.tap(find.widgetWithText(AppPillButton, 'Message organiser'));
       await tester.pumpAndSettle();
       expect(find.text('draft message'), findsOneWidget);
+    });
+
+    testWidgets('no Message organiser with messaging off or on the own plan', (
+      tester,
+    ) async {
+      server.public.add(view(canRequest: true));
+      await open(tester);
+      expect(find.text('Message organiser'), findsNothing);
+
+      server.public
+        ..clear()
+        ..add(view(canManage: true));
+      await open(tester, features: const {'messaging'});
+      expect(find.text('Message organiser'), findsNothing);
     });
 
     testWidgets('Report plan needs reports on; the sheet names the plan', (
@@ -306,11 +320,9 @@ void main() {
       expect(find.text('Report Coffee'), findsOneWidget);
     });
 
-    testWidgets('no entries: no menu (flags off, or the organiser)', (
-      tester,
-    ) async {
+    testWidgets('no menu with reports off, or on the own plan', (tester) async {
       server.public.add(view(canRequest: true));
-      await open(tester);
+      await open(tester, features: const {'messaging'});
       expect(find.byTooltip('Plan options'), findsNothing);
 
       server.public

@@ -43,6 +43,7 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 		doc := map[string]any{
 			"handle": "mallory", "handleLower": "mallory", "displayName": "Mal", "bio": "click here", "status": status,
 			"location": "Pune", "website": "https://phish.example/login", "pinnedPostId": "0000000000000000301", "snapshotVersion": int64(3),
+			// A legacy banner (the removed feature): not clearable here, untouched (none should remain after the 2026-11-12 banner purge).
 			"bannerUrl": "https://storage.googleapis.com/" + project + "-media/m/222.webp", "bannerThumbUrl": "https://storage.googleapis.com/" + project + "-media/m/222_t.webp",
 			"avatarUrl": "https://storage.googleapis.com/" + project + "-media/m/111.webp", "avatarThumbUrl": "https://storage.googleapis.com/" + project + "-media/m/111_t.webp",
 			"createdAt": time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), "updatedAt": time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC),
@@ -69,7 +70,7 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 		ID: moderation.ReportID("u-reporter", moderation.TargetAccount, uid), ReporterID: "u-reporter", TargetType: moderation.TargetAccount,
 		TargetID: uid, TargetOwnerID: uid, Reason: moderation.ReasonOther, Status: moderation.StatusOpen, CreatedAt: time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC),
 		Evidence: &moderation.Evidence{AuthorHandle: "mallory", DisplayName: "Mal", Bio: "click here", Location: "Pune", Website: "https://phish.example/login",
-			AvatarURL: "https://x/m/111.webp", BannerURL: "https://x/m/222.webp"},
+			AvatarURL: "https://x/m/111.webp"},
 	}
 	if _, err := modRepo.Create(ctx, moderation.CreateParams{Report: rep, QuotaLimit: 20}); err != nil {
 		t.Fatal(err)
@@ -83,13 +84,13 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 
 	// Dry run: the plan and the stored values, nothing written, the report untouched.
 	before := stored(uid)
-	code, stdout, stderr = runClearCLI(t, client, "", "clear-profile-fields", "--project", project, "--uid", uid, "--fields", "website,banner,avatar", "--report", rep.ID, "--dry-run")
+	code, stdout, stderr = runClearCLI(t, client, "", "clear-profile-fields", "--project", project, "--uid", uid, "--fields", "website,avatar", "--report", rep.ID, "--dry-run")
 	if code != 0 {
 		t.Fatalf("dry run: code=%d stderr=%q", code, stderr)
 	}
 	t.Logf("dry run output:\n%s", stdout)
-	for _, want := range []string{`website: would clear "https://phish.example/login"`, "dry-run: 3 field(s) to clear, 0 already empty (nothing written)",
-		"banner object (still public until deleted): m/222.webp in bucket " + project + "-media", "avatar object (still public until deleted): m/111_t.webp",
+	for _, want := range []string{`website: would clear "https://phish.example/login"`, "dry-run: 2 field(s) to clear, 0 already empty (nothing written)",
+		"avatar object (still public until deleted): m/111_t.webp",
 		"would resolve report " + rep.ID + " as PROFILE_CLEARED"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("dry run stdout missing %q", want)
@@ -105,19 +106,19 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 	}
 
 	// The real run: one field-level update, the report resolved.
-	code, stdout, stderr = runClearCLI(t, client, "", "clear-profile-fields", "--project", project, "--uid", uid, "--fields", "website,banner,avatar,location", "--report", rep.ID, "--note", "phishing link and image")
+	code, stdout, stderr = runClearCLI(t, client, "", "clear-profile-fields", "--project", project, "--uid", uid, "--fields", "website,avatar,location", "--report", rep.ID, "--note", "phishing link and image")
 	if code != 0 {
 		t.Fatalf("run: code=%d stderr=%q", code, stderr)
 	}
 	t.Logf("run output:\n%s", stdout)
-	for _, want := range []string{"4 field(s) cleared with one field-level update", "report " + rep.ID + ": RESOLVED (PROFILE_CLEARED)",
-		"banner object (still public until deleted): m/222.webp in bucket " + project + "-media"} {
+	for _, want := range []string{"3 field(s) cleared with one field-level update", "report " + rep.ID + ": RESOLVED (PROFILE_CLEARED)",
+		"avatar object (still public until deleted): m/111.webp in bucket " + project + "-media"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("run stdout missing %q", want)
 		}
 	}
 	after := stored(uid)
-	for _, f := range []string{"website", "location", "bannerUrl", "bannerThumbUrl", "avatarUrl", "avatarThumbUrl"} {
+	for _, f := range []string{"website", "location", "avatarUrl", "avatarThumbUrl"} {
 		if v, has := after[f]; !has || v != "" {
 			t.Errorf("users/%s.%s = %v (present %v), want the empty string", uid, f, v, has)
 		}
@@ -125,7 +126,7 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 	if got, _ := after["updatedAt"].(time.Time); !got.Equal(time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)) {
 		t.Errorf("updatedAt = %v", after["updatedAt"])
 	}
-	for _, f := range []string{"bio", "displayName", "handle", "pinnedPostId", "snapshotVersion", "status"} {
+	for _, f := range []string{"bio", "displayName", "handle", "pinnedPostId", "snapshotVersion", "status", "bannerUrl", "bannerThumbUrl"} {
 		if after[f] != before[f] {
 			t.Errorf("users/%s.%s changed: %v -> %v (it was not named)", uid, f, before[f], after[f])
 		}
@@ -136,7 +137,7 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 	}
 
 	// A rerun writes nothing at all: every field is empty, the report is already resolved (a warning, no second write).
-	code, stdout, stderr = runClearCLI(t, client, "", "clear-profile-fields", "--project", project, "--uid", uid, "--fields", "website,banner,avatar,location", "--report", rep.ID)
+	code, stdout, stderr = runClearCLI(t, client, "", "clear-profile-fields", "--project", project, "--uid", uid, "--fields", "website,avatar,location", "--report", rep.ID)
 	if code != 0 || !strings.Contains(stdout, "nothing to clear: 0 writes") || !strings.Contains(stdout, "already RESOLVED") {
 		t.Fatalf("rerun: code=%d stdout=\n%s\nstderr=%q", code, stdout, stderr)
 	}

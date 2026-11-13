@@ -271,6 +271,39 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 	return d.toSnapshot(), nil
 }
 
+// GetSnapshots implements Repo: one batched GetAll of graph/{uid} for every distinct uid. A missing doc is an empty
+// Snapshot. The messages added here carry no uid; the wrapped Firestore or decode cause may name a document path, so
+// a caller that logs the error redacts the uids it asked about (notifications List does).
+func (r *FirestoreRepo) GetSnapshots(ctx context.Context, uids []string) (map[string]Snapshot, error) {
+	out := make(map[string]Snapshot, len(uids))
+	refs := make([]*firestore.DocumentRef, 0, len(uids))
+	for _, uid := range uids {
+		if _, dup := out[uid]; dup {
+			continue
+		}
+		out[uid] = Snapshot{}
+		refs = append(refs, r.graphRef(uid))
+	}
+	if len(refs) == 0 {
+		return out, nil
+	}
+	snaps, err := r.client.GetAll(ctx, refs)
+	if err != nil {
+		return nil, fmt.Errorf("graph: batch read of %d graph docs: %w", len(refs), err)
+	}
+	for _, s := range snaps {
+		if !s.Exists() {
+			continue
+		}
+		var d doc
+		if err := s.DataTo(&d); err != nil {
+			return nil, fmt.Errorf("graph: decode graph doc in batch read: %w", err)
+		}
+		out[s.Ref.ID] = d.toSnapshot()
+	}
+	return out, nil
+}
+
 var _ TxReader = (*FirestoreRepo)(nil)
 
 // SnapshotInTx implements TxReader : graph/{uid} read through tx, no cache involved. A

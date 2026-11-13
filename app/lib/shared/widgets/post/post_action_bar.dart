@@ -11,6 +11,7 @@ class PostActions {
   const PostActions({
     this.onReply,
     this.onRepost,
+    this.onRepostFrom,
     this.onLike,
     this.onBookmark,
     this.onShare,
@@ -19,6 +20,10 @@ class PostActions {
 
   final VoidCallback? onReply;
   final VoidCallback? onRepost;
+
+  /// Like [onRepost], with the Repost button's context, so the tablet layout
+  /// can hang its menu from the button. Takes precedence over [onRepost].
+  final ValueChanged<BuildContext>? onRepostFrom;
   final VoidCallback? onLike;
   final VoidCallback? onBookmark;
   final VoidCallback? onShare;
@@ -29,16 +34,26 @@ class PostActions {
   final ValueChanged<Rect>? onShareAt;
 }
 
-/// Reply / repost / like / bookmark / share: 16dp outline icons (in 48dp tap
-/// boxes) with compact counts. Every visible counted action (reply, repost,
-/// like) gets an equal, left-aligned slot. Share and Bookmark use the final
-/// slots in that order (Bookmark filled and accent when
-/// bookmarked). The liked / reposted state uses the like / repost colours and
-/// is announced as `selected`. Rendered by `PostCard` only when it is given
-/// [PostActions] (the engagement bar).
+/// The widest the action row grows (dz.css `.acts` `max-width: 440px`): on
+/// a wide column the actions stay together instead of drifting apart.
+const kPostActionsMaxWidth = 440.0;
+
+/// Reply / Repost / Like / Bookmark / Share (the order of every design):
+/// [iconSize] outline glyphs (18 dp, dz.css `.acts`) in 48dp tap boxes with
+/// compact 13 sp counts, across the row up to [kPostActionsMaxWidth] from the
+/// start edge. The first glyph lines up with the text above it. With all
+/// five actions the row is spread edge to edge (`justify-content:
+/// space-between`); with fewer (a flag off) each gets an equal slot, its
+/// button at the slot's start, so they stay together. Bookmark is
+/// filled and accent-coloured when bookmarked. The liked / reposted state
+/// uses the like / repost colours and is announced as `selected`. There are
+/// three counts only: view counts (F1) have no backend yet, so no fourth
+/// count is drawn. Rendered by `PostCard` only when it is given [PostActions]
+/// (the engagement bar).
 ///
-/// [spread] is the opened post's row (X's post page): every action, Bookmark
-/// and Share included, spaced evenly across the width, with [iconSize] glyphs.
+/// [spread] is the opened post's row: the actions spaced edge to edge
+/// (`justify-content: space-between`, still within the 440 dp cap), with
+/// [iconSize] glyphs.
 class PostActionBar extends StatelessWidget {
   const PostActionBar({
     super.key,
@@ -75,7 +90,7 @@ class PostActionBar extends StatelessWidget {
   /// this post). It is advisory: it never says why.
   final String? replyDisabledHint;
 
-  /// Space every action evenly across the width (the opened post).
+  /// Space every action evenly across the row (the opened post).
   final bool spread;
 
   /// Glyph size; the 48dp tap box stays.
@@ -96,15 +111,19 @@ class PostActionBar extends StatelessWidget {
           onPressed: actions.onReply,
           disabledHint: actions.onReply == null ? replyDisabledHint : null,
         ),
-      if (_shows(actions.onRepost))
-        _ActionButton(
-          icon: Icons.repeat,
-          iconSize: iconSize,
-          label: reposted ? 'Undo repost' : 'Repost',
-          count: repostCount,
-          active: reposted,
-          activeColor: colors.repost,
-          onPressed: actions.onRepost,
+      if (_shows(actions.onRepost) || actions.onRepostFrom != null)
+        Builder(
+          builder: (buttonContext) => _ActionButton(
+            icon: Icons.repeat,
+            iconSize: iconSize,
+            label: reposted ? 'Undo repost' : 'Repost',
+            count: repostCount,
+            active: reposted,
+            activeColor: colors.repost,
+            onPressed: actions.onRepostFrom != null
+                ? () => actions.onRepostFrom!(buttonContext)
+                : actions.onRepost,
+          ),
         ),
       if (_shows(actions.onLike))
         _ActionButton(
@@ -142,30 +161,43 @@ class PostActionBar extends StatelessWidget {
       ),
     );
 
-    if (spread) {
+    final saved = bookmark(alignEnd: false);
+    // All five (the designs' row): spread edge to edge, `space-between`.
+    final allFive = counted.length == 3 && saved != null && shareShown;
+    final Widget row;
+    if (spread || allFive) {
       // Loose flex: each button gets a bounded width (its count can fade at
-      // large text) and the space left over still spreads them out.
-      return Row(
+      // large text) and the space left over spreads them out.
+      row = Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           for (final button in counted) Flexible(child: button),
+          if (saved != null) Flexible(child: saved),
           if (shareShown) Flexible(child: share(alignEnd: false)),
-          ?bookmark(alignEnd: false),
+        ],
+      );
+    } else {
+      // Fewer than five (a flag off): equal slots, so they stay together at
+      // the start instead of drifting to the edges.
+      row = Row(
+        children: [
+          for (final button in counted) _ActionSlot(child: button),
+          if (saved != null) _ActionSlot(child: saved),
+          if (shareShown) _ActionSlot(child: share(alignEnd: false)),
         ],
       );
     }
-    return Row(
-      children: [
-        for (final button in counted) _ActionSlot(child: button),
-        if (shareShown) _ActionSlot(child: share(alignEnd: false)),
-        if (actions.onBookmark != null)
-          _ActionSlot(child: bookmark(alignEnd: false)!),
-      ],
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: kPostActionsMaxWidth),
+        child: row,
+      ),
     );
   }
 }
 
-/// One equal-width, left-aligned slot of the bar.
+/// One equal-width slot of the bar, its button at the start.
 class _ActionSlot extends StatelessWidget {
   const _ActionSlot({required this.child});
 
@@ -173,7 +205,7 @@ class _ActionSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Expanded(
-    child: Align(alignment: Alignment.centerLeft, child: child),
+    child: Align(alignment: AlignmentDirectional.centerStart, child: child),
   );
 }
 
@@ -247,7 +279,11 @@ class _ActionButton extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.fade,
                     softWrap: false,
-                    style: theme.textTheme.bodyMedium?.copyWith(color: color),
+                    // dz.css `.acts span`: 13 sp, w600.
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],

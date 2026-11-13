@@ -171,7 +171,7 @@ class _PostMenuState extends State<_PostMenu> {
               value: _MenuAction.hide,
               child: AppMenuItemRow(
                 icon: Icons.visibility_off_outlined,
-                label: 'Remove from Community',
+                label: 'Remove from community',
                 destructive: true,
               ),
             ),
@@ -309,26 +309,13 @@ class _PostMenuState extends State<_PostMenu> {
       return;
     }
     if (control.pinnedPostId.isNotEmpty) {
-      final replace = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Replace your pinned post?'),
-          content: const Text(
-            'This post will be pinned instead of the one pinned now.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Replace'),
-            ),
-          ],
-        ),
+      final replace = await showAppAlertConfirm(
+        context,
+        title: 'Replace your pinned post?',
+        message: 'This post will be pinned instead of the one pinned now.',
+        confirmLabel: 'Replace',
       );
-      if (replace != true) return;
+      if (!replace) return;
     }
     await _runPin(
       messenger,
@@ -380,35 +367,22 @@ class _PostMenuState extends State<_PostMenu> {
     final control = widget.moderationControl!;
     final messenger = ScaffoldMessenger.of(context);
     final postId = widget.post.postId;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
+    final confirmed = await showAppAlertConfirm(
+      context,
+      title:
           'Remove this ${control.repliesOnly ? 'reply' : 'post'} from '
           '${control.communityName}?',
-        ),
-        content: Text(
-          control.repliesOnly
-              ? "It leaves this Community's conversation for everyone but "
-                    'its author. The reply stays on their profile. You can '
-                    'restore it from the moderation log.'
-              : 'It leaves the community feed for everyone. The post stays '
-                    "on its author's profile. You can restore it from the "
-                    'moderation log.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+      message: control.repliesOnly
+          ? "It leaves this Community's conversation for everyone but "
+                'its author. The reply stays on their profile. You can '
+                'restore it from the moderation log.'
+          : 'It leaves the community feed for everyone. The post stays '
+                "on its author's profile. You can restore it from the "
+                'moderation log.',
+      confirmLabel: 'Remove',
+      destructive: true,
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     await _runHide(messenger, control, postId);
   }
 
@@ -488,24 +462,14 @@ class _PostMenuState extends State<_PostMenu> {
 
   Future<void> _delete(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete this post?'),
-        content: const Text("This can't be undone."),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await showAppAlertConfirm(
+      context,
+      title: 'Delete this post?',
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      destructive: true,
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     try {
       await widget.onDelete!(widget.post.postId);
     } catch (_) {

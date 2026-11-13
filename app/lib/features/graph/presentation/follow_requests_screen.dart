@@ -6,10 +6,13 @@ import 'package:uuid/uuid.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_drawer.dart' show followRequestBadgeSpoken;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../shared/widgets/post/post_card.dart' show postCardGutterOf;
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../data/graph_repository.dart';
@@ -126,7 +129,7 @@ class _FollowRequestsScreenState extends State<FollowRequestsScreen> {
         child: AppMainColumn(
           child: Column(
             children: [
-              AppBackHeader(title: 'Follow requests', onBack: _back),
+              _Header(onBack: _back),
               Expanded(
                 child: BlocBuilder<UserListCubit, UserListState>(
                   bloc: _cubit,
@@ -152,6 +155,15 @@ class _FollowRequestsScreenState extends State<FollowRequestsScreen> {
                       rowBuilder: (context, item) => UserListRow(
                         key: ValueKey(item.user.userId),
                         item: item,
+                        // The FollowRequests design's rows: the post gutter
+                        // and 12 dp padding, a 46 dp avatar and a 12 dp gap,
+                        // a 13 sp handle, no dividers.
+                        avatarRadius: 23,
+                        avatarGap: AppSpacing.smd,
+                        horizontalInset: postCardGutterOf(context),
+                        verticalInset: AppSpacing.smd,
+                        showDivider: false,
+                        handleStyle: Theme.of(context).textTheme.bodySmall,
                         trailing: _AnswerButtons(
                           handle: item.user.handle,
                           onAccept: () => _respond(item, accept: true),
@@ -170,10 +182,33 @@ class _FollowRequestsScreenState extends State<FollowRequestsScreen> {
   }
 }
 
-/// Decline (outlined) and Accept (filled), each at least 88 x 48dp. The row
-/// measures this at its natural width and moves it under the name when the
-/// name column would get too narrow, so it never pushes the name out
-/// at a large text scale.
+/// The page header (dz.css `.bar` with `.sub`): "Follow requests" and,
+/// while there are any, "N pending" from `GetMe` under it (0 RPCs). Spoken
+/// as one heading.
+class _Header extends StatelessWidget {
+  const _Header({required this.onBack});
+
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = context.select(
+      (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
+    );
+    return AppBackHeader(
+      title: 'Follow requests',
+      subtitle: count > 0 ? followRequestBadgeSpoken(count) : null,
+      onBack: onBack,
+    );
+  }
+}
+
+/// Decline and Accept. From 600 dp they are pills with words (dz.css
+/// `.btn.sm.outline` / `.btn.sm.primary`: compact 36 dp pills inside 48 dp
+/// targets); on a phone, round 40 dp icon buttons (the dzeroth-mobile mock),
+/// with the same spoken labels. The row measures this at its natural width and moves it under
+/// the name when the name column would get too narrow, so it never pushes
+/// the name out at a large text scale; the labels wrap, never ellipsize.
 class _AnswerButtons extends StatelessWidget {
   const _AnswerButtons({
     required this.handle,
@@ -185,19 +220,38 @@ class _AnswerButtons extends StatelessWidget {
   final VoidCallback onAccept;
   final VoidCallback onDecline;
 
-  static const _minSize = Size(88, AppSpacing.minTapTarget);
-
   @override
   Widget build(BuildContext context) {
     // The row gives its actions an unbounded width, so the cap comes from the
     // screen: at a large text scale the two buttons stack instead of running
     // off the row.
-    final maxWidth = MediaQuery.sizeOf(context).width - 2 * AppSpacing.md;
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < AppBreakpoints.mobile) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _RoundAnswer(
+            label: 'Decline follow request from @$handle',
+            icon: Icons.close,
+            accept: false,
+            onPressed: onDecline,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          _RoundAnswer(
+            label: 'Accept follow request from @$handle',
+            icon: Icons.check,
+            accept: true,
+            onPressed: onAccept,
+          ),
+        ],
+      );
+    }
+    final maxWidth = width - 2 * AppSpacing.md;
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth),
       child: Wrap(
         spacing: AppSpacing.sm,
-        runSpacing: AppSpacing.sm,
+        runSpacing: AppSpacing.xs,
         alignment: WrapAlignment.end,
         children: [
           Semantics(
@@ -205,10 +259,11 @@ class _AnswerButtons extends StatelessWidget {
             label: 'Decline follow request from @$handle',
             excludeSemantics: true,
             onTap: onDecline,
-            child: OutlinedButton(
-              style: OutlinedButton.styleFrom(minimumSize: _minSize),
+            child: AppPillButton(
+              label: 'Decline',
+              variant: AppButtonVariant.outline,
+              compact: true,
               onPressed: onDecline,
-              child: const Text('Decline'),
             ),
           ),
           Semantics(
@@ -216,14 +271,74 @@ class _AnswerButtons extends StatelessWidget {
             label: 'Accept follow request from @$handle',
             excludeSemantics: true,
             onTap: onAccept,
-            child: FilledButton(
-              style: FilledButton.styleFrom(minimumSize: _minSize),
+            child: AppPillButton(
+              label: 'Accept',
+              compact: true,
               onPressed: onAccept,
-              child: const Text('Accept'),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// One phone answer: an outlined circle (Decline) or the teal gradient circle
+/// with its glow (Accept), [AppExplorePeopleLayout.answerButton] across in a
+/// 48 dp target. The [label] is what a screen reader says, as for the pills.
+class _RoundAnswer extends StatelessWidget {
+  const _RoundAnswer({
+    required this.label,
+    required this.icon,
+    required this.accept,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool accept;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    const size = Size.square(AppExplorePeopleLayout.answerButton);
+    final button = IconButton(
+      icon: Icon(icon),
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        fixedSize: size,
+        minimumSize: size,
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.padded,
+        shape: CircleBorder(
+          side: accept
+              ? BorderSide.none
+              : BorderSide(
+                  color: colors.uiBorder,
+                  width: AppExplorePeopleLayout.answerBorder,
+                ),
+        ),
+        foregroundColor: accept
+            ? colors.primaryFillLabel
+            : Theme.of(context).colorScheme.onSurface,
+      ),
+    );
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: accept
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: colors.primaryFillGradient,
+                boxShadow: AppShadows.primaryGlow,
+              ),
+              child: button,
+            )
+          : button,
     );
   }
 }

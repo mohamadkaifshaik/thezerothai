@@ -7,7 +7,9 @@ import '../../../../shared/widgets/primitives/settings_group.dart';
 /// "Coming soon" pill and no number (not even 0 or a dash). Insights v1
 /// replaces this widget and nothing else on the page.
 class CreatorInsightsGroup extends StatelessWidget {
-  const CreatorInsightsGroup({super.key});
+  const CreatorInsightsGroup({super.key, required this.style});
+
+  final SettingsGroupStyle style;
 
   static const title = 'Insights';
   static const comingSoon = 'Coming soon';
@@ -23,6 +25,7 @@ class CreatorInsightsGroup extends StatelessWidget {
   Widget build(BuildContext context) {
     return SettingsGroup(
       title: title,
+      style: style,
       rows: [
         for (final (icon, label) in _rows)
           SettingsRow(

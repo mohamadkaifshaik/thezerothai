@@ -10,6 +10,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.d
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
+import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -86,13 +87,22 @@ void main() {
     }
   });
 
-  testWidgets('shown with both flags, in its own group, and opens the list', (
+  testWidgets('shown with both flags, in the App group, and opens the list', (
     tester,
   ) async {
     await open(tester, {kFeaturePosts, kFeatureScheduledPosts});
 
-    expect(find.text('Posts'), findsOneWidget);
-    expect(find.text('Scheduled posts'), findsOneWidget);
+    // The row sits in the App group (the default test window is flat).
+    expect(find.text('APP'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byWidgetPredicate(
+          (w) => w is SettingsGroup && w.title == 'App',
+        ),
+        matching: find.text('Scheduled posts'),
+      ),
+      findsOneWidget,
+    );
     expect(find.byIcon(Icons.schedule_send_outlined), findsOneWidget);
 
     await tester.tap(find.text('Scheduled posts'));

@@ -14,6 +14,12 @@ import '../domain/schedule_rules.dart';
 const kMediaCombinationMessage =
     "A GIF can't go with photos or a schedule. Remove one and try again.";
 
+/// FEATURE_DISABLED `reply_audience`: the flag went off after the audience
+/// was chosen. The caller drops the audience, so the post is open to everyone.
+const kReplyAudienceUnavailableMessage =
+    "Choosing who can reply isn't available right now. Your post will be "
+    'open to everyone.';
+
 /// Friendly, typed messages for a failed CreatePost (shown in a snackbar;
 /// never the raw server text). [EmailNotVerifiedException] is normally
 /// handled by showing `VerifyEmailView` instead; the text is the fallback.
@@ -151,8 +157,7 @@ String scheduleErrorMessage(AppException error) {
     ValidationException(field: 'media_ids') => kMediaCombinationMessage,
     // The audience is dropped by the composer ("Everyone"), so say so.
     FeatureDisabledException(feature: kFeatureReplyAudience) =>
-      "Choosing who can reply isn't available right now. Your post will be "
-          'open to everyone.',
+      kReplyAudienceUnavailableMessage,
     FeatureDisabledException() => "Scheduling isn't available right now.",
     // A lost response may still have scheduled the post: never say it was not.
     NetworkException() =>
@@ -198,6 +203,42 @@ String cancelScheduledErrorMessage(AppException error, {bool dismiss = false}) {
       'Dzeroth is in a limited mode right now. Please try again shortly.',
     FeatureDisabledException() => '$kScheduledUnavailableTitle.',
     _ => "Couldn't $verb that post. Please try again.",
+  };
+}
+
+/// Snackbar text for a failed Post now of a scheduled post; the row has been
+/// put back. A lost response may still have posted it: never say it was not.
+String postNowScheduledErrorMessage(AppException error) {
+  return switch (error) {
+    final RateLimitedException e => rateLimitedMessage(e),
+    NetworkException() =>
+      "Couldn't confirm your post went out. Pull down to check.",
+    DegradedModeException() =>
+      'Dzeroth is in a limited mode right now. Please try again shortly.',
+    FeatureDisabledException() => '$kScheduledUnavailableTitle.',
+    LimitReachedException() || QuotaExceededException() =>
+      "You can't post more right now. It stays scheduled.",
+    _ => "Couldn't post that now. It stays scheduled.",
+  };
+}
+
+/// Text for a failed Edit of a scheduled post, shown in the edit sheet
+/// (nothing changed). The time and text refusals reuse the composer's words.
+String editScheduledErrorMessage(AppException error) {
+  return switch (error) {
+    ValidationException(field: 'publish_at') => kScheduleRejectedMessage,
+    ValidationException(field: 'text') => createPostErrorMessage(error),
+    LimitReachedException(quota: 'scheduled_window') =>
+      'Too many posts are scheduled around that time. Pick another time.',
+    final RateLimitedException e => rateLimitedMessage(e),
+    NetworkException() =>
+      "Couldn't confirm your change. Check Scheduled posts and try again.",
+    DegradedModeException() =>
+      'Dzeroth is in a limited mode right now. Please try again shortly.',
+    FeatureDisabledException() => '$kScheduledUnavailableTitle.',
+    ValidationException() =>
+      "This post can't be saved. Check the text and try again.",
+    _ => "Couldn't save your changes. Please try again.",
   };
 }
 

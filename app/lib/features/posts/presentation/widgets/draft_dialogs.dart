@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/tablet_modal.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The answer to "Save post?".
 enum SavePostChoice { save, discard }
@@ -17,7 +19,7 @@ const kDraftsGifNote = "A GIF isn't saved in drafts.";
 Future<SavePostChoice?> showSavePostDialog(
   BuildContext context, {
   String? mediaNote,
-}) => showDialog<SavePostChoice>(
+}) => showAppMaterialDialog<SavePostChoice>(
   context: context,
   builder: (_) => SavePostDialog(mediaNote: mediaNote),
 );
@@ -99,7 +101,7 @@ Future<bool> showDiscardDraftsDialog(
   BuildContext context, {
   required int count,
 }) async {
-  final discard = await showDialog<bool>(
+  final discard = await showAppMaterialDialog<bool>(
     context: context,
     builder: (_) => DiscardDraftsDialog(count: count),
   );
@@ -180,11 +182,16 @@ const kSignOutDraftsBody = 'Your unsent posts stay on this device.';
 /// "Sign out?" for an account that has unsent posts on this device.
 /// Resolves to [SignOutDraftsChoice.delete] or [SignOutDraftsChoice.keep], or
 /// null for "Cancel" and a dismissed dialog (the user stays signed in).
-Future<SignOutDraftsChoice?> showSignOutDraftsDialog(BuildContext context) =>
-    showDialog<SignOutDraftsChoice>(
-      context: context,
-      builder: (_) => const SignOutDraftsDialog(),
-    );
+/// [host] is the tablet presentation resolved where the sign-out started
+/// (the caller opens this from the root navigator's own context).
+Future<SignOutDraftsChoice?> showSignOutDraftsDialog(
+  BuildContext context, {
+  TabletModalHost? host,
+}) => showAppMaterialDialog<SignOutDraftsChoice>(
+  context: context,
+  host: host,
+  builder: (_) => const SignOutDraftsDialog(),
+);
 
 class SignOutDraftsDialog extends StatelessWidget {
   const SignOutDraftsDialog({super.key});

@@ -49,7 +49,7 @@ class ConversationsState {
   final bool loadingMore;
   final bool loadMoreFailed;
 
-  /// Pending message requests ("Message requests (N)"): the server sends it on
+  /// Pending message requests ("Message requests" card): the server sends it on
   /// an INBOX first page or since refresh; the repository persists the last
   /// one, so it is shown on a warm start and is null only before any was
   /// ever received.
@@ -142,8 +142,27 @@ class ConversationsCubit extends Cubit<ConversationsState> {
 
   bool get _isInbox => folder == Folder.FOLDER_INBOX;
 
+  bool _started = false;
+  Future<void>? _opening;
+
+  /// Whether [load] ever ran (a hoisted list that was opened once).
+  bool get started => _started;
+
+  /// A route opening the list: [load], unless a load is already in flight
+  /// (two placements opening in one frame share it). The hoisted cubit
+  /// (`ConversationsSession`) is opened by every visit, as a screen-owned one
+  /// was on every mount.
+  Future<void> open() => _opening ??= load().whenComplete(() {
+    _opening = null;
+  });
+
+  /// The band B list pane: loads only when nothing ever did, so crossing
+  /// 840dp or switching conversations in the split page sends nothing.
+  Future<void> ensureLoaded() => _started ? Future<void>.value() : open();
+
   /// Opens the screen: cache first, then one refresh.
   Future<void> load() async {
+    _started = true;
     final ConversationsSnapshot cached;
     try {
       cached = await _repository.cachedConversations(folder);

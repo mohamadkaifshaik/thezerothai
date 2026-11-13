@@ -1,11 +1,12 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/shared/format/joined_date.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
@@ -18,7 +19,7 @@ import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
 import '../../../support/profile_rig.dart';
 
-/// The whole W3 profile screen (banner, location, website, "Follows
+/// The whole W3 profile screen (location, website, "Follows
 /// you" and "Follow back", the four tabs, the Pinned row and its menu rows) at
 /// every cell of the responsive matrix: 360 / 600 / 1200 dp, light and dark,
 /// text scale 1.0 / 1.3 / 2.0. The per-widget files (`profile_header_data_test`,
@@ -37,15 +38,6 @@ void main() {
   setUp(() => rig = W3ProfileRig());
   tearDown(() => rig.dispose());
 
-  const full = 'https://m.test/banner-full.webp';
-  const thumb = 'https://m.test/banner-thumb.webp';
-
-  String? bannerUrl(WidgetTester tester) {
-    final images = find.byType(CachedNetworkImage);
-    if (images.evaluate().isEmpty) return null;
-    return tester.widget<CachedNetworkImage>(images.first).imageUrl;
-  }
-
   Finder tab(String label) =>
       find.descendant(of: find.byType(AppTabBar), matching: find.text(label));
 
@@ -53,10 +45,6 @@ void main() {
     for (final t in tester.widget<AppTabBar>(find.byType(AppTabBar)).tabs)
       t.label,
   ];
-
-  /// The size of the banner image (the header's 3:1 band).
-  Size band(WidgetTester tester) =>
-      tester.getSize(find.byType(CachedNetworkImage).first);
 
   /// The display name inside the header (the app bar repeats it faded).
   Finder headerName() => find.descendant(
@@ -82,10 +70,7 @@ void main() {
   }
 
   group('another user, every W3 header field, four tabs', () {
-    forEachThemeAndWidth('header data, banner and targets fit', (
-      tester,
-      env,
-    ) async {
+    forEachThemeAndWidth('header data and targets fit', (tester, env) async {
       final semantics = tester.ensureSemantics();
       rig.arrange(features: w3Tabs, followedBy: true);
       await openCell(tester, env);
@@ -103,12 +88,6 @@ void main() {
         expect(find.text(text), findsOneWidget, reason: text);
         expectInsideHorizontally(tester, find.text(text), env.size.width);
       }
-      // The thumb below 600 dp, the full image from 600 dp.
-      expect(bannerUrl(tester), env.size.width < 600 ? thumb : full);
-      // The band is 3:1 whatever the text scale, and as wide as the header.
-      final image = band(tester);
-      expect(image.width / image.height, closeTo(3, 0.02));
-      expect(image.width, lessThanOrEqualTo(env.size.width + 0.5));
       // Targets: Follow back, the website link, the profile menu.
       expectMinTarget(
         tester,
@@ -434,22 +413,15 @@ void main() {
   });
 
   group('a profile without the W3 fields', () {
-    forEachThemeAndWidth('flat band at the same 3:1 height, no meta row but '
+    forEachThemeAndWidth('no meta row but '
         'Joined, the tabs still pin', (tester, env) async {
       rig.arrange(
         features: w3Tabs,
-        profile: w3Profile(
-          W3ProfileRig.target,
-          banner: '',
-          bannerThumb: '',
-          location: '',
-          website: '',
-        ),
+        profile: w3Profile(W3ProfileRig.target, location: '', website: ''),
       );
       await openCell(tester, env);
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(CachedNetworkImage), findsNothing);
       expect(find.byIcon(Icons.location_on_outlined), findsNothing);
       expect(find.text('example.com'), findsNothing);
       expect(
@@ -474,26 +446,23 @@ void main() {
       await openCell(tester, env);
 
       expect(tester.takeException(), isNull);
-      expect(
-        find.widgetWithText(OutlinedButton, 'Edit profile'),
-        findsOneWidget,
-      );
+      expect(find.widgetWithText(FilledButton, 'Edit profile'), findsOneWidget);
       expect(find.text('Follows you'), findsNothing);
       expect(find.widgetWithText(FilledButton, 'Follow'), findsNothing);
       expectMinTarget(
         tester,
-        find.widgetWithText(OutlinedButton, 'Edit profile'),
+        find.widgetWithText(FilledButton, 'Edit profile'),
         reason: 'Edit profile',
       );
       expectInsideHorizontally(
         tester,
-        find.widgetWithText(OutlinedButton, 'Edit profile'),
+        find.widgetWithText(FilledButton, 'Edit profile'),
         env.size.width,
       );
       if (!isD1Cell(env)) {
         expect(
           tester
-              .getRect(find.widgetWithText(OutlinedButton, 'Edit profile'))
+              .getRect(find.widgetWithText(FilledButton, 'Edit profile'))
               .overlaps(tester.getRect(headerName())),
           isFalse,
           reason: 'Edit profile over the display name',
@@ -541,7 +510,20 @@ void main() {
         ),
         reason: 'Retry',
       );
-      // Not lost: the post is still listed below, under the Pinned label.
+      // Not lost: the post is still listed below, under the Pinned label
+      // (at a large text scale the notice pushes it below the fold).
+      if (find.text('post 2').evaluate().isEmpty) {
+        await tester.scrollUntilVisible(
+          find.text('post 2'),
+          100,
+          scrollable: find
+              .descendant(
+                of: find.byType(TimelineFeedView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+      }
       expect(find.text('post 2'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
@@ -603,7 +585,7 @@ void main() {
       for (final label in ['Cancel', 'Replace']) {
         final button = find.ancestor(
           of: find.descendant(
-            of: find.byType(AlertDialog),
+            of: find.byType(AppConfirmDialog),
             matching: find.text(label),
           ),
           matching: find.byWidgetPredicate(
@@ -618,9 +600,9 @@ void main() {
 
   // D-1 (fixed in the client PR):
   // at 360 dp and text scale 2.0 the header's action buttons grow taller than the 48 dp the
-  // strip under the banner reserves for them ("Follow back" wraps to two lines
+  // strip under the band reserves for them ("Follow back" wraps to two lines
   // and is 84 dp tall, "Edit profile" is 56 dp), so they are painted over the
-  // first line of the display name. The strip under the banner now grows with
+  // first line of the display name. The strip under the band now grows with
   // the actions, so the repro runs (`d1Fixed` stays as the switch for it).
   const d1Fixed = true;
   group('D-1: the header actions do not overlap the display name', () {
@@ -651,7 +633,7 @@ void main() {
             );
             final action = tester.getRect(
               own
-                  ? find.widgetWithText(OutlinedButton, 'Edit profile')
+                  ? find.widgetWithText(FilledButton, 'Edit profile')
                   : find.widgetWithText(FilledButton, 'Follow back'),
             );
             expect(

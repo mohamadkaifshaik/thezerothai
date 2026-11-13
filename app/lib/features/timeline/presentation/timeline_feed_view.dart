@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -11,6 +10,7 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/post/pending_posts_section.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
@@ -26,6 +26,7 @@ import 'widgets/feed_post_row.dart';
 import 'widgets/new_posts_pill.dart';
 import '../../../shared/widgets/post/timeline_gap_row.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_geometry.dart';
 
 /// How often the foreground tick fires: it re-renders relative times
 /// ("5m", no RPC) and asks the cubit for a throttled refresh, which sends at
@@ -306,9 +307,9 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     return LayoutBuilder(
       builder: (context, constraints) {
         // Cap the content width on tablet/desktop, centered.
-        final inset = math.max(
-          0.0,
-          (constraints.maxWidth - AppBreakpoints.mobile) / 2,
+        final inset = ShellGeometry.readableInset(
+          context,
+          constraints.maxWidth,
         );
         return BlocBuilder<TimelineCubit, TimelineState>(
           builder: (context, state) {
@@ -382,12 +383,17 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                   ),
               ],
             );
-            if (!widget.fillViewport) return stack;
+            // The header slivers' controls reach the pane's edges (T8f).
+            final region = AppBleedHitRegion(
+              allowsScrollView: true,
+              child: stack,
+            );
+            if (!widget.fillViewport) return region;
             // After every change of the rows, once laid out.
             return BlocListener<TimelineCubit, TimelineState>(
               listener: (context, state) => WidgetsBinding.instance
                   .addPostFrameCallback((_) => _fillIfShort()),
-              child: stack,
+              child: region,
             );
           },
         );
@@ -395,9 +401,12 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     );
   }
 
+  /// [sliver] in the reading column. Its header dividers and tab bars
+  /// (Home's tabs, a list's or a community's header) span the pane: the
+  /// inset is their bleed (0 wherever the column fills the pane).
   Widget _inset(double inset, Widget sliver) => SliverPadding(
     padding: EdgeInsets.symmetric(horizontal: inset),
-    sliver: sliver,
+    sliver: AppMainColumnBleed(bleed: inset, child: sliver),
   );
 
   List<Widget> _body(

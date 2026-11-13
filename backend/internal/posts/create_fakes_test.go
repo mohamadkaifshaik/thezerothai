@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -147,9 +148,14 @@ type fakeDirectory struct {
 	profileErr error
 	resolveErr error // ResolveHandles failure
 	forgotten  []string
+	callsMu    sync.Mutex
+	calls      [][]string // every GetProfiles batch
 }
 
 func (d *fakeDirectory) GetProfiles(_ context.Context, uids []string) (map[string]identity.Profile, error) {
+	d.callsMu.Lock()
+	d.calls = append(d.calls, append([]string(nil), uids...))
+	d.callsMu.Unlock()
 	if d.profileErr != nil {
 		return nil, d.profileErr
 	}

@@ -59,28 +59,29 @@ void main() {
     });
   });
 
-  testWidgets('shows bold name, muted handle, relative time and snippet', (
-    tester,
-  ) async {
-    await pumpRow(
-      tester,
-      ConversationRow(
-        conversation: conv('a', snippet: 'hello', fromSelf: true),
-        now: now,
-      ),
-    );
+  testWidgets(
+    'shows bold name, relative time and snippet; the handle is spoken only',
+    (tester) async {
+      await pumpRow(
+        tester,
+        ConversationRow(
+          conversation: conv('a', snippet: 'hello', fromSelf: true),
+          now: now,
+        ),
+      );
 
-    expect(find.text('Peer a'), findsOneWidget);
-    expect(find.text('@peera'), findsOneWidget);
-    expect(find.text('5m'), findsOneWidget);
-    expect(find.text('You: hello'), findsOneWidget);
-    expect(find.byKey(ConversationRow.unreadDotKey), findsNothing);
-    expect(find.byKey(ConversationRow.silentMarkerKey), findsNothing);
-    final name = tester.widget<Text>(find.text('Peer a'));
-    expect(name.style?.fontWeight, FontWeight.w700);
-  });
+      expect(find.text('Peer a'), findsOneWidget);
+      expect(find.text('@peera'), findsNothing);
+      expect(find.text('5m'), findsOneWidget);
+      expect(find.text('You: hello'), findsOneWidget);
+      expect(find.byKey(ConversationRow.unreadDotKey), findsNothing);
+      expect(find.byKey(ConversationRow.silentMarkerKey), findsNothing);
+      final name = tester.widget<Text>(find.text('Peer a'));
+      expect(name.style?.fontWeight, FontWeight.w700);
+    },
+  );
 
-  testWidgets('the row is 72dp high with a 48dp avatar and no divider', (
+  testWidgets('the row is 74dp high with a 50dp avatar and no divider', (
     tester,
   ) async {
     await pumpRow(
@@ -91,9 +92,9 @@ void main() {
       ),
     );
 
-    expect(tester.getSize(find.byType(ConversationRow)).height, 72);
+    expect(tester.getSize(find.byType(ConversationRow)).height, 74);
     expect(find.byType(Divider), findsNothing);
-    expect(tester.getSize(find.byType(CircleAvatar).first), const Size(48, 48));
+    expect(tester.getSize(find.byType(CircleAvatar).first), const Size(50, 50));
   });
 
   testWidgets('unread: bold snippet, accent dot and "unread" when spoken', (
@@ -134,7 +135,7 @@ void main() {
     );
 
     final snippet = tester.widget<Text>(find.text('hello'));
-    expect(snippet.style?.fontWeight, FontWeight.w400);
+    expect(snippet.style?.fontWeight, FontWeight.w500);
     expect(find.byKey(ConversationRow.unreadDotKey), findsNothing);
   });
 

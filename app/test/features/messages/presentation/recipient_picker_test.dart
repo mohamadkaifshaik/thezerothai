@@ -156,7 +156,16 @@ void main() {
             );
 
             expect(find.text('New message'), findsOneWidget);
-            expect(find.text('To:'), findsOneWidget);
+            // The dialog's pill leads with "To:"; the phone's raised pill
+            // only with the search glyph (the mocks).
+            expect(
+              find.text('To:'),
+              width < 600 ? findsNothing : findsOneWidget,
+            );
+            expect(
+              find.text(width < 600 ? 'Suggested' : 'SUGGESTED'),
+              findsOne,
+            );
             expect(find.text('User 1'), findsOneWidget);
             expect(find.byType(UserListRow), findsNWidgets(3));
             expect(find.byType(FollowButton), findsNothing);
@@ -297,7 +306,7 @@ void main() {
 
       verify(() => rig.identityRepo.getProfile(handle: 'zed_9')).called(1);
       expect(find.byType(DraftThreadScreen), findsOneWidget);
-      expect(find.text('New message to Zed'), findsOneWidget);
+      expect(find.text('Say hello.'), findsOneWidget);
       // The picker was replaced, not stacked.
       expect(find.byType(RecipientPicker), findsNothing);
     });

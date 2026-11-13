@@ -16,6 +16,7 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_empty_view.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_icon_button.dart';
+import 'package:dzeroth/core/widgets/shell_fab.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -107,10 +108,13 @@ void main() {
       routes: [
         GoRoute(
           path: '/',
-          builder: (context, state) => ConversationsScreen(
-            folder: folder,
-            onOpenConversation: onOpenConversation,
-            onNewMessage: onNewMessage,
+          // The shell's floating-button registry, as under MainShell.
+          builder: (context, state) => ShellFabHost(
+            child: ConversationsScreen(
+              folder: folder,
+              onOpenConversation: onOpenConversation,
+              onNewMessage: onNewMessage,
+            ),
           ),
         ),
         GoRoute(
@@ -301,15 +305,13 @@ void main() {
   });
 
   group('Message requests row', () {
-    testWidgets('shows "Message requests (2)" and opens the folder', (
-      tester,
-    ) async {
+    testWidgets('shows the requests card and opens the folder', (tester) async {
       stub(cached: [conv('a', snippet: 'one')], requestCount: 2);
 
       await open(tester);
 
-      expect(find.text('Message requests (2)'), findsOneWidget);
-      await tester.tap(find.text('Message requests (2)'));
+      expect(find.text('2 people want to say hello'), findsOneWidget);
+      await tester.tap(find.text('Message requests'));
       await tester.pumpAndSettle();
 
       expect(visited, ['/messages/requests']);
@@ -345,7 +347,7 @@ void main() {
 
       await open(tester);
 
-      expect(find.text('Message requests (4)'), findsOneWidget);
+      expect(find.text('4 people want to say hello'), findsOneWidget);
       expect(find.text('Welcome to your inbox'), findsOneWidget);
     });
   });
@@ -398,28 +400,43 @@ void main() {
   });
 
   group('New message action', () {
-    testWidgets('is shown disabled until /messages/new exists (W7-17)', (
-      tester,
-    ) async {
+    ShellFabAction? offered(WidgetTester tester) => ShellFabScope.maybeOf(
+      tester.element(find.byType(ConversationsScreen)),
+    )!.actionAt('/');
+
+    testWidgets('the inbox offers no floating button until /messages/new '
+        'exists (W7-17)', (tester) async {
       stub(cached: [conv('a', snippet: 'one')]);
 
       await open(tester);
 
-      final button = tester.widget<FloatingActionButton>(
-        find.widgetWithIcon(FloatingActionButton, Icons.mail_outline),
-      );
-      expect(button.onPressed, isNull);
-      expect(find.byTooltip('New message'), findsOneWidget);
+      expect(offered(tester), isNull);
     });
 
-    testWidgets('calls the callback once it is wired', (tester) async {
+    testWidgets("the inbox offers the shell's floating New message, which "
+        'calls the callback', (tester) async {
       stub(cached: [conv('a', snippet: 'one')]);
       var taps = 0;
 
       await open(tester, onNewMessage: () => taps++);
-      await tester.tap(find.byTooltip('New message'));
 
+      final action = offered(tester)!;
+      expect(action.tooltip, 'New message');
+      expect(action.icon, Icons.mail_outline);
+      action.onPressed();
       expect(taps, 1);
+    });
+
+    testWidgets('Requests offers none', (tester) async {
+      stub(cached: [conv('a', snippet: 'one')]);
+
+      await open(
+        tester,
+        folder: Folder.FOLDER_REQUESTS,
+        onNewMessage: () {},
+      );
+
+      expect(offered(tester), isNull);
     });
 
     testWidgets('wide + ui_shell: a raised top bar action (PR 3.3)', (
@@ -640,7 +657,7 @@ void main() {
         );
 
         expect(tester.takeException(), isNull);
-        expect(find.text('Message requests (2)'), findsOneWidget);
+        expect(find.text('2 people want to say hello'), findsOneWidget);
         expect(find.byType(ConversationRow), findsNWidgets(3));
         // The main column never grows past 600dp, also at 1200 (no
         // master-detail in v1).

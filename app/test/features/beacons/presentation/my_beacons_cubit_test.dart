@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/beacons/presentation/bloc/beacons_state.dart';
@@ -117,5 +119,140 @@ void main() {
     await c.load();
     expect(c.state.status, BeaconsLoad.error);
     expect(c.state.error, isA<NetworkException>());
+  });
+
+  // Tablet T5: the "Your plans" section of `/plans` is this cubit with a
+  // page of 2 (tablet plan section 4.1: "one extra list call, limit 2").
+  group('Your plans (pageSize 2)', () {
+    void answer(BeaconsPage page) {
+      when(
+        () => beacons.listMyBeacons(
+          role: any(named: 'role'),
+          window: any(named: 'window'),
+          limit: any(named: 'limit'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer((inv) async {
+        calls.add((
+          role: inv.namedArguments[#role] as pb.MyBeaconsRole,
+          window: inv.namedArguments[#window] as pb.MyBeaconsWindow,
+          limit: inv.namedArguments[#limit] as int,
+          token: inv.namedArguments[#pageToken] as String,
+        ));
+        return page;
+      });
+    }
+
+    test('one ListMyBeacons of 2: every role, upcoming, first page', () async {
+      answer(
+        BeaconsPage(
+          views: [
+            beaconView(startAt: now, id: kBeaconIdA),
+            beaconView(startAt: now, id: kBeaconIdB),
+          ],
+          nextPageToken: '2',
+        ),
+      );
+      final c = MyBeaconsCubit(repository: beacons, pageSize: 2);
+      addTearDown(c.close);
+      await c.load();
+
+      expect(calls.single, (
+        role: pb.MyBeaconsRole.MY_BEACONS_ROLE_ALL,
+        window: pb.MyBeaconsWindow.MY_BEACONS_WINDOW_UPCOMING,
+        limit: 2,
+        token: '',
+      ));
+      expect(c.state.status, BeaconsLoad.ready);
+      expect(c.state.views.map((v) => v.beacon.beaconId), [
+        kBeaconIdA,
+        kBeaconIdB,
+      ]);
+    });
+
+    test('an empty answer is ready with no rows', () async {
+      answer(const BeaconsPage(views: []));
+      final c = MyBeaconsCubit(repository: beacons, pageSize: 2);
+      addTearDown(c.close);
+      await c.load();
+
+      expect(calls.single.limit, 2);
+      expect(c.state.status, BeaconsLoad.ready);
+      expect(c.state.views, isEmpty);
+      expect(c.state.error, isNull);
+    });
+
+    test('a failure is an error with no rows', () async {
+      when(
+        () => beacons.listMyBeacons(
+          role: any(named: 'role'),
+          window: any(named: 'window'),
+          limit: any(named: 'limit'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenThrow(NetworkException('offline'));
+      final c = MyBeaconsCubit(repository: beacons, pageSize: 2);
+      addTearDown(c.close);
+      await c.load();
+
+      expect(c.state.status, BeaconsLoad.error);
+      expect(c.state.error, isA<NetworkException>());
+      expect(c.state.views, isEmpty);
+    });
+
+    test('the default page is still 20', () async {
+      final c = MyBeaconsCubit(repository: beacons);
+      addTearDown(c.close);
+      await c.load();
+      expect(calls.single.limit, 20);
+    });
+  });
+
+  // Tablet T5: the hoisted cubits are shown by two placements (the band A
+  // list and the band B list pane); only the route's open refreshes.
+  group('ensureLoaded and refresh', () {
+    test('ensureLoaded loads the first time only', () async {
+      final c = MyBeaconsCubit(repository: beacons, pageSize: 2);
+      addTearDown(c.close);
+      expect(c.started, isFalse);
+      await c.ensureLoaded();
+      expect(c.started, isTrue);
+      await c.ensureLoaded();
+      expect(calls, hasLength(1));
+    });
+
+    test('refresh while a load is in flight sends nothing more; after it, '
+        'one more', () async {
+      final gate = Completer<BeaconsPage>();
+      when(
+        () => beacons.listMyBeacons(
+          role: any(named: 'role'),
+          window: any(named: 'window'),
+          limit: any(named: 'limit'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer((inv) {
+        calls.add((
+          role: inv.namedArguments[#role] as pb.MyBeaconsRole,
+          window: inv.namedArguments[#window] as pb.MyBeaconsWindow,
+          limit: inv.namedArguments[#limit] as int,
+          token: inv.namedArguments[#pageToken] as String,
+        ));
+        return calls.length == 1
+            ? gate.future
+            : Future.value(const BeaconsPage(views: []));
+      });
+      final c = MyBeaconsCubit(repository: beacons, pageSize: 2);
+      addTearDown(c.close);
+
+      final first = c.ensureLoaded();
+      await c.refresh();
+      expect(calls, hasLength(1));
+      gate.complete(const BeaconsPage(views: []));
+      await first;
+
+      await c.refresh();
+      expect(calls, hasLength(2));
+    });
   });
 }

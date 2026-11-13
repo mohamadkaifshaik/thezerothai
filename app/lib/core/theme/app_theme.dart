@@ -39,17 +39,26 @@ abstract final class AppIconSize {
   static const double lg = 24;
   static const double xl = 40;
 
-  /// The post action row glyph (the 48dp tap target around it is kept).
-  static const double action = 16;
+  /// The post action row glyph (dz.css `.acts`, 18 px; the 48dp tap target
+  /// around it is kept).
+  static const double action = 18;
 }
 
-/// The opened post on its post page (x.com post detail, captured 2026-11-02):
-/// text 17dp on a 24dp line (measured); action glyphs a step above the list
-/// rows (estimated from the screenshot).
+/// The opened post on its post page: text 17dp on a 24dp line on phones (the
+/// mobile PostDetail design), 21dp at 1.4 from the tablet width up (the
+/// tablet and desktop PostDetail designs); action glyphs a step above the
+/// list rows.
 abstract final class AppFocalPost {
   static const double bodySize = 17;
   static const double bodyLineHeight = 24;
+  static const double bodySizeWide = 21;
+  static const double bodyLineHeightWide = 29.4;
   static const double actionIcon = 20;
+
+  /// Below 600dp the actions keep the list glyph size and the avatar is 46dp
+  /// (the mobile PostDetail design).
+  static const double actionIconPhone = 18;
+  static const double phoneAvatar = 46;
 }
 
 /// Opacity levels for tints over a surface.
@@ -61,6 +70,9 @@ abstract final class AppOpacity {
   /// Fill of the leading result bar of a poll (accent over the surface); the
   /// other bars use the border colour. Text over it keeps AA in both themes.
   static const double pollLeadingBar = 0.35;
+
+  /// The thread rail between connected posts: the accent at this alpha.
+  static const double threadRail = 0.35;
 }
 
 /// Page-level layout widths (dp) of the desktop/web shell.
@@ -99,9 +111,19 @@ abstract final class AppRadius {
   static const double menu = 16;
 }
 
-/// Responsive layout breakpoints.
+/// Responsive layout breakpoints (window width, dp).
 abstract final class AppBreakpoints {
+  /// Phones end here: the tablet layouts start at this width.
   static const double mobile = 600;
+
+  /// The Material 3 *expanded* boundary inside the tablet range: 600-839 is
+  /// band A (one fluid column), 840-1199 band B (two panes). Tablet plan
+  /// section 1.
+  static const double expanded = 840;
+
+  /// Desktop from: the extended rail and the 600 + 350 column cluster start
+  /// at this width. (The name predates the tablet bands; it does not mean
+  /// "tablet".)
   static const double tablet = 1200;
 }
 
@@ -172,6 +194,54 @@ abstract final class AppSize {
 
   /// Boundary width of outline buttons and chips (component themes).
   static const double componentBorder = 1.5;
+
+  // The tablet layout, 600-1199 dp (tablet plan section 1).
+
+  /// Width of the pinned `AppNavRail` (plus the leading safe-area inset).
+  static const double railCompact = 80;
+
+  /// Width of the extended `NavigationRail` of the desktop layout (>= 1200
+  /// dp): Material's `minExtendedWidth`, which the app's theme keeps.
+  static const double railExtended = 256;
+
+  /// Widest a reading column (posts, forms, settings rows) grows inside a
+  /// tablet pane; the pane and its header span the full width.
+  static const double readableMax = 680;
+
+  /// Band B list pane of a list-detail screen: `clamp(0.4 * C, min, max)`.
+  static const double listPaneMin = 320;
+  static const double listPaneMax = 400;
+
+  /// Max width of a dialog, and of the composer dialogs.
+  static const double dialogMax = 560;
+  static const double composerDialogMax = 600;
+
+  /// Tallest the composer dialogs grow: `min(85 % of H, this)` (tablet plan
+  /// section 4.1, Composer row).
+  static const double composerDialogMaxHeight = 720;
+
+  /// The desktop reply dialog (desktop ReplyComposer mock, dz.css `.scrim`
+  /// and `.modal`): hung 64 dp under the top of the window, at most this
+  /// tall (the mock's card: the bar, the post, four lines and the footer).
+  static const double desktopModalTop = 64;
+  static const double replyDialogDesktopHeight = 440;
+
+  /// The character ring of the reply composer (ReplyComposer mocks): 26 dp
+  /// on a phone, 24 dp in the dialog.
+  static const double counterRingPhone = 26;
+  static const double counterRing = 24;
+
+  /// Width range of a confirm or alert dialog on the tablet layout ("D
+  /// 280-400", tablet plan section 4.2).
+  static const double alertDialogMin = 280;
+  static const double alertDialogMax = 400;
+
+  /// Width of the scheduled post editor on tablet and desktop (the Schedule
+  /// dialog is 440; the editor carries a text field too).
+  static const double editScheduledDialog = 480;
+
+  /// Width of a side sheet (the chat info sheet).
+  static const double sideSheet = 360;
 }
 
 /// Semantic colours that the Material [ColorScheme] has no slot for.
@@ -288,7 +358,7 @@ class AppColors extends ThemeExtension<AppColors> {
     disabledPillFill: AppPalette.darkContainerHighest,
     disabledPillLabel: AppPalette.mutedOnDark,
     selectedRow: AppPalette.darkContainerHigh,
-    scrim: AppPalette.scrim,
+    scrim: AppPalette.scrimDark,
     primaryFillGradient: AppGradients.primaryButton,
     primaryFillLabel: AppPalette.navy,
     dangerFill: AppPalette.danger,
@@ -865,98 +935,6 @@ ThemeData buildAppTheme({required Brightness brightness}) {
 ThemeData get appLightTheme => buildAppTheme(brightness: Brightness.light);
 ThemeData get appDarkTheme => buildAppTheme(brightness: Brightness.dark);
 
-/// Authentication's navy/pearl surfaces, scoped to the existing auth routes.
-/// The app-level ThemeMode and typography remain the source of truth.
-abstract final class AppAuthStyle {
-  static const navy = Color(0xFF0B1120);
-  static const mint = Color(0xFFA9E8D1);
-  static const onNavy = Color(0xFFF8FAFC);
-  static const panelSurface = Color(0xFF202C40);
-  static const panelBorder = Color(0xFF536174);
-  static const maxPageWidth = 1440.0;
-  static const formWidth = 440.0;
-  static const heroHeadlineSize = 56.0;
-  static const splashMarkSize = 96.0;
-
-  static ThemeData theme(ThemeData base) {
-    final dark = base.brightness == Brightness.dark;
-    final scheme = base.colorScheme.copyWith(
-      primary: dark ? mint : navy,
-      onPrimary: dark ? navy : Colors.white,
-      surface: dark ? navy : const Color(0xFFF7F8FA),
-      surfaceContainer: dark ? const Color(0xFF141E30) : Colors.white,
-      onSurface: dark ? onNavy : const Color(0xFF111827),
-      onSurfaceVariant: dark
-          ? const Color(0xFFB2BDCE)
-          : const Color(0xFF536174),
-      outline: dark ? const Color(0xFF334155) : const Color(0xFFD4DAE3),
-    );
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-    );
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-      borderSide: BorderSide(color: scheme.outline),
-    );
-    final colors =
-        (base.extension<AppColors>() ??
-                (dark ? AppColors.dark : AppColors.light))
-            .copyWith(
-              strongPillFill: scheme.primary,
-              strongPillLabel: scheme.onPrimary,
-              accentText: scheme.primary,
-            );
-    return base.copyWith(
-      colorScheme: scheme,
-      extensions: [
-        ...base.extensions.values.where((e) => e is! AppColors),
-        colors,
-      ],
-      textTheme: base.textTheme.apply(
-        bodyColor: scheme.onSurface,
-        displayColor: scheme.onSurface,
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.smd,
-          ),
-          backgroundColor: scheme.surfaceContainer,
-          foregroundColor: scheme.onSurface,
-          side: BorderSide(color: scheme.outline),
-          shape: shape,
-        ),
-      ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          minimumSize: const Size(
-            AppSpacing.minTapTarget,
-            AppSpacing.minTapTarget,
-          ),
-          foregroundColor: scheme.primary,
-        ),
-      ),
-      dividerTheme: DividerThemeData(color: scheme.outline),
-      inputDecorationTheme: base.inputDecorationTheme.copyWith(
-        fillColor: scheme.surfaceContainer,
-        floatingLabelBehavior: FloatingLabelBehavior.always,
-        contentPadding: const EdgeInsets.all(AppSpacing.md),
-        labelStyle: TextStyle(
-          color: scheme.onSurface,
-          fontWeight: FontWeight.w600,
-        ),
-        border: border,
-        enabledBorder: border,
-        focusedBorder: border.copyWith(
-          borderSide: BorderSide(color: scheme.primary, width: 2),
-        ),
-      ),
-    );
-  }
-}
-
 /// Approved authentication palette; scoped widgets retain the app-wide color policy.
 abstract final class AppAuthPalette {
   static const navy = Color(0xFF101829);
@@ -1006,7 +984,7 @@ abstract final class AppPalette {
   static const Color navy = Color(0xFF0D1528);
   static const Color navy2 = Color(0xFF1B2A44);
   static const Color navyDeep = Color(0xFF08101F);
-  static const Color pearl = Color(0xFFF6F4EF);
+  static const Color pearl = Color(0xFFFAFAFA);
   static const Color white = Color(0xFFFFFFFF);
   static const Color teal = Color(0xFF12B8A6);
 
@@ -1030,8 +1008,13 @@ abstract final class AppPalette {
 
   /// Decorative only; never for input, chip or button borders.
   static const Color hairlineLight = Color(0x140D1528);
-  static const Color hairlineDark = Color(0x1AF6F4EF);
+  static const Color hairlineDark = Color(0x1AFAFAFA);
   static const Color scrim = Color(0x7A08101F);
+
+  /// The dark theme's modal scrim: black at 64 %. The light scrim (navy-deep
+  /// at 48 %) barely darkens the navy page, so a dialog or sheet on dark
+  /// read as part of the page.
+  static const Color scrimDark = Color(0xA3000000);
 
   // Dark container ladder (D4).
   static const Color darkContainerLowest = navyDeep;
@@ -1066,8 +1049,8 @@ abstract final class AppPalette {
   static const Color avatarInkOnTint = navy;
   static const Color avatarInkOnNavy = pearl;
 
-  /// Text field fill on dark: dz.css `rgba(246,244,239,.06)` (pearl at 6 %).
-  static const Color fieldFillDark = Color(0x0FF6F4EF);
+  /// Text field fill on dark: dz.css `rgba(250,250,250,.06)` (pearl at 6 %).
+  static const Color fieldFillDark = Color(0x0FFAFAFA);
 }
 
 /// Redesign gradients. Declared only here.
@@ -1094,12 +1077,29 @@ abstract final class AppGradients {
     colors: [AppPalette.navy2, AppPalette.navy],
   );
 
+  /// The community cover band (Community.dc.html `.cover`): a diagonal
+  /// navy wash under the teal rings.
+  static const LinearGradient communityCover = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [AppPalette.navy2, AppPalette.navy],
+  );
+
   /// dz.css `.hero`: radial-gradient(120% 120% at 85% 0%, ...).
   static const RadialGradient hero = RadialGradient(
     center: Alignment(0.7, -1),
     radius: 1.2,
     colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
     stops: [0, 0.55, 1],
+  );
+
+  /// The dark splash wash (dzeroth-mobile Splash.html): radial-gradient(90%
+  /// 60% at 50% 45%, navy2, navy 55%, navyDeep).
+  static const RadialGradient splash = RadialGradient(
+    center: Alignment(0, -.1),
+    radius: .9,
+    colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
+    stops: [0, .55, 1],
   );
 }
 
@@ -1112,10 +1112,19 @@ abstract final class AppShadows {
     BoxShadow(color: Color(0x380D1528), offset: Offset(0, 11), blurRadius: 25),
   ];
   static const List<BoxShadow> primaryGlow = [
-    BoxShadow(color: Color(0x5919D3BE), offset: Offset(0, 10), blurRadius: 26),
+    BoxShadow(color: primaryGlowColor, offset: Offset(0, 10), blurRadius: 26),
   ];
+
+  /// The teal of [primaryGlow] (the profile hero's avatar and pill glows).
+  static const Color primaryGlowColor = Color(0x5919D3BE);
   static const List<BoxShadow> navBar = [
     BoxShadow(color: Color(0x590D1528), offset: Offset(0, 14), blurRadius: 30),
+  ];
+
+  /// The raised search pill of the phone results header (dzeroth-mobile
+  /// SearchResults: 0 6px 16px rgba(13,21,40,.06)).
+  static const List<BoxShadow> searchRaised = [
+    BoxShadow(color: Color(0x0F0D1528), offset: Offset(0, 6), blurRadius: 16),
   ];
 }
 
@@ -1161,6 +1170,13 @@ abstract final class AppTypeTokens {
   static const double bodyLineHeight = 1.42;
   static const double focalPostSize = 17;
   static const double focalPostLineHeight = 24;
+
+  /// The reply composer's text (ReplyComposer mocks): 19 sp full screen on a
+  /// phone, 20 sp in the tablet and desktop dialog, at 1.35 / 1.4.
+  static const double replyFieldSizePhone = 19;
+  static const double replyFieldLineHeightPhone = 1.35;
+  static const double replyFieldSizeDialog = 20;
+  static const double replyFieldLineHeightDialog = 1.4;
   static const FontWeight weightDisplay = FontWeight.w800;
   static const FontWeight weightUi = FontWeight.w700;
   static const FontWeight weightLabel = FontWeight.w600;
@@ -1288,4 +1304,568 @@ abstract final class AppTextStyles {
             : AppColors.light);
     return _display(size).copyWith(color: colors.accentText);
   }
+}
+
+/// New-message picker geometry (dzeroth-mobile RecipientPicker; the tablet
+/// and desktop mocks' dz.css `.search`, `.sect`, `.row`). Colours come from
+/// the theme, shadows from [AppShadows].
+abstract final class AppPickerLayout {
+  // Phone: the raised pill and the 20 dp page gutter.
+  static const double phoneGutter = 20;
+  static const double phoneSearchTop = 12;
+  static const double phoneSearchBottom = 4;
+  static const double phoneSectionTop = 14;
+  static const double phoneSectionBottom = 2;
+  static const double phoneHandleSize = 13;
+
+  // Tablet / desktop: the flat pill and the 16 dp `.row` gutter.
+  static const double dialogGutter = 16;
+  static const double dialogSectionTop = 20;
+  static const double dialogSectionBottom = 8;
+  static const double dialogHandleSize = 14;
+
+  // Both.
+  static const double searchHeight = 48;
+  static const double rowPaddingV = 12;
+  static const double rowGap = 12;
+}
+
+/// Sizes of the post screens' redesign (PostPhoto, Composer, Drafts).
+abstract final class AppPostsLayout {
+  /// The photo viewer's round controls (close, previous, next, view post).
+  static const double photoButton = 44;
+
+  /// The pearl wash behind them, over the black stage.
+  static const double photoButtonTint = 0.12;
+
+  /// A page dot and the selected page's elongated dot (phone viewer).
+  static const double photoDot = 6;
+  static const double photoDotSelected = 18;
+
+  /// The draft icon square of a Drafts row on the wide layouts, and its tint.
+  static const double draftIcon = 40;
+  static const double draftIconTint = 0.12;
+}
+
+/// Plans geometry (dzeroth-mobile, tablet and desktop Home, PlanDetail,
+/// PlanPeople, PlanCreate, PlanEdit and MyPlans). Colours come from the
+/// theme, shadows from [AppShadows].
+abstract final class AppPlansLayout {
+  // The plan page's hero: full width, rounded under, with the back and menu
+  // circles in it.
+  static const double heroRadius = 34;
+  static const double heroButton = 44;
+  static const double heroGutter = 24;
+
+  // The list cards: the phone's 20 dp page gutter, the wide layouts' 16 dp.
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+
+  // The compact rows of My plans (the tile, then eyebrow, title and time).
+  static const double tileSize = 52;
+
+  // A form lays Cost beside Open spots from this content width.
+  static const double formPairMin = 480;
+}
+
+/// Lists geometry per screen size (dp): the phone mocks' 20 dp page gutter
+/// and raised cards, and the tablet / desktop mocks' 16 dp flat `.row`s, hero
+/// and section labels (dz.css). Colours come from the theme, gradients from
+/// [AppGradients], shadows from [AppShadows].
+abstract final class AppListsLayout {
+  // Rows (Lists, a person's Lists, Manage pinned's "Add from your Lists").
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+  static const double tileSize = 52;
+  static const double tileRadius = 16;
+  static const double phoneRowGap = 14;
+  static const double wideRowGap = 12;
+  static const double phoneRowPaddingV = 12;
+  static const double wideRowPaddingV = 14;
+
+  // Section titles: the phone's display h2 and the wide `.sect` label.
+  static const double phoneSectionTop = 14;
+  static const double phoneSectionTitle = 20;
+  static const double wideSectionTop = 16;
+  static const double wideSectionTitle = 19;
+  static const double sectionBottom = 2;
+  static const double sectLabelBottom = 8;
+
+  // The page header's title and subtitle.
+  static const double phoneTitle = 19;
+  static const double wideTitle = 20;
+  static const double phoneSubtitle = 12;
+  static const double wideSubtitle = 13;
+
+  // The List page's hero.
+  static const double heroGutter = 24;
+  static const double heroWideTop = 22;
+  static const double heroWideBottom = 26;
+  static const double heroWideRadius = 28;
+  static const double heroPhoneBottom = 22;
+  static const double heroPhoneTitle = 34;
+  static const double heroWideTitle = 48;
+  static const double heroPhoneBody = 14;
+  static const double heroWideBody = 16;
+  static const double heroPhoneStat = 14;
+  static const double heroWideStat = 20;
+  static const double heroButtonHeight = 40;
+  static const double heroButtonGap = 10;
+  static const double heroRingSize = 360;
+  // The ring's centre: 120 dp past the right edge, 30 dp below the top.
+  static const double heroRingOffsetX = 60;
+  static const double heroRingOffsetY = 30;
+  static const double heroRingAlpha = 0.14;
+  static const double heroOutlineAlpha = 0.28;
+  static const double heroIconFillAlpha = 0.08;
+  static const double heroIconBorderAlpha = 0.14;
+
+  // Manage pinned: the phone's raised row cards.
+  static const double raisedPadding = 12;
+  static const double raisedGap = 10;
+  static const double pinnedTile = 40;
+}
+
+/// Messages geometry (dzeroth-mobile Conversations, DraftThread and Chat; the
+/// tablet and desktop mocks' dz.css `.row`, `.bub`, `.search`). Phone gutters
+/// are 20 dp, tablet and desktop 16 dp. Colours come from the theme, gradients
+/// from [AppGradients].
+abstract final class AppMessagesLayout {
+  // Inbox rows.
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+  static const double avatar = 50;
+  static const double rowGap = 12;
+  static const double rowPaddingV = 12;
+
+  // The "Message requests" card: phone / tablet and desktop.
+  static const double requestsRadiusPhone = 20;
+  static const double requestsRadiusWide = 18;
+  static const double requestsInsetPhone = 20;
+  static const double requestsInsetWide = 12;
+  static const double requestsTopPhone = 10;
+  static const double requestsTopWide = 8;
+  static const double requestsPaddingH = 14;
+  static const double requestsPaddingV = 12;
+
+  /// The card's teal tint (the mock's 10 %).
+  static const double requestsTint = 0.10;
+
+  // The desktop side column's "Select a conversation" card.
+  static const double sideCardPaddingH = 28;
+  static const double sideCardPaddingV = 32;
+
+  // The thread header's avatar.
+  static const double headerAvatar = 42;
+
+  // Bubbles and the composer pill.
+  static const double bubbleRadius = 22;
+  static const double bubbleTail = 6;
+  static const double bubblePaddingH = 16;
+  static const double bubblePaddingV = 12;
+
+  /// The caller's bubble glows (0 8 18 teal 28 %); the peer's lifts (0 8 18
+  /// navy 12 %).
+  static const List<BoxShadow> mineShadow = [
+    BoxShadow(color: Color(0x4719D3BE), offset: Offset(0, 8), blurRadius: 18),
+  ];
+  static const List<BoxShadow> theirsShadow = [
+    BoxShadow(color: Color(0x1F0D1528), offset: Offset(0, 8), blurRadius: 18),
+  ];
+  static const double composerPhone = 52;
+  static const double composerWide = 50;
+  static const double composerGap = 10;
+
+  // The first-message hero: the rings behind the dot.
+  static const double heroOrbit = 120;
+  static const double heroOrbitInner = 22;
+  static const double heroDot = 14;
+  static const double heroRingOuterAlpha = 0.25;
+  static const double heroRingInnerAlpha = 0.45;
+  static const double heroRingInnerWidth = 1.5;
+  static const double heroDotHaloAlpha = 0.35;
+  static const double heroDotHalo = 4;
+  static const double heroDotGlowAlpha = 0.45;
+  static const double heroDotGlowBlur = 22;
+  static const double heroDotGlowSpread = 6;
+}
+
+/// Communities geometry per screen size (dp), from the dzeroth-mobile, tablet
+/// and desktop Communities, Community, CommunityMembers, ModLog and
+/// CreateCommunity mocks (dz.css `.card.row`, `.hero`, `.bar`). Colours come
+/// from the theme, gradients from [AppGradients].
+abstract final class AppCommunitiesLayout {
+  // Directory card: the phone's 52 dp tile, the tablet / desktop's 64 dp.
+  static const double cardTilePhone = 52;
+  static const double cardTileWide = 64;
+  static const double cardPaddingPhone = 14;
+  static const double cardPaddingVWide = 16;
+  static const double cardPaddingHWide = 18;
+  static const double cardNameWide = 17;
+
+  // Community hero (tablet / desktop): a navy card under the bar.
+  static const double heroPaddingTop = 22;
+  static const double heroPaddingH = 24;
+  static const double heroPaddingBottom = 26;
+  static const double heroRadius = 28;
+  static const double heroRingDiameter = 360;
+  static const double heroRingEnd = -120;
+  static const double heroRingTop = -150;
+  static const double heroRingAlpha = 0.14;
+}
+
+/// Creator Studio, Advertise and Calls geometry per screen size (dp), from
+/// the dzeroth-mobile, tablet and desktop mocks (dz.css `.empty`, `.card`,
+/// `.display`). Colours come from the theme, gradients from [AppGradients].
+abstract final class AppStudioLayout {
+  // Creator Studio stat cards (phone 16 dp, tablet / desktop 18 x 20 dp).
+  static const double pagePaddingPhone = 20;
+  static const double pagePaddingWide = 16;
+  static const double statGap = 12;
+  static const double statPaddingPhone = 16;
+  static const double statPaddingVWide = 18;
+  static const double statPaddingHWide = 20;
+  static const double statValuePhone = 28;
+  static const double statValueWide = 32;
+
+  // The coming-soon page: the phone centres it over teal rings, the tablet
+  // and desktop start it at the leading edge.
+  static const double comingPaddingPhone = 32;
+  static const double comingPaddingVWide = 56;
+  static const double comingPaddingHWide = 40;
+  static const double tilePhone = 84;
+  static const double tileRadiusPhone = 28;
+  static const double tileGlowBlur = 34;
+  static const double tileIconPhone = 40;
+  static const double tileWide = 64;
+  static const double tileRadiusWide = 22;
+  static const double tileIconWide = 30;
+  static const double eyebrowTopWide = 28;
+  static const double eyebrowBottomWide = 10;
+  static const double headlinePhone = 36;
+  static const double headlineWide = 40;
+  static const double bodyMaxWidth = 420;
+  static const double actionWidthPhone = 240;
+  static const double actionGap = 12;
+  static const double phoneGap = 18;
+}
+
+/// Article editor geometry (dzeroth-mobile, tablet and desktop Article
+/// mocks): the dashed cover drop, the display title and the toolbar pill.
+/// Colours come from the theme, shadows from [AppShadows].
+abstract final class AppArticlesLayout {
+  static const double gutter = 20;
+  static const double phoneCoverHeight = 170;
+  static const double wideCoverHeight = 220;
+  static const double coverBorder = 1.5;
+  static const double coverDash = 7;
+  static const double coverDashGap = 5;
+  static const double coverFillAlpha = 0.06;
+  static const double phoneTitle = 34;
+  static const double wideTitle = 44;
+  static const double toolbarPadding = 4;
+  static const double toolbarGap = 2;
+}
+
+/// Account pages (Change handle, Download my data, Delete account) and the
+/// Premium and Reset password dialogs: the mocks' padded page with a display
+/// headline and its actions, pinned to the bottom on the phone and inline
+/// from 600 dp. Sizes are dp; headline sizes are [AppTypeTokens.displaySizes].
+abstract final class AppAccountLayout {
+  static const double pagePaddingH = 24;
+  static const double pagePaddingTop = 20;
+  static const double pagePaddingBottom = 32;
+  static const double phoneHeadline = 36;
+  static const double wideHeadline = 48;
+  static const double dialogHeadline = 32;
+  static const double sectionGap = 16;
+  static const double actionsGap = 10;
+  static const double actionsTop = 22;
+}
+
+/// Welcome (Main) geometry per screen size (dp), from the dzeroth-mobile,
+/// tablet and desktop Main mocks: the brand mark and its spacing.
+abstract final class AppWelcomeLayout {
+  static const double markPhone = 96;
+  static const double markWide = 130;
+  static const double markRadiusPhone = 26;
+  static const double markRadiusWide = 34;
+
+  /// Gap from the wordmark to the mark on the phone page.
+  static const double phoneMarkTop = 72;
+
+  /// Gap from the mark to the eyebrow on tablet and in the desktop hero.
+  static const double wideMarkGap = 30;
+
+  /// Gap between stacked provider pills.
+  static const double providerGap = 12;
+}
+
+/// Geometry of Explore, Bookmarks, Follow requests, Followers / Following,
+/// Blocked / Muted and Edit profile (dzeroth-mobile, tablet and desktop mocks;
+/// the tablet and desktop main columns are the same).
+abstract final class AppExplorePeopleLayout {
+  /// Follow requests on a phone: round 40 dp answers inside 48 dp targets.
+  static const double answerButton = 40;
+  static const double answerBorder = 1.5;
+
+  /// Explore's ranked trend rows: the rank column's least width, its gap to
+  /// the text, and the row's side padding on a phone and from 600 dp.
+  static const double trendRankWidth = 24;
+  static const double trendRankGap = 14;
+  static const double trendPaddingPhone = 20;
+  static const double trendPaddingWide = 16;
+
+  /// Edit profile: the flat band behind the avatar (a phone's inset card, a
+  /// wide layout's full-width strip), how far the avatar hangs over its
+  /// bottom edge, the surface-coloured ring round it, and the form's side
+  /// padding on a phone and from 600 dp.
+  static const double editBandPhone = 120;
+  static const double editBandWide = 150;
+  static const double editAvatarOverlap = 48;
+  static const double editAvatarRing = 4;
+  static const double editAvatarInsetPhone = 18;
+  static const double editAvatarGap = 14;
+  static const double editPaddingPhone = 20;
+  static const double editPaddingWide = 16;
+}
+
+/// Settings geometry per screen size (dp): the phone mock's raised cards
+/// (dzeroth-mobile Settings) and the tablet / desktop mocks' flat boxes and
+/// category list (dz.css `.box`, `.row`, `.sect`, `.search`). Colours come
+/// from the theme, gradients from [AppGradients], shadows from [AppShadows].
+abstract final class AppSettingsLayout {
+  // Phone page.
+  static const double pagePaddingH = 20;
+  static const double pagePaddingV = 16;
+  static const double groupGap = 18;
+  static const double labelGap = 8;
+  static const double labelInset = 4;
+  static const double raisedPadding = 4;
+  static const double raisedRowMinHeight = 64;
+  static const double raisedRowPaddingH = 14;
+  static const double raisedRowPaddingV = 6;
+  static const double raisedRowGap = 14;
+
+  // Tablet / desktop.
+  static const double flatRowPaddingH = 16;
+  static const double flatRowPaddingV = 12;
+  static const double flatRowGap = 12;
+  static const double flatLabelTop = 20;
+  static const double flatLabelBottom = 8;
+  static const double searchHeight = 46;
+  static const double searchPaddingH = 18;
+  static const double searchGap = 10;
+  static const double searchBottom = 10;
+  static const double categoryPaddingV = 14;
+  static const double selectedBarWidth = 3;
+
+  /// Row titles in both looks: 15 sp, the UI weight.
+  static const double titleSize = 15;
+}
+
+/// Splash, sign-in and sign-up geometry per screen size (dp), from the
+/// dzeroth-mobile, tablet and desktop Splash / SignIn / SignUp mocks. Colours
+/// come from the theme, gradients from [AppGradients].
+abstract final class AppAuthLayout {
+  // Teal rings: (diameter, alpha) from the inside out.
+  static const List<(double, double)> phoneRings = [
+    (112, .4),
+    (208, .24),
+    (320, .12),
+  ];
+  static const List<(double, double)> wideRings = [
+    (180, .4),
+    (300, .24),
+    (420, .12),
+    (600, .08),
+    (820, .05),
+  ];
+  static const List<(double, double)> splashPhoneRings = [
+    (140, .4),
+    (260, .24),
+    (400, .12),
+    (560, .06),
+  ];
+  static const List<(double, double)> splashWideRings = [
+    (220, .4),
+    (380, .24),
+    (560, .12),
+    (760, .08),
+    (980, .05),
+  ];
+
+  /// Phone ring centre, from the top-right corner.
+  static const Offset phoneRingsFromTopEnd = Offset(60, 120);
+
+  /// Tablet ring centre, from the top-right corner.
+  static const Offset tabletRingsFromTopEnd = Offset(210, 260);
+
+  // Phone page.
+  static const double phonePaddingH = 24;
+  static const double phonePaddingTop = 12;
+  static const double phonePaddingBottom = 24;
+  static const double phoneDisplaySize = 40;
+  static const double phoneFieldGap = 12;
+  static const double phoneHeaderTop = 12;
+  static const double phoneFieldsTop = 16;
+
+  // Tablet page (one centred column).
+  static const double tabletPaddingH = 64;
+  static const double tabletPaddingV = 48;
+  static const double tabletFormWidth = 540;
+
+  // Desktop split: hero 1.6 : form 1.
+  static const int desktopHeroFlex = 16;
+  static const int desktopFormFlex = 10;
+  static const double desktopHeroPaddingH = 72;
+  static const double desktopHeroPaddingV = 56;
+  static const double desktopFormPaddingH = 64;
+  static const double desktopFormWidth = 470;
+  static const double heroDisplayMax = 88;
+  static const double heroDisplayMin = 56;
+  static const double heroBodySize = 22;
+  static const double heroBodyWidth = 520;
+
+  /// Form headline on tablet and desktop.
+  static const double wideDisplaySize = 52;
+
+  // Shared form rhythm.
+  static const double eyebrowGap = 14;
+  static const double fieldsTop = 32;
+  static const double fieldGap = 16;
+  static const double fieldLabelGap = 6;
+  static const double actionsGap = 14;
+  static const double dividerGap = 22;
+  static const double socialGap = 10;
+  static const double socialHeight = 52;
+  static const double socialMarkSize = 18;
+
+  // Splash.
+  static const double splashLogoPhone = 104;
+  static const double splashLogoWide = 150;
+  static const double splashLogoRadiusPhone = 28;
+  static const double splashLogoRadiusWide = 40;
+  static const double splashLogoHalo = 10;
+  static const double splashWordmarkPhone = 18;
+  static const double splashWordmarkWide = 22;
+  static const double splashGap = 26;
+  static const double splashTaglineTop = 40;
+  static const double splashLoaderBottom = 64;
+  static const Size splashPill = Size(22, 8);
+  static const double splashPillGap = 10;
+}
+
+/// Profile hero geometry per screen size (dp), from the dzeroth-mobile
+/// Profile mock (phone) and the tablet / desktop Profile mocks (they share one
+/// hero, so one "wide" set serves both). The hero is navy in both brightness
+/// modes, so its on-dark colours are tokens here; the rest comes from the
+/// theme, [AppGradients] and [AppShadows].
+abstract final class AppProfileLayout {
+  /// Bottom corners of the hero.
+  static const double heroRadius = 32;
+
+  // Phone (< 600).
+  static const double phonePaddingH = 20;
+  static const double phonePaddingTop = 8;
+  static const double phonePaddingBottom = 18;
+  static const double phoneGap = 14;
+  static const double phoneChipGap = 8;
+  static const double phoneAvatar = 76;
+  static const double phoneAvatarGap = 16;
+  static const double phoneNameSize = 28;
+  static const double phoneHandleSize = 14;
+  static const double phoneBioSize = 14;
+  static const double phoneStatValueSize = 20;
+  static const double phoneStatLabelSize = 12;
+  static const double phoneStatsPaddingV = 10;
+  static const double phoneButtonHeight = 42;
+  static const double phoneButtonGap = 10;
+  static const double phoneIconButton = 44;
+
+  // Tablet and desktop (>= 600).
+  static const double widePaddingH = 24;
+  static const double widePaddingTop = 20;
+  static const double widePaddingBottom = 26;
+  static const double wideGap = 16;
+  static const double wideChipGap = 10;
+  static const double wideAvatar = 120;
+  static const double wideAvatarRing = 4;
+  static const double wideAvatarGap = 22;
+  static const double wideNameSize = 48;
+  static const double wideHandleSize = 16;
+  static const double wideBioSize = 17;
+  static const double wideStatValueSize = 24;
+  static const double wideStatLabelSize = 14;
+  static const double wideStatsPaddingV = 14;
+  static const double wideButtonHeight = 44;
+  static const double wideButtonGap = 12;
+  static const double wideIconButton = 40;
+
+  /// Corner of the stats pill.
+  static const double statsRadius = 20;
+
+  /// A disabled action pill.
+  static const double disabledOpacity = .5;
+
+  /// Phone avatar: navy ring, teal ring, teal glow.
+  static const double phoneAvatarInnerRing = 3;
+  static const double phoneAvatarOuterRing = 5;
+  static const double phoneAvatarGlowBlur = 24;
+
+  // Teal rings behind the hero (diameter, alpha), centred this far from the
+  // top-end corner.
+  static const List<(double, double)> phoneRings = [
+    (98, .4),
+    (182, .24),
+    (280, .12),
+  ];
+  static const Offset phoneRingsFromTopEnd = Offset(50, 60);
+  static const List<(double, double)> wideRings = [(280, .14), (480, .14)];
+  static const Offset wideRingsFromTopEnd = Offset(80, 40);
+
+  /// The glow under the filled action pill (elevation, in dp).
+  static const double pillGlowElevation = 8;
+  static const Color pillGlow = AppShadows.primaryGlowColor;
+  static const Color avatarGlow = AppShadows.primaryGlowColor;
+
+  /// Letter spacing of the stat numbers (em).
+  static const double statValueTracking = -0.02;
+
+  /// Above this text scale the stats are rows and the avatar sits above the
+  /// name.
+  static const double largeTextScale = 1.3;
+
+  // On-dark tokens (pearl and teal over the navy hero).
+  static const Color onDarkFill = Color(0x14FAFAFA);
+  static const Color onDarkBorder = Color(0x24FAFAFA);
+
+  /// Focus, hover and pressed ink over the navy hero.
+  static const Color onDarkInk = Color(0x1FFAFAFA);
+  static const Color onDarkOutline = Color(0x47FAFAFA);
+}
+
+/// Scheduled posts geometry per screen size (dp): the dzeroth-mobile,
+/// tablet and desktop Scheduled mocks' cards. The card itself is
+/// `AppCard` (the `card` gradient, radius and shadow).
+abstract final class AppScheduledLayout {
+  // Phone list: 16 x 20 padding, 14 between cards.
+  static const double phoneListPaddingH = 20;
+  static const double phoneListPaddingV = 16;
+  static const double phoneCardGap = 14;
+  static const double phoneTimeSize = 13;
+  static const double phoneTextSize = 15;
+  static const double phoneTextGap = 10;
+
+  // Tablet / desktop: 12 x 16 card margins, 18 x 20 padding.
+  static const double wideCardGap = 24;
+  static const double wideCardPaddingH = 20;
+  static const double wideCardPaddingV = 18;
+  static const double wideTimeSize = 14;
+  static const double wideTextSize = 16;
+  static const double wideTextGap = 10;
+  static const double wideActionsGap = 14;
+
+  /// The clock glyph sits on the time line's cap height.
+  static const double iconTop = 2;
 }

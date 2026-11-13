@@ -11,6 +11,7 @@ const kOtherScreen = 'other';
 /// test (`screen_names_test.dart`) reads every `AppRouter` route.
 const Map<String, String> kScreenNames = {
   '/': 'splash',
+  '/welcome': 'welcome',
   '/sign-in': 'sign_in',
   '/sign-up': 'sign_up',
   '/onboarding': 'onboarding',
@@ -68,6 +69,8 @@ const Map<String, String> kScreenNames = {
   '/settings/muted': 'muted_accounts',
   '/settings/export': 'export_data',
   '/settings/delete-account': 'delete_account',
+  '/settings/notifications': 'notification_settings',
+  '/settings/messages': 'message_settings',
   '/creator-studio': 'creator_studio',
   '/advertise': 'advertise',
   '/calls': 'calls',

@@ -1,4 +1,4 @@
-// retire.go is the `profile_media_retired` job: when a profile's avatar or banner is replaced
+// retire.go is the `profile_media_retired` job: when a profile's avatar is replaced
 // or removed, the old image's public objects (full and thumbnail) are scheduled for deletion after a grace of at least
 // 24 h. It rides the shared `jobs` Pub/Sub topic like `post_delete` (no new topic, Scheduler job, collection or index):
 // identity.Lifecycle routes messages of this kind to RetireHandler.
@@ -8,7 +8,7 @@
 //
 // Handle (Retire): the message is never trusted on its own word, so the step re-reads. In order, cheapest refusal first:
 //
-//	validate the message                         dropped:invalid_message
+//	validate the message (a legacy BANNER one too) dropped:invalid_message
 //	PROFILE_MEDIA_RETIRE does not allow it       disabled
 //	parse the media id from the object names     unparseable
 //	users/{uid}, fresh: old image still current  still_current
@@ -50,9 +50,10 @@ const RetiredDocTTL = 72 * time.Hour
 // maxImageURLLen bounds a URL in a message; a real one is about 100 characters.
 const maxImageURLLen = 512
 
-// RetireMessage is the payload of a profile_media_retired job. Purpose is the stored purpose name ("AVATAR" or
-// "BANNER"). The URLs are the old users/{uid} values; the thumbnail may be empty. ChangedAt is the commit time of the
-// profile change, the start of the grace.
+// RetireMessage is the payload of a profile_media_retired job. Purpose is the stored purpose name ("AVATAR"; a message
+// for the removed "BANNER" still in flight is dropped as invalid). The
+// URLs are the old users/{uid} values; the thumbnail may be empty. ChangedAt is the commit time of the profile change,
+// the start of the grace.
 type RetireMessage struct {
 	Kind        string    `json:"kind"`
 	UID         string    `json:"uid"`
@@ -69,7 +70,7 @@ type PublicTagger interface {
 }
 
 // ProfileImages reports, from a fresh read that bypasses every cache, the image URLs users/{uid} holds right now: the
-// avatar, its thumbnail, the banner and its thumbnail, empty ones omitted. found is false when the document
+// avatar and its thumbnail, empty ones omitted. found is false when the document
 // does not exist. *identity.FirestoreRepo implements it (a job never acts on a message's word alone).
 type ProfileImages interface {
 	ProfileImageURLs(ctx context.Context, uid string) (urls []string, found bool, err error)
@@ -93,7 +94,7 @@ func (j *Jobs) WithProfileRetire(d RetireDeps) *Jobs {
 	return j
 }
 
-// ProfileImageReplaced publishes the retire job for an avatar or banner that was replaced or removed. It is called after
+// ProfileImageReplaced publishes the retire job for an avatar that was replaced or removed. It is called after
 // the profile change committed, with the old URLs identity already read, so it reads nothing. PROFILE_MEDIA_RETIRE is checked first,
 // in memory: a switch that does not allow the purpose publishes nothing and returns nil. An error means the image falls
 // back to the account eraser (it is deleted with the account), so the caller logs it at ERROR.
@@ -142,7 +143,7 @@ func (h *RetireHandler) Handle(ctx context.Context, data []byte) (string, error)
 // the future is clamped to now, because Cloud Storage never lets customTime move back and a far-future value would
 // outlive the document's TTL and escape the account eraser.
 func (j *Jobs) Retire(ctx context.Context, m RetireMessage) (string, error) {
-	if !ids.ValidUID(m.UID) || (m.Purpose != string(PurposeAvatar) && m.Purpose != string(PurposeBanner)) ||
+	if !ids.ValidUID(m.UID) || m.Purpose != string(PurposeAvatar) ||
 		m.OldURL == "" || len(m.OldURL) > maxImageURLLen || len(m.OldThumbURL) > maxImageURLLen || m.ChangedAt.IsZero() {
 		return "dropped:invalid_message", nil
 	}

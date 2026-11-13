@@ -1,12 +1,12 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
-import 'package:dzeroth/core/router/compose_gate.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/core/widgets/app_account_chip.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_drawer.dart';
+import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -23,11 +23,14 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/onboarding/presentation/widgets/account_refresh_banner.dart';
+import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -94,6 +97,7 @@ void main() {
     double height = 900,
     int pendingFollowRequests = 0,
     GraphRepository? graph,
+    EdgeInsets padding = EdgeInsets.zero,
   }) async {
     whenListen(
       onboarding,
@@ -112,8 +116,9 @@ void main() {
             : null,
       ),
     );
-    Widget page(String path, String text) => MainShell(
+    Widget page(String path, String text, {Uri? uri}) => MainShell(
       location: path,
+      uri: uri,
       child: Scaffold(
         appBar: const AppTopBar(title: 'Page'),
         body: body ?? Center(child: Text(text)),
@@ -161,7 +166,8 @@ void main() {
         ),
         GoRoute(
           path: '/settings',
-          builder: (context, state) => page('/settings', 'settings body'),
+          builder: (context, state) =>
+              page('/settings', 'settings body', uri: state.uri),
         ),
         GoRoute(
           path: '/settings/blocked',
@@ -216,8 +222,11 @@ void main() {
             theme: buildAppTheme(brightness: brightness),
             routerConfig: router,
             builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(textScale),
+                padding: padding,
+                viewPadding: padding,
+              ),
               child: child!,
             ),
           ),
@@ -280,7 +289,6 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('7'), findsOneWidget);
-      expect(find.text('Alerts'), findsNothing);
       expect(find.byType(AppUnreadDot), findsNothing);
       expectSize(
         tester,
@@ -456,8 +464,8 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('the bar is the floating pill; Notifications reads "Alerts" '
-        'and is spoken in full', (tester) async {
+    testWidgets('the bar is the floating pill, icon-only; Notifications is '
+        'spoken in full', (tester) async {
       final handle = tester.ensureSemantics();
       await pump(tester);
 
@@ -469,33 +477,24 @@ void main() {
         ),
       );
       expect(pill, const Rect.fromLTRB(20, 900 - 24 - 66, 340, 900 - 24));
-      // Two cells (Home, Notifications): the labels fit.
+      // Two cells (Home, Notifications), icons only.
       final bar = find.byType(AppBottomBar);
       expect(
         find.descendant(of: bar, matching: find.text('Home')),
-        findsOneWidget,
+        findsNothing,
       );
-      expect(
-        find.descendant(of: bar, matching: find.text('Alerts')),
-        findsOneWidget,
-      );
+      expect(find.byTooltip('Home'), findsOneWidget);
       expect(
         find.descendant(of: bar, matching: find.text('Notifications')),
         findsNothing,
       );
       expect(find.bySemanticsLabel('Notifications'), findsOneWidget);
-      expect(find.bySemanticsLabel('Alerts'), findsNothing);
       handle.dispose();
     });
 
     testWidgets('x2.0: the bar is icon-only with tooltips', (tester) async {
       await pump(tester, textScale: 2);
 
-      final bar = find.byType(AppBottomBar);
-      expect(
-        find.descendant(of: bar, matching: find.text('Alerts')),
-        findsNothing,
-      );
       expect(find.byTooltip('Notifications'), findsOneWidget);
       expect(find.byTooltip('Home'), findsOneWidget);
     });
@@ -505,7 +504,6 @@ void main() {
     ) async {
       await pump(tester, width: 1400);
 
-      expect(find.text('Alerts'), findsNothing);
       expect(
         find.descendant(
           of: find.byType(NavigationRail),
@@ -516,10 +514,13 @@ void main() {
     });
 
     group('compose button rule (D2)', () {
-      testWidgets('shown on Home too; the inline composer is an alternate '
-          'entry', (tester) async {
+      testWidgets('shown on Home, and opens the composer', (tester) async {
         await pump(tester, location: '/home');
         expect(find.byType(FloatingActionButton), findsOneWidget);
+
+        await tester.tap(find.byTooltip('New post'));
+        await tester.pumpAndSettle();
+        expect(find.text('compose page'), findsOneWidget);
       });
 
       testWidgets('hidden on Notifications and Settings', (tester) async {
@@ -529,17 +530,15 @@ void main() {
         expect(find.byType(FloatingActionButton), findsNothing);
       });
 
-      testWidgets('shown on a profile, and opens the composer', (tester) async {
+      testWidgets('none on a profile (pages offer their own)', (
+        tester,
+      ) async {
         await pump(tester, location: '/profile/alice');
-        expect(find.byType(FloatingActionButton), findsOneWidget);
-
-        await tester.tap(find.byTooltip('New post'));
-        await tester.pumpAndSettle();
-        expect(find.text('compose page'), findsOneWidget);
+        expect(find.byType(FloatingActionButton), findsNothing);
       });
 
-      testWidgets('hidden everywhere with the posts flag off', (tester) async {
-        await pump(tester, location: '/profile/alice', flags: {});
+      testWidgets('none on Home with the posts flag off', (tester) async {
+        await pump(tester, location: '/home', flags: {});
         expect(find.byType(FloatingActionButton), findsNothing);
       });
     });
@@ -912,21 +911,47 @@ void main() {
   });
 
   group('Settings master-detail (W1-7)', () {
-    testWidgets('>= 1200dp: the list beside an empty detail pane', (
+    // The pane's category rows (the desktop master); the flags only gate
+    // which categories have rows.
+    Finder inMaster(Finder finder) => find.descendant(
+      of: find.byType(SettingsCategoriesPane),
+      matching: finder,
+    );
+
+    testWidgets('>= 1200dp: the categories beside the Your account page', (
       tester,
     ) async {
+      await pump(
+        tester,
+        width: 1400,
+        location: '/settings',
+        flags: {'posts', 'graph', 'profile_snapshot'},
+      );
+
+      expect(find.text('Select a setting'), findsNothing);
+      expect(inMaster(find.text('Search settings')), findsOneWidget);
+      expect(inMaster(find.text('Display')), findsOneWidget);
+      final list = tester.getRect(inMaster(find.text('Display')));
+      final detail = tester.getRect(find.text('PROFILE'));
+      expect(list.right, lessThan(detail.left));
+      expect(find.text('Edit profile'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('>= 1200dp: nothing in Your account, the placeholder beside '
+        'the master', (tester) async {
       await pump(tester, width: 1400, location: '/settings');
 
       expect(find.text('Select a setting'), findsOneWidget);
-      expect(find.text('Appearance'), findsOneWidget);
-      final list = tester.getRect(find.text('Appearance'));
+      expect(inMaster(find.text('Display')), findsOneWidget);
+      final list = tester.getRect(inMaster(find.text('Display')));
       final detail = tester.getRect(find.text('Select a setting'));
       expect(list.right, lessThan(detail.left));
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a row opens its page in the detail pane, the list stays, '
-        'its row is selected', (tester) async {
+    testWidgets('a row opens its page in the detail pane, the master stays, '
+        'its category is selected', (tester) async {
       final handle = tester.ensureSemantics();
       await pump(
         tester,
@@ -935,20 +960,25 @@ void main() {
         flags: {'posts', 'graph'},
       );
 
+      await tester.tap(inMaster(find.text('Privacy & safety')));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Blocked accounts'));
       await tester.pumpAndSettle();
 
       expect(find.text('blocked body'), findsOneWidget);
-      expect(find.text('Appearance'), findsOneWidget);
+      expect(inMaster(find.text('Display')), findsOneWidget);
       expect(find.text('Select a setting'), findsNothing);
       expect(
-        tester.getSemantics(find.bySemanticsLabel('Blocked accounts')),
+        tester.getSemantics(
+          // "<label>", a new line, "<summary>".
+          inMaster(find.bySemanticsLabel(RegExp(r'^Privacy & safety(\n|$)'))),
+        ),
         isSemantics(isButton: true, isSelected: true),
       );
       handle.dispose();
     });
 
-    testWidgets('a deep link opens the page with the list beside it', (
+    testWidgets('a deep link opens the page with the master beside it', (
       tester,
     ) async {
       await pump(
@@ -959,7 +989,7 @@ void main() {
       );
 
       expect(find.text('blocked body'), findsOneWidget);
-      expect(find.text('Appearance'), findsOneWidget);
+      expect(inMaster(find.text('Display')), findsOneWidget);
     });
 
     testWidgets('< 1200dp: no master pane, the page is the page', (
@@ -1459,46 +1489,6 @@ void main() {
     });
   });
 
-  testWidgets('showComposeFabAt hides only where the FAB conflicts', (
-    tester,
-  ) async {
-    final results = <String, bool>{};
-    whenListen(
-      onboarding,
-      const Stream<OnboardingState>.empty(),
-      initialState: const OnboardingState(enabledFeatures: {'posts'}),
-    );
-    await tester.pumpWidget(
-      BlocProvider<OnboardingBloc>.value(
-        value: onboarding,
-        child: Builder(
-          builder: (context) {
-            for (final path in [
-              '/home',
-              '/notifications',
-              '/bookmarks',
-              '/settings/blocked',
-              '/profile/ada',
-              '/post/1',
-            ]) {
-              results[path] = showComposeFabAt(context, path);
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-      ),
-    );
-
-    expect(results, {
-      '/home': true,
-      '/notifications': false,
-      '/bookmarks': false,
-      '/settings/blocked': false,
-      '/profile/ada': true,
-      '/post/1': true,
-    });
-  });
-
   group('rail, compose and account chip style (PR 3.5)', () {
     const allFlags = {
       'posts',
@@ -1534,7 +1524,8 @@ void main() {
       final desktop = width >= AppBreakpoints.tablet;
 
       testWidgets('$w: the primary five, then the secondaries; no group '
-          'divider until T1; the rail is styled', (tester) async {
+          'divider on the NavigationRail (ui_tablet off); the rail is '
+          'styled', (tester) async {
         await pump(tester, width: width, flags: allFlags);
 
         final labels = railLabels(tester);
@@ -1732,5 +1723,415 @@ void main() {
       matrix('redesign widths', kRedesignWidths, heights: kRedesignHeights);
       matrix('boundaries', kMatrixWidths);
     }
+  });
+
+  group('tablet shell (ui_shell + ui_tablet, T1)', () {
+    const allFlags = {
+      'posts',
+      'search',
+      'beacons',
+      'notifications',
+      'messaging',
+      'lists',
+      'communities',
+      'bookmarks',
+      kFeatureUiTablet,
+    };
+    Finder inRail(Finder f) =>
+        find.descendant(of: find.byType(AppNavRail), matching: f);
+    Finder menuItem(String label) => find.descendant(
+      of: find.byWidgetPredicate((w) => w is PopupMenuItem),
+      matching: find.text(label),
+    );
+    // The rail's items top to bottom, by the tooltip or label they carry.
+    List<String> railOrder(WidgetTester tester) {
+      final items = <(double, String)>[];
+      for (final label in [
+        'Home',
+        'Explore',
+        'Plans',
+        'Notifications',
+        'Messages',
+        'Lists',
+        'Communities',
+        'History',
+        'Profile',
+        'More',
+      ]) {
+        final f = find.descendant(
+          of: find.byType(AppNavRail),
+          matching: find.byWidgetPredicate(
+            (w) =>
+                (w is Text && w.data == label) ||
+                (w is Tooltip && w.message == label),
+          ),
+        );
+        if (f.evaluate().isNotEmpty) {
+          items.add((tester.getCenter(f.first).dy, label));
+        }
+      }
+      items.sort((a, b) => a.$1.compareTo(b.$1));
+      return [for (final i in items) i.$2];
+    }
+
+    testWidgets('834 dp: the pinned rail in ADR-0034 order with the group '
+        'divider; the page fills the rest, its header the full pane', (
+      tester,
+    ) async {
+      await pump(tester, width: 834, height: 1194, flags: allFlags);
+
+      expect(find.byType(NavigationRail), findsNothing);
+      expect(railOrder(tester), [
+        'Home',
+        'Explore',
+        'Plans',
+        'Notifications',
+        'Messages',
+        'Lists',
+        'Communities',
+        'History',
+        'Profile',
+        'More',
+      ]);
+      expect(inRail(find.byType(Divider)), findsOneWidget);
+      expect(tester.getRect(find.byType(AppNavRail)).left, 0);
+      expect(tester.getRect(find.byType(AppNavRail)).width, 80);
+      expect(
+        tester.getRect(find.byType(AppTopBar)),
+        const Rect.fromLTWH(80, 0, 754, 53),
+      );
+      // The account avatar (collapsed chip) and the compose circle.
+      expect(inRail(find.byType(AppAccountChip)), findsOneWidget);
+      expect(find.text('@alice'), findsNothing);
+      expect(inRail(find.byTooltip('New post')), findsOneWidget);
+      // No phone chrome.
+      expect(find.byType(AppBottomBar), findsNothing);
+      expect(find.bySemanticsLabel('Open account menu'), findsNothing);
+      expect(find.byType(AppSideColumn), findsNothing);
+    });
+
+    testWidgets('ui_tablet needs ui_shell: with ui_shell off the legacy '
+        'NavigationRail stays at 834 dp', (tester) async {
+      await pump(tester, width: 834, flags: allFlags, newShell: false);
+
+      expect(find.byType(AppNavRail), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byType(AppAccountChip), findsNothing);
+    });
+
+    testWidgets('ui_tablet off: today\'s NavigationRail at 834 dp', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        width: 834,
+        flags: {...allFlags}..remove(kFeatureUiTablet),
+      );
+
+      expect(find.byType(AppNavRail), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
+    });
+
+    testWidgets('phones and desktop are unchanged with ui_tablet on', (
+      tester,
+    ) async {
+      await pump(tester, flags: allFlags);
+      expect(find.byType(AppFloatingBottomBar), findsOneWidget);
+      expect(find.byType(AppNavRail), findsNothing);
+
+      for (final width in [1200.0, 1440.0]) {
+        await pump(tester, width: width, flags: allFlags);
+        expect(find.byType(AppNavRail), findsNothing);
+        final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+        expect(rail.extended, isTrue);
+        expect(find.byType(AppSideColumn), findsOneWidget);
+      }
+    });
+
+    testWidgets('desktop keeps today\'s More rule: no rows, no More', (
+      tester,
+    ) async {
+      await pump(tester, width: 1440, flags: const {kFeatureUiTablet});
+
+      // (The extended account chip draws a "more" glyph of its own.)
+      final labels = [
+        for (final d
+            in tester
+                .widget<NavigationRail>(find.byType(NavigationRail))
+                .destinations)
+          ((d.label is Semantics ? (d.label as Semantics).child : d.label)
+                  as Text)
+              .data,
+      ];
+      expect(labels, ['Home', 'Plans', 'Profile']);
+    });
+
+    testWidgets('More opens its menu beside the item from the keyboard; '
+        'Escape closes it and gives the focus back', (tester) async {
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: const {'posts', kFeatureUiTablet},
+      );
+      final more = inRail(find.byIcon(Icons.more_horiz));
+      final node = Focus.of(tester.element(more));
+      node.requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(menuItem('Articles'), findsOneWidget);
+      expect(node.hasPrimaryFocus, isFalse);
+      final menu = tester.getRect(
+        find
+            .ancestor(
+              of: find.text('Articles'),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      // To the right of the rail, level with the item.
+      expect(menu.left, greaterThanOrEqualTo(78));
+      expect(menu.top, closeTo(tester.getRect(more).top, 16));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(menuItem('Articles'), findsNothing);
+      expect(node.hasPrimaryFocus, isTrue);
+    });
+
+    testWidgets('a rail tap navigates and selects', (tester) async {
+      await pump(tester, width: 834, height: 1194, flags: allFlags);
+
+      await tester.tap(inRail(find.byIcon(Icons.list_alt_outlined)));
+      await tester.pumpAndSettle();
+      expect(find.text('lists body'), findsOneWidget);
+      expect(inRail(find.byIcon(Icons.list_alt)), findsOneWidget);
+    });
+
+    group('R2 (1024 x 640): More absorbs the secondaries', () {
+      testWidgets('the menu lists Lists, Communities, History and Profile '
+          'above Articles; a row opens its page', (tester) async {
+        await pump(tester, width: 1024, height: 640, flags: allFlags);
+
+        expect(railOrder(tester), [
+          'Home',
+          'Explore',
+          'Plans',
+          'Notifications',
+          'Messages',
+          'More',
+        ]);
+        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.pumpAndSettle();
+        const order = [
+          'Lists',
+          'Communities',
+          'History',
+          'Profile',
+          'Articles',
+        ];
+        final ys = [
+          for (final label in order) tester.getCenter(menuItem(label)).dy,
+        ];
+        for (var i = 1; i < ys.length; i++) {
+          expect(ys[i], greaterThan(ys[i - 1]), reason: order[i]);
+        }
+
+        await tester.tap(menuItem('Communities'));
+        await tester.pumpAndSettle();
+        expect(find.text('communities body'), findsOneWidget);
+      });
+
+      testWidgets('the More menu marks the folded row of the current page '
+          'as selected', (tester) async {
+        await pump(
+          tester,
+          width: 1024,
+          height: 640,
+          location: '/bookmarks',
+          flags: allFlags,
+        );
+
+        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.pumpAndSettle();
+        AppMenuItemRow row(String label) => tester.widget<AppMenuItemRow>(
+          find.ancestor(
+            of: menuItem(label),
+            matching: find.byType(AppMenuItemRow),
+          ),
+        );
+        expect(row('History').selected, isTrue);
+        for (final label in ['Lists', 'Communities', 'Profile', 'Articles']) {
+          expect(row(label).selected, isNull, reason: label);
+        }
+      });
+
+      testWidgets('on a folded page More is the selected item', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(
+          tester,
+          width: 1024,
+          height: 640,
+          location: '/bookmarks',
+          flags: allFlags,
+        );
+
+        expect(
+          tester.getSemantics(inRail(find.byIcon(Icons.more_horiz))),
+          isSemantics(label: 'More, menu', isSelected: true),
+        );
+        handle.dispose();
+      });
+
+      testWidgets('More shows even with no rows of its own (no posts, no '
+          'shells); its Profile row goes home without a profile', (
+        tester,
+      ) async {
+        await pump(
+          tester,
+          width: 1024,
+          height: 640,
+          flags: const {kFeatureUiTablet},
+          profile: false,
+          location: '/plans',
+        );
+
+        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.pumpAndSettle();
+        expect(menuItem('Profile'), findsOneWidget);
+        expect(menuItem('Articles'), findsNothing);
+        await tester.tap(menuItem('Profile'));
+        await tester.pumpAndSettle();
+        expect(find.text('home body'), findsOneWidget);
+      });
+
+      testWidgets('R1 keeps today\'s rule: no rows of its own, no More', (
+        tester,
+      ) async {
+        await pump(
+          tester,
+          width: 1024,
+          height: 768,
+          flags: const {kFeatureUiTablet},
+        );
+
+        expect(railOrder(tester), ['Home', 'Plans', 'Profile']);
+      });
+    });
+
+    testWidgets('the refresh banner sits below the top inset, and the top '
+        'bar does not add the inset again under it', (tester) async {
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: allFlags,
+        refreshFailed: true,
+        padding: const EdgeInsets.only(top: 24),
+      );
+
+      final banner = tester.getRect(find.byType(AccountRefreshBanner));
+      final bar = tester.getRect(find.byType(AppTopBar));
+      expect(banner.top, greaterThanOrEqualTo(24));
+      expect(banner.left, 80);
+      // No second gap: the bar follows the banner and is its bare 53 dp.
+      expect(bar.top, banner.bottom);
+      expect(bar.height, AppSize.headerRow);
+      expect(find.text(kAccountRefreshFailedMessage), findsOneWidget);
+    });
+
+    testWidgets('without the banner the top bar takes the top inset itself', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: allFlags,
+        padding: const EdgeInsets.only(top: 24),
+      );
+
+      final bar = tester.getRect(find.byType(AppTopBar));
+      expect(bar.top, 0);
+      expect(bar.height, AppSize.headerRow + 24);
+    });
+
+    testWidgets('the account avatar opens the account menu with the 1000+ '
+        'follow-request count', (tester) async {
+      final graph = _MockGraph();
+      when(() => graph.followRequestsUnavailable).thenReturn(false);
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: const {'posts', 'graph', 'private_accounts', kFeatureUiTablet},
+        pendingFollowRequests: 1500,
+        graph: graph,
+      );
+
+      expectMinTarget(tester, find.byType(AppAccountChip));
+      await tester.tap(find.byType(AppAccountChip));
+      await tester.pumpAndSettle();
+      for (final label in ['Profile', 'Follow requests', 'Settings']) {
+        expect(menuItem(label), findsOneWidget, reason: label);
+      }
+      expect(find.text('1000+'), findsOneWidget);
+    });
+
+    testWidgets('unread badges are spoken on the rail', (tester) async {
+      final handle = tester.ensureSemantics();
+      final badge = UnreadBadgeCubit(7);
+      addTearDown(badge.close);
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: allFlags,
+        badge: badge,
+      );
+
+      expect(find.bySemanticsLabel('Notifications, 7 unread'), findsOneWidget);
+      handle.dispose();
+    });
+
+    forEachThemeAndWidth(
+      'the shell fits: no overflow, rail + page = W, 48 dp targets',
+      (tester, env) async {
+        for (final height in {env.size.height, ...kTabletLandscapeHeights}) {
+          await pump(
+            tester,
+            width: env.size.width,
+            height: height,
+            flags: allFlags,
+            brightness: env.brightness,
+            textScale: env.textScale,
+          );
+
+          expectNoOverflow(tester);
+          final rail = tester.getRect(find.byType(AppNavRail));
+          final header = tester.getRect(find.byType(AppTopBar));
+          expect(rail.left, 0);
+          expect(header.left, rail.right);
+          // No context pane in either band: the page keeps the content.
+          expect(rail.width + header.width, env.size.width);
+          expectMinTarget(tester, inRail(find.byTooltip('New post')));
+          expectMinTarget(tester, find.byType(AppAccountChip));
+          // No rail label is clipped.
+          for (final element in inRail(find.byType(RichText)).evaluate()) {
+            final paragraph = element.renderObject! as RenderParagraph;
+            expect(
+              paragraph.didExceedMaxLines,
+              isFalse,
+              reason: paragraph.text.toPlainText(),
+            );
+          }
+        }
+      },
+      widths: kTabletMatrixWidths,
+      textScales: kTabletTextScales,
+      heights: kTabletHeights,
+    );
   });
 }

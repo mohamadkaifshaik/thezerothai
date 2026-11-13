@@ -381,6 +381,19 @@ class ThreadCubit extends Cubit<ThreadState> {
       }
     }
 
+    // `peer_read_at` comes with a first page only: a poll or a send that
+    // rewrote the cached header must not take "Seen" away. A first page is
+    // the server's word, so it replaces what was shown.
+    final before = state.conversation;
+    if (!snapshot.firstPageHeader &&
+        shownConversation != null &&
+        !shownConversation.hasPeerReadAt() &&
+        before != null &&
+        before.hasPeerReadAt()) {
+      shownConversation = shownConversation.deepCopy()
+        ..peerReadAt = before.peerReadAt;
+    }
+
     // Held back while the reader is scrolled up, so the list does not move.
     var shown = messages;
     var pending = 0;

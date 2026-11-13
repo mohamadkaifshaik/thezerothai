@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../../../shared/widgets/primitives/app_dialog.dart';
+
 /// Asks a password-account user for their password so the app can
 /// re-authenticate before a sensitive account call. Returns null when the
 /// user dismisses it (the account cubit treats that as "cancelled": nothing
 /// is sent). Plug it into `AccountCubit`'s `PasswordPrompt`.
 Future<String?> showPasswordPromptDialog(BuildContext context) {
-  return showDialog<String>(
+  return showAppMaterialDialog<String>(
     context: context,
     builder: (_) => const _PasswordPromptDialog(),
   );

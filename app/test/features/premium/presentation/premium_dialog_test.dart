@@ -75,7 +75,7 @@ void main() {
     for (final brightness in Brightness.values) {
       for (final width in kMatrixWidths) {
         for (final scale in kMatrixTextScalesLarge) {
-          shellsTest('hero, two cards, footer, no overflow '
+          shellsTest('headline, two cards, footer, no overflow '
               '[${brightness.name} ${width.toInt()}dp x$scale]', (
             tester,
           ) async {
@@ -86,15 +86,15 @@ void main() {
               textScale: scale,
             );
 
-            expect(find.text('Premium is coming soon'), findsOneWidget);
+            expect(find.text('COMING SOON'), findsOneWidget);
+            expect(find.text('A little extra.'), findsOneWidget);
             expect(
               find.text(
-                'Optional paid plans to help cover running costs. Nothing '
-                'is for sale yet.',
+                'Paid plans are not available yet. Planned monthly prices '
+                'are inclusive of GST.',
               ),
               findsOneWidget,
             );
-            expect(find.byIcon(Icons.workspace_premium_outlined), findsOne);
             expect(find.text('₹235/month'), findsOneWidget);
             expect(find.text('₹850/month'), findsOneWidget);
             expect(find.text('incl. GST'), findsNWidgets(2));

@@ -3,13 +3,14 @@
 package apiserver
 
 // The cross-ticket journey of UI wave W3 Part A through the real apiserver chain (Firestore, Auth and Pub/Sub
-// emulators, the production route table and interceptors): an account sets a banner, location, website and a pinned post;
+// emulators, the production route table and interceptors): an account sets a location, website and a pinned post;
 // a visitor opens every tab, likes and lists the like, sees "Follows you" appear when the account follows back, gets
 // who-to-follow suggestions; the pinned post is deleted and the pin clears itself; the account exports (the new profile
 // fields are in the export), then every flag is flipped off in a new instance over the SAME data and each gated surface
 // refuses while the ungated ones keep working; finally the account is deleted and none of its W3 data survives.
 // A signed PUT URL cannot be minted against the emulators, so READY media documents are seeded the way FinalizeUpload
-// leaves them (as the chain test does); the upload and moderation logic has its own tests (banner_matrix_integration).
+// leaves them (as the chain test does); the upload and moderation logic has its own tests. The account also owns a legacy
+// banner (the removed feature) that account deletion must erase like any other image.
 
 import (
 	"context"
@@ -37,8 +38,8 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 	x, y := w.user(t), w.user(t)
 	cands := w.w320Users(t, 3)
 
-	// --- 1. A sets a banner, location, website and a pin ---
-	banner := e.seedMedia(t, a.uid, media.PurposeBanner)
+	// --- 1. A sets a location, website and a pin; A still owns a legacy banner media document ---
+	legacyBanner := e.seedMedia(t, a.uid, media.Purpose("BANNER"))
 	img1, img2 := e.seedMedia(t, a.uid, media.PurposePost), e.seedMedia(t, a.uid, media.PurposePost)
 	create := func(u bmUser, req *postsv1.CreatePostRequest) string {
 		req.IdempotencyKey = contractKey("w320-e2e")
@@ -53,9 +54,9 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 	photo2 := create(a, &postsv1.CreatePostRequest{Text: "another photo", MediaIds: []string{img2}})
 	bPost := create(b, &postsv1.CreatePostRequest{Text: "B's post"})
 	prof, err := w.w320Update(a, &identityv1.UpdateProfileRequest{
-		BannerMediaId: &banner, Location: w320Str("Pune"), Website: w320Str("https://example.com/a"), PinnedPostId: &pinned,
+		Location: w320Str("Pune"), Website: w320Str("https://example.com/a"), PinnedPostId: &pinned,
 	})
-	if err != nil || prof.GetBannerUrl() == "" || prof.GetBannerThumbUrl() == "" || prof.GetLocation() != "Pune" ||
+	if err != nil || prof.GetLocation() != "Pune" ||
 		prof.GetWebsite() != "https://example.com/a" || prof.GetPinnedPostId() != pinned {
 		t.Fatalf("UpdateProfile = %v, %v", prof, err)
 	}
@@ -69,7 +70,7 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 	// --- 2. B (a visitor) sees the profile and opens every tab ---
 	w.w320Follow(t, b, a.uid)
 	seen := w.w320Profile(t, b, a.uid)
-	if seen.GetBannerUrl() != prof.GetBannerUrl() || seen.GetLocation() != "Pune" || seen.GetWebsite() != "https://example.com/a" || seen.GetPinnedPostId() != pinned {
+	if seen.GetLocation() != "Pune" || seen.GetWebsite() != "https://example.com/a" || seen.GetPinnedPostId() != pinned {
 		t.Fatalf("B sees %v", seen)
 	}
 	tabs := map[string]struct {
@@ -158,7 +159,7 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 		t.Fatalf("delivery = %d", code)
 	}
 	after := newW320Chain(t, w320TabsOn)
-	if p := after.w320Profile(t, b, a.uid); p.GetPinnedPostId() != "" || p.GetLocation() != "Pune" || p.GetBannerUrl() == "" {
+	if p := after.w320Profile(t, b, a.uid); p.GetPinnedPostId() != "" || p.GetLocation() != "Pune" {
 		t.Errorf("after the delete job: %v; the pin clears and nothing else", p)
 	}
 	if r, err := after.w320TabCall(b, a.uid, tabMediaPB, false, 20, "", ""); err != nil || !slices.Equal(tabPostIDs(r), []string{photo2}) {
@@ -205,11 +206,10 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 			t.Errorf("export profile.%s = %v, want %v", k, envlp.Profile[k], wantV)
 		}
 	}
-	if s, _ := envlp.Profile["bannerUrl"].(string); s == "" {
-		t.Errorf("export profile has no bannerUrl: %v", envlp.Profile)
-	}
-	if _, has := envlp.Profile["bannerThumbUrl"]; has {
-		t.Error("export carries the derived bannerThumbUrl")
+	for _, removed := range []string{"bannerUrl", "bannerThumbUrl"} {
+		if _, has := envlp.Profile[removed]; has {
+			t.Errorf("export profile carries %s (the banner was removed): %v", removed, envlp.Profile)
+		}
 	}
 
 	// --- 8. Flip each flag off in a new instance over the same data ---
@@ -227,14 +227,14 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 			t.Errorf("enabled_features lists %s with the flag off", f)
 		}
 	}
-	// profile_extras off: the pin is omitted, banner and location keep rendering, setting a field is refused. The website
+	// profile_extras off: the pin is omitted, the location keeps rendering, setting a field is refused. The website
 	// is blanked with the pin since M-1(a) (#354); the constant says which of the two the code does.
 	wantWebsite := "https://example.com/a"
 	if !w320WebsiteShownWhileExtrasGloballyOff {
 		wantWebsite = ""
 	}
 	op := o.w320Profile(t, b, a.uid)
-	if op.GetPinnedPostId() != "" || op.GetLocation() != "Pune" || op.GetBannerUrl() == "" || op.GetWebsite() != wantWebsite {
+	if op.GetPinnedPostId() != "" || op.GetLocation() != "Pune" || op.GetWebsite() != wantWebsite {
 		t.Errorf("profile with profile_extras off = %v (want website %q)", op, wantWebsite)
 	}
 	_, err = o.w320Update(a, &identityv1.UpdateProfileRequest{Location: w320Str("Mumbai")})
@@ -297,8 +297,11 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 	for _, q := range residue {
 		docs, err := e.fs.Collection(q.col).Where(q.field, "==", a.uid).Limit(5).Documents(ctx).GetAll()
 		if err != nil || len(docs) != 0 {
-			t.Errorf("%s.%s == deleted uid: %d docs, err %v (residue: the banner and the images go with the account)", q.col, q.field, len(docs), err)
+			t.Errorf("%s.%s == deleted uid: %d docs, err %v (residue: the legacy banner and the images go with the account)", q.col, q.field, len(docs), err)
 		}
+	}
+	if fsDocExists(t, e.fs, "media/"+legacyBanner) {
+		t.Error("the legacy banner's media document survived the account deletion")
 	}
 	// The visitor's world still works and A's profile is gone.
 	late := newW320Chain(t, w320TabsOn)

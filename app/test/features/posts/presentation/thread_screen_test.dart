@@ -18,6 +18,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ReplyPermission;
 import 'package:flutter/material.dart';
 import 'package:dzeroth/shared/widgets/post/conversation_row.dart';
+import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -659,7 +660,7 @@ void main() {
       stubThread((_) async => pb.GetThreadResponse(focal: focal));
     }
 
-    testWidgets('NOT_ALLOWED disables the docked composer, with no reason', (
+    testWidgets('NOT_ALLOWED disables the reply row, with no reason', (
       tester,
     ) async {
       stubFocal(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED);
@@ -693,4 +694,45 @@ void main() {
       });
     }
   });
+  for (final width in const [360.0, 800.0]) {
+    testWidgets('at $width "Replying to" starts at the post body (R1)', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 900);
+      addTearDown(tester.view.reset);
+      stubThread(
+        (_) async => pb.GetThreadResponse(
+          focal: replyView(1, parent: 9, conversation: 9),
+        ),
+      );
+      await open(tester);
+
+      expect(find.text('Replying to @h9'), findsOneWidget);
+      // From the column's start (wider windows centre a 600 dp column).
+      final column = tester.getTopLeft(find.byType(PostCard)).dx;
+      expect(
+        tester.getTopLeft(find.text('Replying to @h9')).dx - column,
+        closeTo(postCardGutter(width) + kPostBodyStart, 0.5),
+      );
+    });
+  }
+
+  for (final width in const [360.0, 800.0]) {
+    testWidgets('at $width the reply row Reply is the compact pill '
+        '(the row under the open post at every width)', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 900);
+      addTearDown(tester.view.reset);
+      stubThread(
+        (_) async => pb.GetThreadResponse(focal: postView(1, text: 'root')),
+      );
+      await open(tester);
+
+      final reply = tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Reply'),
+      );
+      expect(reply.compact, isTrue);
+    });
+  }
 }

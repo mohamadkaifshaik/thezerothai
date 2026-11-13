@@ -57,12 +57,12 @@ type userDoc struct {
 	CreatedAt            time.Time `firestore:"createdAt"`
 	UpdatedAt            time.Time `firestore:"updatedAt"`
 	// Profile extras: absent = none, never backfilled, index-exempt, not in the author snapshot.
-	// omitempty keeps a whole-doc rewrite (ChangeHandle) from adding empty fields to a doc that has none.
-	BannerURL      string `firestore:"bannerUrl,omitempty"`
-	BannerThumbURL string `firestore:"bannerThumbUrl,omitempty"`
-	Location       string `firestore:"location,omitempty"`
-	Website        string `firestore:"website,omitempty"`
-	PinnedPostID   string `firestore:"pinnedPostId,omitempty"`
+	// omitempty keeps a whole-doc rewrite (ChangeHandle) from adding empty fields to a doc that has none. The removed
+	// banner's bannerUrl and bannerThumbUrl are not decoded (a legacy document still decodes); a whole-doc rewrite drops
+	// them ().
+	Location     string `firestore:"location,omitempty"`
+	Website      string `firestore:"website,omitempty"`
+	PinnedPostID string `firestore:"pinnedPostId,omitempty"`
 	// ReadReceipts (F3): absent = off. omitempty keeps a whole-doc rewrite from adding the field to a doc that does not have it.
 	// Not part of the author snapshot.
 	ReadReceipts bool `firestore:"readReceipts,omitempty"`
@@ -91,8 +91,6 @@ func (d userDoc) toProfile(uid string) Profile {
 		Bio:                  d.Bio,
 		AvatarURL:            d.AvatarURL,
 		AvatarThumbURL:       d.AvatarThumbURL,
-		BannerURL:            d.BannerURL,
-		BannerThumbURL:       d.BannerThumbURL,
 		Location:             d.Location,
 		Website:              d.Website,
 		PinnedPostID:         d.PinnedPostID,
@@ -125,8 +123,6 @@ func profileToDoc(p Profile) userDoc {
 		Bio:                  p.Bio,
 		AvatarURL:            p.AvatarURL,
 		AvatarThumbURL:       p.AvatarThumbURL,
-		BannerURL:            p.BannerURL,
-		BannerThumbURL:       p.BannerThumbURL,
 		Location:             p.Location,
 		Website:              p.Website,
 		PinnedPostID:         p.PinnedPostID,
@@ -439,7 +435,7 @@ func (r *FirestoreRepo) ClearIfPinned(ctx context.Context, uid, postID string) (
 var _ Pins = (*FirestoreRepo)(nil)
 
 // ProfileImageURLs returns, from one fresh read of users/{uid} that bypasses every cache, the image URLs the
-// profile holds right now: the avatar, its thumbnail, the banner and its thumbnail, empty ones omitted. found is false
+// profile holds right now: the avatar and its thumbnail, empty ones omitted. found is false
 // when the document does not exist (not an error). It is what the media module's profile_media_retired step checks
 // before it retires an image: a job never acts on a message's word alone. It implements
 // media.ProfileImages, which apiserver and opsctl bind to this repo.
@@ -451,7 +447,7 @@ func (r *FirestoreRepo) ProfileImageURLs(ctx context.Context, uid string) (urls 
 	case err != nil:
 		return nil, false, err
 	}
-	for _, u := range []string{p.AvatarURL, p.AvatarThumbURL, p.BannerURL, p.BannerThumbURL} {
+	for _, u := range []string{p.AvatarURL, p.AvatarThumbURL} {
 		if u != "" {
 			urls = append(urls, u)
 		}

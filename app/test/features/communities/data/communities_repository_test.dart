@@ -265,6 +265,96 @@ void main() {
     );
   });
 
+  group('searchMembers (F36)', () {
+    test('sends the community, prefix, filter and limit 20; returns the '
+        'rows', () async {
+      answer = (_) => pb.SearchCommunityMembersResponse(
+        members: [
+          pb.CommunityMember(role: pb.CommunityRole.COMMUNITY_ROLE_MEMBER),
+        ],
+      );
+      final rows = await repo.searchMembers(
+        communityId: _cid,
+        prefix: 'mo',
+        filter: pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_BANNED,
+      );
+      final sent = requests.single as pb.SearchCommunityMembersRequest;
+      expect(lastProcedure(), 'SearchCommunityMembers');
+      expect(sent.communityId, _cid);
+      expect(sent.prefix, 'mo');
+      expect(
+        sent.filter,
+        pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_BANNED,
+      );
+      expect(sent.limit, 20);
+      expect(rows, hasLength(1));
+    });
+
+    for (final (name, error) in <(String, Exception)>[
+      (
+        'FEATURE_DISABLED community_member_search',
+        serverError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          metadata: {'feature': kFeatureCommunityMemberSearch},
+        ),
+      ),
+      (
+        'UNIMPLEMENTED',
+        connect.ConnectException(connect.Code.unimplemented, 'nope'),
+      ),
+    ]) {
+      test('$name: typed as the member search being off, and the rest of '
+          'communities keeps calling', () async {
+        answer = (p) => p.endsWith('SearchCommunityMembers')
+            ? error
+            : pb.GetCommunityResponse(community: community());
+        await expectLater(
+          repo.searchMembers(communityId: _cid, prefix: 'mo'),
+          throwsA(
+            isA<FeatureDisabledException>().having(
+              (e) => e.feature,
+              'feature',
+              kFeatureCommunityMemberSearch,
+            ),
+          ),
+        );
+        expect(repo.enabled, isTrue);
+        await repo.getCommunity(_cid);
+        expect(requests, hasLength(2));
+        expect(reported, 0);
+      });
+    }
+
+    test('FEATURE_DISABLED communities still turns communities off', () async {
+      answer = (_) => serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': kFeatureCommunities},
+      );
+      await expectLater(
+        repo.searchMembers(communityId: _cid, prefix: 'mo'),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            kFeatureCommunities,
+          ),
+        ),
+      );
+      expect(repo.enabled, isFalse);
+    });
+
+    test('flag off: no RPC', () async {
+      enabled = false;
+      await expectLater(
+        repo.searchMembers(communityId: _cid, prefix: 'mo'),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(requests, isEmpty);
+    });
+  });
+
   test('flag off: no RPC, FEATURE_DISABLED communities', () async {
     enabled = false;
 

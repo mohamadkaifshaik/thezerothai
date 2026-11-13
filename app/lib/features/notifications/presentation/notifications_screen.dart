@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -7,26 +6,38 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
+import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../../shared/widgets/post/timeline_gap_row.dart';
+import '../../beacons/domain/beacon_text_rules.dart' show isBeaconId;
+import '../../beacons/domain/beacons_feature_flag.dart';
+import '../../graph/data/graph_repository.dart';
+import '../../graph/presentation/graph_feature_flags.dart';
 import '../data/notifications_repository.dart';
 import '../domain/notification_location.dart';
 import '../domain/notifications_feature_flag.dart';
+import 'bloc/follow_back_cubit.dart';
 import 'bloc/notifications_cubit.dart';
 import 'bloc/push_cubit.dart';
 import 'bloc/unread_badge_cubit.dart';
 import 'notifications_error_messages.dart';
+import 'widgets/follow_back_button.dart';
 import 'widgets/follow_requests_row.dart';
 import 'widgets/notification_row.dart';
 import 'widgets/push_opt_in_card.dart';
+import 'widgets/notification_settings_action.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_geometry.dart';
 
 /// `/notifications`: the cached list renders at once, one
 /// throttled `since_token` refresh follows, and opening it marks everything
@@ -59,6 +70,27 @@ class NotificationsScreen extends StatelessWidget {
   }
 }
 
+/// The tabs of `/notifications` (the design's order): All, Plans (F15, with
+/// `beacons` on), Mentions. Plans and Mentions filter the loaded rows; they
+/// ask the server for nothing extra.
+enum NotificationsTab {
+  all('All'),
+  plans('Plans'),
+  mentions('Mentions');
+
+  const NotificationsTab(this.label);
+
+  final String label;
+}
+
+/// The tabs the caller sees: Plans only with `beacons` on (the screen itself
+/// needs `notifications`).
+List<NotificationsTab> notificationsTabsFor(BuildContext context) => [
+  NotificationsTab.all,
+  if (isFeatureEnabled(context, kFeatureBeacons)) NotificationsTab.plans,
+  NotificationsTab.mentions,
+];
+
 class _NotificationsView extends StatefulWidget {
   const _NotificationsView();
 
@@ -71,8 +103,16 @@ class _NotificationsViewState extends State<_NotificationsView>
   final ScrollController _controller = ScrollController();
   late DateTime _now = DateTime.now();
 
-  /// 0 = All, 1 = Mentions: a filter of the loaded rows, no extra RPC.
-  int _tab = 0;
+  /// A filter of the loaded rows, no extra RPC. A tab that goes away (Plans
+  /// when `beacons` turns off) falls back to All.
+  NotificationsTab _tab = NotificationsTab.all;
+
+  /// F14: the relationship to each follow row's actor, one batched
+  /// `GetRelationships` per page (made on first use, with `graph` on).
+  FollowBackCubit? _followBackCubit;
+  FollowBackCubit get _followBack => _followBackCubit ??= FollowBackCubit(
+    graph: context.read<GraphRepository>(),
+  );
 
   @override
   void initState() {
@@ -87,8 +127,21 @@ class _NotificationsViewState extends State<_NotificationsView>
     _controller
       ..removeListener(_onScroll)
       ..dispose();
+    _followBackCubit?.close();
     super.dispose();
   }
+
+  /// Whether a page of rows has landed between [a] and [b] (the cache, a
+  /// refresh, an older page, a filled gap): F14 asks once for its new follow
+  /// actors, never while a fetch is still running.
+  static bool _pageLanded(NotificationsState a, NotificationsState b) =>
+      !b.refreshing &&
+      !b.loadingMore &&
+      b.loadingGapKey == null &&
+      (!identical(a.entries, b.entries) ||
+          a.refreshing != b.refreshing ||
+          a.loadingMore != b.loadingMore ||
+          a.loadingGapKey != b.loadingGapKey);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -111,16 +164,41 @@ class _NotificationsViewState extends State<_NotificationsView>
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<NotificationsCubit>();
-    return BlocListener<PushCubit, PushState>(
-      // An FCM nudge while the screen is open: one throttled refresh.
-      listenWhen: (a, b) => b.received > a.received,
-      listener: (context, _) => unawaited(cubit.refreshIfStale()),
+    final tabs = notificationsTabsFor(context);
+    final tab = tabs.contains(_tab) ? _tab : NotificationsTab.all;
+    final followBack = isGraphEnabled(context);
+    final plans = isFeatureEnabled(context, kFeatureBeacons);
+    // F14 turned on after a page landed (a GetMe refresh): ask for what is
+    // already loaded, so no reserved line waits forever. Deduplicated, and
+    // never again for a failed actor (only a new page retries those), so a
+    // later build costs nothing.
+    if (followBack) {
+      final loaded = cubit.state;
+      if (!loaded.refreshing && loaded.entries.isNotEmpty) {
+        unawaited(_followBack.resolve(loaded.entries, retryFailed: false));
+      }
+    }
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<PushCubit, PushState>(
+          // An FCM nudge while the screen is open: one throttled refresh.
+          listenWhen: (a, b) => b.received > a.received,
+          listener: (context, _) => unawaited(cubit.refreshIfStale()),
+        ),
+        BlocListener<NotificationsCubit, NotificationsState>(
+          // F14 (`graph` on): once a page has landed, one batched ask for
+          // its new follow actors.
+          listenWhen: (a, b) => followBack && _pageLanded(a, b),
+          listener: (context, state) =>
+              unawaited(_followBack.resolve(state.entries)),
+        ),
+      ],
       child: Scaffold(
         body: LayoutBuilder(
           builder: (context, constraints) {
-            final inset = math.max(
-              0.0,
-              (constraints.maxWidth - AppBreakpoints.mobile) / 2,
+            final inset = ShellGeometry.readableInset(
+              context,
+              constraints.maxWidth,
             );
             return BlocBuilder<NotificationsCubit, NotificationsState>(
               builder: (context, state) {
@@ -132,20 +210,29 @@ class _NotificationsViewState extends State<_NotificationsView>
                     slivers: [
                       AppTopBar.sliver(
                         title: 'Notifications',
-                        centerTitle: true,
+                        actions: const [NotificationSettingsAction()],
                       ),
                       _inset(
                         inset,
                         SliverToBoxAdapter(
-                          child: AppTabBar(
-                            equalWidth: true,
-                            semanticLabel: 'Notifications timelines',
-                            selectedIndex: _tab,
-                            onChanged: (index) => setState(() => _tab = index),
-                            tabs: const [
-                              AppTab(label: 'All'),
-                              AppTab(label: 'Mentions'),
-                            ],
+                          // The tabs sit in the reading column; on the
+                          // tablet layout their hairline spans the pane.
+                          child: AppMainColumnBleed(
+                            bleed: inset,
+                            child: AppTabBar(
+                              equalWidth: _tabsFitEqually(
+                                context,
+                                tabs,
+                                constraints.maxWidth - 2 * inset,
+                              ),
+                              semanticLabel: 'Notifications timelines',
+                              selectedIndex: tabs.indexOf(tab),
+                              onChanged: (index) =>
+                                  setState(() => _tab = tabs[index]),
+                              tabs: [
+                                for (final t in tabs) AppTab(label: t.label),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -175,7 +262,15 @@ class _NotificationsViewState extends State<_NotificationsView>
                             ),
                           ),
                         ),
-                      ..._body(context, cubit, state, inset),
+                      ..._body(
+                        context,
+                        cubit,
+                        state,
+                        inset,
+                        tab,
+                        followBack,
+                        plans,
+                      ),
                       const ShellBottomInsetSliver(),
                     ],
                   ),
@@ -188,6 +283,32 @@ class _NotificationsViewState extends State<_NotificationsView>
     );
   }
 
+  /// Whether every tab label, at the bold weight and the user's text scale,
+  /// fits its equal share of [width] (with 4 dp of air). Otherwise the tabs
+  /// size to their labels and the bar scrolls (three labels at 360 dp x2.0),
+  /// so no label is ever ellipsized.
+  static bool _tabsFitEqually(
+    BuildContext context,
+    List<NotificationsTab> tabs,
+    double width,
+  ) {
+    final style = Theme.of(context).textTheme.titleSmall
+        ?.copyWith(fontWeight: FontWeight.w700);
+    final share = width / tabs.length;
+    for (final tab in tabs) {
+      final painter = TextPainter(
+        text: TextSpan(text: tab.label, style: style),
+        textScaler: MediaQuery.textScalerOf(context),
+        textDirection: Directionality.of(context),
+        maxLines: 1,
+      )..layout();
+      final fits = painter.width + AppSpacing.xs <= share;
+      painter.dispose();
+      if (!fits) return false;
+    }
+    return true;
+  }
+
   Widget _inset(double inset, Widget sliver) => SliverPadding(
     padding: EdgeInsets.symmetric(horizontal: inset),
     sliver: sliver,
@@ -198,6 +319,9 @@ class _NotificationsViewState extends State<_NotificationsView>
     NotificationsCubit cubit,
     NotificationsState state,
     double inset,
+    NotificationsTab tab,
+    bool followBack,
+    bool plans,
   ) {
     if (!state.hasNotifications) {
       final Widget child;
@@ -215,29 +339,42 @@ class _NotificationsViewState extends State<_NotificationsView>
       }
       return [_inset(inset, SliverToBoxAdapter(child: child))];
     }
-    final mentions = _tab == 1;
-    // The Mentions tab filters the loaded rows (gap markers stay so a gap
-    // can still be filled); it asks the server for nothing extra.
-    final entries = mentions
-        ? [
+    // Plans and Mentions filter the loaded rows (gap markers stay so a gap
+    // can still be filled); they ask the server for nothing extra.
+    final bool Function(NotificationType)? filter = switch (tab) {
+      NotificationsTab.all => null,
+      NotificationsTab.plans => isPlanType,
+      NotificationsTab.mentions => isMentionType,
+    };
+    final entries = filter == null
+        ? state.entries
+        : [
             for (final e in state.entries)
-              if (e.isGap || isMentionType(e.value!.type)) e,
-          ]
-        : state.entries;
-    if (mentions && !entries.any((e) => !e.isGap)) {
+              if (e.isGap || filter(e.value!.type)) e,
+          ];
+    if (filter != null && !entries.any((e) => !e.isGap)) {
+      final empty = tab == NotificationsTab.plans
+          ? const AppEmptyView(
+              icon: Icons.event_outlined,
+              title: 'No plan updates yet',
+              subtitle:
+                  'When someone asks to join your plan, or a plan you '
+                  'joined changes, it will show up here.',
+            )
+          : const AppEmptyView(
+              icon: Icons.alternate_email,
+              title: 'No mentions yet',
+              subtitle:
+                  'When someone mentions you or replies to you, it will '
+                  'show up here.',
+            );
       return [
         _inset(
           inset,
           SliverToBoxAdapter(
             child: Column(
               children: [
-                const AppEmptyView(
-                  icon: Icons.alternate_email,
-                  title: 'No mentions yet',
-                  subtitle:
-                      'When someone mentions you or replies to you, it will '
-                      'show up here.',
-                ),
+                empty,
                 if (state.hasMore)
                   TextButton(
                     style: TextButton.styleFrom(
@@ -286,6 +423,7 @@ class _NotificationsViewState extends State<_NotificationsView>
               actorId: n.actor.userId,
               beaconId: n.beaconId,
             );
+            final followBackActor = followBack ? followBackActorOf(n) : null;
             return Column(
               key: key,
               mainAxisSize: MainAxisSize.min,
@@ -297,6 +435,20 @@ class _NotificationsViewState extends State<_NotificationsView>
                   onTap: () {
                     if (location != null) context.push(location);
                   },
+                  action:
+                      plans &&
+                          n.type ==
+                              NotificationType.NOTIFICATION_TYPE_BEACON_REQUEST
+                      ? _ReviewRequest(beaconId: n.beaconId)
+                      : followBackActor == null
+                      ? null
+                      : FollowBackSlot(
+                          // Keyed by the actor: each row owns the cubit of
+                          // its button.
+                          key: ValueKey('follow-back-$followBackActor'),
+                          cubit: _followBack,
+                          actorId: followBackActor,
+                        ),
                 ),
                 const Divider(height: 1),
               ],
@@ -330,5 +482,27 @@ class _NotificationsViewState extends State<_NotificationsView>
       );
     }
     return const SizedBox(height: AppSpacing.lg);
+  }
+}
+
+/// "Review" on a join request (the mock's primary pill): opens the plan's
+/// People page, where the request is answered. Nothing for a malformed id,
+/// as the row's own tap opens nothing then.
+class _ReviewRequest extends StatelessWidget {
+  const _ReviewRequest({required this.beaconId});
+
+  final String beaconId;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isBeaconId(beaconId)) return const SizedBox.shrink();
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: AppPillButton(
+        label: 'Review',
+        compact: true,
+        onPressed: () => context.push(AppRouter.planPeoplePath(beaconId)),
+      ),
+    );
   }
 }

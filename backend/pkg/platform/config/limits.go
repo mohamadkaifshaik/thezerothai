@@ -42,6 +42,13 @@ type RateLimitConfig struct {
 	MessagesSendPerUserPerMinute int
 	MessagesReadPerUserPerMinute int
 
+	// NotificationsListPerUserPerMinute is the ListNotifications bucket, env RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN,
+	// default 30 per instance (90 with 3), the read-bucket norm (messages, lists, communities and beacons reads are 30).
+	// Normal use is far below it: the client refreshes every 60 s, and a scroll fetches one 20-row page at a time.
+	// It bounds the read cost per call: up to 50 rows, plus, for a caller whose blockedBy overflowed, one
+	// graph.BlockLookup of up to 100 graph docs (cache first). Before, the RPC fell back to the 60/min default.
+	NotificationsListPerUserPerMinute int
+
 	// MessagesSendsPerDay is the in-memory daily cap on SendMessage calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env MESSAGES_SENDS_PER_DAY, default 300, logged as limit_name "messages_daily".
 	// Worst case per account: 300 x 3 instances = 900 messages a day. The new-account value is Messaging.NewAccountSendsPerDay.
@@ -141,8 +148,8 @@ type RateLimitConfig struct {
 	// document on every call even when nothing changed, so a save loop could rewrite it thousands of times a day
 	// per account.
 	//
-	// Default 100. A real user changes their profile a handful of times a day (name, bio, avatar, banner, location,
-	// website, pin, plus retries), so 100 is generous. The cap is per instance, so with 3 instances an account
+	// Default 100. A real user changes their profile a handful of times a day (name, bio, avatar, location, website,
+	// pin, plus retries), so 100 is generous. The cap is per instance, so with 3 instances an account
 	// can make at most 300 calls a day, each writing at most once (not at all when nothing changes).
 	ProfileUpdatesPerDay int64
 

@@ -4,20 +4,28 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_chip.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
-import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../data/beacons_repository.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacons_state.dart' show BeaconsLoad;
 import 'bloc/my_beacons_cubit.dart';
 import 'bloc/my_beacons_state.dart';
 import 'widgets/beacon_row.dart';
+import 'widgets/plan_skeletons.dart';
 
-/// `/plans/mine` (R39): the caller's plans, Upcoming or Past, by role.
+/// `/plans/mine` (R39): the caller's plans, Upcoming or Past, by role (R12:
+/// the designs' role pills and compact rows with the viewer's part in the
+/// eyebrow, "ORGANISING · COFFEE").
+///
+/// In band B of the tablet layout a row opens the plan with `go` (tablet
+/// plan section 4.1, MyPlans): `/plans/:id` there is the list–detail with
+/// the all-plans list beside it. Everywhere else it is pushed, as before.
 class MyBeaconsScreen extends StatefulWidget {
   const MyBeaconsScreen({super.key});
 
@@ -51,63 +59,86 @@ class _MyBeaconsScreenState extends State<MyBeaconsScreen> {
   }
 
   Future<void> _open(String id) async {
+    final geometry = ShellGeometry.maybeOf(context);
+    if (geometry != null &&
+        geometry.tablet &&
+        geometry.band == ShellBand.expanded) {
+      context.go(AppRouter.planPath(id));
+      return;
+    }
     await context.push(AppRouter.planPath(id));
     if (mounted) await _cubit.load();
   }
 
   @override
   Widget build(BuildContext context) {
+    // The wide layouts put the role pills under the title and the tabs under
+    // them (the tablet and desktop MyPlans); the phone keeps the tabs first.
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
           child: BlocBuilder<MyBeaconsCubit, MyBeaconsState>(
             bloc: _cubit,
-            builder: (context, state) => Column(
-              children: [
-                AppBackHeader(title: 'My plans', onBack: _back),
-                AppTabBar(
-                  tabs: const [
-                    AppTab(label: 'Upcoming'),
-                    AppTab(label: 'Past'),
-                  ],
-                  selectedIndex:
-                      state.window == pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST
-                      ? 1
-                      : 0,
-                  equalWidth: true,
-                  semanticLabel: 'When',
-                  onChanged: (i) => _cubit.select(
-                    window: i == 1
-                        ? pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST
-                        : pb.MyBeaconsWindow.MY_BEACONS_WINDOW_UPCOMING,
-                  ),
+            builder: (context, state) {
+              final tabs = AppTabBar(
+                tabs: const [
+                  AppTab(label: 'Upcoming'),
+                  AppTab(label: 'Past'),
+                ],
+                selectedIndex:
+                    state.window == pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST
+                    ? 1
+                    : 0,
+                equalWidth: true,
+                semanticLabel: 'When',
+                onChanged: (i) => _cubit.select(
+                  window: i == 1
+                      ? pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST
+                      : pb.MyBeaconsWindow.MY_BEACONS_WINDOW_UPCOMING,
                 ),
-                Padding(
+              );
+              final roles = Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.md,
                     vertical: AppSpacing.sm,
                   ),
-                  child: Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.xs,
-                    children: [
-                      for (final (role, label) in _roles)
-                        ChoiceChip(
-                          label: Text(label),
-                          selected: state.role == role,
-                          onSelected: (_) => _cubit.select(role: role),
-                        ),
-                    ],
+                  child: Semantics(
+                    container: true,
+                    explicitChildNodes: true,
+                    label: 'Role',
+                    child: Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.xs,
+                      children: [
+                        for (final (role, label) in _roles)
+                          AppFilterPill(
+                            label: label,
+                            selected: state.role == role,
+                            onPressed: () => _cubit.select(role: role),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _cubit.load,
-                    child: _body(state),
+              );
+              return Column(
+                children: [
+                  AppBackHeader(title: 'My plans', onBack: _back),
+                  if (wide) roles,
+                  tabs,
+                  if (!wide) roles,
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: _cubit.load,
+                      child: _body(state),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -119,7 +150,7 @@ class _MyBeaconsScreenState extends State<MyBeaconsScreen> {
       case BeaconsLoad.loading:
         return const SingleChildScrollView(
           physics: AlwaysScrollableScrollPhysics(),
-          child: UserListSkeleton(semanticsLabel: 'Loading your plans'),
+          child: PlanCardListSkeleton(semanticsLabel: 'Loading your plans'),
         );
       case BeaconsLoad.error:
         return _scrollable(
@@ -166,6 +197,7 @@ class _MyBeaconsScreenState extends State<MyBeaconsScreen> {
             final view = state.views[i];
             return BeaconRow(
               view: view,
+              compact: true,
               onTap: () => _open(view.beacon.beaconId),
             );
           },

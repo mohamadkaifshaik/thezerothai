@@ -17,6 +17,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/settings/presentation/widgets/telemetry_consent_row.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -353,6 +354,60 @@ void main() {
       expect(find.text('Save'), findsOneWidget);
       expect(find.text('Not now'), findsOneWidget);
     });
+
+    for (final width in <double>[360, 1024, 1440]) {
+      testWidgets('$width dp: Save takes a tap anywhere in its 48 dp box; Not '
+          'now beside it and the policy link under it keep their own', (
+        tester,
+      ) async {
+        await open(tester, size: Size(width, 900));
+        final save = find.ancestor(
+          of: find.text('Save'),
+          matching: find.byType(AppPillButton),
+        );
+        final box = tester.getRect(save);
+        final pill = tester.getRect(
+          find.descendant(of: save, matching: find.byType(Ink)),
+        );
+        final notNow = tester.getRect(
+          find.ancestor(
+            of: find.text('Not now'),
+            matching: find.byType(TextButton),
+          ),
+        );
+        final link = tester.getRect(
+          find
+              .ancestor(
+                of: find.text('Privacy Policy'),
+                matching: find.byType(InkWell),
+              )
+              .first,
+        );
+        expect(box.height, AppSpacing.minTapTarget);
+        expect(pill.height, AppSize.pillCompact);
+        // One run, side by side, and no box overlaps another.
+        expect(notNow.center.dy, closeTo(box.center.dy, 0.5));
+        expect(box.overlaps(notNow), isFalse);
+        expect(box.overlaps(link), isFalse);
+        expect(box.bottom, lessThanOrEqualTo(link.top));
+
+        // The gap between Save and Not now, at the height of the band.
+        await tester.tapAt(Offset((box.right + notNow.left) / 2, pill.top - 5));
+        await settle(tester);
+        expect(find.text(TelemetryConsentCopy.cardTitle), findsOneWidget);
+        expect(
+          store.choice('uid-a', TelemetryKind.crash),
+          ConsentChoice.unasked,
+        );
+
+        // 5 dp under the pill, just above the policy link: Save.
+        await tester.tapAt(Offset(pill.center.dx, pill.bottom + 5));
+        await settle(tester);
+        expect(store.choice('uid-a', TelemetryKind.crash), ConsentChoice.off);
+        expect(store.choice('uid-a', TelemetryKind.usage), ConsentChoice.off);
+        expect(find.text(TelemetryConsentCopy.cardTitle), findsNothing);
+      });
+    }
   });
 
   group('Settings rows', () {

@@ -34,9 +34,13 @@ import 'bloc/community_detail_state.dart';
 import 'bloc/community_moderation_cubit.dart';
 import 'communities_error_messages.dart';
 import 'widgets/community_about.dart';
+import 'widgets/community_cover_band.dart';
 import 'widgets/community_header.dart';
+import 'widgets/community_hero.dart';
 import 'widgets/community_unavailable_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../core/widgets/shell_fab.dart';
 
 /// `/communities/:id`: header, then Posts and About tabs.
 ///
@@ -104,6 +108,56 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
   }
 
+  /// Whether the cover band has scrolled up past the status bar (see
+  /// [_withStatusScrim]).
+  final _bandGone = ValueNotifier<bool>(false);
+
+  /// Under the status bar the band is the page's top. Once it scrolls away,
+  /// the posts would pass under the status icons: a page-colour strip as tall
+  /// as the top inset (none without an inset) takes the place of the band
+  /// there. It is not a sliver of the scroll view (a pinned one would sit in
+  /// the flow under the band): a listener on the page's own vertical scroll
+  /// shows it.
+  Widget _withStatusScrim(BuildContext context, Widget page) {
+    final top = MediaQuery.paddingOf(context).top;
+    if (top <= 0) return page;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n.depth == 0 &&
+                  n.metrics.axis == Axis.vertical &&
+                  (n is ScrollUpdateNotification ||
+                      n is ScrollEndNotification)) {
+                _bandGone.value = n.metrics.pixels > kCommunityCoverBandHeight;
+              }
+              return false;
+            },
+            child: page,
+          ),
+        ),
+        PositionedDirectional(
+          top: 0,
+          start: 0,
+          end: 0,
+          height: top,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _bandGone,
+            builder: (context, gone, _) => gone
+                ? IgnorePointer(
+                    child: ColoredBox(
+                      key: const ValueKey('community-status-scrim'),
+                      color: Theme.of(context).colorScheme.surface,
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// 0 = Posts, 1 = About (ephemeral UI state).
   int _tab = 0;
 
@@ -120,11 +174,15 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   @override
   void dispose() {
+    _bandGone.dispose();
     _moderation.close();
     _timeline.close();
     _detail.close();
     super.dispose();
   }
+
+  void _openModerationLog() =>
+      context.push(AppRouter.communityModerationLogPath(widget.communityId));
 
   /// The "Post" entry: the header's own rule plus the caller's flags.
   bool _canCompose(BuildContext context, CommunityDetailState state) {
@@ -133,6 +191,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
         isFeatureEnabled(context, kFeaturePosts) &&
         !(profile?.isPrivate ?? false);
   }
+
+  void _composeHere() =>
+      context.push(AppRouter.composeCommunityPath(widget.communityId));
 
   void _back() {
     if (context.canPop()) {
@@ -155,7 +216,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Future<void> _leave() async {
     final name = _detail.state.community?.name ?? 'this Community';
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Leave $name?'),
@@ -201,6 +262,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final viewerUserId = context.select(
       (OnboardingBloc bloc) => bloc.state.profile?.userId,
     );
@@ -213,75 +275,95 @@ class _CommunityScreenState extends State<CommunityScreen> {
       child: BlocListener<TimelineCubit, TimelineState>(
         listenWhen: (before, after) => after.unavailable && !before.unavailable,
         listener: (context, _) => _detail.markUnavailable(),
-        child: Scaffold(
-          body: SafeArea(
-            child: BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
-              builder: (context, state) {
-                if (state.status == CommunityDetailStatus.unavailable) {
-                  return AppMainColumn(
-                    child: Column(
-                      children: [
-                        AppBackHeader(title: 'Community', onBack: _back),
-                        Expanded(
-                          child: Center(
-                            child: SingleChildScrollView(
-                              child: CommunityUnavailableView(
-                                onUnpin: state.pinned ? _togglePin : null,
-                                busy: state.pinBusy,
+        // The phone's floating button posts into this community.
+        child: BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
+          builder: (context, state) => ShellFab(
+            action: _canCompose(context, state)
+                ? ShellFabAction(
+                    tooltip:
+                        'Post in ${state.community?.name ?? 'this Community'}',
+                    icon: Icons.edit_outlined,
+                    onPressed: _composeHere,
+                  )
+                : null,
+            child: Scaffold(
+              // The cover band draws under the status bar, so the page does not
+              // pad the top itself; the plain states below do.
+              body: SafeArea(
+                top: false,
+                child: BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
+                  builder: (context, state) {
+                    if (state.status == CommunityDetailStatus.unavailable) {
+                      return SafeArea(
+                        bottom: false,
+                        child: AppMainColumn(
+                          child: Column(
+                            children: [
+                              AppBackHeader(title: 'Community', onBack: _back),
+                              Expanded(
+                                child: Center(
+                                  child: SingleChildScrollView(
+                                    child: CommunityUnavailableView(
+                                      onUnpin: state.pinned ? _togglePin : null,
+                                      busy: state.pinBusy,
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  );
-                }
-                if (state.status == CommunityDetailStatus.error &&
-                    state.community == null &&
-                    state.error != null) {
-                  return AppMainColumn(
-                    child: Column(
-                      children: [
-                        AppBackHeader(title: 'Community', onBack: _back),
-                        Expanded(
-                          child: Center(
-                            child: SingleChildScrollView(
-                              child: AppErrorView(
-                                error: state.error!,
-                                onRetry: () {
-                                  _detail.load();
-                                  _timeline.load();
-                                },
+                      );
+                    }
+                    if (state.status == CommunityDetailStatus.error &&
+                        state.community == null &&
+                        state.error != null) {
+                      return SafeArea(
+                        bottom: false,
+                        child: AppMainColumn(
+                          child: Column(
+                            children: [
+                              AppBackHeader(title: 'Community', onBack: _back),
+                              Expanded(
+                                child: Center(
+                                  child: SingleChildScrollView(
+                                    child: AppErrorView(
+                                      error: state.error!,
+                                      onRetry: () {
+                                        _detail.load();
+                                        _timeline.load();
+                                      },
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  );
-                }
-                // Both flags, and a role from `viewer_role` that is not the
-                // owner (the server answers VALIDATION to the owner).
-                final showReport =
-                    isFeatureEnabled(context, kFeatureReports) &&
-                    isFeatureEnabled(context, kFeatureCommunities) &&
-                    state.community != null &&
-                    !state.community!.role.isOwner;
-                final headerSlivers = <Widget>[
-                  SliverToBoxAdapter(
-                    child: AppBackHeader(
-                      title: state.community?.name ?? 'Community',
-                      onBack: _back,
-                      actions: [
-                        if (showReport)
-                          PopupMenuButton<String>(
+                      );
+                    }
+                    // Both flags, and a role from `viewer_role` that is not the
+                    // owner (the server answers VALIDATION to the owner).
+                    final showReport =
+                        isFeatureEnabled(context, kFeatureReports) &&
+                        isFeatureEnabled(context, kFeatureCommunities) &&
+                        state.community != null &&
+                        !state.community!.role.isOwner;
+                    // The options menu: on the cover band's navy a pearl circle,
+                    // on the tablet and desktop bar a plain icon.
+                    Widget? options({required bool onBand}) => showReport
+                        ? PopupMenuButton<String>(
                             tooltip: 'Community options',
-                            icon: const Icon(Icons.more_horiz),
-                            style: IconButton.styleFrom(
-                              minimumSize: const Size.square(
-                                AppSpacing.minTapTarget,
-                              ),
-                            ),
+                            padding: EdgeInsets.zero,
+                            // As an icon button, so it keeps the button role.
+                            icon: onBand
+                                ? CommunityBandAction.circle(Icons.more_horiz)
+                                : const Icon(Icons.more_horiz),
+                            style: onBand
+                                ? IconButton.styleFrom(
+                                    foregroundColor: AppPalette.pearl,
+                                  )
+                                : null,
                             onSelected: (_) => _report(),
                             itemBuilder: (context) => const [
                               PopupMenuItem(
@@ -292,77 +374,118 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 ),
                               ),
                             ],
+                          )
+                        : null;
+                    final headerSlivers = <Widget>[
+                      SliverToBoxAdapter(
+                        // Spans the pane on the tablet layout (as the bar's divider
+                        // did).
+                        child: wide
+                            ? CommunityTopBar(
+                                onBack: _back,
+                                action: options(onBand: false),
+                              )
+                            : AppFullBleed(
+                                child: CommunityCoverBand(
+                                  onBack: _back,
+                                  action: options(onBand: true),
+                                ),
+                              ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: CommunityHeader(
+                          state: state,
+                          wide: wide,
+                          onCompose: _canCompose(context, state)
+                              ? _composeHere
+                              : null,
+                          onModerationLog:
+                              state.community?.role.canModerate == true
+                              ? _openModerationLog
+                              : null,
+                          onMembers: () => context.push(
+                            AppRouter.communityMembersPath(widget.communityId),
                           ),
-                      ],
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: CommunityHeader(
-                      state: state,
-                      onCompose: _canCompose(context, state)
-                          ? () => context.push(
-                              AppRouter.composeCommunityPath(
-                                widget.communityId,
-                              ),
-                            )
-                          : null,
-                      onModerationLog: state.community?.role.canModerate == true
-                          ? () => context.push(
-                              AppRouter.communityModerationLogPath(
-                                widget.communityId,
-                              ),
-                            )
-                          : null,
-                      onMembers: () => context.push(
-                        AppRouter.communityMembersPath(widget.communityId),
+                          onJoin: _join,
+                          onLeave: _leave,
+                          onTogglePin: _togglePin,
+                          onRetry: _detail.load,
+                        ),
                       ),
-                      onJoin: _join,
-                      onLeave: _leave,
-                      onTogglePin: _togglePin,
-                      onRetry: _detail.load,
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: AppTabBar(
-                      tabs: const [
-                        AppTab(label: 'Posts'),
-                        AppTab(label: 'About'),
-                      ],
-                      selectedIndex: _tab,
-                      equalWidth: true,
-                      semanticLabel: 'Community sections',
-                      onChanged: (i) => setState(() => _tab = i),
-                    ),
-                  ),
-                ];
-                if (_tab == 1) {
-                  return AppMainColumn(
-                    child: RefreshIndicator(
-                      onRefresh: _detail.load,
-                      child: CustomScrollView(
-                        slivers: [
-                          ...headerSlivers,
-                          ...communityAboutSlivers(context, state),
-                          const ShellBottomInsetSliver(),
-                        ],
+                      SliverToBoxAdapter(
+                        child: AppTabBar(
+                          tabs: const [
+                            AppTab(label: 'Posts'),
+                            AppTab(label: 'About'),
+                          ],
+                          selectedIndex: _tab,
+                          equalWidth: true,
+                          semanticLabel: 'Community sections',
+                          onChanged: (i) {
+                            _bandGone.value = false;
+                            setState(() => _tab = i);
+                          },
+                        ),
                       ),
-                    ),
-                  );
-                }
-                return TimelineFeedView(
-                  viewerUserId: viewerUserId,
-                  emptyTitle: 'No posts yet',
-                  emptySubtitle:
-                      'Posts in this Community will show up here. Counts and '
-                      'posts update when you refresh.',
-                  fillViewport: true,
-                  showPending: false,
-                  newPostsPillTop: AppSize.headerRow + AppSpacing.sm,
-                  unavailableView: const CommunityUnavailableView(),
-                  headerSlivers: headerSlivers,
-                  moderationControl: _moderationControl(state),
-                );
-              },
+                    ];
+                    final Widget page;
+                    if (_tab == 1) {
+                      page = AppMainColumn(
+                        // On the tablet layout the scroll view spans the pane,
+                        // as on the Posts tab (`TimelineFeedView`): a drag, a
+                        // wheel or the scrollbar beside the column reach it,
+                        // and the header's divider and the tab hairline reach
+                        // the pane's edges. Its slivers keep to the column.
+                        // Elsewhere this is today's column.
+                        scrollsAcrossPane: true,
+                        child: Builder(
+                          builder: (context) {
+                            final inset = AppMainColumnBleed.of(context);
+                            Widget centred(Widget sliver) => SliverPadding(
+                              padding: EdgeInsets.symmetric(horizontal: inset),
+                              sliver: AppMainColumnBleed(
+                                bleed: inset,
+                                child: sliver,
+                              ),
+                            );
+                            return RefreshIndicator(
+                              onRefresh: _detail.load,
+                              child: CustomScrollView(
+                                slivers: [
+                                  for (final sliver in [
+                                    ...headerSlivers,
+                                    ...communityAboutSlivers(context, state),
+                                  ])
+                                    centred(sliver),
+                                  const ShellBottomInsetSliver(),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    } else {
+                      page = TimelineFeedView(
+                        viewerUserId: viewerUserId,
+                        emptyTitle: 'No posts yet',
+                        emptySubtitle:
+                            'Posts in this Community will show up here. Counts and '
+                            'posts update when you refresh.',
+                        fillViewport: true,
+                        showPending: false,
+                        newPostsPillTop:
+                            MediaQuery.paddingOf(context).top +
+                            AppSpacing.sm +
+                            4,
+                        unavailableView: const CommunityUnavailableView(),
+                        headerSlivers: headerSlivers,
+                        moderationControl: _moderationControl(state),
+                      );
+                    }
+                    return _withStatusScrim(context, page);
+                  },
+                ),
+              ),
             ),
           ),
         ),

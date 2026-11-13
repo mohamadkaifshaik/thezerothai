@@ -229,6 +229,8 @@ locals {
     { name = "FEATURE_NOTIFICATIONS_PERCENT", value = tostring(var.feature_notifications_percent) },
     { name = "NOTIFICATIONS_TOPIC", value = "notifications-fanout" },
     { name = "NOTIFICATIONS_DELIVERY", value = "pubsub" },
+    # ListNotifications' own per-user bucket (it used to fall back to the 60/min default). Must match the config.go default.
+    { name = "RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", value = "30" },
   ]
 }
 
@@ -346,8 +348,11 @@ locals {
     { name = "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", value = "60" },
     # L-4: UpdateProfile daily call cap (limit_name profile_update_daily). Must match the config.go default; config.Load rejects a value <= 0.
     { name = "PROFILE_UPDATES_PER_DAY", value = "100" },
-    # Delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to banner only after the media bucket's customTime lifecycle rule is applied here, to all only after the avatar placeholder app release. Must match config.Load's accepted values.
+    # Delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to all only after the media bucket's customTime lifecycle rule is applied here and after the avatar placeholder app release (the legacy value banner means off). Must match config.Load's accepted values.
     { name = "PROFILE_MEDIA_RETIRE", value = var.profile_media_retire },
+    # Kill switch of the media orphan sweep (last step of daily-maintenance): off = nothing (default) | mark = phase 1 and
+    # restores only, never a claim or delete | delete = both phases. Must match config.Load's accepted values.
+    { name = "MEDIA_ORPHAN_SWEEP", value = var.media_orphan_sweep },
     { name = "SUGGESTIONS_SAMPLE_FOLLOWEES", value = "30" },
     { name = "SUGGESTIONS_EDGE_LIMIT", value = "20" },
     { name = "SUGGESTIONS_HYDRATE_MAX", value = "10" },
@@ -363,6 +368,25 @@ locals {
     { name = "FEATURE_SHELLS", value = var.feature_shells },
     { name = "FEATURE_SHELLS_ALLOWLIST", value = var.feature_shells_allowlist },
     { name = "FEATURE_SHELLS_PERCENT", value = tostring(var.feature_shells_percent) },
+    // Sub-flags gated on top of a parent flag (backend/pkg/platform/config). Default off = the code default.
+    { name = "FEATURE_COMMUNITY_MEMBER_SEARCH", value = var.feature_community_member_search },
+    { name = "FEATURE_COMMUNITY_MEMBER_SEARCH_ALLOWLIST", value = var.feature_community_member_search_allowlist },
+    { name = "FEATURE_COMMUNITY_MEMBER_SEARCH_PERCENT", value = tostring(var.feature_community_member_search_percent) },
+    { name = "FEATURE_POST_BEACON_EMBED", value = var.feature_post_beacon_embed },
+    { name = "FEATURE_POST_BEACON_EMBED_ALLOWLIST", value = var.feature_post_beacon_embed_allowlist },
+    { name = "FEATURE_POST_BEACON_EMBED_PERCENT", value = tostring(var.feature_post_beacon_embed_percent) },
+    { name = "FEATURE_CHAT_SHARED_PLANS", value = var.feature_chat_shared_plans },
+    { name = "FEATURE_CHAT_SHARED_PLANS_ALLOWLIST", value = var.feature_chat_shared_plans_allowlist },
+    { name = "FEATURE_CHAT_SHARED_PLANS_PERCENT", value = tostring(var.feature_chat_shared_plans_percent) },
+    { name = "FEATURE_READ_RECEIPTS", value = var.feature_read_receipts },
+    { name = "FEATURE_READ_RECEIPTS_ALLOWLIST", value = var.feature_read_receipts_allowlist },
+    { name = "FEATURE_READ_RECEIPTS_PERCENT", value = tostring(var.feature_read_receipts_percent) },
+    { name = "FEATURE_DM_POLICY", value = var.feature_dm_policy },
+    { name = "FEATURE_DM_POLICY_ALLOWLIST", value = var.feature_dm_policy_allowlist },
+    { name = "FEATURE_DM_POLICY_PERCENT", value = tostring(var.feature_dm_policy_percent) },
+    { name = "FEATURE_NOTIFICATION_PREFS", value = var.feature_notification_prefs },
+    { name = "FEATURE_NOTIFICATION_PREFS_ALLOWLIST", value = var.feature_notification_prefs_allowlist },
+    { name = "FEATURE_NOTIFICATION_PREFS_PERCENT", value = tostring(var.feature_notification_prefs_percent) },
     { name = "FEATURE_CRASH_REPORTING", value = var.feature_crash_reporting },
     { name = "FEATURE_CRASH_REPORTING_ALLOWLIST", value = var.feature_crash_reporting_allowlist },
     { name = "FEATURE_CRASH_REPORTING_PERCENT", value = tostring(var.feature_crash_reporting_percent) },

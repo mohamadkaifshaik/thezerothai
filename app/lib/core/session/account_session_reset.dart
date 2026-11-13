@@ -16,7 +16,11 @@
 ///   `BookmarksCubit` (+ repository overlay), `SuggestionsCubit` (+
 ///   repository), `TrendsCubit`, `LikesRepository`, `HomeTabsRepository`,
 ///   `ListsRepository`, `GraphRepository` caches, the app badges, the push
-///   token and the snackbars.
+///   token and the snackbars; `PlansSession` (the hoisted `/plans` list and
+///   "Your plans" cubits of the tablet list–detail: closed and dropped);
+///   `ConversationsSession` (the hoisted inbox and Requests
+///   `ConversationsCubit`s and the split page's scroll memory: closed and
+///   dropped; also dropped when Messages access turns `hidden`).
 /// - SubscriptionCubit and its repository memory are reset together when billing
 ///   is configured; the SDK operation queue survives account switches.
 /// - Drift cache, wiped by `wipeSessionData` / `claimCacheFor` in

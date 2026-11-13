@@ -58,6 +58,7 @@ class CommunitiesCubit extends Cubit<CommunitiesState> {
           mineStatus: CommunitiesLoad.ready,
           mine: r.communities,
           canCreate: r.canCreate,
+          mineHasMore: r.hasMore,
         ),
       );
     } on AppException catch (error) {
@@ -81,6 +82,7 @@ class CommunitiesCubit extends Cubit<CommunitiesState> {
         state.copyWith(
           directoryStatus: CommunitiesLoad.ready,
           directory: r.communities,
+          directoryHasMore: r.hasMore,
         ),
       );
     } on AppException catch (error) {

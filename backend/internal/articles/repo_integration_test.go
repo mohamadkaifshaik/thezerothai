@@ -127,7 +127,8 @@ func TestFirestoreRootAndArticleCommitAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	coverID := node.Generate()
-	coverDoc := &media.Doc{OwnerID: uid, Purpose: string(media.PurposePost), Status: string(media.StatusReady), ContentType: media.ContentTypeJPEG, PublicPath: "article-cover.jpg", ThumbPath: "article-cover-thumb.jpg", Width: 1280, Height: 720}
+	checkAt := time.Now().Add(media.OrphanAfter).UTC()
+	coverDoc := &media.Doc{OwnerID: uid, Purpose: string(media.PurposePost), Status: string(media.StatusReady), ContentType: media.ContentTypeJPEG, PublicPath: "article-cover.jpg", ThumbPath: "article-cover-thumb.jpg", Width: 1280, Height: 720, OrphanCheckAt: &checkAt}
 	if _, err = client.Collection("media").Doc(coverID).Set(ctx, coverDoc); err != nil {
 		t.Fatal(err)
 	}
@@ -188,6 +189,10 @@ func TestFirestoreRootAndArticleCommitAtomically(t *testing.T) {
 	}
 	if _, err = lib.ResolvePostCover(ctx, uid, coverID); !media.IsNotReady(err) {
 		t.Fatalf("claimed cover still available to drafts: %v", err)
+	}
+	// The article publication attaches the cover through Claim.Attach, which removes the orphan sweep's check.
+	if covers, err := media.NewFirestoreRepo(client, media.WriteDeps{}).GetMany(ctx, []string{coverID}); err != nil || covers[coverID].PostID != result.Post.ID || covers[coverID].OrphanCheckAt != nil {
+		t.Fatalf("published cover = %+v, %v: want attached with no orphanCheckAt", covers[coverID], err)
 	}
 	loaded, err = r.get(ctx, id)
 	if err != nil || !loaded.Published || loaded.PostID != result.Post.ID {

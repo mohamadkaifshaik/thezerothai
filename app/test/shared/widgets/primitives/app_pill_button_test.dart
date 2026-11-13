@@ -533,4 +533,209 @@ void main() {
       heights: kRedesignHeights,
     );
   });
+
+  group('AppPillButton compact takes a tap anywhere in its 48dp box', () {
+    /// Pumps one compact pill and returns its 48dp box and its 36dp pill.
+    Future<({Rect box, Rect pill})> pumpPill(
+      WidgetTester tester, {
+      required VoidCallback? onPressed,
+      bool busy = false,
+      Widget Function(Widget pill)? around,
+    }) async {
+      final pill = AppPillButton(
+        label: 'Post',
+        compact: true,
+        busy: busy,
+        onPressed: onPressed,
+      );
+      await tester.pumpWidget(_host(around?.call(pill) ?? pill));
+      final box = tester.getRect(find.byType(AppPillButton));
+      final ink = tester.getRect(find.byType(Ink));
+      // The 36dp pill sits 6dp inside the 48dp box, above and below, and
+      // fills its width: the box only adds height.
+      expect(box.height, AppSpacing.minTapTarget);
+      expect(ink.height, AppSize.pillCompact);
+      expect(ink.top - box.top, closeTo(6, 0.01));
+      expect(box.bottom - ink.bottom, closeTo(6, 0.01));
+      expect(ink.width, box.width);
+      return (box: box, pill: ink);
+    }
+
+    final inside = <(String, Offset Function(Rect pill))>[
+      ('5dp above the top edge', (p) => Offset(p.center.dx, p.top - 5)),
+      ('1dp above the top edge', (p) => Offset(p.center.dx, p.top - 1)),
+      ('5dp inside the top edge', (p) => Offset(p.center.dx, p.top + 5)),
+      ('5dp inside the bottom edge', (p) => Offset(p.center.dx, p.bottom - 5)),
+      ('1dp below the bottom edge', (p) => Offset(p.center.dx, p.bottom + 1)),
+      ('5dp below the bottom edge', (p) => Offset(p.center.dx, p.bottom + 5)),
+      ('the corner of the box', (p) => Offset(p.left + 1, p.top - 5)),
+    ];
+    for (final (name, at) in inside) {
+      testWidgets('a tap $name fires once', (tester) async {
+        var taps = 0;
+        final r = await pumpPill(tester, onPressed: () => taps++);
+        await tester.tapAt(at(r.pill));
+        await tester.pumpAndSettle();
+        expect(taps, 1);
+      });
+    }
+
+    final outside = <(String, Offset Function(Rect box))>[
+      ('1dp above the box', (b) => Offset(b.center.dx, b.top - 1)),
+      ('1dp below the box', (b) => Offset(b.center.dx, b.bottom + 1)),
+      ('1dp before the box', (b) => Offset(b.left - 1, b.center.dy)),
+      ('1dp after the box', (b) => Offset(b.right + 1, b.center.dy)),
+    ];
+    for (final (name, at) in outside) {
+      testWidgets('a tap $name does nothing', (tester) async {
+        var taps = 0;
+        final r = await pumpPill(tester, onPressed: () => taps++);
+        await tester.tapAt(at(r.box));
+        await tester.pumpAndSettle();
+        expect(taps, 0);
+      });
+    }
+
+    testWidgets('a busy pill ignores taps on the pill and in the box', (
+      tester,
+    ) async {
+      var taps = 0;
+      final r = await pumpPill(tester, busy: true, onPressed: () => taps++);
+      for (final at in [
+        r.pill.center,
+        Offset(r.pill.center.dx, r.pill.top - 5),
+        Offset(r.pill.center.dx, r.pill.bottom + 5),
+      ]) {
+        await tester.tapAt(at);
+        await tester.pump();
+      }
+      expect(taps, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a disabled pill takes no tap in the box, and leaves it to '
+        'nothing around it, as before', (tester) async {
+      var outer = 0;
+      final r = await pumpPill(
+        tester,
+        onPressed: null,
+        around: (pill) => GestureDetector(onTap: () => outer++, child: pill),
+      );
+      for (final dy in [r.pill.top - 5, r.pill.bottom + 5]) {
+        await tester.tapAt(Offset(r.pill.center.dx, dy));
+        await tester.pump();
+      }
+      expect(outer, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a press in the box lights the pill (pressed highlight)', (
+      tester,
+    ) async {
+      final r = await pumpPill(tester, onPressed: () {});
+      List<InkFeature> ink() {
+        final controller = Material.of(tester.element(find.byType(InkWell)));
+        return ((controller as dynamic).debugInkFeatures
+                as List<InkFeature>?) ??
+            const <InkFeature>[];
+      }
+
+      expect(ink().whereType<InkHighlight>(), isEmpty);
+      final gesture = await tester.startGesture(
+        Offset(r.pill.center.dx, r.pill.top - 5),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      // The highlight is the pill's own InkWell's: its rect is the pill.
+      expect(ink().whereType<InkHighlight>(), isNotEmpty);
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('semantics: one button node, same label, the 48dp box', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final r = await pumpPill(tester, onPressed: () {});
+      expect(find.bySemanticsLabel('Post'), findsOneWidget);
+      final node = tester.getSemantics(find.byType(AppPillButton));
+      expect(
+        node,
+        matchesSemantics(
+          label: 'Post',
+          isButton: true,
+          isEnabled: true,
+          hasEnabledState: true,
+          hasTapAction: true,
+        ),
+      );
+      expect(node.rect.size, r.box.size);
+      handle.dispose();
+    });
+
+    testWidgets('neighbours in a Wrap keep their own taps (a pill beside and '
+        'above a 48dp TextButton, as in the consent cards)', (tester) async {
+      var pill = 0;
+      var other = 0;
+      for (final width in <double>[400, 120]) {
+        pill = 0;
+        other = 0;
+        await tester.pumpWidget(
+          _host(
+            SizedBox(
+              width: width,
+              child: Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  AppPillButton(
+                    label: 'Save',
+                    compact: true,
+                    onPressed: () => pill++,
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, AppSpacing.minTapTarget),
+                    ),
+                    onPressed: () => other++,
+                    child: const Text('Not now'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        final box = tester.getRect(find.byType(AppPillButton));
+        final ink = tester.getRect(find.byType(Ink));
+        final next = tester.getRect(find.byType(TextButton));
+        final stacked = next.top >= box.bottom;
+        expect(stacked, width == 120, reason: 'width $width');
+        expect(box.overlaps(next), isFalse);
+        // Inside the pill's box, outside the pill: the pill.
+        await tester.tapAt(
+          stacked
+              ? Offset(ink.center.dx, ink.bottom + 5)
+              : Offset(ink.right - 1, ink.top - 5),
+        );
+        await tester.pumpAndSettle();
+        expect((pill, other), (1, 0), reason: 'width $width');
+        // Just inside the neighbour: the neighbour.
+        await tester.tapAt(
+          stacked
+              ? Offset(next.center.dx, next.top + 1)
+              : Offset(next.left + 1, next.center.dy),
+        );
+        await tester.pumpAndSettle();
+        expect((pill, other), (1, 1), reason: 'width $width');
+        // The gap between them: neither.
+        await tester.tapAt(
+          stacked
+              ? Offset(ink.center.dx, (box.bottom + next.top) / 2)
+              : Offset((box.right + next.left) / 2, ink.top - 5),
+        );
+        await tester.pumpAndSettle();
+        expect((pill, other), (1, 1), reason: 'width $width');
+      }
+    });
+  });
 }

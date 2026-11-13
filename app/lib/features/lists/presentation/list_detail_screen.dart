@@ -29,6 +29,7 @@ import 'lists_error_messages.dart';
 import 'widgets/list_detail_header.dart';
 import 'widgets/list_editor_sheet.dart';
 import 'widgets/list_unavailable_view.dart';
+import 'widgets/lists_page_chrome.dart';
 
 /// `/lists/:id`: the List's header and its timeline.
 ///
@@ -42,6 +43,10 @@ import 'widgets/list_unavailable_view.dart';
 /// - NOT_FOUND from either RPC replaces the screen with "This List is
 ///   unavailable" (and Unpin when pinned); one text for every cause.
 /// - Edit is the owner's; Pin / Unpin is saved with one `SetHomeTabs`.
+/// - The header is the mocks' navy hero ([ListDetailHeader]); a phone holds
+///   Back and the overflow menu in it, the wide layouts have a top bar above.
+///   The mocks' members preview is not built: "N Members" in the hero opens
+///   the members page at every width.
 class ListDetailScreen extends StatefulWidget {
   const ListDetailScreen({super.key, required this.listId});
 
@@ -79,6 +84,8 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
     _detail.close();
     super.dispose();
   }
+
+  void _openMembers() => context.push(AppRouter.listMembersPath(widget.listId));
 
   void _back() {
     if (context.canPop()) {
@@ -138,9 +145,14 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
         BlocProvider<TimelineCubit>.value(value: _timeline),
         BlocProvider<ListDetailCubit>.value(value: _detail),
       ],
-      child: BlocListener<TimelineCubit, TimelineState>(
-        listenWhen: (before, after) => after.unavailable && !before.unavailable,
-        listener: (context, _) => _detail.markUnavailable(),
+      child: MultiBlocListener(
+        listeners: [
+          BlocListener<TimelineCubit, TimelineState>(
+            listenWhen: (before, after) =>
+                after.unavailable && !before.unavailable,
+            listener: (context, _) => _detail.markUnavailable(),
+          ),
+        ],
         child: Scaffold(
           body: SafeArea(
             child: BlocBuilder<ListDetailCubit, ListDetailState>(
@@ -176,6 +188,24 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
                     header != null &&
                     viewerUserId != null &&
                     !isOwner;
+                final phone = isListsPhone(context);
+                final menu = showReport
+                    ? PopupMenuButton<String>(
+                        tooltip: 'More options',
+                        icon: const Icon(Icons.more_horiz),
+                        style: phone ? kListHeroIconStyle : null,
+                        onSelected: (_) => _report(),
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: 'report',
+                            child: AppMenuItemRow(
+                              icon: Icons.flag_outlined,
+                              label: 'Report List',
+                            ),
+                          ),
+                        ],
+                      )
+                    : null;
                 return TimelineFeedView(
                   viewerUserId: viewerUserId,
                   emptyTitle: 'No posts yet',
@@ -185,47 +215,30 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
                   showPending: false,
                   newPostsPillTop: AppSize.headerRow + AppSpacing.sm,
                   headerSlivers: [
-                    SliverToBoxAdapter(
-                      child: AppBackHeader(
-                        title: header?.name ?? 'List',
-                        onBack: _back,
-                        actions: [
-                          if (showReport)
-                            PopupMenuButton<String>(
-                              tooltip: 'More options',
-                              icon: const Icon(Icons.more_horiz),
-                              style: IconButton.styleFrom(
-                                minimumSize: const Size.square(
-                                  AppSpacing.minTapTarget,
-                                ),
-                              ),
-                              onSelected: (_) => _report(),
-                              itemBuilder: (context) => const [
-                                PopupMenuItem(
-                                  value: 'report',
-                                  child: AppMenuItemRow(
-                                    icon: Icons.flag_outlined,
-                                    label: 'Report List',
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
+                    // The wide mocks' top bar; a phone has Back and the menu
+                    // inside the hero.
+                    if (!phone)
+                      SliverToBoxAdapter(
+                        child: AppBackHeader(
+                          title: 'List',
+                          titleContent: const ListsHeaderTitle(title: 'List'),
+                          onBack: _back,
+                          actions: [?menu],
+                        ),
                       ),
-                    ),
                     SliverToBoxAdapter(
                       child: ListDetailHeader(
                         state: state,
                         isOwner: isOwner,
-                        onMembers: () => context.push(
-                          AppRouter.listMembersPath(widget.listId),
-                        ),
+                        onMembers: _openMembers,
                         onOwner: () => context.push(
                           AppRouter.profilePath(header!.owner.handle),
                         ),
                         onTogglePin: _togglePin,
                         onEdit: _edit,
                         onRetry: _detail.ensureHeader,
+                        onBack: phone ? _back : null,
+                        menu: phone ? menu : null,
                       ),
                     ),
                   ],

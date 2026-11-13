@@ -169,7 +169,7 @@ class AppSkeletonRow extends StatelessWidget {
                   const SizedBox(height: AppSpacing.sm),
                   const AspectRatio(
                     aspectRatio: 16 / 9,
-                    child: AppSkeletonBlock(radius: AppRadius.lg),
+                    child: AppSkeletonBlock(radius: AppRadius.cardSmall),
                   ),
                 ],
               ],

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -11,14 +12,50 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_geometry.dart';
+import '../../../core/widgets/tablet_layout.dart';
 import '../../../gen/dzeroth/media/v1/media.pbenum.dart';
 import '../../media/data/image_picker_service.dart';
 import '../../media/data/media_repository.dart';
 import '../../media/data/media_uploader.dart';
 import '../../media/domain/image_processor.dart';
+import '../../posts/domain/reply_audience.dart';
+import '../../posts/presentation/post_error_messages.dart'
+    show kReplyAudienceUnavailableMessage;
 import '../domain/article.dart';
 import '../domain/articles_repository.dart';
 import 'article_text_controller.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
+import 'widgets/article_cover_placeholder.dart';
+
+/// Whether the article library shows beside the page in a window [width]
+/// wide: from 840dp on the tablet layout ([tablet]: both flags, 600-1199dp;
+/// tablet plan section 4.1, Article row), from 1200dp everywhere else
+/// (today's rule; desktop unchanged, ruling R-1).
+bool articleLibraryShownAt(double width, {required bool tablet}) =>
+    width >= (tablet ? AppBreakpoints.expanded : AppBreakpoints.tablet);
+
+/// The library's width beside the page: the list pane of band B on the
+/// tablet layout (`clamp(0.4 * W, 320, 400)`: the editor has no rail, so its
+/// content area is the window), today's side column elsewhere.
+double articleLibraryWidth(double width, {required bool tablet}) =>
+    tablet ? ShellGeometry.listPaneWidthFor(width) : AppSize.sideColumn;
+
+/// The longest line of the reader's prose (its body blocks), in dp. The
+/// reader's column is the readable 680 on the tablet layout; its title,
+/// cover and byline use it all, but body text stops here so a line stays
+/// comfortable to read. On phones and desktop the column is narrower than
+/// this, so nothing changes there.
+const double kArticleProseMax = 600;
+
+/// Band B of the tablet layout: the editor's library pane carries "Publish
+/// settings" (the audience and who can reply), so the publish dialog does
+/// not (tablet plan section 6, item 5). Band A, phones, desktop and either
+/// flag off keep them in the dialog.
+bool articlePublishSettingsInPaneAt(BuildContext context) =>
+    tabletLayoutAt(context) &&
+    ShellBand.of(MediaQuery.sizeOf(context).width) == ShellBand.expanded;
 
 class ArticlesScreen extends StatefulWidget {
   const ArticlesScreen({
@@ -66,6 +103,16 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   Timer? _debounce;
   _PublishOptions? _retryOptions;
 
+  /// Who can reply, as chosen in the library pane's "Publish settings" (band
+  /// B) or in the last publish dialog; null until the author chooses. The
+  /// publish dialog opens on it.
+  ReplyAudience? _policyChoice;
+
+  /// The page (the editor, the reader, the library list) keeps its state
+  /// when the library appears or goes beside it (crossing 840 or 1200dp):
+  /// the same element is re-parented, so focus, selection and scroll stay.
+  final _bodyKey = GlobalKey(debugLabel: 'article-body');
+
   @override
   void initState() {
     super.initState();
@@ -80,7 +127,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         widget.articleId != null &&
         !widget.reader &&
         !widget.focus &&
-        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet) {
+        articleLibraryShownAt(
+          MediaQuery.sizeOf(context).width,
+          tablet: tabletLayoutAt(context, listen: false),
+        )) {
       _sideRequested = true;
       unawaited(_loadSide());
     }
@@ -131,6 +181,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       _coverJob = null;
       _coverUploader = null;
       _retryOptions = null;
+      _policyChoice = null;
       _saving = false;
       _dirty = false;
       _conflict = null;
@@ -204,6 +255,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   String _message(Object error) => isArticleDraftLimit(error)
       // Fixed copy, not the server's text; nothing in the editor is touched.
       ? articleDraftLimitMessage
+      // The flag went off after the dialog offered a narrower audience.
+      : error is FeatureDisabledException &&
+            error.feature == kFeatureReplyAudience
+      ? kReplyAudienceUnavailableMessage
       : error is AppException
       ? error.message
       : 'Could not load or save this article. Please try again.';
@@ -419,16 +474,23 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       return;
     }
     final record = _record!;
-    final options = await showDialog<_PublishOptions>(
+    final options = await showAppMaterialDialog<_PublishOptions>(
       context: context,
+      // On the tablet layout a form dialog (D 560): the confirm width (400)
+      // cannot hold the reply choices (T2 ruling 4). Elsewhere unchanged.
+      maxWidth: AppSize.dialogMax,
       builder: (_) => _PublishDialog(
         draft: _draft,
         initialCaption: _retryOptions?.caption ?? record.publicationCaption,
-        initialPolicy: _retryOptions?.policy ?? record.publicationReplyPolicy,
+        initialPolicy: _publishPolicy(record),
         locked: record.publicationPending || _retryOptions != null,
+        canChooseReplyAudience: _repository.canChooseReplyAudience,
+        // Focus mode has no library beside it.
+        libraryBeside: !widget.focus && !widget.reader,
       ),
     );
     if (options == null || !mounted) return;
+    _policyChoice = options.policy;
     setState(() => _busy = true);
     _retryOptions = options;
     final publishKey = sha256
@@ -443,10 +505,24 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         _record!,
         idempotencyKey: publishKey,
         caption: options.caption,
-        replyPolicy: options.policy,
+        replyAudience: options.policy,
       );
       if (mounted) context.go('/articles/${published.draft.id}');
     } catch (error) {
+      // FEATURE_DISABLED is FAILED_PRECONDITION, which clears the pending
+      // key server-side: the next try may choose again (only Everyone now,
+      // the gate remembers the answer), even if the refresh below fails. A
+      // record still marked pending would re-lock the dialog and resend the
+      // refused policy, so it stops being pending here too.
+      if (error is FeatureDisabledException &&
+          error.feature == kFeatureReplyAudience) {
+        _retryOptions = null;
+        if (_record case final current?
+            when current.publicationPending &&
+                current.draft.id == record.draft.id) {
+          _record = current.withPublicationRefused();
+        }
+      }
       if (mounted) setState(() => _error = _message(error));
       try {
         final refreshed = await _repository.get(record.draft.id);
@@ -463,6 +539,15 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  /// The reply policy a publication goes out with: a locked retry's or a
+  /// pending publication's stored one, else the author's choice, else what
+  /// the record stores.
+  ReplyAudience _publishPolicy(ArticleRecord record) =>
+      _retryOptions?.policy ??
+      (record.publicationPending
+          ? record.publicationReplyAudience
+          : _policyChoice ?? record.publicationReplyAudience);
 
   Future<void> _cover({bool retry = false}) async {
     if (_busy) return;
@@ -512,7 +597,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   }
 
   Future<void> _delete(ArticleRecord article) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete article?'),
@@ -560,6 +645,12 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         : read
         ? _reader()
         : _editor();
+    // The tablet layout (both flags, 600-1199dp) moves the library's
+    // threshold and width (tablet plan section 4.1, Article row).
+    final tablet = tabletLayoutAt(context);
+    final sides = tablet ? MediaQuery.paddingOf(context) : EdgeInsets.zero;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     return PopScope(
       canPop: !_dirty && !_saving,
       onPopInvokedWithResult: (didPop, _) async {
@@ -570,13 +661,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
           leading: BackButton(
             onPressed: _saving || _busy ? null : () => unawaited(_back()),
           ),
-          title: Text(
-            widget.reader
-                ? 'Article'
-                : widget.preview
-                ? 'Preview'
-                : 'Articles',
-          ),
+          title: _headerTitle(phone: phone, read: read),
           actions: [
             if (widget.reader && _record != null)
               IconButton(
@@ -594,49 +679,8 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
                 onPressed: _busy ? null : _create,
                 icon: const Icon(Icons.edit_note),
               ),
-            if (_record != null && !_record!.published) ...[
-              if (read && !_record!.publicationPending)
-                TextButton(
-                  onPressed: () =>
-                      _navigate('/compose/articles/edit/${_record!.draft.id}'),
-                  child: const Text('Edit'),
-                ),
-              if (!read)
-                TextButton(
-                  onPressed: _saving || _busy
-                      ? null
-                      : () => _navigate(
-                          '/compose/articles/edit/${_record!.draft.id}/preview',
-                        ),
-                  child: const Text('Preview'),
-                ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(
-                    AppSpacing.minButtonWidth,
-                    AppSpacing.minTapTarget,
-                  ),
-                ),
-                onPressed: _saving || _busy || _draft.publishErrors.isNotEmpty
-                    ? null
-                    : _publish,
-                child: _busy
-                    ? const SizedBox.square(
-                        dimension: AppIconSize.sm,
-                        child: CircularProgressIndicator(),
-                      )
-                    : const Text('Publish'),
-              ),
-              IconButton(
-                tooltip: 'Focus mode',
-                onPressed: () => _navigate(
-                  '/compose/articles/edit/${_record!.draft.id}${widget.focus ? '' : '/focus'}',
-                ),
-                icon: Icon(
-                  widget.focus ? Icons.fullscreen_exit : Icons.fullscreen,
-                ),
-              ),
-            ],
+            if (_record != null && !_record!.published)
+              ..._draftActions(phone: phone, read: read),
           ],
         ),
         body: Column(
@@ -679,8 +723,13 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
               ),
             Expanded(
               child: LayoutBuilder(
-                builder: (context, constraints) =>
-                    _withLibrary(constraints, body),
+                builder: (context, constraints) => _withLibrary(
+                  constraints,
+                  body,
+                  tablet: tablet,
+                  sides: sides,
+                  rtl: rtl,
+                ),
               ),
             ),
           ],
@@ -689,40 +738,200 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     );
   }
 
-  Widget _withLibrary(BoxConstraints constraints, Widget body) {
-    if (widget.articleId == null &&
-        constraints.maxWidth >= AppBreakpoints.tablet &&
-        !_loading) {
+  /// The header title. A draft in the editor shows its word count (the
+  /// phone mock: the count alone; tablet and desktop: "Article" over
+  /// "Draft · N words"); every other page keeps its plain title.
+  Widget _headerTitle({required bool phone, required bool read}) {
+    if (read || widget.reader || _record == null) {
+      return Text(
+        widget.reader
+            ? 'Article'
+            : widget.preview
+            ? 'Preview'
+            : 'Articles',
+      );
+    }
+    final theme = Theme.of(context);
+    final words = '${_draft.wordCount} words';
+    final muted = theme.textTheme.labelMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    if (phone) return Text(words, style: muted, maxLines: 1);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Article'),
+        Text('Draft · $words', style: muted),
+      ],
+    );
+  }
+
+  /// Preview or Edit, Publish and Focus mode. From 600dp they sit in the
+  /// header as pills and an icon; on a phone only Publish does, and the other
+  /// two go into a menu so the header fits at 320dp with large text.
+  List<Widget> _draftActions({required bool phone, required bool read}) {
+    final id = _record!.draft.id;
+    final preview = !read;
+    final modeLabel = preview
+        ? 'Preview'
+        : _record!.publicationPending
+        ? null
+        : 'Edit';
+    final modeEnabled = !preview || !(_saving || _busy);
+    void mode() => unawaited(
+      _navigate(
+        preview
+            ? '/compose/articles/edit/$id/preview'
+            : '/compose/articles/edit/$id',
+      ),
+    );
+    void focus() => unawaited(
+      _navigate('/compose/articles/edit/$id${widget.focus ? '' : '/focus'}'),
+    );
+    final publish = AppPillButton(
+      label: 'Publish',
+      compact: true,
+      busy: _busy,
+      busySemanticsLabel: 'Publishing',
+      onPressed: _saving || _busy || _draft.publishErrors.isNotEmpty
+          ? null
+          : _publish,
+    );
+    if (phone) {
+      return [
+        publish,
+        PopupMenuButton<VoidCallback>(
+          tooltip: 'More',
+          onSelected: (action) => action(),
+          itemBuilder: (_) => [
+            if (modeLabel != null)
+              PopupMenuItem(
+                value: mode,
+                enabled: modeEnabled,
+                child: Text(modeLabel),
+              ),
+            PopupMenuItem(value: focus, child: const Text('Focus mode')),
+          ],
+        ),
+      ];
+    }
+    return [
+      if (modeLabel != null)
+        AppPillButton(
+          label: modeLabel,
+          compact: true,
+          variant: AppButtonVariant.outline,
+          onPressed: modeEnabled ? mode : null,
+        ),
+      const SizedBox(width: AppSpacing.sm),
+      publish,
+      IconButton(
+        tooltip: 'Focus mode',
+        onPressed: focus,
+        icon: Icon(widget.focus ? Icons.fullscreen_exit : Icons.fullscreen),
+      ),
+      const SizedBox(width: AppSpacing.sm),
+    ];
+  }
+
+  /// [sides]: the window's safe-area insets on the tablet layout (zero
+  /// elsewhere). There the library sits at the leading edge and the page at
+  /// the trailing edge of the window, so each pads by its side's inset (a
+  /// landscape phone's notch), and the library is the list pane of
+  /// `C = W - insets` (tablet plan section 3).
+  Widget _withLibrary(
+    BoxConstraints constraints,
+    Widget page, {
+    required bool tablet,
+    required EdgeInsets sides,
+    required bool rtl,
+  }) {
+    final body = KeyedSubtree(key: _bodyKey, child: page);
+    final wide = articleLibraryShownAt(constraints.maxWidth, tablet: tablet);
+    final libraryWidth = articleLibraryWidth(
+      constraints.maxWidth - sides.horizontal,
+      tablet: tablet,
+    );
+    final leadingInset = EdgeInsets.only(
+      left: rtl ? 0 : sides.left,
+      right: rtl ? sides.right : 0,
+    );
+    final trailingInset = EdgeInsets.only(
+      left: rtl ? sides.left : 0,
+      right: rtl ? 0 : sides.right,
+    );
+    Widget pad(EdgeInsets insets, Widget child) => insets == EdgeInsets.zero
+        ? child
+        : Padding(padding: insets, child: child);
+    if (widget.articleId == null && wide && !_loading) {
       return Row(
         children: [
-          SizedBox(width: AppSize.sideColumn, child: body),
+          pad(leadingInset, SizedBox(width: libraryWidth, child: body)),
           const VerticalDivider(width: 1),
-          Expanded(child: _writingWelcome()),
+          Expanded(child: pad(trailingInset, _writingWelcome())),
         ],
       );
     }
     final showLibrary =
-        widget.articleId != null &&
-        !widget.reader &&
-        !widget.focus &&
-        constraints.maxWidth >= AppBreakpoints.tablet;
+        widget.articleId != null && !widget.reader && !widget.focus && wide;
+    // Band B of the tablet layout: "Publish settings" above the library,
+    // for a draft that can still be published.
+    final record = _record;
+    final settings =
+        showLibrary &&
+        tablet &&
+        ShellBand.of(constraints.maxWidth) == ShellBand.expanded &&
+        record != null &&
+        !record.published;
     if (showLibrary && !_sideRequested) {
       _sideRequested = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_loadSide());
       });
     }
+    final library = _sideLoading
+        ? const Center(child: CircularProgressIndicator())
+        : _library();
     return showLibrary
         ? Row(
             children: [
-              SizedBox(
-                width: AppSize.sideColumn,
-                child: _sideLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _library(),
+              pad(
+                leadingInset,
+                SizedBox(
+                  width: libraryWidth,
+                  child: settings
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // At most a third of the pane (a landscape phone
+                            // at large text): the settings scroll, the
+                            // library keeps the rest.
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight: constraints.maxHeight / 3,
+                              ),
+                              child: SingleChildScrollView(
+                                child: _PublishSettings(
+                                  policy: _publishPolicy(record),
+                                  locked:
+                                      record.publicationPending ||
+                                      _retryOptions != null,
+                                  canChooseReplyAudience:
+                                      _repository.canChooseReplyAudience,
+                                  onChanged: (value) =>
+                                      setState(() => _policyChoice = value),
+                                ),
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            Expanded(child: library),
+                          ],
+                        )
+                      : library,
+                ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: body),
+              Expanded(child: pad(trailingInset, body)),
             ],
           )
         : body;
@@ -911,224 +1120,262 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     }
   }
 
-  Widget _editor() => Column(
-    children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-        child: Row(
-          children: [
-            const Text('Draft'),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                _saving
-                    ? 'Saving…'
-                    : _dirty
-                    ? 'Unsaved changes'
-                    : 'Saved',
+  Widget _editor() {
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final theme = Theme.of(context);
+    final cover = _coverBytes != null
+        ? Image.memory(_coverBytes!, fit: BoxFit.cover)
+        : _record!.coverUrl.isNotEmpty && _coverMediaId != null
+        ? Image.network(
+            _record!.coverUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) =>
+                const Center(child: Icon(Icons.broken_image_outlined)),
+          )
+        : null;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppArticlesLayout.gutter,
+            AppSpacing.sm,
+            AppArticlesLayout.gutter,
+            0,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  'Article · Draft'.toUpperCase(),
+                  style: AppTextStyles.eyebrow(theme)
+                      .copyWith(color: context.appColors.accentText),
+                ),
               ),
-            ),
-            Text('${_draft.wordCount} words'),
-          ],
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(
+                child: Text(
+                  _saving
+                      ? 'Saving…'
+                      : _dirty
+                      ? 'Unsaved changes'
+                      : 'Saved',
+                  textAlign: TextAlign.end,
+                  style: theme.textTheme.labelMedium,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      _toolbar(),
-      const Divider(height: 1),
-      Expanded(
-        child: SingleChildScrollView(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: AppSize.contentMax),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_coverBytes != null)
-                    AspectRatio(
-                      aspectRatio: 5 / 2,
-                      child: Image.memory(_coverBytes!, fit: BoxFit.cover),
-                    )
-                  else if (_record!.coverUrl.isNotEmpty &&
-                      _coverMediaId != null)
-                    AspectRatio(
-                      aspectRatio: 5 / 2,
-                      child: Image.network(
-                        _record!.coverUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Icon(Icons.broken_image_outlined),
-                        ),
-                      ),
-                    ),
-                  if (_coverMediaId == null)
-                    AspectRatio(
-                      aspectRatio: 5 / 2,
-                      child: ColoredBox(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerLow,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(
-                              tooltip: 'Add cover image',
-                              onPressed: _busy ? null : () => _cover(),
-                              icon: const Icon(
-                                Icons.add_photo_alternate_outlined,
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: AppSpacing.md,
-                              ),
-                              child: Text(
-                                'We recommend an image with a 5:2 aspect ratio for best results.',
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  Wrap(
+        if (!phone) _toolbar(phone: false),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                // 680 on the tablet layout (the readable column), else 600.
+                constraints: BoxConstraints(
+                  maxWidth: ShellGeometry.readableMaxWidth(context),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppArticlesLayout.gutter),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      TextButton(
-                        onPressed: _busy ? null : () => _cover(),
-                        child: Text(
-                          _coverMediaId == null
-                              ? 'Add cover image'
-                              : 'Replace cover image',
+                      if (cover != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadius.card),
+                          child: AspectRatio(aspectRatio: 5 / 2, child: cover),
+                        )
+                      else ...[
+                        ArticleCoverPlaceholder(
+                          height: phone
+                              ? AppArticlesLayout.phoneCoverHeight
+                              : AppArticlesLayout.wideCoverHeight,
+                          onTap: _busy ? null : () => _cover(),
                         ),
-                      ),
-                      if (_coverMediaId != null)
-                        TextButton(
-                          onPressed: _busy
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _coverMediaId = null;
-                                    _coverBytes = null;
-                                    _coverJob = null;
-                                  });
-                                  _changed();
-                                },
-                          child: const Text('Remove cover image'),
-                        ),
-                      if (_coverJob != null && _coverMediaId == null)
-                        TextButton(
-                          onPressed: _busy ? null : () => _cover(retry: true),
-                          child: const Text('Retry cover upload'),
-                        ),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextField(
-                          key: const Key('article-title'),
-                          controller: _title,
-                          maxLength: articleMaxTitleCodePoints,
-                          maxLines: null,
-                          style: Theme.of(context).textTheme.displaySmall
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                          decoration: const InputDecoration(
-                            hintText: 'Add a title',
-                            filled: false,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
+                        Padding(
+                          padding: const EdgeInsets.only(top: AppSpacing.sm),
+                          child: Text(
+                            'We recommend an image with a 5:2 aspect ratio for best results.',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall,
                           ),
                         ),
-                        for (var i = 0; i < _blocks.length; i++)
-                          _blockEditor(i),
-                        TextButton.icon(
-                          onPressed: () => _append(ArticleBlockKind.paragraph),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add paragraph'),
-                        ),
                       ],
-                    ),
+                      if (cover != null || _coverJob != null)
+                        Wrap(
+                          children: [
+                            if (cover != null)
+                              TextButton(
+                                onPressed: _busy ? null : () => _cover(),
+                                child: const Text('Replace cover image'),
+                              ),
+                            if (_coverMediaId != null)
+                              TextButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _coverMediaId = null;
+                                          _coverBytes = null;
+                                          _coverJob = null;
+                                        });
+                                        _changed();
+                                      },
+                                child: const Text('Remove cover image'),
+                              ),
+                            if (_coverJob != null && _coverMediaId == null)
+                              TextButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _cover(retry: true),
+                                child: const Text('Retry cover upload'),
+                              ),
+                          ],
+                        ),
+                      const SizedBox(height: AppSpacing.md),
+                      TextField(
+                        key: const Key('article-title'),
+                        controller: _title,
+                        maxLength: articleMaxTitleCodePoints,
+                        maxLines: null,
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          fontSize: phone
+                              ? AppArticlesLayout.phoneTitle
+                              : AppArticlesLayout.wideTitle,
+                        ),
+                        decoration: const InputDecoration(
+                          hintText: 'Add a title',
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                        ),
+                      ),
+                      for (var i = 0; i < _blocks.length; i++) _blockEditor(i),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: AppPillButton(
+                          label: 'Add paragraph',
+                          icon: Icons.add,
+                          compact: true,
+                          variant: AppButtonVariant.outline,
+                          onPressed: () => _append(ArticleBlockKind.paragraph),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
+          ),
+        ),
+        if (phone) _toolbar(phone: true),
+      ],
+    );
+  }
+
+  /// The formatting tools. From 600dp a white pill under the header (the
+  /// tablet and desktop mocks); on a phone a bar above the keyboard with a
+  /// hairline over it (the phone mock's chip row). It scrolls sideways.
+  Widget _toolbar({required bool phone}) {
+    final colors = context.appColors;
+    final tools = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: _tools(),
+    );
+    if (phone) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: colors.hairline)),
+        ),
+        child: SafeArea(top: false, child: tools),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: colors.hairline),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(AppArticlesLayout.toolbarPadding),
+          child: tools,
+        ),
+      ),
+    );
+  }
+
+  Widget _tools() => Row(
+    children: [
+      _tool('Bold', Icons.format_bold, () => _mark(ArticleMark.bold)),
+      _tool('Italic', Icons.format_italic, () => _mark(ArticleMark.italic)),
+      _tool(
+        'Strikethrough',
+        Icons.format_strikethrough,
+        () => _mark(ArticleMark.strikethrough),
+      ),
+      PopupMenuButton<ArticleBlockKind>(
+        tooltip: 'Text style',
+        onSelected: _kind,
+        itemBuilder: (_) => [
+          const PopupMenuItem(
+            value: ArticleBlockKind.heading1,
+            child: Text('Heading'),
+          ),
+          const PopupMenuItem(
+            value: ArticleBlockKind.heading2,
+            child: Text('Subheading'),
+          ),
+          const PopupMenuItem(
+            value: ArticleBlockKind.paragraph,
+            child: Text('Body'),
+          ),
+        ],
+        child: const Padding(
+          padding: EdgeInsets.all(AppSpacing.md),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [Text('Body'), Icon(Icons.arrow_drop_down)],
+          ),
+        ),
+      ),
+      _tool('Quote', Icons.format_quote, () => _kind(ArticleBlockKind.quote)),
+      _tool(
+        'Bulleted list',
+        Icons.format_list_bulleted,
+        () => _kind(ArticleBlockKind.bulletedListItem),
+      ),
+      _tool(
+        'Numbered list',
+        Icons.format_list_numbered,
+        () => _kind(ArticleBlockKind.numberedListItem),
+      ),
+      _tool('Link', Icons.link, _link),
+      PopupMenuButton<ArticleBlockKind>(
+        tooltip: 'Insert',
+        onSelected: _append,
+        itemBuilder: (_) => [
+          const PopupMenuItem(
+            value: ArticleBlockKind.divider,
+            child: Text('Divider'),
+          ),
+          const PopupMenuItem(
+            value: ArticleBlockKind.code,
+            child: Text('Code'),
+          ),
+        ],
+        child: const Padding(
+          padding: EdgeInsets.all(AppSpacing.md),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [Text('Insert'), Icon(Icons.arrow_drop_down)],
           ),
         ),
       ),
     ],
-  );
-  Widget _toolbar() => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: [
-        _tool('Bold', Icons.format_bold, () => _mark(ArticleMark.bold)),
-        _tool('Italic', Icons.format_italic, () => _mark(ArticleMark.italic)),
-        _tool(
-          'Strikethrough',
-          Icons.format_strikethrough,
-          () => _mark(ArticleMark.strikethrough),
-        ),
-        PopupMenuButton<ArticleBlockKind>(
-          tooltip: 'Text style',
-          onSelected: _kind,
-          itemBuilder: (_) => [
-            const PopupMenuItem(
-              value: ArticleBlockKind.heading1,
-              child: Text('Heading'),
-            ),
-            const PopupMenuItem(
-              value: ArticleBlockKind.heading2,
-              child: Text('Subheading'),
-            ),
-            const PopupMenuItem(
-              value: ArticleBlockKind.paragraph,
-              child: Text('Body'),
-            ),
-          ],
-          child: const Padding(
-            padding: EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [Text('Body'), Icon(Icons.arrow_drop_down)],
-            ),
-          ),
-        ),
-        _tool('Quote', Icons.format_quote, () => _kind(ArticleBlockKind.quote)),
-        _tool(
-          'Bulleted list',
-          Icons.format_list_bulleted,
-          () => _kind(ArticleBlockKind.bulletedListItem),
-        ),
-        _tool(
-          'Numbered list',
-          Icons.format_list_numbered,
-          () => _kind(ArticleBlockKind.numberedListItem),
-        ),
-        _tool('Link', Icons.link, _link),
-        PopupMenuButton<ArticleBlockKind>(
-          tooltip: 'Insert',
-          onSelected: _append,
-          itemBuilder: (_) => [
-            const PopupMenuItem(
-              value: ArticleBlockKind.divider,
-              child: Text('Divider'),
-            ),
-            const PopupMenuItem(
-              value: ArticleBlockKind.code,
-              child: Text('Code'),
-            ),
-          ],
-          child: const Padding(
-            padding: EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [Text('Insert'), Icon(Icons.arrow_drop_down)],
-            ),
-          ),
-        ),
-      ],
-    ),
   );
   Widget _tool(String name, IconData icon, VoidCallback action) =>
       IconButton(tooltip: name, onPressed: action, icon: Icon(icon));
@@ -1162,7 +1409,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       return;
     }
     final controller = TextEditingController();
-    final link = await showDialog<String>(
+    final link = await showAppMaterialDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add link'),
@@ -1242,7 +1489,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   Widget _reader() => SingleChildScrollView(
     child: Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: AppSize.contentMax),
+        // 680 on the tablet layout (the readable column), else 600.
+        constraints: BoxConstraints(
+          maxWidth: ShellGeometry.readableMaxWidth(context),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
@@ -1279,47 +1529,62 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
                   subtitle: Text('@${_record!.authorHandle}'),
                 ),
               const SizedBox(height: AppSpacing.lg),
-              for (final block in _record!.draft.blocks)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                  child: block.kind == ArticleBlockKind.divider
-                      ? const Divider()
-                      : block.kind == ArticleBlockKind.image
-                      ? Text(block.altText)
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SelectableText.rich(
-                              TextSpan(
-                                style: _blockStyle(context, block.kind),
-                                children: [
-                                  if (block.kind ==
-                                      ArticleBlockKind.bulletedListItem)
-                                    const TextSpan(text: '• '),
-                                  ...block.runs.map(
-                                    (r) => TextSpan(
-                                      text: r.text,
-                                      style: articleRunStyle(r),
+              // The prose: at most [kArticleProseMax] a line, from the
+              // start edge under the title (the column may be wider).
+              LayoutBuilder(
+                builder: (context, constraints) => Padding(
+                  padding: EdgeInsetsDirectional.only(
+                    end: math.max(0, constraints.maxWidth - kArticleProseMax),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final block in _record!.draft.blocks)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                          child: block.kind == ArticleBlockKind.divider
+                              ? const Divider()
+                              : block.kind == ArticleBlockKind.image
+                              ? Text(block.altText)
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SelectableText.rich(
+                                      TextSpan(
+                                        style: _blockStyle(context, block.kind),
+                                        children: [
+                                          if (block.kind ==
+                                              ArticleBlockKind.bulletedListItem)
+                                            const TextSpan(text: '• '),
+                                          ...block.runs.map(
+                                            (r) => TextSpan(
+                                              text: r.text,
+                                              style: articleRunStyle(r),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            for (final link
-                                in block.runs
-                                    .map((r) => r.link)
-                                    .whereType<String>()
-                                    .toSet())
-                              TextButton(
-                                onPressed: () => launchUrl(
-                                  Uri.parse(link),
-                                  mode: LaunchMode.externalApplication,
+                                    for (final link
+                                        in block.runs
+                                            .map((r) => r.link)
+                                            .whereType<String>()
+                                            .toSet())
+                                      TextButton(
+                                        onPressed: () => launchUrl(
+                                          Uri.parse(link),
+                                          mode: LaunchMode.externalApplication,
+                                        ),
+                                        child: Text(link),
+                                      ),
+                                  ],
                                 ),
-                                child: Text(link),
-                              ),
-                          ],
                         ),
+                    ],
+                  ),
                 ),
+              ),
               if (_record!.published && _record!.postId.isNotEmpty)
                 TextButton(
                   onPressed: () => context.push('/post/${_record!.postId}'),
@@ -1376,32 +1641,56 @@ class _EditableBlock {
 class _PublishOptions {
   const _PublishOptions(this.caption, this.policy);
   final String caption;
-  final String policy;
+  final ReplyAudience policy;
 }
 
 class _PublishDialog extends StatefulWidget {
   const _PublishDialog({
     required this.draft,
     this.initialCaption = '',
-    this.initialPolicy = 'everyone',
+    this.initialPolicy = ReplyAudience.everyone,
     this.locked = false,
+    this.canChooseReplyAudience = false,
+    this.libraryBeside = false,
   });
   final ArticleDraft draft;
+
+  /// The page shows the library beside it where the window allows (not in
+  /// focus mode): in band B of the tablet layout its "Publish settings"
+  /// then hold the audience and who can reply, and this dialog does not
+  /// ([articlePublishSettingsInPaneAt], decided live).
+  final bool libraryBeside;
   final String initialCaption;
-  final String initialPolicy;
+  final ReplyAudience initialPolicy;
+
+  /// A publication is pending (or being retried): the caption and policy
+  /// of its first attempt are shown read-only and sent again.
   final bool locked;
+
+  /// `reply_audience` is usable ([ArticlesRepository.canChooseReplyAudience]).
+  /// Without it, like the composer, there is no reply control and the
+  /// article goes out as Everyone.
+  final bool canChooseReplyAudience;
   @override
   State<_PublishDialog> createState() => _PublishDialogState();
 }
 
 class _PublishDialogState extends State<_PublishDialog> {
   final _caption = TextEditingController();
-  String _policy = 'everyone';
+  ReplyAudience _policy = ReplyAudience.everyone;
+
+  /// A locked retry keeps its stored choice visible (disabled) even with the
+  /// capability gone: it must be sent again unchanged.
+  bool get _showReplyAudience => widget.canChooseReplyAudience || widget.locked;
+
   @override
   void initState() {
     super.initState();
     _caption.text = widget.initialCaption;
-    _policy = widget.initialPolicy;
+    // A refused earlier choice may still be stored on the record.
+    _policy = _showReplyAudience
+        ? widget.initialPolicy
+        : ReplyAudience.everyone;
   }
 
   @override
@@ -1411,7 +1700,16 @@ class _PublishDialogState extends State<_PublishDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) {
+    final settingsHere =
+        !widget.libraryBeside || !articlePublishSettingsInPaneAt(context);
+    return _dialog(context, settingsHere: settingsHere);
+  }
+
+  Widget _dialog(
+    BuildContext context, {
+    required bool settingsHere,
+  }) => AlertDialog(
     title: const Text('Publish Article'),
     content: SizedBox(
       width: AppSize.contentMax,
@@ -1420,40 +1718,35 @@ class _PublishDialogState extends State<_PublishDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'Choose your audience',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const ListTile(
-              title: Text('Everyone'),
-              trailing: Icon(Icons.check_circle),
-            ),
-            const Divider(),
-            Text(
-              'Who can reply?',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            DropdownButtonFormField<String>(
-              initialValue: _policy,
-              decoration: const InputDecoration(
-                labelText: 'Choose who can reply to this Article',
+            if (settingsHere) ...[
+              Text(
+                'Choose your audience',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-              items: const [
-                DropdownMenuItem(value: 'everyone', child: Text('Everyone')),
-                DropdownMenuItem(
-                  value: 'following',
-                  child: Text('Accounts you follow'),
-                ),
-                DropdownMenuItem(
-                  value: 'mentioned',
-                  child: Text('Only accounts you mention'),
-                ),
-              ],
-              onChanged: widget.locked
-                  ? null
-                  : (value) => setState(() => _policy = value!),
-            ),
-            const SizedBox(height: AppSpacing.lg),
+              const ListTile(
+                title: Text('Everyone'),
+                trailing: Icon(Icons.check_circle),
+              ),
+              const Divider(),
+            ],
+            if (settingsHere && _showReplyAudience) ...[
+              // Room above and below the heading, so the section does not
+              // crowd the divider or its field.
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Who can reply?',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: AppSpacing.smd),
+              _ReplyAudienceField(
+                value: _policy,
+                labelText: 'Choose who can reply to this Article',
+                onChanged: widget.locked
+                    ? null
+                    : (value) => setState(() => _policy = value),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
             TextField(
               controller: _caption,
               readOnly: widget.locked,
@@ -1505,4 +1798,102 @@ class _PublishDialogState extends State<_PublishDialog> {
       ),
     ],
   );
+}
+
+/// "Publish settings" at the top of the editor's library pane in band B of
+/// the tablet layout (tablet plan section 6, item 5): the audience (only
+/// Everyone until the new-features audience exists) and who can reply,
+/// with the publish dialog's rules: no reply control without
+/// `reply_audience` unless a pending publication must be resent, and a
+/// pending or retried publication's choice shown read-only.
+class _PublishSettings extends StatelessWidget {
+  const _PublishSettings({
+    required this.policy,
+    required this.locked,
+    required this.canChooseReplyAudience,
+    required this.onChanged,
+  });
+
+  final ReplyAudience policy;
+  final bool locked;
+  final bool canChooseReplyAudience;
+  final ValueChanged<ReplyAudience> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final showReplyAudience = canChooseReplyAudience || locked;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Semantics(
+            header: true,
+            child: Text('Publish settings', style: theme.textTheme.titleLarge),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text('Choose your audience', style: theme.textTheme.titleMedium),
+          const ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text('Everyone'),
+            trailing: Icon(Icons.check_circle),
+          ),
+          if (showReplyAudience)
+            _ReplyAudienceField(
+              // A new value from outside (the dialog, a reload) rebuilds it.
+              key: ValueKey('publish-settings-$policy-$locked'),
+              value: policy,
+              labelText: 'Who can reply?',
+              onChanged: locked ? null : onChanged,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The "Who can reply?" field of the publish dialog and of the library
+/// pane's "Publish settings". It takes the width it is given: the chosen
+/// option shows on one line, ellipsized when it does not fit (a phone, a
+/// large text scale), and the open menu shows every option whole, wrapping
+/// if it must (no fixed item height). [onChanged] null: read-only.
+class _ReplyAudienceField extends StatelessWidget {
+  const _ReplyAudienceField({
+    super.key,
+    required this.value,
+    required this.labelText,
+    required this.onChanged,
+  });
+
+  final ReplyAudience value;
+  final String labelText;
+  final ValueChanged<ReplyAudience>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final onChanged = this.onChanged;
+    return DropdownButtonFormField<ReplyAudience>(
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: labelText),
+      selectedItemBuilder: (_) => [
+        for (final audience in ReplyAudience.values)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              audience.optionLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+      items: [
+        for (final audience in ReplyAudience.values)
+          DropdownMenuItem(value: audience, child: Text(audience.optionLabel)),
+      ],
+      onChanged: onChanged == null ? null : (value) => onChanged(value!),
+    );
+  }
 }

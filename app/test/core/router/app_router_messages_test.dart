@@ -252,7 +252,7 @@ void main() {
     expect(find.byType(ConversationsScreen), findsOneWidget);
     expect(find.text('Messages'), findsOneWidget);
     expect(find.text('hello from a'), findsOneWidget);
-    expect(find.text('Message requests (2)'), findsOneWidget);
+    expect(find.text('2 people want to say hello'), findsOneWidget);
     verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
   });
 
@@ -261,7 +261,7 @@ void main() {
   ) async {
     final (_, repo) = await openAt(tester, const {'messaging'});
 
-    await tester.tap(find.text('Message requests (2)'));
+    await tester.tap(find.text('Message requests'));
     await tester.pumpAndSettle();
 
     expect(find.text('Message requests'), findsOneWidget);

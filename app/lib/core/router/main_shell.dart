@@ -2,34 +2,54 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/beacons/domain/beacons_feature_flag.dart';
+import '../../features/beacons/domain/plans_list_detail.dart';
+import '../../features/beacons/presentation/bloc/plans_session.dart';
+import '../../features/beacons/presentation/plans_list_detail.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
+import '../../features/messages/domain/messages_list_detail.dart';
 import '../../features/messages/domain/messaging_feature_flag.dart';
+import '../../features/messages/presentation/bloc/conversations_session.dart';
 import '../../features/messages/presentation/bloc/messages_badge_cubit.dart';
+import '../../features/messages/presentation/messages_list_detail.dart';
+import '../../features/messages/presentation/widgets/messages_side_card.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
+import '../../features/notifications/presentation/widgets/follow_requests_card.dart'
+    show followRequestsCardAllowed;
+import '../../features/notifications/presentation/widgets/follow_requests_side_card.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
+import '../../features/profile/presentation/widgets/profile_media_strip.dart'
+    show ProfileMediaStripPlaceholder;
+import '../../features/timeline/domain/profile_tabs_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/widgets/app_search_field.dart';
 import '../../features/search/presentation/widgets/whats_happening_card.dart';
+import '../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import 'shell_entries.dart';
 import '../../shared/widgets/primitives/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_account_chip.dart';
+import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/app_more_menu.dart';
+import '../widgets/context_pane_slots.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
+import '../widgets/shell_fab.dart';
+import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
+import 'page_below.dart';
 
 /// The navigation chrome around the authenticated top-level destinations.
 ///
@@ -46,10 +66,29 @@ import 'compose_gate.dart';
 /// Wired as a `ShellRoute` builder in
 /// [AppRouter] so it persists navigation state across pushes.
 class MainShell extends StatelessWidget {
-  const MainShell({super.key, required this.location, required this.child});
+  const MainShell({
+    super.key,
+    required this.location,
+    required this.child,
+    this.uri,
+    this.splitFolder,
+  });
 
+  /// The matched location (a path, no query).
   final String location;
   final Widget child;
+
+  /// Non-null when this shell is the Messages split page (tablet plan section
+  /// 5.3): built by `ThreadRoutePage` inside the root thread route at
+  /// 840-1199dp, not by the `ShellRoute`. [location] is then the thread's
+  /// (`/messages/<id>`, `/messages/new/draft`), [child] the thread, and the
+  /// list pane shows this folder with the open conversation selected.
+  final Folder? splitFolder;
+
+  /// The whole location, query included (the `ShellRoute` passes
+  /// `state.uri`); defaults to [location]. Settings' list pane reads its
+  /// category (`?c=`) from it (tablet plan section 4.3).
+  final Uri? uri;
 
   /// The destinations, in display order (primaries first, then secondaries).
   static List<_Destination> _destinationsFor({
@@ -105,9 +144,6 @@ class MainShell extends StatelessWidget {
               icon: Icons.notifications_none,
               selectedIcon: Icons.notifications,
               label: 'Notifications',
-              // The short visible label of the floating phone bar (D3); the
-              // rail and the semantics keep the full one.
-              barLabel: 'Alerts',
             ),
           )
         : null;
@@ -204,9 +240,11 @@ class MainShell extends StatelessWidget {
     if (location.startsWith(AppRouter.explorePath)) return _Tab.explore;
     if (location.startsWith('/notifications')) return _Tab.notifications;
     // The inbox and its Requests folder (the shell's children). A conversation
-    // and the people picker are full-screen routes outside the shell.
+    // and the people picker are full-screen routes outside the shell; at
+    // 840-1199dp the thread routes draw a split page whose shell is given the
+    // thread's location (`/messages/<id>`, `/messages/new/draft`).
     if (location == AppRouter.messagesPath ||
-        location == AppRouter.messageRequestsPath) {
+        location.startsWith('${AppRouter.messagesPath}/')) {
       return _Tab.messages;
     }
     if (location == AppRouter.bookmarksPath) return _Tab.bookmarks;
@@ -230,15 +268,49 @@ class MainShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      // The pages under the shell offer their floating button here.
+      ShellFabHost(child: Builder(builder: _build));
+
+  /// The phone's floating button at [location]: Home's New post, else the
+  /// action the page offers (Plans, Messages, Lists, Communities, a
+  /// community), else none (Profile, Explore, Notifications...).
+  ShellFabAction? _fabAt(
+    BuildContext context, {
+    required bool canCompose,
+    required VoidCallback openCompose,
+  }) {
+    if (location == AppRouter.homePath) {
+      return canCompose
+          ? ShellFabAction(
+              tooltip: 'New post',
+              icon: Icons.edit_outlined,
+              onPressed: openCompose,
+            )
+          : null;
+    }
+    final registry = ShellFabScope.watch(context);
+    final offered = registry?.actionAt(location);
+    if (registry == null || offered == null) return null;
+    // Read when pressed: the page may have published a fresh callback.
+    return ShellFabAction(
+      tooltip: offered.tooltip,
+      icon: offered.icon,
+      onPressed: () => registry.actionAt(location)?.onPressed(),
+    );
+  }
+
+  Widget _build(BuildContext context) {
     final ownProfile = context.select(
       (OnboardingBloc bloc) => bloc.state.profile,
     );
     final ownHandle = ownProfile?.handle;
 
+    final refreshFailed = context.select(
+      (OnboardingBloc bloc) => bloc.state.refreshFailed,
+    );
     final canCompose = canComposeAt(context, location);
     final newShell = isFeatureEnabled(context, kFeatureUiShell);
-    final showFab = newShell ? showComposeFabAt(context, location) : canCompose;
 
     final notificationsEnabled = isFeatureEnabled(
       context,
@@ -265,6 +337,17 @@ class MainShell extends StatelessWidget {
     // Explore: the new shell with `search` on, second after Home.
     final exploreEntry = newShell && isFeatureEnabled(context, kFeatureSearch);
     final shellEntries = shellEntriesFor(context);
+    // The tablet shell (600-1199dp): `ui_shell` and `ui_tablet` both on.
+    // Either off keeps today's 600-1199dp layout; phones and desktop never
+    // change with it.
+    final width = MediaQuery.sizeOf(context).width;
+    final tabletLayout =
+        newShell &&
+        isFeatureEnabled(context, kFeatureUiTablet) &&
+        ShellBand.of(width).isTablet;
+    // More's own rows: the shell entries and Articles (`posts`).
+    final moreHasOwnRows =
+        shellEntries.isNotEmpty || isFeatureEnabled(context, kFeaturePosts);
     final tabs = _destinationsFor(
       newShell: newShell,
       explore: exploreEntry,
@@ -277,9 +360,12 @@ class MainShell extends StatelessWidget {
       // no Plans tab.
       plans: newShell,
       settings: !newShell,
-      onMore: shellEntries.isEmpty && !isFeatureEnabled(context, kFeaturePosts)
-          ? null
-          : (anchor) => AppMoreMenu.show(anchor, entries: shellEntries),
+      // The tablet rail keeps More whenever it has rows, folded secondary
+      // destinations included (a short window); `AppNavRail` hides it when
+      // it has none.
+      onMore: moreHasOwnRows || tabletLayout
+          ? (anchor) => AppMoreMenu.show(anchor, entries: shellEntries)
+          : null,
     );
     final selected = _selectedTab(settingsTab: !newShell);
     final selectedIndex = selected == null
@@ -292,7 +378,6 @@ class MainShell extends StatelessWidget {
             icon: t.destination.icon,
             selectedIcon: t.destination.selectedIcon,
             label: t.destination.label,
-            barLabel: t.destination.barLabel,
             badgeLabel: unreadBadgeLabel(unread),
             badgeSemanticLabel: '${unreadBadgeLabel(unread)} unread',
           )
@@ -301,7 +386,6 @@ class MainShell extends StatelessWidget {
             icon: t.destination.icon,
             selectedIcon: t.destination.selectedIcon,
             label: t.destination.label,
-            barLabel: t.destination.barLabel,
             badgeCount: unreadMessages,
             badgeLabel: unreadBadgeLabel(unreadMessages),
             badgeSemanticLabel: unreadMessages == 1
@@ -314,150 +398,317 @@ class MainShell extends StatelessWidget {
 
     void openCompose() => context.push(AppRouter.composePath);
     // Settings is master-detail from 1200dp (the list beside the open page),
-    // only in the new shell.
-    final onSettings = location.startsWith(AppRouter.settingsPath);
+    // only in the new shell. On the tablet layout it is list-detail from
+    // 840dp (band B): the categories beside the category or leaf page, which
+    // the route draws itself (`SettingsScreen`), so the shell navigator is
+    // never swapped out. The scaffold and `SettingsScreen` take the same
+    // 840 / 1200 decisions from the same flags and width.
+    final onSettings = isSettingsLocation(location);
     final masterDetail =
-        newShell &&
-        onSettings &&
-        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
+        newShell && onSettings && width >= AppBreakpoints.tablet;
+    final settingsListDetail =
+        tabletLayout && onSettings && ShellBand.of(width) == ShellBand.expanded;
+    // Plans is list-detail in band B too (T5), on `/plans` and `/plans/:id`
+    // only, with `beacons` on and the app's hoisted list (`PlansSession`).
+    // The decision is published to the page ([PlansMasterScope]), which then
+    // draws the placeholder (`/plans`) or drops its back arrow (the plan).
+    final beaconsOn = isFeatureEnabled(context, kFeatureBeacons);
+    final plansBandB =
+        tabletLayout && ShellBand.of(width) == ShellBand.expanded;
+    // The top page of the shell's own navigator decides, not the shell's
+    // base route: My plans, New plan, a plan's People or Edit (or a profile)
+    // pushed over `/plans` or `/plans/:id` have no list pane beside them
+    // (plan section 3), and popping back to the plan brings it back. A root
+    // page over the shell (a dialog page, the composer) changes nothing.
+    // The split page is a root route: the shell navigator under it belongs
+    // to another page, so neither its top page nor Plans decide anything here.
+    final split = splitFolder != null;
+    final plansMatch = split
+        ? null
+        : plansMasterMatch(
+            plansBandB ? _shellTopLocation(context) ?? location : location,
+          );
+    final plansListDetail =
+        plansBandB &&
+        beaconsOn &&
+        plansMatch != null &&
+        context.read<PlansSession?>() != null;
+    // Messages is list-detail in band B too (T6), with the app's hoisted
+    // folders (`ConversationsSession`): on the shell's `/messages` and
+    // `/messages/requests` (read from the shell navigator's top page, as
+    // Plans) beside the route's placeholder, and in the split page beside the
+    // thread.
+    final messagesBandB =
+        plansBandB && context.read<ConversationsSession?>() != null;
+    final messagesMaster = !messagesBandB
+        ? null
+        : split
+        ? splitFolder
+        : messagesShellMasterFolder(_shellTopLocation(context) ?? location);
 
-    return ResponsiveScaffold(
-      // The redesigned rail look (600dp and up) with the new shell only.
-      redesignedRail: newShell,
-      masterPane: masterDetail ? _SettingsMaster(selectedPath: location) : null,
-      selectedIndex: selectedIndex == null || selectedIndex < 0
-          ? null
-          : selectedIndex,
-      onCompose: canCompose ? openCompose : null,
-      showFab: showFab,
-      drawer: newShell ? const AppDrawer() : null,
-      floatingBar: newShell,
-      accountChipBuilder: newShell
-          ? (extended) => AppAccountChip(extended: extended)
-          : null,
-      sideColumn: AppSideColumn(
-        // The search pill: the new shell with `search` on, except on
-        // Explore, where the pill is in the centre header.
-        header: exploreEntry && !location.startsWith(AppRouter.explorePath)
-            ? const AppSearchField()
-            : null,
-        // "You might like": the new shell, `graph` and
-        // `follow_suggestions` all on. The card draws nothing until the shared
-        // list has rows, so the column is unchanged otherwise.
-        sections: [
-          // "What's happening": the top 5 trends; draws nothing unless
-          // `search` + `trends` are on and the shared list has rows.
-          if (exploreEntry) const WhatsHappeningCard(),
-          if (newShell && isFollowSuggestionsEnabled(context))
-            const WhoToFollowCard(
-              title: 'You might like',
-              margin: EdgeInsets.only(bottom: AppSpacing.md),
-            ),
-        ],
-        // Only what is already loaded: no profile, no card (nothing is fetched).
-        profile: ownHandle == null || ownHandle.isEmpty
-            ? null
-            : AppSideProfile(
-                displayName: ownProfile?.displayName ?? '',
-                handle: ownHandle,
-                avatarUrl: ownProfile?.avatarThumbUrl ?? '',
-                onTap: () => context.go(AppRouter.profilePath(ownHandle)),
+    // The desktop side column's route: the shell navigator's top page (a
+    // profile pushed over Home decides), else the matched location.
+    final sidePaneLocation = _shellTopLocation(context) ?? location;
+
+    void select(int index) {
+      switch (tabs[index].tab) {
+        case _Tab.home:
+          context.go('/home');
+        case _Tab.explore:
+          context.go(AppRouter.explorePath);
+        case _Tab.notifications:
+          context.go(AppRouter.notificationsPath);
+        case _Tab.messages:
+          context.go(AppRouter.messagesPath);
+        case _Tab.lists:
+          context.go(AppRouter.listsPath);
+        case _Tab.communities:
+          context.go(AppRouter.communitiesPath);
+        case _Tab.plans:
+          context.go(AppRouter.plansPath);
+        case _Tab.bookmarks:
+          context.go(AppRouter.bookmarksPath);
+        case _Tab.settings:
+          context.go(AppRouter.settingsPath);
+        case _Tab.more:
+          // Opens a menu through `onActivate`; never navigates.
+          break;
+        case _Tab.profile:
+          context.go(
+            ownHandle == null || ownHandle.isEmpty
+                ? '/home'
+                : '/profile/$ownHandle',
+          );
+      }
+    }
+
+    // The slots through which a page lends the context pane sections built
+    // over its own state (T8a). Present at every width and in every mode, so
+    // the tree around the shell navigator keeps its shape.
+    return ContextPaneSlotsHost(
+      child: ResponsiveScaffold(
+        // The redesigned rail look (600dp and up) with the new shell only.
+        redesignedRail: newShell,
+        // Both flags at any width: from 1200dp the desktop composition is
+        // unchanged, but modals and snack bars centre on its column (D1).
+        layout: newShell && isFeatureEnabled(context, kFeatureUiTablet)
+            ? ShellLayout.tablet
+            : ShellLayout.legacy,
+        moreHasOwnRows: moreHasOwnRows,
+        // A short tablet rail folds Lists, Communities, History and Profile
+        // into More: they head its menu and open as from the rail.
+        onMoreFolded: (anchor, folded) => AppMoreMenu.show(
+          anchor,
+          entries: shellEntries,
+          folded: [
+            for (final i in folded)
+              AppMoreMenuFoldedRow(
+                icon: tabs[i].destination.icon,
+                label: tabs[i].destination.label,
+                selected: tabs[i].tab == selected,
+                onSelected: () => select(i),
               ),
-        links: [
-          AppSideLink(
-            icon: Icons.settings_outlined,
-            label: 'Settings',
-            onTap: () => context.go(AppRouter.settingsPath),
-          ),
-          AppSideLink(
-            icon: Icons.privacy_tip_outlined,
-            label: 'Privacy Policy',
-            onTap: () => launchPrivacyPolicy(context),
-          ),
-        ],
-      ),
-      destinations: destinations,
-      onDestinationSelected: (index) {
-        switch (tabs[index].tab) {
-          case _Tab.home:
-            context.go('/home');
-          case _Tab.explore:
-            context.go(AppRouter.explorePath);
-          case _Tab.notifications:
-            context.go(AppRouter.notificationsPath);
-          case _Tab.messages:
-            context.go(AppRouter.messagesPath);
-          case _Tab.lists:
-            context.go(AppRouter.listsPath);
-          case _Tab.communities:
-            context.go(AppRouter.communitiesPath);
-          case _Tab.plans:
-            context.go(AppRouter.plansPath);
-          case _Tab.bookmarks:
-            context.go(AppRouter.bookmarksPath);
-          case _Tab.settings:
-            context.go(AppRouter.settingsPath);
-          case _Tab.more:
-            // Opens a menu through `onActivate`; never navigates.
-            break;
-          case _Tab.profile:
-            context.go(
-              ownHandle == null || ownHandle.isEmpty
-                  ? '/home'
-                  : '/profile/$ownHandle',
+          ],
+        ),
+        masterPane: masterDetail
+            // The desktop mock: the categories beside the open one (Your
+            // account when none is chosen) or its leaf page.
+            ? SettingsCategoriesPane(
+                selected:
+                    settingsCategoryForUri(uri ?? Uri.parse(location)) ??
+                    (location == AppRouter.settingsPath
+                        ? SettingsCategory.account
+                        : null),
+              )
+            : settingsListDetail
+            ? SettingsCategoriesPane(
+                selected: settingsCategoryForUri(uri ?? Uri.parse(location)),
+              )
+            : plansListDetail
+            ? PlansListPane(selectedId: plansMatch.selectedId)
+            : messagesMaster != null
+            ? ConversationsListPane(
+                // The folder decides the list; a new folder is a new list.
+                key: ValueKey(messagesMaster),
+                folder: messagesMaster,
+                selectedId: split ? messagesThreadIdOf(location) : null,
+                split: split,
+              )
+            : null,
+        selectedIndex: selectedIndex == null || selectedIndex < 0
+            ? null
+            : selectedIndex,
+        onCompose: canCompose ? openCompose : null,
+        fab: _fabAt(context, canCompose: canCompose, openCompose: openCompose),
+        // A community's page draws its cover, and a profile its hero, under the
+        // status bar on a phone
+        // (while the account banner is up, the banner needs the inset).
+        extendBodyUnderStatusBar:
+            (isCommunityPageAt(location) ||
+                isProfilePageAt(_shellTopLocation(context) ?? location)) &&
+            !refreshFailed,
+        drawer: newShell ? const AppDrawer() : null,
+        floatingBar: newShell,
+        accountChipBuilder: newShell
+            ? (extended) => AppAccountChip(extended: extended)
+            : null,
+        sideColumn: AppSideColumn(
+          // The search pill: the new shell with `search` on, except on
+          // Explore and the search results, where the pill is in the centre
+          // header (desktop SearchResults has none in the side column).
+          header:
+              exploreEntry &&
+                  !location.startsWith(AppRouter.explorePath) &&
+                  location != AppRouter.searchRoute
+              ? const AppSearchField()
+              : null,
+          // "You might like": the new shell, `graph` and
+          // `follow_suggestions` all on. The card draws nothing until the shared
+          // list has rows, so the column is unchanged otherwise.
+          sections: [
+            // F16 (R8): on Notifications, the follow-requests card (its own
+            // `ListFollowRequests(3)`), above the trends. The page's inline
+            // row steps aside under the same rule (`followRequestsCardBeside`).
+            // A page pushed over Notifications (a profile) hides the card but
+            // keeps it mounted, so coming back asks nothing again.
+            if (location == AppRouter.notificationsPath &&
+                followRequestsCardAllowed(context))
+              Visibility(
+                visible:
+                    (_shellTopLocation(context) ?? location) ==
+                    AppRouter.notificationsPath,
+                maintainState: true,
+                child: const FollowRequestsSideCard(),
+              ),
+            // The inbox beside nothing: "Select a conversation" (desktop
+            // Conversations; the tablet draws its detail placeholder).
+            if (messagesShellMasterFolder(
+                  _shellTopLocation(context) ?? location,
+                ) !=
+                null)
+              const MessagesSideCard(),
+            // "What's happening": the top 5 trends; draws nothing unless
+            // `search` + `trends` are on and the shared list has rows.
+            if (exploreEntry) const WhatsHappeningCard(),
+            // The profile's latest images (the desktop Profile mock's Media
+            // grid): the page lends the strip over its own Media tab feed,
+            // through a slot. Only on a profile, with `posts` and
+            // `profile_tabs` on.
+            if (newShell &&
+                isFeatureEnabled(context, kFeaturePosts) &&
+                isFeatureEnabled(context, kFeatureProfileTabs) &&
+                _isProfileHomeLocation(sidePaneLocation))
+              ContextPaneSlot(
+                location: sidePaneLocation,
+                placeholder: const ProfileMediaStripPlaceholder(),
+              ),
+            if (newShell && isFollowSuggestionsEnabled(context))
+              const WhoToFollowCard(
+                title: 'You might like',
+                margin: EdgeInsets.only(bottom: AppSpacing.md),
+              ),
+          ],
+          // Only what is already loaded: no profile, no card (nothing is fetched).
+          profile: ownHandle == null || ownHandle.isEmpty
+              ? null
+              : AppSideProfile(
+                  displayName: ownProfile?.displayName ?? '',
+                  handle: ownHandle,
+                  avatarUrl: ownProfile?.avatarThumbUrl ?? '',
+                  onTap: () => context.go(AppRouter.profilePath(ownHandle)),
+                ),
+          links: [
+            AppSideLink(
+              icon: Icons.settings_outlined,
+              label: 'Settings',
+              onTap: () => context.go(AppRouter.settingsPath),
+            ),
+            AppSideLink(
+              icon: Icons.privacy_tip_outlined,
+              label: 'Privacy Policy',
+              onTap: () => launchPrivacyPolicy(context),
+            ),
+          ],
+        ),
+        destinations: destinations,
+        onDestinationSelected: select,
+        // A failed GetMe behind a cached profile: a non-blocking Retry over
+        // every destination, never a hard stop (offline warm start).
+        // The tablet pane keeps the top inset (no outer SafeArea): while the
+        // banner shows it sits below the inset and the page under it does not
+        // pad by the inset again. Elsewhere the inset is already taken (0).
+        body: Builder(
+          builder: (pane) {
+            final inset = refreshFailed ? MediaQuery.paddingOf(pane).top : 0.0;
+            return Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(top: inset),
+                  child: const AccountRefreshBanner(),
+                ),
+                Expanded(
+                  child: MediaQuery.removePadding(
+                    context: pane,
+                    removeTop: inset > 0,
+                    // Present at every width and in every mode, so the tree
+                    // around the shell navigator keeps its shape at 840.
+                    child: PlansMasterScope(
+                      shown: plansListDetail,
+                      selectedId: plansListDetail
+                          ? plansMatch.selectedId
+                          : null,
+                      child: ConversationsMasterScope(
+                        shown: messagesMaster != null && !split,
+                        child:
+                            masterDetail && location == AppRouter.settingsPath
+                            ? SettingsDesktopDetail(
+                                categoryId: (uri ?? Uri.parse(location))
+                                    .queryParameters[kSettingsCategoryParam],
+                              )
+                            : child,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             );
-        }
-      },
-      // A failed GetMe behind a cached profile: a non-blocking Retry over
-      // every destination, never a hard stop (offline warm start).
-      body: Column(
-        children: [
-          const AccountRefreshBanner(),
-          Expanded(
-            child: masterDetail && location == AppRouter.settingsPath
-                ? const SettingsDetailPlaceholder()
-                : child,
-          ),
-        ],
+          },
+        ),
       ),
     );
   }
 }
 
-/// The master pane of the desktop Settings: a title row over the list.
-class _SettingsMaster extends StatelessWidget {
-  const _SettingsMaster({required this.selectedPath});
-
-  final String selectedPath;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          height: AppSize.headerRow,
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
-          ),
-          child: Semantics(
-            header: true,
-            child: Text(
-              'Settings',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-          ),
-        ),
-        Expanded(child: SettingsList(selectedPath: selectedPath)),
-      ],
-    );
+/// The location of the top page inside the shell's navigator (a page pushed
+/// over a shell page included; a root page pushed over the shell excluded),
+/// or null without a router or a shell match.
+String? _shellTopLocation(BuildContext context) {
+  final router = GoRouter.maybeOf(context);
+  if (router == null) return null;
+  for (final match
+      in router.routerDelegate.currentConfiguration.matches.reversed) {
+    if (match is! ShellRouteMatch) continue;
+    var leaf = match.matches.last;
+    while (leaf is ShellRouteMatch) {
+      leaf = leaf.matches.last;
+    }
+    return leaf.matchedLocation;
   }
+  return null;
+}
+
+/// Whether [location] is a profile page itself (`/profile/:handle` or
+/// `/u/:id`, not its Followers / Following): where the desktop side column
+/// shows the profile's media strip.
+bool _isProfileHomeLocation(String location) {
+  final segments = [
+    for (final s in Uri.parse(location).pathSegments)
+      if (s.isNotEmpty) s,
+  ];
+  return switch (segments) {
+    ['profile', _] || ['u', _] => true,
+    _ => false,
+  };
 }
 
 enum _Tab {

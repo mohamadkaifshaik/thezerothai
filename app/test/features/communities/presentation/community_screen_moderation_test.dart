@@ -133,7 +133,7 @@ void main() {
   Future<void> hideFirst(WidgetTester tester) async {
     await tester.tap(find.byTooltip('More options').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove from Community'));
+    await tester.tap(find.text('Remove from community'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Remove'));
     await tester.pumpAndSettle();
@@ -151,7 +151,7 @@ void main() {
       await open(tester);
       expect(find.text('post 2'), findsOneWidget);
       expect(find.text('Moderation log'), findsNothing);
-      expect(find.text('Remove from Community'), findsNothing);
+      expect(find.text('Remove from community'), findsNothing);
     });
   }
 

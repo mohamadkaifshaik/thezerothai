@@ -47,7 +47,7 @@ void main() {
         home: RepaintBoundary(key: captureKey, child: const SplashScreen()),
       ),
     );
-    // The indeterminate loading indicator deliberately never settles.
+    // The pill loader deliberately never settles.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
   }
@@ -72,10 +72,12 @@ void main() {
           textScale: size.height < 300 ? 2 : 1,
           captureKey: key,
         );
-        await tester.ensureVisible(find.text('Getting things ready…'));
+        final loader = find.bySemanticsLabel('Loading DZEROTH');
+        await tester.ensureVisible(find.text('DZEROTH'));
+        await tester.ensureVisible(loader);
         await tester.pump();
         expect(tester.takeException(), isNull);
-        final bounds = tester.getRect(find.text('Getting things ready…'));
+        final bounds = tester.getRect(loader);
         expect(bounds.bottom, lessThanOrEqualTo(size.height));
         expect(bounds.top, greaterThanOrEqualTo(0));
         if (_screenshots && (size.width == 390 || size.width == 1440)) {
@@ -105,6 +107,18 @@ void main() {
       await open(tester, reducedMotion: true);
       expect(find.bySemanticsLabel('Loading DZEROTH'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
+      final before = tester
+          .widgetList<Container>(find.byType(Container))
+          .map((c) => c.decoration)
+          .toList();
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        tester
+            .widgetList<Container>(find.byType(Container))
+            .map((c) => c.decoration)
+            .toList(),
+        before,
+      );
       await tester.pumpAndSettle();
       expect(tester.binding.hasScheduledFrame, isFalse);
       semantics.dispose();
@@ -125,12 +139,61 @@ void main() {
       ),
     );
     await tester.pump();
-    Color? background() =>
-        tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor;
-    expect(background(), AppAuthStyle.theme(appLightTheme).colorScheme.surface);
+    Decoration background() => tester
+        .widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byType(Scaffold),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        )
+        .decoration;
+    expect(
+      background(),
+      isA<BoxDecoration>()
+          .having((d) => d.color, 'color', appLightTheme.colorScheme.surface)
+          .having((d) => d.gradient, 'gradient', isNull),
+    );
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
-    expect(background(), AppAuthStyle.navy);
+    expect(
+      background(),
+      isA<BoxDecoration>()
+          .having((d) => d.color, 'color', appDarkTheme.colorScheme.surface)
+          .having((d) => d.gradient, 'gradient', isNotNull),
+    );
   });
+
+  for (final size in const [Size(390, 844), Size(768, 1024), Size(1440, 900)]) {
+    testWidgets('${size.width.toInt()} splash look', (tester) async {
+      await open(tester, size: size);
+      final phone = size.width < AppBreakpoints.mobile;
+      final logo = tester.getRect(find.byType(Image));
+      expect(
+        logo.width,
+        phone ? AppAuthLayout.splashLogoPhone : AppAuthLayout.splashLogoWide,
+      );
+      expect(find.text('Your plans deserve company.'), findsOneWidget);
+      final wordmark = tester.getRect(find.text('DZEROTH'));
+      final loader = tester.getRect(find.bySemanticsLabel('Loading DZEROTH'));
+      if (phone) {
+        // The mock's loader and "Zero distance." sit at the bottom.
+        expect(find.text('Zero distance.'), findsOneWidget);
+        expect(loader.top, greaterThan(size.height - 160));
+      } else {
+        // One centred column: logo, wordmark, eyebrow, tagline, loader.
+        final eyebrow = tester.getRect(find.text('ZERO DISTANCE.'));
+        final tagline = tester.getRect(
+          find.text('Your plans deserve company.'),
+        );
+        expect(wordmark.top, greaterThan(logo.bottom));
+        expect(eyebrow.top, greaterThan(wordmark.bottom));
+        expect(tagline.top, greaterThan(eyebrow.bottom));
+        expect(loader.top, greaterThan(tagline.bottom));
+      }
+      expect(wordmark.center.dx, moreOrLessEquals(size.width / 2, epsilon: 1));
+    });
+  }
 }

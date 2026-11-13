@@ -9,7 +9,7 @@ package apiserver
 //     who needs it; a viewer who reads only their own or followed authors is unaffected (the 10 minutes of production
 //     are scaled to seconds through the same two knobs, CACHE_TTL and PROTECTED_SET_MAX_STALE);
 //   - media-URL leaks: another user's export carries post ids and that user's own text only; protecting retires nothing
-//     and a banner replacement retires exactly as for a public account;
+//     and an avatar replacement retires exactly as for a public account;
 //   - ListSuggestedUsers shows P (header data) and a Follow of P from there is a request.
 
 import (
@@ -190,16 +190,16 @@ func TestW335a_ExportOfAnotherUserCarriesNoProtectedContent(t *testing.T) {
 	}
 }
 
-// With PROFILE_MEDIA_RETIRE=banner a protected account's banner replacement retires exactly as a public account's, and
-// protecting retires nothing (the avatar and banner stay public header data).
-func TestW335a_ProtectingRetiresNothingAndBannerReplacementRetiresAsForAPublicAccount(t *testing.T) {
-	w := newW335aWorldCfg(t, func(c *config.Config) { c.ProfileMediaRetire = config.ProfileMediaRetireBanner })
+// With PROFILE_MEDIA_RETIRE=all a protected account's avatar replacement retires exactly as a public account's, and
+// protecting retires nothing (the avatar stays public header data).
+func TestW335a_ProtectingRetiresNothingAndAvatarReplacementRetiresAsForAPublicAccount(t *testing.T) {
+	w := newW335aWorldCfg(t, func(c *config.Config) { c.ProfileMediaRetire = config.ProfileMediaRetireAll })
 	e := w.e
 	retire := func(who bmUser, protect bool) (messages int, outcome string, current string) {
 		t.Helper()
 		u := testUser(who)
-		a1, b1, b2 := e.seedMedia(t, u.uid, media.PurposeAvatar), e.seedMedia(t, u.uid, media.PurposeBanner), e.seedMedia(t, u.uid, media.PurposeBanner)
-		e.updateImages(t, u, "w335a-ret1-"+u.uid[:8]+"-padpad", &a1, &b1)
+		a1, a2 := e.seedMedia(t, u.uid, media.PurposeAvatar), e.seedMedia(t, u.uid, media.PurposeAvatar)
+		e.updateImages(t, u, "w335a-ret1-"+u.uid[:8]+"-padpad", &a1)
 		e.pull(t) // drain
 		if protect {
 			prot := true
@@ -210,28 +210,28 @@ func TestW335a_ProtectingRetiresNothingAndBannerReplacementRetiresAsForAPublicAc
 				t.Fatalf("protecting published %v, want nothing", msgs)
 			}
 		}
-		e.updateImages(t, u, "w335a-ret2-"+u.uid[:8]+"-padpad", nil, &b2)
+		e.updateImages(t, u, "w335a-ret2-"+u.uid[:8]+"-padpad", &a2)
 		msgs := e.pull(t)
-		if len(msgs) != 1 || msgs[0]["kind"] != media.JobKindProfileMediaRetired || msgs[0]["purpose"] != "BANNER" || msgs[0]["oldUrl"] != e.profileImageURL(b1) {
-			t.Fatalf("banner replacement published %v, want exactly one BANNER retire message for the old banner", msgs)
+		if len(msgs) != 1 || msgs[0]["kind"] != media.JobKindProfileMediaRetired || msgs[0]["purpose"] != "AVATAR" || msgs[0]["oldUrl"] != e.profileImageURL(a1) {
+			t.Fatalf("avatar replacement published %v, want exactly one AVATAR retire message for the old avatar", msgs)
 		}
 		if code := e.deliver(t, msgs[0]); code != http.StatusNoContent {
 			t.Fatalf("delivery = %d", code)
 		}
-		if _, _, retired := e.mediaDocFields(t, b1); !retired {
-			t.Errorf("the replaced banner was not retired")
+		if _, _, retired := e.mediaDocFields(t, a1); !retired {
+			t.Errorf("the replaced avatar was not retired")
 		}
 		out, _ := e.lastRetireLine(t)["outcome"].(string)
-		return len(msgs), out, b2
+		return len(msgs), out, a2
 	}
 	pubMsgs, pubOutcome, _ := retire(w.w.user(t), false)
 	protMsgs, protOutcome, current := retire(w.p, true)
 	if pubMsgs != protMsgs || pubOutcome != protOutcome || protOutcome != "retired" {
 		t.Errorf("protected account: %d message(s), outcome %q; public account: %d, %q; want identical and retired", protMsgs, protOutcome, pubMsgs, pubOutcome)
 	}
-	// The banner now in use is not retired by anything that happened.
+	// The avatar now in use is not retired by anything that happened.
 	if _, _, retired := e.mediaDocFields(t, current); retired {
-		t.Errorf("the protected account's current banner was retired")
+		t.Errorf("the protected account's current avatar was retired")
 	}
 }
 

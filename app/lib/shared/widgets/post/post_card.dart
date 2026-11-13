@@ -13,6 +13,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../features/beacons/presentation/widgets/post_beacon_embed.dart';
 import '../../../features/communities/domain/communities_feature_flag.dart';
 import '../../../features/communities/presentation/communities_error_messages.dart';
 import '../../../features/engagement/domain/engagement_entry.dart';
@@ -38,6 +39,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../format/relative_time.dart';
 import '../primitives/app_avatar.dart';
+import '../primitives/app_alert_confirm.dart';
 import '../primitives/app_menu_item_row.dart';
 import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
@@ -71,6 +73,33 @@ Future<bool> launchPostLink(Uri uri) async {
 /// Lines of post text a list card shows before "Show more" (the post
 /// detail view shows all of it).
 const kPostTextClampLines = 6;
+
+/// The card's side gutter for a window [windowWidth] wide: 20 dp on phones
+/// (the mobile `.post`, `padding: 14px 20px`), 16 dp from the tablet width
+/// up (dz.css `.post`, `14px 16px`). Rows drawn in line with the cards (the
+/// skeleton, the composer entry, the thread rail) use it too.
+double postCardGutter(double windowWidth) =>
+    windowWidth < AppBreakpoints.mobile ? kPostGutterPhone : AppSpacing.md;
+
+/// [postCardGutter] on phones.
+const kPostGutterPhone = AppSpacing.md + AppSpacing.xs;
+
+/// [postCardGutter] for the window of [context].
+double postCardGutterOf(BuildContext context) =>
+    postCardGutter(MediaQuery.sizeOf(context).width);
+
+/// Space inside the 48 dp avatar tap box on each side of the 42 dp circle.
+const kPostAvatarInset = (AppSpacing.minTapTarget - AppSize.avatarPost) / 2;
+
+/// The list card's top padding: the avatar circle starts 14 dp down, as in
+/// the designs (`.post` 14 dp), inside its 48 dp tap box.
+const kPostListTop = 14 - kPostAvatarInset;
+
+/// Between the avatar column and the body (`.post` `gap: 12px`).
+const kPostAvatarGap = AppSpacing.smd;
+
+/// Where the body column starts, from the card's start gutter.
+const kPostBodyStart = AppSpacing.minTapTarget + kPostAvatarGap;
 
 /// One post in any list (Home, profile tabs, detail): author row, relative
 /// time, rich text and an overflow menu.
@@ -349,6 +378,20 @@ class PostCard extends StatelessWidget {
     final asFocal = focal && !isRepost;
     // A REPOST given focal keeps the list layout but still shows it all.
     final fullContent = showFullImages || focal;
+    final windowWidth = MediaQuery.sizeOf(context).width;
+    final gutter = postCardGutter(windowWidth);
+    // The opened post's tablet and desktop header: the 56 dp avatar and
+    // 21 sp text (the PostDetail designs); phones keep 42 dp and 17 sp. An
+    // opened reply keeps the 42 dp avatar, so the thread rail from its parent
+    // runs straight into the middle of it.
+    final wideFocal = asFocal && windowWidth >= AppBreakpoints.mobile;
+    final largeAvatar = wideFocal && _post.replyToPostId.isEmpty;
+    // Below 600 the opened post's avatar is the design's 46 dp (an opened
+    // reply keeps 42 for its rail).
+    final phoneFocalAvatar =
+        asFocal && !wideFocal && _post.replyToPostId.isEmpty;
+    final avatarSize = largeAvatar ? AppAvatarSize.lg : AppAvatarSize.post;
+    final avatarBox = largeAvatar ? AppSize.avatarLg : AppSpacing.minTapTarget;
 
     final authorLabel = [
       displayName,
@@ -365,11 +408,24 @@ class PostCard extends StatelessWidget {
       excludeSemantics: true,
       child: InkResponse(
         onTap: () => _openProfile(context, author.userId),
-        radius: AppSpacing.minTapTarget / 2,
+        radius: avatarBox / 2,
         child: SizedBox(
-          width: AppSpacing.minTapTarget,
-          height: AppSpacing.minTapTarget,
-          child: Center(child: AppAvatar(url: author.avatarUrl)),
+          width: avatarBox,
+          height: avatarBox,
+          child: Center(
+            // Initials on a tint while there is no picture (the designs).
+            child: phoneFocalAvatar
+                ? AppAvatar(
+                    url: author.avatarUrl,
+                    radius: AppFocalPost.phoneAvatar / 2,
+                    name: author.displayName,
+                  )
+                : AppAvatar.sized(
+                    url: author.avatarUrl,
+                    size: avatarSize,
+                    name: author.displayName,
+                  ),
+          ),
         ),
       ),
     );
@@ -428,7 +484,14 @@ class PostCard extends StatelessWidget {
           maxLines: fullContent ? null : kPostTextClampLines,
           text: text,
           mentions: mentions,
-          style: asFocal
+          style: wideFocal
+              ? theme.textTheme.bodyLarge?.copyWith(
+                  fontSize: AppFocalPost.bodySizeWide,
+                  height:
+                      AppFocalPost.bodyLineHeightWide /
+                      AppFocalPost.bodySizeWide,
+                )
+              : asFocal
               ? theme.textTheme.bodyLarge?.copyWith(
                   fontSize: AppFocalPost.bodySize,
                   height: AppFocalPost.bodyLineHeight / AppFocalPost.bodySize,
@@ -438,6 +501,19 @@ class PostCard extends StatelessWidget {
           onOpenMention: (userId, handle) => _openProfile(context, userId),
           hashtagSearch: _searchOn(context),
           onHashtagTap: onHashtagTap ?? (tag) => _openHashtag(context, tag),
+        ),
+      // The plan this post shares (F5), under its text as in the designs.
+      // Only on the post itself: a REPOST or QUOTE row never carries one.
+      // An unavailable preview draws nothing: search, bookmarks and likes
+      // send that form for every plan (they do not hydrate), so a box saying
+      // "unavailable" would often be false.
+      if (!isRepost &&
+          _post.hasBeacon() &&
+          !_post.beacon.unavailable &&
+          postBeaconEmbedEnabled(context))
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.sm),
+          child: PostBeaconEmbed(beacon: _post.beacon, authorIsViewer: _isOwn),
         ),
       if (isRepost ? embedded!.hasArticle() : _post.hasArticle())
         Padding(
@@ -508,7 +584,11 @@ class PostCard extends StatelessWidget {
             reposted: view.repostedByViewer,
             actions: actions!,
             spread: asFocal,
-            iconSize: asFocal ? AppFocalPost.actionIcon : AppIconSize.action,
+            iconSize: asFocal
+                ? (wideFocal
+                      ? AppFocalPost.actionIcon
+                      : AppFocalPost.actionIconPhone)
+                : AppIconSize.action,
           )
         : engagementEnabled
         ? PostEngagementBar(
@@ -517,24 +597,32 @@ class PostCard extends StatelessWidget {
             bookmarkEnabled: bookmarkEnabled,
             onReply: onReply,
             spread: asFocal,
-            iconSize: asFocal ? AppFocalPost.actionIcon : AppIconSize.action,
+            iconSize: asFocal
+                ? (wideFocal
+                      ? AppFocalPost.actionIcon
+                      : AppFocalPost.actionIconPhone)
+                : AppIconSize.action,
           )
         : null;
 
     final Widget row;
     if (asFocal) {
       final muted = theme.colorScheme.onSurfaceVariant;
+      // The PostDetail designs: avatar and name, the text 12 dp below (16 dp
+      // from the tablet width up), the full time (13 sp on phones, 15 sp
+      // wider), then the actions between two hairlines (the lower one is the
+      // list's divider or the inline reply entry's rule).
       row = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               avatar,
-              const SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: kPostAvatarGap),
               Expanded(child: header),
             ],
           ),
-          const SizedBox(height: AppSpacing.sm),
+          SizedBox(height: wideFocal ? AppSpacing.md : AppSpacing.smd),
           ...content,
           if (created != null)
             Padding(
@@ -544,11 +632,15 @@ class PostCard extends StatelessWidget {
                 // Read as "9:11 PM, Nov 1, 2026", not with the dot.
                 semanticsLabel: formatPostTimestamp(created)
                     .replaceAll(' · ', ', '),
-                style: theme.textTheme.bodyLarge?.copyWith(color: muted),
+                style:
+                    (wideFocal
+                            ? theme.textTheme.bodyLarge
+                            : theme.textTheme.bodySmall)
+                        ?.copyWith(color: muted),
               ),
             ),
           if (bar != null) ...[
-            const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.smd),
             const Divider(height: 1),
             bar,
           ],
@@ -559,7 +651,7 @@ class PostCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           avatar,
-          const SizedBox(width: AppSpacing.sm),
+          const SizedBox(width: kPostAvatarGap),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -587,19 +679,24 @@ class PostCard extends StatelessWidget {
           )
         : null;
 
-    // List rows (X rows are about 99dp for one line): the 48dp boxes
-    // around the avatar and the actions already carry whitespace, so the card
-    // adds less of its own. The avatar's 40dp circle still starts 12dp down,
-    // and the action glyphs end 16dp above the next row. Tap targets stay
-    // 48dp. A context label (repost / community) on top has no such box, so
-    // it keeps the full 12dp above it.
+    // List rows (`.post`, 14 dp top and bottom): the 48dp boxes around the
+    // avatar and the actions already carry whitespace, so the card adds less
+    // of its own. The avatar's 42dp circle starts 14dp down, and the 48 dp
+    // action boxes plus 8 dp end where the design's 36 dp row plus 14 dp
+    // does. Tap targets stay 48dp. A context label (repost / community) on
+    // top has no such box, so it keeps the full 12dp above it.
     final dense = !asFocal;
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        dense && contextLabel == null ? AppSpacing.sm : AppSpacing.smd,
-        AppSpacing.md,
-        dense && bar != null ? 0 : AppSpacing.smd,
+        gutter,
+        dense && contextLabel == null
+            ? kPostListTop
+            // A tappable label's 24 dp target carries a little whitespace.
+            : contextLabel is PostContextLabel && contextLabel.onTap != null
+            ? AppSpacing.sm
+            : AppSpacing.smd,
+        gutter,
+        dense && bar != null ? AppSpacing.sm : AppSpacing.smd,
       ),
       child: contextLabel == null
           ? row
@@ -696,11 +793,12 @@ class _RepostPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gutter = postCardGutterOf(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
+      padding: EdgeInsets.fromLTRB(
+        gutter,
         AppSpacing.sm,
-        AppSpacing.md,
+        gutter,
         AppSpacing.sm,
       ),
       child: Column(
@@ -712,9 +810,7 @@ class _RepostPlaceholder extends StatelessWidget {
             trailing: menu,
           ),
           Padding(
-            padding: const EdgeInsetsDirectional.only(
-              start: AppSpacing.minTapTarget + AppSpacing.sm,
-            ),
+            padding: const EdgeInsetsDirectional.only(start: kPostBodyStart),
             child: placeholder == EmbedPlaceholder.protected
                 ? ProtectedPostBox(
                     author: original,
@@ -772,13 +868,14 @@ List<Widget> _nameWithBadges(
   required String displayName,
   required bool verified,
   required bool protected,
+  TextStyle? style,
 }) => [
   Flexible(
     child: Text(
       displayName,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.titleSmall,
+      style: style ?? theme.textTheme.titleSmall,
     ),
   ),
   if (verified) ...[
@@ -823,6 +920,8 @@ class _FocalAuthorLines extends StatelessWidget {
             displayName: displayName,
             verified: verified,
             protected: protected,
+            // The PostDetail designs' 16 sp name.
+            style: theme.textTheme.titleSmall?.copyWith(fontSize: 16),
           ),
         ),
         Text(

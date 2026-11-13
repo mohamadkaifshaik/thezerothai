@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/post/post_card.dart' show postCardGutter;
+import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/follow_requests_screen.dart';
@@ -9,6 +11,10 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.d
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/shared/widgets/user/protected_badge.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
+import 'package:flutter/rendering.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +23,17 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/geometry.dart';
 import '../../../support/suggestions_fixtures.dart' show suggestedUser;
 import '../../../support/theme_harness.dart';
+
+/// Accept or Decline: a pill with words from 600 dp, a round icon button
+/// (a check or a cross) on a phone.
+Finder answer(String label) => find.byWidgetPredicate(
+  (w) =>
+      (w is AppPillButton && w.label == label) ||
+      (w is IconButton &&
+          w.icon is Icon &&
+          (w.icon as Icon).icon ==
+              (label == 'Accept' ? Icons.check : Icons.close)),
+);
 
 class _MockGraph extends Mock implements GraphRepository {}
 
@@ -122,13 +139,10 @@ void main() {
 
     expectNoOverflow(tester);
     expect(find.text('Follow requests'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Accept'), findsNWidgets(2));
-    expect(find.widgetWithText(OutlinedButton, 'Decline'), findsNWidgets(2));
+    expect(answer('Accept'), findsNWidgets(2));
+    expect(answer('Decline'), findsNWidgets(2));
     expect(find.byType(ProtectedBadge), findsWidgets);
-    for (final finder in [
-      find.byType(FilledButton),
-      find.byType(OutlinedButton),
-    ]) {
+    for (final finder in [answer('Accept'), answer('Decline')]) {
       for (var i = 0; i < 2; i++) {
         expectMinTarget(tester, finder.at(i));
         expectInsideHorizontally(tester, finder.at(i), env.size.width);
@@ -266,7 +280,7 @@ void main() {
     ]);
     stubRespond(state: graph.FollowState.FOLLOW_STATE_FOLLOWING);
     await open(tester);
-    await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     expect(find.text('Accepted @user1.'), findsOneWidget);
     expect(find.text('Follow back'), findsNothing);
@@ -278,7 +292,7 @@ void main() {
     ]);
     stubRespond();
     await open(tester);
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Decline'));
+    await tester.tap(answer('Decline'));
     await tester.pumpAndSettle();
     expect(find.text('@user1'), findsNothing);
     expect(find.text('Declined @user1.'), findsOneWidget);
@@ -301,7 +315,7 @@ void main() {
     stubRespond(error: const NetworkException('offline'));
     await open(tester);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     expect(find.text('@user1'), findsOneWidget); // back
     expect(
@@ -314,7 +328,7 @@ void main() {
 
     // Retry the same answer: the same idempotency key (a replay is safe).
     stubRespond();
-    await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     final keys = verify(
       () => graphRepo.respondToFollowRequest(
@@ -338,7 +352,7 @@ void main() {
       error: const LimitReachedException('x', quota: 'requester_following'),
     );
     await open(tester);
-    await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     expect(find.textContaining('You can still decline'), findsOneWidget);
     expect(find.text('@user1'), findsOneWidget);
@@ -350,11 +364,188 @@ void main() {
     ]);
     stubRespond();
     await open(tester);
-    await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     expect(find.text('@user1'), findsNothing);
     verifyNever(
       () => graphRepo.listFollowRequests(pageSize: 20, pageToken: 'x'),
     );
+  });
+
+  group('R8 restyle', () {
+    void pending(int n) => whenListen(
+      onboarding,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        status: OnboardingStatus.ready,
+        pendingFollowRequestCount: n,
+      ),
+    );
+
+    testWidgets('the header says how many are pending (GetMe), spoken with '
+        'the title', (tester) async {
+      pending(3);
+      stubList([
+        page([request(1)]),
+      ]);
+      final semantics = tester.ensureSemantics();
+      await open(tester);
+
+      expect(find.text('3 pending'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('3 pending')).dy,
+        greaterThan(tester.getTopLeft(find.text('Follow requests')).dy),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('nothing pending: no subtitle line at all', (tester) async {
+      stubList([page(const [])]);
+      await open(tester);
+
+      expect(find.textContaining('pending'), findsNothing);
+    });
+
+    for (final (width, scale) in [
+      (320.0, 2.0),
+      (360.0, 2.0),
+      (600.0, 2.0),
+      (1024.0, 1.0),
+    ]) {
+      testWidgets(
+        '${width.toInt()}dp x$scale: the answers keep 48 dp and the pills never '
+        'ellipsize',
+        (tester) async {
+          pending(1000);
+          stubList([
+            page([request(1, name: 'A long display name for the row')]),
+          ]);
+          await open(
+            tester,
+            env: MatrixEnv(
+              brightness: Brightness.light,
+              size: Size(width, 900),
+              textScale: scale,
+            ),
+          );
+
+          expectNoOverflow(tester);
+          expect(find.text('1000 or more pending'), findsOneWidget);
+          for (final label in ['Accept', 'Decline']) {
+            final pill = answer(label);
+            expectMinTarget(tester, pill);
+            // A phone's answers are icons: nothing to ellipsize.
+            if (width < 600) continue;
+            final text = tester.renderObject<RenderParagraph>(
+              find.descendant(of: pill, matching: find.text(label)),
+            );
+            expect(text.didExceedMaxLines, isFalse);
+          }
+        },
+      );
+    }
+
+    testWidgets('RTL: the avatar leads on the right with its gap, the pills '
+        'on the left', (tester) async {
+      stubList([
+        page([request(1)]),
+      ]);
+      await pumpThemed(
+        tester,
+        Directionality(
+          textDirection: TextDirection.rtl,
+          child: MultiRepositoryProvider(
+            providers: [
+              RepositoryProvider<GraphRepository>.value(value: graphRepo),
+            ],
+            child: BlocProvider<OnboardingBloc>.value(
+              value: onboarding,
+              child: const FollowRequestsScreen(),
+            ),
+          ),
+        ),
+        size: const Size(600, 800),
+        useScaffold: false,
+      );
+
+      final avatar = tester.getRect(find.byType(AppAvatar));
+      final name = tester.getRect(find.text('User 1'));
+      final accept = tester.getRect(answer('Accept'));
+      expect(avatar.left - name.right, greaterThanOrEqualTo(AppSpacing.smd));
+      expect(accept.right, lessThan(name.left));
+      expectNoOverflow(tester);
+    });
+  });
+
+  group('rows follow the FollowRequests design', () {
+    for (final width in const [360.0, 599.0, 600.0, 1024.0]) {
+      testWidgets('at ${width.toInt()}: the post gutter, 12 dp above and '
+          'below, a 46 dp avatar, a 12 dp gap, no dividers', (tester) async {
+        stubList([
+          page([request(1), request(2)]),
+        ]);
+        await open(
+          tester,
+          env: MatrixEnv(
+            brightness: Brightness.light,
+            size: Size(width, 900),
+            textScale: 1,
+          ),
+        );
+
+        final avatars = find.byType(AppAvatar);
+        final first = tester.getRect(avatars.at(0));
+        expect(first.size, const Size.square(46));
+        final column = tester.getRect(find.byType(UserListRow).first);
+        expect(first.left - column.left, postCardGutter(width));
+        // Centred on the 48 dp pills, so 12 dp plus the 1 dp the pills add.
+        expect(first.top - column.top, closeTo(12, 1.5));
+        expect(
+          tester.getRect(find.text('User 1')).left - first.right,
+          closeTo(12, 0.5),
+        );
+        // The two rows touch: no hairline between them.
+        expect(
+          tester.getRect(find.byType(UserListRow).at(1)).top,
+          closeTo(tester.getRect(find.byType(UserListRow).first).bottom, 0.5),
+        );
+        expect(
+          find.descendant(
+            of: find.byType(UserListRow),
+            matching: find.byType(Divider),
+          ),
+          findsNothing,
+        );
+        expectNoOverflow(tester);
+      });
+    }
+
+    testWidgets('RTL at 2.0: no overflow, the gutter mirrors', (tester) async {
+      stubList([
+        page([request(1)]),
+      ]);
+      await pumpThemed(
+        tester,
+        Directionality(
+          textDirection: TextDirection.rtl,
+          child: MultiRepositoryProvider(
+            providers: [
+              RepositoryProvider<GraphRepository>.value(value: graphRepo),
+            ],
+            child: BlocProvider<OnboardingBloc>.value(
+              value: onboarding,
+              child: const FollowRequestsScreen(),
+            ),
+          ),
+        ),
+        size: const Size(360, 800),
+        textScale: 2,
+        useScaffold: false,
+      );
+      expectNoOverflow(tester);
+      final row = tester.getRect(find.byType(UserListRow).first);
+      final avatar = tester.getRect(find.byType(AppAvatar));
+      expect(row.right - avatar.right, postCardGutter(360));
+    });
   });
 }

@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_people_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/participant_row.dart';
@@ -109,7 +110,7 @@ void main() {
     seed();
     await open(tester);
 
-    await tester.tap(find.text('Requests'));
+    await tester.tap(find.textContaining('Requests'));
     await tester.pumpAndSettle();
     expect(find.text('Cy'), findsOneWidget);
     expect(find.text('Can I bring a friend?'), findsOneWidget);
@@ -119,7 +120,7 @@ void main() {
 
     expect(server.calls.where((c) => c == 'respond:accept'), hasLength(1));
     expect(find.text('Cy'), findsNothing);
-    await tester.tap(find.text('Going'));
+    await tester.tap(find.textContaining('Going ·'));
     await tester.pumpAndSettle();
     expect(find.text('Cy'), findsOneWidget);
     expect(find.byType(ParticipantRow), findsNWidgets(3));
@@ -128,12 +129,12 @@ void main() {
   testWidgets('Decline asks first and removes the row', (tester) async {
     seed();
     await open(tester);
-    await tester.tap(find.text('Requests'));
+    await tester.tap(find.textContaining('Requests'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Request options'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Decline'));
+    // R12: Decline is the pill under the request (the designs'
+    // PlanPeople); the menu keeps only Decline and block.
+    await tester.tap(find.widgetWithText(AppPillButton, 'Decline'));
     await tester.pumpAndSettle();
     expect(find.text("Decline @cy's request?"), findsOneWidget);
     await tester.tap(find.widgetWithText(TextButton, 'Decline'));
@@ -154,7 +155,7 @@ void main() {
       ),
     ).thenThrow(NetworkException('offline'));
     await open(tester);
-    await tester.tap(find.text('Requests'));
+    await tester.tap(find.textContaining('Requests'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('Request options'));
@@ -190,7 +191,7 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
       ),
     ).thenAnswer((_) async => graph.Relationship());
-    await tester.tap(find.widgetWithText(TextButton, 'Retry'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Retry'));
     await tester.pumpAndSettle();
     expect(server.calls.where((c) => c == 'respond:decline'), hasLength(1));
     verify(

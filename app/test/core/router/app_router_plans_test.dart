@@ -15,6 +15,8 @@ import 'package:dzeroth/features/beacons/presentation/beacon_people_screen.dart'
 import 'package:dzeroth/features/beacons/presentation/edit_beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/my_beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/create_beacon_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/bloc/plans_session.dart';
+import 'package:dzeroth/features/beacons/presentation/plans_list_detail.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
@@ -81,6 +83,8 @@ void main() {
     Set<String> flags,
     String location, {
     Stream<Set<String>>? flagChanges,
+    Size size = const Size(390, 844),
+    bool hoisted = false,
   }) async {
     OnboardingState ready(Set<String> set) => OnboardingState(
       status: OnboardingStatus.ready,
@@ -123,16 +127,23 @@ void main() {
     when(() => tabs.writeUnavailable).thenReturn(false);
     final engagement = EngagementCubit(repository: _MockEngagementRepository());
     addTearDown(engagement.close);
+    final graph = _MockGraph();
+    when(() => graph.followRequestsUnavailable).thenReturn(false);
+    // The app-level Plans list (AppWidget provides it; tablet T5).
+    final session = hoisted ? PlansSession(repository: beacons) : null;
+    if (session != null) addTearDown(session.dispose);
     final appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
     appRouter.router.go(location);
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
+    tester.view.physicalSize = size;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MultiRepositoryProvider(
         providers: [
           RepositoryProvider<BeaconsRepository>.value(value: beacons),
-          RepositoryProvider<GraphRepository>.value(value: _MockGraph()),
+          RepositoryProvider<GraphRepository>.value(value: graph),
+          if (session != null)
+            RepositoryProvider<PlansSession>.value(value: session),
           RepositoryProvider<TimelineRepository>.value(value: timeline),
           RepositoryProvider<PostsRepository>.value(value: posts),
           RepositoryProvider<HomeTabsRepository>.value(value: tabs),
@@ -313,5 +324,92 @@ void main() {
     expect(path, '/plans/$kBeaconIdA/edit');
     expect(find.byType(EditBeaconScreen), findsOneWidget);
     expect(beacons.calls, ['get']);
+  });
+
+  // Tablet T5: the routes are unchanged; on the tablet layout in band B the
+  // real router's shell puts the Plans list beside `/plans` and `/plans/:id`
+  // only (cold deep links included), with the app-level list.
+  group('tablet layout, band B (1024)', () {
+    const tablet = {'beacons', 'ui_shell', 'ui_tablet'};
+
+    testWidgets('a cold /plans/<id>: the list pane beside the plan; one list '
+        'and one "Your plans" call', (tester) async {
+      final (path, beacons) = await openAt(
+        tester,
+        tablet,
+        '/plans/$kBeaconIdA',
+        size: const Size(1024, 900),
+        hoisted: true,
+      );
+      expect(path, '/plans/$kBeaconIdA');
+      expect(find.byType(PlansListPane), findsOneWidget);
+      expect(find.byType(BeaconScreen), findsOneWidget);
+      expect(beacons.calls.where((c) => c == 'list:'), hasLength(1));
+      expect(beacons.mineLimits, [2]);
+      expect(beacons.calls.where((c) => c == 'get'), hasLength(1));
+    });
+
+    testWidgets('/plans: the pane and the placeholder', (tester) async {
+      final (_, beacons) = await openAt(
+        tester,
+        tablet,
+        '/plans',
+        size: const Size(1024, 900),
+        hoisted: true,
+      );
+      expect(find.byType(PlansListPane), findsOneWidget);
+      expect(find.text(kPickAPlan), findsOneWidget);
+      expect(beacons.calls.where((c) => c == 'list:'), hasLength(1));
+    });
+
+    for (final location in [
+      '/plans/mine',
+      '/plans/new',
+      '/plans/$kBeaconIdA/people',
+      '/plans/$kBeaconIdA/edit',
+    ]) {
+      testWidgets('$location: no list pane', (tester) async {
+        final (path, beacons) = await openAt(
+          tester,
+          tablet,
+          location,
+          size: const Size(1024, 900),
+          hoisted: true,
+        );
+        expect(path, location);
+        expect(find.byType(PlansListPane), findsNothing);
+        expect(beacons.calls.where((c) => c == 'list:'), isEmpty);
+      });
+    }
+
+    // A cold or typed form link draws no context pane (the tablet layout
+    // has none): the form keeps its own preview inline.
+    for (final location in ['/plans/new', '/plans/$kBeaconIdA/edit']) {
+      testWidgets('$location (cold): no context pane, the preview inline', (
+        tester,
+      ) async {
+        final (path, _) = await openAt(
+          tester,
+          tablet,
+          location,
+          size: const Size(1024, 900),
+          hoisted: true,
+        );
+        expect(path, location);
+        expect(find.text('Preview'), findsOneWidget);
+      });
+    }
+
+    testWidgets('the same cold /plans/<id> on a phone: no pane, no extra '
+        'call', (tester) async {
+      final (_, beacons) = await openAt(
+        tester,
+        tablet,
+        '/plans/$kBeaconIdA',
+        hoisted: true,
+      );
+      expect(find.byType(PlansListPane), findsNothing);
+      expect(beacons.calls, ['get']);
+    });
   });
 }

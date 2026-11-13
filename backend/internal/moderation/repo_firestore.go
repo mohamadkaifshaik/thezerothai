@@ -108,7 +108,8 @@ type evidenceDoc struct {
 	Location    string `firestore:"location,omitempty"`
 	Website     string `firestore:"website,omitempty"`
 	AvatarURL   string `firestore:"avatarUrl,omitempty"`
-	BannerURL   string `firestore:"bannerUrl,omitempty"`
+	// A report filed while the profile banner existed may also hold evidence.bannerUrl; it is no longer decoded and
+	// leaves with the report's retention.
 	// LIST reports only; additive and omitempty. Inside the index-exempt evidence map.
 	ListName        string `firestore:"listName,omitempty"`
 	ListDescription string `firestore:"listDescription,omitempty"`
@@ -186,7 +187,7 @@ func toDoc(r Report) reportDoc {
 		}
 		d.Evidence = &evidenceDoc{Text: r.Evidence.Text, AuthorHandle: r.Evidence.AuthorHandle, MediaIDs: ids, PostCreatedAt: r.Evidence.PostCreatedAt,
 			OriginalPostID: r.Evidence.OriginalPostID, DisplayName: r.Evidence.DisplayName, Bio: r.Evidence.Bio,
-			Location: r.Evidence.Location, Website: r.Evidence.Website, AvatarURL: r.Evidence.AvatarURL, BannerURL: r.Evidence.BannerURL,
+			Location: r.Evidence.Location, Website: r.Evidence.Website, AvatarURL: r.Evidence.AvatarURL,
 			PollChoices: r.Evidence.PollChoices, ListName: r.Evidence.ListName, ListDescription: r.Evidence.ListDescription,
 			CommunityName: r.Evidence.CommunityName, CommunityDescription: r.Evidence.CommunityDescription, CommunityRules: ruleDocs(r.Evidence.CommunityRules),
 			BeaconTitle: r.Evidence.BeaconTitle, BeaconDetails: r.Evidence.BeaconDetails, BeaconVenue: r.Evidence.BeaconVenue,
@@ -209,7 +210,7 @@ func (d reportDoc) toReport(id string) Report {
 		r.Evidence = &Evidence{Text: d.Evidence.Text, AuthorHandle: d.Evidence.AuthorHandle,
 			MediaIDs: d.Evidence.MediaIDs, PostCreatedAt: d.Evidence.PostCreatedAt.UTC(),
 			OriginalPostID: d.Evidence.OriginalPostID, DisplayName: d.Evidence.DisplayName, Bio: d.Evidence.Bio,
-			Location: d.Evidence.Location, Website: d.Evidence.Website, AvatarURL: d.Evidence.AvatarURL, BannerURL: d.Evidence.BannerURL,
+			Location: d.Evidence.Location, Website: d.Evidence.Website, AvatarURL: d.Evidence.AvatarURL,
 			PollChoices: d.Evidence.PollChoices, ListName: d.Evidence.ListName, ListDescription: d.Evidence.ListDescription,
 			CommunityName: d.Evidence.CommunityName, CommunityDescription: d.Evidence.CommunityDescription, CommunityRules: ruleOut(d.Evidence.CommunityRules),
 			BeaconTitle: d.Evidence.BeaconTitle, BeaconDetails: d.Evidence.BeaconDetails, BeaconVenue: d.Evidence.BeaconVenue,

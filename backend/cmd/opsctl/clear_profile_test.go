@@ -75,7 +75,7 @@ func newClearFixture() *clearFixture {
 		clearer: &fakeClearer{
 			cleared: []identity.ClearedField{
 				{Field: identity.ProfileFieldWebsite, Values: []string{"https://phish.example/login"}},
-				{Field: identity.ProfileFieldBanner, Values: []string{"https://storage.googleapis.com/dzeroth-dev-media/m/123.webp", "https://storage.googleapis.com/dzeroth-dev-media/m/123_t.webp"}},
+				{Field: identity.ProfileFieldAvatar, Values: []string{"https://storage.googleapis.com/dzeroth-dev-media/m/123.webp", "https://storage.googleapis.com/dzeroth-dev-media/m/123_t.webp"}},
 			},
 			skipped: []identity.ProfileField{identity.ProfileFieldLocation},
 			written: true,
@@ -145,7 +145,7 @@ func TestClearProfileFields_UsageErrors(t *testing.T) {
 func TestClearProfileFields_RunClearsAndPrintsTheImageObjects(t *testing.T) {
 	t.Parallel()
 	c := newClearFixture()
-	code, stdout, stderr := c.run("", clearArgs("--fields", "website,banner,location")...)
+	code, stdout, stderr := c.run("", clearArgs("--fields", "website,avatar,location")...)
 	if code != 0 {
 		t.Fatalf("exit code = %d; stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -153,18 +153,18 @@ func TestClearProfileFields_RunClearsAndPrintsTheImageObjects(t *testing.T) {
 		t.Fatalf("calls = %+v, want exactly one", c.clearer.calls)
 	}
 	call := c.clearer.calls[0]
-	wantFields := []identity.ProfileField{identity.ProfileFieldWebsite, identity.ProfileFieldBanner, identity.ProfileFieldLocation}
+	wantFields := []identity.ProfileField{identity.ProfileFieldWebsite, identity.ProfileFieldAvatar, identity.ProfileFieldLocation}
 	if call.uid != clearUID || !reflect.DeepEqual(call.fields, wantFields) || call.dryRun || !call.now.Equal(time.Unix(1_000_000, 0)) {
 		t.Errorf("call = %+v", call)
 	}
 	for _, want := range []string{
 		`website: cleared "https://phish.example/login"`,
-		"banner: cleared ",
+		"avatar: cleared ",
 		"location: already empty, skipped",
 		"2 field(s) cleared with one field-level update",
-		"banner retire: done.",
-		"banner object (public until the lifecycle rule deletes it): m/123.webp in bucket dzeroth-dev-media",
-		"banner object (public until the lifecycle rule deletes it): m/123_t.webp in bucket dzeroth-dev-media",
+		"avatar retire: done.",
+		"avatar object (public until the lifecycle rule deletes it): m/123.webp in bucket dzeroth-dev-media",
+		"avatar object (public until the lifecycle rule deletes it): m/123_t.webp in bucket dzeroth-dev-media",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
@@ -178,7 +178,7 @@ func TestClearProfileFields_RunClearsAndPrintsTheImageObjects(t *testing.T) {
 func TestClearProfileFields_DryRunWritesNothing(t *testing.T) {
 	t.Parallel()
 	c := newClearFixture()
-	code, stdout, stderr := c.run("", clearArgs("--fields", "website,banner", "--report", testReportID, "--dry-run")...)
+	code, stdout, stderr := c.run("", clearArgs("--fields", "website,avatar", "--report", testReportID, "--dry-run")...)
 	if code != 0 {
 		t.Fatalf("exit code = %d; stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -356,13 +356,13 @@ func TestReportsShow_AccountEvidence(t *testing.T) {
 		f := newModFixture()
 		f.ops.report = &moderation.Report{TargetType: moderation.TargetAccount, TargetID: clearUID, TargetOwnerID: clearUID, Reason: moderation.ReasonImpersonation,
 			Status: moderation.StatusOpen, Evidence: &moderation.Evidence{AuthorHandle: "Mallory", DisplayName: "Mal", Bio: "click here",
-				Location: "Pune", Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp", BannerURL: "https://m/m/2.webp"}}
+				Location: "Pune", Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp"}}
 		code, stdout, stderr := f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
 		if code != 0 {
 			t.Fatalf("exit code = %d; stderr=%q", code, stderr)
 		}
 		for _, want := range []string{"evidence profile @Mallory", `display name "Mal"`, `bio "click here"`, `location "Pune"`,
-			`website "https://phish.example/login"`, `avatar "https://m/m/1.webp"`, `banner "https://m/m/2.webp"`} {
+			`website "https://phish.example/login"`, `avatar "https://m/m/1.webp"`} {
 			if !strings.Contains(stdout, want) {
 				t.Errorf("stdout missing %q:\n%s", want, stdout)
 			}
@@ -402,30 +402,25 @@ func TestReportsResolve_ProfileClearedIsNotAManualResolution(t *testing.T) {
 	}
 }
 
-// A committed clear of a banner or avatar runs the retire step in process.
+// A committed clear of the avatar runs the retire step in process.
 
 func TestClearProfileFields_RetiresClearedImagesInProcess(t *testing.T) {
 	t.Parallel()
 	c := newClearFixture()
-	c.clearer.cleared = append(c.clearer.cleared, identity.ClearedField{Field: identity.ProfileFieldAvatar,
-		Values: []string{"https://storage.googleapis.com/dzeroth-dev-media/m/0000000000000000111.webp", "https://storage.googleapis.com/dzeroth-dev-media/m/0000000000000000111_t.webp"}})
-	code, stdout, stderr := c.run("", clearArgs("--fields", "website,banner,avatar", "--report", testReportID)...)
+	code, stdout, stderr := c.run("", clearArgs("--fields", "website,avatar", "--report", testReportID)...)
 	if code != 0 {
 		t.Fatalf("exit code = %d; stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if len(c.retire.msgs) != 2 {
-		t.Fatalf("retire calls = %+v, want one per cleared image (banner, avatar), none for the website", c.retire.msgs)
+	if len(c.retire.msgs) != 1 {
+		t.Fatalf("retire calls = %+v, want one for the cleared avatar, none for the website", c.retire.msgs)
 	}
 	at := time.Unix(1_000_000, 0)
-	b, a := c.retire.msgs[0], c.retire.msgs[1]
-	if b.Kind != media.JobKindProfileMediaRetired || b.UID != clearUID || b.Purpose != "BANNER" || !b.ChangedAt.Equal(at) ||
-		b.OldURL != "https://storage.googleapis.com/dzeroth-dev-media/m/123.webp" || b.OldThumbURL != "https://storage.googleapis.com/dzeroth-dev-media/m/123_t.webp" {
-		t.Errorf("banner message = %+v", b)
-	}
-	if a.Purpose != "AVATAR" || a.OldURL != "https://storage.googleapis.com/dzeroth-dev-media/m/0000000000000000111.webp" || a.OldThumbURL == "" {
+	a := c.retire.msgs[0]
+	if a.Kind != media.JobKindProfileMediaRetired || a.UID != clearUID || a.Purpose != "AVATAR" || !a.ChangedAt.Equal(at) ||
+		a.OldURL != "https://storage.googleapis.com/dzeroth-dev-media/m/123.webp" || a.OldThumbURL != "https://storage.googleapis.com/dzeroth-dev-media/m/123_t.webp" {
 		t.Errorf("avatar message = %+v", a)
 	}
-	for _, want := range []string{"banner retire: done.", "avatar retire: done."} {
+	for _, want := range []string{"avatar retire: done."} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
 		}
@@ -440,29 +435,29 @@ func TestClearProfileFields_RetireNeverRunsWhenNothingWasWritten(t *testing.T) {
 	t.Run("dry run", func(t *testing.T) {
 		t.Parallel()
 		c := newClearFixture()
-		code, stdout, stderr := c.run("", clearArgs("--fields", "banner", "--dry-run")...)
+		code, stdout, stderr := c.run("", clearArgs("--fields", "avatar", "--dry-run")...)
 		if code != 0 {
 			t.Fatalf("code=%d stderr=%q", code, stderr)
 		}
 		if len(c.retire.msgs) != 0 {
 			t.Errorf("a dry run called the retire step: %+v", c.retire.msgs)
 		}
-		if !strings.Contains(stdout, "banner retire: would run after the clear (PROFILE_MEDIA_RETIRE=all)") {
+		if !strings.Contains(stdout, "avatar retire: would run after the clear (PROFILE_MEDIA_RETIRE=all)") {
 			t.Errorf("the plan must say the retire would run:\n%s", stdout)
 		}
 		c = newClearFixture()
-		c.mode = config.ProfileMediaRetireBanner
+		c.mode = config.ProfileMediaRetireOff
 		c.clearer.cleared = []identity.ClearedField{{Field: identity.ProfileFieldAvatar, Values: []string{"https://x/m/0000000000000000111.webp", ""}}}
 		_, stdout, _ = c.run("", clearArgs("--fields", "avatar", "--dry-run")...)
-		if !strings.Contains(stdout, "avatar retire: would not run (PROFILE_MEDIA_RETIRE=banner does not cover it)") {
-			t.Errorf("an avatar under mode banner is not covered:\n%s", stdout)
+		if !strings.Contains(stdout, "avatar retire: would not run (PROFILE_MEDIA_RETIRE=off does not cover it)") {
+			t.Errorf("an avatar under mode off is not covered:\n%s", stdout)
 		}
 	})
 	t.Run("nothing to clear", func(t *testing.T) {
 		t.Parallel()
 		c := newClearFixture()
-		c.clearer.cleared, c.clearer.skipped = nil, []identity.ProfileField{identity.ProfileFieldBanner}
-		code, _, stderr := c.run("", clearArgs("--fields", "banner")...)
+		c.clearer.cleared, c.clearer.skipped = nil, []identity.ProfileField{identity.ProfileFieldAvatar}
+		code, _, stderr := c.run("", clearArgs("--fields", "avatar")...)
 		if code != 0 || len(c.retire.msgs) != 0 {
 			t.Fatalf("code=%d stderr=%q retire calls=%+v", code, stderr, c.retire.msgs)
 		}
@@ -480,7 +475,7 @@ func TestClearProfileFields_RetireNeverRunsWhenNothingWasWritten(t *testing.T) {
 		t.Parallel()
 		c := newClearFixture()
 		c.clearer.err = errors.New("firestore down")
-		if code, _, _ := c.run("", clearArgs("--fields", "banner")...); code != 1 || len(c.retire.msgs) != 0 {
+		if code, _, _ := c.run("", clearArgs("--fields", "avatar")...); code != 1 || len(c.retire.msgs) != 0 {
 			t.Fatalf("code=%d retire calls=%+v", code, c.retire.msgs)
 		}
 	})
@@ -493,13 +488,13 @@ func TestClearProfileFields_SwitchOffKeepsTheManualPath(t *testing.T) {
 	c := newClearFixture()
 	c.mode = config.ProfileMediaRetireOff
 	c.retire.outcome = "disabled"
-	code, stdout, stderr := c.run("", clearArgs("--fields", "banner")...)
+	code, stdout, stderr := c.run("", clearArgs("--fields", "avatar")...)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
 	for _, want := range []string{
-		"banner retire: not run (PROFILE_MEDIA_RETIRE=off in this shell does not cover it)",
-		"banner object (still public until deleted): m/123.webp in bucket dzeroth-dev-media",
+		"avatar retire: not run (PROFILE_MEDIA_RETIRE=off in this shell does not cover it)",
+		"avatar object (still public until deleted): m/123.webp in bucket dzeroth-dev-media",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
@@ -514,12 +509,12 @@ func TestClearProfileFields_OtherRetireOutcomesAreSaid(t *testing.T) {
 			t.Parallel()
 			c := newClearFixture()
 			c.retire.outcome = outcome
-			code, stdout, _ := c.run("", clearArgs("--fields", "banner")...)
+			code, stdout, _ := c.run("", clearArgs("--fields", "avatar")...)
 			if code != 0 {
 				t.Fatalf("code=%d", code)
 			}
-			if !strings.Contains(stdout, "banner retire: "+outcome+", nothing was scheduled: delete the objects by hand") ||
-				!strings.Contains(stdout, "banner object (still public until deleted)") {
+			if !strings.Contains(stdout, "avatar retire: "+outcome+", nothing was scheduled: delete the objects by hand") ||
+				!strings.Contains(stdout, "avatar object (still public until deleted)") {
 				t.Errorf("stdout:\n%s", stdout)
 			}
 		})
@@ -531,14 +526,14 @@ func TestClearProfileFields_RetireFailureIsExit1ButTheReportStillResolves(t *tes
 	t.Parallel()
 	c := newClearFixture()
 	c.retire.err = errors.New("gcs unavailable")
-	code, stdout, stderr := c.run("", clearArgs("--fields", "banner", "--report", testReportID)...)
+	code, stdout, stderr := c.run("", clearArgs("--fields", "avatar", "--report", testReportID)...)
 	if code != 1 {
 		t.Fatalf("code = %d, want 1 (a scheduled delete that failed must not look like success); stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if !strings.Contains(stderr, "banner retire failed after the clear committed") || !strings.Contains(stderr, "gcs unavailable") {
+	if !strings.Contains(stderr, "avatar retire failed after the clear committed") || !strings.Contains(stderr, "gcs unavailable") {
 		t.Errorf("stderr = %q", stderr)
 	}
-	if !strings.Contains(stdout, "banner retire: FAILED") || !strings.Contains(stdout, "banner object (still public until deleted): m/123.webp") {
+	if !strings.Contains(stdout, "avatar retire: FAILED") || !strings.Contains(stdout, "avatar object (still public until deleted): m/123.webp") {
 		t.Errorf("the objects must still be printed for deleting by hand:\n%s", stdout)
 	}
 	if len(c.clearer.calls) != 1 || c.ops.resolved[testReportID] != moderation.ResolutionProfileCleared {
@@ -550,8 +545,8 @@ func TestClearProfileFields_RetireFailureIsExit1ButTheReportStillResolves(t *tes
 // for a text-only clear (it concerns images only).
 func TestClearProfileFields_InvalidSwitchIsRefusedBeforeAnyWrite(t *testing.T) {
 	t.Parallel()
-	bad := errors.New("config: invalid PROFILE_MEDIA_RETIRE \"avatar\" (want off|banner|all)")
-	for _, fields := range []string{"banner", "website,avatar"} {
+	bad := errors.New("config: invalid PROFILE_MEDIA_RETIRE \"bogus\" (want off|all)")
+	for _, fields := range []string{"avatar", "website,avatar"} {
 		c := newClearFixture()
 		c.modeErr = bad
 		code, _, stderr := c.run("", clearArgs("--fields", fields)...)

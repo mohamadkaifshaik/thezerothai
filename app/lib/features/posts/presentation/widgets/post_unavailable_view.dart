@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 
 /// The final NOT_FOUND state: nothing to retry, and the same words for
 /// missing, deleted and hidden. Shared by the post and thread
@@ -29,13 +30,17 @@ class PostUnavailableView extends StatelessWidget {
               const SizedBox(height: AppSpacing.md),
               Text(
                 "This post isn't available",
-                style: theme.textTheme.titleMedium,
+                // The design's 17 sp at 800.
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.md),
-              FilledButton.tonal(
+              AppPillButton(
+                label: 'Go to Home',
+                variant: AppButtonVariant.outline,
                 onPressed: onHome,
-                child: const Text('Go to Home'),
               ),
             ],
           ),

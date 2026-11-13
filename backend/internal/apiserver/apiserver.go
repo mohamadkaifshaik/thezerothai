@@ -208,12 +208,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
-	// The pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
+	// The pinned-post check is posts' (bound once posts exists, below); the
 	// profile_extras flag gates setting the new fields and omits the pin from responses while globally off.
 	pinChecker := &latePinChecker{}
 	// Messaging counts the unread conversations (identity never imports messaging); its repo is built here
 	// because identity needs the counter at construction and the messaging service needs identity.Directory.
 	messagingRepo := messaging.NewFirestoreRepo(fsClient, quota.New(fsClient))
+	// Notifications counts GetMe's unread badge the same way (identity never imports notifications): the repo is built
+	// here, before identity, and gets its Directory once identity exists (below).
+	notifRepo := notifications.NewFirestoreRepo(fsClient).WithLogger(log)
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
@@ -222,11 +225,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// Warn-only sign-in identity audit in GetMe (AUTH_IDENTITY_AUDIT, default off).
 		identity.WithAuthIdentityAudit(cfg.AuthIdentityAudit, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
-		identity.WithBannerResolver(bannerResolver{lib: mediaMod.library, flags: featureFlags}),
-		// A replaced or removed avatar or banner goes to media's retire step (PROFILE_MEDIA_RETIRE).
+		// A replaced or removed avatar goes to media's retire step (PROFILE_MEDIA_RETIRE).
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // GetMe.unread_conversation_count
+		// GetMe.unread_notification_count: the unseen rows the caller would see (block, mute, blocked-by and the F-04
+		// overflow lookup applied), not the raw count().
+		identity.WithNotificationBadge(notifications.NewUnreadBadge(notifRepo, graphSvc, graphSvc), log),
 		identity.WithExtrasFlags(featureFlags),
 		// An unprotect publishes the privacy_public job (graph accepts the pending requests).
 		identity.WithPrivacyListener(graph.NewPrivacyListener(jobsPublisher), log),
@@ -245,7 +250,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// --- notifications: rows + FCM push, fed by graph and posts through the emitter slot. The Firebase
 	// Messaging client and the Pub/Sub publisher are created lazily on first use (no I/O before ListenAndServe).
-	notifRepo := notifications.NewFirestoreRepo(fsClient).WithDirectory(identitySvc.(identity.Directory))
+	notifRepo.WithDirectory(identitySvc.(identity.Directory))
 	var pushSender notifications.PushSender = notifications.LogSender{Log: log}
 	var tokenValidator notifications.TokenValidator = notifications.NopValidator{}
 	if cfg.NotificationsDelivery == "pubsub" {
@@ -290,6 +295,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	notifService := notifications.NewService(notifications.Deps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, Validator: tokenValidator, CursorKey: cfg.CursorHMACKey,
+		Blocks: graphSvc, // F-04: read-time blocked-by check for a caller whose blockedBy overflowed
 	})
 	notifServer := notifications.NewServer(notifService, featureFlags, notifications.WithPrefs(notifPrefs))
 
@@ -379,8 +385,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	engAudience := rowAudience(posts.AudienceOf(audienceSvc))
 	rlCfg := RateLimitConfig(cfg)
+	// F-03: ListBookmarks and ListLikedPosts drop rows whose author is not ACTIVE through identity's Directory (the page
+	// fails closed without it), so a wiring regression refuses to start instead.
+	engagementDir := identitySvc.(identity.Directory)
+	if err := requireAuthorStatusSeams([]protectedSeam{{"engagement.Deps.Directory (identity.Directory)", engagementDir}}); err != nil {
+		return nil, nil, err
+	}
 	engagementMod, err := engagement.New(engagement.Deps{
-		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: identitySvc.(identity.Directory),
+		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: engagementDir,
 		Events:   engagementNotifier{slot: notifSlot},
 		CacheTTL: cfg.CacheTTL, AllowAnonymous: cfg.AuthEmulator,
 		// Bookmarks: the repo is the engagement repo, the cap is config, not a literal.
@@ -425,8 +437,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
 	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient)).
 		WithPostModerator(posts.NewCommunityModerator(fsClient)) // the Hide / Restore post write (A12)
+	// F-03: every feed drops rows whose author is not ACTIVE through identity's Directory (the page fails closed without it),
+	// so a wiring regression refuses to start instead.
+	timelineDir := identitySvc.(identity.Directory)
+	if err := requireAuthorStatusSeams([]protectedSeam{{"timeline.Deps.Directory (identity.Directory)", timelineDir}}); err != nil {
+		return nil, nil, err
+	}
 	timelineServer := timeline.NewServer(timeline.Deps{
-		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
+		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: timelineDir, Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	}, timeline.WithProtectedAuthors(protectedAuthors),
@@ -556,8 +574,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, postDeleteJob); err != nil {
 		return nil, nil, fmt.Errorf("post_delete job handler: %w", err)
 	}
-	// profile_media_retired: the media step that schedules a replaced or removed avatar or
-	// banner for deletion. Registered whatever PROFILE_MEDIA_RETIRE says: with the switch off the handler acks without
+	// profile_media_retired: the media step that schedules a replaced or removed avatar
+	// for deletion. Registered whatever PROFILE_MEDIA_RETIRE says: with the switch off the handler acks without
 	// action, so a message published by a revision that had it on is never left in a retry loop.
 	if err := lifecycle.RegisterJobHandler(media.JobKindProfileMediaRetired, mediaMod.jobs.RetireHandler()); err != nil {
 		return nil, nil, fmt.Errorf("profile_media_retired job handler: %w", err)
@@ -861,10 +879,17 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// loader. GetTrends reads trends/current through a 10 min instance copy; the refresher is the
 	// daily step (and the standalone route). Both go through search.TrendsStore, the only code that touches the collection.
 	trendsStore := search.NewTrendsRepo(fsClient)
+	// F-03: SearchPosts drops every row whose author is not ACTIVE through identity's Directory, the rule GetPost and
+	// GetUserTimeline apply (a REPOST of such an author's post is dropped, a QUOTE of one is tombstoned). WithPosts stays
+	// Unimplemented without it, so refuse to start instead.
+	var searchAuthors search.AuthorDirectory = identitySvc.(identity.Directory)
+	if err := requireAuthorStatusSeams([]protectedSeam{{"search.PostsDeps.Authors (identity.Directory)", searchAuthors}}); err != nil {
+		return nil, nil, err
+	}
 	searchServer := search.NewServer(search.New(featureFlags,
 		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries, Prefixes: handlePrefixes}),
 		search.WithPosts(search.PostsDeps{
-			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
+			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience, Authors: searchAuthors,
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
 		}),
 		search.WithTrends(trendsStore, nil),
@@ -894,10 +919,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
 	routes.internal("/internal/pubsub/jobs", lifecycle.JobsHandler())
 	// The same route also runs the trends refresh after the backstop, but its status is the
-	// backstop's alone. The poll vote sweep runs first. The standalone route is for dev (no Scheduler jobs there) and a later hourly job.
+	// backstop's alone. The poll vote sweep runs first, the media orphan sweep last (it takes only what trends left). The
+	// standalone route is for dev (no Scheduler jobs there) and a later hourly job.
 	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), stepChain{
 		pollVoteSweepStep{sweeper: engagementRepo, ttl: cfg.Composer.PollVoteTTLAfterClose, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 		trendsRefresher,
+		mediaOrphanSweepStep{sweeper: mediaMod.orphans, mode: cfg.MediaOrphanSweep, limit: media.OrphanSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 	}, log, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
 	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline and panic

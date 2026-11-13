@@ -244,6 +244,16 @@ type Window struct {
 	After  *Position
 }
 
+// ScheduledMediaHolds is the read the media orphan sweep uses (media.ScheduledMediaHolds, through media.NewDraftHolds in
+// apiserver and opsctl): which of uid's image ids a PENDING scheduled post of uid names in its draft. Fresh reads (no
+// cache), bounded pages; beyond the bound every id is reported held (never "free"). *FirestoreRepo implements it
+// (repo_scheduled_holds.go).
+type ScheduledMediaHolds interface {
+	PendingScheduledMediaHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error)
+}
+
+var _ ScheduledMediaHolds = (*FirestoreRepo)(nil)
+
 // Reader is posts' read-only seam for other modules (timeline, later search and notifications). Every method
 // is cache-first and every query has a Limit.
 //

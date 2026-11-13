@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,7 +7,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/tablet_layout.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../shared/widgets/primitives/app_side_sheet.dart';
 import '../../media/domain/processed_image.dart' show kGifContentType;
 import 'post_detail_screen.dart';
 import 'widgets/loaded_post.dart';
@@ -31,12 +35,12 @@ class PostPhotoScreen extends StatelessWidget {
             ),
           ),
           PositionedDirectional(
-            top: 8,
-            start: 8,
-            child: IconButton.filledTonal(
+            top: AppSpacing.sm,
+            start: AppSpacing.sm,
+            child: _PhotoButton(
               tooltip: 'Close image',
               onPressed: () => closePostPhoto(context, postId),
-              icon: const Icon(Icons.close),
+              icon: Icons.close,
             ),
           ),
         ],
@@ -50,6 +54,130 @@ void closePostPhoto(BuildContext context, String postId) {
     context.pop();
   } else {
     context.go(AppRouter.postPath(postId));
+  }
+}
+
+/// A round control over the black stage: a pearl wash and a white glyph (the
+/// PostPhoto designs).
+class _PhotoButton extends StatelessWidget {
+  const _PhotoButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: tooltip,
+    onPressed: onPressed,
+    icon: Icon(icon),
+    style: IconButton.styleFrom(
+      minimumSize: const Size.square(AppPostsLayout.photoButton),
+      backgroundColor: AppColors.onPhotoBackground.withValues(
+        alpha: AppPostsLayout.photoButtonTint,
+      ),
+      foregroundColor: AppColors.onPhotoBackground,
+    ),
+  );
+}
+
+/// "2 / 3" in a pill at the top centre of the stage.
+class _PhotoCounter extends StatelessWidget {
+  const _PhotoCounter({required this.index, required this.count});
+
+  final int index;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: AppColors.onPhotoBackground.withValues(
+        alpha: AppPostsLayout.photoButtonTint,
+      ),
+      borderRadius: BorderRadius.circular(AppRadius.pill),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.xs + 2,
+      ),
+      child: Text(
+        '$index / $count',
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: AppColors.onPhotoBackground,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
+  );
+}
+
+/// The phone's page dots: the selected page is the long teal one.
+class _PhotoDots extends StatelessWidget {
+  const _PhotoDots({required this.index, required this.count});
+
+  final int index;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ExcludeSemantics(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 1; i <= count; i++)
+            Container(
+              width: i == index
+                  ? AppPostsLayout.photoDotSelected
+                  : AppPostsLayout.photoDot,
+              height: AppPostsLayout.photoDot,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              decoration: BoxDecoration(
+                color: i == index
+                    ? colors.primary
+                    : AppColors.onPhotoBackground.withValues(alpha: .3),
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Who posted the photo and what they said, under the stage when the post
+/// pane is not beside it.
+class _PhotoCaption extends StatelessWidget {
+  const _PhotoCaption({required this.post});
+
+  final pb.Post post;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodyLarge
+        ?.copyWith(color: AppColors.onPhotoBackground);
+    final name = post.author.displayName.isEmpty
+        ? '@${post.author.handle}'
+        : post.author.displayName;
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: name,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          if (post.text.isNotEmpty) TextSpan(text: '  ${post.text}'),
+        ],
+      ),
+      style: style,
+      maxLines: 3,
+      overflow: TextOverflow.ellipsis,
+    );
   }
 }
 
@@ -77,6 +205,21 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     super.dispose();
   }
 
+  /// The details pane's width outside the tablet layout (and its cap on
+  /// it).
+  static const double _paneWidth = 380;
+
+  /// The viewer width the pane needs outside the tablet layout.
+  static const double _legacyPaneFrom = 1000;
+
+  /// Band A of the tablet layout: the post and its replies in a side sheet
+  /// (code SS) over the photo, instead of a page pushed over it.
+  void _showPostSheet(BuildContext context) => showAppSideSheet<void>(
+    context: context,
+    semanticLabel: 'Post',
+    builder: (_) => PostDetailScreen(postId: widget.view.post.postId),
+  );
+
   void _move(int offset) {
     final next = widget.index + offset;
     if (next < 1 || next > widget.view.post.media.length) return;
@@ -98,6 +241,14 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     final item = media[widget.index - 1];
     // Opening a viewer must not silently start an animated GIF.
     final url = item.contentType == kGifContentType ? item.thumbUrl : item.url;
+    // The tablet layout (both flags, 600-1199dp; tablet plan section 4.1,
+    // PostPhoto row) decides on the window width: the details pane from
+    // 840dp (band B), `min(380, 0.4 * W)` wide; below it (band A) "Show
+    // post" opens the details in a side sheet. Elsewhere today's rule: the
+    // pane from 1000dp of the viewer's width, 380 wide, and "View post"
+    // pushes the post (phones, desktop: ruling R-1).
+    final tablet = tabletLayoutAt(context);
+    final window = MediaQuery.sizeOf(context).width;
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
@@ -109,7 +260,13 @@ class _PhotoViewerState extends State<_PhotoViewer> {
         autofocus: true,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 1000;
+            final wide = tablet
+                ? window >= AppBreakpoints.expanded
+                : constraints.maxWidth >= _legacyPaneFrom;
+            final paneWidth = tablet
+                ? math.min(_paneWidth, window * .4)
+                : _paneWidth;
+            final sheet = tablet && !wide;
             return Row(
               children: [
                 Expanded(
@@ -154,58 +311,88 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                       if (widget.index > 1)
                         Align(
                           alignment: Alignment.centerLeft,
-                          child: IconButton.filledTonal(
-                            tooltip: 'Previous image',
-                            onPressed: () => _move(-1),
-                            icon: const Icon(Icons.chevron_left),
+                          child: Padding(
+                            padding: const EdgeInsets.all(AppSpacing.smd),
+                            child: _PhotoButton(
+                              tooltip: 'Previous image',
+                              onPressed: () => _move(-1),
+                              icon: Icons.chevron_left,
+                            ),
                           ),
                         ),
                       if (widget.index < media.length)
                         Align(
                           alignment: Alignment.centerRight,
-                          child: IconButton.filledTonal(
-                            tooltip: 'Next image',
-                            onPressed: () => _move(1),
-                            icon: const Icon(Icons.chevron_right),
-                          ),
-                        ),
-                      PositionedDirectional(
-                        top: 8,
-                        end: 8,
-                        child: IconButton.filledTonal(
-                          tooltip: wide
-                              ? (_showDetails ? 'Hide post' : 'Show post')
-                              : 'View post',
-                          onPressed: () => wide
-                              ? setState(() => _showDetails = !_showDetails)
-                              : context.push(
-                                  AppRouter.postPath(widget.view.post.postId),
-                                ),
-                          icon: Icon(
-                            wide && _showDetails
-                                ? Icons.chevron_right
-                                : Icons.chat_bubble_outline,
-                          ),
-                        ),
-                      ),
-                      Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(
-                            '${widget.index} / ${media.length}',
-                            style: const TextStyle(
-                              color: AppColors.onPhotoBackground,
+                          child: Padding(
+                            padding: const EdgeInsets.all(AppSpacing.smd),
+                            child: _PhotoButton(
+                              tooltip: 'Next image',
+                              onPressed: () => _move(1),
+                              icon: Icons.chevron_right,
                             ),
                           ),
                         ),
+                      PositionedDirectional(
+                        top: AppSpacing.sm,
+                        end: AppSpacing.sm,
+                        child: _PhotoButton(
+                          tooltip: wide
+                              ? (_showDetails ? 'Hide post' : 'Show post')
+                              : sheet
+                              ? 'Show post'
+                              : 'View post',
+                          onPressed: () => wide
+                              ? setState(() => _showDetails = !_showDetails)
+                              : sheet
+                              ? _showPostSheet(context)
+                              : context.push(
+                                  AppRouter.postPath(widget.view.post.postId),
+                                ),
+                          icon: wide && _showDetails
+                              ? Icons.chevron_right
+                              : Icons.chat_bubble_outline,
+                        ),
                       ),
+                      Align(
+                        alignment: Alignment.topCenter,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: AppSpacing.md),
+                          child: _PhotoCounter(
+                            index: widget.index,
+                            count: media.length,
+                          ),
+                        ),
+                      ),
+                      if (!(wide && _showDetails))
+                        Align(
+                          alignment: Alignment.bottomCenter,
+                          child: Padding(
+                            padding: const EdgeInsets.all(AppSpacing.md),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _PhotoCaption(post: widget.view.post),
+                                if (window < AppBreakpoints.mobile &&
+                                    media.length > 1) ...[
+                                  const SizedBox(height: AppSpacing.smd),
+                                  Center(
+                                    child: _PhotoDots(
+                                      index: widget.index,
+                                      count: media.length,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
                 if (wide && _showDetails)
                   SizedBox(
-                    width: 380,
+                    width: paneWidth,
                     child: PostDetailScreen(postId: widget.view.post.postId),
                   ),
               ],

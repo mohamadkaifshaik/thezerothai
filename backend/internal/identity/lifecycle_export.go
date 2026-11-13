@@ -61,8 +61,8 @@ type exportProfile struct {
 	DisplayName string `json:"displayName"`
 	Bio         string `json:"bio"`
 	AvatarURL   string `json:"avatarUrl,omitempty"`
-	// The profile extras, omitted when absent. The thumbnails are derived data and stay out, like avatarThumbUrl.
-	BannerURL    string `json:"bannerUrl,omitempty"`
+	// The profile extras, omitted when absent. A legacy banner (removed feature) is in the media section
+	// (none should remain after the 2026-11-12 banner purge).
 	Location     string `json:"location,omitempty"`
 	Website      string `json:"website,omitempty"`
 	PinnedPostID string `json:"pinnedPostId,omitempty"`
@@ -83,7 +83,7 @@ func profileSection(p Profile) exportProfile {
 	return exportProfile{
 		UserID: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, Bio: p.Bio, AvatarURL: p.AvatarURL,
 		IsPrivate: p.IsPrivate, Verified: p.Verified, FollowersCount: p.FollowersCount, FollowingCount: p.FollowingCount,
-		BannerURL: p.BannerURL, Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, ReadReceipts: p.ReadReceipts,
+		Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, ReadReceipts: p.ReadReceipts,
 		DMPolicy: string(p.DMPolicy), HomeTabs: exportHomeTabs(p),
 		PostsCount: p.PostsCount, CreatedAt: p.CreatedAt.UTC(),
 	}

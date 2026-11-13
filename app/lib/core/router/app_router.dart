@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../theme/app_theme.dart';
 import '../../features/account/domain/account_feature_flag.dart';
+import '../../features/account/presentation/account_deleted_screen.dart';
 import '../../features/account/presentation/data_export_screen.dart';
 import '../../features/account/presentation/delete_account_screen.dart';
 import '../../features/articles/presentation/articles_screen.dart';
@@ -10,6 +11,7 @@ import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/auth/presentation/sign_in_screen.dart';
 import '../../features/auth/presentation/sign_up_screen.dart';
+import '../../features/auth/presentation/welcome_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
 import '../../features/engagement/presentation/bookmarks_screen.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
@@ -33,6 +35,7 @@ import '../../features/lists/presentation/lists_screen.dart';
 import '../../features/lists/presentation/user_lists_screen.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
+import '../../features/graph/domain/graph_list_extra.dart';
 import '../../features/graph/presentation/follow_requests_screen.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
@@ -40,18 +43,22 @@ import '../../features/home/presentation/home_screen.dart';
 import '../../features/messages/domain/conversation_id.dart'
     show kConversationIdPattern;
 import '../../features/messages/domain/messaging_feature_flag.dart';
+import '../../features/messages/domain/messages_list_detail.dart';
 import '../../features/messages/domain/messaging_feature_gate.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
 import '../../features/messages/presentation/draft_thread_screen.dart';
 import '../../features/messages/presentation/recipient_picker_screen.dart';
 import '../../features/messages/presentation/report_conversation.dart';
+import '../../features/messages/presentation/thread_route_page.dart';
 import '../../features/messages/presentation/thread_screen.dart';
 import '../../features/messages/presentation/widgets/message_composer.dart';
 import '../../features/messages/presentation/widgets/request_banner.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/domain/search_results_tab.dart';
 import '../../features/search/presentation/search_results_screen.dart';
+import '../../features/notifications/domain/notification_prefs.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
+import '../../features/notifications/presentation/notification_settings_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/search/presentation/explore_screen.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
@@ -62,6 +69,7 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
 import '../../features/onboarding/presentation/session_error_screen.dart';
+import '../../features/posts/presentation/composer_route.dart';
 import '../../features/posts/presentation/composer_screen.dart';
 import '../../features/posts/presentation/drafts_screen.dart';
 import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
@@ -80,6 +88,10 @@ import '../../features/premium/presentation/premium_dialog.dart';
 import '../../features/profile/presentation/change_handle_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/settings/domain/settings_categories.dart';
+import '../../features/settings/data/own_privacy_store.dart';
+import '../../features/settings/domain/message_privacy.dart';
+import '../../features/settings/presentation/message_settings_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../widgets/splash_screen.dart';
@@ -95,9 +107,11 @@ class AppRouter {
     required AuthBloc authBloc,
     required OnboardingBloc onboardingBloc,
     MessagingFeatureGate? messagingGate,
+    OwnPrivacyStore? ownPrivacy,
   }) : _authBloc = authBloc,
        _onboardingBloc = onboardingBloc,
-       _messagingGate = messagingGate {
+       _messagingGate = messagingGate,
+       _ownPrivacy = ownPrivacy {
     // Pushed post overlays must be addressable on web and survive reload.
     GoRouter.optionURLReflectsImperativeAPIs = true;
   }
@@ -105,11 +119,17 @@ class AppRouter {
   final AuthBloc _authBloc;
   final OnboardingBloc _onboardingBloc;
 
+  /// The caller's read receipts and DM policy as the server answered (the
+  /// Message settings redirect's undo rule); null in tests.
+  final OwnPrivacyStore? _ownPrivacy;
+
   /// Decides the read-only Messages routes and re-runs the redirects
   /// when the probe answers or messaging turns out to be globally off. Null
   /// (a test) means the flag alone decides.
   final MessagingFeatureGate? _messagingGate;
 
+  /// Where a signed-out visitor lands: Google, Apple, or on to email.
+  static const welcomePath = '/welcome';
   static const signInPath = '/sign-in';
   static const signUpPath = '/sign-up';
   static const onboardingPath = '/onboarding';
@@ -161,6 +181,15 @@ class AppRouter {
   // Edit profile and Change handle, behind the `profile_snapshot` flag.
   static const editProfilePath = '/settings/profile';
   static const changeHandlePath = '/settings/handle';
+
+  /// Push preferences (F6); Settings unless `notifications` and
+  /// `notification_prefs` are on for the caller.
+  static const notificationSettingsPath = '/settings/notifications';
+
+  /// Who can message you and read receipts (F9, F3). Settings when both
+  /// flags are off for the caller, unless one of the two is set (the undo
+  /// rule: it can always be turned back).
+  static const messageSettingsPath = '/settings/messages';
   // The Scheduled posts list, behind the `posts` and
   // `scheduled_posts` flags. A root-level full-screen route like /compose, NOT
   // a ShellRoute child: the composer pushes it over itself (dialog link, toast
@@ -302,6 +331,10 @@ class AppRouter {
         ),
       GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
       GoRoute(
+        path: welcomePath,
+        builder: (context, state) => const WelcomeScreen(),
+      ),
+      GoRoute(
         path: signInPath,
         builder: (context, state) => const SignInScreen(),
       ),
@@ -332,34 +365,7 @@ class AppRouter {
           child: const DeleteAccountScreen(),
         ),
       ),
-      GoRoute(
-        path: '/compose/reply/:id',
-        pageBuilder: (context, state) => CustomTransitionPage<pb.PostView>(
-          key: state.pageKey,
-          opaque: false,
-          barrierColor: context.appColors.scrim,
-          transitionsBuilder: (context, animation, secondary, child) =>
-              FadeTransition(opacity: animation, child: child),
-          child: AuthGate(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final editor = ReplyComposerScreen(
-                  postId: state.pathParameters['id']!,
-                );
-                if (constraints.maxWidth < 700) return editor;
-                return Dialog(
-                  clipBehavior: Clip.antiAlias,
-                  child: SizedBox(
-                    width: 600,
-                    height: constraints.maxHeight * .85,
-                    child: editor,
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
+      composeReplyRoute(),
       GoRoute(
         path: '/post/:id/photo/:index',
         builder: (context, state) => AuthGate(
@@ -369,29 +375,7 @@ class AppRouter {
           ),
         ),
       ),
-      // Full-screen, outside the shell: no nav chrome while writing.
-      GoRoute(
-        path: composePath,
-        builder: (context, state) {
-          final quote = state.uri.queryParameters['quote'] ?? '';
-          final draft = state.uri.queryParameters['draft'] ?? '';
-          final community = state.uri.queryParameters['community'] ?? '';
-          return AuthGate(
-            child: ComposerScreen(
-              // Only a well-formed community id (19 digits) preselects one.
-              communityId: _postIdPattern.hasMatch(community) ? community : '',
-              // Only a well-formed post id (19 digits) starts a quote.
-              quoteOfPostId: _postIdPattern.hasMatch(quote) ? quote : '',
-              // Only a well-formed draft id (16 lower-case hex) opens a draft;
-              // an unknown one starts a new post (it never adopts the id).
-              draftId: _draftIdPattern.hasMatch(draft) ? draft : '',
-              quotePreview: state.extra is pb.EmbeddedPost
-                  ? state.extra as pb.EmbeddedPost
-                  : null,
-            ),
-          );
-        },
-      ),
+      composeRoute(),
       // Full-screen, outside the shell, so it can be pushed over the composer.
       GoRoute(
         path: scheduledPostsPath,
@@ -428,8 +412,12 @@ class AppRouter {
                 ),
         ),
       ShellRoute(
-        builder: (context, state, child) =>
-            MainShell(location: state.matchedLocation, child: child),
+        builder: (context, state, child) => MainShell(
+          location: state.matchedLocation,
+          // The query too: Settings' list pane reads its `?c=`.
+          uri: state.uri,
+          child: child,
+        ),
         routes: [
           GoRoute(
             path: homePath,
@@ -463,7 +451,14 @@ class AppRouter {
             builder: (context, state) => AuthGate(
               child: ConversationsScreen(
                 folder: Folder.FOLDER_REQUESTS,
-                onOpenConversation: (id) => context.push(messagePath(id)),
+                // The thread's split page (840-1199dp) keeps the Requests
+                // list beside it; the extra changes nothing elsewhere.
+                onOpenConversation: (id) => context.push(
+                  messagePath(id),
+                  extra: Folder.FOLDER_REQUESTS,
+                ),
+                // The band B placeholder's action.
+                onNewMessage: () => context.push(messageNewPath),
               ),
             ),
           ),
@@ -626,28 +621,45 @@ class AppRouter {
           ),
           GoRoute(
             path: '/profile/:handle/followers',
-            builder: (context, state) => AuthGate(
-              child: GraphListScreen(
-                handle: state.pathParameters['handle']!,
-                userId: state.extra as String?,
-                initialTab: GraphListTab.followers,
-              ),
-            ),
+            builder: (context, state) {
+              final extra = state.extra;
+              final known = extra is GraphListExtra ? extra : null;
+              return AuthGate(
+                child: GraphListScreen(
+                  handle: state.pathParameters['handle']!,
+                  userId: known?.userId,
+                  displayName: known?.displayName,
+                  initialTab: GraphListTab.followers,
+                  viewerUserId: _onboardingBloc.state.profile?.userId,
+                ),
+              );
+            },
           ),
           GoRoute(
             path: '/profile/:handle/following',
-            builder: (context, state) => AuthGate(
-              child: GraphListScreen(
-                handle: state.pathParameters['handle']!,
-                userId: state.extra as String?,
-                initialTab: GraphListTab.following,
-              ),
-            ),
+            builder: (context, state) {
+              final extra = state.extra;
+              final known = extra is GraphListExtra ? extra : null;
+              return AuthGate(
+                child: GraphListScreen(
+                  handle: state.pathParameters['handle']!,
+                  userId: known?.userId,
+                  displayName: known?.displayName,
+                  initialTab: GraphListTab.following,
+                  viewerUserId: _onboardingBloc.state.profile?.userId,
+                ),
+              );
+            },
           ),
           GoRoute(
             path: settingsPath,
-            builder: (context, state) =>
-                const AuthGate(child: SettingsScreen()),
+            // `?c=<category>` opens a category on the tablet layout (tablet
+            // plan section 4.3); every other layout ignores it.
+            builder: (context, state) => AuthGate(
+              child: SettingsScreen(
+                categoryId: state.uri.queryParameters[kSettingsCategoryParam],
+              ),
+            ),
           ),
           GoRoute(
             path: blockedAccountsPath,
@@ -679,6 +691,16 @@ class AppRouter {
             builder: (context, state) =>
                 const AuthGate(child: DeleteAccountScreen()),
           ),
+          GoRoute(
+            path: notificationSettingsPath,
+            builder: (context, state) =>
+                const AuthGate(child: NotificationSettingsScreen()),
+          ),
+          GoRoute(
+            path: messageSettingsPath,
+            builder: (context, state) =>
+                const AuthGate(child: MessageSettingsScreen()),
+          ),
         ],
       ),
       // The people picker (a dialog on the root navigator) and the
@@ -688,39 +710,71 @@ class AppRouter {
         pageBuilder: (context, state) =>
             RecipientPickerPage(key: state.pageKey),
       ),
+      // The two thread routes stay root (tablet plan section 5.3): full
+      // screen below 840dp and on desktop, the split page (rail, list,
+      // thread) at 840-1199dp on the tablet layout. `ThreadRoutePage` keeps
+      // the `AuthGate` outermost and the thread's state across 840dp.
       GoRoute(
         path: messageDraftPath,
         // A reload or a typed URL has no person: back to the picker.
         redirect: (context, state) =>
             state.extra is common.AuthorSnapshot ? null : messageNewPath,
-        builder: (context, state) => AuthGate(
-          child: DraftThreadScreen(peer: state.extra! as common.AuthorSnapshot),
+        pageBuilder: (context, state) => _threadPage(
+          state,
+          ThreadRoutePage(
+            location: state.matchedLocation,
+            folder: Folder.FOLDER_INBOX,
+            thread: DraftThreadScreen(
+              peer: state.extra! as common.AuthorSnapshot,
+            ),
+          ),
         ),
       ),
       // One conversation, full-screen (no nav chrome under a composer).
       // After the ShellRoute on purpose, see `messagesPath`.
       GoRoute(
         path: '$messagesPath/:id',
-        builder: (context, state) => AuthGate(
-          child: ThreadScreen(
-            conversationId: state.pathParameters['id']!,
-            // The composer under the list (read-only threads and a
-            // caller without `messaging` get none).
-            composerBuilder: (context, conversation) => const MessageComposer(),
-            // The request banner (Accept / Delete / Block) in place of
-            // the composer, the sender's waiting note, and the info menu's
-            // Report of the peer's account (the bubbles report messages).
-            bannerBuilder: buildRequestBanner,
-            onReport: reportConversationPeer,
+        pageBuilder: (context, state) => _threadPage(
+          state,
+          ThreadRoutePage(
+            location: state.matchedLocation,
+            // Opened from the Requests folder: its list beside the thread.
+            folder: messagesSplitFolderOf(state.extra),
+            thread: ThreadScreen(
+              conversationId: state.pathParameters['id']!,
+              // The composer under the list (read-only threads and a
+              // caller without `messaging` get none).
+              composerBuilder: (context, conversation) =>
+                  const MessageComposer(),
+              // The request banner (Accept / Delete / Block) in place of
+              // the composer, the sender's waiting note, and the info menu's
+              // Report of the peer's account (the bubbles report messages).
+              bannerBuilder: buildRequestBanner,
+              onReport: reportConversationPeer,
+            ),
           ),
         ),
       ),
     ],
   );
 
+  /// The page of a thread route: [ThreadPage] at every width, with the
+  /// name, arguments and restoration id go_router gives its default pages.
+  static Page<void> _threadPage(GoRouterState state, Widget child) =>
+      ThreadPage<void>(
+        key: state.pageKey,
+        name: state.name ?? state.path,
+        arguments: <String, String>{
+          ...state.pathParameters,
+          ...state.uri.queryParameters,
+        },
+        restorationId: state.pageKey.value,
+        child: child,
+      );
+
   // The shared link a visitor cold-opened, kept in memory (never in a
-  // visible URL) while the redirects send them through the splash, sign-in and
-  // onboarding. Web sign-in is popup-only, so the page does not reload in
+  // visible URL) while the redirects send them through the splash, welcome,
+  // sign-in and onboarding. Web sign-in is popup-only, so the page does not reload in
   // between. Only ever a value [deepLinkTarget] returned.
   String? _pendingTarget;
 
@@ -785,6 +839,7 @@ class AppRouter {
   /// pending target survives them and is dropped on arrival anywhere else.
   static bool _isHopPath(String path) =>
       path == '/' ||
+      path == welcomePath ||
       path == signInPath ||
       path == signUpPath ||
       path == onboardingPath ||
@@ -823,14 +878,15 @@ class AppRouter {
   String? _resolve(GoRouterState state) {
     final authState = _authBloc.state;
     final loc = state.matchedLocation;
-    final isAuthRoute = loc == signInPath || loc == signUpPath;
+    final isAuthRoute =
+        loc == welcomePath || loc == signInPath || loc == signUpPath;
     if (loc == accountDeletedPath) return null;
 
     if (authState.status == AuthStatus.unknown) {
       return loc == '/' ? null : '/';
     }
     if (authState.status == AuthStatus.unauthenticated) {
-      return isAuthRoute ? null : signInPath;
+      return isAuthRoute ? null : welcomePath;
     }
 
     // Signed in (authenticated or needsEmailVerification).
@@ -869,7 +925,9 @@ class AppRouter {
             _messagesFlagRedirect(loc) ??
             _followRequestsRedirect(loc) ??
             _exploreFlagRedirect(loc) ??
-            _notificationsFlagRedirect(loc);
+            _notificationsFlagRedirect(loc) ??
+            _notificationPrefsFlagRedirect(loc) ??
+            _messageSettingsFlagRedirect(loc);
       case OnboardingStatus.error:
         // GetMe failed with nothing usable (no cached profile, or right
         // after CreateProfile): a full-screen Retry, never Home with every
@@ -890,6 +948,79 @@ class AppRouter {
         return null;
     }
   }
+
+  /// `/compose/reply/:id`, the reply composer (also mounted by the tablet
+  /// composer tests, so they drive this definition). Full screen below
+  /// 600dp on the tablet layout (700 elsewhere), the content-area dialog at
+  /// 600-1199dp on it, today's dialog from 700 elsewhere; one editor across
+  /// every switch (tablet plan sections 4.1 and 5.2).
+  static GoRoute composeReplyRoute() => GoRoute(
+    path: '/compose/reply/:id',
+    pageBuilder: (context, state) => CustomTransitionPage<pb.PostView>(
+      key: state.pageKey,
+      opaque: false,
+      barrierColor: context.appColors.scrim,
+      transitionsBuilder: (context, animation, secondary, child) =>
+          FadeTransition(opacity: animation, child: child),
+      child: AuthGate(
+        child: ComposerRouteFrame(
+          pageKey: state.pageKey,
+          reply: true,
+          semanticLabel: 'Reply',
+          // The page's barrier is the scrim.
+          drawScrim: false,
+          editor: ReplyComposerScreen(postId: state.pathParameters['id']!),
+        ),
+      ),
+    ),
+  );
+
+  /// `/compose`, the post and quote composer (also mounted by the tablet
+  /// composer tests). Outside the shell: no nav chrome while writing. Full
+  /// screen on phones and desktop; on the tablet layout (600-1199dp) a
+  /// dialog over the page it was opened from, or full screen on a cold
+  /// start (tablet plan 4.1, Composer row). The page is never opaque and is
+  /// the same type at every width (`ComposerPage`).
+  static GoRoute composeRoute() => GoRoute(
+    path: composePath,
+    pageBuilder: (context, state) {
+      final quote = state.uri.queryParameters['quote'] ?? '';
+      final draft = state.uri.queryParameters['draft'] ?? '';
+      final community = state.uri.queryParameters['community'] ?? '';
+      final quoteId = _postIdPattern.hasMatch(quote) ? quote : '';
+      return ComposerPage<void>(
+        // What go_router's default `MaterialPage` carried.
+        key: state.pageKey,
+        name: state.name ?? state.path,
+        arguments: <String, String>{
+          ...state.pathParameters,
+          ...state.uri.queryParameters,
+        },
+        restorationId: state.pageKey.value,
+        child: AuthGate(
+          child: ComposerRouteFrame(
+            pageKey: state.pageKey,
+            reply: false,
+            semanticLabel: quoteId.isEmpty ? 'New post' : 'Quote',
+            editor: ComposerScreen(
+              // Only a well-formed community id (19 digits) preselects
+              // one.
+              communityId: _postIdPattern.hasMatch(community) ? community : '',
+              // Only a well-formed post id (19 digits) starts a quote.
+              quoteOfPostId: quoteId,
+              // Only a well-formed draft id (16 lower-case hex) opens a
+              // draft; an unknown one starts a new post (it never adopts
+              // the id).
+              draftId: _draftIdPattern.hasMatch(draft) ? draft : '',
+              quotePreview: state.extra is pb.EmbeddedPost
+                  ? state.extra as pb.EmbeddedPost
+                  : null,
+            ),
+          ),
+        ),
+      );
+    },
+  );
 
   static final _postIdPattern = RegExp(r'^\d{19}$');
   static final _draftIdPattern = RegExp(r'^[0-9a-f]{16}$');
@@ -1087,6 +1218,35 @@ class AppRouter {
     return _onboardingBloc.state.enabledFeatures.contains(kFeatureSearch)
         ? null
         : homePath;
+  }
+
+  /// Notification settings redirect to Settings unless `notifications` and
+  /// `notification_prefs` are both on for this caller.
+  String? _notificationPrefsFlagRedirect(String loc) {
+    if (loc != notificationSettingsPath) return null;
+    final features = _onboardingBloc.state.enabledFeatures;
+    return features.contains(kFeatureNotifications) &&
+            features.contains(kFeatureNotificationPrefs)
+        ? null
+        : settingsPath;
+  }
+
+  /// Message settings redirect to Settings with `read_receipts` and
+  /// `dm_policy` both off, unless the signed-in account has one of them set
+  /// (receipts on, or anything but Everyone): then the page is the way back.
+  String? _messageSettingsFlagRedirect(String loc) {
+    if (loc != messageSettingsPath) return null;
+    final features = _onboardingBloc.state.enabledFeatures;
+    if (features.contains(kFeatureReadReceipts) ||
+        features.contains(kFeatureDmPolicy)) {
+      return null;
+    }
+    final mine = _ownPrivacy?.value;
+    final uid = _authBloc.state.user?.uid;
+    if (mine != null && mine.userId == uid && ownPrivacyIsSet(mine)) {
+      return null;
+    }
+    return settingsPath;
   }
 
   static final _profileEditRoutes = RegExp(r'^/settings/(?:profile|handle)$');

@@ -306,8 +306,8 @@ func TestList_HidesSuppressedActorsAtReadTime(t *testing.T) {
 	if got := strings.Join(idsOf(res.Notifications), ","); got != "d,e" {
 		t.Fatalf("rows = %s, want d,e", got)
 	}
-	if res.Notifications[1].ActorCount != 2 {
-		t.Errorf("collapsed count = %d, want 2", res.Notifications[1].ActorCount)
+	if res.Notifications[1].ActorCount != 2 || ToProto(res.Notifications[1]).GetActorCount() != 2 {
+		t.Errorf("collapsed count = %d (wire %d), want 2", res.Notifications[1].ActorCount, ToProto(res.Notifications[1]).GetActorCount())
 	}
 	// The page was full (5 raw rows scanned, 2 shown): paging must continue from the raw oldest row, and the
 	// since token must come from the raw newest row, not from the filtered slice.

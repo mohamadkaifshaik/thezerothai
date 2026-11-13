@@ -7,6 +7,7 @@ import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
+import 'package:dzeroth/features/home/presentation/widgets/home_composer_entry.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
@@ -203,6 +204,9 @@ void main() {
     testWidgets('ui_shell on: the DZEROTH wordmark, still the "Posts" '
         'header for assistive technology', (tester) async {
       final handle = tester.ensureSemantics();
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.reset);
       stubCached(snapshotOf([2, 1]));
       stubRefresh(snapshotOf([2, 1]));
 
@@ -544,7 +548,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
     await tester.pumpAndSettle();
 
     verify(
@@ -579,7 +583,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
     await tester.pumpAndSettle();
 
     expect(find.text('post 2'), findsOneWidget);
@@ -660,7 +664,7 @@ void main() {
       await optIn.load('uid-a');
     }
 
-    testWidgets('shows once above the composer row and the feed', (
+    testWidgets('shows once under the composer row, above the feed', (
       tester,
     ) async {
       await ready();
@@ -672,7 +676,12 @@ void main() {
         card,
         greaterThan(tester.getBottomLeft(find.text('Following')).dy),
       );
-      expect(card, lessThan(tester.getTopLeft(find.text('Write a post')).dy));
+      expect(
+        card,
+        greaterThan(
+          tester.getBottomLeft(find.text(HomeComposerEntry.promptLabel)).dy,
+        ),
+      );
       expect(card, lessThan(tester.getTopLeft(find.text('post 2')).dy));
     });
 
@@ -772,7 +781,7 @@ void main() {
   });
 
   group('composer entry row', () {
-    const rowLabel = 'Write a post';
+    const rowLabel = HomeComposerEntry.promptLabel;
 
     void stubFeed() {
       stubCached(snapshotOf([2, 1]));
@@ -789,8 +798,8 @@ void main() {
       expect(find.text('Your timeline is coming soon.'), findsOneWidget);
     });
 
-    testWidgets('posts flag on: the Following tab, the row and the avatar '
-        'show above the feed; no separate Post button', (tester) async {
+    testWidgets('posts flag on: the Following tab, the row, the avatar and the '
+        'Post button show above the feed', (tester) async {
       stubFeed();
       await open(tester);
 
@@ -798,7 +807,8 @@ void main() {
       expect(find.byType(AppAvatar), findsWidgets);
       expect(find.byType(AppTabBar), findsOneWidget);
       expect(find.text('Following'), findsOneWidget);
-      expect(find.byType(AppPillButton), findsNothing);
+      // The default 800 dp window is a tablet: the Post button is there.
+      expect(find.widgetWithText(AppPillButton, 'Post'), findsOneWidget);
       expect(
         tester.getTopLeft(find.text(rowLabel)).dy,
         lessThan(tester.getTopLeft(find.text('post 2')).dy),
@@ -810,6 +820,16 @@ void main() {
       await open(tester, router: homeRouter());
 
       await tester.tap(find.text(rowLabel));
+      await tester.pumpAndSettle();
+
+      expect(find.text('compose page'), findsOneWidget);
+    });
+
+    testWidgets('the Post button opens the composer too', (tester) async {
+      stubFeed();
+      await open(tester, router: homeRouter());
+
+      await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
       await tester.pumpAndSettle();
 
       expect(find.text('compose page'), findsOneWidget);
@@ -948,8 +968,8 @@ void main() {
 
     tearDown(() => suggestions.close());
 
-    testWidgets('sits once in the header: under the tab bar and the opt-in '
-        'card, above the composer row and the feed', (tester) async {
+    testWidgets('sits once in the header: under the tab bar, the composer row '
+        'and the opt-in card, above the feed', (tester) async {
       // Tall enough to build the composer row and the feed below the card.
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(600, 1600);
@@ -969,7 +989,12 @@ void main() {
         card,
         greaterThan(tester.getTopLeft(find.text('Turn on notifications')).dy),
       );
-      expect(card, lessThan(tester.getTopLeft(find.text('Write a post')).dy));
+      expect(
+        card,
+        greaterThan(
+          tester.getBottomLeft(find.text(HomeComposerEntry.promptLabel)).dy,
+        ),
+      );
       expect(card, lessThan(tester.getTopLeft(find.text('post 2')).dy));
       expect(suggestionRepo.calls, 1);
     });
@@ -1010,7 +1035,7 @@ void main() {
       await open(tester, features: on, suggestions: suggestions);
 
       expect(find.text(title), findsNothing);
-      expect(find.text('Write a post'), findsOneWidget);
+      expect(find.text(HomeComposerEntry.promptLabel), findsOneWidget);
       expect(find.text('post 2'), findsOneWidget);
     });
 

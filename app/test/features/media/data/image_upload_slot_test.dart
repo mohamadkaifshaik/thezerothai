@@ -9,7 +9,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/media_fixtures.dart';
 
-/// The one upload helper behind the avatar and banner editors: the
+/// The one upload helper behind the avatar and slot editors: the
 /// purpose is a parameter, the media id is remembered across retries and one
 /// slot is always one single-item upload.
 void main() {
@@ -18,14 +18,6 @@ void main() {
   late MockMediaRepository repo;
   late FakeImageProcessor processor;
   late MediaUploader uploader;
-
-  ImageUploadSlot bannerSlot() => ImageUploadSlot(
-    uploader: uploader,
-    processor: processor,
-    uploadPurpose: pb.MediaPurpose.MEDIA_PURPOSE_BANNER,
-    imagePurpose: ImagePurpose.banner,
-    jobId: 'banner',
-  );
 
   ImageUploadSlot avatarSlot() => ImageUploadSlot(
     uploader: uploader,
@@ -42,52 +34,52 @@ void main() {
   });
 
   test('nothing chosen: nothing to upload, no calls', () async {
-    final banner = bannerSlot();
+    final slot = avatarSlot();
 
-    expect(banner.hasImage, isFalse);
-    expect(banner.needsUpload, isFalse);
-    expect(await banner.ensureUploaded(), isNull);
+    expect(slot.hasImage, isFalse);
+    expect(slot.needsUpload, isFalse);
+    expect(await slot.ensureUploaded(), isNull);
     verifyZeroInteractions(repo);
   });
 
   test(
     'choose prepares for the slot purpose and exposes the preview',
     () async {
-      final banner = bannerSlot();
+      final slot = avatarSlot();
 
-      await banner.choose(imageBytes('a'));
+      await slot.choose(imageBytes('a'));
 
-      expect(processor.purposes, [ImagePurpose.banner]);
-      expect(banner.hasImage, isTrue);
-      expect(banner.needsUpload, isTrue);
-      expect(banner.preview, isNotNull);
+      expect(processor.purposes, [ImagePurpose.avatar]);
+      expect(slot.hasImage, isTrue);
+      expect(slot.needsUpload, isTrue);
+      expect(slot.preview, isNotNull);
     },
   );
 
   test('a file that cannot be used leaves the previous choice alone', () async {
-    final banner = bannerSlot();
-    await banner.choose(imageBytes('a'));
-    final before = banner.preview;
+    final slot = avatarSlot();
+    await slot.choose(imageBytes('a'));
+    final before = slot.preview;
 
     await expectLater(
-      banner.choose(badBytes),
+      slot.choose(badBytes),
       throwsA(isA<UnsupportedImageException>()),
     );
 
-    expect(banner.preview, same(before));
-    expect(banner.needsUpload, isTrue);
+    expect(slot.preview, same(before));
+    expect(slot.needsUpload, isTrue);
   });
 
   test('uploads once with the slot purpose and exactly one item, then '
       'remembers the media id', () async {
     stubHappyUpload(repo);
-    final banner = bannerSlot();
-    await banner.choose(imageBytes('a'));
+    final slot = avatarSlot();
+    await slot.choose(imageBytes('a'));
 
-    expect(await banner.ensureUploaded(), 'm1');
-    expect(await banner.ensureUploaded(), 'm1');
+    expect(await slot.ensureUploaded(), 'm1');
+    expect(await slot.ensureUploaded(), 'm1');
 
-    expect(banner.needsUpload, isFalse);
+    expect(slot.needsUpload, isFalse);
     final captured = verify(
       () => repo.createUpload(
         idempotencyKey: any(named: 'idempotencyKey'),
@@ -96,7 +88,7 @@ void main() {
       ),
     ).captured;
     expect(captured, hasLength(2)); // one call: purpose + images
-    expect(captured[0], pb.MediaPurpose.MEDIA_PURPOSE_BANNER);
+    expect(captured[0], pb.MediaPurpose.MEDIA_PURPOSE_AVATAR);
     expect(captured[1] as List<ProcessedImage>, hasLength(1));
     verify(() => repo.putObject(any(), any())).called(2); // full + thumb
     verify(
@@ -109,23 +101,23 @@ void main() {
 
   test('a new choice forgets the old media id and uploads again', () async {
     stubHappyUpload(repo);
-    final banner = bannerSlot();
-    await banner.choose(imageBytes('a'));
-    expect(await banner.ensureUploaded(), 'm1');
+    final slot = avatarSlot();
+    await slot.choose(imageBytes('a'));
+    expect(await slot.ensureUploaded(), 'm1');
 
-    await banner.choose(imageBytes('b'));
+    await slot.choose(imageBytes('b'));
 
-    expect(banner.needsUpload, isTrue);
-    expect(await banner.ensureUploaded(), 'm2');
+    expect(slot.needsUpload, isTrue);
+    expect(await slot.ensureUploaded(), 'm2');
   });
 
   test('a refused image is discarded and explains itself', () async {
     stubHappyUpload(repo, result: (id) => rejectedResult(id, 'Not allowed'));
-    final banner = bannerSlot();
-    await banner.choose(imageBytes('a'));
+    final slot = avatarSlot();
+    await slot.choose(imageBytes('a'));
 
     await expectLater(
-      banner.ensureUploaded(),
+      slot.ensureUploaded(),
       throwsA(
         isA<ValidationException>()
             .having((e) => e.field, 'field', 'media')
@@ -133,7 +125,7 @@ void main() {
       ),
     );
 
-    expect(banner.hasImage, isFalse);
+    expect(slot.hasImage, isFalse);
   });
 
   test('a failed upload keeps the choice for a retry', () async {
@@ -144,50 +136,22 @@ void main() {
         images: any(named: 'images'),
       ),
     ).thenThrow(const NetworkException('offline'));
-    final banner = bannerSlot();
-    await banner.choose(imageBytes('a'));
+    final slot = avatarSlot();
+    await slot.choose(imageBytes('a'));
 
-    await expectLater(
-      banner.ensureUploaded(),
-      throwsA(isA<NetworkException>()),
-    );
+    await expectLater(slot.ensureUploaded(), throwsA(isA<NetworkException>()));
 
-    expect(banner.hasImage, isTrue);
-    expect(banner.needsUpload, isTrue);
+    expect(slot.hasImage, isTrue);
+    expect(slot.needsUpload, isTrue);
   });
 
   test('discard forgets the choice', () async {
-    final banner = bannerSlot();
-    await banner.choose(imageBytes('a'));
+    final slot = avatarSlot();
+    await slot.choose(imageBytes('a'));
 
-    banner.discard();
+    slot.discard();
 
-    expect(banner.hasImage, isFalse);
-    expect(banner.preview, isNull);
-  });
-
-  test('an avatar slot and a banner slot share one uploader without '
-      'clashing', () async {
-    stubHappyUpload(repo);
-    final avatar = avatarSlot();
-    final banner = bannerSlot();
-    await avatar.choose(imageBytes('a'));
-    await banner.choose(imageBytes('b'));
-
-    expect(await avatar.ensureUploaded(), 'm1');
-    expect(await banner.ensureUploaded(), 'm2');
-
-    final purposes = verify(
-      () => repo.createUpload(
-        idempotencyKey: any(named: 'idempotencyKey'),
-        purpose: captureAny(named: 'purpose'),
-        images: any(named: 'images'),
-      ),
-    ).captured;
-    expect(purposes, [
-      pb.MediaPurpose.MEDIA_PURPOSE_AVATAR,
-      pb.MediaPurpose.MEDIA_PURPOSE_BANNER,
-    ]);
-    expect(processor.purposes, [ImagePurpose.avatar, ImagePurpose.banner]);
+    expect(slot.hasImage, isFalse);
+    expect(slot.preview, isNull);
   });
 }

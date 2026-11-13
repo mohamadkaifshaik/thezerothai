@@ -218,4 +218,277 @@ void main() {
     expect(cubit.state.selected.id, 'c1');
     expect(cubit.state.views.single.beacon.beaconId, 'c1-a');
   });
+
+  // Tablet T5: the hoisted list is shown by two placements; the band B list
+  // pane only makes sure it is loaded, the route's open refreshes it, and a
+  // refresh never doubles a load in flight.
+  group('ensureLoaded and refresh', () {
+    test('ensureLoaded loads the first time only', () async {
+      stubList((_, _) => BeaconsPage(views: [_view('1')]));
+      final cubit = BeaconsCubit(repository: beacons);
+      addTearDown(cubit.close);
+
+      expect(cubit.started, isFalse);
+      await cubit.ensureLoaded();
+      expect(cubit.started, isTrue);
+      await cubit.ensureLoaded();
+      expect(calls, hasLength(1));
+      expect(cubit.state.views.single.beacon.beaconId, '1');
+    });
+
+    test(
+      'refresh while the first load is in flight sends nothing more',
+      () async {
+        final gate = Completer<BeaconsPage>();
+        when(
+          () => beacons.listBeacons(
+            communityId: any(named: 'communityId'),
+            limit: any(named: 'limit'),
+            pageToken: any(named: 'pageToken'),
+          ),
+        ).thenAnswer((inv) {
+          calls.add((
+            communityId: inv.namedArguments[#communityId] as String,
+            limit: inv.namedArguments[#limit] as int,
+            pageToken: inv.namedArguments[#pageToken] as String,
+          ));
+          return calls.length == 1
+              ? gate.future
+              : Future.value(BeaconsPage(views: [_view('2')]));
+        });
+        final cubit = BeaconsCubit(repository: beacons);
+        addTearDown(cubit.close);
+
+        final first = cubit.ensureLoaded();
+        await cubit.refresh();
+        expect(calls, hasLength(1));
+        gate.complete(BeaconsPage(views: [_view('1')]));
+        await first;
+        expect(cubit.state.views.single.beacon.beaconId, '1');
+
+        // Done: a refresh is one more ListBeacons, and the rows stay on screen
+        // while it runs (no skeleton).
+        final again = cubit.refresh();
+        expect(cubit.state.status, BeaconsLoad.ready);
+        await again;
+        expect(calls, hasLength(2));
+        expect(cubit.state.views.single.beacon.beaconId, '2');
+      },
+    );
+
+    test(
+      'a failed load still counts as started; refresh tries again',
+      () async {
+        var fail = true;
+        when(
+          () => beacons.listBeacons(
+            communityId: any(named: 'communityId'),
+            limit: any(named: 'limit'),
+            pageToken: any(named: 'pageToken'),
+          ),
+        ).thenAnswer((inv) async {
+          calls.add((communityId: '', limit: 20, pageToken: ''));
+          if (fail) throw NetworkException('offline');
+          return BeaconsPage(views: [_view('1')]);
+        });
+        final cubit = BeaconsCubit(repository: beacons);
+        addTearDown(cubit.close);
+
+        await cubit.ensureLoaded();
+        expect(cubit.state.status, BeaconsLoad.error);
+        await cubit.ensureLoaded();
+        expect(calls, hasLength(1));
+
+        fail = false;
+        await cubit.refresh();
+        expect(calls, hasLength(2));
+        expect(cubit.state.status, BeaconsLoad.ready);
+      },
+    );
+  });
+
+  // F29: the activity chips. The server filters (a filtered first page is
+  // never emptied on the client); a server without the filter answers the
+  // whole list, and the rows of other activities are dropped.
+  group('activity filter (F29)', () {
+    const coffee = pb.BeaconActivity.BEACON_ACTIVITY_COFFEE;
+    const walk = pb.BeaconActivity.BEACON_ACTIVITY_WALK;
+    const all = pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED;
+    late List<({String communityId, pb.BeaconActivity activity, String token})>
+    sent;
+
+    setUpAll(() => registerFallbackValue(all));
+
+    pb.BeaconView act(String id, pb.BeaconActivity a) =>
+        _view(id)..beacon.activity = a;
+
+    void stubActivity(
+      BeaconsPage Function(pb.BeaconActivity activity, String token) answer,
+    ) {
+      sent = [];
+      when(
+        () => beacons.listBeacons(
+          communityId: any(named: 'communityId'),
+          limit: any(named: 'limit'),
+          pageToken: any(named: 'pageToken'),
+          activity: any(named: 'activity'),
+        ),
+      ).thenAnswer((inv) async {
+        final a = inv.namedArguments[#activity] as pb.BeaconActivity;
+        final token = inv.namedArguments[#pageToken] as String;
+        sent.add((
+          communityId: inv.namedArguments[#communityId] as String,
+          activity: a,
+          token: token,
+        ));
+        return answer(a, token);
+      });
+    }
+
+    test('starts on All and sends no filter', () async {
+      stubActivity((_, _) => BeaconsPage(views: [act('1', coffee)]));
+      final cubit = BeaconsCubit(repository: beacons);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+
+      expect(cubit.state.activity, all);
+      expect(sent.single.activity, all);
+    });
+
+    test('selectActivity loads a fresh first page of that activity', () async {
+      stubActivity(
+        (a, _) => a == coffee
+            ? BeaconsPage(views: [act('c', coffee)])
+            : BeaconsPage(views: [act('1', walk)], nextPageToken: 't1'),
+      );
+      final cubit = BeaconsCubit(repository: beacons);
+      addTearDown(cubit.close);
+      await cubit.load();
+
+      final pending = cubit.selectActivity(coffee);
+      expect(cubit.state.activity, coffee);
+      expect(cubit.state.status, BeaconsLoad.loading);
+      expect(cubit.state.views, isEmpty);
+      expect(cubit.state.hasMore, isFalse);
+      await pending;
+
+      expect(cubit.state.views.single.beacon.beaconId, 'c');
+      expect(sent.last, (communityId: '', activity: coffee, token: ''));
+
+      // The same chip again sends nothing; All goes back to the whole list.
+      await cubit.selectActivity(coffee);
+      expect(sent, hasLength(2));
+      await cubit.selectActivity(all);
+      expect(sent.last.activity, all);
+      expect(cubit.state.views.single.beacon.beaconId, '1');
+    });
+
+    test('Load more keeps the activity', () async {
+      stubActivity(
+        (a, token) => token.isEmpty
+            ? BeaconsPage(views: [act('1', a)], nextPageToken: 't1')
+            : BeaconsPage(views: [act('2', a)]),
+      );
+      final cubit = BeaconsCubit(repository: beacons);
+      addTearDown(cubit.close);
+      await cubit.load();
+      await cubit.selectActivity(walk);
+
+      await cubit.loadMore();
+
+      expect(sent.last, (communityId: '', activity: walk, token: 't1'));
+      expect(cubit.state.views.map((v) => v.beacon.beaconId), ['1', '2']);
+    });
+
+    test('switching the audience keeps the activity; a reload keeps it '
+        'too', () async {
+      stubMine([_community('c1', 'Gardeners')]);
+      stubActivity((a, _) => BeaconsPage(views: [act('x', a)]));
+      final cubit = BeaconsCubit(
+        repository: beacons,
+        communities: communities,
+        communitiesEnabled: true,
+      );
+      addTearDown(cubit.close);
+      await cubit.load();
+      await cubit.selectActivity(walk);
+
+      await cubit.select(const BeaconsAudience.community('c1', 'Gardeners'));
+      expect(sent.last, (communityId: 'c1', activity: walk, token: ''));
+
+      await cubit.load();
+      expect(sent.last, (communityId: 'c1', activity: walk, token: ''));
+      expect(cubit.state.activity, walk);
+    });
+
+    test('a server without the filter: rows of other activities are '
+        'dropped, on the first page and on Load more', () async {
+      // An old server ignores `activity` and answers everything.
+      stubActivity(
+        (_, token) => token.isEmpty
+            ? BeaconsPage(
+                views: [act('w1', walk), act('c1', coffee), act('w2', walk)],
+                nextPageToken: 't1',
+              )
+            : BeaconsPage(views: [act('c2', coffee), act('w3', walk)]),
+      );
+      final cubit = BeaconsCubit(repository: beacons);
+      addTearDown(cubit.close);
+      await cubit.load();
+      expect(cubit.state.views, hasLength(3));
+
+      await cubit.selectActivity(coffee);
+      expect(cubit.state.views.map((v) => v.beacon.beaconId), ['c1']);
+      await cubit.loadMore();
+      expect(cubit.state.views.map((v) => v.beacon.beaconId), ['c1', 'c2']);
+    });
+
+    test('a filtered page left empty that has more keeps its token (Load '
+        'more, not the empty state)', () async {
+      stubActivity(
+        (_, token) => token.isEmpty
+            ? BeaconsPage(views: [act('w1', walk)], nextPageToken: 't1')
+            : BeaconsPage(views: [act('c1', coffee)]),
+      );
+      final cubit = BeaconsCubit(repository: beacons);
+      addTearDown(cubit.close);
+      await cubit.load();
+
+      await cubit.selectActivity(coffee);
+      expect(cubit.state.status, BeaconsLoad.ready);
+      expect(cubit.state.views, isEmpty);
+      expect(cubit.state.hasMore, isTrue);
+      await cubit.loadMore();
+      expect(cubit.state.views.single.beacon.beaconId, 'c1');
+    });
+
+    test('a stale answer of the previous activity is ignored', () async {
+      final slow = Completer<BeaconsPage>();
+      sent = [];
+      when(
+        () => beacons.listBeacons(
+          communityId: any(named: 'communityId'),
+          limit: any(named: 'limit'),
+          pageToken: any(named: 'pageToken'),
+          activity: any(named: 'activity'),
+        ),
+      ).thenAnswer((inv) {
+        final a = inv.namedArguments[#activity] as pb.BeaconActivity;
+        if (a == all) return slow.future;
+        return Future.value(BeaconsPage(views: [act('c', coffee)]));
+      });
+      final cubit = BeaconsCubit(repository: beacons);
+      addTearDown(cubit.close);
+
+      final first = cubit.load();
+      await Future<void>.delayed(Duration.zero);
+      await cubit.selectActivity(coffee);
+      slow.complete(BeaconsPage(views: [act('w', walk)]));
+      await first;
+
+      expect(cubit.state.activity, coffee);
+      expect(cubit.state.views.single.beacon.beaconId, 'c');
+    });
+  });
 }

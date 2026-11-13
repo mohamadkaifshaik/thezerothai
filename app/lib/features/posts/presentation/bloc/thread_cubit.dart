@@ -83,6 +83,73 @@ class ThreadState {
 
   bool get hasMore => nextPageToken.isNotEmpty;
 
+  /// How many posts the loaded part of the conversation holds when it is a
+  /// self-thread: the open post and its loaded context, all by one author,
+  /// plus the same author's replies that continue it (each answering the one
+  /// before). 0 when it is not one (a context post by someone else or
+  /// unavailable, or fewer than two posts). Drives the "Thread · N posts"
+  /// line of the header.
+  int get selfThreadLength {
+    final f = focal;
+    if (f == null) return 0;
+    final author = f.post.author.userId;
+    if (author.isEmpty) return 0;
+    if (parentUnavailable || rootUnavailable) return 0;
+    // Context counts only when the links are proven: the parent answers the
+    // root (or is it) and the open post answers the parent. A missing middle
+    // post leaves the length unknown, so no count.
+    final ids = <String>{f.post.postId};
+    final p = parent;
+    final r = root;
+    if (f.post.replyToPostId.isNotEmpty) {
+      final ancestor =
+          p ?? (r != null && r.post.postId == f.post.replyToPostId ? r : null);
+      if (ancestor == null || ancestor.post.postId != f.post.replyToPostId) {
+        return 0;
+      }
+      if (ancestor.post.author.userId != author) return 0;
+      ids.add(ancestor.post.postId);
+      if (r != null && r.post.postId != ancestor.post.postId) {
+        if (ancestor.post.replyToPostId != r.post.postId) return 0;
+        if (r.post.author.userId != author) return 0;
+        ids.add(r.post.postId);
+      }
+    }
+    for (final next in _continuation(f)) {
+      if (!ids.add(next.post.postId)) break;
+    }
+    return ids.length >= 2 ? ids.length : 0;
+  }
+
+  /// The loaded replies that continue the open post's self-thread, in order:
+  /// the author's first reply to the open post, their first reply to that,
+  /// and so on. Empty when [selfThreadLength] is 0. The thread screen draws
+  /// them as one chain under the open post (PostThread mock).
+  List<pb.PostView> get selfThreadTail {
+    final f = focal;
+    if (f == null || selfThreadLength == 0) return const [];
+    return _continuation(f);
+  }
+
+  List<pb.PostView> _continuation(pb.PostView f) {
+    final author = f.post.author.userId;
+    final byParent = <String, pb.PostView>{};
+    for (final reply in visibleReplies) {
+      if (reply.post.author.userId == author) {
+        byParent.putIfAbsent(reply.post.replyToPostId, () => reply);
+      }
+    }
+    final chain = <pb.PostView>[];
+    final seen = <String>{f.post.postId};
+    var tail = f.post.postId;
+    for (var next = byParent[tail]; next != null; next = byParent[tail]) {
+      if (!seen.add(next.post.postId)) break;
+      chain.add(next);
+      tail = next.post.postId;
+    }
+    return chain;
+  }
+
   /// Replies to render (hidden authors removed).
   List<pb.PostView> get visibleReplies =>
       hiddenAuthors.isEmpty && hiddenReplies.isEmpty

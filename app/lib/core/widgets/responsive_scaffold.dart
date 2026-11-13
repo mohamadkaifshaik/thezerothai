@@ -1,23 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../shared/widgets/primitives/app_gradient_fab.dart';
 import '../../shared/widgets/primitives/app_pill_button.dart';
 import '../theme/app_theme.dart';
 import 'app_bottom_bar.dart';
-import 'app_nav_destination.dart';
+import 'app_nav_rail.dart';
 import 'app_shell_scope.dart';
+import 'shell_fab.dart';
+import 'shell_geometry.dart';
+import 'tablet_modal.dart';
 
 export 'app_nav_destination.dart';
+export 'shell_geometry.dart' show ShellLayout;
 
 /// Adaptive shell used by every top-level, authenticated screen:
 ///
 /// - `< 600dp` (phone): a [AppBottomBar] (icons only; with [floatingBar] the
 ///   [AppFloatingBottomBar] pill over the body), the avatar [drawer]
-///   (opened from the screen's top bar through an [AppShellScope]) and, when
-///   [onCompose] is set and [showFab] is true, a floating compose button.
-/// - `600-1199dp` (tablet): an icon-only `NavigationRail` with a round compose
-///   button on top and the avatar at the bottom; the content is capped at
-///   600dp.
+///   (opened from the screen's top bar through an [AppShellScope]) and the
+///   page's floating button ([fab]), which drops to the corner while the bar
+///   is scrolled away.
+/// - `600-1199dp` (tablet), [ShellLayout.legacy]: an icon-only
+///   `NavigationRail` with a round compose button on top and the avatar at
+///   the bottom; the content is capped at 600dp and the cluster is centred.
+/// - `600-1199dp`, [ShellLayout.tablet] (`ui_shell` + `ui_tablet`): the
+///   [AppNavRail] pinned to the leading edge and the [body] filling the rest
+///   of the width as one pane, with no outer `SafeArea`: the rail pads itself
+///   by the leading, top and bottom insets; the pane ends at the trailing
+///   inset (a strip in the page colour fills it) and gets the top and bottom
+///   ones (its header pads by the top inset, its scrollables by the bottom
+///   one). The pane is exactly the content of its [ShellGeometry].
+///   The body keeps the whole content (no side column on the tablet
+///   layout). From 840dp a [masterPane] (list-detail: Settings,
+///   Plans) comes before the body instead, as the list pane of
+///   `ShellGeometry.listPaneWidthFor` and a 1dp hairline; the body is then
+///   the detail. [sideColumn] is not shown
+///   there, and neither is [masterPane] below 840.
 /// - `>= 1200dp` (desktop/web): an extended `NavigationRail` with the "Post"
 ///   pill on top and the account chip at the bottom, the 600dp content column
 ///   between two hairlines, and the 350dp [sideColumn] when a screen provides
@@ -38,13 +57,32 @@ class ResponsiveScaffold extends StatefulWidget {
     required this.body,
     this.sideColumn,
     this.onCompose,
-    this.showFab = true,
+    this.fab,
+    this.extendBodyUnderStatusBar = false,
     this.redesignedRail = false,
     this.drawer,
     this.accountChipBuilder,
     this.masterPane,
     this.floatingBar = false,
+    this.layout = ShellLayout.legacy,
+    this.moreHasOwnRows = true,
+    this.onMoreFolded,
   });
+
+  /// The composition at 600-1199dp. [ShellLayout.tablet] only with
+  /// `ui_shell` and `ui_tablet` both on; phones ignore it. On desktop the
+  /// composition is the same in both, but [ShellLayout.tablet] centres
+  /// modals and snack bars on the feed column and groups the focus
+  /// traversal by pane (D1).
+  final ShellLayout layout;
+
+  /// Tablet layout only: whether the More destination (the one with
+  /// `onActivate`) has rows of its own. See [AppNavRail.moreHasOwnRows].
+  final bool moreHasOwnRows;
+
+  /// Tablet layout only: opens More with the destinations folded into it at
+  /// a short height. See [AppNavRail.onMoreFolded].
+  final void Function(BuildContext anchor, List<int> folded)? onMoreFolded;
 
   /// The selected destination, or null when none is (Settings).
   final int? selectedIndex;
@@ -58,9 +96,16 @@ class ResponsiveScaffold extends StatefulWidget {
   /// Starts a new post; null hides every compose control.
   final VoidCallback? onCompose;
 
-  /// Whether the narrow layout shows the floating compose button (it is hidden
-  /// where the screen has its own composer entry).
-  final bool showFab;
+  /// The narrow layout's floating button: the current page's action (New
+  /// post, New plan, New message...); null shows none. Wide layouts keep the
+  /// rail's Post control ([onCompose]) instead.
+  final ShellFabAction? fab;
+
+  /// The narrow layouts leave the top inset to the page: the body goes under
+  /// the status bar (no top `SafeArea`), and the page pads itself. Only for
+  /// a page that draws its own cover under the status bar (a community's
+  /// page); every other page keeps the inset taken here. Ignored from 600dp.
+  final bool extendBodyUnderStatusBar;
 
   /// Whether the rail (600dp and up) takes the redesigned style (`ui_shell`):
   /// the `selectedIndicator` pill behind the filled selected glyph, w800
@@ -76,9 +121,12 @@ class ResponsiveScaffold extends StatefulWidget {
   /// Builds the account chip of the rail (`extended`: with the name block).
   final Widget Function(bool extended)? accountChipBuilder;
 
-  /// A list pane shown only at desktop widths, between the rail and the
-  /// [body] (master-detail: Settings). It takes the place of the
-  /// [sideColumn].
+  /// A list pane between the rail and the [body] (master-detail: Settings;
+  /// on the tablet layout Plans too).
+  /// Shown at desktop widths, where it takes the place of the [sideColumn],
+  /// and on the tablet layout from 840dp (band B), where it takes the place
+  /// of the context pane. Ignored on phones, in band A and in the legacy
+  /// layout below 1200dp.
   final Widget? masterPane;
 
   /// Whether the narrow layout uses the redesigned chrome (`ui_shell`): the
@@ -143,8 +191,124 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         if (width < AppBreakpoints.mobile) return _narrow(context);
-        return _wide(context, isDesktop: width >= AppBreakpoints.tablet);
+        final isDesktop = width >= AppBreakpoints.tablet;
+        if (!isDesktop && widget.layout == ShellLayout.tablet) {
+          return _tablet(context, constraints.biggest);
+        }
+        return _wide(context, isDesktop: isDesktop);
       },
+    );
+  }
+
+  /// The tablet shell (600-1199dp, [ShellLayout.tablet]): the pinned rail,
+  /// then the body as one pane over the rest of the width.
+  Widget _tablet(BuildContext context, Size window) {
+    final media = MediaQuery.of(context);
+    final direction = Directionality.of(context);
+    final geometry = ShellGeometry.contentRectFor(
+      window,
+      media.padding,
+      ShellLayout.tablet,
+      textDirection: direction,
+    );
+    final ltr = direction == TextDirection.ltr;
+    final trailing = ltr ? media.padding.right : media.padding.left;
+    // A modal opened from anywhere in the shell (the rail's account menu
+    // included, not only the panes) is over the rail: it centres on the
+    // content area. This is the root Scaffold of the shell's routes, so it
+    // shows their snack bars: centred over the pane area, not the rail.
+    return TabletModalScope(
+      host: const TabletModalHost(overShell: true),
+      child: TabletSnackBarTheme(
+        content: geometry.content,
+        child: _tabletScaffold(context, geometry, trailing),
+      ),
+    );
+  }
+
+  Widget _tabletScaffold(
+    BuildContext context,
+    ShellGeometryData geometry,
+    double trailing,
+  ) {
+    final compose = widget.onCompose;
+    final bandB = geometry.band == ShellBand.expanded;
+    // Band B list-detail (Settings, Plans): the list pane before the body,
+    // which is then the detail.
+    final master = bandB ? widget.masterPane : null;
+    final colors = context.appColors;
+    return Scaffold(
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            key: const ValueKey('tablet-rail'),
+            width: geometry.railWidth,
+            // Focus order: the rail, then the pane.
+            child: FocusTraversalGroup(
+              child: AppNavRail(
+                destinations: widget.destinations,
+                selectedIndex: widget.selectedIndex,
+                onDestinationSelected: widget.onDestinationSelected,
+                compose: compose == null
+                    ? null
+                    : _GradientComposeCircle(onPressed: compose),
+                account: widget.accountChipBuilder?.call(false),
+                moreHasOwnRows: widget.moreHasOwnRows,
+                onMoreFolded: widget.onMoreFolded,
+              ),
+            ),
+          ),
+          // Focus order: the rail, the list pane, then the detail.
+          if (master != null)
+            SizedBox(
+              key: const ValueKey('tablet-list-pane'),
+              width: ShellGeometry.listPaneWidthFor(geometry.content.width) + 1,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: BorderDirectional(
+                    end: BorderSide(color: colors.hairline),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 1),
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeLeft: true,
+                    removeRight: true,
+                    child: FocusTraversalGroup(child: master),
+                  ),
+                ),
+              ),
+            ),
+          Expanded(
+            // Keyed: the list pane appearing before it at 840dp must not
+            // remount the page (the shell navigator and its pages' state).
+            key: const ValueKey('tablet-primary'),
+            // The rail took the leading inset and the strip below takes the
+            // trailing one (a `ListView` pads only along its scroll axis, so
+            // the pane must stop there itself): the pane is
+            // `geometry.content` and keeps the top and bottom insets.
+            child: MediaQuery.removePadding(
+              context: context,
+              removeLeft: true,
+              removeRight: true,
+              child: ShellGeometry(
+                data: geometry,
+                child: FocusTraversalGroup(child: widget.body),
+              ),
+            ),
+          ),
+          // The trailing inset (a landscape notch), in the page colour.
+          SizedBox(
+            width: trailing,
+            child: ColoredBox(
+              key: const ValueKey('tablet-trailing-inset'),
+              color: Theme.of(context).scaffoldBackgroundColor,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -165,19 +329,20 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       key: _scaffoldKey,
       drawer: widget.drawer,
       body: SafeArea(
+        top: !widget.extendBodyUnderStatusBar,
         bottom: false,
         child: NotificationListener<ScrollNotification>(
           onNotification: _onScrollNotification,
           child: widget.body,
         ),
       ),
-      floatingActionButton: widget.onCompose != null && widget.showFab
-          ? FloatingActionButton(
-              tooltip: _composeTooltip,
-              onPressed: widget.onCompose,
-              child: const Icon(Icons.edit_outlined),
-            )
-          : null,
+      floatingActionButton: widget.fab == null
+          ? null
+          : FloatingActionButton(
+              tooltip: widget.fab!.tooltip,
+              onPressed: widget.fab!.onPressed,
+              child: Icon(widget.fab!.icon),
+            ),
       bottomNavigationBar: AnimatedSize(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
@@ -220,6 +385,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       drawer: widget.drawer,
       extendBody: true,
       body: SafeArea(
+        top: !widget.extendBodyUnderStatusBar,
         bottom: false,
         child: NotificationListener<ScrollNotification>(
           onNotification: _onScrollNotification,
@@ -243,9 +409,26 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           ),
         ),
       ),
-      floatingActionButton: widget.onCompose != null && widget.showFab
-          ? _ComposeFab(onPressed: widget.onCompose!)
-          : null,
+      floatingActionButton: widget.fab == null
+          ? null
+          // While the bar is scrolled away the button drops by the bar's
+          // height into the corner, and rises with it again.
+          : AnimatedContainer(
+              duration: movement ? duration : Duration.zero,
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.translationValues(
+                0,
+                hidden && !keyboardOpen
+                    ? AppFloatingBottomBar.reservedHeight
+                    : 0,
+                0,
+              ),
+              child: AppGradientFab(
+                tooltip: widget.fab!.tooltip,
+                icon: widget.fab!.icon,
+                onPressed: widget.fab!.onPressed,
+              ),
+            ),
       bottomNavigationBar: keyboardOpen
           ? null
           : IgnorePointer(
@@ -298,6 +481,41 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     );
   }
 
+  /// The extended rail's width at the last layout (the desktop column is
+  /// placed after it): [AppSize.railExtended], or more when its labels need
+  /// it (large text).
+  double _railWidth = AppSize.railExtended;
+  bool _railReported = false;
+
+  /// The panes last published to [DesktopShellSlots].
+  DesktopColumnSlots? _published;
+
+  void _onRailWidth(double width) {
+    if (width == _railWidth && _railReported) return;
+    // Measured during layout: the modal scope and the snack bar theme take
+    // it in the next frame, and so do the modals and dialog pages on the
+    // root navigator (the next build publishes it, [_publish]).
+    final changed = width != _railWidth;
+    _railWidth = width;
+    _railReported = true;
+    if (!changed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  /// Publishes the panes to the modals above the shell, after the frame (a
+  /// listener rebuilds in response, which a build must not trigger).
+  void _publish(DesktopColumnSlots slots) {
+    if (slots == _published) return;
+    _published = slots;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _published == slots) {
+        DesktopShellSlots.publish(context, slots);
+      }
+    });
+  }
+
   Widget _wide(BuildContext context, {required bool isDesktop}) {
     final colors = Theme.of(context).colorScheme;
     final master = isDesktop ? widget.masterPane : null;
@@ -306,53 +524,23 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final accountChip = widget.accountChipBuilder?.call(isDesktop);
     // `ui_shell` only; null keeps the theme's legacy rail as it is.
     final style = widget.redesignedRail ? _RailStyle.of(context) : null;
-    return Scaffold(
+    // The desktop layout (D1): both flags (`layout` is tablet) at >= 1200 dp.
+    // Modals and snack bars centre on the feed column, and Tab moves through
+    // the rail, the master pane, the column and the side column in turn.
+    // Elsewhere (desktop with either flag off, the legacy 600-1199 dp
+    // layout) the tree is today's.
+    final desktop = isDesktop && widget.layout == ShellLayout.tablet;
+    Widget group(Widget child) =>
+        desktop ? FocusTraversalGroup(child: child) : child;
+    final scaffold = Scaffold(
       body: SafeArea(
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            NavigationRail(
-              extended: isDesktop,
-              selectedIndex: widget.selectedIndex,
-              onDestinationSelected: _selectOnRail,
-              indicatorShape: style?.indicatorShape,
-              indicatorColor: style?.indicatorColor,
-              selectedIconTheme: style?.selectedIconTheme,
-              unselectedIconTheme: style?.unselectedIconTheme,
-              selectedLabelTextStyle: style?.selectedLabelTextStyle,
-              unselectedLabelTextStyle: style?.unselectedLabelTextStyle,
-              // X's order: the items, then the Post control right below them,
-              // then (pushed to the bottom) the account chip.
-              trailing: Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                    if (compose != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.md),
-                        child: switch ((isDesktop, style != null)) {
-                          (true, false) => _PostPill(onPressed: compose),
-                          (false, false) => _ComposeCircle(onPressed: compose),
-                          (true, true) => _GradientPostPill(onPressed: compose),
-                          (false, true) => _GradientComposeCircle(
-                            onPressed: compose,
-                          ),
-                        },
-                      ),
-                    const Spacer(),
-                    if (accountChip != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                        child: accountChip,
-                      ),
-                  ],
-                ),
-              ),
-              destinations: [
-                for (var i = 0; i < widget.destinations.length; i++)
-                  _railDestination(i, widget.destinations[i]),
-              ],
+            _WidthProbe(
+              onWidth: desktop ? _onRailWidth : null,
+              child: group(_wideRail(isDesktop, style, compose, accountChip)),
             ),
             if (master != null)
               SizedBox(
@@ -363,7 +551,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                       left: BorderSide(color: colors.outlineVariant),
                     ),
                   ),
-                  child: master,
+                  child: group(master),
                 ),
               ),
             // The feed column: at most 600dp, between two hairlines.
@@ -376,7 +564,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                       vertical: BorderSide(color: colors.outlineVariant),
                     ),
                   ),
-                  child: widget.body,
+                  child: group(widget.body),
                 ),
               ),
             ),
@@ -389,7 +577,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                     padding: const EdgeInsets.symmetric(
                       vertical: AppSpacing.md,
                     ),
-                    child: side,
+                    child: group(side),
                   ),
                 ),
               ),
@@ -397,44 +585,121 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
         ),
       ),
     );
+    if (!desktop) return scaffold;
+    final slots = DesktopColumnSlots(
+      master: master != null,
+      side: side != null,
+      railWidth: _railWidth,
+    );
+    _publish(slots);
+    // A modal opened from anywhere in the shell (the rail's account menu
+    // included) centres on the column, and so do the shell's snack bars.
+    //
+    // Note: these wrappers and the focus groups above exist only on this
+    // path, so a runtime flip of `ui_shell` or `ui_tablet` while on desktop
+    // reparents the rail, the panes and the page, and they lose their state
+    // (scroll offsets, focus). The flags are server-driven and change on a
+    // session refresh, not mid-use; the flags-off tree is deliberately left
+    // as it was (ruling R-1).
+    return TabletModalScope(
+      host: TabletModalHost(overShell: true, desktop: slots),
+      followShell: false,
+      child: TabletSnackBarTheme(
+        content: slots.columnFor(
+          MediaQuery.sizeOf(context),
+          MediaQuery.paddingOf(context),
+          textDirection: Directionality.of(context),
+        ),
+        child: scaffold,
+      ),
+    );
+  }
+
+  Widget _wideRail(
+    bool isDesktop,
+    _RailStyle? style,
+    VoidCallback? compose,
+    Widget? accountChip,
+  ) {
+    return NavigationRail(
+      extended: isDesktop,
+      selectedIndex: widget.selectedIndex,
+      onDestinationSelected: _selectOnRail,
+      indicatorShape: style?.indicatorShape,
+      indicatorColor: style?.indicatorColor,
+      selectedIconTheme: style?.selectedIconTheme,
+      unselectedIconTheme: style?.unselectedIconTheme,
+      selectedLabelTextStyle: style?.selectedLabelTextStyle,
+      unselectedLabelTextStyle: style?.unselectedLabelTextStyle,
+      // X's order: the items, then the Post control right below them,
+      // then (pushed to the bottom) the account chip.
+      trailing: Expanded(
+        child: Column(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            if (compose != null)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.md),
+                child: switch ((isDesktop, style != null)) {
+                  (true, false) => _PostPill(onPressed: compose),
+                  (false, false) => _ComposeCircle(onPressed: compose),
+                  (true, true) => _GradientPostPill(onPressed: compose),
+                  (false, true) => _GradientComposeCircle(onPressed: compose),
+                },
+              ),
+            const Spacer(),
+            if (accountChip != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: accountChip,
+              ),
+          ],
+        ),
+      ),
+      destinations: [
+        for (var i = 0; i < widget.destinations.length; i++)
+          _railDestination(i, widget.destinations[i]),
+      ],
+    );
   }
 }
 
-/// The compose button of the redesigned phone chrome: a 58dp circle with the
-/// primary gradient and its glow, above the floating bar.
-class _ComposeFab extends StatelessWidget {
-  const _ComposeFab({required this.onPressed});
+/// Reports its child's laid-out width to [onWidth] (when set) after each
+/// layout; it paints and hit-tests as its child alone.
+class _WidthProbe extends SingleChildRenderObjectWidget {
+  const _WidthProbe({required this.onWidth, required super.child});
 
-  final VoidCallback onPressed;
+  final ValueChanged<double>? onWidth;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = context.appColors;
-    return DecoratedBox(
-      decoration: ShapeDecoration(
-        shape: const CircleBorder(),
-        gradient: colors.primaryFillGradient,
-        shadows: AppShadows.primaryGlow,
-      ),
-      child: Theme(
-        data: theme.copyWith(
-          floatingActionButtonTheme: theme.floatingActionButtonTheme.copyWith(
-            backgroundColor: Colors.transparent,
-            foregroundColor: colors.primaryFillLabel,
-            sizeConstraints: const BoxConstraints.tightFor(
-              width: AppSize.fabRedesign,
-              height: AppSize.fabRedesign,
-            ),
-          ),
-        ),
-        child: FloatingActionButton(
-          tooltip: _ResponsiveScaffoldState._composeTooltip,
-          onPressed: onPressed,
-          child: const Icon(Icons.edit_outlined),
-        ),
-      ),
-    );
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderWidthProbe(onWidth);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderWidthProbe renderObject,
+  ) {
+    renderObject.onWidth = onWidth;
+  }
+}
+
+class _RenderWidthProbe extends RenderProxyBox {
+  _RenderWidthProbe(this._onWidth);
+
+  ValueChanged<double>? _onWidth;
+  ValueChanged<double>? get onWidth => _onWidth;
+  set onWidth(ValueChanged<double>? value) {
+    if (value == _onWidth) return;
+    _onWidth = value;
+    // A listener that arrives (the flags turn on) learns the width now.
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    onWidth?.call(size.width);
   }
 }
 

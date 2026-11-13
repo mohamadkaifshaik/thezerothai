@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
@@ -410,7 +411,7 @@ void main() {
       await openMenuOf(tester, 'post 2');
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
       await tester.pumpAndSettle();
 
       verify(

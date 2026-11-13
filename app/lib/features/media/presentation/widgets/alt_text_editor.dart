@@ -6,6 +6,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../../shared/widgets/primitives/character_counter.dart';
 import '../../domain/media_feature_flag.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 /// Opens the image description (alt text) editor: a full-screen route below
 /// [AppBreakpoints.mobile] wide, a centred dialog above (the same split as
@@ -26,8 +27,9 @@ Future<String?> showAltTextEditor(
       ),
     );
   }
-  return showDialog<String>(
+  return showAppMaterialDialog<String>(
     context: context,
+    maxWidth: 440,
     builder: (_) => Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),

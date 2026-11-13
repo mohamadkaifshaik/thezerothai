@@ -75,8 +75,9 @@ func likesResume(recent []string, a likesAnchor) int { return pageresume.Index(r
 
 // listLikedPosts implements LikesList.ListLikedPosts. Reads, in this order and each only when needed: userLikes through
 // the instance cache (an empty array stops here), GetMany (the misses of the instance post cache), the caller's
-// graph snapshot (cached 60 s, skipped when every live row is the caller's own); the viewer state comes from the
-// same userLikes state. Nothing is written.
+// graph snapshot (cached 60 s, skipped when every live row is the caller's own), the authors' account status through
+// identity's Directory (one cache-first batch, skipped when every row left is the caller's own plain post); the viewer
+// state comes from the same userLikes state. Nothing is written.
 //
 // Staleness: the id list is the instance-cached userLikes (60 s TTL; this instance's own likes and unlikes update it in
 // place), so a like made on another instance can take up to 60 s to appear. The posts are as fresh as the post cache.
@@ -128,10 +129,7 @@ func (s *service) listLikedPosts(ctx context.Context, uid string, pageSize int32
 	if err != nil {
 		return LikesPage{}, dropErr("list liked posts", uid, err)
 	}
-	for k, i := range res.Kept {
-		page.Posts = append(page.Posts, live[postIDs[i]])
-		page.Hints = append(page.Hints, res.Hints[k])
-	}
+	page.Posts, page.Hints = res.Posts, res.Hints // the rendered post: a QUOTE of an inactive author is its tombstoned copy
 	if len(page.Posts) > 0 {
 		page.Viewer = posts.HydrateViewer(ctx, s.d.Flags, &Module{s: s}, uid)
 	}

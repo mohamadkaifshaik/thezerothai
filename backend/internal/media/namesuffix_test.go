@@ -126,15 +126,10 @@ func TestParseRetiredImage_Suffixes(t *testing.T) {
 // suffixed names that the URLs carry, and a second finalize is the idempotent answer.
 func TestCreateUpload_StoresASuffixAndFinalizePublishesIt(t *testing.T) {
 	hex32 := regexp.MustCompile(`^[0-9a-f]{32}$`)
-	for _, purpose := range []Purpose{PurposePost, PurposeAvatar, PurposeBanner} {
+	for _, purpose := range []Purpose{PurposePost, PurposeAvatar} {
 		t.Run(string(purpose), func(t *testing.T) {
 			e := newEnv(t, envOpts{})
-			var tg UploadTarget
-			if purpose == PurposeBanner {
-				tg = e.bannerUpload(t, uidA, "a")
-			} else {
-				tg = e.upload(t, uidA, purpose, "a")
-			}
+			tg := e.upload(t, uidA, purpose, "a")
 			d := e.repo.docs[tg.MediaID]
 			if !hex32.MatchString(d.NameSuffix) {
 				t.Fatalf("NameSuffix = %q", d.NameSuffix)
@@ -312,10 +307,10 @@ func TestDeleteBothShapes(t *testing.T) {
 	}
 }
 
-// The retire step retires a replaced suffixed avatar and banner: exactly 2 customTime calls per image, on the
+// The retire step retires a replaced suffixed avatar: exactly 2 customTime calls per image, on the
 // document's own names.
-func TestRetire_SuffixedAvatarAndBanner(t *testing.T) {
-	for _, purpose := range []Purpose{PurposeAvatar, PurposeBanner} {
+func TestRetire_SuffixedAvatar(t *testing.T) {
+	for _, purpose := range []Purpose{PurposeAvatar} {
 		t.Run(string(purpose), func(t *testing.T) {
 			e := newRetireEnv(config.ProfileMediaRetireAll)
 			seedSuffixed(e.repo, e.obj, idAvatarOld, uidA, purpose, "")

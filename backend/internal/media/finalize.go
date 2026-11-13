@@ -363,7 +363,10 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish thumb: %w", err), uid)
 	}
-	err = s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{Status: StatusReady, PublicPath: pub, ThumbPath: pubThumb, Blurhash: blurhash})
+	// orphanCheckAt makes the image an orphan-sweep candidate if nothing attaches it within OrphanAfter (orphan_sweep.go).
+	err = s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{
+		Status: StatusReady, PublicPath: pub, ThumbPath: pubThumb, Blurhash: blurhash, OrphanCheckAt: s.Now().UTC().Add(OrphanAfter),
+	})
 	switch {
 	case errors.Is(err, ErrConflict):
 		r, spent, rerr := s.reload(ctx, uid, d.ID, spent)
@@ -547,11 +550,10 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 	return "", gens, nil
 }
 
-// screensThumb reports whether the thumbnail is screened too: always for a BANNER (2 Vision units, the thumb is a separate upload)
-// and for a GIF (: sheet by bytes + thumbnail = 2 units; the thumbnail is
+// screensThumb reports whether the thumbnail is screened too: always for a GIF (: sheet by bytes + thumbnail = 2 units; the thumbnail is
 // a client-made still that lists show, and nothing ties it to the GIF's frames), otherwise per VISION_SCREEN_THUMB.
 func (s *service) screensThumb(d *Doc) bool {
-	return s.ScreenThumb || d.Purpose == string(PurposeBanner) || d.ContentType == ContentTypeGIF
+	return s.ScreenThumb || d.ContentType == ContentTypeGIF
 }
 
 // screen runs SafeSearch on the full image and, when screensThumb, the thumbnail (the small image is what lists
@@ -651,13 +653,12 @@ func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Co
 	return res, err
 }
 
-// blockedBySafeSearch is the policy: LIKELY or VERY_LIKELY adult or violence, and racy for avatars and
-// banners.
+// blockedBySafeSearch is the policy: LIKELY or VERY_LIKELY adult or violence, and racy for avatars.
 func blockedBySafeSearch(ss SafeSearch, p Purpose) bool {
 	if ss.Adult >= LikelihoodLikely || ss.Violence >= LikelihoodLikely {
 		return true
 	}
-	return (p == PurposeAvatar || p == PurposeBanner) && ss.Racy >= LikelihoodLikely
+	return p == PurposeAvatar && ss.Racy >= LikelihoodLikely
 }
 
 // reject deletes the private objects and records REJECTED (kept for PendingTTL so a replayed FinalizeUpload gets

@@ -344,7 +344,6 @@ func TestGIFChain_CreateUploadGatesOverTheWire(t *testing.T) {
 
 	on := func(c *config.Config) {
 		mediaOn(c)
-		c.FeatureProfileExtras = flags.Spec{Name: "profile_extras", Mode: flags.On} // BANNER is gated by it
 		c.FeatureGif = flags.Spec{Name: "gif", Mode: flags.On}
 	}
 	t.Run("flag on: shape rules", func(t *testing.T) {
@@ -356,7 +355,6 @@ func TestGIFChain_CreateUploadGatesOverTheWire(t *testing.T) {
 			"gif and photo":     req(post, "gif-shape-key-0000001", item("image/gif", "image/jpeg"), photo),
 			"two gifs":          req(post, "gif-shape-key-0000002", item("image/gif", "image/jpeg"), item("image/gif", "image/jpeg")),
 			"avatar gif":        req(mediav1.MediaPurpose_MEDIA_PURPOSE_AVATAR, "gif-shape-key-0000003", item("image/gif", "image/jpeg")),
-			"banner gif":        req(mediav1.MediaPurpose_MEDIA_PURPOSE_BANNER, "gif-shape-key-0000004", item("image/gif", "image/jpeg")),
 			"gif png thumbnail": req(post, "gif-shape-key-0000005", item("image/gif", "image/png")),
 			"gif no thumb type": req(post, "gif-shape-key-0000006", item("image/gif", "")),
 			"gif gif thumbnail": req(post, "gif-shape-key-0000007", item("image/gif", "image/gif")),

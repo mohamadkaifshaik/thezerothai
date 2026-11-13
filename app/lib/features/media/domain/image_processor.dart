@@ -24,16 +24,7 @@ const kPostThumbEdge = 400;
 const kAvatarFullEdge = 400;
 const kAvatarThumbEdge = 96;
 
-/// The banner: a center-cropped 3:1 band, full 1500 x 500 and
-/// thumb 600 x 200, under the banner's own, tighter caps (1 MiB / 128 KiB).
-/// The server checks the declared size: width <= 1500, height <= 500 and 3:1
-/// within 2%; this processor produces exactly 3:1.
-const kBannerFullWidth = 1500;
-const kBannerThumbWidth = 600;
-const kMaxBannerFullBytes = 1024 * 1024;
-const kMaxBannerThumbBytes = 128 * 1024;
-
-enum ImagePurpose { post, avatar, banner }
+enum ImagePurpose { post, avatar }
 
 /// Turns picked bytes into an upload-ready [ProcessedImage]. An interface so
 /// widget and cubit tests never decode real pixels.
@@ -87,7 +78,7 @@ ProcessedImage _run((Uint8List, ImagePurpose) args) =>
 /// - Flattens transparency onto white (JPEG has no alpha).
 /// - Downscales to the purpose's full edge (never upscales), encodes JPEG
 ///   stepping quality (then size) down until it fits the signed-URL cap.
-/// - Avatars are center-cropped to a square first, banners to exactly 3:1.
+/// - Avatars are center-cropped to a square first.
 ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
   img.Image? decoded;
   try {
@@ -102,9 +93,8 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
   source = _flattenOnWhite(source);
 
   final avatar = purpose == ImagePurpose.avatar;
-  final banner = purpose == ImagePurpose.banner;
-  if (avatar || banner) {
-    // Centered square / largest centered 3:1 band (image_size_plan.dart).
+  if (avatar) {
+    // The centered square (image_size_plan.dart).
     final crop = cropFor(purpose, source.width, source.height);
     source = img.copyCrop(
       source,
@@ -114,26 +104,15 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
       height: crop.height,
     );
   }
-  final fullEdge = banner
-      ? kBannerFullWidth
-      : (avatar ? kAvatarFullEdge : kPostFullEdge);
-  final thumbEdge = banner
-      ? kBannerThumbWidth
-      : (avatar ? kAvatarThumbEdge : kPostThumbEdge);
+  final fullEdge = avatar ? kAvatarFullEdge : kPostFullEdge;
+  final thumbEdge = avatar ? kAvatarThumbEdge : kPostThumbEdge;
 
-  final full = _encodeWithin(
-    source,
-    fullEdge,
-    banner ? kMaxBannerFullBytes : kMaxFullBytes,
-    quality: 80,
-    threeToOne: banner,
-  );
+  final full = _encodeWithin(source, fullEdge, kMaxFullBytes, quality: 80);
   final thumb = _encodeWithin(
     full.image,
     thumbEdge,
-    banner ? kMaxBannerThumbBytes : kMaxThumbBytes,
+    kMaxThumbBytes,
     quality: 70,
-    threeToOne: banner,
   );
 
   return ProcessedImage(
@@ -389,16 +368,13 @@ class _Encoded {
 }
 
 /// Fits [source] into [edge] px on its longest side and encodes it at or
-/// under [maxBytes]: quality steps down first, then the image shrinks. With
-/// [threeToOne] [edge] is the width of a 3:1 band (a source that is exactly
-/// 3:1) and every size stays exactly 3:1. The sizes come from
-/// [encodeAttempts], shared with the web worker path.
+/// under [maxBytes]: quality steps down first, then the image shrinks. The
+/// sizes come from [encodeAttempts], shared with the web worker path.
 _Encoded _encodeWithin(
   img.Image source,
   int edge,
   int maxBytes, {
   required int quality,
-  bool threeToOne = false,
 }) {
   var current = source;
   for (final attempt in encodeAttempts(
@@ -406,7 +382,6 @@ _Encoded _encodeWithin(
     source.height,
     edge,
     quality: quality,
-    threeToOne: threeToOne,
   )) {
     if (attempt.width != current.width || attempt.height != current.height) {
       // Each smaller size is resized from the previous one, as before.

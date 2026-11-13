@@ -211,7 +211,10 @@ void main() {
       });
 
       test('modal barriers use the theme scrim', () {
-        expect(app.scrim, AppPalette.scrim);
+        expect(
+          app.scrim,
+          entry.key == 'dark' ? AppPalette.scrimDark : AppPalette.scrim,
+        );
         expect(theme.dialogTheme.barrierColor, app.scrim);
         expect(theme.bottomSheetTheme.modalBarrierColor, app.scrim);
         expect(theme.drawerTheme.scrimColor, app.scrim);
@@ -365,7 +368,8 @@ void main() {
     expect(AppSize.drawerRow, 56);
     expect(AppSize.avatarMd, 40);
     expect(AppSize.avatarSm, 32);
-    expect(AppIconSize.action, 16);
+    // dz.css `.acts` glyph (R1 restyle; was 16).
+    expect(AppIconSize.action, 18);
     expect(AppBreakpoints.mobile, 600);
     expect(AppBreakpoints.tablet, 1200);
   });
@@ -412,7 +416,7 @@ void main() {
       expect(AppPalette.navy, const Color(0xFF0D1528));
       expect(AppPalette.navy2, const Color(0xFF1B2A44));
       expect(AppPalette.navyDeep, const Color(0xFF08101F));
-      expect(AppPalette.pearl, const Color(0xFFF6F4EF));
+      expect(AppPalette.pearl, const Color(0xFFFAFAFA));
       expect(AppPalette.white, const Color(0xFFFFFFFF));
       expect(AppPalette.teal, const Color(0xFF12B8A6));
       expect(AppPalette.tealDark, const Color(0xFF0B8C7F));
@@ -426,7 +430,7 @@ void main() {
       expect(AppPalette.danger, const Color(0xFFB42318));
       expect(AppPalette.dangerOnDark, const Color(0xFFF97066));
       expect(AppPalette.hairlineLight, const Color(0x140D1528));
-      expect(AppPalette.hairlineDark, const Color(0x1AF6F4EF));
+      expect(AppPalette.hairlineDark, const Color(0x1AFAFAFA));
       expect(AppPalette.scrim, const Color(0x7A08101F));
     });
 
@@ -593,18 +597,18 @@ void main() {
       }
 
       // tealText on light.
-      atLeast(AppPalette.tealText, AppPalette.pearl, 4.5, 5.43);
+      atLeast(AppPalette.tealText, AppPalette.pearl, 4.5, 5.72);
       atLeast(AppPalette.tealText, AppPalette.white, 4.5, 5.97);
       atLeast(AppPalette.tealText, ee, 4.5, 5.26);
       // Borders.
-      atLeast(AppPalette.uiBorderOnLight, AppPalette.pearl, 3, 3.48);
+      atLeast(AppPalette.uiBorderOnLight, AppPalette.pearl, 3, 3.67);
       atLeast(AppPalette.uiBorderOnLight, AppPalette.white, 3, 3.83);
       atLeast(AppPalette.uiBorderOnLight, ee, 3, 3.37);
       atLeast(AppPalette.uiBorderOnDark, AppPalette.navy, 3, 5.01);
       atLeast(AppPalette.uiBorderOnDark, AppPalette.navy2, 3, 3.96);
       atLeast(AppPalette.uiBorderOnDark, AppPalette.navyDeep, 3, 5.24);
       // Muted text.
-      atLeast(AppPalette.mutedOnLight, AppPalette.pearl, 4.5, 5.42);
+      atLeast(AppPalette.mutedOnLight, AppPalette.pearl, 4.5, 5.71);
       atLeast(AppPalette.mutedOnLight, AppPalette.white, 4.5, 5.96);
       atLeast(AppPalette.mutedOnDark, AppPalette.navy, 4.5, 7.15);
       atLeast(AppPalette.mutedOnDark, AppPalette.navy2, 4.5, 5.65);
@@ -617,7 +621,7 @@ void main() {
       // onPrimary (light).
       atLeast(AppPalette.white, AppPalette.tealText, 4.5, 5.97);
       // Danger.
-      atLeast(AppPalette.danger, AppPalette.pearl, 4.5, 5.98);
+      atLeast(AppPalette.danger, AppPalette.pearl, 4.5, 6.30);
       atLeast(AppPalette.white, AppPalette.danger, 4.5, 6.57);
       expect(
         contrast(AppPalette.danger, AppPalette.navy),
@@ -630,13 +634,13 @@ void main() {
 
     test('tealDark is large display text only', () {
       final r = contrast(AppPalette.tealDark, AppPalette.pearl);
-      expect(r, closeTo(3.77, 0.02));
+      expect(r, closeTo(3.97, 0.02));
       expect(r, greaterThanOrEqualTo(3));
       expect(r, lessThan(4.5), reason: 'fails body text: keep it >= 24 sp');
     });
 
     test('teal accents fail on light, so they are never text there', () {
-      expect(contrast(AppPalette.teal, AppPalette.pearl), closeTo(2.27, 0.02));
+      expect(contrast(AppPalette.teal, AppPalette.pearl), closeTo(2.39, 0.02));
       expect(contrast(AppPalette.tealElectric, AppPalette.pearl), lessThan(3));
       // And the active light theme assigns neither to a text role.
       final scheme = appLightTheme.colorScheme;
@@ -927,7 +931,10 @@ void _componentThemes() {
           dialog.shape,
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         );
-        expect(dialog.barrierColor, AppPalette.scrim);
+        expect(
+          dialog.barrierColor,
+          isDark ? AppPalette.scrimDark : AppPalette.scrim,
+        );
         expect(dialog.elevation, 0);
 
         final sheet = theme.bottomSheetTheme;
