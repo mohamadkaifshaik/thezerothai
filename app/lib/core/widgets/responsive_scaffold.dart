@@ -380,83 +380,112 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final movement = AppMotion.of(context).movement;
     const duration = Duration(milliseconds: 180);
     final reserved = media.padding.bottom + AppFloatingBottomBar.reservedHeight;
-    return Scaffold(
-      key: _scaffoldKey,
-      drawer: widget.drawer,
-      extendBody: true,
-      body: SafeArea(
-        top: !widget.extendBodyUnderStatusBar,
-        bottom: false,
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          // The same wrapper with or without the bar, so the page keeps its
-          // state (and its focused field) when the keyboard opens.
-          child: Builder(
-            builder: (context) {
-              // Below the SafeArea: only the bottom edge changes.
-              final inner = MediaQuery.of(context);
-              if (keyboardOpen) {
-                return MediaQuery(data: inner, child: widget.body);
-              }
-              return MediaQuery(
-                data: inner.copyWith(
-                  padding: inner.padding.copyWith(bottom: reserved),
-                  viewPadding: inner.viewPadding.copyWith(bottom: reserved),
-                ),
-                child: widget.body,
-              );
-            },
-          ),
+    final page = SafeArea(
+      top: !widget.extendBodyUnderStatusBar,
+      bottom: false,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _onScrollNotification,
+        // The same wrapper with or without the bar, so the page keeps its
+        // state (and its focused field) when the keyboard opens.
+        child: Builder(
+          builder: (context) {
+            // Below the SafeArea: only the bottom edge changes.
+            final inner = MediaQuery.of(context);
+            if (keyboardOpen) {
+              return MediaQuery(data: inner, child: widget.body);
+            }
+            return MediaQuery(
+              data: inner.copyWith(
+                padding: inner.padding.copyWith(bottom: reserved),
+                viewPadding: inner.viewPadding.copyWith(bottom: reserved),
+              ),
+              child: widget.body,
+            );
+          },
         ),
       ),
-      floatingActionButton: widget.fab == null
-          ? null
-          // While the bar is scrolled away the button drops by the bar's
-          // height into the corner, and rises with it again.
-          : AnimatedContainer(
+    );
+    final fabRight = AppSpacing.md + media.padding.right;
+    final fabRaised = reserved + AppSpacing.md;
+    final fabDropped = media.padding.bottom + AppSpacing.md;
+    // The bar and the button are children of the body, not the Scaffold's
+    // own slots: the Scaffold paints snack bars above its body but under
+    // those slots, and lifts them above both. Here a snack bar sits at the
+    // bottom edge, over the bar and the button.
+    final scaffold = Scaffold(
+      key: _scaffoldKey,
+      drawer: widget.drawer,
+      body: Stack(
+        children: [
+          Positioned.fill(child: page),
+          if (!keyboardOpen)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                ignoring: hidden,
+                child: ExcludeSemantics(
+                  excluding: hidden,
+                  child: AnimatedSlide(
+                    // Reduced motion: fade only.
+                    offset: hidden && movement
+                        ? const Offset(0, 1)
+                        : Offset.zero,
+                    duration: duration,
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedOpacity(
+                      opacity: hidden ? 0 : 1,
+                      duration: duration,
+                      curve: Curves.easeOutCubic,
+                      child: AppBottomBar(
+                        floating: true,
+                        destinations: [
+                          for (final i in bar) widget.destinations[i],
+                        ],
+                        selectedIndex: selected < 0 ? null : selected,
+                        onSelected: (index) =>
+                            widget.onDestinationSelected(bar[index]),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (widget.fab != null)
+            // While the bar is scrolled away the button drops by the bar's
+            // height into the corner, and rises with it again. It moves by
+            // layout (not a Transform), so a tap at either spot hits it.
+            AnimatedPositioned(
               duration: movement ? duration : Duration.zero,
               curve: Curves.easeOutCubic,
-              transform: Matrix4.translationValues(
-                0,
-                hidden && !keyboardOpen
-                    ? AppFloatingBottomBar.reservedHeight
-                    : 0,
-                0,
-              ),
+              right: fabRight,
+              bottom: keyboardOpen
+                  ? AppSpacing.md
+                  : (hidden ? fabDropped : fabRaised),
               child: AppGradientFab(
                 tooltip: widget.fab!.tooltip,
                 icon: widget.fab!.icon,
                 onPressed: widget.fab!.onPressed,
               ),
             ),
-      bottomNavigationBar: keyboardOpen
-          ? null
-          : IgnorePointer(
-              ignoring: hidden,
-              child: ExcludeSemantics(
-                excluding: hidden,
-                child: AnimatedSlide(
-                  // Reduced motion: fade only.
-                  offset: hidden && movement ? const Offset(0, 1) : Offset.zero,
-                  duration: duration,
-                  curve: Curves.easeOutCubic,
-                  child: AnimatedOpacity(
-                    opacity: hidden ? 0 : 1,
-                    duration: duration,
-                    curve: Curves.easeOutCubic,
-                    child: AppBottomBar(
-                      floating: true,
-                      destinations: [
-                        for (final i in bar) widget.destinations[i],
-                      ],
-                      selectedIndex: selected < 0 ? null : selected,
-                      onSelected: (index) =>
-                          widget.onDestinationSelected(bar[index]),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+        ],
+      ),
+    );
+    // The bottom safe area stays clear of the snack bar at the edge.
+    final theme = Theme.of(context);
+    final snack = theme.snackBarTheme;
+    final inset =
+        snack.insetPadding ?? const EdgeInsets.fromLTRB(15, 5, 15, 10);
+    return Theme(
+      data: theme.copyWith(
+        snackBarTheme: snack.copyWith(
+          insetPadding: inset.copyWith(
+            bottom: inset.bottom + media.padding.bottom,
+          ),
+        ),
+      ),
+      child: scaffold,
     );
   }
 

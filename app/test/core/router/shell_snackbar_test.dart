@@ -42,26 +42,51 @@ void main() {
       false,
     ),
   ]) {
-    testWidgets('a snack bar sits above the bar and the button ($name)', (
+    testWidgets('a snack bar covers the bar and the button ($name)', (
       tester,
     ) async {
       final messenger = await _pump(tester, location);
-      messenger.showSnackBar(const SnackBar(content: Text('Bookmarked')));
+      var undone = 0;
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('Bookmarked'),
+          duration: const Duration(days: 1),
+          action: SnackBarAction(label: 'Undo', onPressed: () => undone++),
+        ),
+      );
       await tester.pumpAndSettle();
 
       final snack = tester.getRect(find.byType(SnackBar));
       final bar = tester.getRect(find.byType(AppBottomBar));
-      expect(snack.bottom, lessThanOrEqualTo(bar.top));
+      // At the bottom edge, over the bar, not above it.
+      expect(snack.bottom, 900);
+      expect(snack.overlaps(bar), isTrue);
       final fab = find.descendant(
         of: find.byType(ResponsiveScaffold),
         matching: find.byType(FloatingActionButton),
       );
       expect(fab.evaluate().isNotEmpty, hasFab);
-      if (hasFab) {
-        expect(snack.bottom, lessThanOrEqualTo(tester.getRect(fab).top));
-      }
+
+      // Painted above the bar: its action takes a tap that lands on the bar.
+      final undo = tester.getCenter(find.text('Undo'));
+      expect(bar.contains(undo), isTrue);
+      await tester.tapAt(undo);
+      expect(undone, 1);
     });
   }
+
+  testWidgets('a snack bar keeps the bottom safe area clear', (tester) async {
+    tester.view.padding = const FakeViewPadding(bottom: 34);
+    addTearDown(tester.view.reset);
+    final messenger = await _pump(tester, AppRouter.communitiesPath);
+    messenger.showSnackBar(const SnackBar(content: Text('Bookmarked')));
+    await tester.pumpAndSettle();
+
+    final snack = tester.getRect(find.byType(SnackBar));
+    // The box carries the margin; its text stays above the safe area.
+    expect(tester.getRect(find.text('Bookmarked')).bottom, lessThan(900 - 34));
+    expect(snack.overlaps(tester.getRect(find.byType(AppBottomBar))), isTrue);
+  });
 
   testWidgets('a right swipe dismisses a snack bar; a down swipe does not', (
     tester,
