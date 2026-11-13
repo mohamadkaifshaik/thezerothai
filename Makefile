@@ -45,7 +45,7 @@ EMULATOR_PROJECT := demo-dzeroth-local
 # `bash scripts/...` is a single cmd.exe-safe command line (see dev below).
 EMULATOR_TMP := bash scripts/with-private-tmp.sh
 
-.PHONY: proto ci emulators test-int test-int-shard test-int-cover dev cost loadtest fmt vet test buf-check lint flutter-analyze flutter-test help
+.PHONY: proto ci emulators test-int test-int-shard test-int-cover dev cost loadtest fmt vet test test-shard test-cover buf-check lint flutter-analyze flutter-test help
 
 help:
 	@echo "Targets: proto ci emulators test-int dev cost loadtest fmt vet test"
@@ -91,6 +91,20 @@ COVERAGE_THRESHOLD := 70
 test:
 	cd $(BACKEND_DIR) && go test $(RACE_FLAG) -shuffle=on -coverprofile=cover.out -coverpkg=./pkg/platform/... ./...
 	@echo "==> pkg/platform coverage gate ($(COVERAGE_THRESHOLD)%)"
+	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover.out $(COVERAGE_THRESHOLD) pkg/platform
+
+## test-shard: one CI shard of test, SHARD=<index>/<total> (0-based): the packages scripts/ci/shard.sh go-packages puts in
+## that shard, writing backend/cover-platform-shard-<index>-of-<total>.out. No gate here: test-cover gates the merged
+## profiles of all shards. `make test` itself is unchanged (one run, its own gate).
+test-shard:
+	@[ -n "$(SHARD)" ] || { echo "usage: make test-shard SHARD=<index>/<total>"; exit 2; }
+	bash scripts/ci/test-shard.sh $(SHARD) $(RACE_FLAG)
+
+## test-cover: merges every test-shard profile of one run (all <total> of them, or it fails) into backend/cover.out and
+## applies test's pkg/platform coverage gate to it.
+test-cover:
+	bash scripts/ci/cover.sh merge $(BACKEND_DIR)/cover.out $(BACKEND_DIR)/cover-platform-shard-*-of-*.out
+	@echo "==> pkg/platform coverage gate (all shards, $(COVERAGE_THRESHOLD)%)"
 	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover.out $(COVERAGE_THRESHOLD) pkg/platform
 
 ## ci: everything make ci must pass before any agent declares work done. Prerequisites run left to right.

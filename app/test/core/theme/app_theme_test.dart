@@ -342,7 +342,7 @@ void main() {
     }
   });
 
-  test('the type scale is DM Sans and Manrope (ADR-0033; typography_test)', () {
+  test('the type scale is Inter (ADR-0033; typography_test)', () {
     for (final theme in [appLightTheme, appDarkTheme]) {
       final text = theme.textTheme;
       expect(text.displayLarge!.fontFamily, AppFonts.display);

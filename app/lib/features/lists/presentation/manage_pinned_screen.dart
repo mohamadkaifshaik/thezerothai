@@ -89,6 +89,9 @@ class _ManagePinnedScreenState extends State<ManagePinnedScreen> {
       ],
       child: Scaffold(
         body: SafeArea(
+          // The floating bar overlays the page: the scroll view runs behind it
+          // and ends with the bar's inset (ShellBottomInsetSliver).
+          bottom: false,
           child: AppMainColumn(
             child: Column(
               children: [

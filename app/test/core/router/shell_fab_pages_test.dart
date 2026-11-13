@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:flutter/material.dart';
@@ -78,6 +80,51 @@ void main() {
       expect(_fabTooltip(tester), isNull);
     });
   }
+
+  // Every route under a community: its own button or none, never the list's
+  // "Create a community", however the page was reached.
+  testWidgets('each page of a community stack has its own button', (
+    tester,
+  ) async {
+    final rig = CommunitiesTabletRig();
+    await rig.pump(tester, width: _phone);
+    expect(_fabTooltip(tester), 'Create a community');
+
+    unawaited(rig.router.push(AppRouter.communityPath(kRigCommunityId)));
+    await tester.pumpAndSettle();
+    expect(_fabTooltip(tester), startsWith('Post in '));
+
+    unawaited(
+      rig.router.push(AppRouter.communityMembersPath(kRigCommunityId)),
+    );
+    await tester.pumpAndSettle();
+    expect(_fabTooltip(tester), isNull);
+
+    rig.router.pop();
+    await tester.pumpAndSettle();
+    expect(_fabTooltip(tester), startsWith('Post in '));
+
+    unawaited(
+      rig.router.push(AppRouter.communityModerationLogPath(kRigCommunityId)),
+    );
+    await tester.pumpAndSettle();
+    expect(_fabTooltip(tester), isNull);
+
+    rig.router.go(AppRouter.communityNewPath);
+    await tester.pumpAndSettle();
+    expect(_fabTooltip(tester), isNull);
+  });
+
+  testWidgets('the moderation log has no button', (tester) async {
+    final rig = CommunitiesTabletRig();
+    await rig.pump(
+      tester,
+      location: AppRouter.communityModerationLogPath(kRigCommunityId),
+      width: _phone,
+    );
+
+    expect(_fabTooltip(tester), isNull);
+  });
 
   testWidgets('a profile: none', (tester) async {
     final rig = ProfileTabletRig();

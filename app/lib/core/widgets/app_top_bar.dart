@@ -528,18 +528,19 @@ class AppTopBarAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!isFeatureEnabled(context, kFeatureUiShell)) {
-      return IconButton(
-        tooltip: tooltip,
-        onPressed: onPressed,
-        icon: Icon(icon),
-      );
-    }
-    return AppIconButton(
-      icon: icon,
-      tooltip: tooltip,
-      onPressed: onPressed,
-      raised: true,
+    // Each action keeps AppSpacing.sm from the one before it, so neighbours
+    // never touch (the end gap of the bar is separate).
+    final Widget button = isFeatureEnabled(context, kFeatureUiShell)
+        ? AppIconButton(
+            icon: icon,
+            tooltip: tooltip,
+            onPressed: onPressed,
+            raised: true,
+          )
+        : IconButton(tooltip: tooltip, onPressed: onPressed, icon: Icon(icon));
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: AppSpacing.sm),
+      child: button,
     );
   }
 }

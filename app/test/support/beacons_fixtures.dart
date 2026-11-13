@@ -24,6 +24,7 @@ pb.BeaconView beaconView({
   String communityId = '',
   bool hidden = false,
   bool canManage = false,
+  bool quickJoin = false,
   String organiserId = 'org',
   String organiserHandle = 'org',
   String organiserName = 'Orla',
@@ -56,6 +57,8 @@ pb.BeaconView beaconView({
         : pb.ViewerRole.VIEWER_ROLE_NONE,
     canManage: canManage,
     canRequest: !canManage && status == pb.BeaconStatus.BEACON_STATUS_OPEN,
+    quickJoinAllowed:
+        quickJoin && !canManage && status == pb.BeaconStatus.BEACON_STATUS_OPEN,
   ),
 );
 

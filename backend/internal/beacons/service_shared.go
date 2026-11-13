@@ -188,5 +188,6 @@ func (s *service) ListShared(ctx context.Context, viewer string, in SharedInput)
 		}
 		out.Views = append(out.Views, s.viewWith(c.b, p, viewer, pstate))
 	}
+	s.markQuickJoin(ctx, viewer, out.Views)
 	return out, nil
 }
