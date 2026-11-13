@@ -242,7 +242,7 @@ void main() {
 
     expect(router.routeInformationProvider.value.uri.path, '/explore');
     expect(find.byType(BackButton), findsNothing);
-    expect(find.text('Trending'), findsOneWidget);
+    expect(find.byType(AppSearchField), findsOneWidget);
   });
 
   testWidgets('the rail item goes to /explore too', (tester) async {
@@ -322,7 +322,8 @@ void main() {
               textScale: scale,
             );
             expect(tester.takeException(), isNull);
-            expect(find.text('Trending'), findsOneWidget);
+            // The header is the search row alone (no tab bar).
+            expect(find.text('Trending'), findsNothing);
             expect(find.byType(AppSearchField), findsOneWidget);
             final pill = tester.getSize(find.byType(AppSearchField));
             expect(pill.height, greaterThanOrEqualTo(48));
@@ -362,7 +363,7 @@ void main() {
     testWidgets('flag off: no trends section, no call', (tester) async {
       final search = repo(3);
       await pump(tester, search: search);
-      expect(find.text('Trending today'), findsNothing);
+      expect(find.text('Trending'), findsNothing);
       expect(search.calls, isEmpty);
     });
 
@@ -409,7 +410,7 @@ void main() {
         )
         .opacity;
 
-    testWidgets('Explore shows 10 rows, Show more expands to 30', (
+    testWidgets('Explore shows the top 3 rows and a See all link', (
       tester,
     ) async {
       final search = repo(30);
@@ -417,24 +418,16 @@ void main() {
       await jumpToEnd(tester);
       // The end of the page clears the floating bar, which is still up.
       expect(barOpacity(tester), 1);
-      expect(
-        tester.getRect(find.text('Show more')).bottom,
-        lessThanOrEqualTo(tester.getRect(pill()).top),
-      );
-      expect(find.text('#tag10'), findsOneWidget);
-      expect(find.text('#tag11', skipOffstage: false), findsNothing);
-      await tester.tap(find.text('Show more'));
-      await tester.pumpAndSettle();
-      await jumpToEnd(tester);
-      expect(find.text('#tag30'), findsOneWidget);
-      expect(
-        tester.getRect(find.text('#tag30')).bottom,
-        lessThanOrEqualTo(tester.getRect(pill()).top),
-      );
+      expect(find.text('#tag3'), findsOneWidget);
+      expect(find.text('#tag4', skipOffstage: false), findsNothing);
+      expect(find.text('Show more'), findsNothing);
+      expect(find.text('Trending'), findsOneWidget);
+      expect(find.text('See all'), findsOneWidget);
+      expect(search.calls, ['trends:'], reason: 'one call for all 30');
     });
 
     group('the end of a short page (bottom inset)', () {
-      /// The bottom of the last row (`#tag10`) on a page tall enough to show
+      /// The bottom of the last row (`#tag3`) on a page tall enough to show
       /// everything without scrolling.
       Future<double> lastRowBottomUnscrolled(WidgetTester tester) async {
         await pump(
@@ -443,7 +436,7 @@ void main() {
           search: repo(10),
           size: const Size(360, 2000),
         );
-        return tester.getRect(find.text('#tag10')).bottom;
+        return tester.getRect(find.text('#tag3')).bottom;
       }
 
       testWidgets('ui_shell on: a page that does not scroll with the bar '
@@ -464,13 +457,13 @@ void main() {
         final pillTop = tester.getRect(pill()).top;
         expect(pillTop, height - 90);
         expect(
-          tester.getRect(find.text('#tag10')).bottom,
+          tester.getRect(find.text('#tag3')).bottom,
           lessThanOrEqualTo(pillTop),
         );
         // A tap on the last row reaches it, not the bar.
-        await tester.tap(find.text('#tag10'));
+        await tester.tap(find.text('#tag3'));
         await tester.pumpAndSettle();
-        expect(find.text('search q=#tag10'), findsOneWidget);
+        expect(find.text('search q=#tag3'), findsOneWidget);
       });
 
       testWidgets('ui_shell off: the docked bar, the page ends at its top', (
@@ -493,7 +486,7 @@ void main() {
         final explore = tester.getRect(exploreScrollable());
         expect(explore.bottom, barTop);
         expect(
-          tester.getRect(find.text('#tag10')).bottom,
+          tester.getRect(find.text('#tag3')).bottom,
           lessThanOrEqualTo(barTop),
         );
         // The inset adds nothing under the docked bar.
@@ -510,7 +503,7 @@ void main() {
             computedAt: DateTime.now(),
           );
         await pump(tester, flags: withTrends, search: search);
-        expect(find.text('01'), findsOneWidget);
+        expect(find.text('1'), findsOneWidget);
         expect(find.text('#launch'), findsOneWidget);
         expect(find.text('1.2K posts'), findsOneWidget);
         await tester.tap(find.text('#launch'));
@@ -579,7 +572,7 @@ void main() {
       expect(find.text('#tag6'), findsNothing);
       await tester.tap(find.text('Show more'));
       await tester.pumpAndSettle();
-      expect(find.text('Trending today'), findsOneWidget);
+      expect(find.text('Trending'), findsOneWidget);
     });
 
     testWidgets('card flag off: no card, no call', (tester) async {
@@ -604,8 +597,9 @@ void main() {
         flags: withTrends,
         search: search,
       );
-      expect(find.text("What's happening"), findsOneWidget);
-      expect(find.text('Trending today'), findsOneWidget);
+      // The page lists the trends itself: no second list beside it.
+      expect(find.text("What's happening"), findsNothing);
+      expect(find.text('Trending'), findsOneWidget);
       expect(search.calls, ['trends:']);
     });
 
