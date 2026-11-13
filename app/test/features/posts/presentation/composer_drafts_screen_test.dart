@@ -505,7 +505,10 @@ void main() {
         textScale: env.textScale,
       );
       expect(tester.takeException(), isNull);
-      for (final finder in [draftsButton(), find.byTooltip('Close')]) {
+      for (final finder in [
+        draftsButton(),
+        find.byTooltip('Close'),
+      ]) {
         expect(
           tester.getSize(finder).height,
           greaterThanOrEqualTo(40),

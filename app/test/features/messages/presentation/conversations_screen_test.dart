@@ -400,9 +400,9 @@ void main() {
   });
 
   group('New message action', () {
-    ShellFabAction? offered(WidgetTester tester) =>
-        ShellFabScope.maybeOf(tester.element(find.byType(ConversationsScreen)))!
-            .actionAt('/');
+    ShellFabAction? offered(WidgetTester tester) => ShellFabScope.maybeOf(
+      tester.element(find.byType(ConversationsScreen)),
+    )!.actionAt('/');
 
     testWidgets('the inbox offers no floating button until /messages/new '
         'exists (W7-17)', (tester) async {
@@ -430,7 +430,11 @@ void main() {
     testWidgets('Requests offers none', (tester) async {
       stub(cached: [conv('a', snippet: 'one')]);
 
-      await open(tester, folder: Folder.FOLDER_REQUESTS, onNewMessage: () {});
+      await open(
+        tester,
+        folder: Folder.FOLDER_REQUESTS,
+        onNewMessage: () {},
+      );
 
       expect(offered(tester), isNull);
     });

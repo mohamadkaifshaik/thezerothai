@@ -333,32 +333,33 @@ void main() {
   for (final dark in [false, true]) {
     for (final width in const [360.0, 600.0, 1200.0]) {
       for (final scale in const [1.0, 1.3, 2.0]) {
-        testWidgets('W2-13 matrix: quote composer ${dark ? 'dark' : 'light'} '
-            '${width.toInt()}dp x$scale: preview, field and Post fit', (
-          tester,
-        ) async {
-          features({'engagement', 'quotes'});
-          await open(
-            tester,
-            quote: quoted,
-            withPreview: preview,
-            textScale: scale,
-            width: width,
-            theme: dark ? appDarkTheme : appLightTheme,
-          );
+        testWidgets(
+          'W2-13 matrix: quote composer ${dark ? 'dark' : 'light'} '
+          '${width.toInt()}dp x$scale: preview, field and Post fit',
+          (tester) async {
+            features({'engagement', 'quotes'});
+            await open(
+              tester,
+              quote: quoted,
+              withPreview: preview,
+              textScale: scale,
+              width: width,
+              theme: dark ? appDarkTheme : appLightTheme,
+            );
 
-          expect(tester.takeException(), isNull);
-          expect(find.text('the quoted words'), findsOneWidget);
-          final post = tester.getRect(
-            find.widgetWithText(AppPillButton, 'Post'),
-          );
-          expect(post.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
-          expect(post.left, greaterThanOrEqualTo(0));
-          expect(post.right, lessThanOrEqualTo(width));
-          final field = tester.getRect(find.byType(TextField));
-          expect(field.left, greaterThanOrEqualTo(0));
-          expect(field.right, lessThanOrEqualTo(width));
-        });
+            expect(tester.takeException(), isNull);
+            expect(find.text('the quoted words'), findsOneWidget);
+            final post = tester.getRect(
+              find.widgetWithText(AppPillButton, 'Post'),
+            );
+            expect(post.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+            expect(post.left, greaterThanOrEqualTo(0));
+            expect(post.right, lessThanOrEqualTo(width));
+            final field = tester.getRect(find.byType(TextField));
+            expect(field.left, greaterThanOrEqualTo(0));
+            expect(field.right, lessThanOrEqualTo(width));
+          },
+        );
       }
     }
   }

@@ -75,7 +75,11 @@ void main() {
       }
       expect(
         tester.getSemantics(find.text('Sign out')),
-        matchesSemantics(label: 'Sign out', isButton: true, hasTapAction: true),
+        matchesSemantics(
+          label: 'Sign out',
+          isButton: true,
+          hasTapAction: true,
+        ),
       );
       await tester.tap(find.byIcon(Icons.person_outline));
       expect(taps, 1);

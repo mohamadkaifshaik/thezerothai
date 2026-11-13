@@ -241,7 +241,10 @@ void main() {
         connect.ConnectException(connect.Code.notFound, 'community not found'),
       );
       expect(e, isA<NotFoundException>());
-      expect(communitiesErrorMessage(e), 'This community is unavailable.');
+      expect(
+        communitiesErrorMessage(e),
+        'This community is unavailable.',
+      );
     });
   });
 
