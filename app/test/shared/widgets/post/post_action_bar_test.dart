@@ -160,6 +160,29 @@ void main() {
       expect(share.width, AppIconSize.action);
     });
 
+    testWidgets('no press ripple or pressed circle behind the action icons '
+        '(hover stays)', (tester) async {
+      await tester.pumpWidget(
+        _host(
+          PostActionBar(
+            actions: PostActions(onLike: () {}, onBookmark: () {}),
+          ),
+        ),
+      );
+      final inks = tester.widgetList<InkResponse>(
+        find.descendant(
+          of: find.byType(PostActionBar),
+          matching: find.byType(InkResponse),
+        ),
+      );
+      expect(inks, isNotEmpty);
+      for (final ink in inks) {
+        expect(ink.splashColor, Colors.transparent);
+        expect(ink.highlightColor, Colors.transparent);
+        expect(ink.hoverColor, isNull, reason: 'the theme hover stays');
+      }
+    });
+
     testWidgets('Bookmark appears only with a callback; takes the slot after '
         'the other actions, outline then filled accent, labelled and '
         'selected', (tester) async {
