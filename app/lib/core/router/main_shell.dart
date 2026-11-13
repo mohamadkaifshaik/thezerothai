@@ -46,6 +46,7 @@ import '../widgets/context_pane_slots.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
 import '../widgets/shell_fab.dart';
+import '../widgets/splash_screen.dart';
 import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
@@ -268,9 +269,16 @@ class MainShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      // The pages under the shell offer their floating button here.
-      ShellFabHost(child: Builder(builder: _build));
+  Widget build(BuildContext context) {
+    // Until GetMe has said which features are on, every flag reads off: the
+    // Home placeholder and the legacy bar would flash. Hold the splash.
+    final pending = context.select(
+      (OnboardingBloc bloc) => bloc.state.featuresPending,
+    );
+    if (pending) return const SplashScreen();
+    // The pages under the shell offer their floating button here.
+    return ShellFabHost(child: Builder(builder: _build));
+  }
 
   /// The phone's floating button at [location]: Home's New post, else the
   /// action the page offers (Plans, Messages, Lists, Communities, a
