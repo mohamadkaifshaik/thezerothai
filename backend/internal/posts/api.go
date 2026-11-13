@@ -125,8 +125,11 @@ type Post struct {
 	RepostCount      int64
 	ReplyCount       int64
 	QuoteCount       int64
-	Visibility       Visibility
-	SnapshotVersion  int64
+	// ShareCount is posts/{id}.shareCount: the distinct accounts (other than the author) that shared the post, written by
+	// engagement through EngagementWriter.StageShareCount with the postShares marker; absent on older docs (0).
+	ShareCount      int64
+	Visibility      Visibility
+	SnapshotVersion int64
 	// Moderation is the moderation state. Readers return hidden posts WITH this field set: every
 	// consumer must drop them (Visible), exactly like it drops blocked authors.
 	Moderation Moderation
@@ -747,6 +750,9 @@ type Engagement interface {
 	RefuseShare(ctx context.Context, callerUID string, p *Post) error
 	// CountsChanged applies deltas to the instance copy of a post (copy on write), after a commit.
 	CountsChanged(postID string, likeDelta, repostDelta int64)
+	// SharesChanged applies a shareCount delta to the instance copy of a post (copy on write), after a commit of a
+	// postShares marker. A post that is not cached is left alone.
+	SharesChanged(postID string, delta int64)
 	// PollVoted applies one committed vote for choice (0-based) to the instance copy of the poll post (copy on write, a new Poll
 	// with fresh counts) and returns the updated post, or nil when the post is not cached.
 	PollVoted(postID string, choice int) *Post
