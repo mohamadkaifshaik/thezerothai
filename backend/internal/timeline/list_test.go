@@ -479,3 +479,8 @@ func TestList_RequestLogFields(t *testing.T) {
 		}
 	}
 }
+
+// FollowedAmong: the list timeline tests do not exercise following; no marker is set.
+func (f *fakeLists) FollowedAmong(context.Context, string, []string) (map[string]bool, error) {
+	return map[string]bool{}, nil
+}

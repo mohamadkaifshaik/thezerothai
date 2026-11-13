@@ -287,6 +287,9 @@ type Reader interface {
 	Members(ctx context.Context, viewer, listID string) (ListMembers, error)
 	// OwnedBy returns uid's own lists (private ones included), oldest first, at most LISTS_MAX_PER_USER. One uncached query.
 	OwnedBy(ctx context.Context, uid string) ([]List, error)
+	// FollowedAmong reports which of listIDs the viewer follows (one batched read). The timeline header uses it for
+	// followed_by_viewer; the caller decides whether FEATURE_LIST_FOLLOWS is on.
+	FollowedAmong(ctx context.Context, viewer string, listIDs []string) (map[string]bool, error)
 }
 
 // UserListsInput is a ListUserLists request after the transport layer. OwnerID "" means the caller.
