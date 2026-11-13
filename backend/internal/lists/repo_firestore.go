@@ -38,25 +38,27 @@ const (
 // listDoc is lists/{listId}. memberIds is always written as an array (never null) and stays indexed: the
 // eraser's `memberIds array-contains uid` query needs the automatic array index, so firestore.indexes.json has no override.
 type listDoc struct {
-	OwnerID     string    `firestore:"ownerId"`
-	Name        string    `firestore:"name"`
-	Description string    `firestore:"description"`
-	IsPrivate   bool      `firestore:"isPrivate"`
-	MemberIDs   []string  `firestore:"memberIds"`
-	Hidden      bool      `firestore:"hidden,omitempty"`
-	CreatedAt   time.Time `firestore:"createdAt"`
-	UpdatedAt   time.Time `firestore:"updatedAt"`
+	OwnerID     string   `firestore:"ownerId"`
+	Name        string   `firestore:"name"`
+	Description string   `firestore:"description"`
+	IsPrivate   bool     `firestore:"isPrivate"`
+	MemberIDs   []string `firestore:"memberIds"`
+	Hidden      bool     `firestore:"hidden,omitempty"`
+	// FollowerCount is moved only by the follow transactions (Increment) and the recount: writes here never set it.
+	FollowerCount int64     `firestore:"followerCount"`
+	CreatedAt     time.Time `firestore:"createdAt"`
+	UpdatedAt     time.Time `firestore:"updatedAt"`
 }
 
 func (d listDoc) list(id string) List {
 	return List{
 		ID: id, OwnerID: d.OwnerID, Name: d.Name, Description: d.Description, IsPrivate: d.IsPrivate,
-		MemberIDs: slices.Clone(d.MemberIDs), Hidden: d.Hidden, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
+		MemberIDs: slices.Clone(d.MemberIDs), Hidden: d.Hidden, FollowerCount: int(d.FollowerCount), CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }
 
 func (l List) header() Header {
-	return Header{ID: l.ID, Name: l.Name, Description: l.Description, IsPrivate: l.IsPrivate, MemberCount: len(l.MemberIDs)}
+	return Header{ID: l.ID, Name: l.Name, Description: l.Description, IsPrivate: l.IsPrivate, MemberCount: len(l.MemberIDs), FollowerCount: l.FollowerCount}
 }
 
 // FirestoreRepo is the Firestore implementation of Repo, and the page source of the eraser and the exporter.
@@ -204,7 +206,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		now := r.now().UTC()
 		doc := listDoc{
 			OwnerID: p.UID, Name: p.Name, Description: p.Description, IsPrivate: p.IsPrivate,
-			MemberIDs: []string{}, CreatedAt: now, UpdatedAt: now,
+			MemberIDs: []string{}, FollowerCount: 0, CreatedAt: now, UpdatedAt: now,
 		}
 		l := doc.list(p.ID)
 		b.Create(r.ref(p.ID), doc)
@@ -310,10 +312,11 @@ func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResul
 	var res DeleteResult
 	attempts, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = DeleteResult{}
-		_, found, err := r.lookup(ctx, tx, p.IdemKey, p.RequestHash)
+		rec, found, err := r.lookup(ctx, tx, p.IdemKey, p.RequestHash)
 		if found || err != nil {
 			if err == nil {
-				res = DeleteResult{Outcome: Replayed}
+				// The original call's answer: a retry after a lost response still completes the marker sweep below.
+				res = DeleteResult{Outcome: Replayed, Deleted: rec.Result["deleted"] == "true"}
 			}
 			return err
 		}
@@ -337,5 +340,15 @@ func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResul
 		return nil
 	})
 	store.NoteTxnAttempts(ctx, "lists_txn_contention", attempts)
-	return res, err
+	if err != nil {
+		return res, err
+	}
+	if res.Deleted {
+		// The list is gone: its follow markers go with it (erasure). Runs after the commit; a failure is returned so the
+		// retry (a replay with Deleted) repeats the sweep, which is idempotent.
+		if _, serr := r.deleteFollowMarkers(ctx, p.ListID); serr != nil {
+			return res, serr
+		}
+	}
+	return res, nil
 }

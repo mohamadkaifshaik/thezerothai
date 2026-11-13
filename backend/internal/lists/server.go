@@ -69,7 +69,7 @@ func (s *Server) CreateList(ctx context.Context, req *connect.Request[listsv1.Cr
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&listsv1.CreateListResponse{List: toListInfo(v)}), nil
+	return connect.NewResponse(&listsv1.CreateListResponse{List: s.info(uid, v)}), nil
 }
 
 // UpdateList is gated by FEATURE_LISTS; only the fields that are set change.
@@ -84,7 +84,7 @@ func (s *Server) UpdateList(ctx context.Context, req *connect.Request[listsv1.Up
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&listsv1.UpdateListResponse{List: toListInfo(v)}), nil
+	return connect.NewResponse(&listsv1.UpdateListResponse{List: s.info(uid, v)}), nil
 }
 
 // DeleteList is gated by FEATURE_LISTS; a list that is not the caller's, or is gone, is success with no effect.
@@ -126,7 +126,14 @@ func (s *Server) GetList(ctx context.Context, req *connect.Request[listsv1.GetLi
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&listsv1.GetListResponse{List: toListInfo(v)}), nil
+	if s.followsOn(uid) {
+		vs := []View{v}
+		if err := s.markFollowed(ctx, uid, vs); err != nil {
+			return nil, err
+		}
+		v = vs[0]
+	}
+	return connect.NewResponse(&listsv1.GetListResponse{List: s.info(uid, v)}), nil
 }
 
 // ListUserLists is gated by FEATURE_LISTS; an owner_id of "" is the caller.
@@ -143,9 +150,14 @@ func (s *Server) ListUserLists(ctx context.Context, req *connect.Request[listsv1
 	if err != nil {
 		return nil, err
 	}
+	if s.followsOn(uid) {
+		if err := s.markFollowed(ctx, uid, page.Lists); err != nil {
+			return nil, err
+		}
+	}
 	out := &listsv1.ListUserListsResponse{ContainingListIds: page.ContainingIDs, NextPageToken: page.NextPageToken}
 	for _, v := range page.Lists {
-		out.Lists = append(out.Lists, toListInfo(v))
+		out.Lists = append(out.Lists, s.info(uid, v))
 	}
 	return connect.NewResponse(out), nil
 }
@@ -161,7 +173,7 @@ func (s *Server) memberWrite(ctx context.Context, rpc string, call func(ctx cont
 	if err != nil {
 		return nil, err
 	}
-	return toListInfo(v), nil
+	return s.info(uid, v), nil
 }
 
 // AddListMember is gated by FEATURE_LISTS; owner only.
