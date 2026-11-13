@@ -11,6 +11,9 @@ import '../../../../shared/widgets/primitives/app_badge.dart' show AppUnreadDot;
 const kConversationDeletedSnippet = 'Message deleted';
 const kConversationRemovedSnippet = 'This message was removed';
 
+/// The preview of a message that shares a post and carries no caption.
+const kConversationSharedPostSnippet = 'Shared a post';
+
 /// The prefix of a snippet the caller sent.
 const kConversationSelfPrefix = 'You: ';
 
@@ -23,10 +26,22 @@ String conversationSnippet(pb.Conversation conversation) {
   final text = switch (last.state) {
     MessageState.MESSAGE_STATE_DELETED_ACCOUNT => kConversationDeletedSnippet,
     MessageState.MESSAGE_STATE_REMOVED => kConversationRemovedSnippet,
+    // The snippet of a share is the sender's own text: a caption, or the post
+    // link when there is none. The link is replaced; the post's text is never
+    // in the preview (it must not outlive a delete or a protect).
+    _ when last.sharedPost && _isBareLink(last.snippet) =>
+      kConversationSharedPostSnippet,
     _ => last.snippet,
   };
   if (text.isEmpty) return '';
   return last.fromSelf ? '$kConversationSelfPrefix$text' : text;
+}
+
+/// Whether [text] is empty or a single link (no spaces): what a share
+/// without a caption carries, possibly cut short by the server's preview.
+bool _isBareLink(String text) {
+  final t = text.trim();
+  return t.isEmpty || (!t.contains(RegExp(r'\s')) && t.startsWith('http'));
 }
 
 /// One conversation in the inbox, presentational (dzeroth-mobile

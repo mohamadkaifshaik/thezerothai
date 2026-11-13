@@ -15,6 +15,8 @@ import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../../../shared/widgets/post/post_action_bar.dart';
 import '../../../../shared/widgets/post/post_share_menu.dart';
+import '../../../messages/domain/share_post_target.dart';
+import '../../../messages/presentation/share_post_picker.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../posts/domain/posts_feature_flag.dart';
 import '../../../posts/domain/reply_audience.dart';
@@ -112,6 +114,7 @@ class PostEngagementBar extends StatelessWidget {
     final flagOn = isFeatureEnabled(context, kFeatureBookmarks);
     final bookmarksOn = bookmarkEnabled ?? flagOn;
     final shareLinks = ShareLinksScope.maybeOf(context);
+    final canSendInMessage = _canSendInMessage(context);
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -168,6 +171,20 @@ class PostEngagementBar extends StatelessWidget {
                           url: shareLinks.postUrl(target),
                           nativeShare: shareLinks.nativeShare,
                           anchor: anchor,
+                          onSendInMessage: canSendInMessage
+                              ? () {
+                                  if (!context.mounted) return;
+                                  unawaited(
+                                    showSharePostPicker(
+                                      context,
+                                      target: SharePostTarget(
+                                        postId: target,
+                                        url: shareLinks.postUrl(target),
+                                      ),
+                                    ),
+                                  );
+                                }
+                              : null,
                         ),
                       ),
               ),
@@ -184,6 +201,22 @@ class PostEngagementBar extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// Whether the share menu offers "Send in a message": `messaging` and
+  /// `dm_post_share` are on for the caller, and the post is not another
+  /// user's followers-only (protected) post, which only its author may send
+  /// (the server refuses anyone else with PROTECTED_ACCOUNT, as for Repost).
+  /// A REPOST row's original is not known to be protected here; the server
+  /// decides and the picker shows its answer.
+  bool _canSendInMessage(BuildContext context) {
+    if (!sharePostInMessageAllowed(context)) return false;
+    final viewerId = context.read<OnboardingBloc>().state.profile?.userId;
+    final protectedByOther =
+        view.post.kind != PostKind.POST_KIND_REPOST &&
+        view.post.visibility == pbenum.Visibility.VISIBILITY_FOLLOWERS &&
+        view.post.author.userId != viewerId;
+    return !protectedByOther;
   }
 
   Future<void> _repost(

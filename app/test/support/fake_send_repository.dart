@@ -7,6 +7,8 @@ import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart'
+    show Folder;
 
 import 'package:flutter_test/flutter_test.dart' show Fake;
 
@@ -43,6 +45,20 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   /// Every `recipient_user_id` a send carried (null for a send to a
   /// conversation), in order.
   final List<String?> sendRecipients = [];
+
+  /// Every `shared_post_id` a send carried (null for a plain send), in order.
+  final List<String?> sendSharedPostIds = [];
+
+  /// The "enabled" flag the share cubit asks before each send.
+  @override
+  bool enabled = true;
+
+  /// The inbox conversations the cache holds (the picker's "Recent").
+  List<pb.Conversation> cachedInbox = const [];
+
+  @override
+  Future<ConversationsSnapshot> cachedConversations(Folder folder) async =>
+      ConversationsSnapshot(conversations: cachedInbox);
 
   /// The conversation the "server" opens for a send that names a recipient.
   String createdConversationId = hexId(0xd1);
@@ -94,8 +110,10 @@ class FakeSendRepository extends Fake implements MessagingRepository {
     required String text,
     String? conversationId,
     String? recipientUserId,
+    String? sharedPostId,
   }) async {
     sendKeys.add(idempotencyKey);
+    sendSharedPostIds.add(sharedPostId);
     sendTexts.add(text);
     sendRecipients.add(recipientUserId);
     final wait = sendGate;
