@@ -93,6 +93,11 @@ class AccountCubit extends Cubit<AccountState> {
   final Uuid _uuid;
 
   String? _deleteKey;
+
+  /// Set when the server said `REAUTH_REQUIRED` (or Firebase wanted a fresher
+  /// sign-in): the next delete never skips the provider re-auth, so a stale
+  /// "recent" guess cannot loop. Cleared once a re-auth succeeds.
+  bool _forceReauth = false;
   String? _exportKey;
 
   /// Bumped by [reset]; results of an abandoned flow are dropped.
@@ -115,13 +120,22 @@ class AccountCubit extends Cubit<AccountState> {
 
   /// Call straight from the tap handler: no `await` runs before the
   /// re-authentication starts.
-  Future<void> deleteAccount({required PasswordPrompt promptPassword}) async {
+  ///
+  /// [skipReauth] (Google accounts whose sign-in is recent enough for the
+  /// server) goes straight to DeleteAccount; the single `REAUTH_REQUIRED`
+  /// retry still re-authenticates. Ignored after a server `REAUTH_REQUIRED`.
+  Future<void> deleteAccount({
+    required PasswordPrompt promptPassword,
+    bool skipReauth = false,
+  }) async {
     if (isClosed || state.status == AccountStatus.working) return;
     final generation = ++_generation;
     final key = _deleteKey ??= _uuid.v4();
     emit(const AccountState(status: AccountStatus.working));
     try {
-      await _reauthenticate(promptPassword, revokeApple: true);
+      if (!skipReauth || _forceReauth) {
+        await _reauthenticate(promptPassword, revokeApple: true);
+      }
       if (_stale(generation)) return;
       try {
         await _withReauth(
@@ -159,6 +173,7 @@ class AccountCubit extends Cubit<AccountState> {
     try {
       await _auth.deleteCurrentUser();
     } on AuthRequiresRecentLogin {
+      _forceReauth = true;
       throw const ReauthRequiredException('Please sign in again.');
     }
   }
@@ -229,6 +244,7 @@ class AccountCubit extends Cubit<AccountState> {
     try {
       return await call();
     } on ReauthRequiredException {
+      _forceReauth = true;
       // Only reached for clock skew: both flows re-authenticate up front. A
       // web popup opened from this continuation is outside the tap's user
       // gesture and would be blocked: surface the error instead; the next
@@ -255,6 +271,7 @@ class AccountCubit extends Cubit<AccountState> {
     } on AuthCancelled {
       throw const _Cancelled();
     }
+    _forceReauth = false;
     final code = result.appleAuthorizationCode;
     if (revokeApple && code != null && code.isNotEmpty) {
       try {
@@ -262,6 +279,15 @@ class AccountCubit extends Cubit<AccountState> {
       } catch (error, stack) {
         _onUnexpectedError?.call(error, stack);
       }
+    }
+  }
+
+  /// Drops a shown failure or cancel (the user is editing the form again).
+  void dismissMessage() {
+    if (isClosed) return;
+    if (state.status == AccountStatus.failed ||
+        state.status == AccountStatus.cancelled) {
+      emit(const AccountState());
     }
   }
 
