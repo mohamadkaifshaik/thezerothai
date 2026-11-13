@@ -1,3 +1,8 @@
+import '../../../core/widgets/shell_side_column.dart';
+import '../../beacons/data/beacons_repository.dart';
+import '../../beacons/domain/beacons_feature_flag.dart';
+import 'widgets/thread_side_boxes.dart';
+
 import 'dart:async';
 import 'dart:ui' show SemanticsRole;
 
@@ -284,6 +289,85 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   bool _routeVisible = true;
   RelationshipCubit? _relationship;
 
+  /// The desktop Chat mock's side column (peer card, shared plans, the info
+  /// menu's actions), inside the shell from 1200 dp.
+  final _sideColumn = ShellSideColumnLease();
+
+  void _lendSideColumn(
+    ThreadCubit cubit, {
+    required bool graphEnabled,
+    required bool reportsEnabled,
+  }) {
+    final graphRepository = graphEnabled
+        ? context.read<GraphRepository?>()
+        : null;
+    final beaconsRepository =
+        isFeatureEnabled(context, kFeatureBeacons) &&
+            isFeatureEnabled(context, kFeatureChatSharedPlans)
+        ? context.read<BeaconsRepository?>()
+        : null;
+    _sideColumn.set(
+      context,
+      active: shellSideColumnBeside(context),
+      builder: (_) => BlocBuilder<ThreadCubit, ThreadState>(
+        bloc: cubit,
+        buildWhen: (a, b) =>
+            a.conversation != b.conversation ||
+            a.status != b.status ||
+            a.deleting != b.deleting ||
+            a.accepting != b.accepting ||
+            a.peerBlocked != b.peerBlocked,
+        builder: (context, state) {
+          final conversation = state.conversation;
+          if (state.status != ThreadStatus.ready || conversation == null) {
+            return const SizedBox.shrink();
+          }
+          final peer = conversation.peer;
+          final enabled = !state.deleting && !state.accepting && !_blocking;
+          void run(_MenuAction action) {
+            if (mounted) unawaited(_onMenu(action, cubit, conversation));
+          }
+
+          final handle = peer.handle.isEmpty ? '' : ' @${peer.handle}';
+          return ThreadSideBoxes(
+            peer: peer,
+            silent: conversation.silent,
+            graphRepository: graphRepository,
+            beaconsRepository: beaconsRepository,
+            onViewProfile: peer.handle.isEmpty
+                ? null
+                : () => run(_MenuAction.viewProfile),
+            actions: [
+              if (graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked)
+                ThreadSideAction(
+                  icon: Icons.block,
+                  label: 'Block$handle',
+                  onTap: enabled ? () => run(_MenuAction.block) : null,
+                ),
+              if (reportsEnabled)
+                ThreadSideAction(
+                  icon: Icons.flag_outlined,
+                  label: 'Report$handle',
+                  onTap:
+                      enabled &&
+                          widget.onReport != null &&
+                          peer.userId.isNotEmpty
+                      ? () => run(_MenuAction.report)
+                      : null,
+                ),
+              ThreadSideAction(
+                icon: Icons.delete_outline,
+                label: 'Delete conversation',
+                destructive: true,
+                onTap: enabled ? () => run(_MenuAction.delete) : null,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -301,6 +385,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _sideColumn.dispose();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_relationship?.close());
     _controller
@@ -510,6 +595,11 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         ShellBand.of(MediaQuery.sizeOf(context).width).isTablet &&
         isFeatureEnabled(context, kFeatureUiShell) &&
         isFeatureEnabled(context, kFeatureUiTablet);
+    _lendSideColumn(
+      cubit,
+      graphEnabled: graphEnabled,
+      reportsEnabled: reportsEnabled,
+    );
     return MessagingAccessBuilder(
       builder: (context, access) => _scaffold(
         cubit,

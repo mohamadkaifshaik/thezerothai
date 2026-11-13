@@ -10,6 +10,12 @@ const kFeatureBeacons = 'beacons';
 /// drawn only while it is listed. Its Join needs [kFeatureBeacons] as well.
 const kFeaturePostBeaconEmbed = 'post_beacon_embed';
 
+/// Name of the chat's shared-plans flag (`FEATURE_CHAT_SHARED_PLANS`) in
+/// `GetMeResponse.enabled_features`: the desktop chat's side column lists the
+/// plans the two people share (`ListSharedBeacons`). Needs [kFeatureBeacons]
+/// as well.
+const kFeatureChatSharedPlans = 'chat_shared_plans';
+
 /// `metadata["limit"]` of LIMIT_REACHED (read as `LimitReachedException.quota`):
 /// 5 OPEN/FULL plans per organiser.
 const kBeaconsOpenLimit = 'beacons_open';
