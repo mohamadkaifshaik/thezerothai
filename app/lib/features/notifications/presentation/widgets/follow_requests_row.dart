@@ -72,9 +72,7 @@ class FollowRequestsRow extends StatelessWidget {
                   children: [
                     Text(
                       kFollowRequestsTitle,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: AppTextStyles.cardTitleFor(context),
                     ),
                     AppTintBadge(
                       label: followRequestBadgeText(count),
