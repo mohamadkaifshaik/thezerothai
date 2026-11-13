@@ -35,7 +35,8 @@
 //   since_token | idempotency_key | shared_post_id (and folder, ListConversations only); before any lookup.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "messaging".
 // - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id may also answer NOT_FOUND
-//   "post not found" (the GetPost bytes) when the caller may not see the post.
+//   "post not found" (the GetPost bytes) when the caller may not see the post or a block in either direction stands
+//   between the caller and its author.
 // - FAILED_PRECONDITION + ERROR_REASON_PROTECTED_ACCOUNT: SendMessage sharing a protected account's post by anyone but
 //   that account; FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "dm_post_share" for a share with that
 //   flag off for the caller.

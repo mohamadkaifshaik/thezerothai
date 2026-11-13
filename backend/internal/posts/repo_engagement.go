@@ -1,7 +1,8 @@
 // repo_engagement.go holds the storage paths engagement drives through posts' seams. posts owns
 // posts/*, so every write to a post doc made on behalf of a like, a repost, a quote or its clean-up lives here:
 //
-//	batch staging (EngagementWriter): likeCount / repostCount increments, the REPOST create, the REPOST delete
+//	batch staging (EngagementWriter): likeCount / repostCount / shareCount increments, the REPOST create, the REPOST delete
+//	opsctl recount-shares (ShareCounter): read and set posts/{id}.shareCount
 //	clean-up (Cleanup): RemoveReposts, TombstoneQuotes
 //	  Q-O  posts where repostOfId == X LIMIT n         -> automatic single-field index
 //	  Q-Q  posts where quoteOfId == X LIMIT n          -> automatic single-field index
@@ -19,7 +20,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -36,6 +40,9 @@ type EngagementWriter interface {
 	StageLikeCount(b store.Batch, postID string, delta int64)
 	// StageRepostCount is StageLikeCount for repostCount.
 	StageRepostCount(b store.Batch, postID string, delta int64)
+	// StageShareCount is StageLikeCount for shareCount (the postShares marker's counter, shares design D4). The one
+	// share counter helper: a later sharded counter replaces its body, not its callers.
+	StageShareCount(b store.Batch, postID string, delta int64)
 	// StagePollVote appends the blind counter bump of one vote: Increment(poll.counts.<choice>) and Increment(poll.total) on
 	// posts/{id} in ONE Update (one write), with the implicit Exists precondition, so a post deleted in between fails the commit
 	// with NotFound. The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric
@@ -90,6 +97,57 @@ func (r *FirestoreRepo) StageLikeCount(b store.Batch, postID string, delta int64
 // StageRepostCount implements EngagementWriter.
 func (r *FirestoreRepo) StageRepostCount(b store.Batch, postID string, delta int64) {
 	bumpCount(b, r.ref(postID), "repostCount", delta)
+}
+
+// StageShareCount implements EngagementWriter.
+func (r *FirestoreRepo) StageShareCount(b store.Batch, postID string, delta int64) {
+	bumpCount(b, r.ref(postID), "shareCount", delta)
+}
+
+// ShareCounter is the operator seam of opsctl recount-shares: the stored shareCount of one post, fresh from Firestore,
+// and its repair. *FirestoreRepo implements it.
+type ShareCounter interface {
+	// StoredShareCount reads posts/{id}.shareCount (absent = 0). found is false for a missing post.
+	StoredShareCount(ctx context.Context, postID string) (n int64, found bool, err error)
+	// SetShareCount sets posts/{id}.shareCount to n with an Exists precondition; a missing post is ErrNotFound.
+	SetShareCount(ctx context.Context, postID string, n int64) error
+}
+
+var _ ShareCounter = (*FirestoreRepo)(nil)
+
+// StoredShareCount implements ShareCounter: one read.
+func (r *FirestoreRepo) StoredShareCount(ctx context.Context, postID string) (int64, bool, error) {
+	if !ids.ValidPostID(postID) {
+		return 0, false, ErrInvalidID
+	}
+	snap, err := r.ref(postID).Get(ctx)
+	if status.Code(err) == codes.NotFound {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("posts: read shareCount: %w", err)
+	}
+	v, err := snap.DataAt("shareCount")
+	if err != nil {
+		return 0, true, nil // absent: 0
+	}
+	n, _ := v.(int64)
+	return n, true, nil
+}
+
+// SetShareCount implements ShareCounter: one write.
+func (r *FirestoreRepo) SetShareCount(ctx context.Context, postID string, n int64) error {
+	if !ids.ValidPostID(postID) {
+		return ErrInvalidID
+	}
+	_, err := r.ref(postID).Update(ctx, []firestore.Update{{Path: "shareCount", Value: max(n, 0)}})
+	if status.Code(err) == codes.NotFound {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("posts: set shareCount: %w", err)
+	}
+	return nil
 }
 
 // StagePollVote implements EngagementWriter.

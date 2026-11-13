@@ -236,7 +236,7 @@ func TestSend_RoutingFlagsReachTheTransaction(t *testing.T) {
 			if got := r.repo.lastRes; got.Mutual != tt.wantMutual || got.Silent != tt.wantSilent || p.CallerSilent != tt.mute {
 				t.Errorf("mutual/silent/callerSilent = %v/%v/%v, want %v/%v/%v", got.Mutual, got.Silent, p.CallerSilent, tt.wantMutual, tt.wantSilent, tt.mute)
 			}
-			if p.ConvID != ConversationID(alice, bob) || p.MsgID != MessageID(alice, key1) || p.RequestHash != requestHash(p.ConvID, "hi") {
+			if p.ConvID != ConversationID(alice, bob) || p.MsgID != MessageID(alice, key1) || p.RequestHash != requestHash(p.ConvID, "hi", "") {
 				t.Errorf("ids = %q %q %q", p.ConvID, p.MsgID, p.RequestHash)
 			}
 			if p.MaxUnanswered != 3 || p.DMNewLimit != 20 {

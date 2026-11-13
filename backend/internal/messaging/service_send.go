@@ -69,6 +69,13 @@ func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMes
 	if err != nil {
 		return nil, err
 	}
+	// A shared post: its flags and its id shape run after the existing checks and before any lookup.
+	if in.sharedRaw != "" {
+		logger.SetRequestField(ctx, fieldSharedPost, true)
+		if err := s.guardPostShare(ctx, uid, in.sharedRaw); err != nil {
+			return nil, err
+		}
+	}
 	if s.d.Repo == nil || s.d.Social == nil || s.d.Profiles == nil || s.d.TxSocial == nil || s.d.TxProfiles == nil {
 		return nil, errors.New("messaging: send is not configured")
 	}
@@ -81,6 +88,10 @@ type sendInput struct {
 	// convID is the target conversation (given, or derived from the pair); peer is "" until a conversation_id is resolved.
 	convID, peer string
 	byConvID     bool
+	// sharedRaw is shared_post_id as sent ("" for none; bound into the request digest); shared is the post it resolved to
+	// (the original), set once the visibility check passed.
+	sharedRaw string
+	shared    SharedPost
 }
 
 // validateSend is step 1: the key, the target and the text, before any read.
@@ -112,6 +123,7 @@ func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, e
 		return in, err
 	}
 	in.text = norm
+	in.sharedRaw = req.GetSharedPostId()
 	return in, nil
 }
 
@@ -164,13 +176,22 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	case s.flags == nil || !s.flags.Enabled(in.peer, FlagName):
 		return nil, s.refuse(ctx, refusedRecipientFlagOff)
 	}
+	// A shared post: the GetPost rules and the protected-author rule, after the recipient checks and before the
+	// transaction (NOT_FOUND "post not found" or PROTECTED_ACCOUNT, writing nothing).
+	if in.sharedRaw != "" {
+		sp, err := s.checkPostShare(ctx, uid, in.sharedRaw)
+		if err != nil {
+			return nil, s.mapErr(ctx, uid, in, err)
+		}
+		in.shared = sp
+	}
 	limit := s.d.Limits.DMNewPerDay
 	if s.isNewAccount(caller, now) {
 		limit = s.d.Limits.NewAccountDMNewPerDay
 	}
 	res, err := s.d.Repo.Send(ctx, SendParams{
 		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key),
-		Text: in.text, RequestHash: requestHash(in.convID, in.text), Now: now,
+		Text: in.text, RequestHash: requestHash(in.convID, in.text, in.sharedRaw), Now: now, SharedPostID: in.shared.ID,
 		CallerFollowsPeer: mine.Following[in.peer], CallerSilent: mine.Muted[in.peer],
 		RecipientFollowingOnly: peer.DMPolicy == identity.DMPolicyFollowingOnly && s.flags.Enabled(in.peer, identity.DMPolicyFlag),
 		Caller:                 peerDocOf(caller), Peer: peerDocOf(peer),
@@ -186,7 +207,12 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 		return nil, s.mapErr(ctx, uid, in, err)
 	}
 	s.afterSend(ctx, uid, in, res)
-	return sendResponse(in.convID, MessageID(uid, in.key), peer, res, mine.Muted[in.peer]), nil
+	out := sendResponse(in.convID, MessageID(uid, in.key), peer, res, mine.Muted[in.peer])
+	// The sender's own card, decided like any page of ListMessages (cache-first: the check above just read the post).
+	if cards := s.sharedCards(ctx, uid, []MessageRow{{ID: out.Message.Id, MsgDoc: res.Msg}}); cards != nil {
+		out.Message.SharedPost = cards[res.Msg.SharedPostID]
+	}
+	return out, nil
 }
 
 // afterSend is steps 6 and 7 and the request line: the instance cache is updated from the written data, the badge
@@ -216,6 +242,8 @@ func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res S
 	if s.d.Events != nil && !res.RecipientInRequests && !res.Silent {
 		s.d.Events.MessageSent(ctx, MessageEvent{ActorUID: uid, RecipientUID: in.peer, ConversationID: in.convID, At: res.Msg.CreatedAt})
 	}
+	// Committed and not a replay: the share is recorded for Post.share_count, best effort.
+	s.recordShare(ctx, uid, in.shared)
 }
 
 // conversation is the participant check's read for uid: the instance cache first (convCacheTTL) when uid is a participant of
@@ -389,6 +417,7 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 			State: state, Folder: messagingv1.Folder_FOLDER_INBOX,
 			LastMessage: &messagingv1.MessagePreview{
 				Snippet: snippet, FromSelf: true, State: msgState, CreatedAt: created,
+				SharedPost: msgState == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && res.Msg.SharedPostID != "",
 			},
 			CanReply: true, Silent: callerSilent, UpdatedAt: created,
 		},

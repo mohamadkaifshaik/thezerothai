@@ -404,6 +404,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Audience: engAudience,
 		// VotePoll: the vote batch, the vote doc TTL and the lazy userLikes trim are config.
 		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept, PollVoteChangesMax: cfg.Composer.PollVoteChangesMax,
+		// RecordPostShare and the direct-message share seam: the postShares markers (shares design D4).
+		ShareRepo: engagementRepo,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
@@ -789,6 +791,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 		CursorKey: cfg.CursorHMACKey,
 		Log:       log,
+		// A post sent in a message (shares design): the GetPost rules for the sender, the per-reader cards, and the
+		// best-effort share record into engagement's postShares.
+		PostShare: postShareCheck{posts: postsSvc.(posts.Engagement)},
+		Cards:     postCards{posts: postsSvc.(posts.Engagement)},
+		Shares:    engagementMod,
 	})
 	reporter, ok := messagingSvc.(messaging.MessageReporter)
 	if !ok {

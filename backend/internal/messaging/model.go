@@ -92,9 +92,13 @@ func keyDigest(uid, op, key string) string {
 }
 
 // requestHash is the one-way digest of a SendMessage request used to tell a replay from a reused key (same key with a different body is VALIDATION).
-// It binds the resolved conversation and the normalised text.
-func requestHash(convID, text string) string {
-	return digest32("send|" + convID + "|" + text)
+// It binds the resolved conversation, the normalised text and, for a post share, shared_post_id as sent. Without a post it
+// is byte-identical to the digest every stored message carries, so those still replay.
+func requestHash(convID, text, sharedPostID string) string {
+	if sharedPostID == "" {
+		return digest32("send|" + convID + "|" + text)
+	}
+	return digest32("send|" + convID + "|" + text + "|p|" + sharedPostID)
 }
 
 func digest32(s string) string {
@@ -178,6 +182,10 @@ type MsgDoc struct {
 	// RemovedAt is the server time of a moderator takedown, set together with State REMOVED (a durable record of the
 	// takedown even when it was made without --report).
 	RemovedAt time.Time `firestore:"removedAt,omitempty"`
+	// SharedPostID is the post this message shares (the original's id; shares design D2): the id only, never a copy of
+	// the post. The card is decided for each reader at read time. Cleared with text by a takedown and by the eraser's
+	// tombstone. Index-exempt (firebase/firestore.indexes.json): never queried.
+	SharedPostID string `firestore:"sharedPostId,omitempty"`
 }
 
 // PeerDoc is the peer snapshot an inbox entry holds (index-exempt).
@@ -198,10 +206,15 @@ type LastDoc struct {
 	FromSelf  bool   `firestore:"fromSelf"`
 	Snippet   string `firestore:"snippet"`
 	State     string `firestore:"state"`
+	// SharedPost is true when the message shares a post (MessagePreview.shared_post). The snippet stays the sender's own
+	// text, never the post's. Absent on older entries (false).
+	SharedPost bool `firestore:"sharedPost"`
 }
 
+// fields is the whole preview map. Every leaf is always written (sharedPost included) because the entry is written with
+// MergeAll, which merges nested maps leaf by leaf: a leaf left out would survive from the previous message.
 func (l LastDoc) fields() map[string]any {
-	return map[string]any{"messageId": l.MessageID, "fromSelf": l.FromSelf, "snippet": l.Snippet, "state": l.State}
+	return map[string]any{"messageId": l.MessageID, "fromSelf": l.FromSelf, "snippet": l.Snippet, "state": l.State, "sharedPost": l.SharedPost}
 }
 
 // EntryDoc is users/{uid}/dmInbox/{convId} and users/{uid}/dmRequests/{convId} (same shape).
