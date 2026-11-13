@@ -372,7 +372,9 @@ class _ProfileHero extends StatelessWidget {
             ),
           ],
           if (website != null || joined != null) ...[
-            const SizedBox(height: AppSpacing.sm),
+            // A website link is a 48dp target that centres its text: it needs
+            // no gap above it; the plain Joined row does.
+            SizedBox(height: website != null ? 0 : AppSpacing.xs),
             Wrap(
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: AppSpacing.md,
