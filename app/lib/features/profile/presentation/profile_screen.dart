@@ -1,4 +1,6 @@
 import 'dart:async';
+import '../../../shared/widgets/post/post_list_skeleton.dart';
+import 'widgets/profile_skeleton.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -308,6 +310,9 @@ class _ProfileViewState extends State<_ProfileView> {
         appBar: _appBar(context),
         body: SafeArea(
           top: false,
+          // The floating bar overlays the page: the scroll view runs behind it
+          // and ends with the bar's inset (ShellBottomInsetSliver).
+          bottom: false,
           child: SizedBox.expand(
             key: _bodyKey,
             child: BlocBuilder<ProfileCubit, ProfileState>(
@@ -319,7 +324,7 @@ class _ProfileViewState extends State<_ProfileView> {
                 );
                 return switch (state.status) {
                   ProfileStatus.loading => belowBar(
-                    const Center(child: CircularProgressIndicator()),
+                    const ProfileSkeleton(),
                   ),
                   ProfileStatus.notFound => belowBar(
                     const AppErrorView(
@@ -1249,7 +1254,7 @@ class _ProfileTabPagerState extends State<_ProfileTabPager>
               // A swipe may expose a neighbor before selection settles. Show
               // a loading affordance without prefetching a feed nobody opens.
               if (tab.id != widget.selectedId && !widget.hasOpened(tab.id)) {
-                return const Center(child: CircularProgressIndicator());
+                return const PostListSkeleton(rows: 4);
               }
               return widget.bodyBuilder(context, tab);
             },

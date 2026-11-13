@@ -213,10 +213,10 @@ void main() {
     test('the real fonts replace the test font metrics', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
       final before = {
-        for (final f in ['DM Sans', 'Manrope']) f: width(f, FontWeight.w400),
+        for (final f in ['Inter']) f: width(f, FontWeight.w400),
       };
       await loadAppFonts();
-      for (final f in ['DM Sans', 'Manrope']) {
+      for (final f in ['Inter']) {
         expect(
           width(f, FontWeight.w400),
           isNot(closeTo(before[f]!, 0.01)),

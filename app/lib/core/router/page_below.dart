@@ -40,6 +40,14 @@ String? _pageBelow(BuildContext context, LocalKey pageKey) {
 bool isSettingsLocation(String location) =>
     location.startsWith(AppRouter.settingsPath);
 
+/// The shell [location] is one of the pages the desktop shows in the
+/// Settings master-detail (Creator Studio, Calls, Advertise): beside the
+/// Settings categories from 1200 dp, a page of their own below that.
+bool isSettingsSidePage(String location) =>
+    location == AppRouter.creatorStudioPath ||
+    location == AppRouter.callsPath ||
+    location == AppRouter.advertisePath;
+
 /// The presentation of a dialog that is a page of its own on the root
 /// navigator (`/premium`, `/messages/new`; tablet plan sections 4.1 and
 /// 5.4), for a [context] inside its route: centred on the content area
@@ -60,7 +68,12 @@ TabletModalHost? dialogPageHost(BuildContext context) {
     // first frame), the page under it says whether the master pane is shown.
     desktop:
         DesktopShellSlots.of(context) ??
-        DesktopColumnSlots(master: below != null && isSettingsLocation(below)),
+        DesktopColumnSlots(
+          master:
+              below != null &&
+              (isSettingsLocation(below) ||
+                  (band == ShellBand.desktop && isSettingsSidePage(below))),
+        ),
   );
 }
 

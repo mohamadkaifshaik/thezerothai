@@ -862,7 +862,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	beaconsSvc := beacons.New(beacons.Deps{
 		Repo: beaconsRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, Communities: communitiesSvc.(communities.Reader),
-		CommunityFlags: featureFlags, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
+		CommunityFlags: featureFlags, Flags: featureFlags, Follows: graphSvc, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
 		Events: beaconEvents,
 		Outbox: ob, // the cancellation notices: staged in the cancel transaction, re-run by the outbox sweep (B07)
 		Limits: beacons.Limits{MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots},

@@ -220,6 +220,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
           },
           child: Scaffold(
             body: SafeArea(
+              // The floating bar overlays the page: the list scrolls behind it
+              // and ends with the bar's inset.
+              bottom: false,
               child: AppMainColumn(
                 child: Column(
                   children: [
@@ -248,7 +251,11 @@ class _EditProfileViewState extends State<_EditProfileView> {
                     ),
                     Expanded(
                       child: ListView(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                        padding: EdgeInsets.only(
+                          bottom:
+                              AppSpacing.lg +
+                              MediaQuery.paddingOf(context).bottom,
+                        ),
                         children: [
                           _PhotoBand(
                             wide: wide,

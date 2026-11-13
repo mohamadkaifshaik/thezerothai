@@ -21,9 +21,17 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   BeaconDetailCubit({
     required BeaconsRepository repository,
     required String beaconId,
+    pb.BeaconView? initialView,
   }) : _repository = repository,
        _beaconId = beaconId,
-       super(const BeaconDetailState());
+       super(
+         initialView == null
+             ? const BeaconDetailState()
+             : BeaconDetailState(
+                 status: BeaconDetailStatus.ready,
+                 view: initialView,
+               ),
+       );
 
   static const _uuid = Uuid();
 
@@ -61,7 +69,9 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
     if (!ok) return;
   }
 
-  /// Asks to join with [note] (0-140). True on success.
+  /// Asks to join with [note] (0-140); an empty note is the one-tap "I'm in".
+  /// True on success. A `note_required` refusal sets
+  /// [BeaconDetailState.noteRequired] (and no [BeaconDetailState.actionError]).
   Future<bool> request(String note) {
     final normalized = note.trim();
     return _run(
@@ -102,7 +112,9 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   }) async {
     if (state.busy != null || state.view == null) return false;
     final key = _keys.putIfAbsent('${action.name}|$payload', _uuid.v4);
-    emit(state.copyWith(busy: action, clearActionError: true));
+    emit(
+      state.copyWith(busy: action, clearActionError: true, noteRequired: false),
+    );
     var ok = false;
     try {
       await write(key);
@@ -115,6 +127,8 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
         // more: that is the end state they asked for, so just reload.
         _keys.clear();
         ok = true;
+      } else if (action == BeaconAction.request && isNoteRequired(error)) {
+        emit(state.copyWith(noteRequired: true));
       } else {
         emit(state.copyWith(actionError: beaconsErrorMessage(error)));
       }

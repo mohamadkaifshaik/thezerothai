@@ -587,7 +587,7 @@ class _RailItem extends StatelessWidget {
 
   /// Space on each side of an item inside the 80 dp rail: clear of the 1 dp
   /// hairline, and no more, because the label needs the width ("Notifications"
-  /// is 77 dp at 12 sp w800 in DM Sans).
+  /// is 77 dp at 12 sp w800 in Inter).
   static const double _inset = 1;
 
   /// The widest a label may be: the item's width.
