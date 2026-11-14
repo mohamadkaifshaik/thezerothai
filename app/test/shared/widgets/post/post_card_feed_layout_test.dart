@@ -107,15 +107,15 @@ void main() {
           textScale: scale,
         );
         expect(tester.takeException(), isNull);
-        // Every action keeps its tap box (48 tall; 40 wide at the row's end, 44+
-        // in a slot) and none overlaps another.
+        // Every action keeps its tap box (48 tall, 40+ wide) and none overlaps
+        // another.
         final boxes = [
           for (final icon in const [
             Icons.chat_bubble_outline,
             Icons.repeat,
             Icons.favorite_border,
-            Icons.bookmark_border,
             Icons.ios_share,
+            Icons.bookmark_border,
           ])
             tester.getRect(
               find
@@ -137,28 +137,93 @@ void main() {
     }
   }
 
-  testWidgets('the action row spans the card, Bookmark and Share at the end', (
-    tester,
-  ) async {
-    await _pump(tester, _card(_view()), width: 700);
-    final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
-    final repost = tester.getRect(find.byIcon(Icons.repeat));
-    final like = tester.getRect(find.byIcon(Icons.favorite_border));
-    final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
-    final share = tester.getRect(find.byIcon(Icons.ios_share));
-    // Equal pitch across the counted actions.
-    expect(repost.left - reply.left, closeTo(like.left - repost.left, 1));
-    // Past the 440 dp cap of the opened post's row.
-    expect(share.right - reply.left, greaterThan(440));
-    expect(
-      share.right,
-      closeTo(
-        tester.getRect(find.byType(PostCard)).right - postCardGutter(700),
-        0.5,
+  testWidgets('the five actions are equal slots across the card, in the '
+      'owner order: Reply, Repost, Like, Share, Bookmark', (tester) async {
+    for (final width in const [320.0, 360.0, 400.0, 700.0, 1100.0]) {
+      await _pump(tester, _card(_view()), width: width);
+      final icons = [
+        for (final icon in const [
+          Icons.chat_bubble_outline,
+          Icons.repeat,
+          Icons.favorite_border,
+          Icons.ios_share,
+          Icons.bookmark_border,
+        ])
+          tester.getRect(find.byIcon(icon)),
+      ];
+      final bar = tester.getRect(find.byType(PostActionBar));
+      final card = tester.getRect(find.byType(PostCard));
+      expect(bar.right, closeTo(card.right - postCardGutter(width), 0.5));
+      final left = bar.left;
+      final slot = bar.width / 5;
+      for (var i = 0; i < 5; i++) {
+        // Each glyph sits at its equal slot's start.
+        expect(icons[i].left, closeTo(left + i * slot, 1), reason: '$width');
+      }
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('a list card has no Bookmark slot without a callback: four '
+      'equal slots', (tester) async {
+    await _pump(
+      tester,
+      PostCard(
+        view: _view(),
+        graphActionsEnabled: false,
+        actions: PostActions(
+          onReply: () {},
+          onRepost: () {},
+          onLike: () {},
+          onShare: () {},
+        ),
       ),
     );
-    expect(share.left - bookmark.left, lessThan(60));
-    expect(bookmark.left - like.left, greaterThan(40));
+    expect(find.byIcon(Icons.bookmark_border), findsNothing);
+    final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
+    final share = tester.getRect(find.byIcon(Icons.ios_share));
+    final repost = tester.getRect(find.byIcon(Icons.repeat));
+    final like = tester.getRect(find.byIcon(Icons.favorite_border));
+    expect(repost.left - reply.left, closeTo(like.left - repost.left, 1));
+    expect(share.left - like.left, closeTo(like.left - repost.left, 1));
+  });
+
+  testWidgets('with views re-enabled they are a sixth equal slot, last', (
+    tester,
+  ) async {
+    final view = _view()..post.viewCount = Int64(4321);
+    await pumpThemed(
+      tester,
+      PostViewsVisibility(
+        show: true,
+        child: SingleChildScrollView(
+          child: PostActionBar(
+            actions: PostActions(
+              onReply: () {},
+              onRepost: () {},
+              onLike: () {},
+              onBookmark: () {},
+              onShare: () {},
+            ),
+            viewCount: view.post.viewCount.toInt(),
+          ),
+        ),
+      ),
+      size: const Size(400, 400),
+    );
+    final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
+    final views = tester.getRect(find.byIcon(kPostViewsIcon));
+    expect(views.left, greaterThan(bookmark.right));
+    final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
+    final repost = tester.getRect(find.byIcon(Icons.repeat));
+    expect(
+      bookmark.left - reply.left,
+      closeTo(4 * (repost.left - reply.left), 1),
+    );
+    expect(
+      views.left - reply.left,
+      closeTo(5 * (repost.left - reply.left), 1.5),
+    );
   });
 
   test('the views glyph is the single constant', () {

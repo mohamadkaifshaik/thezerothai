@@ -26,10 +26,6 @@ abstract final class AppSpacing {
   /// Minimum interactive target size for accessibility (48dp rule).
   static const double minTapTarget = 48;
 
-  /// Width of the Bookmark and Share boxes that end a list card's action row
-  /// (their height stays 48): six actions still breathe on a 360 dp card.
-  static const double endActionWidth = 40;
-
   /// Between a post action's glyph and its count.
   static const double actionGap = 6;
 

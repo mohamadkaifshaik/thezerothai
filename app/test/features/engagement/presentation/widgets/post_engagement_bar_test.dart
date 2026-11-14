@@ -636,7 +636,7 @@ void main() {
           .setMockMethodCallHandler(SystemChannels.platform, null),
     );
 
-    testWidgets('is the slot after Like (equal slots, not pushed right) and '
+    testWidgets('is the slot after Like (equal slots) and '
         'labelled', (tester) async {
       final handle = tester.ensureSemantics();
       await pump(tester, _view(), shareLinks: links);
@@ -644,14 +644,14 @@ void main() {
       final share = find.byIcon(Icons.ios_share);
       expect(share, findsOneWidget);
       expect(find.bySemanticsLabel('Share'), findsOneWidget);
-      // Reply, Repost, Like: three equal slots, left-aligned in each; Share
-      // is grouped at the end in its own 48 dp box.
+      // Reply, Repost, Like, Share: four equal slots, left-aligned in each.
       final bar = tester.getRect(find.byType(PostActionBar));
-      final slot = (bar.width - AppSpacing.endActionWidth) / 3;
+      final slot = bar.width / 4;
       final order = [
         Icons.chat_bubble_outline,
         Icons.repeat,
         Icons.favorite_border,
+        Icons.ios_share,
       ];
       for (var i = 0; i < order.length; i++) {
         expect(
@@ -660,11 +660,6 @@ void main() {
           reason: 'slot $i',
         );
       }
-      // 18 dp glyphs (dz.css `.acts`, R1 restyle; was 16).
-      expect(
-        tester.getRect(share).left,
-        closeTo(bar.right - AppIconSize.action, 1),
-      );
       handle.dispose();
     });
 
