@@ -203,9 +203,9 @@ func TestGetPostViewCountFailsClosedOnSetOutage(t *testing.T) {
 	}
 }
 
-// TestPurgeChunkFitsABatch: a purge batch (posts plus their view shards) stays within Firestore's 500 writes.
-func TestPurgeChunkFitsABatch(t *testing.T) {
-	if purgeChunk < 1 || purgeChunk*(1+viewShardWrites) > 500 {
-		t.Fatalf("purgeChunk %d x %d writes exceeds 500", purgeChunk, 1+viewShardWrites)
+// TestPurgeShardChunkFitsABatch: a purge view-shard batch stays within Firestore's 500 writes.
+func TestPurgeShardChunkFitsABatch(t *testing.T) {
+	if purgeShardChunk < 1 || purgeShardChunk*viewShardWrites > 500 {
+		t.Fatalf("purgeShardChunk %d x %d writes exceeds 500", purgeShardChunk, viewShardWrites)
 	}
 }

@@ -57,6 +57,9 @@ type ViewRollup struct {
 	ReadOnly bool
 	// Now is the clock (nil = time.Now).
 	Now func() time.Time
+	// Forget evicts a post from this instance's posts cache once its viewCount was folded (nil = no cache). Other
+	// instances converge within CACHE_TTL, as for replyCount.
+	Forget func(postID string)
 }
 
 // Run does one rollup.
@@ -105,7 +108,13 @@ func (v *ViewRollup) Run(ctx context.Context) (ViewRollupResult, error) {
 		}
 		res.Pages++
 		res.Markers += len(markers)
-		folded, gone, err := v.Repo.FoldViews(ctx, distinctMarkerPosts(markers))
+		ids := distinctMarkerPosts(markers)
+		folded, gone, err := v.Repo.FoldViews(ctx, ids)
+		if v.Forget != nil {
+			for _, id := range ids {
+				v.Forget(id)
+			}
+		}
 		res.Folded += folded
 		res.Gone += gone
 		if err != nil {

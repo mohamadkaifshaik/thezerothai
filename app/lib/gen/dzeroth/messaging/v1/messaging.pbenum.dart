@@ -120,5 +120,52 @@ class MessageState extends $pb.ProtobufEnum {
   const MessageState._(super.value, super.name);
 }
 
+/// Why a person is suggested; the client renders the chip from it. Additive: a new source is a new value, and a client
+/// that does not know a value shows no chip.
+class MessageSuggestionReason extends $pb.ProtobufEnum {
+  static const MessageSuggestionReason MESSAGE_SUGGESTION_REASON_UNSPECIFIED =
+      MessageSuggestionReason._(
+          0, _omitEnumNames ? '' : 'MESSAGE_SUGGESTION_REASON_UNSPECIFIED');
+
+  /// One of the caller's most recent conversations.
+  static const MessageSuggestionReason
+      MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION = MessageSuggestionReason._(
+          1,
+          _omitEnumNames
+              ? ''
+              : 'MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION');
+
+  /// Was in a recent plan with the caller ("Met on a coffee plan"); plan_activity is set.
+  static const MessageSuggestionReason MESSAGE_SUGGESTION_REASON_MET_ON_PLAN =
+      MessageSuggestionReason._(
+          2, _omitEnumNames ? '' : 'MESSAGE_SUGGESTION_REASON_MET_ON_PLAN');
+
+  /// The caller and this person follow each other.
+  static const MessageSuggestionReason MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW =
+      MessageSuggestionReason._(
+          3, _omitEnumNames ? '' : 'MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW');
+
+  /// A member of a community the caller joined; community_id and community_name are set.
+  static const MessageSuggestionReason
+      MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER = MessageSuggestionReason._(4,
+          _omitEnumNames ? '' : 'MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER');
+
+  static const $core.List<MessageSuggestionReason> values =
+      <MessageSuggestionReason>[
+    MESSAGE_SUGGESTION_REASON_UNSPECIFIED,
+    MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION,
+    MESSAGE_SUGGESTION_REASON_MET_ON_PLAN,
+    MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW,
+    MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER,
+  ];
+
+  static final $core.List<MessageSuggestionReason?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 4);
+  static MessageSuggestionReason? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const MessageSuggestionReason._(super.value, super.name);
+}
+
 const $core.bool _omitEnumNames =
     $core.bool.fromEnvironment('protobuf.omit_enum_names');

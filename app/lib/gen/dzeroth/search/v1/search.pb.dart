@@ -18,7 +18,9 @@ import 'package:protobuf/protobuf.dart' as $pb;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as $2;
 
+import '../../communities/v1/communities.pb.dart' as $4;
 import '../../graph/v1/graph.pb.dart' as $0;
+import '../../lists/v1/lists.pb.dart' as $3;
 import '../../posts/v1/posts.pb.dart' as $1;
 import 'search.pbenum.dart';
 
@@ -173,12 +175,14 @@ class SearchPostsRequest extends $pb.GeneratedMessage {
     SearchTab? tab,
     $core.int? pageSize,
     $core.String? pageToken,
+    $core.bool? fromFollowing,
   }) {
     final result = SearchPostsRequest._();
     if (query != null) result.query = query;
     if (tab != null) result.tab = tab;
     if (pageSize != null) result.pageSize = pageSize;
     if (pageToken != null) result.pageToken = pageToken;
+    if (fromFollowing != null) result.fromFollowing = fromFollowing;
     return result;
   }
 
@@ -201,6 +205,7 @@ class SearchPostsRequest extends $pb.GeneratedMessage {
         enumValues: SearchTab.values)
     ..aI(3, _omitFieldNames ? '' : 'pageSize')
     ..aOS(4, _omitFieldNames ? '' : 'pageToken')
+    ..aOB(5, _omitFieldNames ? '' : 'fromFollowing')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -264,6 +269,22 @@ class SearchPostsRequest extends $pb.GeneratedMessage {
   $core.bool hasPageToken() => $_has(3);
   @$pb.TagNumber(4)
   void clearPageToken() => $_clearField(4);
+
+  /// "People you follow" (F22): keep only posts whose row author the caller follows (a REPOST row counts for the
+  /// account that reposted). The caller's own posts are left out. Needs FEATURE_SEARCH_FILTERS (see the file comment).
+  /// The following set is the caller's 60 s graph snapshot (at most 5,000 accounts). Every other filter still applies.
+  /// Recall limit: TOP filters its one 30-post entry. LATEST and MEDIA scan at most 3 of the tab's query windows per
+  /// call, stopping once page_size rows are kept, so a page may be SHORT or EMPTY while next_page_token is non-empty:
+  /// keep following it. A page token is bound to this value too: a token from a call with the other value =>
+  /// VALIDATION "page_token".
+  @$pb.TagNumber(5)
+  $core.bool get fromFollowing => $_getBF(4);
+  @$pb.TagNumber(5)
+  set fromFollowing($core.bool value) => $_setBool(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasFromFollowing() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearFromFollowing() => $_clearField(5);
 }
 
 class SearchPostsResponse extends $pb.GeneratedMessage {
@@ -587,6 +608,318 @@ class GetTrendsResponse extends $pb.GeneratedMessage {
   $2.Timestamp ensureComputedAt() => $_ensure(1);
 }
 
+class SearchListsRequest extends $pb.GeneratedMessage {
+  factory SearchListsRequest({
+    $core.String? query,
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = SearchListsRequest._();
+    if (query != null) result.query = query;
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  SearchListsRequest._();
+
+  factory SearchListsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchListsRequest()..mergeFromBuffer(data, registry);
+  factory SearchListsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchListsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SearchListsRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.search.v1'),
+      createEmptyInstance: SearchListsRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'query')
+    ..aI(2, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(3, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchListsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchListsRequest copyWith(void Function(SearchListsRequest) updates) =>
+      super.copyWith((message) => updates(message as SearchListsRequest))
+          as SearchListsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use SearchListsRequest() / SearchListsRequest.new instead')
+  static SearchListsRequest create() => SearchListsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => SearchListsRequest._();
+  @$core.override
+  SearchListsRequest createEmptyInstance() => SearchListsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static SearchListsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SearchListsRequest>(
+          SearchListsRequest.$_createMessage);
+  static SearchListsRequest? _defaultInstance;
+
+  /// A name prefix (rules on SearchLists).
+  @$pb.TagNumber(1)
+  $core.String get query => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set query($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasQuery() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearQuery() => $_clearField(1);
+
+  /// 0 => 20; max 20 (clamped); negative => VALIDATION "page_size".
+  @$pb.TagNumber(2)
+  $core.int get pageSize => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set pageSize($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageSize() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageSize() => $_clearField(2);
+
+  /// next_page_token of the previous page for the same query.
+  @$pb.TagNumber(3)
+  $core.String get pageToken => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set pageToken($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPageToken() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPageToken() => $_clearField(3);
+}
+
+class SearchListsResponse extends $pb.GeneratedMessage {
+  factory SearchListsResponse({
+    $core.Iterable<$3.ListInfo>? lists,
+    $core.String? nextPageToken,
+  }) {
+    final result = SearchListsResponse._();
+    if (lists != null) result.lists.addAll(lists);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  SearchListsResponse._();
+
+  factory SearchListsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchListsResponse()..mergeFromBuffer(data, registry);
+  factory SearchListsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchListsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SearchListsResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.search.v1'),
+      createEmptyInstance: SearchListsResponse.$_createMessage)
+    ..pPM<$3.ListInfo>(1, _omitFieldNames ? '' : 'lists',
+        subBuilder: $3.ListInfo.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchListsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchListsResponse copyWith(void Function(SearchListsResponse) updates) =>
+      super.copyWith((message) => updates(message as SearchListsResponse))
+          as SearchListsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use SearchListsResponse() / SearchListsResponse.new instead')
+  static SearchListsResponse create() => SearchListsResponse._();
+  static $pb.GeneratedMessage $_createMessage() => SearchListsResponse._();
+  @$core.override
+  SearchListsResponse createEmptyInstance() => SearchListsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static SearchListsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SearchListsResponse>(
+          SearchListsResponse.$_createMessage);
+  static SearchListsResponse? _defaultInstance;
+
+  /// Folded-name order; at most page_size; may be short while next_page_token is set.
+  @$pb.TagNumber(1)
+  $pb.PbList<$3.ListInfo> get lists => $_getList(0);
+
+  /// "" => no more.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
+class SearchCommunitiesRequest extends $pb.GeneratedMessage {
+  factory SearchCommunitiesRequest({
+    $core.String? query,
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = SearchCommunitiesRequest._();
+    if (query != null) result.query = query;
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  SearchCommunitiesRequest._();
+
+  factory SearchCommunitiesRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchCommunitiesRequest()..mergeFromBuffer(data, registry);
+  factory SearchCommunitiesRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchCommunitiesRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SearchCommunitiesRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.search.v1'),
+      createEmptyInstance: SearchCommunitiesRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'query')
+    ..aI(2, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(3, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchCommunitiesRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchCommunitiesRequest copyWith(
+          void Function(SearchCommunitiesRequest) updates) =>
+      super.copyWith((message) => updates(message as SearchCommunitiesRequest))
+          as SearchCommunitiesRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SearchCommunitiesRequest() / SearchCommunitiesRequest.new instead')
+  static SearchCommunitiesRequest create() => SearchCommunitiesRequest._();
+  static $pb.GeneratedMessage $_createMessage() => SearchCommunitiesRequest._();
+  @$core.override
+  SearchCommunitiesRequest createEmptyInstance() =>
+      SearchCommunitiesRequest._();
+  @$core.pragma('dart2js:noInline')
+  static SearchCommunitiesRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SearchCommunitiesRequest>(
+          SearchCommunitiesRequest.$_createMessage);
+  static SearchCommunitiesRequest? _defaultInstance;
+
+  /// A name prefix (rules on SearchLists).
+  @$pb.TagNumber(1)
+  $core.String get query => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set query($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasQuery() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearQuery() => $_clearField(1);
+
+  /// 0 => 20; max 20 (clamped); negative => VALIDATION "page_size".
+  @$pb.TagNumber(2)
+  $core.int get pageSize => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set pageSize($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageSize() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageSize() => $_clearField(2);
+
+  /// next_page_token of the previous page for the same query.
+  @$pb.TagNumber(3)
+  $core.String get pageToken => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set pageToken($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPageToken() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPageToken() => $_clearField(3);
+}
+
+class SearchCommunitiesResponse extends $pb.GeneratedMessage {
+  factory SearchCommunitiesResponse({
+    $core.Iterable<$4.Community>? communities,
+    $core.String? nextPageToken,
+  }) {
+    final result = SearchCommunitiesResponse._();
+    if (communities != null) result.communities.addAll(communities);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  SearchCommunitiesResponse._();
+
+  factory SearchCommunitiesResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchCommunitiesResponse()..mergeFromBuffer(data, registry);
+  factory SearchCommunitiesResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchCommunitiesResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SearchCommunitiesResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.search.v1'),
+      createEmptyInstance: SearchCommunitiesResponse.$_createMessage)
+    ..pPM<$4.Community>(1, _omitFieldNames ? '' : 'communities',
+        subBuilder: $4.Community.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchCommunitiesResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchCommunitiesResponse copyWith(
+          void Function(SearchCommunitiesResponse) updates) =>
+      super.copyWith((message) => updates(message as SearchCommunitiesResponse))
+          as SearchCommunitiesResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SearchCommunitiesResponse() / SearchCommunitiesResponse.new instead')
+  static SearchCommunitiesResponse create() => SearchCommunitiesResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      SearchCommunitiesResponse._();
+  @$core.override
+  SearchCommunitiesResponse createEmptyInstance() =>
+      SearchCommunitiesResponse._();
+  @$core.pragma('dart2js:noInline')
+  static SearchCommunitiesResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SearchCommunitiesResponse>(
+          SearchCommunitiesResponse.$_createMessage);
+  static SearchCommunitiesResponse? _defaultInstance;
+
+  /// Folded-name order; at most page_size. Each row is the light header with the caller's viewer_role.
+  @$pb.TagNumber(1)
+  $pb.PbList<$4.Community> get communities => $_getList(0);
+
+  /// "" => no more.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
 class SearchServiceApi {
   final $pb.RpcClient _client;
 
@@ -665,6 +998,39 @@ class SearchServiceApi {
           $pb.ClientContext? ctx, GetTrendsRequest request) =>
       _client.invoke<GetTrendsResponse>(
           ctx, 'SearchService', 'GetTrends', request, GetTrendsResponse());
+
+  /// Public lists whose folded name starts with the folded query (F20), in folded-name order, then list id.
+  /// query: NFC, trimmed, lower-cased; 1 to 30 code points after that, no control or bidi formatting character, else
+  /// VALIDATION "query" before any lookup. No sigil is stripped.
+  /// Rows: public lists only (a private list is never read: the query has isPrivate == false). Then the GetList rules for
+  /// the caller drop a list hidden by an operator, a list whose owner is not ACTIVE, a list whose owner blocks the caller
+  /// or that the caller blocks, a protected owner's list the caller does not follow, an owner past the blockedBy cap, and
+  /// the caller's own lists (they are on the Lists tab), exactly as DiscoverLists does. A dropped row is never
+  /// replaced, so a page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+  /// follower_count and followed_by_viewer are set only when FEATURE_LIST_FOLLOWS is on for the caller (as on GetList).
+  /// page_size 0 => 20, max 20 (clamped); negative => VALIDATION "page_size". page_token: opaque, sealed, bound to the
+  /// caller and the folded query, 24 h TTL; expired, foreign, tampered or sent with another query => VALIDATION
+  /// "page_token", before any lookup.
+  /// Staleness: the query reads Firestore on every call; the per-row rules use the 60 s caches GetList uses.
+  /// Flags: "search", "search_lists", "lists". Rate limit: RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN 20/min/uid per instance,
+  /// shared with SearchCommunities; no daily cap. Cost: one query of at most page_size documents, then per row the
+  /// owner's profile and graph (cache-first) and one batched follow-marker read when list_follows is on. Writes nothing.
+  $async.Future<SearchListsResponse> searchLists(
+          $pb.ClientContext? ctx, SearchListsRequest request) =>
+      _client.invoke<SearchListsResponse>(
+          ctx, 'SearchService', 'SearchLists', request, SearchListsResponse());
+
+  /// ACTIVE communities whose folded name starts with the folded query (F21), in folded-name order, then community id.
+  /// query: the SearchLists rules. A SUSPENDED (taken offline by an operator) or ARCHIVED community is never returned (the
+  /// query has status == ACTIVE, the directory rule). As in ListCommunities there is no block filtering (D7); viewer_role
+  /// is the caller's role (memberships cached 60 s). page_size and page_token: the SearchLists rules (the token is bound
+  /// to this RPC). A page is short only at the end.
+  /// Flags: "search", "search_lists", "communities". Rate limit: the SearchLists bucket. Cost: one query of at most
+  /// page_size documents and the caller's memberships (cached 60 s). Writes nothing.
+  $async.Future<SearchCommunitiesResponse> searchCommunities(
+          $pb.ClientContext? ctx, SearchCommunitiesRequest request) =>
+      _client.invoke<SearchCommunitiesResponse>(ctx, 'SearchService',
+          'SearchCommunities', request, SearchCommunitiesResponse());
 }
 
 const $core.bool _omitFieldNames =

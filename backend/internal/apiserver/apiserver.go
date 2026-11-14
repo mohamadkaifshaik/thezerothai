@@ -777,6 +777,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// Messaging: SendMessage behind FEATURE_MESSAGING, per caller and per recipient; ListConversations
 	// is not globally off; the other three RPCs check the flag and answer Unimplemented until it ships. Badge evicts identity's cached
 	// unread_conversation_count; the push event is adapted to notifications.Emitter (a no-op until it ships adds the type).
+	// F30: the plan and community sources of ListMessageSuggestions are bound once beacons and communities exist (below).
+	suggestPlans, suggestCommunities := &latePlanMates{}, &lateCommunityMates{}
 	messagingSvc := messaging.New(featureFlags, messaging.Deps{
 		Repo: messagingRepo, Social: graphSvc, Profiles: identitySvc.(identity.Directory), Events: messageNotifier{slot: notifSlot},
 		TxSocial: graphRepo, TxProfiles: identityRepo, AllowAnonymous: cfg.AuthEmulator, // Recipient graph and users doc in the send transaction
@@ -794,6 +796,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		PostShare: postShareCheck{posts: postsSvc.(posts.Engagement)},
 		Cards:     postCards{posts: postsSvc.(posts.Engagement)},
 		Shares:    engagementMod,
+		// F30: follow-back answers from graph's batched edge lookup; plans and communities late-bound.
+		Suggestions: messaging.SuggestionDeps{Follows: graphSvc, Plans: suggestPlans, Communities: suggestCommunities},
 	})
 	reporter, ok := messagingSvc.(messaging.MessageReporter)
 	if !ok {
@@ -870,6 +874,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, errors.New("beacons service does not implement BeaconReporter")
 	}
 	lateBeacons.r = beaconReporter // bound before ListenAndServe: a BEACON report can now reach the beacon
+	planMates, ok := beaconsSvc.(planCoParticipants)
+	if !ok {
+		return nil, nil, errors.New("beacons service does not implement RecentCoParticipants")
+	}
+	suggestPlans.src = planMates
+	communityMates, ok := communitiesSvc.(communityCoMembers)
+	if !ok {
+		return nil, nil, errors.New("communities service does not implement RecentCoMembers")
+	}
+	suggestCommunities.src = communityMates
 	// Post.beacon: CreatePost's beacon_id and the card hydration of every post producer.
 	wirePostPlans(beaconsSvc, postsSvc, postsServer, timelineServer)
 	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
@@ -898,6 +912,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
 		}),
 		search.WithTrends(trendsStore, nil),
+		// F20/F21: SearchLists and SearchCommunities read through the two modules' search methods (their visibility rules).
+		search.WithDirectory(search.DirectoryDeps{Lists: listsSvc, Communities: communitiesSvc}),
 		// The denylist also applies at serve time, so a deploy takes effect within the 10 min copy.
 		search.WithTrendsDenylist(cfg.Search.TrendsDenylist)))
 	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, identitySvc.(identity.Directory), featureFlags, search.RefresherConfig{
@@ -940,7 +956,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	outboxStep := outboxSweepStep{sweeper: ob, readOnly: cfg.Degraded == config.DegradedReadonly, log: log}
 	// The view rollup (F1 post views) rides the same tick last, under its own 15-minute gate (view_rollup_wiring.go);
 	// /internal/cron/view-rollup runs it alone. Skipped while FEATURE_POST_VIEWS is globally off or under DEGRADED_MODE=readonly.
-	viewRollupTick, viewRollupRoute := newViewRollups(postsRepo, func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }, cfg.Degraded == config.DegradedReadonly)
+	viewRollupTick, viewRollupRoute := newViewRollups(postsRepo, func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }, cfg.Degraded == config.DegradedReadonly, postsCache.DeletePost)
 	routes.internal("/internal/cron/publish-scheduled", withViewRollup(withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingWebhookRecovery, log), viewRollupStep{rollup: viewRollupTick, log: log}, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/outbox-sweep", outboxSweepHandler(outboxStep, log, cfg.ProjectID))
 	routes.internal("/internal/cron/view-rollup", viewRollupHandler(viewRollupStep{rollup: viewRollupRoute, log: log}, log, cfg.ProjectID))

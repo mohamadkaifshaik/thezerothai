@@ -29,6 +29,14 @@ func (followStubs) DiscoverPage(context.Context, *DiscoverAnchor, int) ([]List, 
 	return nil, errStubNotUsed
 }
 
+func (followStubs) SearchByName(context.Context, string, *NameAnchor, int) ([]List, error) {
+	return nil, errStubNotUsed
+}
+
+func (followStubs) SearchLists(context.Context, string, string, int32, string) (SearchListsPage, error) {
+	return SearchListsPage{}, errStubNotUsed
+}
+
 func (followStubs) FollowedAmong(context.Context, string, []string) (map[string]bool, error) {
 	return nil, errStubNotUsed
 }

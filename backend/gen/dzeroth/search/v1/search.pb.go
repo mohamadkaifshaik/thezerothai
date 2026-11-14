@@ -29,6 +29,19 @@
 // - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
 //   "trends") gates GetTrends per caller. Off => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "search"
 //   or "trends", before any lookup.
+// - FEATURE_SEARCH_LISTS (wire name "search_lists", default off) gates SearchLists and SearchCommunities per caller, checked
+//   right after "search"; SearchLists then needs "lists" and SearchCommunities "communities" on for the caller too. Each
+//   off flag => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = that flag's wire name, before any lookup.
+// - FEATURE_SEARCH_FILTERS (wire name "search_filters", default off) gates SearchPostsRequest.from_following = true per
+//   caller (checked after "search"; FEATURE_DISABLED metadata["feature"] = "search_filters", before any lookup). A request
+//   with from_following = false never checks it.
+//
+// Lists and communities by name (F20, F21): no search engine either. Each list and community stores nameLower, the
+// name folded by pkg/platform/namekey (NFC, lower-case, trimmed; fixture backend/pkg/platform/namekey/testdata), written on
+// create and on every rename. A query is folded the same way and matched as a PREFIX of the whole folded name ("go"
+// finds "Go devs", not "Learn Go"). Search reads them through the lists and communities modules' search methods; it
+// never queries those collections itself. Rows written before nameLower existed are found only after the operator
+// backfill (opsctl search backfill-name-keys).
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix, before any lookup.
@@ -42,7 +55,9 @@
 package searchv1
 
 import (
+	v13 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1"
 	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
+	v12 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	v11 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -234,7 +249,15 @@ type SearchPostsRequest struct {
 	// 0 => 20; max 50 (clamped); negative => VALIDATION "page_size". TOP returns at most 20.
 	PageSize int32 `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// next_page_token of the previous page for the same query and tab.
-	PageToken     string `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	PageToken string `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// "People you follow" (F22): keep only posts whose row author the caller follows (a REPOST row counts for the
+	// account that reposted). The caller's own posts are left out. Needs FEATURE_SEARCH_FILTERS (see the file comment).
+	// The following set is the caller's 60 s graph snapshot (at most 5,000 accounts). Every other filter still applies.
+	// Recall limit: TOP filters its one 30-post entry. LATEST and MEDIA scan at most 3 of the tab's query windows per
+	// call, stopping once page_size rows are kept, so a page may be SHORT or EMPTY while next_page_token is non-empty:
+	// keep following it. A page token is bound to this value too: a token from a call with the other value =>
+	// VALIDATION "page_token".
+	FromFollowing bool `protobuf:"varint,5,opt,name=from_following,json=fromFollowing,proto3" json:"from_following,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -295,6 +318,13 @@ func (x *SearchPostsRequest) GetPageToken() string {
 		return x.PageToken
 	}
 	return ""
+}
+
+func (x *SearchPostsRequest) GetFromFollowing() bool {
+	if x != nil {
+		return x.FromFollowing
+	}
+	return false
 }
 
 type SearchPostsResponse struct {
@@ -542,23 +572,258 @@ func (x *GetTrendsResponse) GetComputedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type SearchListsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A name prefix (rules on SearchLists).
+	Query string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	// 0 => 20; max 20 (clamped); negative => VALIDATION "page_size".
+	PageSize int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// next_page_token of the previous page for the same query.
+	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchListsRequest) Reset() {
+	*x = SearchListsRequest{}
+	mi := &file_dzeroth_search_v1_search_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchListsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchListsRequest) ProtoMessage() {}
+
+func (x *SearchListsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_search_v1_search_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchListsRequest.ProtoReflect.Descriptor instead.
+func (*SearchListsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_search_v1_search_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SearchListsRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *SearchListsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *SearchListsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type SearchListsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Folded-name order; at most page_size; may be short while next_page_token is set.
+	Lists []*v12.ListInfo `protobuf:"bytes,1,rep,name=lists,proto3" json:"lists,omitempty"`
+	// "" => no more.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchListsResponse) Reset() {
+	*x = SearchListsResponse{}
+	mi := &file_dzeroth_search_v1_search_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchListsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchListsResponse) ProtoMessage() {}
+
+func (x *SearchListsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_search_v1_search_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchListsResponse.ProtoReflect.Descriptor instead.
+func (*SearchListsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_search_v1_search_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SearchListsResponse) GetLists() []*v12.ListInfo {
+	if x != nil {
+		return x.Lists
+	}
+	return nil
+}
+
+func (x *SearchListsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type SearchCommunitiesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A name prefix (rules on SearchLists).
+	Query string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	// 0 => 20; max 20 (clamped); negative => VALIDATION "page_size".
+	PageSize int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// next_page_token of the previous page for the same query.
+	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchCommunitiesRequest) Reset() {
+	*x = SearchCommunitiesRequest{}
+	mi := &file_dzeroth_search_v1_search_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchCommunitiesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchCommunitiesRequest) ProtoMessage() {}
+
+func (x *SearchCommunitiesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_search_v1_search_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchCommunitiesRequest.ProtoReflect.Descriptor instead.
+func (*SearchCommunitiesRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_search_v1_search_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SearchCommunitiesRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *SearchCommunitiesRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *SearchCommunitiesRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type SearchCommunitiesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Folded-name order; at most page_size. Each row is the light header with the caller's viewer_role.
+	Communities []*v13.Community `protobuf:"bytes,1,rep,name=communities,proto3" json:"communities,omitempty"`
+	// "" => no more.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchCommunitiesResponse) Reset() {
+	*x = SearchCommunitiesResponse{}
+	mi := &file_dzeroth_search_v1_search_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchCommunitiesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchCommunitiesResponse) ProtoMessage() {}
+
+func (x *SearchCommunitiesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_search_v1_search_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchCommunitiesResponse.ProtoReflect.Descriptor instead.
+func (*SearchCommunitiesResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_search_v1_search_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SearchCommunitiesResponse) GetCommunities() []*v13.Community {
+	if x != nil {
+		return x.Communities
+	}
+	return nil
+}
+
+func (x *SearchCommunitiesResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 var File_dzeroth_search_v1_search_proto protoreflect.FileDescriptor
 
 const file_dzeroth_search_v1_search_proto_rawDesc = "" +
 	"\n" +
-	"\x1edzeroth/search/v1/search.proto\x12\x11dzeroth.search.v1\x1a\x1cdzeroth/graph/v1/graph.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"A\n" +
+	"\x1edzeroth/search/v1/search.proto\x12\x11dzeroth.search.v1\x1a(dzeroth/communities/v1/communities.proto\x1a\x1cdzeroth/graph/v1/graph.proto\x1a\x1cdzeroth/lists/v1/lists.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"A\n" +
 	"\x13SearchPeopleRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\"y\n" +
 	"\x14SearchPeopleResponse\x124\n" +
 	"\x05users\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.UserListItemR\x05users\x12+\n" +
-	"\x11unsupported_query\x18\x02 \x01(\bR\x10unsupportedQuery\"\x96\x01\n" +
+	"\x11unsupported_query\x18\x02 \x01(\bR\x10unsupportedQuery\"\xbd\x01\n" +
 	"\x12SearchPostsRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12.\n" +
 	"\x03tab\x18\x02 \x01(\x0e2\x1c.dzeroth.search.v1.SearchTabR\x03tab\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x04 \x01(\tR\tpageToken\"\xc3\x01\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\x12%\n" +
+	"\x0efrom_following\x18\x05 \x01(\bR\rfromFollowing\"\xc3\x01\n" +
 	"\x13SearchPostsResponse\x120\n" +
 	"\x05posts\x18\x01 \x03(\v2\x1a.dzeroth.posts.v1.PostViewR\x05posts\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12%\n" +
@@ -575,16 +840,34 @@ const file_dzeroth_search_v1_search_proto_rawDesc = "" +
 	"\x11GetTrendsResponse\x120\n" +
 	"\x06trends\x18\x01 \x03(\v2\x18.dzeroth.search.v1.TrendR\x06trends\x12;\n" +
 	"\vcomputed_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"computedAt*h\n" +
+	"computedAt\"f\n" +
+	"\x12SearchListsRequest\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"o\n" +
+	"\x13SearchListsResponse\x120\n" +
+	"\x05lists\x18\x01 \x03(\v2\x1a.dzeroth.lists.v1.ListInfoR\x05lists\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"l\n" +
+	"\x18SearchCommunitiesRequest\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"\x88\x01\n" +
+	"\x19SearchCommunitiesResponse\x12C\n" +
+	"\vcommunities\x18\x01 \x03(\v2!.dzeroth.communities.v1.CommunityR\vcommunities\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*h\n" +
 	"\tSearchTab\x12\x1a\n" +
 	"\x16SEARCH_TAB_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSEARCH_TAB_TOP\x10\x01\x12\x15\n" +
 	"\x11SEARCH_TAB_LATEST\x10\x02\x12\x14\n" +
-	"\x10SEARCH_TAB_MEDIA\x10\x032\xb5\x02\n" +
+	"\x10SEARCH_TAB_MEDIA\x10\x032\x8d\x04\n" +
 	"\rSearchService\x12d\n" +
 	"\fSearchPeople\x12&.dzeroth.search.v1.SearchPeopleRequest\x1a'.dzeroth.search.v1.SearchPeopleResponse\"\x03\x90\x02\x01\x12a\n" +
 	"\vSearchPosts\x12%.dzeroth.search.v1.SearchPostsRequest\x1a&.dzeroth.search.v1.SearchPostsResponse\"\x03\x90\x02\x01\x12[\n" +
-	"\tGetTrends\x12#.dzeroth.search.v1.GetTrendsRequest\x1a$.dzeroth.search.v1.GetTrendsResponse\"\x03\x90\x02\x01BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1;searchv1b\x06proto3"
+	"\tGetTrends\x12#.dzeroth.search.v1.GetTrendsRequest\x1a$.dzeroth.search.v1.GetTrendsResponse\"\x03\x90\x02\x01\x12a\n" +
+	"\vSearchLists\x12%.dzeroth.search.v1.SearchListsRequest\x1a&.dzeroth.search.v1.SearchListsResponse\"\x03\x90\x02\x01\x12s\n" +
+	"\x11SearchCommunities\x12+.dzeroth.search.v1.SearchCommunitiesRequest\x1a,.dzeroth.search.v1.SearchCommunitiesResponse\"\x03\x90\x02\x01BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1;searchv1b\x06proto3"
 
 var (
 	file_dzeroth_search_v1_search_proto_rawDescOnce sync.Once
@@ -599,37 +882,49 @@ func file_dzeroth_search_v1_search_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_search_v1_search_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_dzeroth_search_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_dzeroth_search_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_dzeroth_search_v1_search_proto_goTypes = []any{
-	(SearchTab)(0),                // 0: dzeroth.search.v1.SearchTab
-	(*SearchPeopleRequest)(nil),   // 1: dzeroth.search.v1.SearchPeopleRequest
-	(*SearchPeopleResponse)(nil),  // 2: dzeroth.search.v1.SearchPeopleResponse
-	(*SearchPostsRequest)(nil),    // 3: dzeroth.search.v1.SearchPostsRequest
-	(*SearchPostsResponse)(nil),   // 4: dzeroth.search.v1.SearchPostsResponse
-	(*GetTrendsRequest)(nil),      // 5: dzeroth.search.v1.GetTrendsRequest
-	(*Trend)(nil),                 // 6: dzeroth.search.v1.Trend
-	(*GetTrendsResponse)(nil),     // 7: dzeroth.search.v1.GetTrendsResponse
-	(*v1.UserListItem)(nil),       // 8: dzeroth.graph.v1.UserListItem
-	(*v11.PostView)(nil),          // 9: dzeroth.posts.v1.PostView
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
+	(SearchTab)(0),                    // 0: dzeroth.search.v1.SearchTab
+	(*SearchPeopleRequest)(nil),       // 1: dzeroth.search.v1.SearchPeopleRequest
+	(*SearchPeopleResponse)(nil),      // 2: dzeroth.search.v1.SearchPeopleResponse
+	(*SearchPostsRequest)(nil),        // 3: dzeroth.search.v1.SearchPostsRequest
+	(*SearchPostsResponse)(nil),       // 4: dzeroth.search.v1.SearchPostsResponse
+	(*GetTrendsRequest)(nil),          // 5: dzeroth.search.v1.GetTrendsRequest
+	(*Trend)(nil),                     // 6: dzeroth.search.v1.Trend
+	(*GetTrendsResponse)(nil),         // 7: dzeroth.search.v1.GetTrendsResponse
+	(*SearchListsRequest)(nil),        // 8: dzeroth.search.v1.SearchListsRequest
+	(*SearchListsResponse)(nil),       // 9: dzeroth.search.v1.SearchListsResponse
+	(*SearchCommunitiesRequest)(nil),  // 10: dzeroth.search.v1.SearchCommunitiesRequest
+	(*SearchCommunitiesResponse)(nil), // 11: dzeroth.search.v1.SearchCommunitiesResponse
+	(*v1.UserListItem)(nil),           // 12: dzeroth.graph.v1.UserListItem
+	(*v11.PostView)(nil),              // 13: dzeroth.posts.v1.PostView
+	(*timestamppb.Timestamp)(nil),     // 14: google.protobuf.Timestamp
+	(*v12.ListInfo)(nil),              // 15: dzeroth.lists.v1.ListInfo
+	(*v13.Community)(nil),             // 16: dzeroth.communities.v1.Community
 }
 var file_dzeroth_search_v1_search_proto_depIdxs = []int32{
-	8,  // 0: dzeroth.search.v1.SearchPeopleResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	12, // 0: dzeroth.search.v1.SearchPeopleResponse.users:type_name -> dzeroth.graph.v1.UserListItem
 	0,  // 1: dzeroth.search.v1.SearchPostsRequest.tab:type_name -> dzeroth.search.v1.SearchTab
-	9,  // 2: dzeroth.search.v1.SearchPostsResponse.posts:type_name -> dzeroth.posts.v1.PostView
+	13, // 2: dzeroth.search.v1.SearchPostsResponse.posts:type_name -> dzeroth.posts.v1.PostView
 	6,  // 3: dzeroth.search.v1.GetTrendsResponse.trends:type_name -> dzeroth.search.v1.Trend
-	10, // 4: dzeroth.search.v1.GetTrendsResponse.computed_at:type_name -> google.protobuf.Timestamp
-	1,  // 5: dzeroth.search.v1.SearchService.SearchPeople:input_type -> dzeroth.search.v1.SearchPeopleRequest
-	3,  // 6: dzeroth.search.v1.SearchService.SearchPosts:input_type -> dzeroth.search.v1.SearchPostsRequest
-	5,  // 7: dzeroth.search.v1.SearchService.GetTrends:input_type -> dzeroth.search.v1.GetTrendsRequest
-	2,  // 8: dzeroth.search.v1.SearchService.SearchPeople:output_type -> dzeroth.search.v1.SearchPeopleResponse
-	4,  // 9: dzeroth.search.v1.SearchService.SearchPosts:output_type -> dzeroth.search.v1.SearchPostsResponse
-	7,  // 10: dzeroth.search.v1.SearchService.GetTrends:output_type -> dzeroth.search.v1.GetTrendsResponse
-	8,  // [8:11] is the sub-list for method output_type
-	5,  // [5:8] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	14, // 4: dzeroth.search.v1.GetTrendsResponse.computed_at:type_name -> google.protobuf.Timestamp
+	15, // 5: dzeroth.search.v1.SearchListsResponse.lists:type_name -> dzeroth.lists.v1.ListInfo
+	16, // 6: dzeroth.search.v1.SearchCommunitiesResponse.communities:type_name -> dzeroth.communities.v1.Community
+	1,  // 7: dzeroth.search.v1.SearchService.SearchPeople:input_type -> dzeroth.search.v1.SearchPeopleRequest
+	3,  // 8: dzeroth.search.v1.SearchService.SearchPosts:input_type -> dzeroth.search.v1.SearchPostsRequest
+	5,  // 9: dzeroth.search.v1.SearchService.GetTrends:input_type -> dzeroth.search.v1.GetTrendsRequest
+	8,  // 10: dzeroth.search.v1.SearchService.SearchLists:input_type -> dzeroth.search.v1.SearchListsRequest
+	10, // 11: dzeroth.search.v1.SearchService.SearchCommunities:input_type -> dzeroth.search.v1.SearchCommunitiesRequest
+	2,  // 12: dzeroth.search.v1.SearchService.SearchPeople:output_type -> dzeroth.search.v1.SearchPeopleResponse
+	4,  // 13: dzeroth.search.v1.SearchService.SearchPosts:output_type -> dzeroth.search.v1.SearchPostsResponse
+	7,  // 14: dzeroth.search.v1.SearchService.GetTrends:output_type -> dzeroth.search.v1.GetTrendsResponse
+	9,  // 15: dzeroth.search.v1.SearchService.SearchLists:output_type -> dzeroth.search.v1.SearchListsResponse
+	11, // 16: dzeroth.search.v1.SearchService.SearchCommunities:output_type -> dzeroth.search.v1.SearchCommunitiesResponse
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_search_v1_search_proto_init() }
@@ -643,7 +938,7 @@ func file_dzeroth_search_v1_search_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_search_v1_search_proto_rawDesc), len(file_dzeroth_search_v1_search_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

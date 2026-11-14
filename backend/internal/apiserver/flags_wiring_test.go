@@ -148,6 +148,9 @@ func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
 		{"FEATURE_ARTICLE_IMAGES", "article_images"},
 		{"FEATURE_EXPORT_ZIP", "export_zip"},
 		{"FEATURE_MESSAGE_SEARCH", "message_search"},
+		{"FEATURE_SEARCH_LISTS", "search_lists"},
+		{"FEATURE_SEARCH_FILTERS", "search_filters"},
+		{"FEATURE_DM_SUGGESTIONS", "dm_suggestions"},
 		{"FEATURE_POST_VIEWS", "post_views"},
 	} {
 		for _, tc := range []struct {

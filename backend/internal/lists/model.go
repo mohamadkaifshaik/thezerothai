@@ -19,9 +19,11 @@ const (
 // List is one lists/{listId} document as the module sees it. MemberIDs is in add order and has at most
 // LIST_MAX_MEMBERS entries; there is no stored count (memberCount is len(MemberIDs)).
 type List struct {
-	ID          string
-	OwnerID     string
-	Name        string
+	ID      string
+	OwnerID string
+	Name    string
+	// NameLower is the stored search key (namekey.Fold(Name)); "" on a list written before the field (until the backfill).
+	NameLower   string
 	Description string
 	IsPrivate   bool
 	MemberIDs   []string
@@ -116,6 +118,9 @@ type Service interface {
 	ListSuggestedMembers(ctx context.Context, uid, listID string, maxResults int32) ([]identity.Profile, error)
 	// FollowedAmong reports which of listIDs the viewer follows (one batched read).
 	FollowedAmong(ctx context.Context, viewer string, listIDs []string) (map[string]bool, error)
+	// SearchLists is public lists whose folded name starts with prefix (F20, search.SearchLists), in folded-name order, with
+	// the DiscoverLists visibility rules; prefix is already folded (namekey.Query). See search.go.
+	SearchLists(ctx context.Context, viewer, prefix string, pageSize int32, pageToken string) (SearchListsPage, error)
 }
 
 // Pins is the consumer-side seam to the owner's pinned Home tabs on users/{uid}.homeTabs. Identity
@@ -221,6 +226,9 @@ type Repo interface {
 	DiscoverPage(ctx context.Context, after *DiscoverAnchor, limit int) ([]List, error)
 	// FollowedAmong reads the viewer's markers for listIDs in one batched read.
 	FollowedAmong(ctx context.Context, viewer string, listIDs []string) (map[string]bool, error)
+	// SearchByName reads public lists whose nameLower starts with prefix, nameLower then id ascending, strictly after the
+	// anchor when set, at most limit (clamped to 1..SearchPageMax). Hidden lists are returned; the service filters.
+	SearchByName(ctx context.Context, prefix string, after *NameAnchor, limit int) ([]List, error)
 }
 
 // ErrMemberLimit and ErrProtected are the repository's refusals of AddMember (mapped to LIMIT_REACHED "list_members" and

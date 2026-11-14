@@ -20,7 +20,7 @@ func shardDocs(t *testing.T, r *FirestoreRepo, id string) int {
 }
 
 // TestIntegration_ViewShardsGoWithThePost: the account purge deletes every post with its view shards (more posts than one
-// purge chunk), and DeletePost's batch deletes the shards with the post.
+// view-shard batch), and DeletePost's batch deletes the shards with the post.
 func TestIntegration_ViewShardsGoWithThePost(t *testing.T) {
 	ctx := context.Background()
 	client := newTestClient(t)
@@ -32,7 +32,7 @@ func TestIntegration_ViewShardsGoWithThePost(t *testing.T) {
 	}
 	base := 3_000_000 + rand.IntN(1_000_000)
 	var ids []string
-	for i := range purgeChunk + 5 {
+	for i := range purgeShardChunk + 5 {
 		id := fmt.Sprintf("%019d", base+i)
 		ids = append(ids, id)
 		if _, err := r.ref(id).Set(ctx, map[string]any{"authorId": uid, "kind": "POST", "text": "t", "createdAt": time.Now().UTC()}); err != nil {
