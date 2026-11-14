@@ -157,10 +157,10 @@ void main() {
     },
   );
 
-  test('a fresh database is at schema version 13', () async {
+  test('a fresh database is at schema version 14', () async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
-    expect(db.schemaVersion, 13);
+    expect(db.schemaVersion, 14);
   });
 
   test('migrates a v10 database to v11: same rows and send-key values, key '

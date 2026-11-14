@@ -63,11 +63,11 @@ void main() {
   for (final MapEntry(key: name, value: size) in _sizes.entries) {
     final desktop = size.width >= 1200;
     group('$name (${size.width.toInt()} dp)', () {
-      testWidgets('ranked trends with a chevron, one suggestions call, the '
+      testWidgets('ranked trends with See all, one suggestions call, the '
           'card inline only below desktop', (tester) async {
         final rig = await _open(tester, size);
-        expect(find.text('01'), findsOneWidget);
-        expect(find.byIcon(Icons.chevron_right), findsWidgets);
+        expect(find.text('1'), findsOneWidget);
+        expect(find.text('See all'), findsOneWidget);
         expect(rig.trendCalls, 1);
         final inline = find.descendant(
           of: find.byType(ExploreScreen),
@@ -86,7 +86,7 @@ void main() {
           expect(inline, findsOneWidget);
           expect(
             tester.getTopLeft(find.text('Who to follow')).dy,
-            greaterThan(tester.getTopLeft(find.text('Trending today')).dy),
+            greaterThan(tester.getTopLeft(find.text('Trending')).dy),
           );
         }
         expect(rig.suggestionCalls, 1);

@@ -21,18 +21,20 @@ import '../feature_flags/feature_flags.dart';
 import '../router/app_router.dart';
 import '../theme/app_theme.dart';
 
-/// The account drawer of narrow layouts, opened by the avatar button of the
-/// top bar (`AppTopBar`): the account block (avatar, name, handle and the
-/// Following / Followers counts) and one 56dp row per destination that is not
-/// in the bottom bar: Profile, the shell entries (Creator Studio, Premium,
-/// Advertise, Calls), Settings and Privacy, Sign out. Plans is a primary
-/// destination (bar and rail), so it has no row here (ADR-0034 3, D5).
+/// The account drawer of narrow layouts (phones, under 600dp; tablet and
+/// desktop use the rail and the account chip menu, never this), opened by the
+/// avatar button of the top bar (`AppTopBar`). Top to bottom: the account
+/// header (avatar, name, handle, the Following / Followers counts, an aqua
+/// corner glow), a grid of up to four tinted quick tiles (Articles, Lists,
+/// Communities, History), Profile and Follow requests, then the shell entries
+/// (Creator Studio, Premium, Advertise, Calls), Settings and Privacy and Sign
+/// out. Plans is a primary destination (bar and rail), so it has no row here
+/// (ADR-0034 3, D5).
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs. A
 /// row closes the drawer, then navigates; the counts open the same lists as
-/// the profile header. The row order follows the mobile More menu, while each
-/// destination keeps its existing feature gate. Follow requests remains an
-/// app-specific row immediately after Profile.
+/// the profile header. Each destination keeps its existing feature gate. The
+/// whole drawer scrolls, so short screens and large text never overflow.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -45,8 +47,78 @@ class AppDrawer extends StatelessWidget {
       (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
     );
     final showFollowRequests = followRequestsEntryVisible(context);
+    final tiles = <_DrawerTile>[
+      // Needs `posts` (the entry and route).
+      if (isFeatureEnabled(context, kFeaturePosts))
+        _DrawerTile(
+          icon: Icons.article_outlined,
+          label: 'Articles',
+          onTap: () => _go(context, () => context.go(AppRouter.articlesPath)),
+        ),
+      // Needs `lists` (the drawer only exists with `ui_shell`).
+      if (isFeatureEnabled(context, kFeatureLists))
+        _DrawerTile(
+          key: const ValueKey('drawer-lists'),
+          icon: Icons.list_alt_outlined,
+          label: 'Lists',
+          onTap: () => _go(context, () => context.go(AppRouter.listsPath)),
+        ),
+      // Needs `communities` (the drawer only exists with `ui_shell`).
+      if (isFeatureEnabled(context, kFeatureCommunities))
+        _DrawerTile(
+          key: const ValueKey('drawer-communities'),
+          icon: Icons.groups_outlined,
+          label: 'Communities',
+          onTap: () =>
+              _go(context, () => context.go(AppRouter.communitiesPath)),
+        ),
+      if (isFeatureEnabled(context, kFeatureBookmarks) &&
+          isFeatureEnabled(context, kFeaturePosts))
+        _DrawerTile(
+          icon: Icons.bookmark_border,
+          label: 'History',
+          onTap: () => _go(context, () => context.go(AppRouter.bookmarksPath)),
+        ),
+    ];
+    final accountRows = <Widget>[
+      if (handle.isNotEmpty)
+        _DrawerRow(
+          icon: Icons.person_outline,
+          label: 'Profile',
+          chevron: true,
+          onTap: () =>
+              _go(context, () => context.go(AppRouter.profilePath(handle))),
+        ),
+      // A protected account's requests (or any pending count). Needs
+      // `graph`; never `private_accounts` for a protected caller (undo rule).
+      if (showFollowRequests)
+        _DrawerRow(
+          key: const ValueKey('drawer-follow-requests'),
+          icon: Icons.person_add_alt_outlined,
+          label: 'Follow requests',
+          chevron: true,
+          badge: pendingRequests > 0
+              ? followRequestBadgeText(pendingRequests)
+              : null,
+          badgeSpoken: pendingRequests > 0
+              ? followRequestBadgeSpoken(pendingRequests)
+              : null,
+          onTap: () =>
+              _go(context, () => context.go(AppRouter.followRequestsPath)),
+        ),
+    ];
+    final dividerColor = Theme.of(context).brightness == Brightness.dark
+        ? AppPalette.drawerDividerDark
+        : AppPalette.drawerDividerLight;
+    Widget divider() => Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      child: Divider(height: 1, thickness: 1, color: dividerColor),
+    );
     return Drawer(
-      // 277dp, never more than 85 % of the screen on a very narrow phone.
+      // 320dp, never more than 85 % of the screen on a very narrow phone.
       width: math.min(
         AppSize.drawerWidth,
         MediaQuery.sizeOf(context).width * 0.85,
@@ -56,87 +128,28 @@ class AppDrawer extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           children: [
             if (profile != null) _AccountHeader(profile: profile),
-            if (handle.isNotEmpty)
-              _DrawerRow(
-                icon: Icons.person_outline,
-                label: 'Profile',
-                onTap: () => _go(
-                  context,
-                  () => context.go(AppRouter.profilePath(handle)),
-                ),
-              ),
-            // A protected account's requests (or any pending count). Needs
-            // `graph`; never `private_accounts` for a protected caller (undo rule).
-            if (showFollowRequests)
-              _DrawerRow(
-                key: const ValueKey('drawer-follow-requests'),
-                icon: Icons.person_add_alt_outlined,
-                label: 'Follow requests',
-                badge: pendingRequests > 0
-                    ? followRequestBadgeText(pendingRequests)
-                    : null,
-                badgeSpoken: pendingRequests > 0
-                    ? followRequestBadgeSpoken(pendingRequests)
-                    : null,
-                onTap: () => _go(
-                  context,
-                  () => context.go(AppRouter.followRequestsPath),
-                ),
-              ),
-            // Needs `posts` (the entry and route).
-            if (isFeatureEnabled(context, kFeaturePosts))
-              _DrawerRow(
-                icon: Icons.article_outlined,
-                label: 'Articles',
-                onTap: () =>
-                    _go(context, () => context.go(AppRouter.articlesPath)),
-              ),
-            // Needs `lists` (the drawer only exists with `ui_shell`).
-            if (isFeatureEnabled(context, kFeatureLists))
-              _DrawerRow(
-                key: const ValueKey('drawer-lists'),
-                icon: Icons.list_alt_outlined,
-                label: 'Lists',
-                onTap: () =>
-                    _go(context, () => context.go(AppRouter.listsPath)),
-              ),
-            // Needs `communities` (the drawer only exists with `ui_shell`).
-            if (isFeatureEnabled(context, kFeatureCommunities))
-              _DrawerRow(
-                key: const ValueKey('drawer-communities'),
-                icon: Icons.groups_outlined,
-                label: 'Communities',
-                onTap: () =>
-                    _go(context, () => context.go(AppRouter.communitiesPath)),
-              ),
-            // History follows feature destinations; the shell entries (Creator
-            // Studio, Premium, Advertise, Calls) follow History when `shells`
-            // and `ui_shell` allow it.
-            if (isFeatureEnabled(context, kFeatureBookmarks) &&
-                isFeatureEnabled(context, kFeaturePosts))
-              _DrawerRow(
-                icon: Icons.bookmark_border,
-                label: 'History',
-                onTap: () =>
-                    _go(context, () => context.go(AppRouter.bookmarksPath)),
-              ),
-            if (shellEntries.isNotEmpty) ...[
-              const Divider(height: 1),
-              for (final entry in shellEntries)
-                _DrawerRow(
-                  key: ValueKey('shell-${entry.kind.name}'),
-                  icon: entry.icon,
-                  label: entry.label,
-                  onTap: () =>
-                      _go(context, () => openShellEntry(context, entry)),
-                ),
+            if (tiles.isNotEmpty) _TileGrid(tiles: tiles),
+            if (accountRows.isNotEmpty) ...[
+              if (profile != null || tiles.isNotEmpty) divider(),
+              ...accountRows,
             ],
+            divider(),
+            for (final entry in shellEntries)
+              _DrawerRow(
+                key: ValueKey('shell-${entry.kind.name}'),
+                icon: entry.icon,
+                label: entry.label,
+                chevron: true,
+                onTap: () => _go(context, () => openShellEntry(context, entry)),
+              ),
             _DrawerRow(
               icon: Icons.settings_outlined,
               label: 'Settings and Privacy',
+              chevron: true,
               onTap: () =>
                   _go(context, () => context.go(AppRouter.settingsPath)),
             ),
+            // No chevron: it does not open a page.
             _DrawerRow(
               icon: Icons.logout,
               label: 'Sign out',
@@ -156,9 +169,6 @@ class AppDrawer extends StatelessWidget {
   }
 }
 
-/// The account header avatar (ADR-0034 section 3, plan PR 3.4): 56dp.
-const double _kHeaderAvatar = 56;
-
 class _AccountHeader extends StatelessWidget {
   const _AccountHeader({required this.profile});
 
@@ -167,60 +177,129 @@ class _AccountHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     final muted = theme.colorScheme.onSurfaceVariant;
     final name = profile.displayName.isEmpty
         ? '@${profile.handle}'
         : profile.displayName;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.sm,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppAvatar(url: profile.avatarThumbUrl, radius: _kHeaderAvatar / 2),
-          const SizedBox(height: AppSpacing.smd),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleMedium,
-          ),
-          Text(
-            '@${profile.handle}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
-          ),
-          const SizedBox(height: AppSpacing.smd),
-          Wrap(
-            spacing: AppSpacing.md,
-            children: [
-              _CountLink(
-                count: profile.followingCount.toInt(),
-                label: 'Following',
-                onTap: () => _open(
-                  context,
-                  AppRouter.followingPath(profile.handle),
-                  profile,
-                ),
+    const glow = AppSize.drawerGlow;
+    return Stack(
+      children: [
+        // The decorative corner glow: a big aqua disc cut by the drawer edge
+        // and a mint one over it. Not part of the semantics.
+        Positioned(
+          top: 0,
+          right: 0,
+          width: glow,
+          height: glow * 0.9,
+          child: ExcludeSemantics(
+            child: ClipRect(
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    top: -glow * 0.45,
+                    right: -glow * 0.3,
+                    width: glow,
+                    height: glow,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: dark
+                            ? AppDrawerGlow.aquaDark
+                            : AppDrawerGlow.aquaLight,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: glow * 0.08,
+                    right: -glow * 0.28,
+                    width: glow * 0.6,
+                    height: glow * 0.6,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: dark
+                            ? AppDrawerGlow.mintDark
+                            : AppDrawerGlow.mintLight,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              _CountLink(
-                count: profile.followersCount.toInt(),
-                label: 'Followers',
-                onTap: () => _open(
-                  context,
-                  AppRouter.followersPath(profile.handle),
-                  profile,
-                ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.sm,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  AppAvatar(
+                    url: profile.avatarThumbUrl,
+                    radius: AppSize.drawerAvatar / 2,
+                  ),
+                  const SizedBox(width: AppSpacing.smd),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          '@${profile.handle}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.lg,
+                children: [
+                  _CountLink(
+                    count: profile.followingCount.toInt(),
+                    label: 'Following',
+                    onTap: () => _open(
+                      context,
+                      AppRouter.followingPath(profile.handle),
+                      profile,
+                    ),
+                  ),
+                  _CountLink(
+                    count: profile.followersCount.toInt(),
+                    label: 'Followers',
+                    onTap: () => _open(
+                      context,
+                      AppRouter.followersPath(profile.handle),
+                      profile,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -264,13 +343,13 @@ class _CountLink extends StatelessWidget {
                 children: [
                   TextSpan(
                     text: '$count',
-                    style: theme.textTheme.bodyMedium?.copyWith(
+                    style: theme.textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   TextSpan(
                     text: ' $label',
-                    style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+                    style: theme.textTheme.bodyLarge?.copyWith(color: muted),
                   ),
                 ],
               ),
@@ -282,19 +361,157 @@ class _CountLink extends StatelessWidget {
   }
 }
 
-/// One 56dp destination row: a 24dp outline icon and a bold 20dp label.
+/// One quick tile of the grid: a tinted rounded card, a centred 32dp outline
+/// icon in the primary colour and the label below.
+class _DrawerTile {
+  const _DrawerTile({
+    this.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final Key? key;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+}
+
+/// The tiles in two columns, tints in a checkerboard (blue, teal / teal,
+/// blue) as in the design. With an odd count the last tile spans the full
+/// width instead of leaving a hole: 1 tile is one wide card, 3 tiles are
+/// 2 + 1. (A half-width tile with an empty cell beside it reads as a missing
+/// item; a full-width card reads as intended.)
+class _TileGrid extends StatelessWidget {
+  const _TileGrid({required this.tiles});
+
+  final List<_DrawerTile> tiles;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final blue = dark
+        ? AppPalette.drawerTileBlueDark
+        : AppPalette.drawerTileBlue;
+    final teal = dark
+        ? AppPalette.drawerTileTealDark
+        : AppPalette.drawerTileTeal;
+    final rows = <Widget>[];
+    for (var i = 0; i < tiles.length; i += 2) {
+      final pair = tiles.skip(i).take(2).toList();
+      final row = i ~/ 2;
+      rows.add(
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var c = 0; c < pair.length; c++) ...[
+                if (c > 0) const SizedBox(width: AppSpacing.smd),
+                Expanded(
+                  child: _TileCard(
+                    tile: pair[c],
+                    tint: (row + c).isEven ? blue : teal,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.smd),
+            rows[i],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TileCard extends StatelessWidget {
+  const _TileCard({required this.tile, required this.tint});
+
+  final _DrawerTile tile;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      button: true,
+      label: tile.label,
+      excludeSemantics: true,
+      onTap: tile.onTap,
+      child: Material(
+        key: tile.key,
+        color: tint,
+        borderRadius: BorderRadius.circular(AppRadius.cardSmall),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: tile.onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: AppSize.drawerTile),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.smd,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    tile.icon,
+                    size: AppSize.drawerTileIcon,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      tile.label,
+                      maxLines: 1,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One 56dp destination row: a 24dp outline icon in the primary colour, a
+/// bold label and, when it opens a page, a trailing chevron.
 class _DrawerRow extends StatelessWidget {
   const _DrawerRow({
     super.key,
     required this.icon,
     required this.label,
     required this.onTap,
+    this.chevron = false,
     this.badge,
     this.badgeSpoken,
   });
 
   final IconData icon;
   final String label;
+  final bool chevron;
 
   /// A count pill after the label (the follow-requests badge), and what a
   /// screen reader says for it.
@@ -318,7 +535,11 @@ class _DrawerRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
             child: Row(
               children: [
-                Icon(icon, size: AppIconSize.lg),
+                Icon(
+                  icon,
+                  size: AppIconSize.lg,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: AppSpacing.lg),
                 Expanded(
                   child: Text(
@@ -331,6 +552,14 @@ class _DrawerRow extends StatelessWidget {
                 if (badge != null) ...[
                   const SizedBox(width: AppSpacing.sm),
                   FollowRequestCountBadge(text: badge!),
+                ],
+                if (chevron) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  Icon(
+                    Icons.chevron_right,
+                    size: AppIconSize.lg,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ],
               ],
             ),
