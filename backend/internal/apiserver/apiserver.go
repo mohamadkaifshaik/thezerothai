@@ -936,8 +936,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// The outbox sweep rides the same tick, after the publish sweep and never changing its status (outbox_wiring.go);
 	// /internal/cron/outbox-sweep runs it alone (dev has no Scheduler jobs).
 	outboxStep := outboxSweepStep{sweeper: ob, readOnly: cfg.Degraded == config.DegradedReadonly, log: log}
-	routes.internal("/internal/cron/publish-scheduled", withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingWebhookRecovery, log))
+	// The view rollup (F1 post views) rides the same tick last, under its own 15-minute gate (view_rollup_wiring.go);
+	// /internal/cron/view-rollup runs it alone. Skipped while FEATURE_POST_VIEWS is globally off or under DEGRADED_MODE=readonly.
+	viewRollupTick, viewRollupRoute := newViewRollups(postsRepo, func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }, cfg.Degraded == config.DegradedReadonly)
+	routes.internal("/internal/cron/publish-scheduled", withViewRollup(withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingWebhookRecovery, log), viewRollupStep{rollup: viewRollupTick, log: log}, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/outbox-sweep", outboxSweepHandler(outboxStep, log, cfg.ProjectID))
+	routes.internal("/internal/cron/view-rollup", viewRollupHandler(viewRollupStep{rollup: viewRollupRoute, log: log}, log, cfg.ProjectID))
 	// The notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
 	// FEATURE_NOTIFICATIONS flag and DEGRADED_MODE=readonly are checked per event inside the handler, which then
 	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).

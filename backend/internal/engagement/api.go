@@ -451,7 +451,7 @@ type ShareRepo interface {
 }
 
 // ImpressionsFlagName is the wire name of FEATURE_POST_VIEWS: RecordImpressions needs it on for the caller.
-const ImpressionsFlagName = "post_views"
+const ImpressionsFlagName = posts.ViewsFlagName
 
 // MaxImpressionsPerCall is the most post ids one RecordImpressions call takes.
 const MaxImpressionsPerCall = 50

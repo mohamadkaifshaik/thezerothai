@@ -120,6 +120,26 @@ func (s outboxSweepStep) run(ctx context.Context) (err error) {
 // withOutboxSweep runs inner (the publish-scheduled sweep) through a status-capturing writer, then the outbox step with
 // min(outboxStepMax, outboxCutoff - elapsed), then writes inner's captured response. A non-POST goes to inner alone.
 func withOutboxSweep(inner http.Handler, step outboxSweepStep, projectID string, now func() time.Time) http.Handler {
+	return withCronStep(inner, cronStepBudget{event: "outbox_sweep", cutoff: outboxCutoff, max: outboxStepMax, min: outboxStepMin}, step.run, step.log, projectID, now)
+}
+
+// outboxSweepHandler is /internal/cron/outbox-sweep: POST only, a 25 s deadline, 204, or 500 when the due query failed
+// (nothing was processed, so a retry is harmless).
+func outboxSweepHandler(step outboxSweepStep, log *slog.Logger, projectID string) http.Handler {
+	return cronStepHandler(step.run, outboxSweepOp, outboxRouteDeadline, log, projectID)
+}
+
+// cronStepBudget is the time budget of a step that rides another cron route: it gets min(max, cutoff - elapsed) and is
+// skipped (one `event` line, outcome skipped_deadline) below min.
+type cronStepBudget struct {
+	event    string
+	cutoff   time.Duration
+	max, min time.Duration
+}
+
+// withCronStep runs inner through a status-capturing writer, then run under the budget, then writes inner's captured
+// response: the route's status is inner's alone. A non-POST goes to inner alone.
+func withCronStep(inner http.Handler, b cronStepBudget, run func(context.Context) error, log *slog.Logger, projectID string, now func() time.Time) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			inner.ServeHTTP(w, r)
@@ -130,28 +150,27 @@ func withOutboxSweep(inner http.Handler, step outboxSweepStep, projectID string,
 		inner.ServeHTTP(rec, r)
 
 		ctx := logger.WithTrace(r.Context(), logger.TraceFromRequest(r, projectID))
-		if left := outboxCutoff - now().Sub(started); left < outboxStepMin {
-			step.log.InfoContext(ctx, "outbox_sweep", append([]any{"outcome", "skipped_deadline", "left_ms", left.Milliseconds()}, logger.TraceAttrs(ctx)...)...)
+		if left := b.cutoff - now().Sub(started); left < b.min {
+			log.InfoContext(ctx, b.event, append([]any{"outcome", "skipped_deadline", "left_ms", left.Milliseconds()}, logger.TraceAttrs(ctx)...)...)
 		} else {
-			sctx, cancel := context.WithTimeout(ctx, min(outboxStepMax, left))
-			_ = step.run(sctx) // logged and reported by run; never the route's status
+			sctx, cancel := context.WithTimeout(ctx, min(b.max, left))
+			_ = run(sctx) // logged and reported by run; never the route's status
 			cancel()
 		}
 		rec.replay(w)
 	})
 }
 
-// outboxSweepHandler is /internal/cron/outbox-sweep: POST only, a 25 s deadline, 204, or 500 when the due query failed
-// (nothing was processed, so a retry is harmless).
-func outboxSweepHandler(step outboxSweepStep, log *slog.Logger, projectID string) http.Handler {
-	return mw.RecoverHTTP(log, projectID, outboxSweepOp, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// cronStepHandler is a standalone cron route for a step: POST only, the deadline, 204, or 500 when run failed.
+func cronStepHandler(run func(context.Context) error, op string, deadline time.Duration, log *slog.Logger, projectID string) http.Handler {
+	return mw.RecoverHTTP(log, projectID, op, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		ctx, cancel := context.WithTimeout(logger.WithTrace(r.Context(), logger.TraceFromRequest(r, projectID)), outboxRouteDeadline)
+		ctx, cancel := context.WithTimeout(logger.WithTrace(r.Context(), logger.TraceFromRequest(r, projectID)), deadline)
 		defer cancel()
-		if err := step.run(ctx); err != nil {
+		if err := run(ctx); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
