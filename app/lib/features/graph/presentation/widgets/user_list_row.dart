@@ -39,7 +39,12 @@ class UserListRow extends StatelessWidget {
     this.handleStyle,
     this.avatarGap = AppSpacing.md,
     this.followsViewer = false,
+    this.subtitle,
   });
+
+  /// A short line under the @handle (why the person is shown: the message
+  /// picker's suggestions); null or empty draws nothing.
+  final String? subtitle;
 
   /// The person follows the viewer, so the not-following button reads
   /// "Follow back" (the viewer's own Followers list). Ignored with a
@@ -210,6 +215,19 @@ class UserListRow extends StatelessWidget {
                           ?.copyWith(color: theme.colorScheme.onSurfaceVariant)
                           .merge(handleStyle),
                     ),
+                    if (subtitle != null && subtitle!.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.xs / 2),
+                        child: Text(
+                          subtitle!.trim(),
+                          key: const ValueKey('user-row-subtitle'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     // The profile bio (the server's UserListItem.bio): one or
                     // two lines, hidden when empty. Not in the design mocks.
                     if (item.bio.trim().isNotEmpty)

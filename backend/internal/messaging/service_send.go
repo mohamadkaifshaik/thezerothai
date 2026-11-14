@@ -168,13 +168,8 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	// Next, the recipient checks: every refusal is the one CANNOT_MESSAGE. The caller's own Blocked set is read here; the recipient's
 	// is read inside the transaction (it has no overflow case), ahead of every cap.
 	peer, active := profiles[in.peer]
-	switch {
-	case mine.Blocked[in.peer]:
-		return nil, s.refuse(ctx, refusedBlocked)
-	case !active:
-		return nil, s.refuse(ctx, refusedRecipientOff)
-	case s.flags == nil || !s.flags.Enabled(in.peer, FlagName):
-		return nil, s.refuse(ctx, refusedRecipientFlagOff)
+	if reason := s.recipientRefusal(mine, in.peer, active); reason != "" {
+		return nil, s.refuse(ctx, reason)
 	}
 	// A shared post: the GetPost rules and the protected-author rule, after the recipient checks and before the
 	// transaction (NOT_FOUND "post not found" or PROTECTED_ACCOUNT, writing nothing).
@@ -435,4 +430,21 @@ func (s *service) putConv(id string, c ConvDoc) {
 		return
 	}
 	s.convs.Set(id, c)
+}
+
+// recipientRefusal is the caller-side recipient check of a send, before its transaction, shared with ListMessageSuggestions so a
+// suggestion is never someone this check refuses: the caller blocks the peer (the caller's graph), the peer is not ACTIVE
+// (active: the directory returned them), or messaging is off for the peer. "" is no refusal. The peer-side checks (the peer's
+// block and FOLLOWING_ONLY policy) run inside the send transaction; suggestions apply them from the caller's blockedBy and a
+// batched follow lookup.
+func (s *service) recipientRefusal(mine graph.Snapshot, peer string, active bool) string {
+	switch {
+	case mine.Blocked[peer]:
+		return refusedBlocked
+	case !active:
+		return refusedRecipientOff
+	case s.flags == nil || !s.flags.Enabled(peer, FlagName):
+		return refusedRecipientFlagOff
+	}
+	return ""
 }

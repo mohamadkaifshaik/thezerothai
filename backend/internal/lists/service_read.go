@@ -87,6 +87,13 @@ func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps 
 	if err != nil {
 		return access{}, err
 	}
+	return s.resolveList(ctx, viewer, l, wantSnaps)
+}
+
+// resolveList is resolve for a list document the caller already holds (a query row): the same rules in the same order, without
+// the list read. SearchLists uses it, so the rule set is one function for every read path.
+func (s *service) resolveList(ctx context.Context, viewer string, l List, wantSnaps bool) (access, error) {
+	var err error
 	a := access{list: l, isOwner: l.OwnerID == viewer}
 	if a.isOwner {
 		if a.owner, err = s.profile(ctx, viewer); err != nil {

@@ -25,6 +25,9 @@ syntax = "proto3";
 //   user dropped from an allowlist can still read and clean up (ReportContent of a MESSAGE target likewise).
 // - Globally off: every RPC is FEATURE_DISABLED before any lookup; clients hide the destination, its routes and the
 //   profile Message button. Clients learn the flag from IdentityService.GetMe enabled_features.
+// - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
+//   off) on for the caller, checked in that order, else FEATURE_DISABLED with metadata["feature"] = the off flag, before
+//   any lookup.
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in text | conversation_id | recipient_user_id | page_token |
@@ -64,6 +67,7 @@ syntax = "proto3";
 //
 package dzeroth.messaging.v1;
 
+import "dzeroth/beacons/v1/beacons.proto";
 import "dzeroth/common/v1/common.proto";
 import "dzeroth/posts/v1/posts.proto";
 import "google/protobuf/timestamp.proto";
@@ -193,6 +197,31 @@ service MessagingService {
   // Flag: not globally off. Refused under DEGRADED_MODE=readonly.
   // Sets clearedAt on the conversation and deletes the caller's entry.
   rpc DeleteConversation(DeleteConversationRequest) returns (DeleteConversationResponse);
+
+  // People the caller is likely to message (F30), for the new-message screen. Computed on every call; nothing is stored.
+  // Sources, in this order (a person appears once, with the first reason that found them):
+  // 1. RECENT_CONVERSATION: the peers of the caller's newest 8 INBOX entries.
+  // 2. MET_ON_PLAN: the organiser and ACCEPTED participants of the caller's 2 most recent ended plans (FEATURE_BEACONS on
+  //    for the caller; the caller was the organiser or ACCEPTED; not hidden; ended within the last 30 days, the
+  //    beacons TTL), at most 4 rows read per plan. plan_activity is that plan's activity.
+  // 3. MUTUAL_FOLLOW: among the caller's 10 newest followees, those who follow the caller back.
+  // 4. COMMUNITY_MEMBER: the 6 newest JOINED members of the community the caller joined most recently (FEATURE_COMMUNITIES
+  //    on for the caller; an ACTIVE community). community_id and community_name name it.
+  // Every row is someone SendMessage would not refuse with CANNOT_MESSAGE at the time of the call, by the same rules:
+  // never the caller; not ACTIVE, messaging off for them, either side blocks the other (the caller's 60 s graph snapshot),
+  // or their "who can message me" policy is FOLLOWING_ONLY (with FEATURE_DM_POLICY on for them) and they do not follow
+  // the caller (an existing ACCEPTED conversation is exempt, as on send) => left out. Accounts the caller mutes are left
+  // out too. A caller past the blockedBy cap gets an empty list (fail closed). The reason chip is computed, never stored.
+  // limit 0 => 10, max 20 (clamped); negative => VALIDATION "limit". No pagination, by design (the ListSuggestedUsers
+  // precedent): one bounded call, no page token.
+  // Flags: "messaging" and "dm_suggestions" on for the caller (file comment). Rate limit: RATE_LIMIT_DM_SUGGESTIONS_PER_MIN
+  // 10/min/uid per instance; no daily cap. Answers under DEGRADED_MODE=readonly.
+  // Cost: at most 8 + 2 + 2 + 8 + 1 + 6 = 27 documents from the sources (inbox entries, plan memberships, plans,
+  // participant rows, community memberships, community members; the community doc is cached 60 s), then cache-first
+  // profile and follow-edge reads for at most 20 candidates (60 s caches). Writes nothing.
+  rpc ListMessageSuggestions(ListMessageSuggestionsRequest) returns (ListMessageSuggestionsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 // Additive: a group conversation would be a new value (stage ladder).
@@ -385,3 +414,38 @@ message DeleteConversationRequest {
 }
 
 message DeleteConversationResponse {}
+
+message ListMessageSuggestionsRequest {
+  // 0 => 10; max 20 (clamped); negative => VALIDATION "limit".
+  int32 limit = 1;
+}
+
+// Why a person is suggested; the client renders the chip from it. Additive: a new source is a new value, and a client
+// that does not know a value shows no chip.
+enum MessageSuggestionReason {
+  MESSAGE_SUGGESTION_REASON_UNSPECIFIED = 0;
+  // One of the caller's most recent conversations.
+  MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION = 1;
+  // Was in a recent plan with the caller ("Met on a coffee plan"); plan_activity is set.
+  MESSAGE_SUGGESTION_REASON_MET_ON_PLAN = 2;
+  // The caller and this person follow each other.
+  MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW = 3;
+  // A member of a community the caller joined; community_id and community_name are set.
+  MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER = 4;
+}
+
+message MessageSuggestion {
+  // Live row from identity (up to 60 s stale); is_private is set as on other live rows.
+  dzeroth.common.v1.AuthorSnapshot user = 1;
+  MessageSuggestionReason reason = 2;
+  // MET_ON_PLAN only: the plan's activity.
+  dzeroth.beacons.v1.BeaconActivity plan_activity = 3;
+  // COMMUNITY_MEMBER only: the community (19-digit Snowflake) and its current name.
+  string community_id = 4;
+  string community_name = 5;
+}
+
+message ListMessageSuggestionsResponse {
+  // Source order (see ListMessageSuggestions); at most limit.
+  repeated MessageSuggestion suggestions = 1;
+}

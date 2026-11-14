@@ -59,6 +59,8 @@ type Deps struct {
 	PostShare PostShareCheck
 	Cards     PostCards
 	Shares    ShareRecorder
+	// Suggestions wires ListMessageSuggestions (F30); without Follows that RPC is an internal error for an enabled caller.
+	Suggestions SuggestionDeps
 	// AllowAnonymous is config.AuthEmulator only: the verified-email gate of Send and Accept lets emulator callers through.
 	AllowAnonymous bool
 	// CursorKey seals the list tokens (CURSOR_HMAC_KEY, like every other module); required for ListConversations.

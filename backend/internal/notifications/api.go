@@ -40,8 +40,9 @@ const (
 	MaxActorIDs = 50
 	// MaxShownActors is the most actors List hydrates onto one row (Notification.actors, the avatar stack).
 	MaxShownActors = 3
-	// MaxPageProfileLookup bounds the ids of List's one Directory lookup per page (the caller, for seen_at, plus the
-	// shown actors): identity's batched GetProfiles takes at most 50 ids per call.
+	// MaxPageProfileLookup bounds the ids of each of List's Directory lookups (the caller, for seen_at, the displayed
+	// actors, for their account status, then the faces): identity's batched GetProfiles takes at most 50 ids per call.
+	// One call per page, two only when a page has more than 49 distinct displayed actors.
 	MaxPageProfileLookup = 50
 	// MaxFCMTokenBytes bounds a registration token (real ones are ~160-200 bytes).
 	MaxFCMTokenBytes = 4096
@@ -167,7 +168,7 @@ type Notification struct {
 	BeaconID  string
 	CreatedAt time.Time
 	// Actors is read-time only (never stored): up to MaxShownActors visible actors of the row, newest first, hydrated
-	// live by List from the identity Directory. Empty on a row with no ActorIDs or when the lookup failed.
+	// live by List from the identity Directory. Empty on a row with no ActorIDs (a failed lookup fails the page).
 	Actors []LiveActor
 }
 
@@ -262,7 +263,8 @@ type UnreadStore interface {
 
 // UnreadBadge implements identity.NotificationBadge without identity importing this package: the method has
 // exactly the interface's shape, so apiserver passes it to identity.WithNotificationBadge. It counts the unseen rows
-// ListNotifications would show (see UnreadNotifications), at most UnreadBadgeCap.
+// ListNotifications would show by the block and mute rule (see UnreadNotifications), at most UnreadBadgeCap; it does
+// not apply List's actor-status rule (see unreadVisible).
 type UnreadBadge struct {
 	store  UnreadStore
 	social Social
@@ -275,8 +277,8 @@ func NewUnreadBadge(store UnreadStore, social Social, blocks BlockLookup) *Unrea
 	return &UnreadBadge{store: store, social: social, blocks: blocks}
 }
 
-// UnreadNotifications returns how many rows newer than since the caller would see in ListNotifications, capped at
-// UnreadBadgeCap. It never writes. See unreadVisible for the reads.
+// UnreadNotifications returns how many rows newer than since the caller would see in ListNotifications (block and
+// mute rule only), capped at UnreadBadgeCap. It never writes. See unreadVisible for the reads.
 func (b *UnreadBadge) UnreadNotifications(ctx context.Context, uid string, since time.Time) (int64, error) {
 	return b.unreadVisible(ctx, uid, since)
 }

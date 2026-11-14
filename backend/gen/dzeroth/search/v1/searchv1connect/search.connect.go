@@ -29,6 +29,19 @@
 //   - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
 //     "trends") gates GetTrends per caller. Off => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "search"
 //     or "trends", before any lookup.
+//   - FEATURE_SEARCH_LISTS (wire name "search_lists", default off) gates SearchLists and SearchCommunities per caller, checked
+//     right after "search"; SearchLists then needs "lists" and SearchCommunities "communities" on for the caller too. Each
+//     off flag => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = that flag's wire name, before any lookup.
+//   - FEATURE_SEARCH_FILTERS (wire name "search_filters", default off) gates SearchPostsRequest.from_following = true per
+//     caller (checked after "search"; FEATURE_DISABLED metadata["feature"] = "search_filters", before any lookup). A request
+//     with from_following = false never checks it.
+//
+// Lists and communities by name (F20, F21): no search engine either. Each list and community stores nameLower, the
+// name folded by pkg/platform/namekey (NFC, lower-case, trimmed; fixture backend/pkg/platform/namekey/testdata), written on
+// create and on every rename. A query is folded the same way and matched as a PREFIX of the whole folded name ("go"
+// finds "Go devs", not "Learn Go"). Search reads them through the lists and communities modules' search methods; it
+// never queries those collections itself. Rows written before nameLower existed are found only after the operator
+// backfill (opsctl search backfill-name-keys).
 //
 // Errors (clients branch on ErrorDetail.reason):
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix, before any lookup.
@@ -78,6 +91,12 @@ const (
 	SearchServiceSearchPostsProcedure = "/dzeroth.search.v1.SearchService/SearchPosts"
 	// SearchServiceGetTrendsProcedure is the fully-qualified name of the SearchService's GetTrends RPC.
 	SearchServiceGetTrendsProcedure = "/dzeroth.search.v1.SearchService/GetTrends"
+	// SearchServiceSearchListsProcedure is the fully-qualified name of the SearchService's SearchLists
+	// RPC.
+	SearchServiceSearchListsProcedure = "/dzeroth.search.v1.SearchService/SearchLists"
+	// SearchServiceSearchCommunitiesProcedure is the fully-qualified name of the SearchService's
+	// SearchCommunities RPC.
+	SearchServiceSearchCommunitiesProcedure = "/dzeroth.search.v1.SearchService/SearchCommunities"
 )
 
 // SearchServiceClient is a client for the dzeroth.search.v1.SearchService service.
@@ -145,6 +164,31 @@ type SearchServiceClient interface {
 	// Flag: "trends". Rate limit: the 60/min/uid default bucket per instance (180/min at 3 instances); no daily cap.
 	// The list is loaded at most once per instance per 10 min, whatever the number of callers. Writes nothing.
 	GetTrends(context.Context, *connect.Request[v1.GetTrendsRequest]) (*connect.Response[v1.GetTrendsResponse], error)
+	// Public lists whose folded name starts with the folded query (F20), in folded-name order, then list id.
+	// query: NFC, trimmed, lower-cased; 1 to 30 code points after that, no control or bidi formatting character, else
+	// VALIDATION "query" before any lookup. No sigil is stripped.
+	// Rows: public lists only (a private list is never read: the query has isPrivate == false). Then the GetList rules for
+	// the caller drop a list hidden by an operator, a list whose owner is not ACTIVE, a list whose owner blocks the caller
+	// or that the caller blocks, a protected owner's list the caller does not follow, an owner past the blockedBy cap, and
+	// the caller's own lists (they are on the Lists tab), exactly as DiscoverLists does. A dropped row is never
+	// replaced, so a page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+	// follower_count and followed_by_viewer are set only when FEATURE_LIST_FOLLOWS is on for the caller (as on GetList).
+	// page_size 0 => 20, max 20 (clamped); negative => VALIDATION "page_size". page_token: opaque, sealed, bound to the
+	// caller and the folded query, 24 h TTL; expired, foreign, tampered or sent with another query => VALIDATION
+	// "page_token", before any lookup.
+	// Staleness: the query reads Firestore on every call; the per-row rules use the 60 s caches GetList uses.
+	// Flags: "search", "search_lists", "lists". Rate limit: RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN 20/min/uid per instance,
+	// shared with SearchCommunities; no daily cap. Cost: one query of at most page_size documents, then per row the
+	// owner's profile and graph (cache-first) and one batched follow-marker read when list_follows is on. Writes nothing.
+	SearchLists(context.Context, *connect.Request[v1.SearchListsRequest]) (*connect.Response[v1.SearchListsResponse], error)
+	// ACTIVE communities whose folded name starts with the folded query (F21), in folded-name order, then community id.
+	// query: the SearchLists rules. A SUSPENDED (taken offline by an operator) or ARCHIVED community is never returned (the
+	// query has status == ACTIVE, the directory rule). As in ListCommunities there is no block filtering (D7); viewer_role
+	// is the caller's role (memberships cached 60 s). page_size and page_token: the SearchLists rules (the token is bound
+	// to this RPC). A page is short only at the end.
+	// Flags: "search", "search_lists", "communities". Rate limit: the SearchLists bucket. Cost: one query of at most
+	// page_size documents and the caller's memberships (cached 60 s). Writes nothing.
+	SearchCommunities(context.Context, *connect.Request[v1.SearchCommunitiesRequest]) (*connect.Response[v1.SearchCommunitiesResponse], error)
 }
 
 // NewSearchServiceClient constructs a client for the dzeroth.search.v1.SearchService service. By
@@ -179,14 +223,30 @@ func NewSearchServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		searchLists: connect.NewClient[v1.SearchListsRequest, v1.SearchListsResponse](
+			httpClient,
+			baseURL+SearchServiceSearchListsProcedure,
+			connect.WithSchema(searchServiceMethods.ByName("SearchLists")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		searchCommunities: connect.NewClient[v1.SearchCommunitiesRequest, v1.SearchCommunitiesResponse](
+			httpClient,
+			baseURL+SearchServiceSearchCommunitiesProcedure,
+			connect.WithSchema(searchServiceMethods.ByName("SearchCommunities")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // searchServiceClient implements SearchServiceClient.
 type searchServiceClient struct {
-	searchPeople *connect.Client[v1.SearchPeopleRequest, v1.SearchPeopleResponse]
-	searchPosts  *connect.Client[v1.SearchPostsRequest, v1.SearchPostsResponse]
-	getTrends    *connect.Client[v1.GetTrendsRequest, v1.GetTrendsResponse]
+	searchPeople      *connect.Client[v1.SearchPeopleRequest, v1.SearchPeopleResponse]
+	searchPosts       *connect.Client[v1.SearchPostsRequest, v1.SearchPostsResponse]
+	getTrends         *connect.Client[v1.GetTrendsRequest, v1.GetTrendsResponse]
+	searchLists       *connect.Client[v1.SearchListsRequest, v1.SearchListsResponse]
+	searchCommunities *connect.Client[v1.SearchCommunitiesRequest, v1.SearchCommunitiesResponse]
 }
 
 // SearchPeople calls dzeroth.search.v1.SearchService.SearchPeople.
@@ -202,6 +262,16 @@ func (c *searchServiceClient) SearchPosts(ctx context.Context, req *connect.Requ
 // GetTrends calls dzeroth.search.v1.SearchService.GetTrends.
 func (c *searchServiceClient) GetTrends(ctx context.Context, req *connect.Request[v1.GetTrendsRequest]) (*connect.Response[v1.GetTrendsResponse], error) {
 	return c.getTrends.CallUnary(ctx, req)
+}
+
+// SearchLists calls dzeroth.search.v1.SearchService.SearchLists.
+func (c *searchServiceClient) SearchLists(ctx context.Context, req *connect.Request[v1.SearchListsRequest]) (*connect.Response[v1.SearchListsResponse], error) {
+	return c.searchLists.CallUnary(ctx, req)
+}
+
+// SearchCommunities calls dzeroth.search.v1.SearchService.SearchCommunities.
+func (c *searchServiceClient) SearchCommunities(ctx context.Context, req *connect.Request[v1.SearchCommunitiesRequest]) (*connect.Response[v1.SearchCommunitiesResponse], error) {
+	return c.searchCommunities.CallUnary(ctx, req)
 }
 
 // SearchServiceHandler is an implementation of the dzeroth.search.v1.SearchService service.
@@ -269,6 +339,31 @@ type SearchServiceHandler interface {
 	// Flag: "trends". Rate limit: the 60/min/uid default bucket per instance (180/min at 3 instances); no daily cap.
 	// The list is loaded at most once per instance per 10 min, whatever the number of callers. Writes nothing.
 	GetTrends(context.Context, *connect.Request[v1.GetTrendsRequest]) (*connect.Response[v1.GetTrendsResponse], error)
+	// Public lists whose folded name starts with the folded query (F20), in folded-name order, then list id.
+	// query: NFC, trimmed, lower-cased; 1 to 30 code points after that, no control or bidi formatting character, else
+	// VALIDATION "query" before any lookup. No sigil is stripped.
+	// Rows: public lists only (a private list is never read: the query has isPrivate == false). Then the GetList rules for
+	// the caller drop a list hidden by an operator, a list whose owner is not ACTIVE, a list whose owner blocks the caller
+	// or that the caller blocks, a protected owner's list the caller does not follow, an owner past the blockedBy cap, and
+	// the caller's own lists (they are on the Lists tab), exactly as DiscoverLists does. A dropped row is never
+	// replaced, so a page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+	// follower_count and followed_by_viewer are set only when FEATURE_LIST_FOLLOWS is on for the caller (as on GetList).
+	// page_size 0 => 20, max 20 (clamped); negative => VALIDATION "page_size". page_token: opaque, sealed, bound to the
+	// caller and the folded query, 24 h TTL; expired, foreign, tampered or sent with another query => VALIDATION
+	// "page_token", before any lookup.
+	// Staleness: the query reads Firestore on every call; the per-row rules use the 60 s caches GetList uses.
+	// Flags: "search", "search_lists", "lists". Rate limit: RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN 20/min/uid per instance,
+	// shared with SearchCommunities; no daily cap. Cost: one query of at most page_size documents, then per row the
+	// owner's profile and graph (cache-first) and one batched follow-marker read when list_follows is on. Writes nothing.
+	SearchLists(context.Context, *connect.Request[v1.SearchListsRequest]) (*connect.Response[v1.SearchListsResponse], error)
+	// ACTIVE communities whose folded name starts with the folded query (F21), in folded-name order, then community id.
+	// query: the SearchLists rules. A SUSPENDED (taken offline by an operator) or ARCHIVED community is never returned (the
+	// query has status == ACTIVE, the directory rule). As in ListCommunities there is no block filtering (D7); viewer_role
+	// is the caller's role (memberships cached 60 s). page_size and page_token: the SearchLists rules (the token is bound
+	// to this RPC). A page is short only at the end.
+	// Flags: "search", "search_lists", "communities". Rate limit: the SearchLists bucket. Cost: one query of at most
+	// page_size documents and the caller's memberships (cached 60 s). Writes nothing.
+	SearchCommunities(context.Context, *connect.Request[v1.SearchCommunitiesRequest]) (*connect.Response[v1.SearchCommunitiesResponse], error)
 }
 
 // NewSearchServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -299,6 +394,20 @@ func NewSearchServiceHandler(svc SearchServiceHandler, opts ...connect.HandlerOp
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	searchServiceSearchListsHandler := connect.NewUnaryHandler(
+		SearchServiceSearchListsProcedure,
+		svc.SearchLists,
+		connect.WithSchema(searchServiceMethods.ByName("SearchLists")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	searchServiceSearchCommunitiesHandler := connect.NewUnaryHandler(
+		SearchServiceSearchCommunitiesProcedure,
+		svc.SearchCommunities,
+		connect.WithSchema(searchServiceMethods.ByName("SearchCommunities")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.search.v1.SearchService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SearchServiceSearchPeopleProcedure:
@@ -307,6 +416,10 @@ func NewSearchServiceHandler(svc SearchServiceHandler, opts ...connect.HandlerOp
 			searchServiceSearchPostsHandler.ServeHTTP(w, r)
 		case SearchServiceGetTrendsProcedure:
 			searchServiceGetTrendsHandler.ServeHTTP(w, r)
+		case SearchServiceSearchListsProcedure:
+			searchServiceSearchListsHandler.ServeHTTP(w, r)
+		case SearchServiceSearchCommunitiesProcedure:
+			searchServiceSearchCommunitiesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -326,4 +439,12 @@ func (UnimplementedSearchServiceHandler) SearchPosts(context.Context, *connect.R
 
 func (UnimplementedSearchServiceHandler) GetTrends(context.Context, *connect.Request[v1.GetTrendsRequest]) (*connect.Response[v1.GetTrendsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.search.v1.SearchService.GetTrends is not implemented"))
+}
+
+func (UnimplementedSearchServiceHandler) SearchLists(context.Context, *connect.Request[v1.SearchListsRequest]) (*connect.Response[v1.SearchListsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.search.v1.SearchService.SearchLists is not implemented"))
+}
+
+func (UnimplementedSearchServiceHandler) SearchCommunities(context.Context, *connect.Request[v1.SearchCommunitiesRequest]) (*connect.Response[v1.SearchCommunitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.search.v1.SearchService.SearchCommunities is not implemented"))
 }

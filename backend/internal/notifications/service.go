@@ -106,8 +106,9 @@ func clampPageSize(n int32) int {
 // List: reads the page of rows (20 at the default page, 50 at the maximum) and the caller's graph snapshot
 // (cached 60 s). Only when the caller's blockedBy overflowed its cap does it also ask graph.BlockLookup about the
 // page's actors: one call of at most graph.MaxBlockLookup users, each answered from the graph cache or by batched
-// GetAlls of up to 25 docs (see overflowBlockers). The seen_at profile is the account-status interceptor's cached entry. It
-// writes nothing.
+// GetAlls of up to 25 docs (see overflowBlockers). Then one cache-first Directory lookup (two only on a page of more
+// than 49 distinct displayed actors) gives the actors' account status, seen_at and the faces (see activeActors); the
+// caller's seen_at profile is the account-status interceptor's cached entry. It writes nothing.
 //
 // Filtering runs after the page query, so a page may come back shorter than page_size, or empty, while more rows
 // exist: the tokens are computed from the raw rows (what was scanned), never the filtered ones, and the client
@@ -195,19 +196,85 @@ func (s *service) List(ctx context.Context, uid string, in ListInput) (ListResul
 		res.SinceToken = s.sinceToken(uid, rows, nil, now)
 	}
 
-	// One batched Directory lookup per page (cache first, one GetAll for the misses): the caller's profile for seen_at
-	// and the shown rows' newest visible actors for the avatar stack.
-	picks, actorIDs := pickShownActors(res.Notifications, MaxPageProfileLookup-1)
-	profiles, err := s.d.Directory.GetProfiles(ctx, append([]string{uid}, actorIDs...))
+	shown, err = s.activeActors(ctx, uid, &res)
 	if err != nil {
-		// seen_at and the avatar stacks are niceties (unread styling, faces; clients fall back to `actor`); the page
-		// itself is good. Log so a failing directory is visible.
-		slog.WarnContext(ctx, "notifications_list_seen_at_unavailable", "uid_hash", logger.HashUID(uid), "err", logger.RedactErr(err, append([]string{uid}, actorIDs...)...))
-		return res, nil
+		return ListResult{}, err
+	}
+	res.Notifications = shown
+	return res, nil
+}
+
+// activeActors is the account-status half of List's read-time rule (F-03, as the feeds apply it to authors): a row
+// whose displayed actor is not ACTIVE (SUSPENDED, DELETING, or no users doc) is hidden, the same way visible() hides
+// a blocked one; a folded actor this call proved not ACTIVE is pruned from ActorIDs and subtracted from the count. It
+// also sets res.SeenAt and hydrates the avatar stack (Notification.Actors) from the same lookup.
+//
+// Reads: one cache-first Directory lookup for the caller (seen_at), every shown row's displayed actor and the newest
+// visible faces, at most MaxPageProfileLookup ids per call. Faces fill only what the caller and the displayed actors
+// leave of the first call's budget, so a page needs a second call only when the caller plus its distinct displayed
+// actors exceed MaxPageProfileLookup (a page_size 50 page of 50 different actors). A folded actor that is not a face is
+// not looked up and keeps counting: a viral like row can name 50 ids, and treating an unchecked one as inactive would
+// collapse every such count. The tokens are already cut from the raw rows, so a page this rule empties still advances.
+//
+// A failed lookup fails the page when there are rows to judge: a row whose actor status is unknown is never shown
+// (the F-03 rule, "never an assumed status"). With no row left it only loses seen_at, which degrades as before.
+func (s *service) activeActors(ctx context.Context, uid string, res *ListResult) ([]Notification, error) {
+	rows := res.Notifications
+	seed := []string{uid}
+	seeded := map[string]bool{uid: true}
+	for _, n := range rows {
+		if id := n.Actor.UserID; id != "" && !seeded[id] {
+			seeded[id] = true
+			seed = append(seed, id)
+		}
+	}
+	picks, ids := pickShownActorsFrom(rows, seed, MaxPageProfileLookup)
+	profiles := make(map[string]identity.Profile, len(ids))
+	for batch := range slices.Chunk(ids, MaxPageProfileLookup) {
+		got, err := s.d.Directory.GetProfiles(ctx, batch)
+		if err != nil {
+			err = logger.RedactErr(fmt.Errorf("notifications: actor status: %w", err), ids...)
+			if len(rows) == 0 {
+				// seen_at is a nicety (unread styling); an empty page is still good. Log so a failing directory is visible.
+				slog.WarnContext(ctx, "notifications_list_seen_at_unavailable", "uid_hash", logger.HashUID(uid), "err", err)
+				return rows, nil
+			}
+			return nil, err
+		}
+		for id, p := range got {
+			if p.Status == identity.AccountStatusActive {
+				profiles[id] = p
+			}
+		}
 	}
 	res.SeenAt = profiles[uid].NotificationsSeenAt
-	hydrateActors(res.Notifications, picks, profiles)
-	return res, nil
+	checked := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		checked[id] = true
+	}
+	inactive := func(id string) bool { return id != "" && id != uid && checked[id] && !profilesHas(profiles, id) }
+	out := make([]Notification, 0, len(rows))
+	outPicks := make([][]string, 0, len(rows))
+	for i, n := range rows {
+		v, ok := pruneActors(n, inactive)
+		if !ok {
+			continue
+		}
+		out = append(out, v)
+		outPicks = append(outPicks, picks[i])
+	}
+	logger.SetRequestField(ctx, fieldDroppedInactive, len(rows)-len(out))
+	hydrateActors(out, outPicks, profiles)
+	return out, nil
+}
+
+// fieldDroppedInactive counts the rows a List page hid because their displayed actor is not ACTIVE (the timelines log
+// the same field for authors).
+const fieldDroppedInactive = "dropped_inactive"
+
+func profilesHas(profiles map[string]identity.Profile, id string) bool {
+	_, ok := profiles[id]
+	return ok
 }
 
 // pickShownActors chooses, for each shown row, up to MaxShownActors distinct actors newest first. The rows are
@@ -217,8 +284,19 @@ func (s *service) List(ctx context.Context, uid string, in ListInput) (ListResul
 // bites a row loses its older faces before another row loses its newest. picks[i] is row i's ids in display order;
 // ids is the deduplicated union to look up.
 func pickShownActors(rows []Notification, budget int) (picks [][]string, ids []string) {
+	return pickShownActorsFrom(rows, nil, budget)
+}
+
+// pickShownActorsFrom is pickShownActors with ids already chosen: seed (distinct, in order) starts ids and counts
+// toward budget, and picking a seeded id costs nothing. List seeds the caller and the displayed actors, which it must
+// look up anyway for their account status.
+func pickShownActorsFrom(rows []Notification, seed []string, budget int) (picks [][]string, ids []string) {
 	picks = make([][]string, len(rows))
-	seen := make(map[string]bool)
+	seen := make(map[string]bool, len(seed))
+	ids = append(ids, seed...)
+	for _, id := range seed {
+		seen[id] = true
+	}
 	for round := 0; round < MaxShownActors; round++ {
 		for i, n := range rows {
 			if len(picks[i]) != round {
@@ -253,7 +331,7 @@ func nthNewestActor(actorIDs, taken []string) string {
 }
 
 // hydrateActors fills each row's Actors from the picks, in order. An id the Directory did not return (gone,
-// suspended or deleting) is left out; ActorCount is untouched.
+// suspended or deleting) is left out; ActorCount is untouched (activeActors already pruned the inactive ids).
 func hydrateActors(rows []Notification, picks [][]string, profiles map[string]identity.Profile) {
 	for i := range rows {
 		for _, id := range picks[i] {
@@ -343,7 +421,12 @@ func snapHides(snap graph.Snapshot, id string) bool {
 // set, an actor the graph lookup reports as a blocker is hidden by the same rule, and a folded actor the lookup did
 // not cover (past its cap) is treated as suppressed for the count: fail closed. The shown actor is always covered.
 func visible(n Notification, snap graph.Snapshot, ov *overflowBlocks) (Notification, bool) {
-	hidden := hiddenRule(snap, ov)
+	return pruneActors(n, hiddenRule(snap, ov))
+}
+
+// pruneActors applies one per-actor hide rule to a row: false when the displayed actor is hidden, else the row with the
+// hidden folded actors pruned from ActorIDs (a fresh slice) and subtracted from ActorCount, floor 1 (see visible).
+func pruneActors(n Notification, hidden func(id string) bool) (Notification, bool) {
 	if hidden(n.Actor.UserID) {
 		return n, false
 	}
