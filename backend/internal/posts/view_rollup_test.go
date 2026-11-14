@@ -22,6 +22,51 @@ type fakeRollupRepo struct {
 	acquireErr error
 	// rewritten markers survive their delete (a straggler rewrote them).
 	rewritten map[string]bool
+	// The counter half: counter markers, pending shard deltas and the plain likeCount; contended posts lose their
+	// transaction; counterErr fails the fold after the posts before failAt.
+	counterMarkers []ViewMarker
+	counterShards  map[string]int64
+	likeCount      map[string]int64
+	contended      map[string]bool
+	counterQueries int
+	counterErr     error
+	failAt         string
+	foldCalls      int
+}
+
+func (f *fakeRollupRepo) DirtyCounterMarkers(_ context.Context, window int64, limit int) ([]ViewMarker, error) {
+	f.counterQueries++
+	var out []ViewMarker
+	for _, m := range f.counterMarkers {
+		if m.Window < window && len(out) < limit {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRollupRepo) FoldCounters(_ context.Context, ids []string) ([]string, int, int, error) {
+	f.foldCalls++
+	var done []string
+	folded, gone := 0, 0
+	for _, id := range ids {
+		if f.counterErr != nil && id == f.failAt {
+			return done, folded, gone, f.counterErr
+		}
+		if f.contended[id] {
+			continue
+		}
+		if f.gone[id] {
+			delete(f.counterShards, id)
+			gone++
+		} else {
+			f.likeCount[id] += f.counterShards[id] // a delta: the plain field keeps what it had
+			f.counterShards[id] = 0
+			folded++
+		}
+		done = append(done, id)
+	}
+	return done, folded, gone, nil
 }
 
 func (f *fakeRollupRepo) AcquireViewRollup(_ context.Context, now time.Time, iv time.Duration) (bool, error) {
@@ -67,26 +112,33 @@ func (f *fakeRollupRepo) DeleteViewMarkers(_ context.Context, ms []ViewMarker) e
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
-	f.markers = slices.DeleteFunc(f.markers, func(m ViewMarker) bool {
-		return slices.ContainsFunc(ms, func(d ViewMarker) bool { return d.PostID == m.PostID && d.Window == m.Window }) &&
-			!f.rewritten[viewMarkerID(m.Window, m.PostID)]
-	})
+	del := func(list []ViewMarker) []ViewMarker {
+		return slices.DeleteFunc(list, func(m ViewMarker) bool {
+			return slices.ContainsFunc(ms, func(d ViewMarker) bool {
+				return d.PostID == m.PostID && d.Window == m.Window && d.Counter == m.Counter
+			}) && !f.rewritten[viewMarkerID(m.Window, m.PostID)]
+		})
+	}
+	f.markers, f.counterMarkers = del(f.markers), del(f.counterMarkers)
 	return nil
 }
 
 func newFakeRollup() *fakeRollupRepo {
-	return &fakeRollupRepo{shards: map[string]int64{}, gone: map[string]bool{}, viewCount: map[string]int64{}, rewritten: map[string]bool{}}
+	return &fakeRollupRepo{
+		shards: map[string]int64{}, gone: map[string]bool{}, viewCount: map[string]int64{}, rewritten: map[string]bool{},
+		counterShards: map[string]int64{}, likeCount: map[string]int64{}, contended: map[string]bool{},
+	}
 }
 
 var rollupNow = time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 
-// TestViewRollup_FoldsClosedWindowsIdempotently: markers of closed windows are folded (absolute sums), the current
-// window's markers wait, a redelivery inside the interval is "fresh", and a later run with nothing new writes the same
+// TestViewRollup_FoldsClosedWindowsIdempotently: markers of windows closed for a full window are folded (absolute sums),
+// the grace window's markers wait, a redelivery inside the interval is "fresh", and a later run with nothing new writes the same
 // values.
 func TestViewRollup_FoldsClosedWindowsIdempotently(t *testing.T) {
 	f := newFakeRollup()
 	cur := viewWindow(rollupNow)
-	f.markers = []ViewMarker{{PostID: "a", Window: cur - 2}, {PostID: "a", Window: cur - 1}, {PostID: "b", Window: cur - 1}, {PostID: "c", Window: cur}}
+	f.markers = []ViewMarker{{PostID: "a", Window: cur - 3}, {PostID: "a", Window: cur - 2}, {PostID: "b", Window: cur - 2}, {PostID: "c", Window: cur - 1}}
 	f.shards = map[string]int64{"a": 7, "b": 2, "c": 1}
 	clock := rollupNow
 	v := &ViewRollup{Repo: f, Now: func() time.Time { return clock }}
@@ -96,10 +148,10 @@ func TestViewRollup_FoldsClosedWindowsIdempotently(t *testing.T) {
 		t.Fatalf("run = %+v, %v", res, err)
 	}
 	if f.viewCount["a"] != 7 || f.viewCount["b"] != 2 || f.viewCount["c"] != 0 {
-		t.Fatalf("viewCount = %v, want a=7 b=2 and c untouched (open window)", f.viewCount)
+		t.Fatalf("viewCount = %v, want a=7 b=2 and c untouched (its window closed less than a window ago)", f.viewCount)
 	}
 	if len(f.markers) != 1 || f.markers[0].PostID != "c" {
-		t.Fatalf("markers left = %v, want only the open window's", f.markers)
+		t.Fatalf("markers left = %v, want only the grace window's", f.markers)
 	}
 	// Scheduler redelivery a minute later: the gate answers fresh, no query.
 	clock = rollupNow.Add(time.Minute)
@@ -137,7 +189,7 @@ func TestViewRollup_GoneBoundedAndSkips(t *testing.T) {
 			t.Fatalf("%+v, %v, left %d", res, err, len(f.markers))
 		}
 	})
-	t.Run("rewritten markers stay; the run stays bounded", func(t *testing.T) {
+	t.Run("rewritten markers stay; a page with nothing new ends the run", func(t *testing.T) {
 		f := newFakeRollup()
 		for i := range ViewRollupPage {
 			m := ViewMarker{PostID: fmt.Sprintf("p%d", i), Window: 1}
@@ -145,8 +197,8 @@ func TestViewRollup_GoneBoundedAndSkips(t *testing.T) {
 			f.rewritten[viewMarkerID(1, m.PostID)] = true
 		}
 		res, err := (&ViewRollup{Repo: f, MaxPages: 3, Now: func() time.Time { return rollupNow }}).Run(context.Background())
-		if err != nil || res.Pages != 3 || !res.More || len(f.markers) != ViewRollupPage {
-			t.Fatalf("%+v, %v", res, err)
+		if err != nil || res.Pages != 2 || !res.More || len(f.markers) != ViewRollupPage || res.Folded != ViewRollupPage {
+			t.Fatalf("%+v, %v; want one fold of the page, then a second page of the same posts ending the run", res, err)
 		}
 	})
 	t.Run("deadline", func(t *testing.T) {
@@ -166,6 +218,10 @@ func TestViewRollup_GoneBoundedAndSkips(t *testing.T) {
 		if res, _ := (&ViewRollup{Off: func() bool { return true }}).Run(context.Background()); res.Outcome != ViewRollupOff {
 			t.Fatal(res)
 		}
+		f := newFakeRollup() // with a repo, off does no views work (the counter half still runs)
+		if res, _ := (&ViewRollup{Repo: f, Off: func() bool { return true }}).Run(context.Background()); res.Outcome != ViewRollupOff || f.queries != 0 || !f.lastRun.IsZero() {
+			t.Fatal(res, f.queries)
+		}
 		if _, err := (&ViewRollup{}).Run(context.Background()); err == nil {
 			t.Fatal("want an error without a repo")
 		}
@@ -177,6 +233,7 @@ func TestViewRollup_GoneBoundedAndSkips(t *testing.T) {
 		} {
 			f.markers = []ViewMarker{{PostID: "a", Window: 1}}
 			f.shards, f.gone, f.viewCount, f.rewritten = map[string]int64{}, map[string]bool{}, map[string]int64{}, map[string]bool{}
+			f.counterShards, f.likeCount, f.contended = map[string]int64{}, map[string]int64{}, map[string]bool{}
 			if _, err := (&ViewRollup{Repo: f, Now: func() time.Time { return rollupNow }}).Run(context.Background()); !errors.Is(err, boom) {
 				t.Errorf("%s: err = %v, want boom", name, err)
 			}
@@ -202,17 +259,17 @@ func TestViewRollupDue(t *testing.T) {
 	if got := distinctMarkerPosts([]ViewMarker{{PostID: "a"}, {PostID: "b"}, {PostID: "a"}}); !slices.Equal(got, []string{"a", "b"}) {
 		t.Errorf("distinct = %v", got)
 	}
-	if len((ViewRollupResult{}).LogAttrs()) != 12 {
+	if len((ViewRollupResult{}).LogAttrs()) != 22 {
 		t.Error("log attrs")
 	}
 }
 
 // TestViewRollup_ForgetsFoldedPosts: every post of a folded page is evicted from the instance cache once, and a post of
-// the open window is not (its viewCount did not change).
+// the grace window is not (its viewCount did not change).
 func TestViewRollup_ForgetsFoldedPosts(t *testing.T) {
 	f := newFakeRollup()
 	cur := viewWindow(rollupNow)
-	f.markers = []ViewMarker{{PostID: "a", Window: cur - 2}, {PostID: "a", Window: cur - 1}, {PostID: "b", Window: cur - 1}, {PostID: "c", Window: cur}}
+	f.markers = []ViewMarker{{PostID: "a", Window: cur - 3}, {PostID: "a", Window: cur - 2}, {PostID: "b", Window: cur - 2}, {PostID: "c", Window: cur - 1}}
 	f.shards = map[string]int64{"a": 7, "b": 2, "c": 1}
 	forgot := map[string]int{}
 	v := &ViewRollup{Repo: f, Now: func() time.Time { return rollupNow }, Forget: func(id string) { forgot[id]++ }}

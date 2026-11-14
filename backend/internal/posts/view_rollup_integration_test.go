@@ -82,7 +82,7 @@ func TestIntegration_ViewRollup(t *testing.T) {
 		t.Fatalf("redelivery = %+v, %v", res, err)
 	}
 	// A later run that sees the same post dirty again (markers re-created, no new views) writes the same value.
-	if _, err := r.viewMarkerRef(viewWindow(t0), live).Set(ctx, viewMarkerDoc{PostID: live, Window: viewWindow(t0)}); err != nil {
+	if _, err := r.viewMarkerRef(viewWindow(t0), live).Set(ctx, viewMarkers.data(viewWindow(t0), live)); err != nil {
 		t.Fatal(err)
 	}
 	clock = clock.Add(2 * time.Minute)

@@ -12,7 +12,12 @@
 // 5 minutes, far under the one-write-per-second limit of a document, and the rollup finds every post with new views by
 // one query on viewDirty (window < the current one) instead of scanning posts.
 //
-// Q-V1 viewDirty where window < W ORDER BY window LIMIT n -> automatic single-field index (no firestore.indexes.json change)
+// The same viewShards docs also carry the engagement counter shards of hot posts (likeCount, repostCount, shareCount; see
+// repo_engagement.go), with their own markers viewDirty/c{window}_{postId} {postId, counterWindow} (markerKind): the
+// shard docs are deleted with their post by the existing paths, so there is no second delete path.
+//
+// Q-V1 viewDirty where window < W ORDER BY window LIMIT n               -> automatic single-field index (no firestore.indexes.json change)
+// Q-V2 viewDirty where counterWindow < W ORDER BY counterWindow LIMIT n -> automatic single-field index (no firestore.indexes.json change)
 package posts
 
 import (
@@ -70,12 +75,6 @@ func viewMarkerID(window int64, postID string) string {
 	return strconv.FormatInt(window, 10) + "_" + postID
 }
 
-// viewMarkerDoc is viewDirty/{window}_{postId}. It holds a post id and a window, no user data.
-type viewMarkerDoc struct {
-	PostID string `firestore:"postId"`
-	Window int64  `firestore:"window"`
-}
-
 // viewMemo is the set of markers this instance committed in one window.
 type viewMemo struct {
 	mu     sync.Mutex
@@ -109,22 +108,74 @@ func (m *viewMemo) note(window int64, postIDs []string) {
 	}
 }
 
+// markerKind is one family of rollup markers in viewDirty. Views and engagement counters keep separate markers (their
+// own doc id prefix and window field), so each fold finds its own posts with its own single-field query and deletes a
+// marker as soon as its own fold is done: the views fold runs every 15 minutes, the engagement fold on every tick.
+type markerKind struct {
+	// prefix starts the doc id: "" for views ({window}_{postId}), "c" for counters (c{window}_{postId}).
+	prefix string
+	// windowField holds the window; the other kind's query never returns the doc (Firestore leaves out a document that
+	// lacks the field a query filters and orders on).
+	windowField string
+	// counter reports the engagement kind (its memo is counterMemo).
+	counter bool
+}
+
+var (
+	// viewMarkers are the F1 view markers: viewDirty/{window}_{postId} {postId, window} (Q-V1).
+	viewMarkers = markerKind{windowField: "window"}
+	// counterMarkers are the engagement counter markers of hot posts: viewDirty/c{window}_{postId} {postId, counterWindow}
+	// (Q-V2), written next to a likeCount, repostCount or shareCount shard write.
+	counterMarkers = markerKind{prefix: "c", windowField: "counterWindow", counter: true}
+)
+
+// id is the marker doc id of postID in window.
+func (k markerKind) id(window int64, postID string) string {
+	return k.prefix + viewMarkerID(window, postID)
+}
+
+// data is the marker doc: a post id and a window, no user data.
+func (k markerKind) data(window int64, postID string) map[string]any {
+	return map[string]any{"postId": postID, k.windowField: window}
+}
+
+func (r *FirestoreRepo) markerRef(k markerKind, window int64, postID string) *firestore.DocumentRef {
+	return r.client.Collection(viewDirtyCollection).Doc(k.id(window, postID))
+}
+
 func (r *FirestoreRepo) viewMarkerRef(window int64, postID string) *firestore.DocumentRef {
-	return r.client.Collection(viewDirtyCollection).Doc(viewMarkerID(window, postID))
+	return r.markerRef(viewMarkers, window, postID)
+}
+
+func (r *FirestoreRepo) memoOf(k markerKind) *viewMemo {
+	if k.counter {
+		return &r.counterMemo
+	}
+	return &r.viewMemo
+}
+
+// stageMarkers appends the k marker of every id of postIDs in now's window unless this instance already committed it
+// (the memo). The returned committed records the staged markers in the memo; call it once the batch committed, never
+// after a failed commit (a transaction body that re-runs keeps only its last callback).
+func (r *FirestoreRepo) stageMarkers(b store.Batch, k markerKind, postIDs []string, now time.Time) (committed func()) {
+	window := viewWindow(now)
+	memo := r.memoOf(k)
+	var marked []string
+	for _, id := range postIDs {
+		if memo.needs(window, id) {
+			b.Set(r.markerRef(k, window, id), k.data(window, id))
+			marked = append(marked, id)
+		}
+	}
+	return func() { memo.note(window, marked) }
 }
 
 // StageViews implements ViewWriter.
 func (r *FirestoreRepo) StageViews(b store.Batch, postIDs []string, now time.Time) func() {
-	window := viewWindow(now)
-	var marked []string
 	for _, id := range postIDs {
 		viewShards.StageIncrement(b, r.ref(id), shardcount.Delta{Field: viewShardField, N: 1})
-		if r.viewMemo.needs(window, id) {
-			b.Set(r.viewMarkerRef(window, id), viewMarkerDoc{PostID: id, Window: window})
-			marked = append(marked, id)
-		}
 	}
-	return func() { r.viewMemo.note(window, marked) }
+	return r.stageMarkers(b, viewMarkers, postIDs, now)
 }
 
 // stageViewShardsDelete appends the blind deletes of a post's view shards (ViewShardCount writes, no read): every path
