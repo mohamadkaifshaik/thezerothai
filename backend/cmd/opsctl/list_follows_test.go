@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,6 +19,10 @@ func (f fakeRecounter) RecountFollowers(_ context.Context, _ string, write bool)
 		r.Written = true
 	}
 	return r, nil
+}
+
+func (fakeRecounter) MissingFollowerCount(context.Context, string, int) (lists.MissingFollowerCountPage, error) {
+	return lists.MissingFollowerCountPage{}, nil
 }
 
 func TestRecountListFollows_Output(t *testing.T) {
@@ -36,7 +41,7 @@ func TestRecountListFollows_Output(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
 			b := &backends{listFollows: fakeRecounter{res: tc.res}}
-			if err := recountListFollows(context.Background(), b, testListID, tc.write, &out); err != nil {
+			if err := recountListFollows(context.Background(), b, recountListFollowsArgs{list: testListID, write: tc.write}, &out); err != nil {
 				t.Fatal(err)
 			}
 			for _, w := range tc.want {
@@ -48,5 +53,68 @@ func TestRecountListFollows_Output(t *testing.T) {
 				t.Errorf("missing field reported as in step: %q", out.String())
 			}
 		})
+	}
+}
+
+// pagedMissing serves pages of listFollowsScanPage ids, every one missing the field, up to total ids; RecountFollowers
+// writes each. It records how many repairs ran.
+type pagedMissing struct {
+	total    int
+	repaired int
+}
+
+func (p *pagedMissing) RecountFollowers(context.Context, string, bool) (lists.FollowRecount, error) {
+	p.repaired++
+	return lists.FollowRecount{Missing: true, Written: true}, nil
+}
+
+func (p *pagedMissing) MissingFollowerCount(_ context.Context, after string, limit int) (lists.MissingFollowerCountPage, error) {
+	start := 0
+	if after != "" {
+		fmt.Sscanf(after, "%d", &start)
+	}
+	var page lists.MissingFollowerCountPage
+	for i := start + 1; i <= p.total && page.Scanned < limit; i++ {
+		id := fmt.Sprintf("%019d", i)
+		page.Scanned++
+		page.Missing = append(page.Missing, id)
+		page.Last = id
+	}
+	return page, nil
+}
+
+func TestRecountListFollows_AllMissingStopsAtTheWriteCap(t *testing.T) {
+	f := &pagedMissing{total: listFollowsMaxWrites + 2*listFollowsScanPage}
+	var out bytes.Buffer
+	if err := recountListFollows(context.Background(), &backends{listFollows: f}, recountListFollowsArgs{allMissing: true, write: true}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if f.repaired != listFollowsMaxWrites {
+		t.Fatalf("repaired %d, want exactly the cap %d", f.repaired, listFollowsMaxWrites)
+	}
+	checkpoint := fmt.Sprintf("%019d", listFollowsMaxWrites)
+	if !strings.Contains(out.String(), "write cap of 5000 reached: rerun with --all-missing --write --after "+checkpoint) {
+		t.Fatalf("output lacks the cap checkpoint %s:\n%s", checkpoint, out.String())
+	}
+
+	// Resuming from the checkpoint repairs the rest and completes.
+	f.repaired = 0
+	out.Reset()
+	if err := recountListFollows(context.Background(), &backends{listFollows: f}, recountListFollowsArgs{allMissing: true, write: true, after: checkpoint}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if f.repaired != 2*listFollowsScanPage || !strings.Contains(out.String(), "complete:") {
+		t.Fatalf("resume repaired %d, want %d; output:\n%s", f.repaired, 2*listFollowsScanPage, out.String())
+	}
+}
+
+func TestRecountListFollows_AllMissingDryRunWritesNothing(t *testing.T) {
+	f := &pagedMissing{total: 7}
+	var out bytes.Buffer
+	if err := recountListFollows(context.Background(), &backends{listFollows: f}, recountListFollowsArgs{allMissing: true}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if f.repaired != 0 || !strings.Contains(out.String(), "dry-run: scanned=7 missing=7 would_write=7") {
+		t.Fatalf("dry run repaired %d; output:\n%s", f.repaired, out.String())
 	}
 }
