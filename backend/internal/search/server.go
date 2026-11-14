@@ -55,7 +55,23 @@ func (s *Server) SearchPeople(ctx context.Context, req *connect.Request[searchv1
 // SearchPosts implements the RPC; the rules are Service.Posts.
 func (s *Server) SearchPosts(ctx context.Context, req *connect.Request[searchv1.SearchPostsRequest]) (*connect.Response[searchv1.SearchPostsResponse], error) {
 	return call(ctx, req, func(ctx context.Context, uid string, m *searchv1.SearchPostsRequest) (*searchv1.SearchPostsResponse, error) {
-		return s.svc.Posts(ctx, uid, m.GetQuery(), m.GetTab(), m.GetPageSize(), m.GetPageToken())
+		return s.svc.PostsWith(ctx, uid, PostsRequest{
+			Query: m.GetQuery(), Tab: m.GetTab(), PageSize: m.GetPageSize(), PageToken: m.GetPageToken(), FromFollowing: m.GetFromFollowing(),
+		})
+	})
+}
+
+// SearchLists implements the RPC; the rules are Service.Lists.
+func (s *Server) SearchLists(ctx context.Context, req *connect.Request[searchv1.SearchListsRequest]) (*connect.Response[searchv1.SearchListsResponse], error) {
+	return call(ctx, req, func(ctx context.Context, uid string, m *searchv1.SearchListsRequest) (*searchv1.SearchListsResponse, error) {
+		return s.svc.Lists(ctx, uid, m.GetQuery(), m.GetPageSize(), m.GetPageToken())
+	})
+}
+
+// SearchCommunities implements the RPC; the rules are Service.Communities.
+func (s *Server) SearchCommunities(ctx context.Context, req *connect.Request[searchv1.SearchCommunitiesRequest]) (*connect.Response[searchv1.SearchCommunitiesResponse], error) {
+	return call(ctx, req, func(ctx context.Context, uid string, m *searchv1.SearchCommunitiesRequest) (*searchv1.SearchCommunitiesResponse, error) {
+		return s.svc.Communities(ctx, uid, m.GetQuery(), m.GetPageSize(), m.GetPageToken())
 	})
 }
 

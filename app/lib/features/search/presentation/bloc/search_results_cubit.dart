@@ -47,8 +47,10 @@ class SearchResultsCubit extends Cubit<SearchResultsState> {
     required this.query,
     this.pageSize = 20,
     this.peopleLimit = 10,
+    bool fromFollowing = false,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _repository = repository,
+       _fromFollowing = fromFollowing,
        _onUnexpectedError = onUnexpectedError,
        super(const SearchResultsState());
 
@@ -58,6 +60,25 @@ class SearchResultsCubit extends Cubit<SearchResultsState> {
   final SearchQuery query;
   final int pageSize;
   final int peopleLimit;
+
+  bool _fromFollowing;
+
+  /// Whether the post requests carry `from_following` (the "People you
+  /// follow" filter; only Latest and Media use it).
+  bool get fromFollowing => _fromFollowing;
+
+  /// Whether this tab's posts follow the filter (Top and People do not).
+  bool get usesFollowingFilter =>
+      tab == SearchResultsTab.latest || tab == SearchResultsTab.media;
+
+  /// Turns the filter on or off: another set of rows, so paging starts again
+  /// from page 1 with the skeleton ([load]). Nothing when it is unchanged or
+  /// this tab does not use it.
+  Future<void> setFromFollowing(bool value) async {
+    if (value == _fromFollowing || !usesFollowingFilter) return;
+    _fromFollowing = value;
+    await load();
+  }
 
   int _round = 0;
   bool _busy = false;
@@ -145,6 +166,7 @@ class SearchResultsCubit extends Cubit<SearchResultsState> {
           query.postsRequest!,
           tab: _wireTab,
           pageSize: pageSize,
+          fromFollowing: _fromFollowing && usesFollowingFilter,
         );
         if (isClosed || round != _round) return;
         emit(
@@ -189,6 +211,7 @@ class SearchResultsCubit extends Cubit<SearchResultsState> {
         tab: _wireTab,
         pageToken: token,
         pageSize: pageSize,
+        fromFollowing: _fromFollowing && usesFollowingFilter,
       );
       if (isClosed || round != _round) return;
       final known = {for (final v in state.posts) v.post.postId};

@@ -25,6 +25,19 @@ syntax = "proto3";
 // - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
 //   "trends") gates GetTrends per caller. Off => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "search"
 //   or "trends", before any lookup.
+// - FEATURE_SEARCH_LISTS (wire name "search_lists", default off) gates SearchLists and SearchCommunities per caller, checked
+//   right after "search"; SearchLists then needs "lists" and SearchCommunities "communities" on for the caller too. Each
+//   off flag => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = that flag's wire name, before any lookup.
+// - FEATURE_SEARCH_FILTERS (wire name "search_filters", default off) gates SearchPostsRequest.from_following = true per
+//   caller (checked after "search"; FEATURE_DISABLED metadata["feature"] = "search_filters", before any lookup). A request
+//   with from_following = false never checks it.
+//
+// Lists and communities by name (F20, F21): no search engine either. Each list and community stores nameLower, the
+// name folded by pkg/platform/namekey (NFC, lower-case, trimmed; fixture backend/pkg/platform/namekey/testdata), written on
+// create and on every rename. A query is folded the same way and matched as a PREFIX of the whole folded name ("go"
+// finds "Go devs", not "Learn Go"). Search reads them through the lists and communities modules' search methods; it
+// never queries those collections itself. Rows written before nameLower existed are found only after the operator
+// backfill (opsctl search backfill-name-keys).
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix, before any lookup.
@@ -36,7 +49,9 @@ syntax = "proto3";
 // as every list does. Retry later.
 package dzeroth.search.v1;
 
+import "dzeroth/communities/v1/communities.proto";
 import "dzeroth/graph/v1/graph.proto";
+import "dzeroth/lists/v1/lists.proto";
 import "dzeroth/posts/v1/posts.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -113,6 +128,37 @@ service SearchService {
   rpc GetTrends(GetTrendsRequest) returns (GetTrendsResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+
+  // Public lists whose folded name starts with the folded query (F20), in folded-name order, then list id.
+  // query: NFC, trimmed, lower-cased; 1 to 30 code points after that, no control or bidi formatting character, else
+  // VALIDATION "query" before any lookup. No sigil is stripped.
+  // Rows: public lists only (a private list is never read: the query has isPrivate == false). Then the GetList rules for
+  // the caller drop a list hidden by an operator, a list whose owner is not ACTIVE, a list whose owner blocks the caller
+  // or that the caller blocks, a protected owner's list the caller does not follow, an owner past the blockedBy cap, and
+  // the caller's own lists (they are on the Lists tab), exactly as DiscoverLists does. A dropped row is never
+  // replaced, so a page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+  // follower_count and followed_by_viewer are set only when FEATURE_LIST_FOLLOWS is on for the caller (as on GetList).
+  // page_size 0 => 20, max 20 (clamped); negative => VALIDATION "page_size". page_token: opaque, sealed, bound to the
+  // caller and the folded query, 24 h TTL; expired, foreign, tampered or sent with another query => VALIDATION
+  // "page_token", before any lookup.
+  // Staleness: the query reads Firestore on every call; the per-row rules use the 60 s caches GetList uses.
+  // Flags: "search", "search_lists", "lists". Rate limit: RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN 20/min/uid per instance,
+  // shared with SearchCommunities; no daily cap. Cost: one query of at most page_size documents, then per row the
+  // owner's profile and graph (cache-first) and one batched follow-marker read when list_follows is on. Writes nothing.
+  rpc SearchLists(SearchListsRequest) returns (SearchListsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // ACTIVE communities whose folded name starts with the folded query (F21), in folded-name order, then community id.
+  // query: the SearchLists rules. A SUSPENDED (taken offline by an operator) or ARCHIVED community is never returned (the
+  // query has status == ACTIVE, the directory rule). As in ListCommunities there is no block filtering (D7); viewer_role
+  // is the caller's role (memberships cached 60 s). page_size and page_token: the SearchLists rules (the token is bound
+  // to this RPC). A page is short only at the end.
+  // Flags: "search", "search_lists", "communities". Rate limit: the SearchLists bucket. Cost: one query of at most
+  // page_size documents and the caller's memberships (cached 60 s). Writes nothing.
+  rpc SearchCommunities(SearchCommunitiesRequest) returns (SearchCommunitiesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 // The order a SearchPosts call returns. There is no PEOPLE value: the client's People tab calls
@@ -151,6 +197,14 @@ message SearchPostsRequest {
   int32 page_size = 3;
   // next_page_token of the previous page for the same query and tab.
   string page_token = 4;
+  // "People you follow" (F22): keep only posts whose row author the caller follows (a REPOST row counts for the
+  // account that reposted). The caller's own posts are left out. Needs FEATURE_SEARCH_FILTERS (see the file comment).
+  // The following set is the caller's 60 s graph snapshot (at most 5,000 accounts). Every other filter still applies.
+  // Recall limit: TOP filters its one 30-post entry. LATEST and MEDIA scan at most 3 of the tab's query windows per
+  // call, stopping once page_size rows are kept, so a page may be SHORT or EMPTY while next_page_token is non-empty:
+  // keep following it. A page token is bound to this value too: a token from a call with the other value =>
+  // VALIDATION "page_token".
+  bool from_following = 5;
 }
 
 message SearchPostsResponse {
@@ -187,4 +241,36 @@ message GetTrendsResponse {
   repeated Trend trends = 1;
   // When the list was computed. Unset when there is no list yet.
   google.protobuf.Timestamp computed_at = 2;
+}
+
+message SearchListsRequest {
+  // A name prefix (rules on SearchLists).
+  string query = 1;
+  // 0 => 20; max 20 (clamped); negative => VALIDATION "page_size".
+  int32 page_size = 2;
+  // next_page_token of the previous page for the same query.
+  string page_token = 3;
+}
+
+message SearchListsResponse {
+  // Folded-name order; at most page_size; may be short while next_page_token is set.
+  repeated dzeroth.lists.v1.ListInfo lists = 1;
+  // "" => no more.
+  string next_page_token = 2;
+}
+
+message SearchCommunitiesRequest {
+  // A name prefix (rules on SearchLists).
+  string query = 1;
+  // 0 => 20; max 20 (clamped); negative => VALIDATION "page_size".
+  int32 page_size = 2;
+  // next_page_token of the previous page for the same query.
+  string page_token = 3;
+}
+
+message SearchCommunitiesResponse {
+  // Folded-name order; at most page_size. Each row is the light header with the caller's viewer_role.
+  repeated dzeroth.communities.v1.Community communities = 1;
+  // "" => no more.
+  string next_page_token = 2;
 }

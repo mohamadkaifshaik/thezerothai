@@ -19,8 +19,9 @@ type service struct {
 	people *people // nil until WithPeople: SearchPeople then answers Unimplemented (the skeleton)
 	// pr is the SearchPosts runtime (WithPosts); nil leaves SearchPosts Unimplemented for an enabled caller.
 	pr         *postsRuntime
-	trends     *trendsCache // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
-	trendsDeny []string     // TRENDS_DENYLIST (WithTrendsDenylist), folded into trendsCache.deny by New
+	trends     *trendsCache  // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
+	trendsDeny []string      // TRENDS_DENYLIST (WithTrendsDenylist), folded into trendsCache.deny by New
+	dir        DirectoryDeps // SearchLists and SearchCommunities (WithDirectory); a nil seam is Unimplemented
 	now        func() time.Time
 }
 
@@ -78,13 +79,29 @@ func errNotImplemented() error {
 	return apierr.New(connect.CodeUnimplemented, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "not implemented yet")
 }
 
-// Posts is SearchPosts. Flag: search, checked before any read. Without WithPosts: Unimplemented. The rules are postsRuntime.search.
+// FlagSearchFilters is the wire name of FEATURE_SEARCH_FILTERS: SearchPostsRequest.from_following = true, per caller, after
+// FlagSearch (F22).
+const FlagSearchFilters = "search_filters"
+
+// Posts is SearchPosts without from_following. Flag: search, checked before any read. Without WithPosts: Unimplemented. The
+// rules are postsRuntime.search.
 func (s *service) Posts(ctx context.Context, uid, query string, tab searchv1.SearchTab, pageSize int32, pageToken string) (*searchv1.SearchPostsResponse, error) {
+	return s.PostsWith(ctx, uid, PostsRequest{Query: query, Tab: tab, PageSize: pageSize, PageToken: pageToken})
+}
+
+// PostsWith is SearchPosts with every request field. Flags: search, then search_filters when FromFollowing is set (a request
+// without it never checks that flag), both before any read.
+func (s *service) PostsWith(ctx context.Context, uid string, req PostsRequest) (*searchv1.SearchPostsResponse, error) {
 	if err := s.guard(ctx, uid, FlagSearch); err != nil {
 		return nil, err
+	}
+	if req.FromFollowing {
+		if err := s.guard(ctx, uid, FlagSearchFilters); err != nil {
+			return nil, err
+		}
 	}
 	if s.pr == nil {
 		return nil, errNotImplemented()
 	}
-	return s.pr.search(ctx, uid, query, tab, pageSize, pageToken)
+	return s.pr.search(ctx, uid, req.Query, req.Tab, req.PageSize, req.PageToken, req.FromFollowing)
 }

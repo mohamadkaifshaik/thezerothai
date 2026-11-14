@@ -40,6 +40,9 @@ const (
 	// latestOlderSmall for page_size <= latestOlderSmall and latestWide beyond it; a tail page reads the whole rest (latestWide).
 	latestOlderSmall = 20
 	latestWide       = 50
+	// followingWindows is the most query windows one from_following call (F22) scans on LATEST and MEDIA: the documented
+	// recall limit. TOP filters its one entry.
+	followingWindows = 3
 	// entryLoadTimeout bounds the shared entry load, which runs detached from the first caller's cancellation.
 	entryLoadTimeout = 5 * time.Second
 )
@@ -56,6 +59,9 @@ const (
 	fieldDroppedMuted     = "dropped_muted"
 	fieldDroppedProtected = "dropped_protected"
 	fieldDroppedInactive  = "dropped_inactive"
+	fieldDroppedNotFollow = "dropped_not_following"
+	fieldFromFollowing    = "from_following"
+	fieldWindows          = "windows"
 	fieldCacheHit         = "cache_hit"
 )
 
@@ -165,10 +171,25 @@ func tokenError() error {
 	return apierr.Validation("page_token", "invalid or expired page token")
 }
 
-// dropTally counts the rows a call dropped by cause (the request line).
-type dropTally struct{ hidden, blocked, muted, protected, inactive int }
+// followingSuffix marks the binding of a from_following chain (F22), so its tokens never open an unfiltered call and the
+// reverse: a token from the other mode is VALIDATION "page_token".
+const followingSuffix = "|FOLLOWING"
 
-func (d dropTally) total() int { return d.hidden + d.blocked + d.muted + d.protected + d.inactive }
+// dropTally counts the rows a call dropped by cause (the request line).
+type dropTally struct{ hidden, blocked, muted, protected, inactive, notFollowing int }
+
+func (d dropTally) total() int {
+	return d.hidden + d.blocked + d.muted + d.protected + d.inactive + d.notFollowing
+}
+
+func (d *dropTally) add(o dropTally) {
+	d.hidden += o.hidden
+	d.blocked += o.blocked
+	d.muted += o.muted
+	d.protected += o.protected
+	d.inactive += o.inactive
+	d.notFollowing += o.notFollowing
+}
 
 // fetched is the unfiltered rows a call works on, newest first. more is whether the window was full (the query returned as
 // many rows as it asked for, or the entry held tagEntrySize), so older posts may exist below the last row.
@@ -195,7 +216,10 @@ type fetched struct {
 // token (only when it was cut), and a tail page reads the whole rest of the tag.
 //
 // Staleness: the tag entry is shared across viewers and at most tagEntryTTL old; every per-viewer filter runs after it.
-func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab searchv1.SearchTab, pageSize int32, token string) (*searchv1.SearchPostsResponse, error) {
+//
+// following (F22, from_following) keeps only rows whose author the caller follows (never the caller's own) and binds the
+// tokens to that mode; LATEST and MEDIA then go through searchFollowing.
+func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab searchv1.SearchTab, pageSize int32, token string, following bool) (*searchv1.SearchPostsResponse, error) {
 	if pageSize < 0 {
 		return nil, apierr.Validation("page_size", "page_size must not be negative")
 	}
@@ -213,6 +237,11 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 	t := tabOf(tab)
 	logger.SetRequestField(ctx, fieldTab, t.String())
 	limit := limits.ClampPageSize(pageSize)
+	logger.SetRequestField(ctx, fieldFromFollowing, following)
+	bind, tailBind := binding(uid, tag, t), tailBinding(uid, tag)
+	if following {
+		bind, tailBind = bind+followingSuffix, tailBind+followingSuffix
+	}
 
 	var cur *cursor.Cursor
 	tail := false // the token is a LATEST_TAIL token
@@ -220,9 +249,9 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 		if t == tabTop { // TOP issues no token, so none can be valid for it
 			return nil, tokenError()
 		}
-		c, err := cursor.DecodeAt(r.d.CursorKey, binding(uid, tag, t), token, r.d.Now())
-		if err != nil && t == tabLatest { // the tail token of a LATEST chain
-			if c, err = cursor.DecodeAt(r.d.CursorKey, tailBinding(uid, tag), token, r.d.Now()); err == nil {
+		c, err := cursor.DecodeAt(r.d.CursorKey, bind, token, r.d.Now())
+		if err != nil && t == tabLatest && !following { // the tail token of a LATEST chain (a following chain issues none)
+			if c, err = cursor.DecodeAt(r.d.CursorKey, tailBind, token, r.d.Now()); err == nil {
 				tail = true
 			}
 		}
@@ -230,6 +259,9 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 			return nil, tokenError()
 		}
 		cur = &c
+	}
+	if following && t != tabTop {
+		return r.searchFollowing(ctx, uid, tag, t, limit, cur, bind)
 	}
 
 	f, err := r.fetch(ctx, uid, tag, t, limit, cur, tail)
@@ -245,7 +277,7 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 	case tabMedia:
 		cands = withOwnMedia(cands)
 	}
-	fl, err := r.filter(ctx, uid, cands)
+	fl, err := r.filter(ctx, uid, cands, following)
 	if err != nil {
 		return nil, err
 	}
@@ -284,20 +316,77 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 	}
 	resp := &searchv1.SearchPostsResponse{Posts: r.views(ctx, uid, kept, fl), NormalizedTag: tag}
 	if more && resume != nil {
-		b := binding(uid, tag, t)
+		b := bind
 		if tailToken {
-			b = tailBinding(uid, tag)
+			b = tailBind
 		}
 		resp.NextPageToken = cursor.EncodeAt(r.d.CursorKey, b, cursor.Cursor{CreatedAt: resume.CreatedAt, DocID: resume.ID}, r.d.Now())
 	}
-	logger.SetRequestField(ctx, fieldResults, len(resp.Posts))
+	logTally(ctx, len(resp.Posts), tally)
+	return resp, nil
+}
+
+// searchFollowing is LATEST and MEDIA with from_following (F22): the tab's query windows, filtered as search filters them
+// plus the following rule, read one after another from the token's position until page_size rows are kept, the tag ends, or
+// followingWindows windows were read (the recall limit). The kept rows are cut at page_size; the token resumes after the last
+// returned row when the page was cut, else after the last QUERIED row of the last window, so a dropped row never stalls the
+// chain and a page may be short or empty while a token is set. No tail token: every window is a fixed tier (fetch with tail
+// false), and a window that was not full ends the chain unless the page was cut.
+func (r *postsRuntime) searchFollowing(ctx context.Context, uid, tag string, t tabKind, limit int, cur *cursor.Cursor, bind string) (*searchv1.SearchPostsResponse, error) {
+	var agg filtered
+	var resume *posts.Post
+	more, windows := false, 0
+	for windows < followingWindows {
+		f, err := r.fetch(ctx, uid, tag, t, limit, cur, false)
+		if err != nil {
+			return nil, err
+		}
+		if windows == 0 {
+			logger.SetRequestField(ctx, fieldCacheHit, f.hit)
+		}
+		windows++
+		cands := f.rows
+		if t == tabMedia {
+			cands = withOwnMedia(cands)
+		}
+		fl, err := r.filter(ctx, uid, cands, true)
+		if err != nil {
+			return nil, err
+		}
+		agg.merge(fl)
+		more = f.more
+		if len(f.rows) > 0 {
+			resume = f.rows[len(f.rows)-1]
+		}
+		if len(agg.kept) >= limit || !more || resume == nil {
+			break
+		}
+		cur = &cursor.Cursor{CreatedAt: resume.CreatedAt, DocID: resume.ID}
+	}
+	logger.SetRequestField(ctx, fieldWindows, windows)
+	kept := agg.kept
+	if len(kept) > limit {
+		kept = kept[:limit]
+		resume, more = kept[limit-1], true
+	}
+	resp := &searchv1.SearchPostsResponse{Posts: r.views(ctx, uid, kept, agg), NormalizedTag: tag}
+	if more && resume != nil {
+		resp.NextPageToken = cursor.EncodeAt(r.d.CursorKey, bind, cursor.Cursor{CreatedAt: resume.CreatedAt, DocID: resume.ID}, r.d.Now())
+	}
+	logTally(ctx, len(resp.Posts), agg.tally)
+	return resp, nil
+}
+
+// logTally writes the request-line counts of one call (counts only).
+func logTally(ctx context.Context, results int, tally dropTally) {
+	logger.SetRequestField(ctx, fieldResults, results)
 	logger.SetRequestField(ctx, fieldDropped, tally.total())
 	logger.SetRequestField(ctx, fieldDroppedHidden, tally.hidden)
 	logger.SetRequestField(ctx, fieldDroppedBlocked, tally.blocked)
 	logger.SetRequestField(ctx, fieldDroppedMuted, tally.muted)
 	logger.SetRequestField(ctx, fieldDroppedProtected, tally.protected)
 	logger.SetRequestField(ctx, fieldDroppedInactive, tally.inactive)
-	return resp, nil
+	logger.SetRequestField(ctx, fieldDroppedNotFollow, tally.notFollowing)
 }
 
 // fetch runs the one query (or entry read) the tab and token call for.
@@ -419,6 +508,29 @@ type filtered struct {
 	gone  map[string]bool
 	tally dropTally
 	snap  graph.Snapshot
+	// snapped is whether snap was read (filter reads it only for a non-empty window).
+	snapped bool
+}
+
+// merge appends o's kept rows and decisions to f (searchFollowing's windows); the latest snapshot read wins.
+func (f *filtered) merge(o filtered) {
+	f.kept = append(f.kept, o.kept...)
+	for id, st := range o.embed {
+		if f.embed == nil {
+			f.embed = map[string]postsv1.EmbedViewerState{}
+		}
+		f.embed[id] = st
+	}
+	for id := range o.gone {
+		if f.gone == nil {
+			f.gone = map[string]bool{}
+		}
+		f.gone[id] = true
+	}
+	f.tally.add(o.tally)
+	if o.snapped {
+		f.snap, f.snapped = o.snap, true
+	}
 }
 
 // filter applies the per-viewer rules after the shared entry, in this order per
@@ -432,7 +544,10 @@ type filtered struct {
 // does not return (missing, SUSPENDED or DELETING) drops the row. A copy of a post whose author is not ACTIVE is shown as
 // suspend-user's copy clean-up and the account purge leave it: a REPOST is dropped, a QUOTE keeps its own text with the embed
 // tombstoned (gone; views renders it).
-func (r *postsRuntime) filter(ctx context.Context, uid string, rows []*posts.Post) (filtered, error) {
+//
+// following (F22) adds one free rule right after moderation: a row whose author is the caller or is not in the caller's
+// following set (the 60 s snapshot, at most 5,000 accounts) is dropped (notFollowing), so the author-status batch never sees it.
+func (r *postsRuntime) filter(ctx context.Context, uid string, rows []*posts.Post, following bool) (filtered, error) {
 	var f filtered
 	if len(rows) == 0 {
 		return f, nil
@@ -441,12 +556,16 @@ func (r *postsRuntime) filter(ctx context.Context, uid string, rows []*posts.Pos
 	if err != nil {
 		return filtered{}, logger.RedactErr(fmt.Errorf("search: caller graph: %w", err), uid)
 	}
-	f.snap = snap
+	f.snap, f.snapped = snap, true
 	// The free rules first, so the author-status batch holds only the authors of rows that could still be shown.
 	cands := make([]*posts.Post, 0, len(rows))
 	for _, p := range rows {
 		if !p.Visible() {
 			f.tally.hidden++
+			continue
+		}
+		if following && (p.AuthorID == uid || !snap.Following[p.AuthorID]) {
+			f.tally.notFollowing++
 			continue
 		}
 		switch blockCause(snap, uid, p) {
