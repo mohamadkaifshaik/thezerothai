@@ -39,7 +39,7 @@ func (f *fakeBlocks) BlockersAmong(_ context.Context, viewer string, candidates 
 }
 
 func newOverflowService(repo *fakeRepo, social Social, blocks BlockLookup) Service {
-	return NewService(Deps{Repo: repo, Directory: newDirectory("me"), Social: social, Blocks: blocks, Seen: &fakeSeen{},
+	return NewService(Deps{Repo: repo, Directory: newOpenDirectory(), Social: social, Blocks: blocks, Seen: &fakeSeen{},
 		CursorKey: testKey, Now: func() time.Time { return t0.Add(time.Hour) }})
 }
 
