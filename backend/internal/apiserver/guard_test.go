@@ -39,6 +39,9 @@ func defaultRateLimitCfg() config.Config {
 	// Share limits (the config.Load defaults).
 	cfg.RateLimit.SharesPerUserPerMinute = 20
 	cfg.RateLimit.SharesRecordedPerDay = 300
+	// Impression limits (the config.Load defaults).
+	cfg.RateLimit.ImpressionsPerUserPerMinute = 6
+	cfg.RateLimit.ImpressionsRecordedPerDay = 500
 	// Search and trends limits (the config.Load defaults).
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 30
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 20

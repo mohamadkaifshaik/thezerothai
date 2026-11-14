@@ -51,6 +51,8 @@ type WriteDeps struct {
 	IDs      IDGenerator
 	// Idempotency stores the idempotency docs of AddBookmark and RemoveBookmark; only they use it.
 	Idempotency *idempotency.Store
+	// Views stages a view's shard increment and rollup marker (posts owns them); only RecordImpressions uses it.
+	Views posts.ViewWriter
 }
 
 // FirestoreRepo implements Repo (and Eraser, Exporter, the job's queries) against the shared client.

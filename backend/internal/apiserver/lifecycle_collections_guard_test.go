@@ -177,6 +177,13 @@ var lifecycleCollections = []collectionRow{
 	// uid the item is about, an opaque payload (for post_delete: uid, post id, media ids), attempts and times, with a 30-day
 	// expireAt TTL backstop. The `outbox` step (BeforeIdentity, appended after beacons) deletes every item with uid == the
 	// deleted user, so the sweep finds no residue; nothing is exported (an operational pointer, not user content).
+	// F1 post views. users/{uid}/impressions/{postId}_{day} {postId, day, createdAt, expireAt}: the viewer's dedupe record,
+	// 48 h TTL, deleted by the `impressions` step (TTL is too late to count as erasure). posts/{id}/viewShards/{n} {count}
+	// and viewDirty/{window}_{postId} {postId, window} hold counts and post ids only, never a viewer: the shards go with
+	// their post (posts step, post_delete), the markers are deleted by the view rollup.
+	{Name: "impressions", Sub: true, Disposition: erasedByStep, Step: "impressions", ExportNote: "short-lived view dedupe records (post id and IST day, 48 h TTL), not user content; not exported", Owner: "engagement", Cite: "erasure follows the ADR-0011 Q1 pattern; F1 post views brief 2026-11-09 and owner decisions 2026-11-14, ADR pending"},
+	{Name: "viewShards", Sub: true, Disposition: notPersonal, ExportNote: "view counter shards under posts/{id}: counts only, no viewer; the post's viewCount is in the posts section", Owner: "posts", Cite: "ADR-0011 Q10: no user data (F1 post views brief 2026-11-09: no per-viewer list, ever), ADR pending"},
+	{Name: "viewDirty", Disposition: notPersonal, ExportNote: "rollup markers: a post id and a 5-minute window, no user data, deleted by the rollup", Owner: "posts", Cite: "ADR-0011 Q10: no user data (F1 post views brief 2026-11-09), ADR pending"},
 	{Name: "outbox", Disposition: erasedByStep, Step: "outbox", ExportNote: "operational work items (kind, post id, uid, attempts); not user content, not exported", Owner: "platform", Cite: "erasure follows the ADR-0011 Q1 pattern; collection, step and TTL owner-approved 2026-11-08 (Task 9), ADR pending"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// Trends/current holds tags and counts only (distinct authors are counted in memory and never
@@ -394,6 +401,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerBillingLifecycle(l, billing.NewFirestoreBindings(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerImpressionLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()

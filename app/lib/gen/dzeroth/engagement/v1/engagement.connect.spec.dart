@@ -255,7 +255,8 @@ abstract final class EngagementService {
   ///    else VALIDATION (field "idempotency_key" | "post_ids").
   /// 4. The posts, in one cache-first read: a REPOST id counts its original; ids that are missing, hidden, by an author
   ///    who blocks the caller or whom the caller may not see (a protected author the caller does not follow), and the
-  ///    caller's own posts are dropped silently. A viewer the author blocks is counted but never identified.
+  ///    caller's own posts are dropped silently. A viewer who blocks the author (the post still opens for them) is
+  ///    counted, never identified.
   /// 5. One GetAll of users/{uid}/impressions/{postId}_{yyyymmdd} (IST day) for what is left; for each absent doc, in
   ///    one batch: Create the impression {postId, day, createdAt, expireAt = createdAt + 48 h} and increment one of 10
   ///    shard docs posts/{id}/viewShards/{n}. The impression doc is the dedupe record (a concurrent duplicate loses its
