@@ -112,6 +112,9 @@ type backends struct {
 	shareCounts  posts.ShareCounter
 	// listFollows serves recount-list-follows: lists' marker count and stored followerCount.
 	listFollows listFollowRecounter
+	// childCounts serves recount-replies and recount-quotes: posts' stored replyCount / quoteCount and the count of
+	// the posts referencing it.
+	childCounts posts.ChildRecounter
 	close       func()
 }
 
@@ -212,6 +215,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		shareMarkers:    engagementRepo,
 		shareCounts:     postsRepo,
 		listFollows:     lists.NewFirestoreRepo(client, nil, nil),
+		childCounts:     postsRepo,
 		close:           func() { _ = client.Close() },
 	}, nil
 }
@@ -232,7 +236,7 @@ const usage = `usage:
   opsctl media-orphan-sweep --project P --profile-retire off|all [--dry-run]   (drains the daily orphan sweep's
                           backlog in delete mode whatever MEDIA_ORPHAN_SWEEP says; --profile-retire has no default and the
                           shell's PROFILE_MEDIA_RETIRE is not read; --dry-run computes one page and writes nothing)
-` + recountSharesUsage + recountListFollowsUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
+` + recountSharesUsage + recountListFollowsUsage + recountChildrenUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -250,10 +254,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans: resume after this post or media id (the checkpoint a capped run printed)")
 	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|all, which unshown profile images the sweep may delete (the legacy banner is read as off)")
-	write := fs.Bool("write", false, "recount-shares: set the stored share_count (without it the command only prints the counts)")
+	write := fs.Bool("write", false, "recount-shares, recount-list-follows, recount-replies, recount-quotes: set the stored counter (without it the command only prints the counts)")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
-	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post, recount-shares: post id")
+	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post, recount-shares, recount-replies, recount-quotes: post id")
 	fs.StringVar(&ma.list, "list", "", "recount-list-follows: list id")
 	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide, beacon hide, community suspend: also resolve this report id")
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
@@ -267,7 +271,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
 		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
-		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep", "recount-shares", "recount-list-follows":
+		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep", "recount-shares", "recount-list-follows", "recount-replies", "recount-quotes":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -348,7 +352,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	// recount-shares writes only with --write; on any other command it would be silently ignored.
-	if *write && cmd != "recount-shares" && cmd != "recount-list-follows" {
+	if *write && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" {
 		fmt.Fprintf(errOut, "--write is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
@@ -442,7 +446,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
 	// report or post id.
-	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community"
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -514,6 +518,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = recountShares(ctx, b, ma.post, *write, out)
 	case "recount-list-follows":
 		err = recountListFollows(ctx, b, ma.list, *write, out)
+	case "recount-replies", "recount-quotes":
+		err = recountChildren(ctx, b, cmd, ma.post, *write, out)
 	case "suspend-user":
 		err = suspendUser(ctx, b, *uid, ma, out, now)
 	case "unsuspend-user":
