@@ -111,6 +111,11 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     if (_uid != event.user.uid) {
       _flagsLoaded = false;
       _profileCreated = false;
+      // A direct account switch (no sign-out between): the previous user's
+      // failed refresh is not this user's, so its banner must not carry over.
+      if (state.refreshFailed || state.refreshing) {
+        emit(state.copyWith(refreshFailed: false, refreshing: false));
+      }
     }
     _uid = event.user.uid;
     await _loadMe(emit);

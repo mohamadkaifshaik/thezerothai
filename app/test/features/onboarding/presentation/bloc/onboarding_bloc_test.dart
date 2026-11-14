@@ -1057,6 +1057,39 @@ void main() {
         expect(bloc.state.refreshing, isFalse);
         expect(bloc.state.refreshFailed, isFalse);
       });
+
+      test("a direct switch to another uid drops the previous user's "
+          'refreshFailed', () async {
+        var calls = 0;
+        late Completer<identity.GetMeResponse> gate;
+        when(() => identityRepository.getMe()).thenAnswer((_) {
+          if (calls++ == 0) return Future.error(const NetworkException('x'));
+          gate = Completer<identity.GetMeResponse>();
+          return gate.future;
+        });
+        final bloc = OnboardingBloc(identityRepository: identityRepository);
+        addTearDown(bloc.close);
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await pumpEventQueue();
+        expect(bloc.state.refreshFailed, isTrue);
+
+        bloc.add(
+          const OnboardingUserAuthenticated(
+            AppUser(
+              uid: 'uid-2',
+              email: 'b@example.com',
+              emailVerified: true,
+              isPasswordProvider: true,
+            ),
+          ),
+        );
+        await pumpEventQueue();
+        // The second user's GetMe is still pending.
+        expect(bloc.state.refreshFailed, isFalse);
+        expect(bloc.state.refreshing, isFalse);
+        gate.complete(ok());
+        await pumpEventQueue();
+      });
     });
 
     blocTest<OnboardingBloc, OnboardingState>(
