@@ -70,6 +70,55 @@ func TestMixedDirectionIDOrderHasExplicitIndex(t *testing.T) {
 	}
 }
 
+// TestNoDuplicateCompositeIndexes fails on two identical composite index entries: `firebase deploy` creates the first and
+// then stops with HTTP 409 "index already exists" on the second, leaving every later index in the file undeployed (seen on
+// prod 2026-11-14 after #920 repeated the lists and communities nameLower indexes). An explicit trailing __name__ that equals
+// the implicit one (the last field's direction) counts as the same index.
+func TestNoDuplicateCompositeIndexes(t *testing.T) {
+	_, indexes := locate(t)
+	b, err := os.ReadFile(indexes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Indexes []struct {
+			CollectionGroup string `json:"collectionGroup"`
+			QueryScope      string `json:"queryScope"`
+			Fields          []struct {
+				FieldPath   string `json:"fieldPath"`
+				Order       string `json:"order"`
+				ArrayConfig string `json:"arrayConfig"`
+			} `json:"fields"`
+		} `json:"indexes"`
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for i, ix := range f.Indexes {
+		parts := make([]string, 0, len(ix.Fields))
+		for _, fl := range ix.Fields {
+			parts = append(parts, fl.FieldPath+" "+fl.Order+fl.ArrayConfig)
+		}
+		// Drop an explicit trailing __name__ that matches the implicit one (the last field's order, ASCENDING after an array).
+		if n := len(ix.Fields); n >= 2 && ix.Fields[n-1].FieldPath == "__name__" {
+			implicit := ix.Fields[n-2].Order
+			if implicit == "" {
+				implicit = "ASCENDING"
+			}
+			if ix.Fields[n-1].Order == implicit {
+				parts = parts[:n-1]
+			}
+		}
+		key := ix.CollectionGroup + "|" + ix.QueryScope + "|" + strings.Join(parts, ",")
+		if j, dup := seen[key]; dup {
+			t.Errorf("indexes[%d] repeats indexes[%d] (%s): firebase deploy stops with HTTP 409 on the second copy", i, j, key)
+			continue
+		}
+		seen[key] = i
+	}
+}
+
 // TestCheckCatchesThe901Index proves the check fails on the index #901 shipped and passes once __name__ is explicit.
 func TestCheckCatchesThe901Index(t *testing.T) {
 	discover := []idOrder{{pos: "internal/lists/repo_follows.go:234", field: "followerCount", fieldDir: "DESCENDING", idDir: "ASCENDING"}}
