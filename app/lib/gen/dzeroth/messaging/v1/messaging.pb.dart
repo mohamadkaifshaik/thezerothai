@@ -18,6 +18,7 @@ import 'package:protobuf/protobuf.dart' as $pb;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as $1;
 
+import '../../beacons/v1/beacons.pbenum.dart' as $3;
 import '../../common/v1/common.pb.dart' as $0;
 import '../../posts/v1/posts.pb.dart' as $2;
 import 'messaging.pbenum.dart';
@@ -1482,6 +1483,245 @@ class DeleteConversationResponse extends $pb.GeneratedMessage {
   static DeleteConversationResponse? _defaultInstance;
 }
 
+class ListMessageSuggestionsRequest extends $pb.GeneratedMessage {
+  factory ListMessageSuggestionsRequest({
+    $core.int? limit,
+  }) {
+    final result = ListMessageSuggestionsRequest._();
+    if (limit != null) result.limit = limit;
+    return result;
+  }
+
+  ListMessageSuggestionsRequest._();
+
+  factory ListMessageSuggestionsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListMessageSuggestionsRequest()..mergeFromBuffer(data, registry);
+  factory ListMessageSuggestionsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListMessageSuggestionsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListMessageSuggestionsRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.messaging.v1'),
+      createEmptyInstance: ListMessageSuggestionsRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'limit')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListMessageSuggestionsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListMessageSuggestionsRequest copyWith(
+          void Function(ListMessageSuggestionsRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListMessageSuggestionsRequest))
+          as ListMessageSuggestionsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListMessageSuggestionsRequest() / ListMessageSuggestionsRequest.new instead')
+  static ListMessageSuggestionsRequest create() =>
+      ListMessageSuggestionsRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListMessageSuggestionsRequest._();
+  @$core.override
+  ListMessageSuggestionsRequest createEmptyInstance() =>
+      ListMessageSuggestionsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListMessageSuggestionsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListMessageSuggestionsRequest>(
+          ListMessageSuggestionsRequest.$_createMessage);
+  static ListMessageSuggestionsRequest? _defaultInstance;
+
+  /// 0 => 10; max 20 (clamped); negative => VALIDATION "limit".
+  @$pb.TagNumber(1)
+  $core.int get limit => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set limit($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasLimit() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearLimit() => $_clearField(1);
+}
+
+class MessageSuggestion extends $pb.GeneratedMessage {
+  factory MessageSuggestion({
+    $0.AuthorSnapshot? user,
+    MessageSuggestionReason? reason,
+    $3.BeaconActivity? planActivity,
+    $core.String? communityId,
+    $core.String? communityName,
+  }) {
+    final result = MessageSuggestion._();
+    if (user != null) result.user = user;
+    if (reason != null) result.reason = reason;
+    if (planActivity != null) result.planActivity = planActivity;
+    if (communityId != null) result.communityId = communityId;
+    if (communityName != null) result.communityName = communityName;
+    return result;
+  }
+
+  MessageSuggestion._();
+
+  factory MessageSuggestion.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      MessageSuggestion()..mergeFromBuffer(data, registry);
+  factory MessageSuggestion.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      MessageSuggestion()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'MessageSuggestion',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.messaging.v1'),
+      createEmptyInstance: MessageSuggestion.$_createMessage)
+    ..aOM<$0.AuthorSnapshot>(1, _omitFieldNames ? '' : 'user',
+        subBuilder: $0.AuthorSnapshot.$_createMessage)
+    ..aE<MessageSuggestionReason>(2, _omitFieldNames ? '' : 'reason',
+        enumValues: MessageSuggestionReason.values)
+    ..aE<$3.BeaconActivity>(3, _omitFieldNames ? '' : 'planActivity',
+        enumValues: $3.BeaconActivity.values)
+    ..aOS(4, _omitFieldNames ? '' : 'communityId')
+    ..aOS(5, _omitFieldNames ? '' : 'communityName')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageSuggestion clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageSuggestion copyWith(void Function(MessageSuggestion) updates) =>
+      super.copyWith((message) => updates(message as MessageSuggestion))
+          as MessageSuggestion;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use MessageSuggestion() / MessageSuggestion.new instead')
+  static MessageSuggestion create() => MessageSuggestion._();
+  static $pb.GeneratedMessage $_createMessage() => MessageSuggestion._();
+  @$core.override
+  MessageSuggestion createEmptyInstance() => MessageSuggestion._();
+  @$core.pragma('dart2js:noInline')
+  static MessageSuggestion getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<MessageSuggestion>(
+          MessageSuggestion.$_createMessage);
+  static MessageSuggestion? _defaultInstance;
+
+  /// Live row from identity (up to 60 s stale); is_private is set as on other live rows.
+  @$pb.TagNumber(1)
+  $0.AuthorSnapshot get user => $_getN(0);
+  @$pb.TagNumber(1)
+  set user($0.AuthorSnapshot value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUser() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUser() => $_clearField(1);
+  @$pb.TagNumber(1)
+  $0.AuthorSnapshot ensureUser() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  MessageSuggestionReason get reason => $_getN(1);
+  @$pb.TagNumber(2)
+  set reason(MessageSuggestionReason value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasReason() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearReason() => $_clearField(2);
+
+  /// MET_ON_PLAN only: the plan's activity.
+  @$pb.TagNumber(3)
+  $3.BeaconActivity get planActivity => $_getN(2);
+  @$pb.TagNumber(3)
+  set planActivity($3.BeaconActivity value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPlanActivity() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPlanActivity() => $_clearField(3);
+
+  /// COMMUNITY_MEMBER only: the community (19-digit Snowflake) and its current name.
+  @$pb.TagNumber(4)
+  $core.String get communityId => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set communityId($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasCommunityId() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCommunityId() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get communityName => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set communityName($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasCommunityName() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearCommunityName() => $_clearField(5);
+}
+
+class ListMessageSuggestionsResponse extends $pb.GeneratedMessage {
+  factory ListMessageSuggestionsResponse({
+    $core.Iterable<MessageSuggestion>? suggestions,
+  }) {
+    final result = ListMessageSuggestionsResponse._();
+    if (suggestions != null) result.suggestions.addAll(suggestions);
+    return result;
+  }
+
+  ListMessageSuggestionsResponse._();
+
+  factory ListMessageSuggestionsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListMessageSuggestionsResponse()..mergeFromBuffer(data, registry);
+  factory ListMessageSuggestionsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListMessageSuggestionsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListMessageSuggestionsResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.messaging.v1'),
+      createEmptyInstance: ListMessageSuggestionsResponse.$_createMessage)
+    ..pPM<MessageSuggestion>(1, _omitFieldNames ? '' : 'suggestions',
+        subBuilder: MessageSuggestion.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListMessageSuggestionsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListMessageSuggestionsResponse copyWith(
+          void Function(ListMessageSuggestionsResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListMessageSuggestionsResponse))
+          as ListMessageSuggestionsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListMessageSuggestionsResponse() / ListMessageSuggestionsResponse.new instead')
+  static ListMessageSuggestionsResponse create() =>
+      ListMessageSuggestionsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListMessageSuggestionsResponse._();
+  @$core.override
+  ListMessageSuggestionsResponse createEmptyInstance() =>
+      ListMessageSuggestionsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListMessageSuggestionsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListMessageSuggestionsResponse>(
+          ListMessageSuggestionsResponse.$_createMessage);
+  static ListMessageSuggestionsResponse? _defaultInstance;
+
+  /// Source order (see ListMessageSuggestions); at most limit.
+  @$pb.TagNumber(1)
+  $pb.PbList<MessageSuggestion> get suggestions => $_getList(0);
+}
+
 class MessagingServiceApi {
   final $pb.RpcClient _client;
 
@@ -1623,6 +1863,32 @@ class MessagingServiceApi {
           $pb.ClientContext? ctx, DeleteConversationRequest request) =>
       _client.invoke<DeleteConversationResponse>(ctx, 'MessagingService',
           'DeleteConversation', request, DeleteConversationResponse());
+
+  /// People the caller is likely to message (F30), for the new-message screen. Computed on every call; nothing is stored.
+  /// Sources, in this order (a person appears once, with the first reason that found them):
+  /// 1. RECENT_CONVERSATION: the peers of the caller's newest 8 INBOX entries.
+  /// 2. MET_ON_PLAN: the organiser and ACCEPTED participants of the caller's 2 most recent ended plans (FEATURE_BEACONS on
+  ///    for the caller; the caller was the organiser or ACCEPTED; not hidden; ended within the last 30 days, the
+  ///    beacons TTL), at most 4 rows read per plan. plan_activity is that plan's activity.
+  /// 3. MUTUAL_FOLLOW: among the caller's 10 newest followees, those who follow the caller back.
+  /// 4. COMMUNITY_MEMBER: the 6 newest JOINED members of the community the caller joined most recently (FEATURE_COMMUNITIES
+  ///    on for the caller; an ACTIVE community). community_id and community_name name it.
+  /// Every row is someone SendMessage would not refuse with CANNOT_MESSAGE at the time of the call, by the same rules:
+  /// never the caller; not ACTIVE, messaging off for them, either side blocks the other (the caller's 60 s graph snapshot),
+  /// or their "who can message me" policy is FOLLOWING_ONLY (with FEATURE_DM_POLICY on for them) and they do not follow
+  /// the caller (an existing ACCEPTED conversation is exempt, as on send) => left out. Accounts the caller mutes are left
+  /// out too. A caller past the blockedBy cap gets an empty list (fail closed). The reason chip is computed, never stored.
+  /// limit 0 => 10, max 20 (clamped); negative => VALIDATION "limit". No pagination, by design (the ListSuggestedUsers
+  /// precedent): one bounded call, no page token.
+  /// Flags: "messaging" and "dm_suggestions" on for the caller (file comment). Rate limit: RATE_LIMIT_DM_SUGGESTIONS_PER_MIN
+  /// 10/min/uid per instance; no daily cap. Answers under DEGRADED_MODE=readonly.
+  /// Cost: at most 8 + 2 + 2 + 8 + 1 + 6 = 27 documents from the sources (inbox entries, plan memberships, plans,
+  /// participant rows, community memberships, community members; the community doc is cached 60 s), then cache-first
+  /// profile and follow-edge reads for at most 20 candidates (60 s caches). Writes nothing.
+  $async.Future<ListMessageSuggestionsResponse> listMessageSuggestions(
+          $pb.ClientContext? ctx, ListMessageSuggestionsRequest request) =>
+      _client.invoke<ListMessageSuggestionsResponse>(ctx, 'MessagingService',
+          'ListMessageSuggestions', request, ListMessageSuggestionsResponse());
 }
 
 const $core.bool _omitFieldNames =

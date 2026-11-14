@@ -29,6 +29,9 @@
 //   user dropped from an allowlist can still read and clean up (ReportContent of a MESSAGE target likewise).
 // - Globally off: every RPC is FEATURE_DISABLED before any lookup; clients hide the destination, its routes and the
 //   profile Message button. Clients learn the flag from IdentityService.GetMe enabled_features.
+// - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
+//   off) on for the caller, checked in that order, else FEATURE_DISABLED with metadata["feature"] = the off flag, before
+//   any lookup.
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in text | conversation_id | recipient_user_id | page_token |
@@ -70,6 +73,7 @@
 package messagingv1
 
 import (
+	v12 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1"
 	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	v11 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -289,6 +293,67 @@ func (x MessageState) Number() protoreflect.EnumNumber {
 // Deprecated: Use MessageState.Descriptor instead.
 func (MessageState) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{3}
+}
+
+// Why a person is suggested; the client renders the chip from it. Additive: a new source is a new value, and a client
+// that does not know a value shows no chip.
+type MessageSuggestionReason int32
+
+const (
+	MessageSuggestionReason_MESSAGE_SUGGESTION_REASON_UNSPECIFIED MessageSuggestionReason = 0
+	// One of the caller's most recent conversations.
+	MessageSuggestionReason_MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION MessageSuggestionReason = 1
+	// Was in a recent plan with the caller ("Met on a coffee plan"); plan_activity is set.
+	MessageSuggestionReason_MESSAGE_SUGGESTION_REASON_MET_ON_PLAN MessageSuggestionReason = 2
+	// The caller and this person follow each other.
+	MessageSuggestionReason_MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW MessageSuggestionReason = 3
+	// A member of a community the caller joined; community_id and community_name are set.
+	MessageSuggestionReason_MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER MessageSuggestionReason = 4
+)
+
+// Enum value maps for MessageSuggestionReason.
+var (
+	MessageSuggestionReason_name = map[int32]string{
+		0: "MESSAGE_SUGGESTION_REASON_UNSPECIFIED",
+		1: "MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION",
+		2: "MESSAGE_SUGGESTION_REASON_MET_ON_PLAN",
+		3: "MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW",
+		4: "MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER",
+	}
+	MessageSuggestionReason_value = map[string]int32{
+		"MESSAGE_SUGGESTION_REASON_UNSPECIFIED":         0,
+		"MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION": 1,
+		"MESSAGE_SUGGESTION_REASON_MET_ON_PLAN":         2,
+		"MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW":       3,
+		"MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER":    4,
+	}
+)
+
+func (x MessageSuggestionReason) Enum() *MessageSuggestionReason {
+	p := new(MessageSuggestionReason)
+	*p = x
+	return p
+}
+
+func (x MessageSuggestionReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MessageSuggestionReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_messaging_v1_messaging_proto_enumTypes[4].Descriptor()
+}
+
+func (MessageSuggestionReason) Type() protoreflect.EnumType {
+	return &file_dzeroth_messaging_v1_messaging_proto_enumTypes[4]
+}
+
+func (x MessageSuggestionReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MessageSuggestionReason.Descriptor instead.
+func (MessageSuggestionReason) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{4}
 }
 
 type Conversation struct {
@@ -1345,11 +1410,180 @@ func (*DeleteConversationResponse) Descriptor() ([]byte, []int) {
 	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{14}
 }
 
+type ListMessageSuggestionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 => 10; max 20 (clamped); negative => VALIDATION "limit".
+	Limit         int32 `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMessageSuggestionsRequest) Reset() {
+	*x = ListMessageSuggestionsRequest{}
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMessageSuggestionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMessageSuggestionsRequest) ProtoMessage() {}
+
+func (x *ListMessageSuggestionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMessageSuggestionsRequest.ProtoReflect.Descriptor instead.
+func (*ListMessageSuggestionsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ListMessageSuggestionsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type MessageSuggestion struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Live row from identity (up to 60 s stale); is_private is set as on other live rows.
+	User   *v1.AuthorSnapshot      `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	Reason MessageSuggestionReason `protobuf:"varint,2,opt,name=reason,proto3,enum=dzeroth.messaging.v1.MessageSuggestionReason" json:"reason,omitempty"`
+	// MET_ON_PLAN only: the plan's activity.
+	PlanActivity v12.BeaconActivity `protobuf:"varint,3,opt,name=plan_activity,json=planActivity,proto3,enum=dzeroth.beacons.v1.BeaconActivity" json:"plan_activity,omitempty"`
+	// COMMUNITY_MEMBER only: the community (19-digit Snowflake) and its current name.
+	CommunityId   string `protobuf:"bytes,4,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
+	CommunityName string `protobuf:"bytes,5,opt,name=community_name,json=communityName,proto3" json:"community_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MessageSuggestion) Reset() {
+	*x = MessageSuggestion{}
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MessageSuggestion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MessageSuggestion) ProtoMessage() {}
+
+func (x *MessageSuggestion) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MessageSuggestion.ProtoReflect.Descriptor instead.
+func (*MessageSuggestion) Descriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *MessageSuggestion) GetUser() *v1.AuthorSnapshot {
+	if x != nil {
+		return x.User
+	}
+	return nil
+}
+
+func (x *MessageSuggestion) GetReason() MessageSuggestionReason {
+	if x != nil {
+		return x.Reason
+	}
+	return MessageSuggestionReason_MESSAGE_SUGGESTION_REASON_UNSPECIFIED
+}
+
+func (x *MessageSuggestion) GetPlanActivity() v12.BeaconActivity {
+	if x != nil {
+		return x.PlanActivity
+	}
+	return v12.BeaconActivity(0)
+}
+
+func (x *MessageSuggestion) GetCommunityId() string {
+	if x != nil {
+		return x.CommunityId
+	}
+	return ""
+}
+
+func (x *MessageSuggestion) GetCommunityName() string {
+	if x != nil {
+		return x.CommunityName
+	}
+	return ""
+}
+
+type ListMessageSuggestionsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Source order (see ListMessageSuggestions); at most limit.
+	Suggestions   []*MessageSuggestion `protobuf:"bytes,1,rep,name=suggestions,proto3" json:"suggestions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMessageSuggestionsResponse) Reset() {
+	*x = ListMessageSuggestionsResponse{}
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMessageSuggestionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMessageSuggestionsResponse) ProtoMessage() {}
+
+func (x *ListMessageSuggestionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMessageSuggestionsResponse.ProtoReflect.Descriptor instead.
+func (*ListMessageSuggestionsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ListMessageSuggestionsResponse) GetSuggestions() []*MessageSuggestion {
+	if x != nil {
+		return x.Suggestions
+	}
+	return nil
+}
+
 var File_dzeroth_messaging_v1_messaging_proto protoreflect.FileDescriptor
 
 const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\n" +
-	"$dzeroth/messaging/v1/messaging.proto\x12\x14dzeroth.messaging.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x04\n" +
+	"$dzeroth/messaging/v1/messaging.proto\x12\x14dzeroth.messaging.v1\x1a dzeroth/beacons/v1/beacons.proto\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x04\n" +
 	"\fConversation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\x04kind\x18\x02 \x01(\x0e2&.dzeroth.messaging.v1.ConversationKindR\x04kind\x125\n" +
@@ -1431,7 +1665,17 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\x19DeleteConversationRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\"\x1c\n" +
-	"\x1aDeleteConversationResponse*S\n" +
+	"\x1aDeleteConversationResponse\"5\n" +
+	"\x1dListMessageSuggestionsRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\x05R\x05limit\"\xa4\x02\n" +
+	"\x11MessageSuggestion\x125\n" +
+	"\x04user\x18\x01 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x04user\x12E\n" +
+	"\x06reason\x18\x02 \x01(\x0e2-.dzeroth.messaging.v1.MessageSuggestionReasonR\x06reason\x12G\n" +
+	"\rplan_activity\x18\x03 \x01(\x0e2\".dzeroth.beacons.v1.BeaconActivityR\fplanActivity\x12!\n" +
+	"\fcommunity_id\x18\x04 \x01(\tR\vcommunityId\x12%\n" +
+	"\x0ecommunity_name\x18\x05 \x01(\tR\rcommunityName\"k\n" +
+	"\x1eListMessageSuggestionsResponse\x12I\n" +
+	"\vsuggestions\x18\x01 \x03(\v2'.dzeroth.messaging.v1.MessageSuggestionR\vsuggestions*S\n" +
 	"\x10ConversationKind\x12!\n" +
 	"\x1dCONVERSATION_KIND_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18CONVERSATION_KIND_DIRECT\x10\x01*x\n" +
@@ -1447,14 +1691,21 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\x19MESSAGE_STATE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15MESSAGE_STATE_VISIBLE\x10\x01\x12!\n" +
 	"\x1dMESSAGE_STATE_DELETED_ACCOUNT\x10\x02\x12\x19\n" +
-	"\x15MESSAGE_STATE_REMOVED\x10\x032\xd4\x05\n" +
+	"\x15MESSAGE_STATE_REMOVED\x10\x03*\xff\x01\n" +
+	"\x17MessageSuggestionReason\x12)\n" +
+	"%MESSAGE_SUGGESTION_REASON_UNSPECIFIED\x10\x00\x121\n" +
+	"-MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION\x10\x01\x12)\n" +
+	"%MESSAGE_SUGGESTION_REASON_MET_ON_PLAN\x10\x02\x12+\n" +
+	"'MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW\x10\x03\x12.\n" +
+	"*MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER\x10\x042\xdf\x06\n" +
 	"\x10MessagingService\x12b\n" +
 	"\vSendMessage\x12(.dzeroth.messaging.v1.SendMessageRequest\x1a).dzeroth.messaging.v1.SendMessageResponse\x12y\n" +
 	"\x11ListConversations\x12..dzeroth.messaging.v1.ListConversationsRequest\x1a/.dzeroth.messaging.v1.ListConversationsResponse\"\x03\x90\x02\x01\x12j\n" +
 	"\fListMessages\x12).dzeroth.messaging.v1.ListMessagesRequest\x1a*.dzeroth.messaging.v1.ListMessagesResponse\"\x03\x90\x02\x01\x12}\n" +
 	"\x14MarkConversationRead\x121.dzeroth.messaging.v1.MarkConversationReadRequest\x1a2.dzeroth.messaging.v1.MarkConversationReadResponse\x12}\n" +
 	"\x14AcceptMessageRequest\x121.dzeroth.messaging.v1.AcceptMessageRequestRequest\x1a2.dzeroth.messaging.v1.AcceptMessageRequestResponse\x12w\n" +
-	"\x12DeleteConversation\x12/.dzeroth.messaging.v1.DeleteConversationRequest\x1a0.dzeroth.messaging.v1.DeleteConversationResponseBIZGgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1;messagingv1b\x06proto3"
+	"\x12DeleteConversation\x12/.dzeroth.messaging.v1.DeleteConversationRequest\x1a0.dzeroth.messaging.v1.DeleteConversationResponse\x12\x88\x01\n" +
+	"\x16ListMessageSuggestions\x123.dzeroth.messaging.v1.ListMessageSuggestionsRequest\x1a4.dzeroth.messaging.v1.ListMessageSuggestionsResponse\"\x03\x90\x02\x01BIZGgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1;messagingv1b\x06proto3"
 
 var (
 	file_dzeroth_messaging_v1_messaging_proto_rawDescOnce sync.Once
@@ -1468,68 +1719,79 @@ func file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP() []byte {
 	return file_dzeroth_messaging_v1_messaging_proto_rawDescData
 }
 
-var file_dzeroth_messaging_v1_messaging_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_dzeroth_messaging_v1_messaging_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_dzeroth_messaging_v1_messaging_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_dzeroth_messaging_v1_messaging_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_dzeroth_messaging_v1_messaging_proto_goTypes = []any{
-	(ConversationKind)(0),                // 0: dzeroth.messaging.v1.ConversationKind
-	(ConversationState)(0),               // 1: dzeroth.messaging.v1.ConversationState
-	(Folder)(0),                          // 2: dzeroth.messaging.v1.Folder
-	(MessageState)(0),                    // 3: dzeroth.messaging.v1.MessageState
-	(*Conversation)(nil),                 // 4: dzeroth.messaging.v1.Conversation
-	(*MessagePreview)(nil),               // 5: dzeroth.messaging.v1.MessagePreview
-	(*Message)(nil),                      // 6: dzeroth.messaging.v1.Message
-	(*SendMessageRequest)(nil),           // 7: dzeroth.messaging.v1.SendMessageRequest
-	(*SendMessageResponse)(nil),          // 8: dzeroth.messaging.v1.SendMessageResponse
-	(*ListConversationsRequest)(nil),     // 9: dzeroth.messaging.v1.ListConversationsRequest
-	(*ListConversationsResponse)(nil),    // 10: dzeroth.messaging.v1.ListConversationsResponse
-	(*ListMessagesRequest)(nil),          // 11: dzeroth.messaging.v1.ListMessagesRequest
-	(*ListMessagesResponse)(nil),         // 12: dzeroth.messaging.v1.ListMessagesResponse
-	(*MarkConversationReadRequest)(nil),  // 13: dzeroth.messaging.v1.MarkConversationReadRequest
-	(*MarkConversationReadResponse)(nil), // 14: dzeroth.messaging.v1.MarkConversationReadResponse
-	(*AcceptMessageRequestRequest)(nil),  // 15: dzeroth.messaging.v1.AcceptMessageRequestRequest
-	(*AcceptMessageRequestResponse)(nil), // 16: dzeroth.messaging.v1.AcceptMessageRequestResponse
-	(*DeleteConversationRequest)(nil),    // 17: dzeroth.messaging.v1.DeleteConversationRequest
-	(*DeleteConversationResponse)(nil),   // 18: dzeroth.messaging.v1.DeleteConversationResponse
-	(*v1.AuthorSnapshot)(nil),            // 19: dzeroth.common.v1.AuthorSnapshot
-	(*timestamppb.Timestamp)(nil),        // 20: google.protobuf.Timestamp
-	(*v11.EmbeddedPost)(nil),             // 21: dzeroth.posts.v1.EmbeddedPost
+	(ConversationKind)(0),                  // 0: dzeroth.messaging.v1.ConversationKind
+	(ConversationState)(0),                 // 1: dzeroth.messaging.v1.ConversationState
+	(Folder)(0),                            // 2: dzeroth.messaging.v1.Folder
+	(MessageState)(0),                      // 3: dzeroth.messaging.v1.MessageState
+	(MessageSuggestionReason)(0),           // 4: dzeroth.messaging.v1.MessageSuggestionReason
+	(*Conversation)(nil),                   // 5: dzeroth.messaging.v1.Conversation
+	(*MessagePreview)(nil),                 // 6: dzeroth.messaging.v1.MessagePreview
+	(*Message)(nil),                        // 7: dzeroth.messaging.v1.Message
+	(*SendMessageRequest)(nil),             // 8: dzeroth.messaging.v1.SendMessageRequest
+	(*SendMessageResponse)(nil),            // 9: dzeroth.messaging.v1.SendMessageResponse
+	(*ListConversationsRequest)(nil),       // 10: dzeroth.messaging.v1.ListConversationsRequest
+	(*ListConversationsResponse)(nil),      // 11: dzeroth.messaging.v1.ListConversationsResponse
+	(*ListMessagesRequest)(nil),            // 12: dzeroth.messaging.v1.ListMessagesRequest
+	(*ListMessagesResponse)(nil),           // 13: dzeroth.messaging.v1.ListMessagesResponse
+	(*MarkConversationReadRequest)(nil),    // 14: dzeroth.messaging.v1.MarkConversationReadRequest
+	(*MarkConversationReadResponse)(nil),   // 15: dzeroth.messaging.v1.MarkConversationReadResponse
+	(*AcceptMessageRequestRequest)(nil),    // 16: dzeroth.messaging.v1.AcceptMessageRequestRequest
+	(*AcceptMessageRequestResponse)(nil),   // 17: dzeroth.messaging.v1.AcceptMessageRequestResponse
+	(*DeleteConversationRequest)(nil),      // 18: dzeroth.messaging.v1.DeleteConversationRequest
+	(*DeleteConversationResponse)(nil),     // 19: dzeroth.messaging.v1.DeleteConversationResponse
+	(*ListMessageSuggestionsRequest)(nil),  // 20: dzeroth.messaging.v1.ListMessageSuggestionsRequest
+	(*MessageSuggestion)(nil),              // 21: dzeroth.messaging.v1.MessageSuggestion
+	(*ListMessageSuggestionsResponse)(nil), // 22: dzeroth.messaging.v1.ListMessageSuggestionsResponse
+	(*v1.AuthorSnapshot)(nil),              // 23: dzeroth.common.v1.AuthorSnapshot
+	(*timestamppb.Timestamp)(nil),          // 24: google.protobuf.Timestamp
+	(*v11.EmbeddedPost)(nil),               // 25: dzeroth.posts.v1.EmbeddedPost
+	(v12.BeaconActivity)(0),                // 26: dzeroth.beacons.v1.BeaconActivity
 }
 var file_dzeroth_messaging_v1_messaging_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.messaging.v1.Conversation.kind:type_name -> dzeroth.messaging.v1.ConversationKind
-	19, // 1: dzeroth.messaging.v1.Conversation.peer:type_name -> dzeroth.common.v1.AuthorSnapshot
+	23, // 1: dzeroth.messaging.v1.Conversation.peer:type_name -> dzeroth.common.v1.AuthorSnapshot
 	1,  // 2: dzeroth.messaging.v1.Conversation.state:type_name -> dzeroth.messaging.v1.ConversationState
 	2,  // 3: dzeroth.messaging.v1.Conversation.folder:type_name -> dzeroth.messaging.v1.Folder
-	5,  // 4: dzeroth.messaging.v1.Conversation.last_message:type_name -> dzeroth.messaging.v1.MessagePreview
-	20, // 5: dzeroth.messaging.v1.Conversation.updated_at:type_name -> google.protobuf.Timestamp
-	20, // 6: dzeroth.messaging.v1.Conversation.peer_read_at:type_name -> google.protobuf.Timestamp
+	6,  // 4: dzeroth.messaging.v1.Conversation.last_message:type_name -> dzeroth.messaging.v1.MessagePreview
+	24, // 5: dzeroth.messaging.v1.Conversation.updated_at:type_name -> google.protobuf.Timestamp
+	24, // 6: dzeroth.messaging.v1.Conversation.peer_read_at:type_name -> google.protobuf.Timestamp
 	3,  // 7: dzeroth.messaging.v1.MessagePreview.state:type_name -> dzeroth.messaging.v1.MessageState
-	20, // 8: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
+	24, // 8: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
 	3,  // 9: dzeroth.messaging.v1.Message.state:type_name -> dzeroth.messaging.v1.MessageState
-	20, // 10: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	21, // 11: dzeroth.messaging.v1.Message.shared_post:type_name -> dzeroth.posts.v1.EmbeddedPost
-	6,  // 12: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
-	4,  // 13: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
+	24, // 10: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
+	25, // 11: dzeroth.messaging.v1.Message.shared_post:type_name -> dzeroth.posts.v1.EmbeddedPost
+	7,  // 12: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
+	5,  // 13: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
 	2,  // 14: dzeroth.messaging.v1.ListConversationsRequest.folder:type_name -> dzeroth.messaging.v1.Folder
-	4,  // 15: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
-	6,  // 16: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
-	4,  // 17: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
-	7,  // 18: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
-	9,  // 19: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
-	11, // 20: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
-	13, // 21: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
-	15, // 22: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
-	17, // 23: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
-	8,  // 24: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
-	10, // 25: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
-	12, // 26: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
-	14, // 27: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
-	16, // 28: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
-	18, // 29: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
-	24, // [24:30] is the sub-list for method output_type
-	18, // [18:24] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	5,  // 15: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
+	7,  // 16: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
+	5,  // 17: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
+	23, // 18: dzeroth.messaging.v1.MessageSuggestion.user:type_name -> dzeroth.common.v1.AuthorSnapshot
+	4,  // 19: dzeroth.messaging.v1.MessageSuggestion.reason:type_name -> dzeroth.messaging.v1.MessageSuggestionReason
+	26, // 20: dzeroth.messaging.v1.MessageSuggestion.plan_activity:type_name -> dzeroth.beacons.v1.BeaconActivity
+	21, // 21: dzeroth.messaging.v1.ListMessageSuggestionsResponse.suggestions:type_name -> dzeroth.messaging.v1.MessageSuggestion
+	8,  // 22: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
+	10, // 23: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
+	12, // 24: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
+	14, // 25: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
+	16, // 26: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
+	18, // 27: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
+	20, // 28: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:input_type -> dzeroth.messaging.v1.ListMessageSuggestionsRequest
+	9,  // 29: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
+	11, // 30: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
+	13, // 31: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
+	15, // 32: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
+	17, // 33: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
+	19, // 34: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
+	22, // 35: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:output_type -> dzeroth.messaging.v1.ListMessageSuggestionsResponse
+	29, // [29:36] is the sub-list for method output_type
+	22, // [22:29] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_messaging_v1_messaging_proto_init() }
@@ -1546,8 +1808,8 @@ func file_dzeroth_messaging_v1_messaging_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_messaging_v1_messaging_proto_rawDesc), len(file_dzeroth_messaging_v1_messaging_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   15,
+			NumEnums:      5,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
