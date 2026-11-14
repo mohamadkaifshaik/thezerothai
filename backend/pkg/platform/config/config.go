@@ -247,6 +247,12 @@ type Config struct {
 	// needs before anyone but its author sees Post.view_count (owner decision 2026-11-14, the hybrid rule). A protected
 	// author's count is never shown to anyone else, whatever the count.
 	PostViewsPublicThreshold int64
+	// HotCounterThreshold is HOT_COUNTER_THRESHOLD (default 0 = off, at least 0): the likeCount, repostCount or shareCount
+	// at which a post's writes of that counter go to its sharded counter (posts/{id}/viewShards, folded into the plain
+	// field by the rollup on every tick) instead of a plain Increment on the post doc (hot counters design 2026-11-14).
+	// Not a feature flag: no RPC changes, every count stays exact; a hot post's count lags by at most one rollup window
+	// plus one tick. Raise it only when engagement_txn_contention shows hot posts.
+	HotCounterThreshold int64
 	// FeatureBeaconQuickJoin is the flag (wire name `beacon_quick_join`) gating the follow-gated empty note of
 	// BeaconService.RequestToJoin: with it on for the caller, an empty note is accepted only when the organiser follows the
 	// caller (else FAILED_PRECONDITION "note_required"), and ViewerState.quick_join_allowed is computed by GetBeacon and the
@@ -1041,6 +1047,13 @@ func Load() (Config, error) {
 	if postViewsPublicThreshold < 1 {
 		return Config{}, fmt.Errorf("config: POST_VIEWS_PUBLIC_THRESHOLD must be >= 1 (got %d)", postViewsPublicThreshold)
 	}
+	hotCounterThreshold, err := getInt("HOT_COUNTER_THRESHOLD", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	if hotCounterThreshold < 0 {
+		return Config{}, fmt.Errorf("config: HOT_COUNTER_THRESHOLD must be >= 0 (got %d)", hotCounterThreshold)
+	}
 	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1233,6 +1246,7 @@ func Load() (Config, error) {
 		FeatureDMSuggestions:         featureDMSuggestions,
 		FeaturePostViews:             featurePostViews,
 		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),
+		HotCounterThreshold:          int64(hotCounterThreshold),
 		FeatureBeaconQuickJoin:       featureBeaconQuickJoin,
 		FeatureReadReceipts:          featureReadReceipts,
 		FeatureProfileExtras:         featureProfileExtras,

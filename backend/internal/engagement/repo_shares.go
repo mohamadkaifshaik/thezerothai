@@ -12,12 +12,14 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -43,14 +45,18 @@ func (r *FirestoreRepo) HasShare(ctx context.Context, uid, postID string) (bool,
 }
 
 // CreateShare implements ShareRepo: one blind batch (the marker's Create precondition and the counter Update's implicit
-// Exists), retried on contention. AlreadyExists is ShareExists, a missing post SharePostGone; both wrote nothing.
-func (r *FirestoreRepo) CreateShare(ctx context.Context, uid, postID string) (ShareOutcome, error) {
+// Exists), retried on contention. AlreadyExists is ShareExists, a missing post SharePostGone; both wrote nothing. A hot
+// post (known) takes createHotShare instead.
+func (r *FirestoreRepo) CreateShare(ctx context.Context, uid, postID string, known int64) (ShareOutcome, error) {
 	if r.w.Writer == nil {
 		return 0, fmt.Errorf("engagement: repo has no posts writer configured")
 	}
+	if r.w.Writer.Hot(known) {
+		return r.createHotShare(ctx, uid, postID, known)
+	}
 	res, err := store.CommitWithRetry(ctx, r.newBatch, r.retryConfig(), func(b store.Batch) {
 		b.Create(r.shareRef(postID, uid), likeDoc{PostID: postID, UID: uid, CreatedAt: r.now().UTC()})
-		r.w.Writer.StageShareCount(b, postID, 1)
+		r.w.Writer.StageShareCount(b, postID, 1, known)
 	})
 	store.NoteTxnAttempts(ctx, "engagement_txn_contention", res.Attempts)
 	switch {
@@ -61,6 +67,41 @@ func (r *FirestoreRepo) CreateShare(ctx context.Context, uid, postID string) (Sh
 	case !res.Committed:
 		return SharePostGone, nil
 	}
+	return ShareCreated, nil
+}
+
+// createHotShare is CreateShare on a hot post: the shareCount +1 goes to the post's shards, which carry no precondition,
+// so it runs as a transaction that reads the post first (GuardHot: no lock under the database's optimistic concurrency,
+// and concurrent sharers never write the post, so they do not conflict on it) and keeps the batch's answers: a missing
+// post is SharePostGone, an existing marker ShareExists, nothing written in either case.
+func (r *FirestoreRepo) createHotShare(ctx context.Context, uid, postID string, known int64) (ShareOutcome, error) {
+	var committed func()
+	attempts, err := r.runTx(ctx, func(_ context.Context, tx *firestore.Transaction) error {
+		committed = nil
+		if err := r.w.Writer.GuardHot(tx, postID, known); err != nil {
+			return err
+		}
+		b := store.NewFirestoreTxBatch(tx)
+		b.Create(r.shareRef(postID, uid), likeDoc{PostID: postID, UID: uid, CreatedAt: r.now().UTC()})
+		done := r.w.Writer.StageShareCount(b, postID, 1, known)
+		if err := b.Err(); err != nil {
+			return err
+		}
+		committed = done
+		return nil
+	})
+	store.NoteTxnAttempts(ctx, "engagement_txn_contention", attempts)
+	switch {
+	case errors.Is(err, posts.ErrNotFound):
+		return SharePostGone, nil
+	case status.Code(err) == codes.AlreadyExists:
+		return ShareExists, nil
+	case store.IsContention(err):
+		return 0, fmt.Errorf("engagement: create share marker: %w", errors.Join(store.ErrContended, err))
+	case err != nil:
+		return 0, fmt.Errorf("engagement: create share marker: %w", err)
+	}
+	committed()
 	return ShareCreated, nil
 }
 

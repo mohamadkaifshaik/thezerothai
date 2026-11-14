@@ -44,6 +44,7 @@ type fakeRepo struct {
 	trimRepost    [][]string
 	undoIDs       []string
 	unlikeIDs     []string
+	unlikeKnown   []int64
 }
 
 func (f *fakeRepo) LoadUserLikes(context.Context, string) (UserLikes, error) {
@@ -60,9 +61,10 @@ func (f *fakeRepo) Like(_ context.Context, p LikeParams) (bool, error) {
 	return f.replayed, f.likeErr
 }
 
-func (f *fakeRepo) Unlike(_ context.Context, _, postID string) (bool, error) {
+func (f *fakeRepo) Unlike(_ context.Context, _, postID string, known int64) (bool, error) {
 	f.mu.Lock()
 	f.unlikeIDs = append(f.unlikeIDs, postID)
+	f.unlikeKnown = append(f.unlikeKnown, known)
 	f.mu.Unlock()
 	return f.unlikeResult, nil
 }
@@ -294,8 +296,8 @@ func TestLike(t *testing.T) {
 		if e.events.likes != 1 || len(e.posts.counts) != 1 || e.posts.counts[0] != pidA+":1:0" {
 			t.Fatalf("events=%d counts=%v", e.events.likes, e.posts.counts)
 		}
-		if got := e.repo.likeParams[0]; got.PostID != pidA || got.UID != "viewer" {
-			t.Fatalf("params = %+v", got)
+		if got := e.repo.likeParams[0]; got.PostID != pidA || got.UID != "viewer" || got.Known != 4 {
+			t.Fatalf("params = %+v, want Known = the likeCount as read (4): it routes hot posts to their shards", got)
 		}
 	})
 	t.Run("replay writes nothing and notifies nobody", func(t *testing.T) {
@@ -358,10 +360,11 @@ func TestUnlike(t *testing.T) {
 		post      string
 		wantLikes int64
 		wantCount string
+		wantKnown int64 // the likeCount passed to the repo (0 = cold when the post was not found)
 	}{
-		{"removed", true, pidA, 3, pidA + ":-1:0"},
-		{"noop", false, pidA, 4, ""},
-		{"post gone: counts are zero, delete still runs", true, "0000000000000000099", 0, ""},
+		{"removed", true, pidA, 3, pidA + ":-1:0", 4},
+		{"noop", false, pidA, 4, "", 4},
+		{"post gone: counts are zero, delete still runs", true, "0000000000000000099", 0, "", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -379,6 +382,9 @@ func TestUnlike(t *testing.T) {
 			}
 			if tt.wantCount != "" && (len(e.posts.counts) != 1 || e.posts.counts[0] != tt.wantCount) {
 				t.Fatalf("counts = %v, want %s", e.posts.counts, tt.wantCount)
+			}
+			if len(e.repo.unlikeKnown) != 1 || e.repo.unlikeKnown[0] != tt.wantKnown {
+				t.Fatalf("unlike known = %v, want %d", e.repo.unlikeKnown, tt.wantKnown)
 			}
 		})
 	}
@@ -406,7 +412,8 @@ func TestRepostAndUndo(t *testing.T) {
 		if len(e.posts.created) != 1 || e.events.reposts != 1 || e.posts.counts[0] != pidA+":0:1" {
 			t.Fatalf("created=%d events=%d counts=%v", len(e.posts.created), e.events.reposts, e.posts.counts)
 		}
-		if got := e.repo.repostParams[0]; got.Original.ID != pidA || got.Author.Handle != "h_viewer" {
+		// Original.RepostCount is the count the service read: it routes the repo's counter write (hot posts: shards).
+		if got := e.repo.repostParams[0]; got.Original.ID != pidA || got.Author.Handle != "h_viewer" || got.Original.RepostCount != 2 {
 			t.Fatalf("params = %+v", got)
 		}
 	})

@@ -25,7 +25,7 @@ func TestRepo_CreateShareOncePerAccount(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			outcomes[i], errs[i] = e.repo.CreateShare(ctx, uid, pid)
+			outcomes[i], errs[i] = e.repo.CreateShare(ctx, uid, pid, 0)
 		}()
 	}
 	wg.Wait()
@@ -47,10 +47,10 @@ func TestRepo_CreateShareOncePerAccount(t *testing.T) {
 	if has, err := e.repo.HasShare(ctx, uid, pid); err != nil || !has {
 		t.Fatalf("HasShare = %v, %v; want true", has, err)
 	}
-	if o, err := e.repo.CreateShare(ctx, uid, pid); err != nil || o != ShareExists {
+	if o, err := e.repo.CreateShare(ctx, uid, pid, 0); err != nil || o != ShareExists {
 		t.Fatalf("repeat = %v, %v; want ShareExists", o, err)
 	}
-	if o, err := e.repo.CreateShare(ctx, uid, gone); err != nil || o != SharePostGone {
+	if o, err := e.repo.CreateShare(ctx, uid, gone, 0); err != nil || o != SharePostGone {
 		t.Fatalf("gone post = %v, %v; want SharePostGone", o, err)
 	}
 	if e.exists(t, "postShares/"+gone+"_"+uid) {
@@ -75,11 +75,11 @@ func TestRepo_SharesLifecycle(t *testing.T) {
 	e.seedPost(t, live, "author", 0, 0)
 	e.seedPost(t, dead, "author", 0, 0)
 	for _, p := range []string{live, dead} {
-		if o, err := e.repo.CreateShare(ctx, uid, p); err != nil || o != ShareCreated {
+		if o, err := e.repo.CreateShare(ctx, uid, p, 0); err != nil || o != ShareCreated {
 			t.Fatalf("share %s: %v %v", p, o, err)
 		}
 	}
-	if o, err := e.repo.CreateShare(ctx, other, live); err != nil || o != ShareCreated {
+	if o, err := e.repo.CreateShare(ctx, other, live, 0); err != nil || o != ShareCreated {
 		t.Fatalf("other share: %v %v", o, err)
 	}
 	if n, err := e.repo.CountShares(ctx, live); err != nil || n != 2 {

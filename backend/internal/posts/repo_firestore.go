@@ -84,6 +84,10 @@ type FirestoreRepo struct {
 	viewMemo viewMemo
 	// counterMemo is viewMemo for the engagement counter markers (repo_views.go, counterMarkers).
 	counterMemo viewMemo
+	// hotThreshold is HOT_COUNTER_THRESHOLD (SetHotCounterThreshold); 0 keeps every counter write cold.
+	hotThreshold int64
+	// now is the clock of the hot counter path's marker window (nil = time.Now); tests set it.
+	now func() time.Time
 }
 
 // NewFirestoreRepo builds the repo on the process-wide Firestore client.
