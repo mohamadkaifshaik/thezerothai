@@ -11,11 +11,16 @@ import 'package:flutter_test/flutter_test.dart';
 const _still = 'https://cdn.example/m/g1-abc_t.jpg';
 const _full = 'https://cdn.example/m/g1-abc.gif';
 
-common.MediaRef _gif({String alt = '', String url = _full}) => common.MediaRef(
+common.MediaRef _gif({
+  String alt = '',
+  String url = _full,
+  int width = 320,
+  int height = 240,
+}) => common.MediaRef(
   url: url,
   thumbUrl: _still,
-  width: 320,
-  height: 240,
+  width: width,
+  height: height,
   contentType: 'image/gif',
   altText: alt,
 );
@@ -178,7 +183,7 @@ void main() {
 
   for (final width in [360.0, 600.0, 1200.0]) {
     for (final brightness in Brightness.values) {
-      for (final scale in [1.0, 2.0]) {
+      for (final scale in [1.0, 2.0, 3.0]) {
         testWidgets(
           '${width.toInt()} ${brightness.name} x$scale: no overflow, 48dp play',
           (tester) async {
@@ -195,6 +200,41 @@ void main() {
             final tile = tester.getSize(find.byType(AspectRatio));
             expect(tile.width, greaterThanOrEqualTo(48));
             expect(tile.height, greaterThanOrEqualTo(48));
+            final play = tester.getSize(
+              find
+                  .ancestor(
+                    of: find.byIcon(Icons.play_arrow_rounded),
+                    matching: find.byType(SizedBox),
+                  )
+                  .first,
+            );
+            expect(play.shortestSide, greaterThanOrEqualTo(48));
+          },
+        );
+      }
+    }
+  }
+
+  // Narrow columns and the extreme 1280 x 1 row, at the largest text scale.
+  for (final width in [200.0, 280.0]) {
+    for (final scale in [1.0, 3.0]) {
+      for (final (w, h) in [(1280, 1), (1, 1280)]) {
+        testWidgets(
+          '${w}x$h GIF in a ${width.toInt()} dp column x$scale: no overflow, '
+          '48dp play',
+          (tester) async {
+            swallowImageErrors(tester);
+            await tester.pumpWidget(
+              _host(
+                PostMedia(
+                  media: [_gif(alt: 'a cat', width: w, height: h)],
+                ),
+                width: width,
+                textScale: scale,
+              ),
+            );
+            expect(tester.takeException(), isNull);
+            expect(find.byType(GifBadge), findsOneWidget);
             final play = tester.getSize(
               find
                   .ancestor(
