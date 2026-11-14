@@ -7,18 +7,20 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
 // fakeShareCounts is both halves of recount-shares: the stored counter and the marker count.
 type fakeShareCounts struct {
-	stored, markers int64
-	missing         bool
-	setErr          error
-	set             []int64
+	stored, pending, markers int64
+	missing                  bool
+	setErr                   error
+	set                      []int64
 }
 
-func (f *fakeShareCounts) StoredShareCount(context.Context, string) (int64, bool, error) {
-	return f.stored, !f.missing, nil
+func (f *fakeShareCounts) StoredShareCount(context.Context, string) (posts.StoredCount, bool, error) {
+	return posts.StoredCount{Plain: f.stored, Pending: f.pending}, !f.missing, nil
 }
 func (f *fakeShareCounts) SetShareCount(_ context.Context, _ string, n int64) error {
 	if f.setErr != nil {
@@ -47,6 +49,13 @@ func TestRecountShares(t *testing.T) {
 			wantSet: []int64{3}, wantOut: "set share_count to 3"},
 		{name: "in step writes nothing", f: &fakeShareCounts{stored: 2, markers: 2}, args: []string{"--post", pid, "--write"},
 			wantOut: "in step"},
+		// A hot post whose deltas are not folded yet: plain 5 + pending 2 is the 7 markers, so it is in step, not wrong.
+		{name: "pending shard deltas count as stored", f: &fakeShareCounts{stored: 5, pending: 2, markers: 7}, args: []string{"--post", pid, "--write"},
+			wantOut: "share_count=7 (plain 5 + pending 2) markers=7\nin step"},
+		{name: "dry run shows the pending part", f: &fakeShareCounts{stored: 5, pending: 2, markers: 6}, args: []string{"--post", pid},
+			wantOut: "share_count=7 (plain 5 + pending 2) markers=6\ndry-run: would set share_count to 6"},
+		{name: "write with pending deltas sets the true total", f: &fakeShareCounts{stored: 5, pending: -1, markers: 6}, args: []string{"--post", pid, "--write"},
+			wantSet: []int64{6}, wantOut: "set share_count to 6"},
 		{name: "missing post", f: &fakeShareCounts{missing: true}, args: []string{"--post", pid}, code: 1, wantErr: "not found"},
 		{name: "write fails", f: &fakeShareCounts{stored: 1, setErr: errors.New("boom")}, args: []string{"--post", pid, "--write"}, code: 1, wantErr: "boom"},
 		{name: "bad post id", f: &fakeShareCounts{}, args: []string{"--post", "12"}, code: 2, wantErr: "19-digit"},

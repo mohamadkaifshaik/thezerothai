@@ -151,14 +151,14 @@ func TestRepo_ShareCountRepair(t *testing.T) {
 	ctx := context.Background()
 	const pid, missing = "0000000000000000071", "0000000000000000072"
 	e.seedPost(t, pid, "author", 0, 0)
-	if n, found, err := e.posts.StoredShareCount(ctx, pid); err != nil || !found || n != 0 {
-		t.Fatalf("stored = %d %v %v, want 0 found", n, found, err)
+	if n, found, err := e.posts.StoredShareCount(ctx, pid); err != nil || !found || n.Total() != 0 {
+		t.Fatalf("stored = %+v %v %v, want 0 found", n, found, err)
 	}
 	if err := e.posts.SetShareCount(ctx, pid, 4); err != nil {
 		t.Fatal(err)
 	}
-	if n, _, err := e.posts.StoredShareCount(ctx, pid); err != nil || n != 4 {
-		t.Fatalf("after set = %d %v, want 4", n, err)
+	if n, _, err := e.posts.StoredShareCount(ctx, pid); err != nil || n.Total() != 4 || n.Pending != 0 {
+		t.Fatalf("after set = %+v %v, want 4", n, err)
 	}
 	if _, found, err := e.posts.StoredShareCount(ctx, missing); err != nil || found {
 		t.Fatalf("missing post: found=%v err=%v", found, err)

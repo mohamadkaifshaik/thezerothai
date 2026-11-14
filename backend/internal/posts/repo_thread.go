@@ -30,8 +30,12 @@ func bumpCount(b store.Batch, ref *firestore.DocumentRef, field string, delta in
 
 // setCount is the one place a recount writes a corrected counter: a plain set of the field to n (never an Increment), for
 // a transaction's or a batch's Update. Callers: RecountChildren and RepairChildCounts (opsctl recount-replies,
-// recount-quotes, recount-children). A sharded-counter migration (pkg/platform/shardcount) must replace this body so a
-// recount resets every shard to the corrected total, not just the field.
+// recount-quotes, recount-children). It only ever writes replyCount and quoteCount, which have no shards today (the hot
+// path, stageCounter, shards likeCount, repostCount and shareCount only; the rollup's counterFolds fold only those), so a
+// plain set is exact. When replies and quotes go hot (hot counters plan, PR 5) the delta fold keeps the plain field as
+// the source of truth, so these callers must then read the field's shards in their transaction and drain them while
+// setting the total (stageSetCounter in repo_counter_repair.go, as SetShareCount does); a plain set would leave the
+// pending deltas to be counted twice by the next fold.
 func setCount(field string, n int64) firestore.Update {
 	return firestore.Update{Path: field, Value: n}
 }
