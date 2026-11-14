@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:stream_transform/stream_transform.dart';
 import 'package:uuid/uuid.dart';
@@ -9,6 +11,26 @@ import '../../../media/domain/media_feature_flag.dart' show kFeatureMedia;
 import '../../domain/handle_rules.dart';
 import 'onboarding_event.dart';
 import 'onboarding_state.dart';
+
+/// `droppable()` of bloc_concurrency (not a dependency): while one event's
+/// handler runs, further events are dropped, not queued.
+EventTransformer<E> _droppable<E>() {
+  return (events, mapper) {
+    var running = false;
+    return events.concurrentAsyncExpand((event) {
+      if (running) return const Stream.empty();
+      running = true;
+      return mapper(event).transform(
+        StreamTransformer<E, E>.fromHandlers(
+          handleDone: (sink) {
+            running = false;
+            sink.close();
+          },
+        ),
+      );
+    });
+  };
+}
 
 EventTransformer<E> _debounceRestartable<E>(Duration duration) {
   return (events, mapper) => events.debounce(duration).switchMap(mapper);
@@ -28,7 +50,13 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       _profileCreated = false;
       emit(const OnboardingState());
     });
-    on<OnboardingRefreshRequested>(_onUserRefreshRequested);
+    // A burst (several FEATURE_DISABLED answers, repeated Retry taps) collapses
+    // into the one GetMe in flight: events arriving meanwhile are dropped. No
+    // cool-down after it settles, so a Retry after a failure always runs.
+    on<OnboardingRefreshRequested>(
+      _onUserRefreshRequested,
+      transformer: _droppable(),
+    );
     on<OnboardingHandleChanged>(
       _onHandleChanged,
       transformer: _debounceRestartable(kHandleCheckDebounce),

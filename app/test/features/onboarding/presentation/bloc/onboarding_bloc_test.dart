@@ -987,6 +987,43 @@ void main() {
       },
     );
 
+    group('refresh in flight', () {
+      identity.GetMeResponse ok() => identity.GetMeResponse(
+        profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
+        enabledFeatures: ['posts'],
+      );
+
+      test('a burst of refresh requests runs one GetMe, a later one runs '
+          'again', () async {
+        var calls = 0;
+        late Completer<identity.GetMeResponse> gate;
+        when(() => identityRepository.getMe()).thenAnswer((_) {
+          if (calls++ == 0) return Future.value(ok());
+          gate = Completer<identity.GetMeResponse>();
+          return gate.future;
+        });
+        final bloc = OnboardingBloc(identityRepository: identityRepository);
+        addTearDown(bloc.close);
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await pumpEventQueue();
+        expect(calls, 1);
+
+        for (var i = 0; i < 5; i++) {
+          bloc.add(const OnboardingRefreshRequested());
+        }
+        await pumpEventQueue();
+        expect(calls, 2, reason: 'the burst collapses into one GetMe');
+
+        gate.complete(ok());
+        await pumpEventQueue();
+        bloc.add(const OnboardingRefreshRequested());
+        await pumpEventQueue();
+        expect(calls, 3, reason: 'a request after it settled runs');
+        gate.complete(ok());
+        await pumpEventQueue();
+      });
+    });
+
     blocTest<OnboardingBloc, OnboardingState>(
       'without a cached profile a failed GetMe is the full-screen error',
       setUp: () {
