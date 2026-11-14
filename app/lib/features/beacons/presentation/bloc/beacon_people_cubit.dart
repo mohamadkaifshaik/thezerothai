@@ -2,8 +2,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
-import '../../../../core/widgets/app_error_view.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import '../../../../shared/format/rate_limited_message.dart';
 import '../../../graph/data/graph_repository.dart';
 import '../../data/beacons_repository.dart';
 import '../beacons_error_messages.dart';

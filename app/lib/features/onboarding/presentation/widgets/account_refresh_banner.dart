@@ -22,8 +22,12 @@ class AccountRefreshBanner extends StatelessWidget {
       (bloc) => bloc?.state.refreshFailed ?? false,
     );
     if (!failed) return const SizedBox.shrink();
+    final retrying = context.select<OnboardingBloc?, bool>(
+      (bloc) => bloc?.state.refreshing ?? false,
+    );
     return AppNoticeBanner(
       message: kAccountRefreshFailedMessage,
+      retrying: retrying,
       onRetry: () => context.read<OnboardingBloc>().add(
         const OnboardingRefreshRequested(),
       ),

@@ -1,6 +1,7 @@
 import 'package:logging/logging.dart';
 
 import '../domain/image_processor.dart';
+import '../domain/raster_gif_preparer.dart';
 import '../domain/raster_image_processor.dart';
 import 'worker_raster_codec_web.dart';
 
@@ -18,5 +19,18 @@ ImageProcessor createPlatformImageProcessor() {
     fallback: const IsolateImageProcessor(),
     onFallback: (reason) =>
         _log.warning('image worker unavailable, using package:image: $reason'),
+  );
+}
+
+/// Web: the GIF's first frame is decoded and its JPEG still and BlurHash
+/// pixels are encoded in the same worker, so the thumbnail no longer runs on
+/// the UI thread; `package:image` remains the fallback.
+GifPreparer createPlatformGifPreparer() {
+  if (!WorkerRasterCodec.available) return const IsolateGifPreparer();
+  return FallbackGifPreparer(
+    primary: const RasterGifPreparer(WorkerRasterCodec()),
+    fallback: const IsolateGifPreparer(),
+    onFallback: (reason) =>
+        _log.warning('gif worker unavailable, using package:image: $reason'),
   );
 }

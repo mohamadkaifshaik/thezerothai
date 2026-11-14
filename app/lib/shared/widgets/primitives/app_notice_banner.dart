@@ -17,12 +17,20 @@ bool noticeCanRetry(AppException error) =>
 /// never retries by itself. Without [onRetry] it is the degraded-mode banner:
 /// no Retry, because only time fixes it.
 class AppNoticeBanner extends StatelessWidget {
-  const AppNoticeBanner({super.key, required this.message, this.onRetry});
+  const AppNoticeBanner({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.retrying = false,
+  });
 
   final String message;
 
   /// Shows the Retry action when set.
   final VoidCallback? onRetry;
+
+  /// A retry is running: the Retry action shows progress and ignores taps.
+  final bool retrying;
 
   @override
   Widget build(BuildContext context) {
@@ -63,6 +71,8 @@ class AppNoticeBanner extends StatelessWidget {
                 label: 'Retry',
                 variant: AppButtonVariant.text,
                 onPressed: onRetry,
+                busy: retrying,
+                busySemanticsLabel: retrying ? 'Retrying' : null,
               ),
           ],
         ),

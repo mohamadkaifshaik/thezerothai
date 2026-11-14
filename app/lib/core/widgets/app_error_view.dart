@@ -1,23 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../../shared/format/coarse_wait.dart';
+import '../../shared/format/rate_limited_message.dart';
 import '../network/app_exception.dart';
 import '../../shared/widgets/primitives/app_pill_button.dart';
 import '../theme/app_theme.dart';
 
-/// User-facing text for a [RateLimitedException]. A daily limit says it resets
-/// later (never "try again in a moment"); a transient one says to wait briefly.
-String rateLimitedMessage(RateLimitedException error) {
-  if (error.isDaily) {
-    final wait = error.retryAfter;
-    if (wait == null || wait.inMinutes < 1) {
-      return "You've reached today's limit for this. It resets later today.";
-    }
-    return "You've reached today's limit for this. It resets in about "
-        '${coarseWait(wait)}.';
-  }
-  return "You're doing that a bit too fast. Give it a moment and try again.";
-}
+// Existing screens import the helper from here.
+export '../../shared/format/rate_limited_message.dart';
 
 /// Friendly, typed rendering of an [AppException] (project rule: "Handle
 /// RESOURCE_EXHAUSTED and degraded mode with clear, friendly UI").
