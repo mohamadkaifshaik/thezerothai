@@ -987,6 +987,111 @@ void main() {
       },
     );
 
+    group('refresh in flight', () {
+      identity.GetMeResponse ok() => identity.GetMeResponse(
+        profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
+        enabledFeatures: ['posts'],
+      );
+
+      test('a burst of refresh requests runs one GetMe, a later one runs '
+          'again', () async {
+        var calls = 0;
+        late Completer<identity.GetMeResponse> gate;
+        when(() => identityRepository.getMe()).thenAnswer((_) {
+          if (calls++ == 0) return Future.value(ok());
+          gate = Completer<identity.GetMeResponse>();
+          return gate.future;
+        });
+        final bloc = OnboardingBloc(identityRepository: identityRepository);
+        addTearDown(bloc.close);
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await pumpEventQueue();
+        expect(calls, 1);
+
+        for (var i = 0; i < 5; i++) {
+          bloc.add(const OnboardingRefreshRequested());
+        }
+        await pumpEventQueue();
+        expect(calls, 2, reason: 'the burst collapses into one GetMe');
+
+        gate.complete(ok());
+        await pumpEventQueue();
+        bloc.add(const OnboardingRefreshRequested());
+        await pumpEventQueue();
+        expect(calls, 3, reason: 'a request after it settled runs');
+        gate.complete(ok());
+        await pumpEventQueue();
+      });
+
+      test('the banner Retry is in flight until GetMe answers, then the '
+          'failure stays flagged', () async {
+        var calls = 0;
+        late Completer<identity.GetMeResponse> gate;
+        when(() => identityRepository.getMe()).thenAnswer((_) {
+          if (calls++ == 0) return Future.error(const NetworkException('x'));
+          gate = Completer<identity.GetMeResponse>();
+          return gate.future;
+        });
+        final bloc = OnboardingBloc(identityRepository: identityRepository);
+        addTearDown(bloc.close);
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await pumpEventQueue();
+        expect(bloc.state.refreshFailed, isTrue);
+        expect(bloc.state.refreshing, isFalse);
+
+        bloc.add(const OnboardingRefreshRequested());
+        await pumpEventQueue();
+        expect(bloc.state.refreshing, isTrue);
+        expect(bloc.state.refreshFailed, isTrue);
+
+        gate.completeError(const NetworkException('still offline'));
+        await pumpEventQueue();
+        expect(bloc.state.refreshing, isFalse);
+        expect(bloc.state.refreshFailed, isTrue);
+
+        bloc.add(const OnboardingRefreshRequested());
+        await pumpEventQueue();
+        expect(bloc.state.refreshing, isTrue);
+        gate.complete(ok());
+        await pumpEventQueue();
+        expect(bloc.state.refreshing, isFalse);
+        expect(bloc.state.refreshFailed, isFalse);
+      });
+
+      test("a direct switch to another uid drops the previous user's "
+          'refreshFailed', () async {
+        var calls = 0;
+        late Completer<identity.GetMeResponse> gate;
+        when(() => identityRepository.getMe()).thenAnswer((_) {
+          if (calls++ == 0) return Future.error(const NetworkException('x'));
+          gate = Completer<identity.GetMeResponse>();
+          return gate.future;
+        });
+        final bloc = OnboardingBloc(identityRepository: identityRepository);
+        addTearDown(bloc.close);
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await pumpEventQueue();
+        expect(bloc.state.refreshFailed, isTrue);
+
+        bloc.add(
+          const OnboardingUserAuthenticated(
+            AppUser(
+              uid: 'uid-2',
+              email: 'b@example.com',
+              emailVerified: true,
+              isPasswordProvider: true,
+            ),
+          ),
+        );
+        await pumpEventQueue();
+        // The second user's GetMe is still pending.
+        expect(bloc.state.refreshFailed, isFalse);
+        expect(bloc.state.refreshing, isFalse);
+        gate.complete(ok());
+        await pumpEventQueue();
+      });
+    });
+
     blocTest<OnboardingBloc, OnboardingState>(
       'without a cached profile a failed GetMe is the full-screen error',
       setUp: () {

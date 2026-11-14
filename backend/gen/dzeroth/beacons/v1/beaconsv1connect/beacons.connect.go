@@ -62,11 +62,15 @@
 //   - FAILED_PRECONDITION, metadata["reason"] = "full" | "ended" | "cancelled" | "already_requested" |
 //     "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon) | "started"
 //     (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started).
+//   - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "audience", metadata["reason"] = "audience_narrowing"
+//     (UpdateBeacon moving a public beacon into a community) | "audience_incompatible" (UpdateBeacon moving a community
+//     beacon into another community); checked against the stored audience, nothing is written. An audience is only ever
+//     widened (F28b).
 //   - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "beacons_open" (BEACONS_MAX_OPEN_PER_USER, 5 OPEN or
 //     FULL beacons per organiser) | "beacon_requests_pending" (BEACONS_MAX_PENDING_REQUESTS, 10 REQUESTED rows per
 //     user) | "beacon_participants" (open_spots above BEACONS_MAX_OPEN_SPOTS, 20) | "beacon_edit_rows" (UpdateBeacon
-//     rescheduling a beacon with more than 200 participant rows, every state; a bound on the one transaction that moves
-//     them); nothing is written.
+//     rescheduling or widening a beacon with more than 200 participant rows, every state; a bound on the one transaction
+//     that rewrites them); nothing is written.
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_BEACONS_WRITE_PER_MIN (10: Create, Update, Cancel),
 //     RATE_LIMIT_BEACONS_ACTION_PER_MIN (20: Request, Withdraw, Respond, Leave, Remove), RATE_LIMIT_BEACONS_READ_PER_MIN
 //     (30: Get, List*, ListSharedBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
@@ -162,8 +166,19 @@ type BeaconServiceClient interface {
 	// participant row, and start/end of every membership row, in the one transaction (at most 200 participant rows, else
 	// LIMIT_REACHED "beacon_edit_rows"). A change of any of the three keeps every participant as they are (accepted
 	// people stay and may LeaveBeacon) and notifies the ACCEPTED participants once per edit
-	// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience stays immutable: cancel and create again. A request that changes
-	// nothing writes only the idempotency doc.
+	// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience may only be widened (F28b, widen only): the order is community <
+	// public, so the one move is a community beacon made public (public = true). Every community is PUBLIC to read (F6),
+	// so this exposes no community content, and everyone who could see the beacon (JOINED members, participants) still
+	// can. Resending the stored audience is not a change. Moving a public beacon into a community => VALIDATION "audience",
+	// metadata["reason"] = "audience_narrowing"; into another community => "audience_incompatible"; both against the stored
+	// audience in the transaction, nothing written. Widening needs the organiser to pass the community write gate of
+	// RequestToJoin on the stored community (FEATURE_COMMUNITIES not globally off, JOINED, else FORBIDDEN "not_member";
+	// SUSPENDED => NOT_FOUND; ARCHIVED => COMMUNITY_STATE "community_archived"), so a plan cannot leave a community that
+	// suspended, archived or banned its organiser (cancelling stays open to the organiser in every case). It is
+	// allowed while the beacon is OPEN or FULL, also after it started (people may still ask to join), rewrites the
+	// audience of every membership row in the same transaction (the "beacon_edit_rows" bound) and sends no notification:
+	// nobody loses access and nothing about the plan itself changes. A request that changes nothing writes only the
+	// idempotency doc.
 	UpdateBeacon(context.Context, *connect.Request[v1.UpdateBeaconRequest]) (*connect.Response[v1.UpdateBeaconResponse], error)
 	// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED on the beacon only. Participant and membership
 	// rows are pointers and read the beacon's status (GetBeacon, ListMyBeacons), so nothing fans out. Participants are
@@ -435,8 +450,19 @@ type BeaconServiceHandler interface {
 	// participant row, and start/end of every membership row, in the one transaction (at most 200 participant rows, else
 	// LIMIT_REACHED "beacon_edit_rows"). A change of any of the three keeps every participant as they are (accepted
 	// people stay and may LeaveBeacon) and notifies the ACCEPTED participants once per edit
-	// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience stays immutable: cancel and create again. A request that changes
-	// nothing writes only the idempotency doc.
+	// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience may only be widened (F28b, widen only): the order is community <
+	// public, so the one move is a community beacon made public (public = true). Every community is PUBLIC to read (F6),
+	// so this exposes no community content, and everyone who could see the beacon (JOINED members, participants) still
+	// can. Resending the stored audience is not a change. Moving a public beacon into a community => VALIDATION "audience",
+	// metadata["reason"] = "audience_narrowing"; into another community => "audience_incompatible"; both against the stored
+	// audience in the transaction, nothing written. Widening needs the organiser to pass the community write gate of
+	// RequestToJoin on the stored community (FEATURE_COMMUNITIES not globally off, JOINED, else FORBIDDEN "not_member";
+	// SUSPENDED => NOT_FOUND; ARCHIVED => COMMUNITY_STATE "community_archived"), so a plan cannot leave a community that
+	// suspended, archived or banned its organiser (cancelling stays open to the organiser in every case). It is
+	// allowed while the beacon is OPEN or FULL, also after it started (people may still ask to join), rewrites the
+	// audience of every membership row in the same transaction (the "beacon_edit_rows" bound) and sends no notification:
+	// nobody loses access and nothing about the plan itself changes. A request that changes nothing writes only the
+	// idempotency doc.
 	UpdateBeacon(context.Context, *connect.Request[v1.UpdateBeaconRequest]) (*connect.Response[v1.UpdateBeaconResponse], error)
 	// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED on the beacon only. Participant and membership
 	// rows are pointers and read the beacon's status (GetBeacon, ListMyBeacons), so nothing fans out. Participants are

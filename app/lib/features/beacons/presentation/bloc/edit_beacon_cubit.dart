@@ -63,7 +63,9 @@ class EditBeaconState {
 /// diff). One key per distinct payload, reused on a retry (R36). Nothing
 /// changed means no call. F28 adds the start, duration and cost; an answer
 /// without them (an older server) keeps the form open with
-/// [kPlanScheduleNotSaved].
+/// [kPlanScheduleNotSaved]. F28b adds `public` (a community plan made
+/// public; the audience only widens); an answer still in the community keeps
+/// the form open with [kPlanAudienceNotSaved].
 class EditBeaconCubit extends Cubit<EditBeaconState> {
   EditBeaconCubit({
     required BeaconsRepository repository,
@@ -94,6 +96,7 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
   /// Saves the form. [startAt], [durationMinutes] and [cost] (F28) are sent
   /// only when given and different from the loaded plan; the screen gives
   /// none once the plan has started (the server refuses them then).
+  /// [makePublic] (F28b) sends `public = true` for a community plan only.
   Future<void> save({
     required String title,
     required String details,
@@ -102,6 +105,7 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
     DateTime? startAt,
     int? durationMinutes,
     pb.BeaconCost? cost,
+    bool makePublic = false,
   }) async {
     final view = state.view;
     if (state.busy || view == null) return;
@@ -118,11 +122,13 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
       request.durationMinutes = durationMinutes;
     }
     if (cost != null && cost != b.cost) request.cost = cost;
+    if (makePublic && b.communityId.isNotEmpty) request.public = true;
     if (!request.hasTitle() &&
         !request.hasDetails() &&
         !request.hasVenue() &&
         !request.hasOpenSpots() &&
-        !_movesSchedule(request)) {
+        !_movesSchedule(request) &&
+        !request.hasPublic()) {
       emit(state.copyWith(saved: view, clearSaveError: true));
       return;
     }
@@ -147,6 +153,17 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
             busy: false,
             view: saved,
             saveError: kPlanScheduleNotSaved,
+          ),
+        );
+        return;
+      }
+      if (request.hasPublic() && saved.beacon.communityId.isNotEmpty) {
+        // A server from before F28b ignores `public`: same as above.
+        emit(
+          state.copyWith(
+            busy: false,
+            view: saved,
+            saveError: kPlanAudienceNotSaved,
           ),
         );
         return;
@@ -176,3 +193,7 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
 /// (F28 not deployed there yet).
 const kPlanScheduleNotSaved =
     "The new time or cost wasn't saved. Try again later.";
+
+/// The save error when the server kept the plan in its community (F28b not
+/// deployed there yet).
+const kPlanAudienceNotSaved = "The plan wasn't made public. Try again later.";

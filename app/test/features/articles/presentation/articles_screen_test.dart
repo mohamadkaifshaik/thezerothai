@@ -564,6 +564,36 @@ void main() {
     expect(find.text(articleDraftLimitMessage), findsNothing);
   });
 
+  testWidgets('the draft cap shows the server max and still only dismisses', (
+    tester,
+  ) async {
+    final repository = _Repository()
+      ..createError = const LimitReachedException(
+        'too many drafts',
+        quota: kArticleDraftsLimit,
+        max: 75,
+      );
+    await tester.pumpWidget(
+      RepositoryProvider<ArticlesRepository>.value(
+        value: repository,
+        child: const MaterialApp(home: ArticlesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Create article'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'You have 75 drafts. Publish or delete one to start a new draft.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Retry'), findsNothing);
+    await tester.tap(find.text('Dismiss'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('75 drafts'), findsNothing);
+  });
+
   testWidgets('the draft cap refusing New article from the editor keeps '
       'the text in the editor', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1440, 900));

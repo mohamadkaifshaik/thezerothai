@@ -1,6 +1,9 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_empty_view.dart';
 import 'package:dzeroth/shared/widgets/post/post_list_skeleton.dart';
+import 'package:dzeroth/shared/widgets/post/post_card.dart'
+    show kPostAvatarInset, postCardGutter;
+import 'package:dzeroth/shared/widgets/primitives/app_skeleton.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -8,6 +11,11 @@ import '../../../support/theme_harness.dart';
 
 /// The skeleton reserves the card's footprint (avatar, padding, media
 /// slots) and the empty state has an action slot.
+Rect _rectOf(Element e) {
+  final box = e.renderObject! as RenderBox;
+  return box.localToGlobal(Offset.zero) & box.size;
+}
+
 void main() {
   forEachThemeAndWidth('skeleton rows reserve a 42dp avatar and media slots, '
       'without overflow', (tester, env) async {
@@ -96,5 +104,67 @@ void main() {
     );
     await tester.tap(find.text('Do it'));
     expect(taps, 1);
+  });
+
+  group('feed card geometry (#936)', () {
+    Finder blocks() => find.byType(AppSkeletonBlock);
+
+    for (final width in const [360.0, 600.0, 1200.0]) {
+      testWidgets('at $width the body starts at the avatar edge, full width', (
+        tester,
+      ) async {
+        await pumpThemed(
+          tester,
+          const PostListSkeleton(rows: 2, mediaEvery: 2),
+          size: Size(width, 1200),
+        );
+        final all = [for (final e in blocks().evaluate()) _rectOf(e)];
+        // First row: avatar, 2 name bars, 3 body bars.
+        final avatar = all[0];
+        final nameBars = all.sublist(1, 3);
+        final bodyBars = all.sublist(3, 6);
+        final gutter = postCardGutter(width);
+        final contentLeft = gutter + kPostAvatarInset;
+        final contentWidth = width - contentLeft - gutter;
+        expect(avatar.left, closeTo(contentLeft, 0.5));
+        expect(avatar.width, AppSize.avatarPost);
+        for (final bar in nameBars) {
+          expect(bar.left, greaterThan(avatar.right));
+          expect(bar.center.dy, lessThan(avatar.bottom + 8));
+        }
+        for (final bar in bodyBars) {
+          expect(bar.left, closeTo(avatar.left, 0.5));
+          expect(bar.top, greaterThan(avatar.bottom - 0.5));
+        }
+        expect(bodyBars[0].width, closeTo(contentWidth, 0.5));
+        expect(bodyBars[1].width, closeTo(contentWidth, 0.5));
+        expect(bodyBars[2].width, closeTo(contentWidth * 0.7, 0.5));
+        // The media slot of row two: same left edge, full width.
+        final media = tester.getRect(find.byType(AspectRatio));
+        expect(media.left, closeTo(avatar.left, 0.5));
+        expect(media.width, closeTo(contentWidth, 0.5));
+      });
+    }
+
+    testWidgets('indentBody keeps the old two-column layout', (tester) async {
+      await pumpThemed(
+        tester,
+        const PostListSkeleton(rows: 1, indentBody: true),
+        size: const Size(360, 800),
+      );
+      final all = [for (final e in blocks().evaluate()) _rectOf(e)];
+      // The avatar, then every bar in the column to its right.
+      final circle = tester.getRect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Container &&
+              w.decoration is BoxDecoration &&
+              (w.decoration! as BoxDecoration).shape == BoxShape.circle,
+        ),
+      );
+      for (final r in all.where((r) => r != circle)) {
+        expect(r.left, greaterThan(circle.right));
+      }
+    });
   });
 }

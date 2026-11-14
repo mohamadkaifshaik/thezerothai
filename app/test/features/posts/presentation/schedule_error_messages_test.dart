@@ -23,6 +23,45 @@ void main() {
       );
     });
 
+    test(
+      'the server cap from metadata max is named; absent keeps old copy',
+      () {
+        expect(
+          scheduleErrorMessage(
+            const LimitReachedException(
+              'x',
+              quota: 'scheduled_pending',
+              max: 25,
+            ),
+          ),
+          'You can have up to 25 scheduled posts. Cancel one first.',
+        );
+        expect(
+          scheduleErrorMessage(
+            const LimitReachedException('x', quota: 'scheduled_window', max: 3),
+          ),
+          'You can schedule up to 3 posts around the same time. Pick another '
+          'time.',
+        );
+        expect(
+          editScheduledErrorMessage(
+            const LimitReachedException('x', quota: 'scheduled_window', max: 3),
+          ),
+          contains('up to 3 posts'),
+        );
+        expect(
+          scheduleErrorMessage(
+            const LimitReachedException(
+              'x',
+              quota: 'scheduled_pending',
+              max: 0,
+            ),
+          ),
+          'You have too many scheduled posts. Cancel one first.',
+        );
+      },
+    );
+
     test('an unnamed limit is still friendly', () {
       expect(
         scheduleErrorMessage(const LimitReachedException('x')),

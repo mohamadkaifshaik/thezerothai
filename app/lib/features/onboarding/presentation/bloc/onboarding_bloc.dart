@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:stream_transform/stream_transform.dart';
 import 'package:uuid/uuid.dart';
@@ -9,6 +11,26 @@ import '../../../media/domain/media_feature_flag.dart' show kFeatureMedia;
 import '../../domain/handle_rules.dart';
 import 'onboarding_event.dart';
 import 'onboarding_state.dart';
+
+/// `droppable()` of bloc_concurrency (not a dependency): while one event's
+/// handler runs, further events are dropped, not queued.
+EventTransformer<E> _droppable<E>() {
+  return (events, mapper) {
+    var running = false;
+    return events.concurrentAsyncExpand((event) {
+      if (running) return const Stream.empty();
+      running = true;
+      return mapper(event).transform(
+        StreamTransformer<E, E>.fromHandlers(
+          handleDone: (sink) {
+            running = false;
+            sink.close();
+          },
+        ),
+      );
+    });
+  };
+}
 
 EventTransformer<E> _debounceRestartable<E>(Duration duration) {
   return (events, mapper) => events.debounce(duration).switchMap(mapper);
@@ -28,7 +50,13 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       _profileCreated = false;
       emit(const OnboardingState());
     });
-    on<OnboardingRefreshRequested>(_onUserRefreshRequested);
+    // A burst (several FEATURE_DISABLED answers, repeated Retry taps) collapses
+    // into the one GetMe in flight: events arriving meanwhile are dropped. No
+    // cool-down after it settles, so a Retry after a failure always runs.
+    on<OnboardingRefreshRequested>(
+      _onUserRefreshRequested,
+      transformer: _droppable(),
+    );
     on<OnboardingHandleChanged>(
       _onHandleChanged,
       transformer: _debounceRestartable(kHandleCheckDebounce),
@@ -83,6 +111,11 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     if (_uid != event.user.uid) {
       _flagsLoaded = false;
       _profileCreated = false;
+      // A direct account switch (no sign-out between): the previous user's
+      // failed refresh is not this user's, so its banner must not carry over.
+      if (state.refreshFailed || state.refreshing) {
+        emit(state.copyWith(refreshFailed: false, refreshing: false));
+      }
     }
     _uid = event.user.uid;
     await _loadMe(emit);
@@ -94,8 +127,17 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   ) async {
     // Signed out (e.g. a FEATURE_DISABLED answer arriving after sign-out): no
     // session-less GetMe and nothing emitted into the signed-out state.
-    if (_uid == null) return;
-    await _loadMe(emit);
+    final uid = _uid;
+    if (uid == null) return;
+    // The banner's Retry shows its in-flight indicator from this flag.
+    if (state.refreshFailed) emit(state.copyWith(refreshing: true));
+    try {
+      await _loadMe(emit);
+    } finally {
+      if (!emit.isDone && _uid == uid && state.refreshing) {
+        emit(state.copyWith(refreshing: false));
+      }
+    }
   }
 
   /// Cache-first: render the locally cached profile instantly (if any) while
@@ -171,6 +213,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           state.copyWith(
             status: OnboardingStatus.ready,
             refreshFailed: true,
+            refreshing: false,
             flagsPending: false,
           ),
         );
@@ -201,6 +244,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),
         accountRestricted: false,
         refreshFailed: false,
+        refreshing: false,
         flagsPending: false,
         isSubmitting: isSubmitting ?? state.isSubmitting,
         error: null,

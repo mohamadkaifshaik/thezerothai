@@ -47,10 +47,11 @@ pb.Beacon draftPlan({
 
 /// [loaded] with the edit form's fields (the `UpdateBeacon` fields this
 /// client sends: title, details, meeting point, open spots, and with F28
-/// the start, duration and cost when given), for its preview (tablet plan
-/// section 4.1, PlanEdit). A live plan's status follows the new seat count
-/// as the server's does; a cancelled or ended one keeps its own. [loaded]
-/// is not changed.
+/// the start, duration and cost when given, and with F28b [makePublic], a
+/// community plan made public), for its preview (tablet plan section 4.1,
+/// PlanEdit). A live plan's status follows the new seat count as the
+/// server's does; a cancelled or ended one keeps its own. [loaded] is not
+/// changed.
 pb.Beacon editedPlan(
   pb.Beacon loaded, {
   required String title,
@@ -60,6 +61,7 @@ pb.Beacon editedPlan(
   DateTime? startAt,
   int? durationMinutes,
   pb.BeaconCost? cost,
+  bool makePublic = false,
 }) {
   final live =
       loaded.status == pb.BeaconStatus.BEACON_STATUS_OPEN ||
@@ -75,5 +77,6 @@ pb.Beacon editedPlan(
   if (startAt != null) b.startAt = ts.Timestamp.fromDateTime(startAt.toUtc());
   if (durationMinutes != null) b.durationMinutes = durationMinutes;
   if (cost != null) b.cost = cost;
+  if (makePublic) b.communityId = '';
   return b;
 }
