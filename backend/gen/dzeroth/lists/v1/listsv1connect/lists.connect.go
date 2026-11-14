@@ -31,6 +31,19 @@
 // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "lists", before any lookup. Clients learn it from
 // IdentityService.GetMe enabled_features.
 //
+// Following (FEATURE_LIST_FOLLOWS, wire name "list_follows", default off): a viewer can follow a PUBLIC list
+// (FollowList, UnfollowList). Only a public, not hidden list whose owner is ACTIVE and does not block the caller
+// (either way) can be followed; any other case is the same NOT_FOUND as a missing list. Unfollow works on any list,
+// including a private or deleted one (the viewer's own marker is removed). A follower who loses access (the list turns
+// private, is hidden, is deleted, or a block starts) stops seeing it at once on every read (ListFollowedLists, DiscoverLists,
+// GetList): access is decided at read time. follower_count is the number of followers, kept by the same transaction
+// that writes or removes a follow marker; it is visible on every list the caller may see. A list is never followed by
+// its own owner, and following a list the caller owns is a success with no effect.
+// Discovery (DiscoverLists, same flag): public, not hidden lists of ACTIVE owners not blocked either way, most
+// followed first. Suggestions (ListSuggestedMembers, FEATURE_LIST_SUGGESTIONS, wire name "list_suggestions"): owner only,
+// people the caller follows who could be added now (the AddListMember rules), most recently followed first.
+// Flag errors for these: FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "list_follows" or "list_suggestions".
+//
 // Idempotency (rule 4): every mutation takes idempotency_key (16-64 characters of [A-Za-z0-9_-], else
 // VALIDATION "idempotency_key", before any lookup) and stores the standard TTL'd idempotency/{sha256(uid|rpc|key)} document
 // (24 h) in the same transaction as its effect. A retry with the same key returns the stored outcome and writes nothing,
@@ -101,6 +114,20 @@ const (
 	// ListServiceListListMembersProcedure is the fully-qualified name of the ListService's
 	// ListListMembers RPC.
 	ListServiceListListMembersProcedure = "/dzeroth.lists.v1.ListService/ListListMembers"
+	// ListServiceFollowListProcedure is the fully-qualified name of the ListService's FollowList RPC.
+	ListServiceFollowListProcedure = "/dzeroth.lists.v1.ListService/FollowList"
+	// ListServiceUnfollowListProcedure is the fully-qualified name of the ListService's UnfollowList
+	// RPC.
+	ListServiceUnfollowListProcedure = "/dzeroth.lists.v1.ListService/UnfollowList"
+	// ListServiceListFollowedListsProcedure is the fully-qualified name of the ListService's
+	// ListFollowedLists RPC.
+	ListServiceListFollowedListsProcedure = "/dzeroth.lists.v1.ListService/ListFollowedLists"
+	// ListServiceDiscoverListsProcedure is the fully-qualified name of the ListService's DiscoverLists
+	// RPC.
+	ListServiceDiscoverListsProcedure = "/dzeroth.lists.v1.ListService/DiscoverLists"
+	// ListServiceListSuggestedMembersProcedure is the fully-qualified name of the ListService's
+	// ListSuggestedMembers RPC.
+	ListServiceListSuggestedMembersProcedure = "/dzeroth.lists.v1.ListService/ListSuggestedMembers"
 )
 
 // ListServiceClient is a client for the dzeroth.lists.v1.ListService service.
@@ -169,6 +196,37 @@ type ListServiceClient interface {
 	// Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller and the list, and expires
 	// after 24 h (expired, foreign or tampered => VALIDATION "page_token", before any lookup).
 	ListListMembers(context.Context, *connect.Request[v1.ListListMembersRequest]) (*connect.Response[v1.ListListMembersResponse], error)
+	// Follow a public list (FEATURE_LIST_FOLLOWS). NOT_FOUND for every case the header comment lists (a private or hidden
+	// list, an owner who is not ACTIVE or blocks either way, a missing or deleted list). Following a list the caller owns
+	// is success with no effect. Following again is success with no effect.
+	// Cap: LIST_FOLLOWS_MAX_PER_USER (100) follows per account => FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] =
+	// "list_follows"; nothing is written.
+	// One transaction: idempotency doc, the list (fresh: visibility is checked again inside it), the follow marker
+	// (create), and follower_count + 1 on the list. Rate limit: the lists write bucket.
+	FollowList(context.Context, *connect.Request[v1.FollowListRequest]) (*connect.Response[v1.FollowListResponse], error)
+	// Unfollow a list (FEATURE_LIST_FOLLOWS). Works on any list, including one that is now private, hidden or deleted; a
+	// list the caller never followed is success with no effect. When the list still exists, follower_count - 1 in the same
+	// transaction; when it is gone, only the marker is removed.
+	// A replay writes nothing.
+	UnfollowList(context.Context, *connect.Request[v1.UnfollowListRequest]) (*connect.Response[v1.UnfollowListResponse], error)
+	// The lists the caller follows, newest follow first, with the caller's current view of each list. A list the
+	// caller can no longer see (private, hidden, deleted, owner not ACTIVE, a block either way) is left out, so a page may
+	// be short while next_page_token is set: keep following it. Paging: page_size 0 => 20, max 50 (clamped);
+	// page_token is sealed, bound to the caller, expires after 24 h (else VALIDATION "page_token").
+	// FEATURE_LIST_FOLLOWS only.
+	ListFollowedLists(context.Context, *connect.Request[v1.ListFollowedListsRequest]) (*connect.Response[v1.ListFollowedListsResponse], error)
+	// Popular public lists, most followed first (follower_count descending, then list id). Only public, not hidden lists
+	// whose owner is ACTIVE and does not block the caller (either way) are returned; a page may be short while
+	// next_page_token is set. Lists created before follower_count existed appear here only after their first follow or
+	// a recount. Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller, expires after 24 h.
+	// FEATURE_LIST_FOLLOWS only.
+	DiscoverLists(context.Context, *connect.Request[v1.DiscoverListsRequest]) (*connect.Response[v1.DiscoverListsResponse], error)
+	// Suggested members for one of the caller's lists (FEATURE_LIST_SUGGESTIONS). Owner only, else NOT_FOUND. Candidates are
+	// the accounts the caller most recently followed (at most the 30 newest), minus current members and the caller; each must
+	// pass the AddListMember rules (ACTIVE, no block either way, a protected account the caller follows). Most recently
+	// followed first. max_results: 0 => 5, max 10 (clamped). There is no cursor: the list is always short (the
+	// ListSuggestedUsers precedent). A list that is full at LIST_MAX_MEMBERS returns no suggestions.
+	ListSuggestedMembers(context.Context, *connect.Request[v1.ListSuggestedMembersRequest]) (*connect.Response[v1.ListSuggestedMembersResponse], error)
 }
 
 // NewListServiceClient constructs a client for the dzeroth.lists.v1.ListService service. By
@@ -233,19 +291,57 @@ func NewListServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		followList: connect.NewClient[v1.FollowListRequest, v1.FollowListResponse](
+			httpClient,
+			baseURL+ListServiceFollowListProcedure,
+			connect.WithSchema(listServiceMethods.ByName("FollowList")),
+			connect.WithClientOptions(opts...),
+		),
+		unfollowList: connect.NewClient[v1.UnfollowListRequest, v1.UnfollowListResponse](
+			httpClient,
+			baseURL+ListServiceUnfollowListProcedure,
+			connect.WithSchema(listServiceMethods.ByName("UnfollowList")),
+			connect.WithClientOptions(opts...),
+		),
+		listFollowedLists: connect.NewClient[v1.ListFollowedListsRequest, v1.ListFollowedListsResponse](
+			httpClient,
+			baseURL+ListServiceListFollowedListsProcedure,
+			connect.WithSchema(listServiceMethods.ByName("ListFollowedLists")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		discoverLists: connect.NewClient[v1.DiscoverListsRequest, v1.DiscoverListsResponse](
+			httpClient,
+			baseURL+ListServiceDiscoverListsProcedure,
+			connect.WithSchema(listServiceMethods.ByName("DiscoverLists")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		listSuggestedMembers: connect.NewClient[v1.ListSuggestedMembersRequest, v1.ListSuggestedMembersResponse](
+			httpClient,
+			baseURL+ListServiceListSuggestedMembersProcedure,
+			connect.WithSchema(listServiceMethods.ByName("ListSuggestedMembers")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // listServiceClient implements ListServiceClient.
 type listServiceClient struct {
-	createList       *connect.Client[v1.CreateListRequest, v1.CreateListResponse]
-	updateList       *connect.Client[v1.UpdateListRequest, v1.UpdateListResponse]
-	deleteList       *connect.Client[v1.DeleteListRequest, v1.DeleteListResponse]
-	getList          *connect.Client[v1.GetListRequest, v1.GetListResponse]
-	listUserLists    *connect.Client[v1.ListUserListsRequest, v1.ListUserListsResponse]
-	addListMember    *connect.Client[v1.AddListMemberRequest, v1.AddListMemberResponse]
-	removeListMember *connect.Client[v1.RemoveListMemberRequest, v1.RemoveListMemberResponse]
-	listListMembers  *connect.Client[v1.ListListMembersRequest, v1.ListListMembersResponse]
+	createList           *connect.Client[v1.CreateListRequest, v1.CreateListResponse]
+	updateList           *connect.Client[v1.UpdateListRequest, v1.UpdateListResponse]
+	deleteList           *connect.Client[v1.DeleteListRequest, v1.DeleteListResponse]
+	getList              *connect.Client[v1.GetListRequest, v1.GetListResponse]
+	listUserLists        *connect.Client[v1.ListUserListsRequest, v1.ListUserListsResponse]
+	addListMember        *connect.Client[v1.AddListMemberRequest, v1.AddListMemberResponse]
+	removeListMember     *connect.Client[v1.RemoveListMemberRequest, v1.RemoveListMemberResponse]
+	listListMembers      *connect.Client[v1.ListListMembersRequest, v1.ListListMembersResponse]
+	followList           *connect.Client[v1.FollowListRequest, v1.FollowListResponse]
+	unfollowList         *connect.Client[v1.UnfollowListRequest, v1.UnfollowListResponse]
+	listFollowedLists    *connect.Client[v1.ListFollowedListsRequest, v1.ListFollowedListsResponse]
+	discoverLists        *connect.Client[v1.DiscoverListsRequest, v1.DiscoverListsResponse]
+	listSuggestedMembers *connect.Client[v1.ListSuggestedMembersRequest, v1.ListSuggestedMembersResponse]
 }
 
 // CreateList calls dzeroth.lists.v1.ListService.CreateList.
@@ -286,6 +382,31 @@ func (c *listServiceClient) RemoveListMember(ctx context.Context, req *connect.R
 // ListListMembers calls dzeroth.lists.v1.ListService.ListListMembers.
 func (c *listServiceClient) ListListMembers(ctx context.Context, req *connect.Request[v1.ListListMembersRequest]) (*connect.Response[v1.ListListMembersResponse], error) {
 	return c.listListMembers.CallUnary(ctx, req)
+}
+
+// FollowList calls dzeroth.lists.v1.ListService.FollowList.
+func (c *listServiceClient) FollowList(ctx context.Context, req *connect.Request[v1.FollowListRequest]) (*connect.Response[v1.FollowListResponse], error) {
+	return c.followList.CallUnary(ctx, req)
+}
+
+// UnfollowList calls dzeroth.lists.v1.ListService.UnfollowList.
+func (c *listServiceClient) UnfollowList(ctx context.Context, req *connect.Request[v1.UnfollowListRequest]) (*connect.Response[v1.UnfollowListResponse], error) {
+	return c.unfollowList.CallUnary(ctx, req)
+}
+
+// ListFollowedLists calls dzeroth.lists.v1.ListService.ListFollowedLists.
+func (c *listServiceClient) ListFollowedLists(ctx context.Context, req *connect.Request[v1.ListFollowedListsRequest]) (*connect.Response[v1.ListFollowedListsResponse], error) {
+	return c.listFollowedLists.CallUnary(ctx, req)
+}
+
+// DiscoverLists calls dzeroth.lists.v1.ListService.DiscoverLists.
+func (c *listServiceClient) DiscoverLists(ctx context.Context, req *connect.Request[v1.DiscoverListsRequest]) (*connect.Response[v1.DiscoverListsResponse], error) {
+	return c.discoverLists.CallUnary(ctx, req)
+}
+
+// ListSuggestedMembers calls dzeroth.lists.v1.ListService.ListSuggestedMembers.
+func (c *listServiceClient) ListSuggestedMembers(ctx context.Context, req *connect.Request[v1.ListSuggestedMembersRequest]) (*connect.Response[v1.ListSuggestedMembersResponse], error) {
+	return c.listSuggestedMembers.CallUnary(ctx, req)
 }
 
 // ListServiceHandler is an implementation of the dzeroth.lists.v1.ListService service.
@@ -354,6 +475,37 @@ type ListServiceHandler interface {
 	// Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller and the list, and expires
 	// after 24 h (expired, foreign or tampered => VALIDATION "page_token", before any lookup).
 	ListListMembers(context.Context, *connect.Request[v1.ListListMembersRequest]) (*connect.Response[v1.ListListMembersResponse], error)
+	// Follow a public list (FEATURE_LIST_FOLLOWS). NOT_FOUND for every case the header comment lists (a private or hidden
+	// list, an owner who is not ACTIVE or blocks either way, a missing or deleted list). Following a list the caller owns
+	// is success with no effect. Following again is success with no effect.
+	// Cap: LIST_FOLLOWS_MAX_PER_USER (100) follows per account => FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] =
+	// "list_follows"; nothing is written.
+	// One transaction: idempotency doc, the list (fresh: visibility is checked again inside it), the follow marker
+	// (create), and follower_count + 1 on the list. Rate limit: the lists write bucket.
+	FollowList(context.Context, *connect.Request[v1.FollowListRequest]) (*connect.Response[v1.FollowListResponse], error)
+	// Unfollow a list (FEATURE_LIST_FOLLOWS). Works on any list, including one that is now private, hidden or deleted; a
+	// list the caller never followed is success with no effect. When the list still exists, follower_count - 1 in the same
+	// transaction; when it is gone, only the marker is removed.
+	// A replay writes nothing.
+	UnfollowList(context.Context, *connect.Request[v1.UnfollowListRequest]) (*connect.Response[v1.UnfollowListResponse], error)
+	// The lists the caller follows, newest follow first, with the caller's current view of each list. A list the
+	// caller can no longer see (private, hidden, deleted, owner not ACTIVE, a block either way) is left out, so a page may
+	// be short while next_page_token is set: keep following it. Paging: page_size 0 => 20, max 50 (clamped);
+	// page_token is sealed, bound to the caller, expires after 24 h (else VALIDATION "page_token").
+	// FEATURE_LIST_FOLLOWS only.
+	ListFollowedLists(context.Context, *connect.Request[v1.ListFollowedListsRequest]) (*connect.Response[v1.ListFollowedListsResponse], error)
+	// Popular public lists, most followed first (follower_count descending, then list id). Only public, not hidden lists
+	// whose owner is ACTIVE and does not block the caller (either way) are returned; a page may be short while
+	// next_page_token is set. Lists created before follower_count existed appear here only after their first follow or
+	// a recount. Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller, expires after 24 h.
+	// FEATURE_LIST_FOLLOWS only.
+	DiscoverLists(context.Context, *connect.Request[v1.DiscoverListsRequest]) (*connect.Response[v1.DiscoverListsResponse], error)
+	// Suggested members for one of the caller's lists (FEATURE_LIST_SUGGESTIONS). Owner only, else NOT_FOUND. Candidates are
+	// the accounts the caller most recently followed (at most the 30 newest), minus current members and the caller; each must
+	// pass the AddListMember rules (ACTIVE, no block either way, a protected account the caller follows). Most recently
+	// followed first. max_results: 0 => 5, max 10 (clamped). There is no cursor: the list is always short (the
+	// ListSuggestedUsers precedent). A list that is full at LIST_MAX_MEMBERS returns no suggestions.
+	ListSuggestedMembers(context.Context, *connect.Request[v1.ListSuggestedMembersRequest]) (*connect.Response[v1.ListSuggestedMembersResponse], error)
 }
 
 // NewListServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -414,6 +566,39 @@ func NewListServiceHandler(svc ListServiceHandler, opts ...connect.HandlerOption
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	listServiceFollowListHandler := connect.NewUnaryHandler(
+		ListServiceFollowListProcedure,
+		svc.FollowList,
+		connect.WithSchema(listServiceMethods.ByName("FollowList")),
+		connect.WithHandlerOptions(opts...),
+	)
+	listServiceUnfollowListHandler := connect.NewUnaryHandler(
+		ListServiceUnfollowListProcedure,
+		svc.UnfollowList,
+		connect.WithSchema(listServiceMethods.ByName("UnfollowList")),
+		connect.WithHandlerOptions(opts...),
+	)
+	listServiceListFollowedListsHandler := connect.NewUnaryHandler(
+		ListServiceListFollowedListsProcedure,
+		svc.ListFollowedLists,
+		connect.WithSchema(listServiceMethods.ByName("ListFollowedLists")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	listServiceDiscoverListsHandler := connect.NewUnaryHandler(
+		ListServiceDiscoverListsProcedure,
+		svc.DiscoverLists,
+		connect.WithSchema(listServiceMethods.ByName("DiscoverLists")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	listServiceListSuggestedMembersHandler := connect.NewUnaryHandler(
+		ListServiceListSuggestedMembersProcedure,
+		svc.ListSuggestedMembers,
+		connect.WithSchema(listServiceMethods.ByName("ListSuggestedMembers")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.lists.v1.ListService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ListServiceCreateListProcedure:
@@ -432,6 +617,16 @@ func NewListServiceHandler(svc ListServiceHandler, opts ...connect.HandlerOption
 			listServiceRemoveListMemberHandler.ServeHTTP(w, r)
 		case ListServiceListListMembersProcedure:
 			listServiceListListMembersHandler.ServeHTTP(w, r)
+		case ListServiceFollowListProcedure:
+			listServiceFollowListHandler.ServeHTTP(w, r)
+		case ListServiceUnfollowListProcedure:
+			listServiceUnfollowListHandler.ServeHTTP(w, r)
+		case ListServiceListFollowedListsProcedure:
+			listServiceListFollowedListsHandler.ServeHTTP(w, r)
+		case ListServiceDiscoverListsProcedure:
+			listServiceDiscoverListsHandler.ServeHTTP(w, r)
+		case ListServiceListSuggestedMembersProcedure:
+			listServiceListSuggestedMembersHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -471,4 +666,24 @@ func (UnimplementedListServiceHandler) RemoveListMember(context.Context, *connec
 
 func (UnimplementedListServiceHandler) ListListMembers(context.Context, *connect.Request[v1.ListListMembersRequest]) (*connect.Response[v1.ListListMembersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.lists.v1.ListService.ListListMembers is not implemented"))
+}
+
+func (UnimplementedListServiceHandler) FollowList(context.Context, *connect.Request[v1.FollowListRequest]) (*connect.Response[v1.FollowListResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.lists.v1.ListService.FollowList is not implemented"))
+}
+
+func (UnimplementedListServiceHandler) UnfollowList(context.Context, *connect.Request[v1.UnfollowListRequest]) (*connect.Response[v1.UnfollowListResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.lists.v1.ListService.UnfollowList is not implemented"))
+}
+
+func (UnimplementedListServiceHandler) ListFollowedLists(context.Context, *connect.Request[v1.ListFollowedListsRequest]) (*connect.Response[v1.ListFollowedListsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.lists.v1.ListService.ListFollowedLists is not implemented"))
+}
+
+func (UnimplementedListServiceHandler) DiscoverLists(context.Context, *connect.Request[v1.DiscoverListsRequest]) (*connect.Response[v1.DiscoverListsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.lists.v1.ListService.DiscoverLists is not implemented"))
+}
+
+func (UnimplementedListServiceHandler) ListSuggestedMembers(context.Context, *connect.Request[v1.ListSuggestedMembersRequest]) (*connect.Response[v1.ListSuggestedMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.lists.v1.ListService.ListSuggestedMembers is not implemented"))
 }

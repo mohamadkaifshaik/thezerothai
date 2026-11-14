@@ -1655,6 +1655,17 @@ abstract final class AppStudioLayout {
   static const double phoneGap = 18;
 }
 
+/// The optional "Add a profile photo" step after sign-up (CreateProfile
+/// mock's 84 dp dashed circle). Colours come from the theme.
+abstract final class AppPhotoStepLayout {
+  static const double circle = 84;
+  static const double border = 1.5;
+  static const double dash = 6;
+  static const double dashGap = 4;
+  static const double fillAlpha = 0.08;
+  static const double cameraIcon = 26;
+}
+
 /// Article editor geometry (dzeroth-mobile, tablet and desktop Article
 /// mocks): the dashed cover drop, the display title and the toolbar pill.
 /// Colours come from the theme, shadows from [AppShadows].

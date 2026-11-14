@@ -15,6 +15,7 @@ import (
 
 // recordingService answers canned views and records what the handler passed it.
 type recordingService struct {
+	followStubs
 	calls                    int
 	gotUID                   string
 	create                   CreateInput

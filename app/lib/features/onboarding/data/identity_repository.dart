@@ -2,10 +2,12 @@ import 'package:drift/drift.dart' show Value;
 import 'package:fixnum/fixnum.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../profile/domain/profile_edit_feature_flag.dart';
+import '../domain/handle_rules.dart' show kMaxHandleSuggestions;
 
 /// How long the Settings "Protect your posts" switch stays hidden after the
 /// server refused to turn protection on (FEATURE_DISABLED), as for the other
@@ -70,6 +72,13 @@ class IdentityRepository {
         _clock().difference(at) < kPrivateAccountsRefusalBackoff;
   }
 
+  /// Remembers a FEATURE_DISABLED answer of SuggestHandles until the next
+  /// fresh [getMe] (the sign-up form has no flag set, so the server's answer
+  /// is the only signal there): no further call while it stands.
+  final ServiceFeatureGate _suggestGate = ServiceFeatureGate(
+    isEnabled: () => true,
+  );
+
   bool _profileExtrasRefused = false;
 
   /// The server answered FEATURE_DISABLED `profile_extras` to a pin change
@@ -102,6 +111,7 @@ class IdentityRepository {
       final response = await _apiClient.identity.getMe(identity.GetMeRequest());
       // A fresh flag set decides again, not an earlier refusal.
       _profileExtrasRefused = false;
+      _suggestGate.reset();
       for (final listener in List.of(_getMeListeners)) {
         listener(response, epoch);
       }
@@ -138,6 +148,26 @@ class IdentityRepository {
         identity.CheckHandleAvailabilityRequest(handle: handle),
       ),
     );
+  }
+
+  /// Up to [kMaxHandleSuggestions] free handles close to a taken [handle]
+  /// (`SuggestHandles`). Never throws: suggestions are decoration, so any
+  /// failure, and FEATURE_DISABLED (remembered, 0 further calls until the
+  /// next [getMe]), answers an empty list.
+  Future<List<String>> suggestHandles(String handle) async {
+    try {
+      final response = await _suggestGate.run(
+        () => _apiClient.identity.suggestHandles(
+          identity.SuggestHandlesRequest(handle: handle),
+        ),
+      );
+      return [
+        for (final h in response.handles)
+          if (h.isNotEmpty && h != handle) h,
+      ].take(kMaxHandleSuggestions).toList();
+    } on AppException {
+      return const [];
+    }
   }
 
   Future<identity.Profile> createProfile({

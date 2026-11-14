@@ -86,6 +86,41 @@ const (
 	ExportFailed  ExportStatus = "FAILED"
 )
 
+// ExportFormat is the archive an export is delivered as. The zero value is the single JSON object (the default).
+// ZIP is stored as "zip" on exports/{id}.format; an absent field reads as JSON, so every export written before the
+// ZIP format reads exactly as before.
+type ExportFormat string
+
+const (
+	ExportFormatJSON ExportFormat = ""
+	ExportFormatZIP  ExportFormat = "zip"
+)
+
+// objectSuffix is the object name's suffix for the format. The JSON suffix is unchanged; ZIP gets its own, so a ZIP
+// export never overwrites or shares an object with a JSON one (the id differs too: see lifecycle.go).
+func (f ExportFormat) objectSuffix() string {
+	if f == ExportFormatZIP {
+		return ".zip"
+	}
+	return ".json"
+}
+
+// contentType is the Content-Type the object is stored with.
+func (f ExportFormat) contentType() string {
+	if f == ExportFormatZIP {
+		return "application/zip"
+	}
+	return "application/json"
+}
+
+// filename is what a downloaded export is called.
+func (f ExportFormat) filename() string {
+	if f == ExportFormatZIP {
+		return exportFilenameZip
+	}
+	return exportFilename
+}
+
 // ExportDoc is exports/{id}: the export's job state. UpdateTime is Firestore's, for the
 // status-change precondition.
 type ExportDoc struct {
@@ -93,6 +128,7 @@ type ExportDoc struct {
 	UID        string
 	Status     ExportStatus
 	ObjectPath string
+	Format     ExportFormat
 	CreatedAt  time.Time
 	ExpireAt   time.Time
 	// LeaseUntil is the export job's lease (L-4): while now < LeaseUntil one delivery is composing the export and
@@ -211,6 +247,7 @@ type CreateExportParams struct {
 	ID         string
 	UID        string
 	ObjectPath string
+	Format     ExportFormat
 	Now        time.Time
 	Retention  time.Duration
 	// GiveUpBefore: a PENDING export created at or before this instant no longer holds the user's one export slot. The
@@ -285,8 +322,10 @@ type LifecycleRepo interface {
 type AccountLifecycle interface {
 	// DeleteAccount starts (or replays) the deletion of uid's own account and returns deletion_requested_at.
 	DeleteAccount(ctx context.Context, uid, idempotencyKey string) (time.Time, error)
-	// RequestAccountExport starts (or replays) an export of uid's own data.
+	// RequestAccountExport starts (or replays) an export of uid's own data, as the JSON object.
 	RequestAccountExport(ctx context.Context, uid, idempotencyKey string) (ExportView, error)
+	// RequestAccountExportFormat is RequestAccountExport for an explicit format (ZIP or JSON).
+	RequestAccountExportFormat(ctx context.Context, uid, idempotencyKey string, format ExportFormat) (ExportView, error)
 	// GetAccountExport returns the status of uid's export; NOT_FOUND for anything else. withURL asks for a signed
 	// download URL on a READY export; without it nothing is signed.
 	GetAccountExport(ctx context.Context, uid, exportID string, withURL bool) (ExportView, error)
@@ -296,6 +335,7 @@ type AccountLifecycle interface {
 type ExportView struct {
 	ID     string
 	Status ExportStatus
+	Format ExportFormat
 	// DownloadURL and URLExpiresAt are set only when Status is READY and the URL was asked for (withURL).
 	DownloadURL  string
 	URLExpiresAt time.Time

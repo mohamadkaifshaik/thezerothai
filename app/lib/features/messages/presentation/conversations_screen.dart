@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_top_bar.dart';
@@ -19,6 +20,7 @@ import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../notifications/presentation/bloc/push_cubit.dart';
 import '../data/messaging_repository.dart';
+import '../domain/message_search.dart';
 import '../domain/messaging_feature_gate.dart';
 import 'bloc/conversations_cubit.dart';
 import 'bloc/conversations_session.dart';
@@ -26,6 +28,7 @@ import 'bloc/messages_badge_cubit.dart';
 import 'messaging_error_messages.dart';
 import 'messages_list_detail.dart';
 import 'widgets/conversation_row.dart';
+import 'widgets/message_search_panel.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
 import '../../settings/presentation/widgets/message_settings_action.dart';
@@ -175,6 +178,10 @@ class _ConversationsViewState extends State<ConversationsList>
   final ScrollController _controller = ScrollController();
   late DateTime _now = DateTime.now();
 
+  /// The in-place message search (flag `message_search`) is open: it swaps
+  /// the list for results. Never in the URL; the query dies with the panel.
+  bool _searching = false;
+
   /// Whether this screen is covered by a route above it (its tickers are off).
   /// Read without subscribing: the notifier tells when it is shown again.
   ValueListenable<TickerModeData>? _tickerMode;
@@ -270,9 +277,41 @@ class _ConversationsViewState extends State<ConversationsList>
     }
   }
 
+  /// Whether the search action is offered: flag on, Inbox only. A missing
+  /// flag source (a screen test without onboarding) means off.
+  bool _searchOn(BuildContext context) {
+    if (!_isInbox) return false;
+    try {
+      return isFeatureEnabled(context, kFeatureMessageSearch);
+    } on ProviderNotFoundException {
+      return false;
+    }
+  }
+
+  void _openHit(MessageSearchHit hit) {
+    final id = hit.conversation.id;
+    final location = Uri(
+      path: AppRouter.messagePath(id),
+      queryParameters: {'m': hit.message.id},
+    ).toString();
+    unawaited(context.push<void>(location));
+  }
+
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<ConversationsCubit>();
+    final searchOn = _searchOn(context);
+    if (searchOn && _searching) {
+      return Scaffold(
+        body: SafeArea(
+          child: MessageSearchPanel(
+            onClose: () => setState(() => _searching = false),
+            onOpenHit: _openHit,
+            onOpenConversation: widget.onOpenConversation,
+          ),
+        ),
+      );
+    }
     // A foreground message push refreshes the list: an
     // FCM nudge, throttled, never a timer.
     final view = BlocListener<PushCubit, PushState>(
@@ -319,6 +358,13 @@ class _ConversationsViewState extends State<ConversationsList>
                                   icon: Icons.mail_outline,
                                   tooltip: kNewMessageLabel,
                                   onPressed: widget.onNewMessage,
+                                ),
+                              if (searchOn)
+                                AppTopBarAction(
+                                  icon: Icons.search,
+                                  tooltip: kMessageSearchHint,
+                                  onPressed: () =>
+                                      setState(() => _searching = true),
                                 ),
                               const MessageSettingsAction(),
                             ],

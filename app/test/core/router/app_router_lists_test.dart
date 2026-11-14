@@ -11,6 +11,7 @@ import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.d
 import 'package:dzeroth/features/lists/data/lists_repository.dart';
 import 'package:dzeroth/features/lists/data/home_tabs_repository.dart';
 import 'package:dzeroth/features/lists/domain/home_tab_entry.dart';
+import 'package:dzeroth/features/lists/presentation/discover_lists_screen.dart';
 import 'package:dzeroth/features/lists/presentation/list_detail_screen.dart';
 import 'package:dzeroth/features/lists/presentation/list_members_screen.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
@@ -78,6 +79,18 @@ void main() {
       () => lists.listUserLists(
         ownerId: any(named: 'ownerId'),
         containsUserId: any(named: 'containsUserId'),
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => const ListsPage(lists: []));
+    when(
+      () => lists.listFollowedLists(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => const ListsPage(lists: []));
+    when(
+      () => lists.discoverLists(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
       ),
@@ -185,6 +198,25 @@ void main() {
         ),
       );
     }
+  });
+
+  testWidgets('/lists/discover needs list_follows (and lists), is not a List '
+      'id', (tester) async {
+    expect(AppRouter.discoverListsPath, '/lists/discover');
+    var r = await openAt(tester, const {'lists'}, '/lists/discover');
+    expect(r.$1, AppRouter.homePath);
+    expect(find.byType(DiscoverListsScreen), findsNothing);
+
+    r = await openAt(tester, const {'list_follows'}, '/lists/discover');
+    expect(r.$1, AppRouter.homePath);
+
+    r = await openAt(tester, const {
+      'lists',
+      'list_follows',
+    }, '/lists/discover');
+    expect(r.$1, '/lists/discover');
+    expect(find.byType(DiscoverListsScreen), findsOneWidget);
+    expect(find.byType(ListDetailScreen), findsNothing);
   });
 
   testWidgets('lists on: /lists shows the screen', (tester) async {

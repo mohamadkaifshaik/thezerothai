@@ -52,9 +52,33 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
       final view = await _repository.getBeacon(_beaconId);
       if (isClosed || generation != _generation) return;
       emit(state.copyWith(status: BeaconDetailStatus.ready, view: view));
+      await _loadFaces(view, generation);
     } on AppException catch (error) {
       if (isClosed || generation != _generation) return;
       emit(state.copyWith(status: BeaconDetailStatus.error, error: error));
+    }
+  }
+
+  /// The first 3 people going, only for a viewer who may list participants
+  /// (the organiser, or accepted); anyone else keeps the count alone with no
+  /// read. A refusal (NOT_FOUND, FORBIDDEN, a paused service, anything else)
+  /// leaves the card on the count: the faces are decoration, never an error.
+  Future<void> _loadFaces(pb.BeaconView view, int generation) async {
+    if (!(view.viewer.canManage || view.viewer.canLeave)) {
+      if (state.faces.isNotEmpty) emit(state.copyWith(faces: const []));
+      return;
+    }
+    try {
+      final page = await _repository.listParticipants(
+        beaconId: _beaconId,
+        filter: pb.ParticipantFilter.PARTICIPANT_FILTER_ACCEPTED,
+        limit: 3,
+      );
+      if (isClosed || generation != _generation) return;
+      emit(state.copyWith(faces: page.participants));
+    } on AppException {
+      if (isClosed || generation != _generation) return;
+      emit(state.copyWith(faces: const []));
     }
   }
 

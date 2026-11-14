@@ -39,6 +39,7 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../profile/presentation/widgets/block_confirmation_dialog.dart';
 import '../data/messaging_repository.dart';
 import '../data/timer_thread_poller.dart';
+import '../domain/message_search.dart';
 import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
 import '../domain/thread_push_coverage.dart';
@@ -49,6 +50,7 @@ import 'messaging_error_messages.dart';
 import 'report_conversation.dart';
 import 'thread_items.dart';
 import 'widgets/message_bubble.dart';
+import 'widgets/message_search_panel.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/outgoing_bubble.dart';
 import 'widgets/request_banner.dart';
@@ -146,9 +148,13 @@ class ThreadScreen extends StatelessWidget {
     this.onReport,
     this.onOpenLink,
     this.now,
+    this.highlightMessageId,
   });
 
   final String conversationId;
+
+  /// A message to scroll to and highlight on open (a search result's `?m=`).
+  final String? highlightMessageId;
 
   /// Test seam: the poller. Defaults to a [TimerThreadPoller].
   final ThreadPollerBuilder? pollerBuilder;
@@ -219,6 +225,7 @@ class ThreadScreen extends StatelessWidget {
           onReport: onReport,
           onOpenLink: onOpenLink,
           now: now,
+          highlightMessageId: highlightMessageId,
         ),
       ),
     );
@@ -269,8 +276,10 @@ class _ThreadView extends StatefulWidget {
     required this.onReport,
     required this.onOpenLink,
     required this.now,
+    required this.highlightMessageId,
   });
 
+  final String? highlightMessageId;
   final Widget Function(BuildContext, pb.Conversation?)? composerBuilder;
   final ThreadBannerBuilder? bannerBuilder;
   final void Function(BuildContext, pb.Conversation)? onReport;
@@ -288,6 +297,107 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   bool _appVisible = true;
   bool _routeVisible = true;
   RelationshipCubit? _relationship;
+
+  /// The message a search result pointed at, tinted until [_highlightTimer].
+  String? _highlightId;
+  final GlobalKey _highlightKey = GlobalKey(debugLabel: 'search-highlight');
+  Timer? _highlightTimer;
+  StreamSubscription<ThreadState>? _readyWait;
+  bool _revealing = false;
+
+  /// Scrolls to [id] and highlights it. Pages back while the thread does not
+  /// hold it (bounded); a message older than the 200 this device keeps for the
+  /// chat cannot be reached, which is said, not hidden.
+  Future<void> _reveal(String id) async {
+    if (_revealing || !mounted) return;
+    _revealing = true;
+    try {
+      final cubit = context.read<ThreadCubit>();
+      bool held() => cubit.state.messages.any((m) => m.id == id);
+      for (var i = 0; i < 12 && !held() && cubit.state.hasMore; i++) {
+        await cubit.loadMore();
+        if (!mounted) return;
+      }
+      if (!held()) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text(
+                'That message is older than this device keeps for the chat.',
+              ),
+            ),
+          );
+        return;
+      }
+      setState(() => _highlightId = id);
+      _highlightTimer?.cancel();
+      _highlightTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _highlightId = null);
+      });
+      // The list is lazy and reversed: step toward the older end until the
+      // keyed row is built, then centre it.
+      for (var step = 0; step < 60; step++) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || !_controller.hasClients) return;
+        final target = _highlightKey.currentContext;
+        if (target != null && target.mounted) {
+          await Scrollable.ensureVisible(
+            target,
+            alignment: 0.5,
+            duration: Duration.zero,
+          );
+          return;
+        }
+        final position = _controller.position;
+        if (position.pixels >= position.maxScrollExtent) return;
+        _controller.jumpTo(
+          (position.pixels + position.viewportDimension * 0.8).clamp(
+            0.0,
+            position.maxScrollExtent,
+          ),
+        );
+      }
+    } finally {
+      _revealing = false;
+    }
+  }
+
+  /// The in-chat search: this conversation only (sheet on a phone, dialog on
+  /// wider screens). A hit closes it and reveals the message here.
+  Future<void> _openSearch() async {
+    final id = context.read<ThreadCubit>().conversationId;
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
+    final hit = await (wide
+        ? showAppMaterialDialog<MessageSearchHit>(
+            context: context,
+            builder: (context) => Dialog(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 560,
+                  maxHeight: 640,
+                ),
+                child: _searchPanel(context, id),
+              ),
+            ),
+          )
+        : showModalBottomSheet<MessageSearchHit>(
+            context: context,
+            isScrollControlled: true,
+            useSafeArea: true,
+            builder: (context) => SizedBox(
+              height: MediaQuery.sizeOf(context).height,
+              child: _searchPanel(context, id),
+            ),
+          ));
+    if (hit != null && mounted) unawaited(_reveal(hit.message.id));
+  }
+
+  Widget _searchPanel(BuildContext context, String id) => MessageSearchPanel(
+    conversationId: id,
+    onClose: () => Navigator.of(context).pop(),
+    onOpenHit: (hit) => Navigator.of(context).pop(hit),
+  );
 
   /// The desktop Chat mock's side column (peer card, shared plans, the info
   /// menu's actions), inside the shell from 1200 dp.
@@ -373,6 +483,20 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_onScroll);
+    final target = widget.highlightMessageId;
+    if (target != null && target.isNotEmpty) {
+      final cubit = context.read<ThreadCubit>();
+      if (cubit.state.status == ThreadStatus.ready) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(target));
+      } else {
+        _readyWait = cubit.stream.listen((state) {
+          if (state.status != ThreadStatus.ready) return;
+          unawaited(_readyWait?.cancel());
+          _readyWait = null;
+          unawaited(_reveal(target));
+        });
+      }
+    }
   }
 
   @override
@@ -385,6 +509,8 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _highlightTimer?.cancel();
+    unawaited(_readyWait?.cancel());
     _sideColumn.dispose();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_relationship?.close());
@@ -543,6 +669,18 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     }
   }
 
+  /// The `message_search` flag, read in [build] (a `select` is only allowed
+  /// there) for the header builder below.
+  bool _searchEnabled = false;
+
+  bool _searchFlag(BuildContext context) {
+    try {
+      return isFeatureEnabled(context, kFeatureMessageSearch);
+    } on ProviderNotFoundException {
+      return false;
+    }
+  }
+
   Future<void> _delete(ThreadCubit cubit, {bool request = false}) async {
     if (cubit.state.accepting || cubit.state.deleting || _blocking) return;
     final confirmed = await showAppMaterialDialog<bool>(
@@ -593,6 +731,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     // Read here: `select` is only allowed in `build`, not in a builder.
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
+    _searchEnabled = _searchFlag(context);
     // The tablet layout (600-1199dp, `ui_shell` + `ui_tablet`) has the chat
     // info side sheet in place of the menu (tablet plan section 4.2).
     final infoSheet =
@@ -716,6 +855,12 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       onBack: _back,
       titleContent: ThreadPeerHeader(peer: peer),
       actions: [
+        if (state.status == ThreadStatus.ready && _searchEnabled)
+          IconButton(
+            tooltip: 'Search this conversation',
+            onPressed: _openSearch,
+            icon: const Icon(Icons.search),
+          ),
         if (state.status == ThreadStatus.ready)
           infoSheet
               ? _InfoSheetButton(
@@ -894,35 +1039,38 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                       role: SemanticsRole.listItem,
                       container: true,
                       child: switch (item) {
-                        MessageItem() => MessageBubble(
-                          message: item.message,
-                          peerName: peerName,
-                          now: _now,
-                          firstOfGroup: item.firstOfGroup,
-                          lastOfGroup: item.lastOfGroup,
-                          use24Hour: use24Hour,
-                          seenAt: item.message.id == seenId
-                              ? conversation!.peerReadAt.toDateTime()
-                              : null,
-                          linksEnabled: messageLinksEnabled(
-                            conversation,
-                            item.message,
+                        MessageItem() => _highlighted(
+                          item.message.id,
+                          MessageBubble(
+                            message: item.message,
+                            peerName: peerName,
+                            now: _now,
+                            firstOfGroup: item.firstOfGroup,
+                            lastOfGroup: item.lastOfGroup,
+                            use24Hour: use24Hour,
+                            seenAt: item.message.id == seenId
+                                ? conversation!.peerReadAt.toDateTime()
+                                : null,
+                            linksEnabled: messageLinksEnabled(
+                              conversation,
+                              item.message,
+                            ),
+                            onOpenLink: _openLink,
+                            onOpenPost: _openPost,
+                            onReport:
+                                reportsEnabled &&
+                                    conversation != null &&
+                                    canReportMessage(item.message)
+                                ? (anchor) => unawaited(
+                                    _messageMenu(
+                                      anchor,
+                                      cubit,
+                                      conversation,
+                                      item.message,
+                                    ),
+                                  )
+                                : null,
                           ),
-                          onOpenLink: _openLink,
-                          onOpenPost: _openPost,
-                          onReport:
-                              reportsEnabled &&
-                                  conversation != null &&
-                                  canReportMessage(item.message)
-                              ? (anchor) => unawaited(
-                                  _messageMenu(
-                                    anchor,
-                                    cubit,
-                                    conversation,
-                                    item.message,
-                                  ),
-                                )
-                              : null,
                         ),
                         DaySeparatorItem() => _DaySeparator(
                           label: formatDaySeparator(item.day, _now),
@@ -969,6 +1117,22 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       }
     }
     return null;
+  }
+
+  /// [bubble] of message [id], tinted while it is the search target.
+  Widget _highlighted(String id, Widget bubble) {
+    if (id != _highlightId) return bubble;
+    return KeyedSubtree(
+      key: _highlightKey,
+      child: DecoratedBox(
+        key: ValueKey('search-highlight-$id'),
+        decoration: BoxDecoration(
+          color: AppPalette.tealElectric.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        child: bubble,
+      ),
+    );
   }
 
   Widget _olderFooter(ThreadCubit cubit, ThreadState state) {

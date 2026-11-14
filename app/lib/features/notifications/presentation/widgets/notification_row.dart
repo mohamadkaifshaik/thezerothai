@@ -128,6 +128,10 @@ class NotificationRow extends StatelessWidget {
     final verb = notificationAction(notification);
     final label = [
       '$name$verb',
+      if (notification.actorCount > 1 && notification.actors.length > 1)
+        notification.actors
+            .map((a) => a.displayName.isEmpty ? '@${a.handle}' : a.displayName)
+            .join(', '),
       if (spokenTime.isNotEmpty) spokenTime,
       if (unread) 'unread',
     ].join(', ');
@@ -164,10 +168,32 @@ class NotificationRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       ExcludeSemantics(
-                        child: AppAvatar(
-                          url: actor.avatarUrl,
-                          radius: _kActorAvatar / 2,
-                        ),
+                        child:
+                            notification.actorCount > 1 &&
+                                notification.actors.isNotEmpty
+                            // A grouped row: up to 3 of the newest actors,
+                            // overlapped (the stack is not in the mocks).
+                            ? AppAvatarStack(
+                                key: const ValueKey(
+                                  'notification-avatar-stack',
+                                ),
+                                size: AppAvatarSize.sm,
+                                maxVisible: 3,
+                                total: notification.actors.length,
+                                items: [
+                                  for (final a in notification.actors)
+                                    AppAvatarStackItem(
+                                      url: a.avatarUrl,
+                                      name: a.displayName.isEmpty
+                                          ? '@${a.handle}'
+                                          : a.displayName,
+                                    ),
+                                ],
+                              )
+                            : AppAvatar(
+                                url: actor.avatarUrl,
+                                radius: _kActorAvatar / 2,
+                              ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       ExcludeSemantics(

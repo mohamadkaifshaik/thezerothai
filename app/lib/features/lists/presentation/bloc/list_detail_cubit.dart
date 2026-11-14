@@ -7,6 +7,7 @@ import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import '../../data/home_tabs_repository.dart';
 import '../../data/lists_repository.dart';
 import '../../domain/home_tab_entry.dart';
+import '../../domain/list_follow_rules.dart';
 import 'list_detail_state.dart';
 
 /// Header and Pin state of one List's detail screen.
@@ -111,6 +112,43 @@ class ListDetailCubit extends Cubit<ListDetailState> {
       return e;
     } finally {
       if (!isClosed) emit(_pins(state).copyWith(pinBusy: false));
+    }
+  }
+
+  /// Follows or unfollows the List (the `list_follows` flag is the screen's
+  /// to check). Optimistic: the button and the count move at once and go
+  /// back on a failure, which is returned (null on success) for the snackbar.
+  /// NOT_FOUND also marks the List unavailable.
+  Future<AppException?> toggleFollow() async {
+    final before = state.header;
+    if (before == null || state.followBusy) return null;
+    final following = !before.followedByViewer;
+    emit(
+      state.copyWith(
+        header: withViewerFollow(before, following: following),
+        followBusy: true,
+      ),
+    );
+    try {
+      final key = ListsRepository.newIdempotencyKey();
+      final saved = following
+          ? await _lists.followList(idempotencyKey: key, listId: listId)
+          : await _lists.unfollowList(
+              idempotencyKey: key,
+              listId: listId,
+              current: before,
+            );
+      if (!isClosed && saved != null) emit(state.copyWith(header: saved));
+      return null;
+    } on NotFoundException catch (e) {
+      if (!isClosed) emit(state.copyWith(header: before));
+      markUnavailable();
+      return e;
+    } on AppException catch (e) {
+      if (!isClosed) emit(state.copyWith(header: before));
+      return e;
+    } finally {
+      if (!isClosed) emit(state.copyWith(followBusy: false));
     }
   }
 

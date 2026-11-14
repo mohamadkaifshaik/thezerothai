@@ -74,6 +74,13 @@ class UserListCubit extends Cubit<UserListState> {
     return (item, index);
   }
 
+  /// Puts [item] at the top (a person just added to a List), unless the
+  /// list already has them.
+  void insertFirst(graph.UserListItem item) {
+    if (state.items.any((i) => i.user.userId == item.user.userId)) return;
+    emit(state.copyWith(items: [item, ...state.items]));
+  }
+
   /// Restores a row removed by [removeUser] (undo, or rollback on failure).
   void restoreItem(graph.UserListItem item, int index) {
     final items = [...state.items];

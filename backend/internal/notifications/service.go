@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -194,14 +195,82 @@ func (s *service) List(ctx context.Context, uid string, in ListInput) (ListResul
 		res.SinceToken = s.sinceToken(uid, rows, nil, now)
 	}
 
-	profiles, err := s.d.Directory.GetProfiles(ctx, []string{uid})
+	// One batched Directory lookup per page (cache first, one GetAll for the misses): the caller's profile for seen_at
+	// and the shown rows' newest visible actors for the avatar stack.
+	picks, actorIDs := pickShownActors(res.Notifications, MaxPageProfileLookup-1)
+	profiles, err := s.d.Directory.GetProfiles(ctx, append([]string{uid}, actorIDs...))
 	if err != nil {
-		// seen_at is a nicety (unread styling); the page itself is good. Log so a failing directory is visible.
-		slog.WarnContext(ctx, "notifications_list_seen_at_unavailable", "uid_hash", logger.HashUID(uid), "err", logger.RedactErr(err, uid))
-	} else {
-		res.SeenAt = profiles[uid].NotificationsSeenAt
+		// seen_at and the avatar stacks are niceties (unread styling, faces; clients fall back to `actor`); the page
+		// itself is good. Log so a failing directory is visible.
+		slog.WarnContext(ctx, "notifications_list_seen_at_unavailable", "uid_hash", logger.HashUID(uid), "err", logger.RedactErr(err, append([]string{uid}, actorIDs...)...))
+		return res, nil
 	}
+	res.SeenAt = profiles[uid].NotificationsSeenAt
+	hydrateActors(res.Notifications, picks, profiles)
 	return res, nil
+}
+
+// pickShownActors chooses, for each shown row, up to MaxShownActors distinct actors newest first. The rows are
+// already pruned by visible(), so a hidden actor is never picked. foldActor appends the newest actor at the end of
+// ActorIDs, so the picks come from the tail. The page's distinct ids are capped at budget (the batched lookup's
+// size); picking goes round by round (every row's newest actor first, then the second newest, ...), so when the cap
+// bites a row loses its older faces before another row loses its newest. picks[i] is row i's ids in display order;
+// ids is the deduplicated union to look up.
+func pickShownActors(rows []Notification, budget int) (picks [][]string, ids []string) {
+	picks = make([][]string, len(rows))
+	seen := make(map[string]bool)
+	for round := 0; round < MaxShownActors; round++ {
+		for i, n := range rows {
+			if len(picks[i]) != round {
+				continue // this row ran out of actors in an earlier round
+			}
+			id := nthNewestActor(n.ActorIDs, picks[i])
+			if id == "" {
+				continue
+			}
+			if !seen[id] {
+				if len(ids) >= budget {
+					continue
+				}
+				seen[id] = true
+				ids = append(ids, id)
+			}
+			picks[i] = append(picks[i], id)
+		}
+	}
+	return picks, ids
+}
+
+// nthNewestActor is the newest id of actorIDs (scanning from the tail) not already in taken and not empty, or "".
+func nthNewestActor(actorIDs, taken []string) string {
+	for j := len(actorIDs) - 1; j >= 0; j-- {
+		id := actorIDs[j]
+		if id != "" && !slices.Contains(taken, id) {
+			return id
+		}
+	}
+	return ""
+}
+
+// hydrateActors fills each row's Actors from the picks, in order. An id the Directory did not return (gone,
+// suspended or deleting) is left out; ActorCount is untouched.
+func hydrateActors(rows []Notification, picks [][]string, profiles map[string]identity.Profile) {
+	for i := range rows {
+		for _, id := range picks[i] {
+			p, ok := profiles[id]
+			if !ok {
+				continue
+			}
+			rows[i].Actors = append(rows[i].Actors, liveActorFromProfile(p))
+		}
+	}
+}
+
+// liveActorFromProfile is the live row of one actor: the 96 px thumb as avatar_url (the full avatar when there is no
+// thumb, as the stored actor snapshot does) and the is_private lock badge.
+func liveActorFromProfile(p identity.Profile) LiveActor {
+	a := actorFromProfile(p)
+	return LiveActor{UserID: a.UserID, Handle: a.Handle, DisplayName: a.DisplayName, AvatarURL: a.AvatarURL, Verified: a.Verified, IsPrivate: p.IsPrivate}
 }
 
 // overflowBlocks is what List established about the page's actors when the caller's blockedBy overflowed (F-04):

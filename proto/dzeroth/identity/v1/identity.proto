@@ -34,6 +34,15 @@ service IdentityService {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
+  // Up to 5 free handles to offer when the handle the caller chose is taken (sign-up and Change handle). Read-only.
+  // Gated by FEATURE_HANDLE_SUGGESTIONS (FEATURE_DISABLED feature=handle_suggestions while off) and shares the
+  // CheckHandleAvailability limiter bucket and its verified-identity gate. Candidates are derived from the input
+  // (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
+  // input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
+  rpc SuggestHandles(SuggestHandlesRequest) returns (SuggestHandlesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
   // The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   // unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).
   // enabled_features comes from server env config, with no lookup.
@@ -236,6 +245,16 @@ message CheckHandleAvailabilityResponse {
   string reason = 2;
 }
 
+message SuggestHandlesRequest {
+  // The handle the caller tried (taken or not). Invalid input answers an empty list.
+  string handle = 1;
+}
+
+message SuggestHandlesResponse {
+  // 0 to 5 free handles, in the order they were found. Never reserved, invalid or taken.
+  repeated string handles = 1;
+}
+
 message GetMeRequest {}
 
 message GetMeResponse {
@@ -347,13 +366,26 @@ enum ExportStatus {
   EXPORT_STATUS_FAILED = 3;
 }
 
+// The archive an export is delivered as. UNSPECIFIED and JSON are the single JSON object (the default). ZIP is a ZIP
+// archive with one JSON file per area; it is honoured only while FEATURE_EXPORT_ZIP is on for the caller and otherwise
+// falls back to JSON, which the response's format says.
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  EXPORT_FORMAT_JSON = 1;
+  EXPORT_FORMAT_ZIP = 2;
+}
+
 message RequestAccountExportRequest {
   string idempotency_key = 1;
+  // Additive. Left out (UNSPECIFIED) means JSON. A replay or an already PENDING export answers with that export's format.
+  ExportFormat format = 2;
 }
 
 message RequestAccountExportResponse {
   string export_id = 1;
   ExportStatus status = 2;
+  // The format of the export that was returned (it may be an earlier request's export; see RequestAccountExport).
+  ExportFormat format = 3;
 }
 
 message GetAccountExportRequest {
@@ -370,4 +402,6 @@ message GetAccountExportResponse {
   // exports doc (Firestore TTL) are deleted after it; both delete late, so the server returns NOT_FOUND from this
   // time on. Deleting the account deletes its exports at once.
   google.protobuf.Timestamp expires_at = 5;
+  // The format of this export: the download is a ZIP archive or the JSON object.
+  ExportFormat format = 6;
 }

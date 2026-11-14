@@ -27,6 +27,9 @@ const Map<String, String> _allowlist = {
   'core/storage/account_export_schema_test.dart':
       'the dates are stored in an in-memory database and read back; '
       'savedExport has no clock comparison',
+  'core/storage/post_history_schema_test.dart':
+      'the repository gets an injected clock; the fixed date is only '
+      'advanced by Duration adds and compared with itself',
   'features/account/presentation/bloc/data_export_cubit_test.dart':
       'the cubit gets clock: () => now; every comparison is between fixed '
       'values',

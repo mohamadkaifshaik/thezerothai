@@ -193,6 +193,11 @@ func mapErr(ctx context.Context, op, uid, listID string, err error) error {
 		logger.SetRequestField(ctx, "limit", limitLists)
 		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED,
 			"list limit reached").WithMeta("limit", limitLists)
+	case errors.Is(err, ErrFollowLimit):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
+		logger.SetRequestField(ctx, "limit", limitListFollows)
+		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED,
+			"follow limit reached").WithMeta("limit", limitListFollows)
 	case errors.Is(err, ErrMemberLimit):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
 		logger.SetRequestField(ctx, "limit", limitListMembers)

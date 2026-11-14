@@ -171,7 +171,10 @@ type UserListItem struct {
 	Since *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`
 	// The caller's relationship to `user`, computed from the caller's own graph, so clients can render
 	// follow buttons on list rows without calling GetRelationships.
-	Relationship  *Relationship `protobuf:"bytes,3,opt,name=relationship,proto3" json:"relationship,omitempty"`
+	Relationship *Relationship `protobuf:"bytes,3,opt,name=relationship,proto3" json:"relationship,omitempty"`
+	// The user's bio (<= 160 chars), hydrated from the live profile like `user` (up to 60 s stale); empty if none.
+	// Lets the follower, following and suggested rows show it without a second call. Costs no extra read.
+	Bio           string `protobuf:"bytes,4,opt,name=bio,proto3" json:"bio,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -225,6 +228,13 @@ func (x *UserListItem) GetRelationship() *Relationship {
 		return x.Relationship
 	}
 	return nil
+}
+
+func (x *UserListItem) GetBio() string {
+	if x != nil {
+		return x.Bio
+	}
+	return ""
 }
 
 type FollowRequest struct {
@@ -1735,11 +1745,12 @@ const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12@\n" +
 	"\ffollow_state\x18\x02 \x01(\x0e2\x1d.dzeroth.graph.v1.FollowStateR\vfollowState\x12\x1a\n" +
 	"\bblocking\x18\x03 \x01(\bR\bblocking\x12\x16\n" +
-	"\x06muting\x18\x04 \x01(\bR\x06muting\"\xbb\x01\n" +
+	"\x06muting\x18\x04 \x01(\bR\x06muting\"\xcd\x01\n" +
 	"\fUserListItem\x125\n" +
 	"\x04user\x18\x01 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x04user\x120\n" +
 	"\x05since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\x12B\n" +
-	"\frelationship\x18\x03 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"Q\n" +
+	"\frelationship\x18\x03 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\x12\x10\n" +
+	"\x03bio\x18\x04 \x01(\tR\x03bio\"Q\n" +
 	"\rFollowRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\"T\n" +

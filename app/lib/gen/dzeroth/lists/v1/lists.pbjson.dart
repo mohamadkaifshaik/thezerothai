@@ -39,6 +39,14 @@ const ListInfo$json = {
     {'1': 'is_private', '3': 5, '4': 1, '5': 8, '10': 'isPrivate'},
     {'1': 'member_count', '3': 6, '4': 1, '5': 5, '10': 'memberCount'},
     {'1': 'pinned_by_viewer', '3': 7, '4': 1, '5': 8, '10': 'pinnedByViewer'},
+    {'1': 'follower_count', '3': 8, '4': 1, '5': 5, '10': 'followerCount'},
+    {
+      '1': 'followed_by_viewer',
+      '3': 9,
+      '4': 1,
+      '5': 8,
+      '10': 'followedByViewer'
+    },
   ],
 };
 
@@ -48,7 +56,9 @@ final $typed_data.Uint8List listInfoDescriptor = $convert.base64Decode(
     'Vyb3RoLmNvbW1vbi52MS5BdXRob3JTbmFwc2hvdFIFb3duZXISEgoEbmFtZRgDIAEoCVIEbmFt'
     'ZRIgCgtkZXNjcmlwdGlvbhgEIAEoCVILZGVzY3JpcHRpb24SHQoKaXNfcHJpdmF0ZRgFIAEoCF'
     'IJaXNQcml2YXRlEiEKDG1lbWJlcl9jb3VudBgGIAEoBVILbWVtYmVyQ291bnQSKAoQcGlubmVk'
-    'X2J5X3ZpZXdlchgHIAEoCFIOcGlubmVkQnlWaWV3ZXI=');
+    'X2J5X3ZpZXdlchgHIAEoCFIOcGlubmVkQnlWaWV3ZXISJQoOZm9sbG93ZXJfY291bnQYCCABKA'
+    'VSDWZvbGxvd2VyQ291bnQSLAoSZm9sbG93ZWRfYnlfdmlld2VyGAkgASgIUhBmb2xsb3dlZEJ5'
+    'Vmlld2Vy');
 
 @$core.Deprecated('Use createListRequestDescriptor instead')
 const CreateListRequest$json = {
@@ -370,6 +380,172 @@ final $typed_data.Uint8List listListMembersResponseDescriptor = $convert.base64D
     'gudjEuVXNlckxpc3RJdGVtUgV1c2VycxImCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAlSDW5leHRQ'
     'YWdlVG9rZW4=');
 
+@$core.Deprecated('Use followListRequestDescriptor instead')
+const FollowListRequest$json = {
+  '1': 'FollowListRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'list_id', '3': 2, '4': 1, '5': 9, '10': 'listId'},
+  ],
+};
+
+/// Descriptor for `FollowListRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List followListRequestDescriptor = $convert.base64Decode(
+    'ChFGb2xsb3dMaXN0UmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDmlkZW1wb3Rlbm'
+    'N5S2V5EhcKB2xpc3RfaWQYAiABKAlSBmxpc3RJZA==');
+
+@$core.Deprecated('Use followListResponseDescriptor instead')
+const FollowListResponse$json = {
+  '1': 'FollowListResponse',
+  '2': [
+    {
+      '1': 'list',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.lists.v1.ListInfo',
+      '10': 'list'
+    },
+  ],
+};
+
+/// Descriptor for `FollowListResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List followListResponseDescriptor = $convert.base64Decode(
+    'ChJGb2xsb3dMaXN0UmVzcG9uc2USLgoEbGlzdBgBIAEoCzIaLmR6ZXJvdGgubGlzdHMudjEuTG'
+    'lzdEluZm9SBGxpc3Q=');
+
+@$core.Deprecated('Use unfollowListRequestDescriptor instead')
+const UnfollowListRequest$json = {
+  '1': 'UnfollowListRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'list_id', '3': 2, '4': 1, '5': 9, '10': 'listId'},
+  ],
+};
+
+/// Descriptor for `UnfollowListRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List unfollowListRequestDescriptor = $convert.base64Decode(
+    'ChNVbmZvbGxvd0xpc3RSZXF1ZXN0EicKD2lkZW1wb3RlbmN5X2tleRgBIAEoCVIOaWRlbXBvdG'
+    'VuY3lLZXkSFwoHbGlzdF9pZBgCIAEoCVIGbGlzdElk');
+
+@$core.Deprecated('Use unfollowListResponseDescriptor instead')
+const UnfollowListResponse$json = {
+  '1': 'UnfollowListResponse',
+};
+
+/// Descriptor for `UnfollowListResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List unfollowListResponseDescriptor =
+    $convert.base64Decode('ChRVbmZvbGxvd0xpc3RSZXNwb25zZQ==');
+
+@$core.Deprecated('Use listFollowedListsRequestDescriptor instead')
+const ListFollowedListsRequest$json = {
+  '1': 'ListFollowedListsRequest',
+  '2': [
+    {'1': 'page_size', '3': 1, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 2, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `ListFollowedListsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listFollowedListsRequestDescriptor =
+    $convert.base64Decode(
+        'ChhMaXN0Rm9sbG93ZWRMaXN0c1JlcXVlc3QSGwoJcGFnZV9zaXplGAEgASgFUghwYWdlU2l6ZR'
+        'IdCgpwYWdlX3Rva2VuGAIgASgJUglwYWdlVG9rZW4=');
+
+@$core.Deprecated('Use listFollowedListsResponseDescriptor instead')
+const ListFollowedListsResponse$json = {
+  '1': 'ListFollowedListsResponse',
+  '2': [
+    {
+      '1': 'lists',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.lists.v1.ListInfo',
+      '10': 'lists'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `ListFollowedListsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listFollowedListsResponseDescriptor = $convert.base64Decode(
+    'ChlMaXN0Rm9sbG93ZWRMaXN0c1Jlc3BvbnNlEjAKBWxpc3RzGAEgAygLMhouZHplcm90aC5saX'
+    'N0cy52MS5MaXN0SW5mb1IFbGlzdHMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJUg1uZXh0UGFn'
+    'ZVRva2Vu');
+
+@$core.Deprecated('Use discoverListsRequestDescriptor instead')
+const DiscoverListsRequest$json = {
+  '1': 'DiscoverListsRequest',
+  '2': [
+    {'1': 'page_size', '3': 1, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 2, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `DiscoverListsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List discoverListsRequestDescriptor = $convert.base64Decode(
+    'ChREaXNjb3Zlckxpc3RzUmVxdWVzdBIbCglwYWdlX3NpemUYASABKAVSCHBhZ2VTaXplEh0KCn'
+    'BhZ2VfdG9rZW4YAiABKAlSCXBhZ2VUb2tlbg==');
+
+@$core.Deprecated('Use discoverListsResponseDescriptor instead')
+const DiscoverListsResponse$json = {
+  '1': 'DiscoverListsResponse',
+  '2': [
+    {
+      '1': 'lists',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.lists.v1.ListInfo',
+      '10': 'lists'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `DiscoverListsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List discoverListsResponseDescriptor = $convert.base64Decode(
+    'ChVEaXNjb3Zlckxpc3RzUmVzcG9uc2USMAoFbGlzdHMYASADKAsyGi5kemVyb3RoLmxpc3RzLn'
+    'YxLkxpc3RJbmZvUgVsaXN0cxImCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAlSDW5leHRQYWdlVG9r'
+    'ZW4=');
+
+@$core.Deprecated('Use listSuggestedMembersRequestDescriptor instead')
+const ListSuggestedMembersRequest$json = {
+  '1': 'ListSuggestedMembersRequest',
+  '2': [
+    {'1': 'list_id', '3': 1, '4': 1, '5': 9, '10': 'listId'},
+    {'1': 'max_results', '3': 2, '4': 1, '5': 5, '10': 'maxResults'},
+  ],
+};
+
+/// Descriptor for `ListSuggestedMembersRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listSuggestedMembersRequestDescriptor =
+    $convert.base64Decode(
+        'ChtMaXN0U3VnZ2VzdGVkTWVtYmVyc1JlcXVlc3QSFwoHbGlzdF9pZBgBIAEoCVIGbGlzdElkEh'
+        '8KC21heF9yZXN1bHRzGAIgASgFUgptYXhSZXN1bHRz');
+
+@$core.Deprecated('Use listSuggestedMembersResponseDescriptor instead')
+const ListSuggestedMembersResponse$json = {
+  '1': 'ListSuggestedMembersResponse',
+  '2': [
+    {
+      '1': 'users',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.graph.v1.UserListItem',
+      '10': 'users'
+    },
+  ],
+};
+
+/// Descriptor for `ListSuggestedMembersResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listSuggestedMembersResponseDescriptor =
+    $convert.base64Decode(
+        'ChxMaXN0U3VnZ2VzdGVkTWVtYmVyc1Jlc3BvbnNlEjQKBXVzZXJzGAEgAygLMh4uZHplcm90aC'
+        '5ncmFwaC52MS5Vc2VyTGlzdEl0ZW1SBXVzZXJz');
+
 const $core.Map<$core.String, $core.dynamic> ListServiceBase$json = {
   '1': 'ListService',
   '2': [
@@ -416,6 +592,34 @@ const $core.Map<$core.String, $core.dynamic> ListServiceBase$json = {
       '3': '.dzeroth.lists.v1.ListListMembersResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'FollowList',
+      '2': '.dzeroth.lists.v1.FollowListRequest',
+      '3': '.dzeroth.lists.v1.FollowListResponse'
+    },
+    {
+      '1': 'UnfollowList',
+      '2': '.dzeroth.lists.v1.UnfollowListRequest',
+      '3': '.dzeroth.lists.v1.UnfollowListResponse'
+    },
+    {
+      '1': 'ListFollowedLists',
+      '2': '.dzeroth.lists.v1.ListFollowedListsRequest',
+      '3': '.dzeroth.lists.v1.ListFollowedListsResponse',
+      '4': {'34': 1},
+    },
+    {
+      '1': 'DiscoverLists',
+      '2': '.dzeroth.lists.v1.DiscoverListsRequest',
+      '3': '.dzeroth.lists.v1.DiscoverListsResponse',
+      '4': {'34': 1},
+    },
+    {
+      '1': 'ListSuggestedMembers',
+      '2': '.dzeroth.lists.v1.ListSuggestedMembersRequest',
+      '3': '.dzeroth.lists.v1.ListSuggestedMembersResponse',
+      '4': {'34': 1},
+    },
   ],
 };
 
@@ -443,6 +647,18 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.graph.v1.UserListItem': $1.UserListItem$json,
   '.google.protobuf.Timestamp': $2.Timestamp$json,
   '.dzeroth.graph.v1.Relationship': $1.Relationship$json,
+  '.dzeroth.lists.v1.FollowListRequest': FollowListRequest$json,
+  '.dzeroth.lists.v1.FollowListResponse': FollowListResponse$json,
+  '.dzeroth.lists.v1.UnfollowListRequest': UnfollowListRequest$json,
+  '.dzeroth.lists.v1.UnfollowListResponse': UnfollowListResponse$json,
+  '.dzeroth.lists.v1.ListFollowedListsRequest': ListFollowedListsRequest$json,
+  '.dzeroth.lists.v1.ListFollowedListsResponse': ListFollowedListsResponse$json,
+  '.dzeroth.lists.v1.DiscoverListsRequest': DiscoverListsRequest$json,
+  '.dzeroth.lists.v1.DiscoverListsResponse': DiscoverListsResponse$json,
+  '.dzeroth.lists.v1.ListSuggestedMembersRequest':
+      ListSuggestedMembersRequest$json,
+  '.dzeroth.lists.v1.ListSuggestedMembersResponse':
+      ListSuggestedMembersResponse$json,
 };
 
 /// Descriptor for `ListService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -461,4 +677,13 @@ final $typed_data.Uint8List listServiceDescriptor = $convert.base64Decode(
     'ZlTGlzdE1lbWJlclJlcXVlc3QaKi5kemVyb3RoLmxpc3RzLnYxLlJlbW92ZUxpc3RNZW1iZXJS'
     'ZXNwb25zZRJrCg9MaXN0TGlzdE1lbWJlcnMSKC5kemVyb3RoLmxpc3RzLnYxLkxpc3RMaXN0TW'
     'VtYmVyc1JlcXVlc3QaKS5kemVyb3RoLmxpc3RzLnYxLkxpc3RMaXN0TWVtYmVyc1Jlc3BvbnNl'
-    'IgOQAgE=');
+    'IgOQAgESVwoKRm9sbG93TGlzdBIjLmR6ZXJvdGgubGlzdHMudjEuRm9sbG93TGlzdFJlcXVlc3'
+    'QaJC5kemVyb3RoLmxpc3RzLnYxLkZvbGxvd0xpc3RSZXNwb25zZRJdCgxVbmZvbGxvd0xpc3QS'
+    'JS5kemVyb3RoLmxpc3RzLnYxLlVuZm9sbG93TGlzdFJlcXVlc3QaJi5kemVyb3RoLmxpc3RzLn'
+    'YxLlVuZm9sbG93TGlzdFJlc3BvbnNlEnEKEUxpc3RGb2xsb3dlZExpc3RzEiouZHplcm90aC5s'
+    'aXN0cy52MS5MaXN0Rm9sbG93ZWRMaXN0c1JlcXVlc3QaKy5kemVyb3RoLmxpc3RzLnYxLkxpc3'
+    'RGb2xsb3dlZExpc3RzUmVzcG9uc2UiA5ACARJlCg1EaXNjb3Zlckxpc3RzEiYuZHplcm90aC5s'
+    'aXN0cy52MS5EaXNjb3Zlckxpc3RzUmVxdWVzdBonLmR6ZXJvdGgubGlzdHMudjEuRGlzY292ZX'
+    'JMaXN0c1Jlc3BvbnNlIgOQAgESegoUTGlzdFN1Z2dlc3RlZE1lbWJlcnMSLS5kemVyb3RoLmxp'
+    'c3RzLnYxLkxpc3RTdWdnZXN0ZWRNZW1iZXJzUmVxdWVzdBouLmR6ZXJvdGgubGlzdHMudjEuTG'
+    'lzdFN1Z2dlc3RlZE1lbWJlcnNSZXNwb25zZSIDkAIB');

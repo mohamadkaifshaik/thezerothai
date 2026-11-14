@@ -28,3 +28,30 @@ const kMaxListsPerUser = 20;
 /// Field limits of a List (the proto `max_len` rules).
 const kListNameMaxLength = 25;
 const kListDescriptionMaxLength = 100;
+
+/// Name of the list-follows flag (`FEATURE_LIST_FOLLOWS`) in
+/// `GetMe.enabled_features`: Follow / Following on a public List, the
+/// follower count, "Lists you follow" and Discover. Off: none of it shows and
+/// none of FollowList, UnfollowList, ListFollowedLists, DiscoverLists is sent.
+const kFeatureListFollows = 'list_follows';
+
+/// Name of the list-suggestions flag (`FEATURE_LIST_SUGGESTIONS`): the
+/// "Suggested members" card on the members page of a List the caller owns.
+const kFeatureListSuggestions = 'list_suggestions';
+
+/// `metadata["limit"]` of FollowList's LIMIT_REACHED (100 followed Lists).
+const kListFollowsLimit = 'list_follows';
+
+/// The most Lists one person can follow (server config); the server stays
+/// authoritative.
+const kMaxListFollows = 100;
+
+/// Page size of ListFollowedLists and DiscoverLists.
+const kListFollowsPageSize = 20;
+
+/// `max_results` of ListSuggestedMembers (the card shows up to ten people).
+const kListSuggestionsMax = 10;
+
+/// "1 follower" / "N followers".
+String listFollowerCountLabel(int count) =>
+    count == 1 ? '1 follower' : '$count followers';
