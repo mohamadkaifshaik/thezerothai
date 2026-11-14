@@ -58,6 +58,7 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.MessagesMarkReadPerDay = 500 // (the config.Load defaults)
 	cfg.RateLimit.MessagesMutationsPerDay = 500
 	cfg.RateLimit.NotificationsListPerUserPerMinute = 30 // ListNotifications (the config.Load default)
+	cfg.RateLimit.GetMePerUserPerMinute = 30             // GetMe (the config.Load default, L1)
 	// Beacon limits (the config.Load defaults).
 	cfg.RateLimit.BeaconsWritePerUserPerMinute = 10
 	cfg.RateLimit.BeaconsActionPerUserPerMinute = 20
