@@ -94,8 +94,13 @@ type IdentityServiceClient interface {
 	// (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
 	// input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
 	SuggestHandles(context.Context, *connect.Request[v1.SuggestHandlesRequest]) (*connect.Response[v1.SuggestHandlesResponse], error)
-	// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
-	// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).
+	// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes).
+	// unread_notification_count: the notifications with createdAt > users.notificationsSeenAt that ListNotifications
+	// would show by its block and mute rule: a row whose displayed actor the caller blocks or mutes, or who blocks the
+	// caller (including the blocked-by overflow lookup), is not counted. It does NOT apply ListNotifications' account
+	// status rule, so a row whose actor is no longer ACTIVE still counts until it is purged. Capped at 100, cached 30 s;
+	// a failed count answers 0 (not cached) and GetMe still answers.
+	// Rate limit: its own per-user bucket, RATE_LIMIT_GET_ME_PER_MIN (default 30/min per instance); no daily cap.
 	// enabled_features comes from server env config, with no lookup.
 	// pending_follow_request_count: for a protected caller only, a count() aggregation on followRequests
 	// where followeeId == caller, cached 30 s; every other caller gets 0 without a lookup. A
@@ -355,8 +360,13 @@ type IdentityServiceHandler interface {
 	// (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
 	// input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
 	SuggestHandles(context.Context, *connect.Request[v1.SuggestHandlesRequest]) (*connect.Response[v1.SuggestHandlesResponse], error)
-	// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
-	// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).
+	// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes).
+	// unread_notification_count: the notifications with createdAt > users.notificationsSeenAt that ListNotifications
+	// would show by its block and mute rule: a row whose displayed actor the caller blocks or mutes, or who blocks the
+	// caller (including the blocked-by overflow lookup), is not counted. It does NOT apply ListNotifications' account
+	// status rule, so a row whose actor is no longer ACTIVE still counts until it is purged. Capped at 100, cached 30 s;
+	// a failed count answers 0 (not cached) and GetMe still answers.
+	// Rate limit: its own per-user bucket, RATE_LIMIT_GET_ME_PER_MIN (default 30/min per instance); no daily cap.
 	// enabled_features comes from server env config, with no lookup.
 	// pending_follow_request_count: for a protected caller only, a count() aggregation on followRequests
 	// where followeeId == caller, cached 30 s; every other caller gets 0 without a lookup. A

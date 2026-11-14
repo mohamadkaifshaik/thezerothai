@@ -909,11 +909,10 @@ type Post struct {
 	// reported through dzeroth.engagement.v1.EngagementService.RecordImpressions, the author's own views never counted. Presence is
 	// the visibility signal: the field is SET only when this response's viewer may see the count, and unset (has_view_count
 	// false) otherwise; clients render a count only when it is set. The hybrid rule:
-	//   - the author always gets their own count (GetPost: the exact live sum of the counter shards; every other surface: the
-	//     value rolled up into posts/{id}.viewCount by the view rollup, at most about 20 minutes behind);
-	//   - anyone else gets the rolled-up count only once it is at least the server's POST_VIEWS_PUBLIC_THRESHOLD (default
-	//     1000) AND the author is not protected; a protected author's count is the author's only, always.
-	//
+	// - the author always gets their own count (GetPost: the exact live sum of the counter shards; every other surface: the
+	//   value rolled up into posts/{id}.viewCount by the view rollup, at most about 20 minutes behind);
+	// - anyone else gets the rolled-up count only once it is at least the server's POST_VIEWS_PUBLIC_THRESHOLD (default
+	//   1000) AND the author is not protected; a protected author's count is the author's only, always.
 	// Unset on a REPOST row (read the embed's original), on an embed, on a withheld row, on surfaces that do not decide the
 	// author's protected state, and everywhere while FEATURE_POST_VIEWS is globally off. Never says who viewed. Additive.
 	ViewCount     *int64 `protobuf:"varint,26,opt,name=view_count,json=viewCount,proto3,oneof" json:"view_count,omitempty"`
