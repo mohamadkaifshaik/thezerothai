@@ -17,6 +17,8 @@ import '../../../features/beacons/presentation/widgets/post_beacon_embed.dart';
 import '../../../features/communities/domain/communities_feature_flag.dart';
 import '../../../features/communities/presentation/communities_error_messages.dart';
 import '../../../features/engagement/domain/engagement_entry.dart';
+import '../../../features/engagement/domain/impression_target.dart';
+import '../../../features/engagement/presentation/widgets/impression_detector.dart';
 import '../../../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../../../features/engagement/presentation/widgets/post_engagement_bar.dart';
 import '../../../features/engagement/presentation/widgets/post_poll.dart';
@@ -48,6 +50,7 @@ import 'poll_card.dart';
 import 'post_context_label.dart';
 import 'post_moderation_control.dart';
 import 'post_pin_control.dart';
+import 'post_views_stat.dart';
 import '../user/protected_badge.dart';
 import 'protected_post_box.dart';
 import 'unavailable_post_box.dart';
@@ -627,16 +630,36 @@ class PostCard extends StatelessWidget {
           if (created != null)
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.md),
-              child: Text(
-                formatPostTimestamp(created),
-                // Read as "9:11 PM, Nov 1, 2026", not with the dot.
-                semanticsLabel: formatPostTimestamp(created)
-                    .replaceAll(' · ', ', '),
-                style:
-                    (wideFocal
-                            ? theme.textTheme.bodyLarge
-                            : theme.textTheme.bodySmall)
-                        ?.copyWith(color: muted),
+              child: Builder(
+                builder: (context) {
+                  final time = Text(
+                    formatPostTimestamp(created),
+                    // Read as "9:11 PM, Nov 1, 2026", not with the dot.
+                    semanticsLabel: formatPostTimestamp(created)
+                        .replaceAll(' · ', ', '),
+                    style:
+                        (wideFocal
+                                ? theme.textTheme.bodyLarge
+                                : theme.textTheme.bodySmall)
+                            ?.copyWith(color: muted),
+                  );
+                  // Views beside the time, only when the server set the count
+                  // and `post_views` is on.
+                  final views = shownViewCount(context, _post);
+                  if (views == null) return time;
+                  return Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: AppSpacing.md,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      time,
+                      PostViewsStat(
+                        count: views,
+                        iconSize: wideFocal ? AppIconSize.action : 16,
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           if (bar != null) ...[
@@ -686,7 +709,7 @@ class PostCard extends StatelessWidget {
     // does. Tap targets stay 48dp. A context label (repost / community) on
     // top has no such box, so it keeps the full 12dp above it.
     final dense = !asFocal;
-    return Padding(
+    final padded = Padding(
       padding: EdgeInsets.fromLTRB(
         gutter,
         dense && contextLabel == null
@@ -704,6 +727,13 @@ class PostCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [contextLabel, row],
             ),
+    );
+    final countedId = impressionTargetId(view);
+    if (countedId == null) return padded;
+    return ImpressionDetector(
+      postId: countedId,
+      immediate: asFocal,
+      child: padded,
     );
   }
 

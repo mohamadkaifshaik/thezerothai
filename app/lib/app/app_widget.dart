@@ -32,6 +32,7 @@ import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
+import '../features/engagement/domain/impression_tracker.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/beacons/data/beacons_repository.dart';
 import '../features/beacons/presentation/bloc/plans_session.dart';
@@ -105,6 +106,7 @@ class AppWidget extends StatefulWidget {
     required this.messagingRepository,
     required this.moderationRepository,
     required this.engagementRepository,
+    this.impressionTracker,
     required this.bookmarksRepository,
     this.searchRepository,
     this.pollRepository,
@@ -147,6 +149,10 @@ class AppWidget extends StatefulWidget {
 
   /// Likes, reposts and quotes (`FEATURE_ENGAGEMENT`).
   final EngagementRepository engagementRepository;
+
+  /// Collects the posts the viewer saw (`post_views`); null (tests) tracks
+  /// nothing.
+  final ImpressionTracker? impressionTracker;
 
   /// Bookmarks (`FEATURE_BOOKMARKS`): the session overlay and
   /// Add / RemoveBookmark.
@@ -228,7 +234,7 @@ class AppWidget extends StatefulWidget {
   State<AppWidget> createState() => _AppWidgetState();
 }
 
-class _AppWidgetState extends State<AppWidget> {
+class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   late final SubscriptionCubit? _subscription =
       widget.subscriptionRepository == null
       ? null
@@ -378,6 +384,7 @@ class _AppWidgetState extends State<AppWidget> {
       ..register('engagement', () {
         _engagement.reset();
         widget.engagementRepository.clearShareSession();
+        widget.impressionTracker?.reset();
       })
       ..register('polls', () => _polls?.reset())
       ..register('bookmarks', _bookmarks.reset)
@@ -410,6 +417,7 @@ class _AppWidgetState extends State<AppWidget> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _accountUid = widget.authBloc.state.user?.uid;
     _registerAccountState();
     unawaited(_themeMode.load());
@@ -569,6 +577,8 @@ class _AppWidgetState extends State<AppWidget> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.impressionTracker?.dispose();
     _screenViews.dispose();
     _authSub.cancel();
     _onboardingSub.cancel();
@@ -589,6 +599,17 @@ class _AppWidgetState extends State<AppWidget> {
     _messagesBadge.close();
     _subscription?.close();
     super.dispose();
+  }
+
+  /// App or tab hidden (on the web `visibilitychange` arrives here as
+  /// hidden / paused): send the views collected so far.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive) {
+      return;
+    }
+    unawaited(widget.impressionTracker?.onBackground());
   }
 
   late final ScreenViewTracker _screenViews;
@@ -632,6 +653,10 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.messagingRepository),
         RepositoryProvider.value(value: widget.moderationRepository),
         RepositoryProvider.value(value: widget.engagementRepository),
+        if (widget.impressionTracker != null)
+          RepositoryProvider<ImpressionTracker>.value(
+            value: widget.impressionTracker!,
+          ),
         RepositoryProvider.value(value: widget.bookmarksRepository),
         if (widget.searchRepository != null)
           RepositoryProvider<SearchRepository>.value(
