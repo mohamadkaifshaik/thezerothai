@@ -35,6 +35,9 @@ abstract class OnboardingState with _$OnboardingState {
     @Default('') String displayName,
     @Default(HandleCheckStatus.idle) HandleCheckStatus handleCheckStatus,
     @Default('') String handleCheckMessage,
+    // Free handles near a taken one (SuggestHandles), at most 5; empty while
+    // none were asked for, the flag is off or the server had none.
+    @Default(<String>[]) List<String> handleSuggestions,
     @Default(false) bool isSubmitting,
     AppException? error,
     // Server feature flags enabled for the caller, e.g.
