@@ -184,6 +184,9 @@ class SubscriptionCubit extends Cubit<SubscriptionState> {
       final result = await action();
       if (!_current(uid, generation, epoch)) return;
       switch (result.disposition) {
+        case PurchaseDisposition.refreshed:
+          emit(SubscriptionState(phase: SubscriptionPhase.loading, uid: uid));
+          await refresh();
         case PurchaseDisposition.canceled:
           _awaitingPurchase = null;
           emit(SubscriptionState(phase: SubscriptionPhase.loading, uid: uid));

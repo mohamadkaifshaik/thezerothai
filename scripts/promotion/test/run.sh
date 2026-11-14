@@ -372,5 +372,6 @@ UNTIL_TODAY=tomorrow expect_msg "until: a bad UNTIL_TODAY is a usage error" 2 "n
 unset UNTIL_TODAY
 expect "until: missing directory is a usage error" 2 "$U" "$tmp/does-not-exist"
 
+expect "billing candidate configuration" 0 "$here/billing-config-test.sh"
 echo "promotion fixture tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]

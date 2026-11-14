@@ -64,7 +64,7 @@ class SubscriptionOffering {
   final String billingPeriod;
 }
 
-enum PurchaseDisposition { verifying, canceled, pending }
+enum PurchaseDisposition { verifying, canceled, pending, refreshed }
 
 /// Even a successful store transaction only starts server verification.
 class SubscriptionPurchaseResult {

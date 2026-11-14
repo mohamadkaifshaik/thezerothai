@@ -1,6 +1,10 @@
 # RevenueCat dev rollout review
 
-Status: prepared for review; no build/push/deployment or traffic change executed.
+Current implementation/setup: [Google Play billing setup](GOOGLE_PLAY_BILLING_SETUP.md).
+The Test Store foundation was deployed to dev after PR #854. The real-store
+extension is prepared separately and remains disabled pending store setup.
+
+Historical rollout proposal below; no real-store billing rollout has been executed.
 This is a configuration and validation proposal, not a release readiness verdict.
 
 ## Target and release path
@@ -37,8 +41,9 @@ This webhook configuration intentionally accepts PRODUCTION transactions only,
 even in dev. The currently configured Test Store/monthly catalog cannot fill the
 production product map. Local emulator tests exercise durable processing with a
 fake provider; they do not prove a live App Store/Google Play transaction.
-Production purchase identity allocation and checkout remain disabled in this code.
-Enablement of those paths needs a separate reviewed rollout after store setup.
+The real-store extension wires private identities, verification and optional
+checkout when its reviewed configuration is supplied. Follow the current setup
+guide for the dev-only opt-in, receipt environment and pinned secret references.
 
 ## Checks before traffic or dashboard changes
 

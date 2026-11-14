@@ -94,8 +94,15 @@ func (t *routeTable) public(pattern string, h http.Handler) {
 
 // revenuecat has a fixed path and constructs its own authentication wrapper.
 // Callers cannot mount a bare handler or choose an unauthenticated fallback.
-func (t *routeTable) revenuecat(inbox billing.EventInbox, authorization, signingSecret string, appIDs []string) error {
-	h, err := billing.NewSignedWebhookHandler(inbox, authorization, signingSecret, billing.Production, appIDs, nil)
+func (t *routeTable) revenuecat(inbox billing.EventInbox, authorization, signingSecret string, appIDs []string, environments ...billing.Environment) error {
+	environment := billing.Production
+	if len(environments) > 1 {
+		return billing.ErrInvalidInput
+	}
+	if len(environments) == 1 {
+		environment = environments[0]
+	}
+	h, err := billing.NewSignedWebhookHandler(inbox, authorization, signingSecret, environment, appIDs, nil)
 	if err != nil {
 		return err
 	}

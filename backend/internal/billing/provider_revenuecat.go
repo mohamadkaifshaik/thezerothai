@@ -44,12 +44,14 @@ type rcInterval struct {
 type rcEntitlement struct {
 	rcInterval
 	Product string `json:"product_identifier"`
+	Plan    string `json:"product_plan_identifier"`
 }
 type rcSubscription struct {
 	rcInterval
 	Sandbox  *bool      `json:"is_sandbox"`
 	Store    string     `json:"store"`
 	Refunded *time.Time `json:"refunded_at"`
+	Plan     string     `json:"product_plan_identifier"`
 }
 type rcCustomer struct {
 	OriginalID    string                    `json:"original_app_user_id"`
@@ -105,11 +107,21 @@ func (p *RevenueCatProvider) GetCustomer(ctx context.Context, b Binding) (Snapsh
 	}
 	out := Snapshot{UID: b.UID, CustomerID: b.CustomerID, Environment: b.Environment, VerifiedAt: started}
 	for entitlement, e := range c.Entitlements {
-		product, known := p.products[e.Product]
+		// Catalog/webhook IDs include the base plan; v1 subscriptions are keyed
+		// by the underlying product with its plan in a separate field.
+		productID, encodedPlan, hasPlan := strings.Cut(e.Product, ":")
+		s, ok := c.Subscriptions[productID]
+		if !ok || (hasPlan && encodedPlan != s.Plan) || (e.Plan != "" && e.Plan != s.Plan) {
+			continue
+		}
+		catalogID := productID
+		if s.Plan != "" {
+			catalogID += ":" + s.Plan
+		}
+		product, known := p.products[catalogID]
 		if !known || product.Entitlement != entitlement {
 			continue
 		}
-		s, ok := c.Subscriptions[e.Product]
 		if !ok || s.Sandbox == nil || *s.Sandbox != (b.Environment == Sandbox) || s.Store != product.Store || s.Refunded != nil {
 			continue
 		}

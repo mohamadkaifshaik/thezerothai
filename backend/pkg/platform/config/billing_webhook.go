@@ -10,6 +10,8 @@ import (
 type BillingWebhookProduct struct{ Store, Entitlement string }
 type BillingWebhookConfig struct {
 	Enabled                                    bool
+	PurchasesEnabled                           bool
+	Environment                                string
 	SecretAPIKey, Authorization, SigningSecret string
 	AppIDs                                     []string
 	Products                                   map[string]BillingWebhookProduct
@@ -20,14 +22,32 @@ func (c BillingWebhookConfig) String() string {
 }
 func loadBillingWebhook(env string) (BillingWebhookConfig, error) {
 	var c BillingWebhookConfig
+	sales := os.Getenv("BILLING_PURCHASES_ENABLED")
+	if sales != "" && sales != "false" && sales != "true" {
+		return c, fmt.Errorf("config: BILLING_PURCHASES_ENABLED must be true or false")
+	}
+	if sales == "true" && env != "dev" {
+		return c, fmt.Errorf("config: real purchase rollout is restricted to ENV=dev")
+	}
 	v := os.Getenv("BILLING_WEBHOOK_ENABLED")
 	if v == "" || v == "false" {
+		if sales == "true" {
+			return c, fmt.Errorf("config: real purchases require configured production webhooks")
+		}
 		return c, nil
 	}
 	if v != "true" || (env != "dev" && env != "prod") {
 		return c, fmt.Errorf("config: production billing webhooks require dev or prod")
 	}
 	c.Enabled = true
+	c.PurchasesEnabled = sales == "true"
+	c.Environment = os.Getenv("REVENUECAT_PURCHASE_ENVIRONMENT")
+	if c.Environment == "" {
+		c.Environment = "PRODUCTION"
+	}
+	if c.Environment != "PRODUCTION" && (c.Environment != "SANDBOX" || env != "dev") {
+		return BillingWebhookConfig{}, fmt.Errorf("config: billing environment must be PRODUCTION, or SANDBOX in dev")
+	}
 	c.SecretAPIKey = os.Getenv("REVENUECAT_SECRET_API_KEY")
 	c.Authorization = os.Getenv("REVENUECAT_WEBHOOK_AUTHORIZATION")
 	c.SigningSecret = os.Getenv("REVENUECAT_WEBHOOK_SIGNING_SECRET")

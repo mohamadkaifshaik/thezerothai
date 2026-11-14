@@ -130,6 +130,7 @@ class _SubscriptionActions extends StatelessWidget {
       final canBuy =
           native &&
           state.phase == SubscriptionPhase.ready &&
+          state.offerings.isNotEmpty &&
           state.access?.purchasesAvailable == true &&
           tier == SubscriptionTier.free;
       final message = switch (state.phase) {

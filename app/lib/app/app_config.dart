@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 /// flutter run \
 ///   --dart-define=USE_EMULATORS=true \
 ///   --dart-define=API_BASE_URL=http://localhost:8081 \
-///   --dart-define=AUTH_EMULATOR_HOST=localhost:9099
+///   --dart-define=AUTH_EMULATOR_HOST=127.0.0.1:9099
 /// ```
 ///
 /// Example (production web build served from Firebase Hosting, which
@@ -53,7 +53,7 @@ class AppConfig {
   /// (`firebase emulators:start --only auth`) instead of production Firebase.
   final bool useEmulators;
 
-  /// host:port of the Firebase Auth emulator (default `localhost:9099`).
+  /// host:port of the Firebase Auth emulator (default `127.0.0.1:9099`).
   final String authEmulatorHost;
 
   /// Optional App Check debug token for local/dev builds. Empty in prod.
@@ -121,9 +121,10 @@ class AppConfig {
       defaultValue: !kReleaseMode,
     );
     const definedApiBaseUrl = String.fromEnvironment('API_BASE_URL');
-    const authEmulatorHost = String.fromEnvironment(
+    // No defaultValue: an empty define (`AUTH_EMULATOR_HOST=`) must resolve
+    // like an absent one, see [resolveAuthEmulatorHost].
+    const definedAuthEmulatorHost = String.fromEnvironment(
       'AUTH_EMULATOR_HOST',
-      defaultValue: 'localhost:9099',
     );
     const appCheckDebugToken = String.fromEnvironment('APP_CHECK_DEBUG_TOKEN');
     const recaptchaSiteKey = String.fromEnvironment('RECAPTCHA_SITE_KEY');
@@ -133,6 +134,10 @@ class AppConfig {
     const definedFirebaseEnv = String.fromEnvironment('FIREBASE_ENV');
     const definedShareOrigin = String.fromEnvironment('PUBLIC_WEB_ORIGIN');
 
+    final authEmulatorHost = resolveAuthEmulatorHost(
+      definedHost: definedAuthEmulatorHost,
+      useEmulators: useEmulators,
+    );
     final firebaseEnv = resolveFirebaseEnv(definedFirebaseEnv);
     final apiBaseUrl = resolveApiBaseUrl(
       definedApiBaseUrl: definedApiBaseUrl,
@@ -156,6 +161,40 @@ class AppConfig {
       firebaseEnv: firebaseEnv,
       shareOrigin: shareOrigin,
     );
+  }
+
+  /// The default auth emulator `host:port`, matching the documented local
+  /// command (`make emulators` serves Auth on 9099).
+  static const String defaultAuthEmulatorHost = '127.0.0.1:9099';
+
+  static final _emulatorHostPattern = RegExp(
+    r'^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?:[0-9]{1,5}$',
+  );
+
+  /// Resolves `--dart-define=AUTH_EMULATOR_HOST`. When emulators are requested
+  /// the result is always a well-formed local `host:port`: an absent or empty
+  /// define falls back to [defaultAuthEmulatorHost] and anything malformed
+  /// (blank host, no port, scheme, path, port out of range) throws
+  /// [AppConfigError]. Bootstrap then shows the config error before any auth
+  /// call, so emulator mode can never end up talking to the production
+  /// Identity Toolkit. Ignored (returned as is) when emulators are off.
+  @visibleForTesting
+  static String resolveAuthEmulatorHost({
+    required String definedHost,
+    required bool useEmulators,
+  }) {
+    if (!useEmulators) return definedHost;
+    if (definedHost.isEmpty) return defaultAuthEmulatorHost;
+    final port = _emulatorHostPattern.hasMatch(definedHost)
+        ? int.parse(definedHost.split(':').last)
+        : 0;
+    if (port < 1 || port > 65535) {
+      throw const AppConfigError(
+        'AUTH_EMULATOR_HOST must be host:port, for example '
+        '$defaultAuthEmulatorHost.',
+      );
+    }
+    return definedHost;
   }
 
   /// Maps `--dart-define=FIREBASE_ENV=...` to a [FirebaseEnv]. Empty means

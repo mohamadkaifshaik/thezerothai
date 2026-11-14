@@ -166,8 +166,13 @@ if [ "$DRY_RUN" = "false" ] && [ "$(jqr --arg d "$prev_digest" '[.[] | select(.v
 fi
 
 step "2/8 deploy a 0% candidate"
+billing_args=()
+if ! bash "$here/billing-config.sh" > "$work/billing-args"; then
+  die "candidate billing configuration invalid"
+fi
+mapfile -d '' -t billing_args < "$work/billing-args"
 cleanup_candidate=1
-gcloud run deploy "$SERVICE" --project="$PROJECT" --region="$REGION" --image="$IMAGE" --no-traffic --tag=candidate --quiet >/dev/null
+gcloud run deploy "$SERVICE" --project="$PROJECT" --region="$REGION" --image="$IMAGE" --no-traffic --tag=candidate "${billing_args[@]}" --quiet >/dev/null
 svc_json "$work/s1.json"
 cand=$(tag_revision "$work/s1.json" candidate)
 [ -n "$cand" ] || die "no candidate tag after deploy"
