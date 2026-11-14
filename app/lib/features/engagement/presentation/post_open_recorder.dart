@@ -15,7 +15,7 @@ final _log = Logger('PostHistory');
 /// should be recorded: `bookmark_history` is off for the caller, or no account
 /// is signed in. Read once, when the screen's cubit is created.
 void Function(String postId)? postOpenRecorder(BuildContext context) {
-  if (!isFeatureEnabled(context, kFeatureBookmarkHistory)) return null;
+  if (!featureEnabledSnapshot(context, kFeatureBookmarkHistory)) return null;
   final uid = context.read<AuthBloc>().state.user?.uid;
   if (uid == null || uid.isEmpty) return null;
   final history = context.read<PostHistoryRepository>();
