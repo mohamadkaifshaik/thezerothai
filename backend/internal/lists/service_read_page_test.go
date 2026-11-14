@@ -10,6 +10,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 )
 
 func itemUIDs(items []graph.ListItem) []string {
@@ -146,7 +147,7 @@ func TestListUserLists_PagingAndTokens(t *testing.T) {
 		viewer string
 		in     UserListsInput
 	}{
-		"tampered":      {testUID, UserListsInput{PageToken: first.NextPageToken[:len(first.NextPageToken)-2] + "AA"}},
+		"tampered":      {testUID, UserListsInput{PageToken: cursortest.Tamper(first.NextPageToken)}},
 		"garbage":       {testUID, UserListsInput{PageToken: "not-a-token"}},
 		"foreign owner": {testUID, UserListsInput{OwnerID: testUID, PageToken: "x"}},
 	}
@@ -295,7 +296,7 @@ func TestListListMembers_VisibilityAndTokenFailuresReadNothing(t *testing.T) {
 	}
 	fresh := newReadEnv(nil, nil, memberList(5))
 	for name, c := range map[string]struct{ viewer, list, token string }{
-		"tampered":     {viewerUID, testListID, first.NextPageToken[:len(first.NextPageToken)-2] + "AA"},
+		"tampered":     {viewerUID, testListID, cursortest.Tamper(first.NextPageToken)},
 		"other viewer": {"other", testListID, first.NextPageToken},
 		"other list":   {viewerUID, "0000000000000000043", first.NextPageToken},
 		"garbage":      {viewerUID, testListID, "x"},
