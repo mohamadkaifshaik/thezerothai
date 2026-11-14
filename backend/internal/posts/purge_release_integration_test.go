@@ -198,6 +198,41 @@ func TestPurgeUser_RedeliveryNeverDecrementsTwice(t *testing.T) {
 				t.Fatalf("stale re-run: deleted %d released %d err %v, want 0 0 nil", deleted, released, err)
 			}
 			check("after the stale re-run")
+			if tc.missing {
+				// A crash part-way through the per-doc loop of a second page: re-seed the page, commit a prefix of it
+				// (newest first: the gone-target reply, delete-only, then the quote, counter + delete), then resume.
+				seedRel(t, client, seed[1:]...)
+				again, err := repo.authorQuery(relGone).Select(fieldReplyToID, fieldQuoteOfID).Limit(purgeOwnPage).Documents(ctx).GetAll()
+				if err != nil || len(again) != 4 || again[0].Ref.ID != pid(23) {
+					t.Fatalf("re-read page: %d docs, err %v", len(again), err)
+				}
+				rows, inPage := ownRows(again)
+				for _, rw := range rows[:2] {
+					for _, withCounters := range []bool{true, false} {
+						b := client.Batch()
+						b.Delete(rw.ref, firestore.Exists)
+						if withCounters {
+							for _, d := range releaseDeltas([]ownRow{rw}, inPage) {
+								b.Update(repo.ref(d.postID), []firestore.Update{{Path: d.field, Value: firestore.Increment(d.delta)}})
+							}
+						}
+						if _, err := b.Commit(ctx); err == nil {
+							break
+						}
+					}
+				}
+				if r, q := counts(t, client, target); r != 3 || q != 3 {
+					t.Fatalf("after the partial page: counts = %d, %d; want 3, 3", r, q)
+				}
+				cp, _ := purgeAll(t, repo, relGone, Checkpoint{})
+				if cp.Deleted != 2 {
+					t.Fatalf("resume after the partial page deleted %d, want the 2 docs left", cp.Deleted)
+				}
+				if r, q := counts(t, client, target); r != 1 || q != 3 {
+					t.Fatalf("after the resume: counts = %d, %d; want 1, 3 (each post released once)", r, q)
+				}
+				return
+			}
 			// The checkpoint write was lost: the job resumes from the zero checkpoint.
 			cp, _ := purgeAll(t, repo, relGone, Checkpoint{})
 			if cp.Deleted != 0 {

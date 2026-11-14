@@ -21,7 +21,7 @@ func TestRecountChildren_Integration_CLI(t *testing.T) {
 	docs := map[string]map[string]any{
 		target:                {"authorId": "u-a", "replyCount": int64(5), "quoteCount": int64(0)},
 		"0000000000000007002": {"authorId": "u-b", "replyToId": target},
-		"0000000000000007003": {"authorId": "u-c", "replyToId": target, "moderation": map[string]any{"state": "REMOVED"}},
+		"0000000000000007003": {"authorId": "u-c", "replyToId": target, "moderation": string(posts.ModerationTakenDown)},
 		"0000000000000007004": {"authorId": "u-d", "quoteOfId": target},
 	}
 	for id, d := range docs {

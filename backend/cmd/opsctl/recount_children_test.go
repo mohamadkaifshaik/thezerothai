@@ -14,7 +14,7 @@ import (
 // fakeChildCounts is posts' ChildRecounter: a stored counter and a counted value per post, recording writes.
 type fakeChildCounts struct {
 	stored, counted int64
-	missing         bool
+	missing, capped bool
 	err             error
 	calls           []posts.ChildCount
 	writes          int
@@ -28,8 +28,8 @@ func (f *fakeChildCounts) RecountChildren(_ context.Context, _ string, which pos
 	case f.err != nil:
 		return posts.ChildRecount{}, f.err
 	}
-	out := posts.ChildRecount{Stored: f.stored, Counted: f.counted}
-	if write && f.stored != f.counted {
+	out := posts.ChildRecount{Stored: f.stored, Counted: f.counted, Capped: f.capped}
+	if write && f.stored != f.counted && !f.capped {
 		out.Written = true
 		f.writes++
 	}
@@ -58,6 +58,8 @@ func TestRecountChildren(t *testing.T) {
 			wantWhich: posts.ChildQuotes, wantWrites: 1, wantOut: "set quote_count to 1"},
 		{name: "in step writes nothing", cmd: "recount-quotes", f: &fakeChildCounts{stored: 2, counted: 2}, args: []string{"--post", pid, "--write"},
 			wantWhich: posts.ChildQuotes, wantOut: "in step"},
+		{name: "a capped count is never written", cmd: "recount-replies", f: &fakeChildCounts{stored: 150_000, counted: 100_000, capped: true},
+			args: []string{"--post", pid, "--write"}, wantWhich: posts.ChildReplies, wantOut: "nothing written"},
 		{name: "missing post", cmd: "recount-replies", f: &fakeChildCounts{missing: true}, args: []string{"--post", pid}, code: 1, wantErr: "not found"},
 		{name: "recount fails", cmd: "recount-replies", f: &fakeChildCounts{err: errors.New("boom")}, args: []string{"--post", pid, "--write"}, code: 1, wantErr: "boom"},
 		{name: "bad post id", cmd: "recount-quotes", f: &fakeChildCounts{}, args: []string{"--post", "12"}, code: 2, wantErr: "19-digit"},

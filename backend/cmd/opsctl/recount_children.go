@@ -15,7 +15,8 @@ const recountChildrenUsage = `  opsctl recount-replies --project P --post POST_I
                           (repairs posts/{id}.replyCount / quoteCount from count() of the posts with replyToId / quoteOfId
                           == id; dry run unless --write. Every existing reply or quote doc counts whatever its moderation
                           state, as the live counters do (moderation keeps counters so a restore is exact). Use it after an
-                          erasure before the counter fix, or a reply/quote release failure; it prints counts only)
+                          erasure before the counter fix, or a reply/quote release failure; it prints counts only. A count at its
+                          100,000 cap is never written)
 `
 
 // recountCommand maps the two command names to the counter they repair and the label they print.
@@ -51,6 +52,8 @@ func recountChildren(ctx context.Context, b *backends, cmd, postID string, write
 	}
 	fmt.Fprintf(out, "post %s: %s=%d counted=%d\n", postID, rc.label, res.Stored, res.Counted)
 	switch {
+	case res.Capped:
+		fmt.Fprintln(out, "the count reached its cap; the true count may be higher: nothing written")
 	case res.Stored == res.Counted:
 		fmt.Fprintln(out, "in step: nothing to write")
 	case res.Written:

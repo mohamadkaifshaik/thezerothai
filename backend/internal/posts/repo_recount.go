@@ -47,13 +47,16 @@ type ChildRecount struct {
 	Stored  int64
 	Counted int64
 	Written bool
+	// Capped is set when the count reached planCountCap: the true count may be higher, so nothing is written.
+	Capped bool
 }
 
 // ChildRecounter is the repair behind the recount commands (*FirestoreRepo).
 type ChildRecounter interface {
 	// RecountChildren compares the stored counter with the count of the posts referencing postID. With write and a
 	// difference, it sets the counter in one transaction (the post read and the count inside it, so a concurrent reply
-	// or quote conflicts and the transaction retries). A missing post is ErrNotFound.
+	// or quote conflicts and the transaction retries). A count at planCountCap (Capped) is never written. A missing post
+	// is ErrNotFound.
 	RecountChildren(ctx context.Context, postID string, which ChildCount, write bool) (ChildRecount, error)
 }
 
@@ -103,7 +106,7 @@ func (r *FirestoreRepo) RecountChildren(ctx context.Context, postID string, whic
 		if v, err := snap.DataAt(counter); err == nil {
 			stored, _ = v.(int64) // absent: 0
 		}
-		return ChildRecount{Stored: stored, Counted: n.N}, nil
+		return ChildRecount{Stored: stored, Counted: n.N, Capped: n.N >= planCountCap}, nil
 	}
 	if !write {
 		return read(ctx, nil)
@@ -115,7 +118,7 @@ func (r *FirestoreRepo) RecountChildren(ctx context.Context, postID string, whic
 			return err
 		}
 		out = got
-		if got.Stored == got.Counted {
+		if got.Stored == got.Counted || got.Capped {
 			return nil
 		}
 		out.Written = true
