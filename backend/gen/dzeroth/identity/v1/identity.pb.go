@@ -1637,6 +1637,402 @@ func (x *GetAccountExportResponse) GetFormat() ExportFormat {
 	return ExportFormat_EXPORT_FORMAT_UNSPECIFIED
 }
 
+type GetCreatorInsightsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The window in IST days, today included: 0 means 28; 1 to 28 are accepted, anything else is VALIDATION.
+	WindowDays    int32 `protobuf:"varint,1,opt,name=window_days,json=windowDays,proto3" json:"window_days,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCreatorInsightsRequest) Reset() {
+	*x = GetCreatorInsightsRequest{}
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCreatorInsightsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCreatorInsightsRequest) ProtoMessage() {}
+
+func (x *GetCreatorInsightsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCreatorInsightsRequest.ProtoReflect.Descriptor instead.
+func (*GetCreatorInsightsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GetCreatorInsightsRequest) GetWindowDays() int32 {
+	if x != nil {
+		return x.WindowDays
+	}
+	return 0
+}
+
+// CreatorInsightsTotals are sums over a window. Every value is >= 0: a day whose undos outweigh its gains counts 0.
+type CreatorInsightsTotals struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Views of the caller's posts (the view rollup's per-post delta, at most one per viewer, post and IST day).
+	Impressions int64 `protobuf:"varint,1,opt,name=impressions,proto3" json:"impressions,omitempty"`
+	// Likes, reposts, replies and quotes the caller's posts received from other accounts (shares and poll votes do not
+	// count), net of undos.
+	Engagements     int64 `protobuf:"varint,2,opt,name=engagements,proto3" json:"engagements,omitempty"`
+	FollowersGained int64 `protobuf:"varint,3,opt,name=followers_gained,json=followersGained,proto3" json:"followers_gained,omitempty"`
+	FollowersLost   int64 `protobuf:"varint,4,opt,name=followers_lost,json=followersLost,proto3" json:"followers_lost,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreatorInsightsTotals) Reset() {
+	*x = CreatorInsightsTotals{}
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreatorInsightsTotals) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreatorInsightsTotals) ProtoMessage() {}
+
+func (x *CreatorInsightsTotals) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreatorInsightsTotals.ProtoReflect.Descriptor instead.
+func (*CreatorInsightsTotals) Descriptor() ([]byte, []int) {
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *CreatorInsightsTotals) GetImpressions() int64 {
+	if x != nil {
+		return x.Impressions
+	}
+	return 0
+}
+
+func (x *CreatorInsightsTotals) GetEngagements() int64 {
+	if x != nil {
+		return x.Engagements
+	}
+	return 0
+}
+
+func (x *CreatorInsightsTotals) GetFollowersGained() int64 {
+	if x != nil {
+		return x.FollowersGained
+	}
+	return 0
+}
+
+func (x *CreatorInsightsTotals) GetFollowersLost() int64 {
+	if x != nil {
+		return x.FollowersLost
+	}
+	return 0
+}
+
+// CreatorInsightsDay is one IST day of the window.
+type CreatorInsightsDay struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// yyyymmdd, IST (UTC+05:30); the day rolls over at 18:30 UTC.
+	Date            string `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`
+	Impressions     int64  `protobuf:"varint,2,opt,name=impressions,proto3" json:"impressions,omitempty"`
+	Engagements     int64  `protobuf:"varint,3,opt,name=engagements,proto3" json:"engagements,omitempty"`
+	FollowersGained int64  `protobuf:"varint,4,opt,name=followers_gained,json=followersGained,proto3" json:"followers_gained,omitempty"`
+	FollowersLost   int64  `protobuf:"varint,5,opt,name=followers_lost,json=followersLost,proto3" json:"followers_lost,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreatorInsightsDay) Reset() {
+	*x = CreatorInsightsDay{}
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreatorInsightsDay) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreatorInsightsDay) ProtoMessage() {}
+
+func (x *CreatorInsightsDay) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreatorInsightsDay.ProtoReflect.Descriptor instead.
+func (*CreatorInsightsDay) Descriptor() ([]byte, []int) {
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *CreatorInsightsDay) GetDate() string {
+	if x != nil {
+		return x.Date
+	}
+	return ""
+}
+
+func (x *CreatorInsightsDay) GetImpressions() int64 {
+	if x != nil {
+		return x.Impressions
+	}
+	return 0
+}
+
+func (x *CreatorInsightsDay) GetEngagements() int64 {
+	if x != nil {
+		return x.Engagements
+	}
+	return 0
+}
+
+func (x *CreatorInsightsDay) GetFollowersGained() int64 {
+	if x != nil {
+		return x.FollowersGained
+	}
+	return 0
+}
+
+func (x *CreatorInsightsDay) GetFollowersLost() int64 {
+	if x != nil {
+		return x.FollowersLost
+	}
+	return 0
+}
+
+// CreatorTopPost is one of the caller's posts in the top-posts list.
+type CreatorTopPost struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	PostId string                 `protobuf:"bytes,1,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
+	// The post's text, cut to at most 140 characters (empty for a media-only post).
+	Text      string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Lifetime views (posts/{id}.viewCount as last rolled up), not views gained in the window.
+	ViewCount     int64 `protobuf:"varint,4,opt,name=view_count,json=viewCount,proto3" json:"view_count,omitempty"`
+	LikeCount     int64 `protobuf:"varint,5,opt,name=like_count,json=likeCount,proto3" json:"like_count,omitempty"`
+	RepostCount   int64 `protobuf:"varint,6,opt,name=repost_count,json=repostCount,proto3" json:"repost_count,omitempty"`
+	ReplyCount    int64 `protobuf:"varint,7,opt,name=reply_count,json=replyCount,proto3" json:"reply_count,omitempty"`
+	QuoteCount    int64 `protobuf:"varint,8,opt,name=quote_count,json=quoteCount,proto3" json:"quote_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreatorTopPost) Reset() {
+	*x = CreatorTopPost{}
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreatorTopPost) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreatorTopPost) ProtoMessage() {}
+
+func (x *CreatorTopPost) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreatorTopPost.ProtoReflect.Descriptor instead.
+func (*CreatorTopPost) Descriptor() ([]byte, []int) {
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *CreatorTopPost) GetPostId() string {
+	if x != nil {
+		return x.PostId
+	}
+	return ""
+}
+
+func (x *CreatorTopPost) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *CreatorTopPost) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *CreatorTopPost) GetViewCount() int64 {
+	if x != nil {
+		return x.ViewCount
+	}
+	return 0
+}
+
+func (x *CreatorTopPost) GetLikeCount() int64 {
+	if x != nil {
+		return x.LikeCount
+	}
+	return 0
+}
+
+func (x *CreatorTopPost) GetRepostCount() int64 {
+	if x != nil {
+		return x.RepostCount
+	}
+	return 0
+}
+
+func (x *CreatorTopPost) GetReplyCount() int64 {
+	if x != nil {
+		return x.ReplyCount
+	}
+	return 0
+}
+
+func (x *CreatorTopPost) GetQuoteCount() int64 {
+	if x != nil {
+		return x.QuoteCount
+	}
+	return 0
+}
+
+type GetCreatorInsightsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The window used (28 when the request said 0).
+	WindowDays int32 `protobuf:"varint,1,opt,name=window_days,json=windowDays,proto3" json:"window_days,omitempty"`
+	// Sums over the window and over the window_days days before it.
+	Current  *CreatorInsightsTotals `protobuf:"bytes,2,opt,name=current,proto3" json:"current,omitempty"`
+	Previous *CreatorInsightsTotals `protobuf:"bytes,3,opt,name=previous,proto3" json:"previous,omitempty"`
+	// Exactly window_days entries, oldest first, ending today (IST); a day with no data is all zeros.
+	Days []*CreatorInsightsDay `protobuf:"bytes,4,rep,name=days,proto3" json:"days,omitempty"`
+	// Up to 5 of the caller's posts, most viewed first (lifetime view count; posts with no views are left out). Empty
+	// when the caller has none or the top-posts index is not deployed yet.
+	TopPosts []*CreatorTopPost `protobuf:"bytes,5,rep,name=top_posts,json=topPosts,proto3" json:"top_posts,omitempty"`
+	// Percent change of current against previous, (current - previous) / previous x 100. Absent when previous is 0.
+	ImpressionsChangePct *float64 `protobuf:"fixed64,6,opt,name=impressions_change_pct,json=impressionsChangePct,proto3,oneof" json:"impressions_change_pct,omitempty"`
+	EngagementsChangePct *float64 `protobuf:"fixed64,7,opt,name=engagements_change_pct,json=engagementsChangePct,proto3,oneof" json:"engagements_change_pct,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *GetCreatorInsightsResponse) Reset() {
+	*x = GetCreatorInsightsResponse{}
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCreatorInsightsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCreatorInsightsResponse) ProtoMessage() {}
+
+func (x *GetCreatorInsightsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCreatorInsightsResponse.ProtoReflect.Descriptor instead.
+func (*GetCreatorInsightsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GetCreatorInsightsResponse) GetWindowDays() int32 {
+	if x != nil {
+		return x.WindowDays
+	}
+	return 0
+}
+
+func (x *GetCreatorInsightsResponse) GetCurrent() *CreatorInsightsTotals {
+	if x != nil {
+		return x.Current
+	}
+	return nil
+}
+
+func (x *GetCreatorInsightsResponse) GetPrevious() *CreatorInsightsTotals {
+	if x != nil {
+		return x.Previous
+	}
+	return nil
+}
+
+func (x *GetCreatorInsightsResponse) GetDays() []*CreatorInsightsDay {
+	if x != nil {
+		return x.Days
+	}
+	return nil
+}
+
+func (x *GetCreatorInsightsResponse) GetTopPosts() []*CreatorTopPost {
+	if x != nil {
+		return x.TopPosts
+	}
+	return nil
+}
+
+func (x *GetCreatorInsightsResponse) GetImpressionsChangePct() float64 {
+	if x != nil && x.ImpressionsChangePct != nil {
+		return *x.ImpressionsChangePct
+	}
+	return 0
+}
+
+func (x *GetCreatorInsightsResponse) GetEngagementsChangePct() float64 {
+	if x != nil && x.EngagementsChangePct != nil {
+		return *x.EngagementsChangePct
+	}
+	return 0
+}
+
 var File_dzeroth_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
@@ -1750,7 +2146,46 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x17download_url_expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x14downloadUrlExpiresAt\x129\n" +
 	"\n" +
 	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x129\n" +
-	"\x06format\x18\x06 \x01(\x0e2!.dzeroth.identity.v1.ExportFormatR\x06format*\x85\x01\n" +
+	"\x06format\x18\x06 \x01(\x0e2!.dzeroth.identity.v1.ExportFormatR\x06format\"<\n" +
+	"\x19GetCreatorInsightsRequest\x12\x1f\n" +
+	"\vwindow_days\x18\x01 \x01(\x05R\n" +
+	"windowDays\"\xad\x01\n" +
+	"\x15CreatorInsightsTotals\x12 \n" +
+	"\vimpressions\x18\x01 \x01(\x03R\vimpressions\x12 \n" +
+	"\vengagements\x18\x02 \x01(\x03R\vengagements\x12)\n" +
+	"\x10followers_gained\x18\x03 \x01(\x03R\x0ffollowersGained\x12%\n" +
+	"\x0efollowers_lost\x18\x04 \x01(\x03R\rfollowersLost\"\xbe\x01\n" +
+	"\x12CreatorInsightsDay\x12\x12\n" +
+	"\x04date\x18\x01 \x01(\tR\x04date\x12 \n" +
+	"\vimpressions\x18\x02 \x01(\x03R\vimpressions\x12 \n" +
+	"\vengagements\x18\x03 \x01(\x03R\vengagements\x12)\n" +
+	"\x10followers_gained\x18\x04 \x01(\x03R\x0ffollowersGained\x12%\n" +
+	"\x0efollowers_lost\x18\x05 \x01(\x03R\rfollowersLost\"\x9b\x02\n" +
+	"\x0eCreatorTopPost\x12\x17\n" +
+	"\apost_id\x18\x01 \x01(\tR\x06postId\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x129\n" +
+	"\n" +
+	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"view_count\x18\x04 \x01(\x03R\tviewCount\x12\x1d\n" +
+	"\n" +
+	"like_count\x18\x05 \x01(\x03R\tlikeCount\x12!\n" +
+	"\frepost_count\x18\x06 \x01(\x03R\vrepostCount\x12\x1f\n" +
+	"\vreply_count\x18\a \x01(\x03R\n" +
+	"replyCount\x12\x1f\n" +
+	"\vquote_count\x18\b \x01(\x03R\n" +
+	"quoteCount\"\xf6\x03\n" +
+	"\x1aGetCreatorInsightsResponse\x12\x1f\n" +
+	"\vwindow_days\x18\x01 \x01(\x05R\n" +
+	"windowDays\x12D\n" +
+	"\acurrent\x18\x02 \x01(\v2*.dzeroth.identity.v1.CreatorInsightsTotalsR\acurrent\x12F\n" +
+	"\bprevious\x18\x03 \x01(\v2*.dzeroth.identity.v1.CreatorInsightsTotalsR\bprevious\x12;\n" +
+	"\x04days\x18\x04 \x03(\v2'.dzeroth.identity.v1.CreatorInsightsDayR\x04days\x12@\n" +
+	"\ttop_posts\x18\x05 \x03(\v2#.dzeroth.identity.v1.CreatorTopPostR\btopPosts\x129\n" +
+	"\x16impressions_change_pct\x18\x06 \x01(\x01H\x00R\x14impressionsChangePct\x88\x01\x01\x129\n" +
+	"\x16engagements_change_pct\x18\a \x01(\x01H\x01R\x14engagementsChangePct\x88\x01\x01B\x19\n" +
+	"\x17_impressions_change_pctB\x19\n" +
+	"\x17_engagements_change_pct*\x85\x01\n" +
 	"\rAccountStatus\x12\x1e\n" +
 	"\x1aACCOUNT_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15ACCOUNT_STATUS_ACTIVE\x10\x01\x12\x1c\n" +
@@ -1768,7 +2203,7 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\fExportFormat\x12\x1d\n" +
 	"\x19EXPORT_FORMAT_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12EXPORT_FORMAT_JSON\x10\x01\x12\x15\n" +
-	"\x11EXPORT_FORMAT_ZIP\x10\x022\xd6\b\n" +
+	"\x11EXPORT_FORMAT_ZIP\x10\x022\xd2\t\n" +
 	"\x0fIdentityService\x12f\n" +
 	"\rCreateProfile\x12).dzeroth.identity.v1.CreateProfileRequest\x1a*.dzeroth.identity.v1.CreateProfileResponse\x12\x89\x01\n" +
 	"\x17CheckHandleAvailability\x123.dzeroth.identity.v1.CheckHandleAvailabilityRequest\x1a4.dzeroth.identity.v1.CheckHandleAvailabilityResponse\"\x03\x90\x02\x01\x12n\n" +
@@ -1780,7 +2215,8 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\fChangeHandle\x12(.dzeroth.identity.v1.ChangeHandleRequest\x1a).dzeroth.identity.v1.ChangeHandleResponse\x12f\n" +
 	"\rDeleteAccount\x12).dzeroth.identity.v1.DeleteAccountRequest\x1a*.dzeroth.identity.v1.DeleteAccountResponse\x12{\n" +
 	"\x14RequestAccountExport\x120.dzeroth.identity.v1.RequestAccountExportRequest\x1a1.dzeroth.identity.v1.RequestAccountExportResponse\x12t\n" +
-	"\x10GetAccountExport\x12,.dzeroth.identity.v1.GetAccountExportRequest\x1a-.dzeroth.identity.v1.GetAccountExportResponse\"\x03\x90\x02\x01BGZEgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1;identityv1b\x06proto3"
+	"\x10GetAccountExport\x12,.dzeroth.identity.v1.GetAccountExportRequest\x1a-.dzeroth.identity.v1.GetAccountExportResponse\"\x03\x90\x02\x01\x12z\n" +
+	"\x12GetCreatorInsights\x12..dzeroth.identity.v1.GetCreatorInsightsRequest\x1a/.dzeroth.identity.v1.GetCreatorInsightsResponse\"\x03\x90\x02\x01BGZEgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1;identityv1b\x06proto3"
 
 var (
 	file_dzeroth_identity_v1_identity_proto_rawDescOnce sync.Once
@@ -1795,7 +2231,7 @@ func file_dzeroth_identity_v1_identity_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_identity_v1_identity_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_dzeroth_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_dzeroth_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_dzeroth_identity_v1_identity_proto_goTypes = []any{
 	(AccountStatus)(0),                      // 0: dzeroth.identity.v1.AccountStatus
 	(DmPolicy)(0),                           // 1: dzeroth.identity.v1.DmPolicy
@@ -1822,53 +2258,65 @@ var file_dzeroth_identity_v1_identity_proto_goTypes = []any{
 	(*RequestAccountExportResponse)(nil),    // 22: dzeroth.identity.v1.RequestAccountExportResponse
 	(*GetAccountExportRequest)(nil),         // 23: dzeroth.identity.v1.GetAccountExportRequest
 	(*GetAccountExportResponse)(nil),        // 24: dzeroth.identity.v1.GetAccountExportResponse
-	(*timestamppb.Timestamp)(nil),           // 25: google.protobuf.Timestamp
-	(*v1.HomeTab)(nil),                      // 26: dzeroth.common.v1.HomeTab
+	(*GetCreatorInsightsRequest)(nil),       // 25: dzeroth.identity.v1.GetCreatorInsightsRequest
+	(*CreatorInsightsTotals)(nil),           // 26: dzeroth.identity.v1.CreatorInsightsTotals
+	(*CreatorInsightsDay)(nil),              // 27: dzeroth.identity.v1.CreatorInsightsDay
+	(*CreatorTopPost)(nil),                  // 28: dzeroth.identity.v1.CreatorTopPost
+	(*GetCreatorInsightsResponse)(nil),      // 29: dzeroth.identity.v1.GetCreatorInsightsResponse
+	(*timestamppb.Timestamp)(nil),           // 30: google.protobuf.Timestamp
+	(*v1.HomeTab)(nil),                      // 31: dzeroth.common.v1.HomeTab
 }
 var file_dzeroth_identity_v1_identity_proto_depIdxs = []int32{
-	25, // 0: dzeroth.identity.v1.Profile.created_at:type_name -> google.protobuf.Timestamp
+	30, // 0: dzeroth.identity.v1.Profile.created_at:type_name -> google.protobuf.Timestamp
 	1,  // 1: dzeroth.identity.v1.Profile.dm_policy:type_name -> dzeroth.identity.v1.DmPolicy
 	4,  // 2: dzeroth.identity.v1.CreateProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
 	4,  // 3: dzeroth.identity.v1.GetMeResponse.profile:type_name -> dzeroth.identity.v1.Profile
 	0,  // 4: dzeroth.identity.v1.GetMeResponse.status:type_name -> dzeroth.identity.v1.AccountStatus
-	26, // 5: dzeroth.identity.v1.GetMeResponse.home_tabs:type_name -> dzeroth.common.v1.HomeTab
+	31, // 5: dzeroth.identity.v1.GetMeResponse.home_tabs:type_name -> dzeroth.common.v1.HomeTab
 	4,  // 6: dzeroth.identity.v1.GetProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
 	1,  // 7: dzeroth.identity.v1.UpdateProfileRequest.dm_policy:type_name -> dzeroth.identity.v1.DmPolicy
 	4,  // 8: dzeroth.identity.v1.UpdateProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
 	4,  // 9: dzeroth.identity.v1.ChangeHandleResponse.profile:type_name -> dzeroth.identity.v1.Profile
-	25, // 10: dzeroth.identity.v1.DeleteAccountResponse.deletion_requested_at:type_name -> google.protobuf.Timestamp
+	30, // 10: dzeroth.identity.v1.DeleteAccountResponse.deletion_requested_at:type_name -> google.protobuf.Timestamp
 	3,  // 11: dzeroth.identity.v1.RequestAccountExportRequest.format:type_name -> dzeroth.identity.v1.ExportFormat
 	2,  // 12: dzeroth.identity.v1.RequestAccountExportResponse.status:type_name -> dzeroth.identity.v1.ExportStatus
 	3,  // 13: dzeroth.identity.v1.RequestAccountExportResponse.format:type_name -> dzeroth.identity.v1.ExportFormat
 	2,  // 14: dzeroth.identity.v1.GetAccountExportResponse.status:type_name -> dzeroth.identity.v1.ExportStatus
-	25, // 15: dzeroth.identity.v1.GetAccountExportResponse.download_url_expires_at:type_name -> google.protobuf.Timestamp
-	25, // 16: dzeroth.identity.v1.GetAccountExportResponse.expires_at:type_name -> google.protobuf.Timestamp
+	30, // 15: dzeroth.identity.v1.GetAccountExportResponse.download_url_expires_at:type_name -> google.protobuf.Timestamp
+	30, // 16: dzeroth.identity.v1.GetAccountExportResponse.expires_at:type_name -> google.protobuf.Timestamp
 	3,  // 17: dzeroth.identity.v1.GetAccountExportResponse.format:type_name -> dzeroth.identity.v1.ExportFormat
-	5,  // 18: dzeroth.identity.v1.IdentityService.CreateProfile:input_type -> dzeroth.identity.v1.CreateProfileRequest
-	7,  // 19: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:input_type -> dzeroth.identity.v1.CheckHandleAvailabilityRequest
-	9,  // 20: dzeroth.identity.v1.IdentityService.SuggestHandles:input_type -> dzeroth.identity.v1.SuggestHandlesRequest
-	11, // 21: dzeroth.identity.v1.IdentityService.GetMe:input_type -> dzeroth.identity.v1.GetMeRequest
-	13, // 22: dzeroth.identity.v1.IdentityService.GetProfile:input_type -> dzeroth.identity.v1.GetProfileRequest
-	15, // 23: dzeroth.identity.v1.IdentityService.UpdateProfile:input_type -> dzeroth.identity.v1.UpdateProfileRequest
-	17, // 24: dzeroth.identity.v1.IdentityService.ChangeHandle:input_type -> dzeroth.identity.v1.ChangeHandleRequest
-	19, // 25: dzeroth.identity.v1.IdentityService.DeleteAccount:input_type -> dzeroth.identity.v1.DeleteAccountRequest
-	21, // 26: dzeroth.identity.v1.IdentityService.RequestAccountExport:input_type -> dzeroth.identity.v1.RequestAccountExportRequest
-	23, // 27: dzeroth.identity.v1.IdentityService.GetAccountExport:input_type -> dzeroth.identity.v1.GetAccountExportRequest
-	6,  // 28: dzeroth.identity.v1.IdentityService.CreateProfile:output_type -> dzeroth.identity.v1.CreateProfileResponse
-	8,  // 29: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:output_type -> dzeroth.identity.v1.CheckHandleAvailabilityResponse
-	10, // 30: dzeroth.identity.v1.IdentityService.SuggestHandles:output_type -> dzeroth.identity.v1.SuggestHandlesResponse
-	12, // 31: dzeroth.identity.v1.IdentityService.GetMe:output_type -> dzeroth.identity.v1.GetMeResponse
-	14, // 32: dzeroth.identity.v1.IdentityService.GetProfile:output_type -> dzeroth.identity.v1.GetProfileResponse
-	16, // 33: dzeroth.identity.v1.IdentityService.UpdateProfile:output_type -> dzeroth.identity.v1.UpdateProfileResponse
-	18, // 34: dzeroth.identity.v1.IdentityService.ChangeHandle:output_type -> dzeroth.identity.v1.ChangeHandleResponse
-	20, // 35: dzeroth.identity.v1.IdentityService.DeleteAccount:output_type -> dzeroth.identity.v1.DeleteAccountResponse
-	22, // 36: dzeroth.identity.v1.IdentityService.RequestAccountExport:output_type -> dzeroth.identity.v1.RequestAccountExportResponse
-	24, // 37: dzeroth.identity.v1.IdentityService.GetAccountExport:output_type -> dzeroth.identity.v1.GetAccountExportResponse
-	28, // [28:38] is the sub-list for method output_type
-	18, // [18:28] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	30, // 18: dzeroth.identity.v1.CreatorTopPost.created_at:type_name -> google.protobuf.Timestamp
+	26, // 19: dzeroth.identity.v1.GetCreatorInsightsResponse.current:type_name -> dzeroth.identity.v1.CreatorInsightsTotals
+	26, // 20: dzeroth.identity.v1.GetCreatorInsightsResponse.previous:type_name -> dzeroth.identity.v1.CreatorInsightsTotals
+	27, // 21: dzeroth.identity.v1.GetCreatorInsightsResponse.days:type_name -> dzeroth.identity.v1.CreatorInsightsDay
+	28, // 22: dzeroth.identity.v1.GetCreatorInsightsResponse.top_posts:type_name -> dzeroth.identity.v1.CreatorTopPost
+	5,  // 23: dzeroth.identity.v1.IdentityService.CreateProfile:input_type -> dzeroth.identity.v1.CreateProfileRequest
+	7,  // 24: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:input_type -> dzeroth.identity.v1.CheckHandleAvailabilityRequest
+	9,  // 25: dzeroth.identity.v1.IdentityService.SuggestHandles:input_type -> dzeroth.identity.v1.SuggestHandlesRequest
+	11, // 26: dzeroth.identity.v1.IdentityService.GetMe:input_type -> dzeroth.identity.v1.GetMeRequest
+	13, // 27: dzeroth.identity.v1.IdentityService.GetProfile:input_type -> dzeroth.identity.v1.GetProfileRequest
+	15, // 28: dzeroth.identity.v1.IdentityService.UpdateProfile:input_type -> dzeroth.identity.v1.UpdateProfileRequest
+	17, // 29: dzeroth.identity.v1.IdentityService.ChangeHandle:input_type -> dzeroth.identity.v1.ChangeHandleRequest
+	19, // 30: dzeroth.identity.v1.IdentityService.DeleteAccount:input_type -> dzeroth.identity.v1.DeleteAccountRequest
+	21, // 31: dzeroth.identity.v1.IdentityService.RequestAccountExport:input_type -> dzeroth.identity.v1.RequestAccountExportRequest
+	23, // 32: dzeroth.identity.v1.IdentityService.GetAccountExport:input_type -> dzeroth.identity.v1.GetAccountExportRequest
+	25, // 33: dzeroth.identity.v1.IdentityService.GetCreatorInsights:input_type -> dzeroth.identity.v1.GetCreatorInsightsRequest
+	6,  // 34: dzeroth.identity.v1.IdentityService.CreateProfile:output_type -> dzeroth.identity.v1.CreateProfileResponse
+	8,  // 35: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:output_type -> dzeroth.identity.v1.CheckHandleAvailabilityResponse
+	10, // 36: dzeroth.identity.v1.IdentityService.SuggestHandles:output_type -> dzeroth.identity.v1.SuggestHandlesResponse
+	12, // 37: dzeroth.identity.v1.IdentityService.GetMe:output_type -> dzeroth.identity.v1.GetMeResponse
+	14, // 38: dzeroth.identity.v1.IdentityService.GetProfile:output_type -> dzeroth.identity.v1.GetProfileResponse
+	16, // 39: dzeroth.identity.v1.IdentityService.UpdateProfile:output_type -> dzeroth.identity.v1.UpdateProfileResponse
+	18, // 40: dzeroth.identity.v1.IdentityService.ChangeHandle:output_type -> dzeroth.identity.v1.ChangeHandleResponse
+	20, // 41: dzeroth.identity.v1.IdentityService.DeleteAccount:output_type -> dzeroth.identity.v1.DeleteAccountResponse
+	22, // 42: dzeroth.identity.v1.IdentityService.RequestAccountExport:output_type -> dzeroth.identity.v1.RequestAccountExportResponse
+	24, // 43: dzeroth.identity.v1.IdentityService.GetAccountExport:output_type -> dzeroth.identity.v1.GetAccountExportResponse
+	29, // 44: dzeroth.identity.v1.IdentityService.GetCreatorInsights:output_type -> dzeroth.identity.v1.GetCreatorInsightsResponse
+	34, // [34:45] is the sub-list for method output_type
+	23, // [23:34] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_identity_v1_identity_proto_init() }
@@ -1881,13 +2329,14 @@ func file_dzeroth_identity_v1_identity_proto_init() {
 		(*GetProfileRequest_Handle)(nil),
 	}
 	file_dzeroth_identity_v1_identity_proto_msgTypes[11].OneofWrappers = []any{}
+	file_dzeroth_identity_v1_identity_proto_msgTypes[25].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_identity_v1_identity_proto_rawDesc), len(file_dzeroth_identity_v1_identity_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   21,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

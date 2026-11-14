@@ -1943,6 +1943,564 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
   void clearFormat() => $_clearField(6);
 }
 
+class GetCreatorInsightsRequest extends $pb.GeneratedMessage {
+  factory GetCreatorInsightsRequest({
+    $core.int? windowDays,
+  }) {
+    final result = GetCreatorInsightsRequest._();
+    if (windowDays != null) result.windowDays = windowDays;
+    return result;
+  }
+
+  GetCreatorInsightsRequest._();
+
+  factory GetCreatorInsightsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetCreatorInsightsRequest()..mergeFromBuffer(data, registry);
+  factory GetCreatorInsightsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetCreatorInsightsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetCreatorInsightsRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: GetCreatorInsightsRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'windowDays')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetCreatorInsightsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetCreatorInsightsRequest copyWith(
+          void Function(GetCreatorInsightsRequest) updates) =>
+      super.copyWith((message) => updates(message as GetCreatorInsightsRequest))
+          as GetCreatorInsightsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetCreatorInsightsRequest() / GetCreatorInsightsRequest.new instead')
+  static GetCreatorInsightsRequest create() => GetCreatorInsightsRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetCreatorInsightsRequest._();
+  @$core.override
+  GetCreatorInsightsRequest createEmptyInstance() =>
+      GetCreatorInsightsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static GetCreatorInsightsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetCreatorInsightsRequest>(
+          GetCreatorInsightsRequest.$_createMessage);
+  static GetCreatorInsightsRequest? _defaultInstance;
+
+  /// The window in IST days, today included: 0 means 28; 1 to 28 are accepted, anything else is VALIDATION.
+  @$pb.TagNumber(1)
+  $core.int get windowDays => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set windowDays($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasWindowDays() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearWindowDays() => $_clearField(1);
+}
+
+/// CreatorInsightsTotals are sums over a window. Every value is >= 0: a day whose undos outweigh its gains counts 0.
+class CreatorInsightsTotals extends $pb.GeneratedMessage {
+  factory CreatorInsightsTotals({
+    $fixnum.Int64? impressions,
+    $fixnum.Int64? engagements,
+    $fixnum.Int64? followersGained,
+    $fixnum.Int64? followersLost,
+  }) {
+    final result = CreatorInsightsTotals._();
+    if (impressions != null) result.impressions = impressions;
+    if (engagements != null) result.engagements = engagements;
+    if (followersGained != null) result.followersGained = followersGained;
+    if (followersLost != null) result.followersLost = followersLost;
+    return result;
+  }
+
+  CreatorInsightsTotals._();
+
+  factory CreatorInsightsTotals.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CreatorInsightsTotals()..mergeFromBuffer(data, registry);
+  factory CreatorInsightsTotals.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CreatorInsightsTotals()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CreatorInsightsTotals',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: CreatorInsightsTotals.$_createMessage)
+    ..aInt64(1, _omitFieldNames ? '' : 'impressions')
+    ..aInt64(2, _omitFieldNames ? '' : 'engagements')
+    ..aInt64(3, _omitFieldNames ? '' : 'followersGained')
+    ..aInt64(4, _omitFieldNames ? '' : 'followersLost')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreatorInsightsTotals clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreatorInsightsTotals copyWith(
+          void Function(CreatorInsightsTotals) updates) =>
+      super.copyWith((message) => updates(message as CreatorInsightsTotals))
+          as CreatorInsightsTotals;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use CreatorInsightsTotals() / CreatorInsightsTotals.new instead')
+  static CreatorInsightsTotals create() => CreatorInsightsTotals._();
+  static $pb.GeneratedMessage $_createMessage() => CreatorInsightsTotals._();
+  @$core.override
+  CreatorInsightsTotals createEmptyInstance() => CreatorInsightsTotals._();
+  @$core.pragma('dart2js:noInline')
+  static CreatorInsightsTotals getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CreatorInsightsTotals>(
+          CreatorInsightsTotals.$_createMessage);
+  static CreatorInsightsTotals? _defaultInstance;
+
+  /// Views of the caller's posts (the view rollup's per-post delta, at most one per viewer, post and IST day).
+  @$pb.TagNumber(1)
+  $fixnum.Int64 get impressions => $_getI64(0);
+  @$pb.TagNumber(1)
+  set impressions($fixnum.Int64 value) => $_setInt64(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasImpressions() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearImpressions() => $_clearField(1);
+
+  /// Likes, reposts, replies and quotes the caller's posts received from other accounts (shares and poll votes do not
+  /// count), net of undos.
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get engagements => $_getI64(1);
+  @$pb.TagNumber(2)
+  set engagements($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasEngagements() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearEngagements() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get followersGained => $_getI64(2);
+  @$pb.TagNumber(3)
+  set followersGained($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFollowersGained() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFollowersGained() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get followersLost => $_getI64(3);
+  @$pb.TagNumber(4)
+  set followersLost($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasFollowersLost() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearFollowersLost() => $_clearField(4);
+}
+
+/// CreatorInsightsDay is one IST day of the window.
+class CreatorInsightsDay extends $pb.GeneratedMessage {
+  factory CreatorInsightsDay({
+    $core.String? date,
+    $fixnum.Int64? impressions,
+    $fixnum.Int64? engagements,
+    $fixnum.Int64? followersGained,
+    $fixnum.Int64? followersLost,
+  }) {
+    final result = CreatorInsightsDay._();
+    if (date != null) result.date = date;
+    if (impressions != null) result.impressions = impressions;
+    if (engagements != null) result.engagements = engagements;
+    if (followersGained != null) result.followersGained = followersGained;
+    if (followersLost != null) result.followersLost = followersLost;
+    return result;
+  }
+
+  CreatorInsightsDay._();
+
+  factory CreatorInsightsDay.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CreatorInsightsDay()..mergeFromBuffer(data, registry);
+  factory CreatorInsightsDay.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CreatorInsightsDay()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CreatorInsightsDay',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: CreatorInsightsDay.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'date')
+    ..aInt64(2, _omitFieldNames ? '' : 'impressions')
+    ..aInt64(3, _omitFieldNames ? '' : 'engagements')
+    ..aInt64(4, _omitFieldNames ? '' : 'followersGained')
+    ..aInt64(5, _omitFieldNames ? '' : 'followersLost')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreatorInsightsDay clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreatorInsightsDay copyWith(void Function(CreatorInsightsDay) updates) =>
+      super.copyWith((message) => updates(message as CreatorInsightsDay))
+          as CreatorInsightsDay;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use CreatorInsightsDay() / CreatorInsightsDay.new instead')
+  static CreatorInsightsDay create() => CreatorInsightsDay._();
+  static $pb.GeneratedMessage $_createMessage() => CreatorInsightsDay._();
+  @$core.override
+  CreatorInsightsDay createEmptyInstance() => CreatorInsightsDay._();
+  @$core.pragma('dart2js:noInline')
+  static CreatorInsightsDay getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CreatorInsightsDay>(
+          CreatorInsightsDay.$_createMessage);
+  static CreatorInsightsDay? _defaultInstance;
+
+  /// yyyymmdd, IST (UTC+05:30); the day rolls over at 18:30 UTC.
+  @$pb.TagNumber(1)
+  $core.String get date => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set date($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasDate() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDate() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get impressions => $_getI64(1);
+  @$pb.TagNumber(2)
+  set impressions($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasImpressions() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearImpressions() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get engagements => $_getI64(2);
+  @$pb.TagNumber(3)
+  set engagements($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasEngagements() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearEngagements() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get followersGained => $_getI64(3);
+  @$pb.TagNumber(4)
+  set followersGained($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasFollowersGained() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearFollowersGained() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $fixnum.Int64 get followersLost => $_getI64(4);
+  @$pb.TagNumber(5)
+  set followersLost($fixnum.Int64 value) => $_setInt64(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasFollowersLost() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearFollowersLost() => $_clearField(5);
+}
+
+/// CreatorTopPost is one of the caller's posts in the top-posts list.
+class CreatorTopPost extends $pb.GeneratedMessage {
+  factory CreatorTopPost({
+    $core.String? postId,
+    $core.String? text,
+    $0.Timestamp? createdAt,
+    $fixnum.Int64? viewCount,
+    $fixnum.Int64? likeCount,
+    $fixnum.Int64? repostCount,
+    $fixnum.Int64? replyCount,
+    $fixnum.Int64? quoteCount,
+  }) {
+    final result = CreatorTopPost._();
+    if (postId != null) result.postId = postId;
+    if (text != null) result.text = text;
+    if (createdAt != null) result.createdAt = createdAt;
+    if (viewCount != null) result.viewCount = viewCount;
+    if (likeCount != null) result.likeCount = likeCount;
+    if (repostCount != null) result.repostCount = repostCount;
+    if (replyCount != null) result.replyCount = replyCount;
+    if (quoteCount != null) result.quoteCount = quoteCount;
+    return result;
+  }
+
+  CreatorTopPost._();
+
+  factory CreatorTopPost.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CreatorTopPost()..mergeFromBuffer(data, registry);
+  factory CreatorTopPost.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CreatorTopPost()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CreatorTopPost',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: CreatorTopPost.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'postId')
+    ..aOS(2, _omitFieldNames ? '' : 'text')
+    ..aOM<$0.Timestamp>(3, _omitFieldNames ? '' : 'createdAt',
+        subBuilder: $0.Timestamp.$_createMessage)
+    ..aInt64(4, _omitFieldNames ? '' : 'viewCount')
+    ..aInt64(5, _omitFieldNames ? '' : 'likeCount')
+    ..aInt64(6, _omitFieldNames ? '' : 'repostCount')
+    ..aInt64(7, _omitFieldNames ? '' : 'replyCount')
+    ..aInt64(8, _omitFieldNames ? '' : 'quoteCount')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreatorTopPost clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CreatorTopPost copyWith(void Function(CreatorTopPost) updates) =>
+      super.copyWith((message) => updates(message as CreatorTopPost))
+          as CreatorTopPost;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use CreatorTopPost() / CreatorTopPost.new instead')
+  static CreatorTopPost create() => CreatorTopPost._();
+  static $pb.GeneratedMessage $_createMessage() => CreatorTopPost._();
+  @$core.override
+  CreatorTopPost createEmptyInstance() => CreatorTopPost._();
+  @$core.pragma('dart2js:noInline')
+  static CreatorTopPost getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<CreatorTopPost>(
+          CreatorTopPost.$_createMessage);
+  static CreatorTopPost? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get postId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set postId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPostId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPostId() => $_clearField(1);
+
+  /// The post's text, cut to at most 140 characters (empty for a media-only post).
+  @$pb.TagNumber(2)
+  $core.String get text => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set text($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasText() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearText() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $0.Timestamp get createdAt => $_getN(2);
+  @$pb.TagNumber(3)
+  set createdAt($0.Timestamp value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasCreatedAt() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearCreatedAt() => $_clearField(3);
+  @$pb.TagNumber(3)
+  $0.Timestamp ensureCreatedAt() => $_ensure(2);
+
+  /// Lifetime views (posts/{id}.viewCount as last rolled up), not views gained in the window.
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get viewCount => $_getI64(3);
+  @$pb.TagNumber(4)
+  set viewCount($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasViewCount() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearViewCount() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $fixnum.Int64 get likeCount => $_getI64(4);
+  @$pb.TagNumber(5)
+  set likeCount($fixnum.Int64 value) => $_setInt64(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasLikeCount() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearLikeCount() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $fixnum.Int64 get repostCount => $_getI64(5);
+  @$pb.TagNumber(6)
+  set repostCount($fixnum.Int64 value) => $_setInt64(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasRepostCount() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearRepostCount() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  $fixnum.Int64 get replyCount => $_getI64(6);
+  @$pb.TagNumber(7)
+  set replyCount($fixnum.Int64 value) => $_setInt64(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasReplyCount() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearReplyCount() => $_clearField(7);
+
+  @$pb.TagNumber(8)
+  $fixnum.Int64 get quoteCount => $_getI64(7);
+  @$pb.TagNumber(8)
+  set quoteCount($fixnum.Int64 value) => $_setInt64(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasQuoteCount() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearQuoteCount() => $_clearField(8);
+}
+
+class GetCreatorInsightsResponse extends $pb.GeneratedMessage {
+  factory GetCreatorInsightsResponse({
+    $core.int? windowDays,
+    CreatorInsightsTotals? current,
+    CreatorInsightsTotals? previous,
+    $core.Iterable<CreatorInsightsDay>? days,
+    $core.Iterable<CreatorTopPost>? topPosts,
+    $core.double? impressionsChangePct,
+    $core.double? engagementsChangePct,
+  }) {
+    final result = GetCreatorInsightsResponse._();
+    if (windowDays != null) result.windowDays = windowDays;
+    if (current != null) result.current = current;
+    if (previous != null) result.previous = previous;
+    if (days != null) result.days.addAll(days);
+    if (topPosts != null) result.topPosts.addAll(topPosts);
+    if (impressionsChangePct != null)
+      result.impressionsChangePct = impressionsChangePct;
+    if (engagementsChangePct != null)
+      result.engagementsChangePct = engagementsChangePct;
+    return result;
+  }
+
+  GetCreatorInsightsResponse._();
+
+  factory GetCreatorInsightsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetCreatorInsightsResponse()..mergeFromBuffer(data, registry);
+  factory GetCreatorInsightsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetCreatorInsightsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetCreatorInsightsResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: GetCreatorInsightsResponse.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'windowDays')
+    ..aOM<CreatorInsightsTotals>(2, _omitFieldNames ? '' : 'current',
+        subBuilder: CreatorInsightsTotals.$_createMessage)
+    ..aOM<CreatorInsightsTotals>(3, _omitFieldNames ? '' : 'previous',
+        subBuilder: CreatorInsightsTotals.$_createMessage)
+    ..pPM<CreatorInsightsDay>(4, _omitFieldNames ? '' : 'days',
+        subBuilder: CreatorInsightsDay.$_createMessage)
+    ..pPM<CreatorTopPost>(5, _omitFieldNames ? '' : 'topPosts',
+        subBuilder: CreatorTopPost.$_createMessage)
+    ..aD(6, _omitFieldNames ? '' : 'impressionsChangePct')
+    ..aD(7, _omitFieldNames ? '' : 'engagementsChangePct')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetCreatorInsightsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetCreatorInsightsResponse copyWith(
+          void Function(GetCreatorInsightsResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as GetCreatorInsightsResponse))
+          as GetCreatorInsightsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetCreatorInsightsResponse() / GetCreatorInsightsResponse.new instead')
+  static GetCreatorInsightsResponse create() => GetCreatorInsightsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetCreatorInsightsResponse._();
+  @$core.override
+  GetCreatorInsightsResponse createEmptyInstance() =>
+      GetCreatorInsightsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static GetCreatorInsightsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetCreatorInsightsResponse>(
+          GetCreatorInsightsResponse.$_createMessage);
+  static GetCreatorInsightsResponse? _defaultInstance;
+
+  /// The window used (28 when the request said 0).
+  @$pb.TagNumber(1)
+  $core.int get windowDays => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set windowDays($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasWindowDays() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearWindowDays() => $_clearField(1);
+
+  /// Sums over the window and over the window_days days before it.
+  @$pb.TagNumber(2)
+  CreatorInsightsTotals get current => $_getN(1);
+  @$pb.TagNumber(2)
+  set current(CreatorInsightsTotals value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasCurrent() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCurrent() => $_clearField(2);
+  @$pb.TagNumber(2)
+  CreatorInsightsTotals ensureCurrent() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  CreatorInsightsTotals get previous => $_getN(2);
+  @$pb.TagNumber(3)
+  set previous(CreatorInsightsTotals value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPrevious() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPrevious() => $_clearField(3);
+  @$pb.TagNumber(3)
+  CreatorInsightsTotals ensurePrevious() => $_ensure(2);
+
+  /// Exactly window_days entries, oldest first, ending today (IST); a day with no data is all zeros.
+  @$pb.TagNumber(4)
+  $pb.PbList<CreatorInsightsDay> get days => $_getList(3);
+
+  /// Up to 5 of the caller's posts, most viewed first (lifetime view count; posts with no views are left out). Empty
+  /// when the caller has none or the top-posts index is not deployed yet.
+  @$pb.TagNumber(5)
+  $pb.PbList<CreatorTopPost> get topPosts => $_getList(4);
+
+  /// Percent change of current against previous, (current - previous) / previous x 100. Absent when previous is 0.
+  @$pb.TagNumber(6)
+  $core.double get impressionsChangePct => $_getN(5);
+  @$pb.TagNumber(6)
+  set impressionsChangePct($core.double value) => $_setDouble(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasImpressionsChangePct() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearImpressionsChangePct() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  $core.double get engagementsChangePct => $_getN(6);
+  @$pb.TagNumber(7)
+  set engagementsChangePct($core.double value) => $_setDouble(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasEngagementsChangePct() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearEngagementsChangePct() => $_clearField(7);
+}
+
 class IdentityServiceApi {
   final $pb.RpcClient _client;
 
@@ -2110,6 +2668,23 @@ class IdentityServiceApi {
           $pb.ClientContext? ctx, GetAccountExportRequest request) =>
       _client.invoke<GetAccountExportResponse>(ctx, 'IdentityService',
           'GetAccountExport', request, GetAccountExportResponse());
+
+  /// F2 Creator Studio insights: the caller's own daily stats over the last window_days IST days (today included) and
+  /// the window before it, plus up to 5 of the caller's posts by lifetime view count. Caller only: there is no target
+  /// field, so nobody can read another account's insights. Not affected by whether view counts are shown publicly.
+  /// Gated by FEATURE_CREATOR_INSIGHTS on for the caller: off is FAILED_PRECONDITION + FEATURE_DISABLED with metadata
+  /// feature=creator_insights, before any Firestore read.
+  /// Data: users/{uid}/dailyStats/{yyyymmdd IST} {impressions, engagements, followersGained, followersLost}, written by
+  /// the view rollup (impressions, about every 15 minutes), likes, reposts, replies and quotes received from other
+  /// accounts (engagements; an undo subtracts on the day of the undo) and follows (gained and lost). Docs expire 400
+  /// days after their day. Stats are only collected while the flag is not globally off.
+  /// Reads: one GetAll of 2 x window_days daily docs (56 at the default) plus one top-posts query (Limit 5). When the
+  /// top-posts index is missing, top_posts is empty and the rest still answers.
+  /// Rate limit: its own per-user bucket, RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN (default 10/min per instance); no daily cap.
+  $async.Future<GetCreatorInsightsResponse> getCreatorInsights(
+          $pb.ClientContext? ctx, GetCreatorInsightsRequest request) =>
+      _client.invoke<GetCreatorInsightsResponse>(ctx, 'IdentityService',
+          'GetCreatorInsights', request, GetCreatorInsightsResponse());
 }
 
 const $core.bool _omitFieldNames =

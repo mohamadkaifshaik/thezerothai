@@ -155,6 +155,22 @@ service IdentityService {
   rpc GetAccountExport(GetAccountExportRequest) returns (GetAccountExportResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+
+  // F2 Creator Studio insights: the caller's own daily stats over the last window_days IST days (today included) and
+  // the window before it, plus up to 5 of the caller's posts by lifetime view count. Caller only: there is no target
+  // field, so nobody can read another account's insights. Not affected by whether view counts are shown publicly.
+  // Gated by FEATURE_CREATOR_INSIGHTS on for the caller: off is FAILED_PRECONDITION + FEATURE_DISABLED with metadata
+  // feature=creator_insights, before any Firestore read.
+  // Data: users/{uid}/dailyStats/{yyyymmdd IST} {impressions, engagements, followersGained, followersLost}, written by
+  // the view rollup (impressions, about every 15 minutes), likes, reposts, replies and quotes received from other
+  // accounts (engagements; an undo subtracts on the day of the undo) and follows (gained and lost). Docs expire 400
+  // days after their day. Stats are only collected while the flag is not globally off.
+  // Reads: one GetAll of 2 x window_days daily docs (56 at the default) plus one top-posts query (Limit 5). When the
+  // top-posts index is missing, top_posts is empty and the rest still answers.
+  // Rate limit: its own per-user bucket, RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN (default 10/min per instance); no daily cap.
+  rpc GetCreatorInsights(GetCreatorInsightsRequest) returns (GetCreatorInsightsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 enum AccountStatus {
@@ -409,4 +425,60 @@ message GetAccountExportResponse {
   google.protobuf.Timestamp expires_at = 5;
   // The format of this export: the download is a ZIP archive or the JSON object.
   ExportFormat format = 6;
+}
+
+message GetCreatorInsightsRequest {
+  // The window in IST days, today included: 0 means 28; 1 to 28 are accepted, anything else is VALIDATION.
+  int32 window_days = 1;
+}
+
+// CreatorInsightsTotals are sums over a window. Every value is >= 0: a day whose undos outweigh its gains counts 0.
+message CreatorInsightsTotals {
+  // Views of the caller's posts (the view rollup's per-post delta, at most one per viewer, post and IST day).
+  int64 impressions = 1;
+  // Likes, reposts, replies and quotes the caller's posts received from other accounts (shares and poll votes do not
+  // count), net of undos.
+  int64 engagements = 2;
+  int64 followers_gained = 3;
+  int64 followers_lost = 4;
+}
+
+// CreatorInsightsDay is one IST day of the window.
+message CreatorInsightsDay {
+  // yyyymmdd, IST (UTC+05:30); the day rolls over at 18:30 UTC.
+  string date = 1;
+  int64 impressions = 2;
+  int64 engagements = 3;
+  int64 followers_gained = 4;
+  int64 followers_lost = 5;
+}
+
+// CreatorTopPost is one of the caller's posts in the top-posts list.
+message CreatorTopPost {
+  string post_id = 1;
+  // The post's text, cut to at most 140 characters (empty for a media-only post).
+  string text = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // Lifetime views (posts/{id}.viewCount as last rolled up), not views gained in the window.
+  int64 view_count = 4;
+  int64 like_count = 5;
+  int64 repost_count = 6;
+  int64 reply_count = 7;
+  int64 quote_count = 8;
+}
+
+message GetCreatorInsightsResponse {
+  // The window used (28 when the request said 0).
+  int32 window_days = 1;
+  // Sums over the window and over the window_days days before it.
+  CreatorInsightsTotals current = 2;
+  CreatorInsightsTotals previous = 3;
+  // Exactly window_days entries, oldest first, ending today (IST); a day with no data is all zeros.
+  repeated CreatorInsightsDay days = 4;
+  // Up to 5 of the caller's posts, most viewed first (lifetime view count; posts with no views are left out). Empty
+  // when the caller has none or the top-posts index is not deployed yet.
+  repeated CreatorTopPost top_posts = 5;
+  // Percent change of current against previous, (current - previous) / previous x 100. Absent when previous is 0.
+  optional double impressions_change_pct = 6;
+  optional double engagements_change_pct = 7;
 }

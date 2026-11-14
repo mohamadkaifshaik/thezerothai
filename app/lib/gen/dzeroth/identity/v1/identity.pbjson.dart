@@ -669,6 +669,163 @@ final $typed_data.Uint8List getAccountExportResponseDescriptor = $convert.base64
     'FtcFIJZXhwaXJlc0F0EjkKBmZvcm1hdBgGIAEoDjIhLmR6ZXJvdGguaWRlbnRpdHkudjEuRXhw'
     'b3J0Rm9ybWF0UgZmb3JtYXQ=');
 
+@$core.Deprecated('Use getCreatorInsightsRequestDescriptor instead')
+const GetCreatorInsightsRequest$json = {
+  '1': 'GetCreatorInsightsRequest',
+  '2': [
+    {'1': 'window_days', '3': 1, '4': 1, '5': 5, '10': 'windowDays'},
+  ],
+};
+
+/// Descriptor for `GetCreatorInsightsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getCreatorInsightsRequestDescriptor =
+    $convert.base64Decode(
+        'ChlHZXRDcmVhdG9ySW5zaWdodHNSZXF1ZXN0Eh8KC3dpbmRvd19kYXlzGAEgASgFUgp3aW5kb3'
+        'dEYXlz');
+
+@$core.Deprecated('Use creatorInsightsTotalsDescriptor instead')
+const CreatorInsightsTotals$json = {
+  '1': 'CreatorInsightsTotals',
+  '2': [
+    {'1': 'impressions', '3': 1, '4': 1, '5': 3, '10': 'impressions'},
+    {'1': 'engagements', '3': 2, '4': 1, '5': 3, '10': 'engagements'},
+    {'1': 'followers_gained', '3': 3, '4': 1, '5': 3, '10': 'followersGained'},
+    {'1': 'followers_lost', '3': 4, '4': 1, '5': 3, '10': 'followersLost'},
+  ],
+};
+
+/// Descriptor for `CreatorInsightsTotals`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List creatorInsightsTotalsDescriptor = $convert.base64Decode(
+    'ChVDcmVhdG9ySW5zaWdodHNUb3RhbHMSIAoLaW1wcmVzc2lvbnMYASABKANSC2ltcHJlc3Npb2'
+    '5zEiAKC2VuZ2FnZW1lbnRzGAIgASgDUgtlbmdhZ2VtZW50cxIpChBmb2xsb3dlcnNfZ2FpbmVk'
+    'GAMgASgDUg9mb2xsb3dlcnNHYWluZWQSJQoOZm9sbG93ZXJzX2xvc3QYBCABKANSDWZvbGxvd2'
+    'Vyc0xvc3Q=');
+
+@$core.Deprecated('Use creatorInsightsDayDescriptor instead')
+const CreatorInsightsDay$json = {
+  '1': 'CreatorInsightsDay',
+  '2': [
+    {'1': 'date', '3': 1, '4': 1, '5': 9, '10': 'date'},
+    {'1': 'impressions', '3': 2, '4': 1, '5': 3, '10': 'impressions'},
+    {'1': 'engagements', '3': 3, '4': 1, '5': 3, '10': 'engagements'},
+    {'1': 'followers_gained', '3': 4, '4': 1, '5': 3, '10': 'followersGained'},
+    {'1': 'followers_lost', '3': 5, '4': 1, '5': 3, '10': 'followersLost'},
+  ],
+};
+
+/// Descriptor for `CreatorInsightsDay`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List creatorInsightsDayDescriptor = $convert.base64Decode(
+    'ChJDcmVhdG9ySW5zaWdodHNEYXkSEgoEZGF0ZRgBIAEoCVIEZGF0ZRIgCgtpbXByZXNzaW9ucx'
+    'gCIAEoA1ILaW1wcmVzc2lvbnMSIAoLZW5nYWdlbWVudHMYAyABKANSC2VuZ2FnZW1lbnRzEikK'
+    'EGZvbGxvd2Vyc19nYWluZWQYBCABKANSD2ZvbGxvd2Vyc0dhaW5lZBIlCg5mb2xsb3dlcnNfbG'
+    '9zdBgFIAEoA1INZm9sbG93ZXJzTG9zdA==');
+
+@$core.Deprecated('Use creatorTopPostDescriptor instead')
+const CreatorTopPost$json = {
+  '1': 'CreatorTopPost',
+  '2': [
+    {'1': 'post_id', '3': 1, '4': 1, '5': 9, '10': 'postId'},
+    {'1': 'text', '3': 2, '4': 1, '5': 9, '10': 'text'},
+    {
+      '1': 'created_at',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'createdAt'
+    },
+    {'1': 'view_count', '3': 4, '4': 1, '5': 3, '10': 'viewCount'},
+    {'1': 'like_count', '3': 5, '4': 1, '5': 3, '10': 'likeCount'},
+    {'1': 'repost_count', '3': 6, '4': 1, '5': 3, '10': 'repostCount'},
+    {'1': 'reply_count', '3': 7, '4': 1, '5': 3, '10': 'replyCount'},
+    {'1': 'quote_count', '3': 8, '4': 1, '5': 3, '10': 'quoteCount'},
+  ],
+};
+
+/// Descriptor for `CreatorTopPost`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List creatorTopPostDescriptor = $convert.base64Decode(
+    'Cg5DcmVhdG9yVG9wUG9zdBIXCgdwb3N0X2lkGAEgASgJUgZwb3N0SWQSEgoEdGV4dBgCIAEoCV'
+    'IEdGV4dBI5CgpjcmVhdGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIJ'
+    'Y3JlYXRlZEF0Eh0KCnZpZXdfY291bnQYBCABKANSCXZpZXdDb3VudBIdCgpsaWtlX2NvdW50GA'
+    'UgASgDUglsaWtlQ291bnQSIQoMcmVwb3N0X2NvdW50GAYgASgDUgtyZXBvc3RDb3VudBIfCgty'
+    'ZXBseV9jb3VudBgHIAEoA1IKcmVwbHlDb3VudBIfCgtxdW90ZV9jb3VudBgIIAEoA1IKcXVvdG'
+    'VDb3VudA==');
+
+@$core.Deprecated('Use getCreatorInsightsResponseDescriptor instead')
+const GetCreatorInsightsResponse$json = {
+  '1': 'GetCreatorInsightsResponse',
+  '2': [
+    {'1': 'window_days', '3': 1, '4': 1, '5': 5, '10': 'windowDays'},
+    {
+      '1': 'current',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.identity.v1.CreatorInsightsTotals',
+      '10': 'current'
+    },
+    {
+      '1': 'previous',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.identity.v1.CreatorInsightsTotals',
+      '10': 'previous'
+    },
+    {
+      '1': 'days',
+      '3': 4,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.identity.v1.CreatorInsightsDay',
+      '10': 'days'
+    },
+    {
+      '1': 'top_posts',
+      '3': 5,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.identity.v1.CreatorTopPost',
+      '10': 'topPosts'
+    },
+    {
+      '1': 'impressions_change_pct',
+      '3': 6,
+      '4': 1,
+      '5': 1,
+      '9': 0,
+      '10': 'impressionsChangePct',
+      '17': true
+    },
+    {
+      '1': 'engagements_change_pct',
+      '3': 7,
+      '4': 1,
+      '5': 1,
+      '9': 1,
+      '10': 'engagementsChangePct',
+      '17': true
+    },
+  ],
+  '8': [
+    {'1': '_impressions_change_pct'},
+    {'1': '_engagements_change_pct'},
+  ],
+};
+
+/// Descriptor for `GetCreatorInsightsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getCreatorInsightsResponseDescriptor = $convert.base64Decode(
+    'ChpHZXRDcmVhdG9ySW5zaWdodHNSZXNwb25zZRIfCgt3aW5kb3dfZGF5cxgBIAEoBVIKd2luZG'
+    '93RGF5cxJECgdjdXJyZW50GAIgASgLMiouZHplcm90aC5pZGVudGl0eS52MS5DcmVhdG9ySW5z'
+    'aWdodHNUb3RhbHNSB2N1cnJlbnQSRgoIcHJldmlvdXMYAyABKAsyKi5kemVyb3RoLmlkZW50aX'
+    'R5LnYxLkNyZWF0b3JJbnNpZ2h0c1RvdGFsc1IIcHJldmlvdXMSOwoEZGF5cxgEIAMoCzInLmR6'
+    'ZXJvdGguaWRlbnRpdHkudjEuQ3JlYXRvckluc2lnaHRzRGF5UgRkYXlzEkAKCXRvcF9wb3N0cx'
+    'gFIAMoCzIjLmR6ZXJvdGguaWRlbnRpdHkudjEuQ3JlYXRvclRvcFBvc3RSCHRvcFBvc3RzEjkK'
+    'FmltcHJlc3Npb25zX2NoYW5nZV9wY3QYBiABKAFIAFIUaW1wcmVzc2lvbnNDaGFuZ2VQY3SIAQ'
+    'ESOQoWZW5nYWdlbWVudHNfY2hhbmdlX3BjdBgHIAEoAUgBUhRlbmdhZ2VtZW50c0NoYW5nZVBj'
+    'dIgBAUIZChdfaW1wcmVzc2lvbnNfY2hhbmdlX3BjdEIZChdfZW5nYWdlbWVudHNfY2hhbmdlX3'
+    'BjdA==');
+
 const $core.Map<$core.String, $core.dynamic> IdentityServiceBase$json = {
   '1': 'IdentityService',
   '2': [
@@ -727,6 +884,12 @@ const $core.Map<$core.String, $core.dynamic> IdentityServiceBase$json = {
       '3': '.dzeroth.identity.v1.GetAccountExportResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'GetCreatorInsights',
+      '2': '.dzeroth.identity.v1.GetCreatorInsightsRequest',
+      '3': '.dzeroth.identity.v1.GetCreatorInsightsResponse',
+      '4': {'34': 1},
+    },
   ],
 };
 
@@ -761,6 +924,13 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.identity.v1.GetAccountExportRequest': GetAccountExportRequest$json,
   '.dzeroth.identity.v1.GetAccountExportResponse':
       GetAccountExportResponse$json,
+  '.dzeroth.identity.v1.GetCreatorInsightsRequest':
+      GetCreatorInsightsRequest$json,
+  '.dzeroth.identity.v1.GetCreatorInsightsResponse':
+      GetCreatorInsightsResponse$json,
+  '.dzeroth.identity.v1.CreatorInsightsTotals': CreatorInsightsTotals$json,
+  '.dzeroth.identity.v1.CreatorInsightsDay': CreatorInsightsDay$json,
+  '.dzeroth.identity.v1.CreatorTopPost': CreatorTopPost$json,
 };
 
 /// Descriptor for `IdentityService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -784,4 +954,7 @@ final $typed_data.Uint8List identityServiceDescriptor = $convert.base64Decode(
     'b3J0EjAuZHplcm90aC5pZGVudGl0eS52MS5SZXF1ZXN0QWNjb3VudEV4cG9ydFJlcXVlc3QaMS'
     '5kemVyb3RoLmlkZW50aXR5LnYxLlJlcXVlc3RBY2NvdW50RXhwb3J0UmVzcG9uc2USdAoQR2V0'
     'QWNjb3VudEV4cG9ydBIsLmR6ZXJvdGguaWRlbnRpdHkudjEuR2V0QWNjb3VudEV4cG9ydFJlcX'
-    'Vlc3QaLS5kemVyb3RoLmlkZW50aXR5LnYxLkdldEFjY291bnRFeHBvcnRSZXNwb25zZSIDkAIB');
+    'Vlc3QaLS5kemVyb3RoLmlkZW50aXR5LnYxLkdldEFjY291bnRFeHBvcnRSZXNwb25zZSIDkAIB'
+    'EnoKEkdldENyZWF0b3JJbnNpZ2h0cxIuLmR6ZXJvdGguaWRlbnRpdHkudjEuR2V0Q3JlYXRvck'
+    'luc2lnaHRzUmVxdWVzdBovLmR6ZXJvdGguaWRlbnRpdHkudjEuR2V0Q3JlYXRvckluc2lnaHRz'
+    'UmVzcG9uc2UiA5ACAQ==');

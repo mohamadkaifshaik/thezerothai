@@ -193,4 +193,24 @@ abstract final class IdentityService {
     dzerothidentityv1identity.GetAccountExportResponse.new,
     idempotency: connect.Idempotency.noSideEffects,
   );
+
+  /// F2 Creator Studio insights: the caller's own daily stats over the last window_days IST days (today included) and
+  /// the window before it, plus up to 5 of the caller's posts by lifetime view count. Caller only: there is no target
+  /// field, so nobody can read another account's insights. Not affected by whether view counts are shown publicly.
+  /// Gated by FEATURE_CREATOR_INSIGHTS on for the caller: off is FAILED_PRECONDITION + FEATURE_DISABLED with metadata
+  /// feature=creator_insights, before any Firestore read.
+  /// Data: users/{uid}/dailyStats/{yyyymmdd IST} {impressions, engagements, followersGained, followersLost}, written by
+  /// the view rollup (impressions, about every 15 minutes), likes, reposts, replies and quotes received from other
+  /// accounts (engagements; an undo subtracts on the day of the undo) and follows (gained and lost). Docs expire 400
+  /// days after their day. Stats are only collected while the flag is not globally off.
+  /// Reads: one GetAll of 2 x window_days daily docs (56 at the default) plus one top-posts query (Limit 5). When the
+  /// top-posts index is missing, top_posts is empty and the rest still answers.
+  /// Rate limit: its own per-user bucket, RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN (default 10/min per instance); no daily cap.
+  static const getCreatorInsights = connect.Spec(
+    '/$name/GetCreatorInsights',
+    connect.StreamType.unary,
+    dzerothidentityv1identity.GetCreatorInsightsRequest.new,
+    dzerothidentityv1identity.GetCreatorInsightsResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
 }
