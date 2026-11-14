@@ -223,8 +223,9 @@ func (r *FirestoreRepo) FollowedPage(ctx context.Context, viewer string, before 
 	return out, nil
 }
 
-// DiscoverPage implements Repo: public lists ordered by followerCount descending, then document id ascending (the index
-// chore(firestore) on lists: isPrivate ASC, followerCount DESC). Lists without the followerCount field are not returned (a list
+// DiscoverPage implements Repo: public lists ordered by followerCount descending, then document id ascending (the index on
+// lists: isPrivate ASC, followerCount DESC, __name__ ASC; the __name__ entry must stay explicit, as Firestore otherwise
+// gives it the last field's direction, DESC, and this query then fails for want of an index). Lists without the followerCount field are not returned (a list
 // created before the field needs a recount or a first follow). hidden, owner status and blocks are filtered by the service.
 func (r *FirestoreRepo) DiscoverPage(ctx context.Context, after *DiscoverAnchor, limit int) ([]List, error) {
 	if err := r.readable(); err != nil {
