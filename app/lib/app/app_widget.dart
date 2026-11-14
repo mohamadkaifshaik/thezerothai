@@ -441,8 +441,10 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
       // goes A to B with no unauthenticated state in between).
       final previousUid = _accountUid;
       _accountUid = state.user?.uid;
-      if (state.status == AuthStatus.unauthenticated ||
-          (previousUid != null && _accountUid != previousUid)) {
+      // Only a real change ends the session. Every other signed-out emit (a
+      // failure shown, then dismissed, on the sign-in/up screen) must not
+      // run the reset: it clears the snackbars and hid the error itself.
+      if (previousUid != null && _accountUid != previousUid) {
         _endAccountSession();
       }
     });

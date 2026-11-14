@@ -25,6 +25,7 @@ class EmailPasswordForm extends StatefulWidget {
     this.fieldIcons = false,
     this.dense = false,
     this.builder,
+    this.notice,
   });
 
   final String submitLabel;
@@ -41,6 +42,9 @@ class EmailPasswordForm extends StatefulWidget {
 
   /// Defaults to the fields with the submit button under them.
   final EmailPasswordFormBuilder? builder;
+
+  /// An inline message above the fields (the sign-up "account exists" note).
+  final Widget? notice;
 
   @override
   State<EmailPasswordForm> createState() => _EmailPasswordFormState();
@@ -123,6 +127,10 @@ class _EmailPasswordFormState extends State<EmailPasswordForm> {
     final fields = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (widget.notice case final notice?) ...[
+          notice,
+          SizedBox(height: _gap),
+        ],
         _field(
           'Email address',
           TextFormField(
