@@ -1,8 +1,8 @@
 // views.go is the read side of F1 post view counts: who sees Post.view_count (the hybrid rule, owner decision
 // 2026-11-14). The field is proto3 optional and its presence is the visibility signal.
 //
-//   - The author always sees their own count. ToView sets it (the rolled-up posts/{id}.viewCount), and GetPost replaces it
-//     with the exact live shard sum (one GetAll of 10 shard docs, only for the author with FEATURE_POST_VIEWS on).
+//   - The author always sees their own count. ToView sets it (the rolled-up posts/{id}.viewCount), and GetPost (and
+//     GetThread's focal post, first page) replaces it with the exact live shard sum (one GetAll of 10 shard docs, only for the author with FEATURE_POST_VIEWS on).
 //   - Anyone else sees the rolled-up count only once it reaches the threshold (POST_VIEWS_PUBLIC_THRESHOLD) and only when
 //     the author is known not to be protected. That is decided by ApplyPublicViews, which every surface calls next to
 //     ApplyWireVisibility with the one Audience.ProtectedStatus answer of the row. A surface that never decides it, or
@@ -119,7 +119,7 @@ func (s *service) LiveViewCount(ctx context.Context, p *Post) (int64, bool) {
 	return n, true
 }
 
-// applyAuthorLiveViews is GetPost's step: for the author with FEATURE_POST_VIEWS on, the exact live count (never below
+// applyAuthorLiveViews is GetPost's step, and GetThread's for the focal post on the first page: for the author with FEATURE_POST_VIEWS on, the exact live count (never below
 // the rolled-up one, which a lagging read cannot undo).
 func (s *Server) applyAuthorLiveViews(ctx context.Context, v *postsv1.PostView, uid string, p *Post) {
 	if v.GetPost().ViewCount == nil || uid != p.AuthorID || s.flags == nil || !s.flags.Enabled(uid, ViewsFlagName) {
