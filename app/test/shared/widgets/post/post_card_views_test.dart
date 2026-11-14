@@ -69,6 +69,9 @@ void main() {
     double width = 400,
     double textScale = 1,
     ImpressionTracker? tracker,
+    // The owner hid views (kShowPostViews); the display tests turn them back
+    // on for the subtree, the hidden tests leave the default.
+    bool showViews = true,
   }) {
     final onboarding = _MockOnboarding();
     whenListen(
@@ -108,6 +111,7 @@ void main() {
         ),
       ),
     );
+    app = showViews ? PostViewsVisibility(show: true, child: app) : app;
     if (tracker != null) {
       app = RepositoryProvider<ImpressionTracker>.value(
         value: tracker,
@@ -197,6 +201,77 @@ void main() {
         expect(eye, findsOneWidget);
       });
     }
+  });
+
+  group('hidden by the owner switch (kShowPostViews)', () {
+    test('the switch is off', () {
+      expect(kShowPostViews, isFalse);
+    });
+
+    testWidgets('a list card shows no views even with post_views on and '
+        'view_count set', (tester) async {
+      await tester.pumpWidget(
+        wrap(card(_post(views: 1234)), flags: on, showViews: false),
+      );
+      expect(eye, findsNothing);
+      expect(find.text('1.23K'), findsNothing);
+    });
+
+    testWidgets('the opened post shows no views either', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          card(_post(views: 1234), focal: true),
+          flags: on,
+          showViews: false,
+        ),
+      );
+      expect(eye, findsNothing);
+      expect(find.text('1.23K'), findsNothing);
+    });
+
+    testWidgets('a list card is still recorded as seen', (tester) async {
+      final sent = <List<String>>[];
+      final tracker = ImpressionTracker(
+        send: (ids) async => sent.add(ids),
+        isEnabled: () => true,
+      );
+      addTearDown(tracker.dispose);
+      await tester.pumpWidget(
+        wrap(
+          card(_post(views: 1234)),
+          flags: on,
+          showViews: false,
+          tracker: tracker,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await tracker.flush();
+      expect(sent, [
+        [postId(7)],
+      ]);
+    });
+
+    testWidgets('the opened post is still recorded as seen', (tester) async {
+      final sent = <List<String>>[];
+      final tracker = ImpressionTracker(
+        send: (ids) async => sent.add(ids),
+        isEnabled: () => true,
+      );
+      addTearDown(tracker.dispose);
+      await tester.pumpWidget(
+        wrap(
+          card(_post(views: 1234), focal: true),
+          flags: on,
+          showViews: false,
+          tracker: tracker,
+        ),
+      );
+      await tester.pump();
+      await tracker.flush();
+      expect(sent, [
+        [postId(7)],
+      ]);
+    });
   });
 
   group('opened post', () {

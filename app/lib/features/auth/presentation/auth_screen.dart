@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../domain/auth_failure.dart';
 import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
@@ -26,6 +27,11 @@ class _AuthScreenState extends State<AuthScreen> {
   // window resize that moves the form to another subtree.
   final _formKey = GlobalKey(debugLabel: 'auth-email-form');
 
+  // "An account with this email already exists": shown inline, with a way
+  // to sign in, instead of a snackbar that is gone before it is read. Cleared
+  // by the next submit.
+  bool _accountExists = false;
+
   bool get signUp => widget.signUp;
 
   void _switchMode(BuildContext context) =>
@@ -37,6 +43,11 @@ class _AuthScreenState extends State<AuthScreen> {
     listener: (context, state) {
       final failure = state.failure;
       if (failure == null || failure.message.isEmpty) return;
+      if (signUp && failure is AuthEmailAlreadyInUse) {
+        setState(() => _accountExists = true);
+        context.read<AuthBloc>().add(const AuthFailureDismissed());
+        return;
+      }
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(failure.message)));
@@ -61,14 +72,27 @@ class _AuthScreenState extends State<AuthScreen> {
               fieldIcons: fieldIcons,
               dense: dense,
               builder: builder,
-              onSubmit: (email, password) => bloc.add(
-                signUp
-                    ? AuthEmailSignUpRequested(email: email, password: password)
-                    : AuthEmailSignInRequested(
-                        email: email,
-                        password: password,
-                      ),
-              ),
+              notice: signUp && _accountExists
+                  ? _AccountExistsNotice(
+                      onSignIn: state.isSubmitting
+                          ? null
+                          : () => _switchMode(context),
+                    )
+                  : null,
+              onSubmit: (email, password) {
+                if (_accountExists) setState(() => _accountExists = false);
+                bloc.add(
+                  signUp
+                      ? AuthEmailSignUpRequested(
+                          email: email,
+                          password: password,
+                        )
+                      : AuthEmailSignInRequested(
+                          email: email,
+                          password: password,
+                        ),
+                );
+              },
             ),
         social: SocialSignInButtons(
           isSubmitting: state.isSubmitting,
@@ -78,4 +102,39 @@ class _AuthScreenState extends State<AuthScreen> {
       );
     },
   );
+}
+
+/// The sign-up note for an address that already has an account.
+class _AccountExistsNotice extends StatelessWidget {
+  const _AccountExistsNotice({required this.onSignIn});
+
+  final VoidCallback? onSignIn;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      liveRegion: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'An account with this email already exists.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.error,
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: context.appColors.accentText,
+              padding: EdgeInsets.zero,
+              alignment: AlignmentDirectional.centerStart,
+            ),
+            onPressed: onSignIn,
+            child: const Text('Log in instead'),
+          ),
+        ],
+      ),
+    );
+  }
 }

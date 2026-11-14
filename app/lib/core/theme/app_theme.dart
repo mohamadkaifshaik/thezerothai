@@ -26,10 +26,6 @@ abstract final class AppSpacing {
   /// Minimum interactive target size for accessibility (48dp rule).
   static const double minTapTarget = 48;
 
-  /// Width of the Bookmark and Share boxes that end a list card's action row
-  /// (their height stays 48): six actions still breathe on a 360 dp card.
-  static const double endActionWidth = 40;
-
   /// Between a post action's glyph and its count.
   static const double actionGap = 6;
 
@@ -139,10 +135,28 @@ abstract final class AppBreakpoints {
 /// Sizes of the shared chrome (dp), measured on x.com 2026-10-22 and divided
 /// by the verified 1.25 display scale.
 abstract final class AppSize {
-  /// The tallest a list card's media frame grows: now that media spans the
-  /// card's full width, a portrait picture on a wide column stays this tall
-  /// at most (the opened post shows full images).
+  /// The tallest a media pager frame grows (an embedded quote's images; list
+  /// cards and thread replies use the media row instead, the opened post shows
+  /// full images).
   static const double postMediaListMaxHeight = 560;
+
+  /// The height of a list card's (and thread reply's) media row, by window
+  /// width: phones (< 600), tablets (600-1199) and desktop (>= 1200). Each
+  /// picture is as tall as the row and as wide as its aspect ratio makes it.
+  static const double postMediaRowHeightPhone = 220;
+  static const double postMediaRowHeightTablet = 260;
+  static const double postMediaRowHeightDesktop = 280;
+
+  /// The media row's height for a window [windowWidth] wide.
+  static double postMediaRowHeight(double windowWidth) =>
+      windowWidth < AppBreakpoints.mobile
+      ? postMediaRowHeightPhone
+      : windowWidth < AppBreakpoints.tablet
+      ? postMediaRowHeightTablet
+      : postMediaRowHeightDesktop;
+
+  /// The gap between pictures in the media row.
+  static const double postMediaRowGap = 8;
 
   /// One row of a header: the top bar row, and the tab row below it.
   static const double headerRow = 53;
