@@ -71,7 +71,9 @@ func (p *pagedMissing) RecountFollowers(context.Context, string, bool) (lists.Fo
 func (p *pagedMissing) MissingFollowerCount(_ context.Context, after string, limit int) (lists.MissingFollowerCountPage, error) {
 	start := 0
 	if after != "" {
-		fmt.Sscanf(after, "%d", &start)
+		if _, err := fmt.Sscanf(after, "%d", &start); err != nil {
+			return lists.MissingFollowerCountPage{}, fmt.Errorf("fake: bad after %q: %w", after, err)
+		}
 	}
 	var page lists.MissingFollowerCountPage
 	for i := start + 1; i <= p.total && page.Scanned < limit; i++ {
