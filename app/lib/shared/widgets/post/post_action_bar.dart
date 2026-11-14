@@ -35,8 +35,12 @@ class PostActions {
   final ValueChanged<Rect>? onShareAt;
 }
 
-/// The widest the action row grows (dz.css `.acts` `max-width: 440px`): on
-/// a wide column the actions stay together instead of drifting apart.
+/// The slot a counted action needs on a list card before the row switches
+/// from equal slots to natural widths: a glyph, the gap and a "12.3K" count.
+const kPostActionSlotMin = 72.0;
+
+/// The widest the opened post's action row grows (dz.css `.acts`
+/// `max-width: 440px`). A list card's row spans the card's full width.
 const kPostActionsMaxWidth = 440.0;
 
 /// Reply / Repost / Like / Bookmark / Share (the order of every design):
@@ -63,6 +67,7 @@ class PostActionBar extends StatelessWidget {
     this.likeCount = 0,
     this.shareCount = 0,
     this.viewCount,
+    this.viewsIcon = kPostViewsIcon,
     this.liked = false,
     this.reposted = false,
     this.bookmarked = false,
@@ -85,6 +90,9 @@ class PostActionBar extends StatelessWidget {
   /// caller passes it only when the server set `view_count` and `post_views`
   /// is on for the viewer.
   final int? viewCount;
+
+  /// The views glyph; [kPostViewsIcon] unless a comparison asks for another.
+  final IconData viewsIcon;
   final bool liked;
   final bool reposted;
 
@@ -177,13 +185,18 @@ class PostActionBar extends StatelessWidget {
     final views = viewCount == null
         ? null
         : Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-            child: PostViewsStat(count: viewCount!, iconSize: iconSize),
+            padding: EdgeInsets.symmetric(
+              horizontal: spread ? AppSpacing.xs : 0,
+            ),
+            child: PostViewsStat(
+              count: viewCount!,
+              iconSize: iconSize,
+              icon: viewsIcon,
+            ),
           );
-    // All five (the designs' row): spread edge to edge, `space-between`.
-    final allFive = counted.length == 3 && saved != null && shareShown;
     final Widget row;
-    if (spread || allFive) {
+    if (spread) {
+      // The opened post: every action spaced edge to edge, `space-between`.
       // Loose flex: each button gets a bounded width (its count can fade at
       // large text) and the space left over spreads them out.
       row = Row(
@@ -196,24 +209,57 @@ class PostActionBar extends StatelessWidget {
         ],
       );
     } else {
-      // Fewer than five (a flag off): equal slots, so they stay together at
-      // the start instead of drifting to the edges.
-      row = Row(
-        children: [
-          for (final button in counted) _ActionSlot(child: button),
-          if (views != null) _ActionSlot(child: views),
-          if (saved != null) _ActionSlot(child: saved),
-          if (shareShown) _ActionSlot(child: share(alignEnd: false)),
-        ],
+      // A list card, the full width of the card. The counted actions (and
+      // views) share it; Bookmark and Share are grouped at the end.
+      //
+      // With room (each counted action gets at least [kPostActionSlotMin])
+      // they take equal slots, each button at its slot's start: an even pitch
+      // whatever the counts. On a narrow card they keep their natural width
+      // and the leftover space is spread between them, so a long count like
+      // "12.3K" takes what it needs instead of fading under a fixed slot.
+      // Only when even that does not fit does a count fade (it never overlaps
+      // its neighbour).
+      final trailing = <Widget>[
+        ?bookmark(alignEnd: true),
+        if (shareShown) share(alignEnd: true),
+      ];
+      final groupedEnd = trailing.isEmpty
+          ? null
+          : Row(mainAxisSize: MainAxisSize.min, children: trailing);
+      final items = [...counted, ?views];
+      row = LayoutBuilder(
+        builder: (context, constraints) {
+          final room =
+              constraints.maxWidth -
+              (groupedEnd == null
+                  ? 0
+                  : trailing.length * AppSpacing.endActionWidth);
+          final roomy =
+              items.isNotEmpty && room / items.length >= kPostActionSlotMin;
+          return roomy
+              ? Row(
+                  children: [
+                    for (final item in items) _ActionSlot(child: item),
+                    ?groupedEnd,
+                  ],
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (final item in items) Flexible(child: item),
+                    ?groupedEnd,
+                  ],
+                );
+        },
       );
     }
-    return Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: kPostActionsMaxWidth),
-        child: row,
-      ),
-    );
+    final bar = spread
+        ? ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: kPostActionsMaxWidth),
+            child: row,
+          )
+        : row;
+    return Align(alignment: AlignmentDirectional.centerStart, child: bar);
   }
 }
 
@@ -250,8 +296,9 @@ class _ActionButton extends StatelessWidget {
   final Color? activeColor;
   final VoidCallback? onPressed;
 
-  /// A 48dp-wide box with the icon at its right edge (Share, flush with the
-  /// card's right padding) instead of a left-aligned one.
+  /// A 40 dp-wide, 48 dp-tall box ([AppSpacing.endActionWidth]) with the icon
+  /// at its right edge (Bookmark and Share, the last flush with the card's
+  /// content edge) instead of a left-aligned one.
   final bool alignEnd;
 
   /// Why-less explanation of a deliberately disabled button: a semantics
@@ -286,8 +333,12 @@ class _ActionButton extends StatelessWidget {
         highlightColor: Colors.transparent,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            minWidth: AppSpacing.minTapTarget,
-            maxWidth: alignEnd ? AppSpacing.minTapTarget : double.infinity,
+            // In a slot narrower than 48 dp (six actions on a 320 dp card) the
+            // box gives way to the slot, never past 44 dp there.
+            minWidth: alignEnd
+                ? AppSpacing.endActionWidth
+                : AppSpacing.minTapTarget,
+            maxWidth: alignEnd ? AppSpacing.endActionWidth : double.infinity,
             minHeight: AppSpacing.minTapTarget,
           ),
           child: Row(
@@ -298,7 +349,7 @@ class _ActionButton extends StatelessWidget {
             children: [
               Icon(icon, size: iconSize, color: color),
               if (shown > 0) ...[
-                const SizedBox(width: AppSpacing.xs),
+                const SizedBox(width: AppSpacing.actionGap),
                 Flexible(
                   child: Text(
                     NumberFormat.compact().format(shown),

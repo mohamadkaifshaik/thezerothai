@@ -77,7 +77,7 @@ void main() {
   group('list card geometry', () {
     for (final width in _widths) {
       testWidgets('at $width the avatar is 42 dp after a '
-          '${width < 600 ? 20 : 16} dp gutter, 12 dp before the body', (
+          '${width < 600 ? 20 : 16} dp gutter, the body under it', (
         tester,
       ) async {
         await _pump(
@@ -97,7 +97,8 @@ void main() {
         expect(avatar.left, closeTo(gutter + 3, 0.5));
         expect(postCardGutter(width), gutter);
         final body = tester.getRect(find.byType(PostRichText));
-        expect(body.left, closeTo(gutter + 48 + AppSpacing.smd, 0.5));
+        // The body starts under the avatar circle, not beside it.
+        expect(body.left, closeTo(avatar.left, 0.5));
         expectNoOverflow(tester);
       });
     }
@@ -176,8 +177,8 @@ void main() {
     });
 
     for (final width in const [360.0, 600.0, 1440.0]) {
-      testWidgets('at $width all five actions spread edge to edge within '
-          '440 dp', (tester) async {
+      testWidgets('at $width all five actions spread edge to edge across '
+          'the card', (tester) async {
         await _pump(
           tester,
           PostCard(
@@ -189,19 +190,16 @@ void main() {
         );
 
         final bar = tester.getRect(find.byType(PostActionBar));
-        final row = bar.width < kPostActionsMaxWidth
-            ? bar.width
-            : kPostActionsMaxWidth;
         Rect box(IconData icon) => tester.getRect(
           find.ancestor(
             of: find.byIcon(icon),
             matching: find.byType(InkResponse),
           ),
         );
-        // `.acts`: space-between. The first box starts the row, the last
-        // (Share) ends it, at most 440 dp from the start.
+        // A list card's row spans the card's full width (no 440 dp cap): the
+        // first box starts it, Share ends it.
         expect(box(Icons.chat_bubble_outline).left, closeTo(bar.left, 1));
-        expect(box(Icons.ios_share).right, closeTo(bar.left + row, 1));
+        expect(box(Icons.ios_share).right, closeTo(bar.right, 1));
         final icons = [
           Icons.chat_bubble_outline,
           Icons.repeat,
@@ -237,7 +235,7 @@ void main() {
         final share = tester.getRect(find.byIcon(Icons.ios_share));
         expect(reply.right, closeTo(bar.right, 1));
         expect(share.left, lessThan(reply.left));
-        expect(bar.right - share.left, lessThanOrEqualTo(kPostActionsMaxWidth));
+        expect(bar.right - share.left, lessThanOrEqualTo(bar.width));
       });
     }
 
@@ -332,9 +330,7 @@ void main() {
 
   for (final width in const [360.0, 1200.0]) {
     testWidgets('at $width a tappable community label is a compact 24 dp '
-        'target', (
-      tester,
-    ) async {
+        'target', (tester) async {
       await _pump(
         tester,
         PostContextLabel.community(name: 'Coffee club', onTap: () {}),
