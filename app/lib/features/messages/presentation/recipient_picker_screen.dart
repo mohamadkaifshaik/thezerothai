@@ -29,9 +29,11 @@ import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/following_people_source.dart';
 import '../data/messaging_repository.dart';
+import '../domain/message_suggestions.dart';
 import '../domain/messaging_feature_flag.dart';
 import '../domain/people_source.dart';
 import '../domain/share_post_target.dart';
+import 'bloc/message_suggestions_cubit.dart';
 import 'bloc/recipient_picker_cubit.dart';
 import 'bloc/share_post_cubit.dart';
 import 'messaging_error_messages.dart';
@@ -214,6 +216,8 @@ class RecipientPicker extends StatelessWidget {
       source: source,
       searchEnabled: isFeatureEnabled(context, kPickerSearchFlag),
       graphEnabled: isFeatureEnabled(context, kFeatureGraph),
+      suggestionsEnabled:
+          share == null && isFeatureEnabled(context, kFeatureDmSuggestions),
       onPicked: onPicked,
       dialog: dialog,
       share: share,
@@ -239,6 +243,7 @@ class _PickerView extends StatefulWidget {
     required this.source,
     required this.searchEnabled,
     required this.graphEnabled,
+    required this.suggestionsEnabled,
     required this.onPicked,
     required this.dialog,
     required this.share,
@@ -249,6 +254,10 @@ class _PickerView extends StatefulWidget {
   final bool dialog;
   final bool searchEnabled;
   final bool graphEnabled;
+
+  /// `dm_suggestions` (new-message mode only): the server's "Suggested"
+  /// section before anything is typed.
+  final bool suggestionsEnabled;
   final void Function(BuildContext, common.AuthorSnapshot)? onPicked;
 
   @override
@@ -261,6 +270,7 @@ class _PickerViewState extends State<_PickerView> {
   late final UserListCubit _following;
   late final RecipientPickerCubit _picker;
   SharePostCubit? _share;
+  MessageSuggestionsCubit? _suggestions;
   String? _ownUserId;
 
   /// Share mode: the people of the cached inbox, newest first (no request).
@@ -283,6 +293,12 @@ class _PickerViewState extends State<_PickerView> {
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
       );
       unawaited(_loadRecents(repository));
+    }
+    if (widget.suggestionsEnabled) {
+      _suggestions = MessageSuggestionsCubit(
+        repository: context.read<MessagingRepository>(),
+        ownUserId: ownUserId,
+      )..load();
     }
     _source =
         widget.source ??
@@ -315,6 +331,7 @@ class _PickerViewState extends State<_PickerView> {
     unawaited(_following.close());
     unawaited(_picker.close());
     unawaited(_share?.close());
+    unawaited(_suggestions?.close());
     super.dispose();
   }
 
@@ -454,6 +471,23 @@ class _PickerViewState extends State<_PickerView> {
   /// "Suggested", or in share mode "Recent" (the inbox's people, hidden while
   /// typing: the filter below works on the Following rows) above it.
   Widget _header(RecipientPickerState state, {bool suggested = true}) {
+    final suggestions = _suggestions;
+    if (suggestions != null && !state.hasQuery && suggested) {
+      // The server's people first; the Following list moves under its own
+      // title only while there are some (none: today's "Suggested").
+      return BlocBuilder<MessageSuggestionsCubit, MessageSuggestionsState>(
+        bloc: suggestions,
+        builder: (context, s) => s.suggestions.isEmpty
+            ? _SuggestedHeader(dialog: widget.dialog)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ..._suggestionSection(s),
+                  _SuggestedHeader(dialog: widget.dialog, title: 'Following'),
+                ],
+              ),
+      );
+    }
     final recents = _share == null || state.hasQuery
         ? const <graph.UserListItem>[]
         : _recents;
@@ -474,6 +508,20 @@ class _PickerViewState extends State<_PickerView> {
       ],
     );
   }
+
+  /// The "Suggested" title and one row per server suggestion, with its reason
+  /// under the handle. A tap opens the conversation as any picker row does.
+  List<Widget> _suggestionSection(MessageSuggestionsState s) => [
+    _SuggestedHeader(dialog: widget.dialog),
+    for (final suggestion in s.suggestions)
+      _PickerRow(
+        key: ValueKey('suggestion-${suggestion.user.userId}'),
+        item: graph.UserListItem(user: suggestion.user),
+        dialog: widget.dialog,
+        subtitle: messageSuggestionReason(suggestion),
+        onTap: () => _pick(suggestion.user),
+      ),
+  ];
 
   /// Whether the Following row [item] shows: it matches the typed text, is
   /// not the caller, and (share mode) is not already listed under "Recent".
@@ -524,40 +572,71 @@ class _PickerViewState extends State<_PickerView> {
           ),
         Expanded(
           child: widget.graphEnabled
-              ? PagedUserList(
-                  cubit: _following,
-                  emptyIcon: Icons.mail_outline,
-                  emptyMessage: state.hasQuery
-                      ? kRecipientNoMatchText
-                      : "You're not following anyone yet. Type a handle to "
-                            'message someone.',
-                  itemFilter: _share == null && !state.hasQuery
-                      ? null
-                      : (item) => _showFollowing(item, state, query),
-                  header: _header(state),
-                  rowBuilder: (context, item) => _PickerRow(
-                    key: ValueKey(item.user.userId),
-                    item: item,
-                    dialog: widget.dialog,
-                    share: _share != null,
-                    onTap: () => _pick(item.user),
+              ? _withSuggestionFallback(
+                  state,
+                  PagedUserList(
+                    cubit: _following,
+                    emptyIcon: Icons.mail_outline,
+                    emptyMessage: state.hasQuery
+                        ? kRecipientNoMatchText
+                        : "You're not following anyone yet. Type a handle to "
+                              'message someone.',
+                    itemFilter: _share == null && !state.hasQuery
+                        ? null
+                        : (item) => _showFollowing(item, state, query),
+                    header: _header(state),
+                    rowBuilder: (context, item) => _PickerRow(
+                      key: ValueKey(item.user.userId),
+                      item: item,
+                      dialog: widget.dialog,
+                      share: _share != null,
+                      onTap: () => _pick(item.user),
+                    ),
                   ),
                 )
               // Without `graph` there is no Following list; share mode still
               // offers the people of the cached inbox.
-              : (_share != null && !state.hasQuery && _recents.isNotEmpty
+              : (_suggestions != null && !state.hasQuery
+                    ? BlocBuilder<
+                        MessageSuggestionsCubit,
+                        MessageSuggestionsState
+                      >(
+                        bloc: _suggestions,
+                        builder: (context, s) => s.suggestions.isEmpty
+                            ? const _TypeAHandle()
+                            : ListView(children: _suggestionSection(s)),
+                      )
+                    : _share != null && !state.hasQuery && _recents.isNotEmpty
                     ? ListView(children: [_header(state, suggested: false)])
                     : candidate != null
                     ? const SizedBox.shrink()
-                    : const Center(
-                        child: AppEmptyView(
-                          icon: Icons.alternate_email,
-                          title: 'Type a handle',
-                          subtitle: 'Enter the @handle of the person.',
-                        ),
-                      )),
+                    : const _TypeAHandle()),
         ),
       ],
+    );
+  }
+
+  /// The Following list carries the suggestions as its header, but the list
+  /// draws no header while it loads, fails or is empty: then (and only then)
+  /// the suggestions stand alone, so they show for someone who follows nobody.
+  Widget _withSuggestionFallback(RecipientPickerState state, Widget paged) {
+    final suggestions = _suggestions;
+    if (suggestions == null || state.hasQuery) return paged;
+    return BlocBuilder<MessageSuggestionsCubit, MessageSuggestionsState>(
+      bloc: suggestions,
+      builder: (context, s) {
+        if (s.suggestions.isEmpty) return paged;
+        return BlocBuilder<UserListCubit, UserListState>(
+          bloc: _following,
+          builder: (context, following) {
+            final hasRows =
+                (following.status == UserListStatus.ready ||
+                    following.status == UserListStatus.loadingMore) &&
+                following.items.isNotEmpty;
+            return hasRows ? paged : ListView(children: _suggestionSection(s));
+          },
+        );
+      },
     );
   }
 
@@ -588,6 +667,19 @@ class _PickerViewState extends State<_PickerView> {
       },
     );
   }
+}
+
+class _TypeAHandle extends StatelessWidget {
+  const _TypeAHandle();
+
+  @override
+  Widget build(BuildContext context) => const Center(
+    child: AppEmptyView(
+      icon: Icons.alternate_email,
+      title: 'Type a handle',
+      subtitle: 'Enter the @handle of the person.',
+    ),
+  );
 }
 
 bool _matches(common.AuthorSnapshot user, String query) =>
@@ -803,7 +895,11 @@ class _PickerRow extends StatelessWidget {
     required this.dialog,
     required this.onTap,
     this.share = false,
+    this.subtitle,
   });
+
+  /// Why the person is offered (a server suggestion), under the @handle.
+  final String? subtitle;
 
   final graph.UserListItem item;
   final bool dialog;
@@ -844,7 +940,11 @@ class _PickerRow extends StatelessWidget {
     return Semantics(
       button: true,
       selected: share ? chosen != null : null,
-      label: share ? _shareLabel(who, chosen) : 'Message $who',
+      label: share
+          ? _shareLabel(who, chosen)
+          : subtitle == null
+          ? 'Message $who'
+          : 'Message $who, $subtitle',
       excludeSemantics: true,
       onTap: onTap,
       child: InkWell(
@@ -866,6 +966,7 @@ class _PickerRow extends StatelessWidget {
                 : AppPickerLayout.phoneHandleSize,
           ),
           showDivider: dialog,
+          subtitle: subtitle,
           trailing: trailing,
         ),
       ),
