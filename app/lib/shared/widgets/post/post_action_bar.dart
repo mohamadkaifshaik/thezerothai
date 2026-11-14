@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
 import 'post_share_menu.dart';
+import 'post_views_stat.dart';
 
 /// Engagement callbacks for [PostActionBar]. Each one should add an event to
 /// the owning bloc (e.g. `context.read<TimelineBloc>().add(...)`); the bar
@@ -46,9 +47,8 @@ const kPostActionsMaxWidth = 440.0;
 /// space-between`); with fewer (a flag off) each gets an equal slot, its
 /// button at the slot's start, so they stay together. Bookmark is
 /// filled and accent-coloured when bookmarked. The liked / reposted state
-/// uses the like / repost colours and is announced as `selected`. There are
-/// three counts only: view counts (F1) have no backend yet, so no fourth
-/// count is drawn. Rendered by `PostCard` only when it is given [PostActions]
+/// uses the like / repost colours and is announced as `selected`. A fourth, read-only
+/// stat (views, F1) follows Like when [viewCount] is given. Rendered by `PostCard` only when it is given [PostActions]
 /// (the engagement bar).
 ///
 /// [spread] is the opened post's row: the actions spaced edge to edge
@@ -62,6 +62,7 @@ class PostActionBar extends StatelessWidget {
     this.repostCount = 0,
     this.likeCount = 0,
     this.shareCount = 0,
+    this.viewCount,
     this.liked = false,
     this.reposted = false,
     this.bookmarked = false,
@@ -79,6 +80,11 @@ class PostActionBar extends StatelessWidget {
   /// The share count drawn beside the Share glyph; 0 draws none. The caller
   /// passes it only while the `share_count` flag is on for the viewer.
   final int shareCount;
+
+  /// The views drawn as a read-only stat after Like; null draws none. The
+  /// caller passes it only when the server set `view_count` and `post_views`
+  /// is on for the viewer.
+  final int? viewCount;
   final bool liked;
   final bool reposted;
 
@@ -168,6 +174,12 @@ class PostActionBar extends StatelessWidget {
     );
 
     final saved = bookmark(alignEnd: false);
+    final views = viewCount == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+            child: PostViewsStat(count: viewCount!, iconSize: iconSize),
+          );
     // All five (the designs' row): spread edge to edge, `space-between`.
     final allFive = counted.length == 3 && saved != null && shareShown;
     final Widget row;
@@ -178,6 +190,7 @@ class PostActionBar extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           for (final button in counted) Flexible(child: button),
+          if (views != null) Flexible(child: views),
           if (saved != null) Flexible(child: saved),
           if (shareShown) Flexible(child: share(alignEnd: false)),
         ],
@@ -188,6 +201,7 @@ class PostActionBar extends StatelessWidget {
       row = Row(
         children: [
           for (final button in counted) _ActionSlot(child: button),
+          if (views != null) _ActionSlot(child: views),
           if (saved != null) _ActionSlot(child: saved),
           if (shareShown) _ActionSlot(child: share(alignEnd: false)),
         ],

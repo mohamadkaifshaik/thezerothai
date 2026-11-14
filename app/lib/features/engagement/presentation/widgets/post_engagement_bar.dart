@@ -17,6 +17,7 @@ import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../../../shared/widgets/post/post_action_bar.dart';
 import '../../../../shared/widgets/post/post_share_menu.dart';
+import '../../../../shared/widgets/post/post_views_stat.dart';
 import '../../../messages/domain/share_post_target.dart';
 import '../../../messages/presentation/share_post_picker.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -121,6 +122,9 @@ class PostEngagementBar extends StatelessWidget {
     // The share count is drawn, and outside shares are reported, only with
     // `share_count` on for the caller.
     final shareCountOn = isFeatureEnabled(context, kFeatureShareCount);
+    // Views: in the row of a list card only; the opened post shows them
+    // beside its timestamp (PostCard).
+    final views = spread ? null : shownViewCount(context, view.post);
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -157,6 +161,7 @@ class PostEngagementBar extends StatelessWidget {
           repostCount: current.repostCount ?? 0,
           likeCount: current.likeCount ?? 0,
           shareCount: shareCountOn ? (current.shareCount ?? 0) : 0,
+          viewCount: views,
           liked: current.liked,
           reposted: current.reposted,
           bookmarked: bookmarked,

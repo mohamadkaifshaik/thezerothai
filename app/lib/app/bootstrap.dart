@@ -32,6 +32,9 @@ import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
+import '../features/engagement/data/impressions_repository.dart';
+import '../features/engagement/domain/impression_tracker.dart';
+import '../features/engagement/domain/post_views_feature_flag.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
@@ -320,6 +323,21 @@ Future<void> bootstrap() async {
     shareGate: shareCountGate,
     store: timelineStore,
   );
+  // Post views (F1): the viewer's seen posts go out in batches through
+  // RecordImpressions behind its own `post_views` gate, 0 RPCs while off.
+  final postViewsGate = buildServiceGate(
+    onboardingBloc,
+    kFeaturePostViews,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  final impressionsRepository = ImpressionsRepository(
+    apiClient: apiClient,
+    gate: postViewsGate,
+  );
+  final impressionTracker = ImpressionTracker(
+    send: impressionsRepository.record,
+    isEnabled: () => impressionsRepository.enabled,
+  );
   // Polls: VotePoll rides the `engagement` gate (read only: its
   // FEATURE_DISABLED memory is the repository's own, so a refused poll vote
   // never switches off likes).
@@ -487,6 +505,7 @@ Future<void> bootstrap() async {
       messagingRepository: messagingRepository,
       moderationRepository: moderationRepository,
       engagementRepository: engagementRepository,
+      impressionTracker: impressionTracker,
       pollRepository: pollRepository,
       bookmarksRepository: bookmarksRepository,
       searchRepository: ConnectSearchRepository(

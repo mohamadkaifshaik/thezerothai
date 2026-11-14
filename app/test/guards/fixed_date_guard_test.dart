@@ -36,6 +36,9 @@ const Map<String, String> _allowlist = {
   'features/account/presentation/delete_account_screen_test.dart':
       'DateTime(2026) is only the mocked deleteAccount result; nothing in '
       'the delete flow compares it with DateTime.now()',
+  'features/engagement/domain/impression_tracker_test.dart':
+      'the tracker gets now: () => clock; every comparison is between fixed '
+      'values',
   'features/media/data/media_uploader_test.dart':
       'MediaUploader gets clock: () => now; upload expiry is compared only '
       'with that clock',
@@ -74,6 +77,8 @@ const Map<String, String> _allowlist = {
   'shared/widgets/post/pending_posts_section_test.dart':
       'createdAt and the row\'s now are both fixed and passed in; the real '
       'clock is not read',
+  'shared/widgets/post/post_card_views_test.dart':
+      'every PostCard gets now: _now; the real clock is not read',
   'shared/widgets/post/post_card_engagement_test.dart':
       'every PostCard (and, through it, every embedded card) gets '
       'now: _now',
