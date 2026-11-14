@@ -51,6 +51,18 @@ void main() {
     );
 
     blocTest<AuthBloc, AuthState>(
+      'falls back to unauthenticated when the auth stream errors, so the '
+      'app does not stay on the splash screen',
+      setUp: () {
+        when(() => authRepository.authStateChanges())
+            .thenAnswer((_) => Stream.error(StateError('auth unavailable')));
+      },
+      build: () => AuthBloc(authRepository: authRepository),
+      act: (bloc) => bloc.add(const AuthSubscriptionRequested()),
+      expect: () => [const AuthState(status: AuthStatus.unauthenticated)],
+    );
+
+    blocTest<AuthBloc, AuthState>(
       'emits needsEmailVerification for an unverified password account',
       setUp: () {
         when(() => authRepository.authStateChanges())

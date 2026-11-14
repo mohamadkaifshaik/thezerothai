@@ -50,6 +50,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     _userSubscription?.cancel();
     _userSubscription = _authRepository.authStateChanges().listen(
       (user) => add(AuthUserChanged(user)),
+      // A failing auth stream must not leave the app on the splash screen
+      // (status unknown) for good: fall back to signed out.
+      onError: (Object _, StackTrace _) => add(const AuthUserChanged(null)),
     );
   }
 
