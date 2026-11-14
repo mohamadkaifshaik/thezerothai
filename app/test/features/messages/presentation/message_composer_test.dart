@@ -652,6 +652,43 @@ void main() {
         }
       });
 
+      for (final (platform, modifier, name) in [
+        (TargetPlatform.windows, LogicalKeyboardKey.controlLeft, 'Ctrl'),
+        (TargetPlatform.linux, LogicalKeyboardKey.controlRight, 'Ctrl'),
+        (TargetPlatform.macOS, LogicalKeyboardKey.metaLeft, 'Cmd'),
+        // A phone with a physical keyboard: plain Enter adds a line, the
+        // chord still sends.
+        (TargetPlatform.android, LogicalKeyboardKey.controlLeft, 'Ctrl'),
+      ]) {
+        testWidgets('$name+Enter sends on ${platform.name}', (tester) async {
+          await withPlatform(platform, () async {
+            await open(tester);
+            await type(tester, 'sent with chord');
+            await tester.sendKeyDownEvent(modifier);
+            await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+            await tester.sendKeyUpEvent(modifier);
+            await tester.pumpAndSettle();
+
+            expect(repo.sendTexts, ['sent with chord']);
+            expect(tester.widget<TextField>(field()).controller!.text, isEmpty);
+          });
+        });
+      }
+
+      testWidgets('Ctrl+Enter with nothing typed sends nothing', (
+        tester,
+      ) async {
+        await withPlatform(TargetPlatform.windows, () async {
+          await open(tester);
+          await tester.tap(field());
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+          await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+          await tester.pumpAndSettle();
+          expect(repo.sendKeys, isEmpty);
+        });
+      });
+
       testWidgets('Enter with nothing typed does nothing', (tester) async {
         await withPlatform(TargetPlatform.macOS, () async {
           await open(tester);

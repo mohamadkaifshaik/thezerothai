@@ -153,8 +153,8 @@ func TestScheduledEditIT_WindowCapExcludesTheItemItself(t *testing.T) {
 	other := e.seedFuture("alice", 4, base.Add(3*time.Hour))
 	_, err := e.svc.UpdateScheduled(e.editCtx("alice"), "alice", UpdateScheduledInput{IdempotencyKey: schedKeyFor(71), ScheduledID: other.ID, PublishAt: base.Add(2 * time.Minute), HasPublishAt: true})
 	var ae *apierr.Error
-	if !errors.As(err, &ae) || ae.Metadata["limit"] != limitScheduledWindow {
-		t.Errorf("full window: %v, want LIMIT_REACHED scheduled_window", err)
+	if !errors.As(err, &ae) || ae.Metadata["limit"] != limitScheduledWindow || ae.Metadata["max"] != "3" {
+		t.Errorf("full window: %v, want LIMIT_REACHED scheduled_window max=3", err)
 	}
 	if got := e.raw(other)["publishAt"]; got == nil {
 		t.Error("lost publishAt")

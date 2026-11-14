@@ -244,7 +244,7 @@ func (s *service) UpdateScheduled(ctx context.Context, uid string, in UpdateSche
 		return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED,
 			"this post is about to be published and can no longer be edited").WithMeta("state", "locked")
 	case errors.Is(err, ErrScheduledWindowFull):
-		return nil, limitReached(ctx, limitScheduledWindow, "too many posts are scheduled around that time; pick another time")
+		return nil, limitReached(ctx, limitScheduledWindow, s.schedule.WindowCap, "too many posts are scheduled around that time; pick another time")
 	default:
 		var ae *apierr.Error
 		if errors.As(err, &ae) {

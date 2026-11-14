@@ -210,7 +210,10 @@ func TestAddMember_Integration_Replay(t *testing.T) {
 	wantCode(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
-// Two requests with the same key at once: one writes, the other replays (the AlreadyExists re-run).
+// Two requests with the same key at once: one writes, the other replays (the AlreadyExists re-run). As in
+// TestCreateList_Integration_ConcurrentSameKey, a racer that runs out of time under emulator contention may answer the
+// retryable UNAVAILABLE ("temporarily busy", nothing written); its retry with the same key, made alone, must succeed.
+// What must never happen is a second member entry.
 func TestAddMember_Integration_ConcurrentSameKey(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, nil)[0]
@@ -225,8 +228,12 @@ func TestAddMember_Integration_ConcurrentSameKey(t *testing.T) {
 	}
 	wg.Wait()
 	for i, err := range errs {
-		if err != nil {
-			t.Errorf("call %d: %v", i, err)
+		if err == nil {
+			continue
+		}
+		wantCode(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED) // a lost race: retryable
+		if _, err := e.add(context.Background(), 1, id, "u2"); err != nil {
+			t.Errorf("uncontended retry of busy call %d: %v", i, err)
 		}
 	}
 	if got := e.members(t, id); !slices.Equal(got, []string{"u2"}) {

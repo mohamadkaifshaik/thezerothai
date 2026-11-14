@@ -89,6 +89,9 @@ class ErrorReason extends $pb.ProtobufEnum {
   /// FAILED_PRECONDITION: a fixed cap was reached (e.g. following 5,000 accounts). Also VotePoll when the caller has
   /// already changed this vote POLL_VOTE_CHANGES_MAX times: metadata["limit"] =
   /// "poll_vote_changes" and metadata["choice"] = the stored choice as a 0-based index.
+  /// metadata["max"], when set, is the cap itself as a decimal string, so clients show the number instead of
+  /// hard-coding it. Set today by SaveArticle ("article_drafts") and by SchedulePost / UpdateScheduledPost
+  /// ("scheduled_pending", "scheduled_window").
   static const ErrorReason ERROR_REASON_LIMIT_REACHED =
       ErrorReason._(9, _omitEnumNames ? '' : 'ERROR_REASON_LIMIT_REACHED');
 

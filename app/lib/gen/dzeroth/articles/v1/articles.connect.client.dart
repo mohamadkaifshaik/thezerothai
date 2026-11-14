@@ -43,6 +43,9 @@ extension type ArticleServiceClient (connect.Transport _transport) {
     );
   }
 
+  /// Creating a new draft id is refused at 50 unpublished drafts per author (a soft cap): FAILED_PRECONDITION +
+  /// LIMIT_REACHED, metadata["limit"] = "article_drafts" and metadata["max"] = the cap as a decimal string. Editing an
+  /// existing draft is never refused by the cap.
   Future<dzerotharticlesv1articles.SaveArticleResponse> saveArticle(
     dzerotharticlesv1articles.SaveArticleRequest input, {
     connect.Headers? headers,

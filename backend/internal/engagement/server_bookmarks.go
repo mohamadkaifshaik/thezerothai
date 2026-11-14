@@ -126,8 +126,14 @@ func (s *Server) ListBookmarks(ctx context.Context, req *connect.Request[engagem
 		return nil, err
 	}
 	out := &engagementv1.ListBookmarksResponse{NextPageToken: page.NextPageToken, Bookmarks: make([]*engagementv1.Bookmark, 0, len(page.Rows))}
+	ps := make([]*posts.Post, len(page.Rows))
+	for i, r := range page.Rows {
+		ps[i] = r.Post
+	}
+	// Plan cards: at most one batched beacons read per page, only when a kept row carries a plan (hydrateBeacons).
+	vs := s.hydrateBeacons(ctx, page.Viewer, uid, ps, func(i int) bool { return page.Rows[i].Hint.Withheld })
 	for _, r := range page.Rows {
-		v := posts.ToView(r.Post, page.Viewer, uid)
+		v := posts.ToView(r.Post, vs, uid)
 		r.Hint.Apply(v)                                                            // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author
 		posts.ApplyPublicViews(v, r.Post, r.Hint.Protected, r.Hint.ProtectedKnown) // view_count over the threshold (F1); none on a placeholder
 		v.BookmarkedByViewer = v.BookmarkedByViewer || v.Withheld                  // a placeholder row is a bookmark by definition (a REPOST row's flag describes the original)

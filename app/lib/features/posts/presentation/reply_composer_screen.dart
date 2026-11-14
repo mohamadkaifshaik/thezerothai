@@ -29,6 +29,7 @@ import 'composer_screen.dart';
 import 'post_error_messages.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/loaded_post.dart';
+import '../../../shared/widgets/primitives/submit_shortcut.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 
 class ReplyComposerScreen extends StatelessWidget {
@@ -182,147 +183,158 @@ class _ReplyEditorState extends State<_ReplyEditor> {
           busySemanticsLabel: 'Sending reply',
           onPressed: !blocked && state.canSubmit ? cubit.submit : null,
         );
-        return PopScope(
-          canPop: _leaving || (!state.isSubmitting && state.draft.text.isEmpty),
-          onPopInvokedWithResult: (didPop, _) {
-            if (!didPop) _close();
-          },
-          child: Semantics(
-            // Full screen nothing else names the route (the dialogs are
-            // named by their frame).
-            label: phone ? 'Reply' : null,
-            namesRoute: phone,
-            explicitChildNodes: true,
-            child: Scaffold(
-              // The dialogs sit inside the safe area already (the legacy one
-              // keeps the window's padding): only full screen insets.
-              body: SafeArea(
-                left: phone,
-                top: phone,
-                right: phone,
-                bottom: phone,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _ReplyHeader(
-                      key: const ValueKey('reply-header'),
-                      onClose: state.isSubmitting ? null : _close,
-                      reply: phone ? reply : null,
-                    ),
-                    Expanded(
-                      key: const ValueKey('reply-body'),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // The rail runs past "Replying to", toward the
-                            // viewer's avatar (the mocks).
-                            ConversationRow(
-                              connectAfter: true,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  PostCard(
-                                    indentBody: true,
-                                    view: widget.parent,
-                                    // Own posts are told apart (no "Ask to
-                                    // join" on the viewer's own plan, the
-                                    // own-post menu).
-                                    viewerUserId: viewer.userId,
-                                    graphActionsEnabled: false,
-                                  ),
-                                  // In line with the post above: the body
-                                  // column for the text, the avatar column
-                                  // for the viewer, the card's gutters.
-                                  Padding(
-                                    padding: EdgeInsetsDirectional.only(
-                                      start: gutter + kPostBodyStart,
-                                      end: gutter,
-                                      bottom: AppSpacing.md,
+        return SubmitShortcut(
+          // Ctrl/Cmd+Enter replies, exactly when the Reply button is on.
+          canSubmit: () =>
+              !blocked && cubit.state.canSubmit && !cubit.state.isSubmitting,
+          onSubmit: cubit.submit,
+          child: PopScope(
+            canPop:
+                _leaving || (!state.isSubmitting && state.draft.text.isEmpty),
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop) _close();
+            },
+            child: Semantics(
+              // Full screen nothing else names the route (the dialogs are
+              // named by their frame).
+              label: phone ? 'Reply' : null,
+              namesRoute: phone,
+              explicitChildNodes: true,
+              child: Scaffold(
+                // The dialogs sit inside the safe area already (the legacy one
+                // keeps the window's padding): only full screen insets.
+                body: SafeArea(
+                  left: phone,
+                  top: phone,
+                  right: phone,
+                  bottom: phone,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _ReplyHeader(
+                        key: const ValueKey('reply-header'),
+                        onClose: state.isSubmitting ? null : _close,
+                        reply: phone ? reply : null,
+                      ),
+                      Expanded(
+                        key: const ValueKey('reply-body'),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // The rail runs past "Replying to", toward the
+                              // viewer's avatar (the mocks).
+                              ConversationRow(
+                                connectAfter: true,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    PostCard(
+                                      indentBody: true,
+                                      view: widget.parent,
+                                      // Own posts are told apart (no "Ask to
+                                      // join" on the viewer's own plan, the
+                                      // own-post menu).
+                                      viewerUserId: viewer.userId,
+                                      graphActionsEnabled: false,
                                     ),
-                                    child: _ReplyingTo(
-                                      handle: widget.parent.post.author.handle,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Padding(
-                              padding: EdgeInsets.symmetric(horizontal: gutter),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SizedBox(
-                                    width: AppSpacing.minTapTarget,
-                                    child: Center(
-                                      child: AppAvatar.sized(
-                                        url: viewer.avatarUrl,
-                                        size: AppAvatarSize.post,
-                                        name: viewer.displayName,
+                                    // In line with the post above: the body
+                                    // column for the text, the avatar column
+                                    // for the viewer, the card's gutters.
+                                    Padding(
+                                      padding: EdgeInsetsDirectional.only(
+                                        start: gutter + kPostBodyStart,
+                                        end: gutter,
+                                        bottom: AppSpacing.md,
+                                      ),
+                                      child: _ReplyingTo(
+                                        handle:
+                                            widget.parent.post.author.handle,
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: kPostAvatarGap),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _text,
-                                      autofocus: !blocked,
-                                      enabled: !blocked && !state.isSubmitting,
-                                      minLines: 4,
-                                      maxLines: null,
-                                      maxLengthEnforcement:
-                                          MaxLengthEnforcement.none,
-                                      inputFormatters: [
-                                        LengthLimitingTextInputFormatter(
-                                          kComposerInputCap,
-                                        ),
-                                      ],
-                                      style: _fieldStyle(theme, phone: phone),
-                                      decoration: const InputDecoration(
-                                        hintText: 'Post your reply',
-                                        // The text starts on the body
-                                        // column, as "Replying to" above.
-                                        contentPadding: EdgeInsets.symmetric(
-                                          vertical: AppSpacing.sm,
-                                        ),
-                                        filled: false,
-                                        border: InputBorder.none,
-                                        enabledBorder: InputBorder.none,
-                                        focusedBorder: InputBorder.none,
-                                        disabledBorder: InputBorder.none,
-                                      ),
-                                      onChanged: cubit.textChanged,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (blocked)
-                              Padding(
-                                padding: const EdgeInsets.all(AppSpacing.md),
-                                child: Text(
-                                  repliesOn
-                                      ? replyNotAllowedHint(widget.parent)
-                                      : 'Replies are not available.',
+                                  ],
                                 ),
                               ),
-                          ],
+                              Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: gutter,
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: AppSpacing.minTapTarget,
+                                      child: Center(
+                                        child: AppAvatar.sized(
+                                          url: viewer.avatarUrl,
+                                          size: AppAvatarSize.post,
+                                          name: viewer.displayName,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: kPostAvatarGap),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _text,
+                                        autofocus: !blocked,
+                                        enabled:
+                                            !blocked && !state.isSubmitting,
+                                        minLines: 4,
+                                        maxLines: null,
+                                        maxLengthEnforcement:
+                                            MaxLengthEnforcement.none,
+                                        inputFormatters: [
+                                          LengthLimitingTextInputFormatter(
+                                            kComposerInputCap,
+                                          ),
+                                        ],
+                                        style: _fieldStyle(theme, phone: phone),
+                                        decoration: const InputDecoration(
+                                          hintText: 'Post your reply',
+                                          // The text starts on the body
+                                          // column, as "Replying to" above.
+                                          contentPadding: EdgeInsets.symmetric(
+                                            vertical: AppSpacing.sm,
+                                          ),
+                                          filled: false,
+                                          border: InputBorder.none,
+                                          enabledBorder: InputBorder.none,
+                                          focusedBorder: InputBorder.none,
+                                          disabledBorder: InputBorder.none,
+                                        ),
+                                        onChanged: cubit.textChanged,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (blocked)
+                                Padding(
+                                  padding: const EdgeInsets.all(AppSpacing.md),
+                                  child: Text(
+                                    repliesOn
+                                        ? replyNotAllowedHint(widget.parent)
+                                        : 'Replies are not available.',
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    _ReplyFooter(
-                      key: const ValueKey('reply-footer'),
-                      problem: DraftProblemHint(problem: state.draft.problem),
-                      counter: CharacterCounter.ring(
-                        remaining: state.draft.remaining,
-                        ringOf: kMaxPostCodePoints,
-                        ringSize: phone
-                            ? AppSize.counterRingPhone
-                            : AppSize.counterRing,
+                      _ReplyFooter(
+                        key: const ValueKey('reply-footer'),
+                        problem: DraftProblemHint(problem: state.draft.problem),
+                        counter: CharacterCounter.ring(
+                          remaining: state.draft.remaining,
+                          ringOf: kMaxPostCodePoints,
+                          ringSize: phone
+                              ? AppSize.counterRingPhone
+                              : AppSize.counterRing,
+                        ),
+                        reply: phone ? null : reply,
                       ),
-                      reply: phone ? null : reply,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

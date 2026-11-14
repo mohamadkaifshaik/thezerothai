@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -426,6 +427,10 @@ func TestSchedule_PendingCap(t *testing.T) {
 			if ae.Metadata["limit"] != "scheduled_pending" {
 				t.Errorf("limit = %q", ae.Metadata["limit"])
 			}
+			// The configured limit travels with the refusal, so the client never hard-codes it.
+			if want := strconv.Itoa(tt.max); ae.Metadata["max"] != want {
+				t.Errorf("max = %q, want %q", ae.Metadata["max"], want)
+			}
 			// The replay lookup and the pending count ran; the window and the transaction did not.
 			if e.repo.gets != 1 || e.repo.pendingCounts != 1 || e.repo.lastPendingLimit != tt.max+1 || e.repo.windowEvals != 0 || e.repo.creates != 0 {
 				t.Errorf("lookups %d pending counts %d limit %d windowEvals %d creates %d", e.repo.gets, e.repo.pendingCounts, e.repo.lastPendingLimit, e.repo.windowEvals, e.repo.creates)
@@ -475,6 +480,9 @@ func TestSchedule_WindowCap(t *testing.T) {
 			ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 			if ae.Metadata["limit"] != "scheduled_window" {
 				t.Errorf("limit = %q", ae.Metadata["limit"])
+			}
+			if want := strconv.Itoa(e.svc.schedule.WindowCap); ae.Metadata["max"] != want {
+				t.Errorf("max = %q, want %q (the window cap)", ae.Metadata["max"], want)
 			}
 			// The replay lookup and the pending count run outside the transaction; the window is decided inside it.
 			if e.repo.gets != 1 || e.repo.pendingCounts != 1 || e.repo.creates != 1 || e.repo.windowEvals != 1 {

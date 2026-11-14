@@ -24,7 +24,10 @@ const kExploreTrendsMaxRows = kTrendsFetchLimit;
 /// trending yet") and failed states. Mount it only with `trends` on; needs
 /// [TrendsCubit] in scope.
 class ExploreTrendsSection extends StatelessWidget {
-  const ExploreTrendsSection({super.key});
+  const ExploreTrendsSection({super.key, this.showTitle = true});
+
+  /// False under a "Trending" tab (the tab names it; no second heading).
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +74,7 @@ class ExploreTrendsSection extends StatelessWidget {
                   ),
                   child: ExploreSectionHeader(
                     title: 'Trending',
+                    showTitle: showTitle,
                     onSeeAll: () => context.push(AppRouter.exploreTrendingPath),
                   ),
                 ),

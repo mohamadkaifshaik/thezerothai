@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"connectrpc.com/connect"
@@ -23,10 +24,13 @@ import (
 // FEATURE_POSTS; GuardFeature runs first.
 const ScheduledPostsFlagName = "scheduled_posts"
 
-// Limit names carried in LIMIT_REACHED metadata["limit"].
+// Limit names carried in LIMIT_REACHED metadata["limit"]; metaLimitMax carries the limit's value (metadata["max"], a
+// decimal string: SCHEDULED_MAX_PENDING for scheduled_pending, the window cap for scheduled_window), so the client
+// never hard-codes a number the server configures.
 const (
 	limitScheduledPending = "scheduled_pending"
 	limitScheduledWindow  = "scheduled_window"
+	metaLimitMax          = "max"
 )
 
 // Request-log values of the scheduled RPCs (posts_op and outcome). Never text, ids or times.
@@ -196,7 +200,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		return nil, logger.ScrubErr(fmt.Errorf("posts: schedule pending count: %w", err), uid)
 	}
 	if pending >= int64(s.schedule.MaxPending) {
-		return nil, limitReached(ctx, limitScheduledPending, "you have too many scheduled posts; cancel one first")
+		return nil, limitReached(ctx, limitScheduledPending, s.schedule.MaxPending, "you have too many scheduled posts; cancel one first")
 	}
 
 	// 7. A profile is required. It is the interceptor's cached read.
@@ -227,7 +231,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		}
 		return s.answerStored(ctx, winner, hash)
 	case errors.Is(err, ErrScheduledWindowFull):
-		return nil, limitReached(ctx, limitScheduledWindow, "too many posts are scheduled around that time; pick another time")
+		return nil, limitReached(ctx, limitScheduledWindow, s.schedule.WindowCap, "too many posts are scheduled around that time; pick another time")
 	case errors.Is(err, ErrMediaNotReady):
 		return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
 			"one of the images is not ready; upload it again")
@@ -261,11 +265,12 @@ func scheduledRequestHash(normalisedText string, mediaIDs, alts []string, policy
 	return idempotency.HashRequest(fmt.Sprintf("sched|%s|at=%d", base, publishAt.Unix()))
 }
 
-// limitReached is FAILED_PRECONDITION + LIMIT_REACHED with metadata["limit"] (the graph module's shape), and notes the
-// limit on the request line.
-func limitReached(ctx context.Context, limit, message string) error {
+// limitReached is FAILED_PRECONDITION + LIMIT_REACHED with metadata["limit"] (the graph module's shape) and
+// metadata["max"] = maxValue, and notes the limit on the request line.
+func limitReached(ctx context.Context, limit string, maxValue int, message string) error {
 	logger.SetRequestField(ctx, fieldLimit, limit)
-	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, message).WithMeta("limit", limit)
+	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, message).
+		WithMeta("limit", limit).WithMeta(metaLimitMax, strconv.Itoa(maxValue))
 }
 
 // ListScheduled implements Scheduler: ListScheduledPage with the token bound to uid (HMAC), mapping a bad token to

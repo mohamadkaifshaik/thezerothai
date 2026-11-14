@@ -11,7 +11,12 @@ class ExploreSectionHeader extends StatelessWidget {
     required this.title,
     required this.onSeeAll,
     this.padding = const EdgeInsets.only(left: AppSpacing.md),
+    this.showTitle = true,
   });
+
+  /// False when a tab above already says the title (Explore's Trending tab):
+  /// only "See all" shows, still named for the section.
+  final bool showTitle;
 
   final String title;
   final VoidCallback onSeeAll;
@@ -26,18 +31,20 @@ class ExploreSectionHeader extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Semantics(
-              header: true,
-              child: Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontSize: AppExplorePeopleLayout.sectionTitleSize,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
+            child: !showTitle
+                ? const SizedBox.shrink()
+                : Semantics(
+                    header: true,
+                    child: Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontSize: AppExplorePeopleLayout.sectionTitleSize,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
           ),
           Semantics(
             button: true,

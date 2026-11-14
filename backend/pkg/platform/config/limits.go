@@ -47,11 +47,19 @@ type RateLimitConfig struct {
 	DMSuggestionsPerUserPerMinute int
 
 	// NotificationsListPerUserPerMinute is the ListNotifications bucket, env RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN,
-	// default 30 per instance (90 with 3), the read-bucket norm (messages, lists, communities and beacons reads are 30).
+	// default 60 per instance (180 with 3), the read-bucket norm (messages, lists, communities and beacons reads are 30).
 	// Normal use is far below it: the client refreshes every 60 s, and a scroll fetches one 20-row page at a time.
 	// It bounds the read cost per call: up to 50 rows, plus, for a caller whose blockedBy overflowed, one
 	// graph.BlockLookup of up to 100 graph docs (cache first). Before, the RPC fell back to the 60/min default.
 	NotificationsListPerUserPerMinute int
+
+	// GetMePerUserPerMinute is the GetMe bucket, env RATE_LIMIT_GET_ME_PER_MIN, default 60 per instance (180 with 3), the
+	// read-bucket norm. GetMe used to fall back to the 60/min default, shared with every unmapped RPC. On a 30 s cache
+	// miss its unread badge costs up to about 100 reads for a caller with any block or mute (notifications.UnreadBadge),
+	// and the fan-out's ForgetUnread forces misses, so the bucket bounds that cost on its own (audit follow-up L1).
+	// Normal use is far below it: the app calls GetMe at start, on resume and after a few settings changes or a
+	// FEATURE_DISABLED answer.
+	GetMePerUserPerMinute int
 
 	// MessagesSendsPerDay is the in-memory daily cap on SendMessage calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env MESSAGES_SENDS_PER_DAY, default 300, logged as limit_name "messages_daily".

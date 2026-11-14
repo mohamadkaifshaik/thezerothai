@@ -50,13 +50,15 @@ func (a postPlans) Previews(ctx context.Context, viewer string, ids []string) (m
 	return out, nil
 }
 
-// wirePostPlans hands the plan reader to the three post producers (CreatePost's service, the posts handler and the timeline
-// handler). Called once, after beacons is built, before ListenAndServe.
-func wirePostPlans(svc beacons.Service, postsSvc posts.Service, postsServer *posts.Server, timelineServer interface{ SetBeaconPlans(posts.BeaconPlans) }) {
-	plans := postPlans{svc: svc}
+// wirePostPlans hands the plan reader to the post producers: CreatePost's service, the posts handler, the timeline handler
+// and the engagement handler (ListBookmarks, ListLikedPosts). SearchPosts gets the same adapter through
+// search.PostsDeps.Plans (search is built after beacons). Called once, after beacons is built, before ListenAndServe.
+func wirePostPlans(plans posts.BeaconPlans, postsSvc posts.Service, postsServer *posts.Server, late ...interface{ SetBeaconPlans(posts.BeaconPlans) }) {
 	if s, ok := postsSvc.(interface{ SetBeaconPlans(posts.BeaconPlans) }); ok {
 		s.SetBeaconPlans(plans)
 	}
 	postsServer.SetBeaconPlans(plans)
-	timelineServer.SetBeaconPlans(plans)
+	for _, l := range late {
+		l.SetBeaconPlans(plans)
+	}
 }

@@ -180,3 +180,86 @@ class AppSkeletonRow extends StatelessWidget {
     );
   }
 }
+
+/// A card placeholder laid out like a feed post card: the header row (a
+/// circular avatar beside two name bars) and, under it, the body bars
+/// ([barWidths], fractions of the width) and an optional 16:9 media slot
+/// all starting at the avatar's left edge
+/// and spanning the full width of the card. [AppSkeletonRow] keeps the
+/// indented body for the rows that draw a rail beside the avatar.
+class AppSkeletonCard extends StatelessWidget {
+  const AppSkeletonCard({
+    super.key,
+    required this.avatarSize,
+    required this.barWidths,
+    this.mediaSlot = false,
+    this.padding = const EdgeInsets.symmetric(
+      horizontal: AppSpacing.md,
+      vertical: AppSpacing.sm,
+    ),
+    this.gap = AppSpacing.md,
+  });
+
+  final double avatarSize;
+  final List<double> barWidths;
+  final bool mediaSlot;
+  final EdgeInsetsGeometry padding;
+
+  /// Between the avatar and the name bars.
+  final double gap;
+
+  /// The name bars' widths (fractions of the space beside the avatar).
+  static const List<double> nameBarWidths = [0.4, 0.25];
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: padding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              AppSkeletonBlock(
+                width: avatarSize,
+                height: avatarSize,
+                circle: true,
+              ),
+              SizedBox(width: gap),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (var i = 0; i < nameBarWidths.length; i++) ...[
+                      if (i > 0) const SizedBox(height: AppSpacing.sm),
+                      FractionallySizedBox(
+                        widthFactor: nameBarWidths[i],
+                        child: const AppSkeletonBlock(height: AppSpacing.md),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.smd),
+          for (var i = 0; i < barWidths.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            FractionallySizedBox(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: barWidths[i],
+              child: const AppSkeletonBlock(height: AppSpacing.md),
+            ),
+          ],
+          if (mediaSlot) ...[
+            const SizedBox(height: AppSpacing.smd),
+            const AspectRatio(
+              aspectRatio: 16 / 9,
+              child: AppSkeletonBlock(radius: AppRadius.cardSmall),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}

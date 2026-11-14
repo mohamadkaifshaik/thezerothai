@@ -616,6 +616,7 @@ func relaxLimits(c *config.Config) {
 	c.RateLimit.PreAuthIPPerMinute = 1_000_000
 	c.RateLimit.PerIPPerMinute = 1_000_000
 	c.RateLimit.PerUserPerMinute = 1_000_000
+	c.RateLimit.GetMePerUserPerMinute = 1_000_000
 	c.RateLimit.PostCreatePerMinute = 1_000_000
 	c.RateLimit.GraphFollowPerMinute = 1_000_000
 	c.RateLimit.GraphBlockPerMinute = 1_000_000
