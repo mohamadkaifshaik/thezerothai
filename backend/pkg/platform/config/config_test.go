@@ -85,6 +85,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_DM_SUGGESTIONS", "FEATURE_DM_SUGGESTIONS_ALLOWLIST", "FEATURE_DM_SUGGESTIONS_PERCENT",
 		"RATE_LIMIT_SHARES_PER_MIN", "SHARES_RECORDED_PER_DAY",
 		"FEATURE_POST_VIEWS", "FEATURE_POST_VIEWS_ALLOWLIST", "FEATURE_POST_VIEWS_PERCENT", "POST_VIEWS_PUBLIC_THRESHOLD",
+		"HOT_COUNTER_THRESHOLD",
 		"RATE_LIMIT_IMPRESSIONS_PER_MIN", "IMPRESSIONS_RECORDED_PER_DAY",
 		"FEATURE_UI_TABLET", "FEATURE_UI_TABLET_ALLOWLIST", "FEATURE_UI_TABLET_PERCENT",
 		"RATE_LIMIT_BEACONS_WRITE_PER_MIN", "RATE_LIMIT_BEACONS_ACTION_PER_MIN", "RATE_LIMIT_BEACONS_READ_PER_MIN", "BEACONS_CREATED_PER_DAY",
@@ -837,6 +838,42 @@ func TestLoad_BeaconQuickJoin(t *testing.T) {
 
 // TestLoad_PostViews (F1 post views): the flag defaults off, the public threshold defaults to 1000 and must be >= 1, and
 // the RecordImpressions bucket and daily call cap have their defaults and refuse a zero cap.
+func TestLoad_HotCounterThreshold(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.HotCounterThreshold != 0 {
+		t.Errorf("HotCounterThreshold = %d, want 0 (off)", cfg.HotCounterThreshold)
+	}
+	for _, tc := range []struct {
+		value   string
+		want    int64
+		wantErr string
+	}{
+		{"0", 0, ""},
+		{"5000", 5000, ""},
+		{"-1", 0, "HOT_COUNTER_THRESHOLD must be >= 0"},
+		{"lots", 0, "HOT_COUNTER_THRESHOLD"},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("HOT_COUNTER_THRESHOLD", tc.value)
+			cfg, err := Load()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Load() error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || cfg.HotCounterThreshold != tc.want {
+				t.Fatalf("Load() = %d, %v; want %d", cfg.HotCounterThreshold, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoad_PostViews(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()

@@ -96,7 +96,7 @@ func (s *service) recordShare(ctx context.Context, uid, key, postID, channel str
 		return ShareResult{}, errors.New("engagement: no share repo configured")
 	}
 	// Step 6: the marker read, then on a first share the batch.
-	counted, err := s.writeShare(ctx, uid, target.ID)
+	counted, err := s.writeShare(ctx, uid, target.ID, target.ShareCount)
 	if err != nil {
 		return ShareResult{}, s.mapShareErr(ctx, uid, target.ID, err)
 	}
@@ -116,7 +116,7 @@ var errSharePostGone = errors.New("engagement: shared post no longer exists")
 // concurrent first share that loses the Create commits nothing, so the count moves once). The instance post cache follows a
 // committed marker. The batch runs on a context detached from the caller's cancellation and bounded by txTimeout: a commit
 // that lands must be reflected in the cache.
-func (s *service) writeShare(ctx context.Context, uid, postID string) (bool, error) {
+func (s *service) writeShare(ctx context.Context, uid, postID string, known int64) (bool, error) {
 	exists, err := s.d.ShareRepo.HasShare(ctx, uid, postID)
 	if err != nil {
 		return false, err
@@ -126,7 +126,7 @@ func (s *service) writeShare(ctx context.Context, uid, postID string) (bool, err
 	}
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), txTimeout)
 	defer cancel()
-	out, err := s.d.ShareRepo.CreateShare(wctx, uid, postID)
+	out, err := s.d.ShareRepo.CreateShare(wctx, uid, postID, known)
 	if err != nil {
 		return false, err
 	}
@@ -187,7 +187,7 @@ func (s *service) recordDMShare(ctx context.Context, uid, postID string) (bool, 
 	if p.AuthorID == uid || p.Kind == posts.KindRepost {
 		return false, nil // the author's own share is never counted; messaging always passes the original
 	}
-	counted, err := s.writeShare(ctx, uid, p.ID)
+	counted, err := s.writeShare(ctx, uid, p.ID, p.ShareCount)
 	if errors.Is(err, errSharePostGone) {
 		return false, nil
 	}

@@ -25,6 +25,7 @@ type fakeShareRepo struct {
 	createErr error
 	creates   int
 	reads     int
+	known     []int64 // CreateShare's known, in call order
 }
 
 func (f *fakeShareRepo) HasShare(_ context.Context, uid, postID string) (bool, error) {
@@ -34,10 +35,11 @@ func (f *fakeShareRepo) HasShare(_ context.Context, uid, postID string) (bool, e
 	return f.markers[postID+"_"+uid], f.hasErr
 }
 
-func (f *fakeShareRepo) CreateShare(_ context.Context, uid, postID string) (ShareOutcome, error) {
+func (f *fakeShareRepo) CreateShare(_ context.Context, uid, postID string, known int64) (ShareOutcome, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.creates++
+	f.known = append(f.known, known)
 	if f.createErr != nil {
 		return 0, f.createErr
 	}
@@ -144,6 +146,11 @@ func TestRecordShare(t *testing.T) {
 			}
 			if sr.creates != tt.wantCreate || sr.reads != tt.wantReads {
 				t.Fatalf("creates=%d reads=%d, want %d and %d", sr.creates, sr.reads, tt.wantCreate, tt.wantReads)
+			}
+			for _, k := range sr.known {
+				if k != 3 {
+					t.Fatalf("CreateShare known = %v, want the shareCount as read (3): it routes hot posts to their shards", sr.known)
+				}
 			}
 			wantShares := 0
 			if tt.counted {

@@ -86,8 +86,9 @@ type Repo interface {
 	// Like runs the like transaction. replayed is true when the like already existed (nothing is written).
 	Like(ctx context.Context, p LikeParams) (replayed bool, err error)
 	// Unlike removes the like. removed is false for a no-op. A post that is gone is handled inside (the counter
-	// is dropped and the delete is retried alone).
-	Unlike(ctx context.Context, uid, postID string) (removed bool, err error)
+	// is dropped and the delete is retried alone). known is the post's likeCount as read (0 when it was not found):
+	// it routes the counter write (posts.EngagementWriter.StageLikeCount).
+	Unlike(ctx context.Context, uid, postID string, known int64) (removed bool, err error)
 	// Repost runs the repost transaction.
 	Repost(ctx context.Context, p RepostParams) (RepostResult, error)
 	// UndoRepost deletes the repost of originalID, if any.
@@ -99,6 +100,9 @@ type Repo interface {
 // LikeParams is one like transaction.
 type LikeParams struct {
 	UID, PostID string
+	// Known is the post's likeCount as the service read it (cache first): it routes the counter write to the plain
+	// field or, on a hot post, to its shards (posts.EngagementWriter.StageLikeCount).
+	Known int64
 }
 
 // RepostParams is one repost transaction.
@@ -446,8 +450,10 @@ type ShareRepo interface {
 	HasShare(ctx context.Context, uid, postID string) (bool, error)
 	// CreateShare commits one batch: Create postShares/{postId}_{uid} {postId, uid, createdAt} and Increment
 	// posts/{postId}.shareCount (Exists precondition), retried on contention; exhausted contention is an error wrapping
-	// store.ErrContended.
-	CreateShare(ctx context.Context, uid, postID string) (ShareOutcome, error)
+	// store.ErrContended. known is the post's shareCount as read: on a hot post (posts.EngagementWriter.Hot) the counter
+	// goes to the post's shards instead, in a transaction that reads the post first (GuardHot), so a missing post is
+	// still SharePostGone with nothing written.
+	CreateShare(ctx context.Context, uid, postID string, known int64) (ShareOutcome, error)
 }
 
 // ImpressionsFlagName is the wire name of FEATURE_POST_VIEWS: RecordImpressions needs it on for the caller.

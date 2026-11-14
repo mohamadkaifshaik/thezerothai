@@ -209,3 +209,48 @@ func TestPurgeShardChunkFitsABatch(t *testing.T) {
 		t.Fatalf("purgeShardChunk %d x %d writes exceeds 500", purgeShardChunk, viewShardWrites)
 	}
 }
+
+// threadLiveSvc is liveSvc that also serves one thread: the focal post and one reply.
+type threadLiveSvc struct {
+	liveSvc
+	th *Thread
+}
+
+func (s threadLiveSvc) GetThread(context.Context, string, ThreadInput) (*Thread, error) {
+	return s.th, nil
+}
+
+// TestGetThreadAuthorLiveViews: the opened post (GetThread's focal) gives its author the live count on the first page,
+// as GetPost does; a later page and another viewer keep the rolled-up decision; replies never get a live count.
+func TestGetThreadAuthorLiveViews(t *testing.T) {
+	withViewRule(t, &ViewCountRule{Threshold: 1000})
+	focal := &Post{ID: "0000000000000000001", AuthorID: "a", Kind: KindPost, ViewCount: 0}
+	reply := &Post{ID: "0000000000000000002", AuthorID: "a", Kind: KindPost, ReplyToID: focal.ID, ViewCount: 3}
+	for _, tc := range []struct {
+		name      string
+		viewer    string
+		pageToken string
+		wantFocal *int64
+	}{
+		{"author, first page: live", "a", "", ptr(2)},
+		{"author, later page: rolled up", "a", "next", ptr(0)},
+		{"other viewer: below the threshold", "b", "", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Server{svc: threadLiveSvc{liveSvc: liveSvc{n: 2, ok: true}, th: &Thread{Focal: focal, Replies: []*Post{reply}}}, flags: viewsFlags{on: true}}
+			res, err := s.GetThread(callerCtx(tc.viewer), connect.NewRequest(&postsv1.GetThreadRequest{PostId: focal.ID, PageToken: tc.pageToken}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := res.Msg.GetFocal().GetPost().ViewCount
+			if (tc.wantFocal == nil) != (got == nil) || (got != nil && *got != *tc.wantFocal) {
+				t.Fatalf("focal view_count = %v, want %v", got, tc.wantFocal)
+			}
+			if tc.viewer == "a" {
+				if r := res.Msg.GetReplies()[0].GetPost().ViewCount; r == nil || *r != 3 {
+					t.Fatalf("reply view_count = %v, want the rolled-up 3", r)
+				}
+			}
+		})
+	}
+}
