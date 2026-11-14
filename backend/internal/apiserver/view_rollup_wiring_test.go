@@ -95,7 +95,7 @@ func TestWithViewRollup(t *testing.T) {
 
 func TestNewViewRollups(t *testing.T) {
 	tick, route := newViewRollups(nil, func() bool { return false }, true)
-	if tick.MinInterval != 0 || route.MinInterval != viewRollupRouteInterval || !tick.ReadOnly || !route.ReadOnly {
+	if tick.MinInterval != viewRollupTickInterval || route.MinInterval != viewRollupRouteInterval || !tick.ReadOnly || !route.ReadOnly {
 		t.Fatalf("tick %+v route %+v", tick, route)
 	}
 }
