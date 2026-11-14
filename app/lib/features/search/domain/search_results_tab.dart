@@ -5,7 +5,13 @@ enum SearchResultsTab {
   top('Top'),
   latest('Latest'),
   people('People'),
-  media('Media');
+  media('Media'),
+
+  /// Lists by name prefix (`search_lists` and `lists`).
+  lists('Lists'),
+
+  /// Communities by name prefix (`search_lists` and `communities`).
+  communities('Communities');
 
   const SearchResultsTab(this.label);
 

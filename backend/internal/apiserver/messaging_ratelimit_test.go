@@ -43,6 +43,14 @@ func TestMessagingRateLimitWiring(t *testing.T) {
 			t.Errorf("%s must not have a daily call cap (a read)", p)
 		}
 	}
+	// F30: ListMessageSuggestions has a bucket of its own and no daily cap.
+	sg := messagingv1connect.MessagingServiceListMessageSuggestionsProcedure
+	if b := rl.PerProcedure[sg]; b == nil || b == rl.PerProcedure[lc] || b == rl.PerProcedure[send] {
+		t.Error("ListMessageSuggestions needs its own per-procedure bucket")
+	}
+	if _, ok := rl.DailyCaps[sg]; ok {
+		t.Error("ListMessageSuggestions must not have a daily call cap (a read)")
+	}
 
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/namekey"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -38,8 +39,11 @@ const (
 // listDoc is lists/{listId}. memberIds is always written as an array (never null) and stays indexed: the
 // eraser's `memberIds array-contains uid` query needs the automatic array index, so firestore.indexes.json has no override.
 type listDoc struct {
-	OwnerID     string   `firestore:"ownerId"`
-	Name        string   `firestore:"name"`
+	OwnerID string `firestore:"ownerId"`
+	Name    string `firestore:"name"`
+	// NameLower is namekey.Fold(Name), the SearchLists prefix key (F20): written by Create and by every rename in Update.
+	// A list created before the field has none until `opsctl search backfill-name-keys` (no query matches it until then).
+	NameLower   string   `firestore:"nameLower,omitempty"`
 	Description string   `firestore:"description"`
 	IsPrivate   bool     `firestore:"isPrivate"`
 	MemberIDs   []string `firestore:"memberIds"`
@@ -52,7 +56,7 @@ type listDoc struct {
 
 func (d listDoc) list(id string) List {
 	return List{
-		ID: id, OwnerID: d.OwnerID, Name: d.Name, Description: d.Description, IsPrivate: d.IsPrivate,
+		ID: id, OwnerID: d.OwnerID, Name: d.Name, NameLower: d.NameLower, Description: d.Description, IsPrivate: d.IsPrivate,
 		MemberIDs: slices.Clone(d.MemberIDs), Hidden: d.Hidden, FollowerCount: int(d.FollowerCount), CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }
@@ -209,7 +213,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		quota.Touch(b, r.quotas.Ref(p.UID), qrec) // counts nothing; it makes racing creates conflict (above)
 		now := r.now().UTC()
 		doc := listDoc{
-			OwnerID: p.UID, Name: p.Name, Description: p.Description, IsPrivate: p.IsPrivate,
+			OwnerID: p.UID, Name: p.Name, NameLower: namekey.Fold(p.Name), Description: p.Description, IsPrivate: p.IsPrivate,
 			MemberIDs: []string{}, FollowerCount: 0, CreatedAt: now, UpdatedAt: now,
 		}
 		l := doc.list(p.ID)
@@ -274,8 +278,9 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 		var updates []firestore.Update
 		nameChanged := false
 		if p.Name != nil && *p.Name != d.Name {
-			updates = append(updates, firestore.Update{Path: "name", Value: *p.Name})
-			d.Name, nameChanged = *p.Name, true
+			updates = append(updates, firestore.Update{Path: "name", Value: *p.Name},
+				firestore.Update{Path: namekey.Field, Value: namekey.Fold(*p.Name)}) // a rename rewrites the search key
+			d.Name, d.NameLower, nameChanged = *p.Name, namekey.Fold(*p.Name), true
 		}
 		if p.Description != nil && *p.Description != d.Description {
 			updates = append(updates, firestore.Update{Path: "description", Value: *p.Description})

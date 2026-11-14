@@ -71,6 +71,42 @@ void main() {
     expect(result.trends.single.tag, 'go');
   });
 
+  test('searchPosts: from_following is set only when asked', () async {
+    final seen = <pb.SearchPostsRequest>[];
+    answer = (_, input) {
+      seen.add(input as pb.SearchPostsRequest);
+      return pb.SearchPostsResponse();
+    };
+    await repo.searchPosts('#go', tab: pb.SearchTab.SEARCH_TAB_LATEST);
+    await repo.searchPosts(
+      '#go',
+      tab: pb.SearchTab.SEARCH_TAB_LATEST,
+      fromFollowing: true,
+    );
+    expect(seen[0].hasFromFollowing(), isFalse);
+    expect(seen[1].fromFollowing, isTrue);
+  });
+
+  test('searchLists and searchCommunities map pages and tokens', () async {
+    final seen = <Object>[];
+    answer = (procedure, input) {
+      seen.add(input);
+      return procedure.endsWith('SearchLists')
+          ? pb.SearchListsResponse(nextPageToken: 'n')
+          : pb.SearchCommunitiesResponse();
+    };
+    final lists = await repo.searchLists('co', pageToken: 't', pageSize: 5);
+    expect(lists.nextPageToken, 'n');
+    final listReq = seen[0] as pb.SearchListsRequest;
+    expect(
+      [listReq.query, listReq.pageToken, listReq.pageSize],
+      ['co', 't', 5],
+    );
+    final communities = await repo.searchCommunities('co');
+    expect(communities.nextPageToken, isNull);
+    expect((seen[1] as pb.SearchCommunitiesRequest).query, 'co');
+  });
+
   group('error mapping', () {
     test('FEATURE_DISABLED -> SearchUnavailableException', () async {
       answer = (_, _) => throw withDetail(

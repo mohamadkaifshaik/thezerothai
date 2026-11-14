@@ -15,27 +15,35 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'search.pb.dart' as $4;
+import 'search.pb.dart' as $6;
 import 'search.pbjson.dart';
 
 export 'search.pb.dart';
 
 abstract class SearchServiceBase extends $pb.GeneratedService {
-  $async.Future<$4.SearchPeopleResponse> searchPeople(
-      $pb.ServerContext ctx, $4.SearchPeopleRequest request);
-  $async.Future<$4.SearchPostsResponse> searchPosts(
-      $pb.ServerContext ctx, $4.SearchPostsRequest request);
-  $async.Future<$4.GetTrendsResponse> getTrends(
-      $pb.ServerContext ctx, $4.GetTrendsRequest request);
+  $async.Future<$6.SearchPeopleResponse> searchPeople(
+      $pb.ServerContext ctx, $6.SearchPeopleRequest request);
+  $async.Future<$6.SearchPostsResponse> searchPosts(
+      $pb.ServerContext ctx, $6.SearchPostsRequest request);
+  $async.Future<$6.GetTrendsResponse> getTrends(
+      $pb.ServerContext ctx, $6.GetTrendsRequest request);
+  $async.Future<$6.SearchListsResponse> searchLists(
+      $pb.ServerContext ctx, $6.SearchListsRequest request);
+  $async.Future<$6.SearchCommunitiesResponse> searchCommunities(
+      $pb.ServerContext ctx, $6.SearchCommunitiesRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
       case 'SearchPeople':
-        return $4.SearchPeopleRequest();
+        return $6.SearchPeopleRequest();
       case 'SearchPosts':
-        return $4.SearchPostsRequest();
+        return $6.SearchPostsRequest();
       case 'GetTrends':
-        return $4.GetTrendsRequest();
+        return $6.GetTrendsRequest();
+      case 'SearchLists':
+        return $6.SearchListsRequest();
+      case 'SearchCommunities':
+        return $6.SearchCommunitiesRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -45,11 +53,15 @@ abstract class SearchServiceBase extends $pb.GeneratedService {
       $core.String methodName, $pb.GeneratedMessage request) {
     switch (methodName) {
       case 'SearchPeople':
-        return searchPeople(ctx, request as $4.SearchPeopleRequest);
+        return searchPeople(ctx, request as $6.SearchPeopleRequest);
       case 'SearchPosts':
-        return searchPosts(ctx, request as $4.SearchPostsRequest);
+        return searchPosts(ctx, request as $6.SearchPostsRequest);
       case 'GetTrends':
-        return getTrends(ctx, request as $4.GetTrendsRequest);
+        return getTrends(ctx, request as $6.GetTrendsRequest);
+      case 'SearchLists':
+        return searchLists(ctx, request as $6.SearchListsRequest);
+      case 'SearchCommunities':
+        return searchCommunities(ctx, request as $6.SearchCommunitiesRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

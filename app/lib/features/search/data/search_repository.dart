@@ -1,13 +1,17 @@
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
+import '../../../gen/dzeroth/communities/v1/communities.pb.dart' show Community;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' show UserListItem;
+import '../../../gen/dzeroth/lists/v1/lists.pb.dart' show ListInfo;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' show PostView;
 import '../../../gen/dzeroth/search/v1/search.pb.dart' as pb;
 import '../../../gen/dzeroth/search/v1/search.pb.dart' show Trend;
 import '../../../gen/dzeroth/search/v1/search.pbenum.dart' show SearchTab;
 
+export '../../../gen/dzeroth/communities/v1/communities.pb.dart' show Community;
 export '../../../gen/dzeroth/graph/v1/graph.pb.dart' show UserListItem;
+export '../../../gen/dzeroth/lists/v1/lists.pb.dart' show ListInfo;
 export '../../../gen/dzeroth/posts/v1/posts.pb.dart' show PostView;
 export '../../../gen/dzeroth/search/v1/search.pb.dart' show Trend;
 export '../../../gen/dzeroth/search/v1/search.pbenum.dart' show SearchTab;
@@ -92,6 +96,28 @@ class SearchPostsPage {
   final bool unsupportedQuery;
 }
 
+/// One page of SearchLists. A page can be short or empty while
+/// [nextPageToken] is set (the server drops rows after the query).
+class SearchListsPage {
+  const SearchListsPage({this.lists = const [], this.nextPageToken});
+
+  final List<ListInfo> lists;
+
+  /// Null when there is no more.
+  final String? nextPageToken;
+}
+
+/// One page of SearchCommunities (short only at the end).
+class SearchCommunitiesPage {
+  const SearchCommunitiesPage({
+    this.communities = const [],
+    this.nextPageToken,
+  });
+
+  final List<Community> communities;
+  final String? nextPageToken;
+}
+
 class TrendsResult {
   const TrendsResult({this.trends = const [], this.computedAt});
 
@@ -110,9 +136,28 @@ abstract class SearchRepository {
   Future<SearchPeopleResult> searchPeople(String query, {int limit = 5});
 
   /// Posts for one hashtag; pass the previous page's token for the next page.
+  /// [fromFollowing] (the `search_filters` flag is the caller's to check)
+  /// keeps only posts by accounts the caller follows; a token is bound to it.
   Future<SearchPostsPage> searchPosts(
     String query, {
     required SearchTab tab,
+    String? pageToken,
+    int pageSize = 20,
+    bool fromFollowing = false,
+  });
+
+  /// Public Lists whose name starts with [query] (1-30 code points, the
+  /// caller checks `search_lists` and `lists`).
+  Future<SearchListsPage> searchLists(
+    String query, {
+    String? pageToken,
+    int pageSize = 20,
+  });
+
+  /// Communities whose name starts with [query] (the caller checks
+  /// `search_lists` and `communities`).
+  Future<SearchCommunitiesPage> searchCommunities(
+    String query, {
     String? pageToken,
     int pageSize = 20,
   });
@@ -176,6 +221,7 @@ class ConnectSearchRepository implements SearchRepository {
     required SearchTab tab,
     String? pageToken,
     int pageSize = 20,
+    bool fromFollowing = false,
   }) async {
     final response = await _read(
       () => _apiClient.search.searchPosts(
@@ -184,6 +230,8 @@ class ConnectSearchRepository implements SearchRepository {
           tab: tab,
           pageSize: pageSize,
           pageToken: pageToken ?? '',
+          // Left unset when off, so the server never checks the flag.
+          fromFollowing: fromFollowing ? true : null,
         ),
       ),
     );
@@ -194,6 +242,52 @@ class ConnectSearchRepository implements SearchRepository {
           : response.nextPageToken,
       normalizedTag: response.normalizedTag,
       unsupportedQuery: response.unsupportedQuery,
+    );
+  }
+
+  @override
+  Future<SearchListsPage> searchLists(
+    String query, {
+    String? pageToken,
+    int pageSize = 20,
+  }) async {
+    final response = await _read(
+      () => _apiClient.search.searchLists(
+        pb.SearchListsRequest(
+          query: query,
+          pageSize: pageSize,
+          pageToken: pageToken ?? '',
+        ),
+      ),
+    );
+    return SearchListsPage(
+      lists: response.lists,
+      nextPageToken: response.nextPageToken.isEmpty
+          ? null
+          : response.nextPageToken,
+    );
+  }
+
+  @override
+  Future<SearchCommunitiesPage> searchCommunities(
+    String query, {
+    String? pageToken,
+    int pageSize = 20,
+  }) async {
+    final response = await _read(
+      () => _apiClient.search.searchCommunities(
+        pb.SearchCommunitiesRequest(
+          query: query,
+          pageSize: pageSize,
+          pageToken: pageToken ?? '',
+        ),
+      ),
+    );
+    return SearchCommunitiesPage(
+      communities: response.communities,
+      nextPageToken: response.nextPageToken.isEmpty
+          ? null
+          : response.nextPageToken,
     );
   }
 

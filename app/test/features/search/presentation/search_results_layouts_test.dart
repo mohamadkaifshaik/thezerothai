@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/lists/data/lists_repository.dart';
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/domain/search_results_tab.dart';
 import 'package:dzeroth/features/search/presentation/search_results_screen.dart';
@@ -21,6 +22,8 @@ import '../../../support/app_fonts.dart';
 import '../../../support/context_pane_rig.dart';
 import '../../../support/fake_search_repository.dart';
 import '../../../support/posts_fixtures.dart';
+import '../../../support/search_directory_rig.dart'
+    show MockListsRepository, searchCommunity, searchList;
 import '../../../support/search_field_rig.dart' show searchPerson, searchTrend;
 
 class _MockGraph extends Mock implements GraphRepository {}
@@ -96,6 +99,7 @@ void main() {
     Set<String> flags = kContextPaneFlags,
     FakeSearchRepository? search,
     GraphRepository? graphRepository,
+    ListsRepository? listsRepository,
   }) async {
     final repo = search ?? _results();
     final rig = ContextPaneRig(search: repo);
@@ -113,6 +117,8 @@ void main() {
           ),
           if (graphRepository != null)
             RepositoryProvider<GraphRepository>.value(value: graphRepository),
+          if (listsRepository != null)
+            RepositoryProvider<ListsRepository>.value(value: listsRepository),
         ],
         child: RepaintBoundary(key: _captureKey, child: app),
       ),
@@ -201,6 +207,74 @@ void main() {
       await rig.pump(tester, location: '/home', width: 1440, height: 900);
       expect(find.byType(AppSearchField), findsOneWidget);
     });
+  });
+
+  // The Lists and Communities tabs and the "People you follow" filter inside
+  // the real shells (tablet column, desktop master-detail), where the content
+  // box is narrower than the window.
+  group('search bundle in the shells', () {
+    const bundle = {
+      ...kContextPaneFlags,
+      'lists',
+      'communities',
+      'list_follows',
+      'search_lists',
+      'search_filters',
+    };
+    for (final brightness in Brightness.values) {
+      for (final size in const [
+        Size(390, 844),
+        Size(1024, 768),
+        Size(1440, 900),
+      ]) {
+        for (final scale in const [1.0, 2.0]) {
+          final label = '${brightness.name} ${size.width.toInt()} x$scale';
+          for (final tab in const [
+            SearchResultsTab.lists,
+            SearchResultsTab.communities,
+            SearchResultsTab.latest,
+          ]) {
+            testWidgets('${tab.name}, $label', (tester) async {
+              final search = _results()
+                ..listsResult = SearchListsPage(
+                  lists: [
+                    searchList('L1'),
+                    searchList('L2', name: 'A long list name to wrap'),
+                  ],
+                )
+                ..communitiesResult = SearchCommunitiesPage(
+                  communities: [
+                    searchCommunity('c1'),
+                    searchCommunity('c2', name: 'A long community name'),
+                  ],
+                );
+              await open(
+                tester,
+                tab: tab,
+                size: size,
+                brightness: brightness,
+                flags: bundle,
+                search: search,
+                listsRepository: MockListsRepository(),
+              );
+              if (tab == SearchResultsTab.latest) {
+                expect(find.text('People you follow'), findsOneWidget);
+              } else {
+                expect(
+                  find.text(
+                    tab == SearchResultsTab.lists
+                        ? 'A long list name to wrap'
+                        : 'A long community name',
+                  ),
+                  findsOneWidget,
+                );
+              }
+              expect(tester.takeException(), isNull);
+            });
+          }
+        }
+      }
+    }
   });
 
   group('one SearchPeople, shared by Top and People', () {
