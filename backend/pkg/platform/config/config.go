@@ -589,6 +589,8 @@ func Load() (Config, error) {
 		// SendMessage 20/min (per instance, 60 with 3); the read RPCs (lists, polls, mark-read) 30/min.
 		{"RATE_LIMIT_MESSAGES_SEND_PER_MIN", 20, &rl.MessagesSendPerUserPerMinute},
 		{"RATE_LIMIT_MESSAGES_READ_PER_MIN", 30, &rl.MessagesReadPerUserPerMinute},
+		// ListMessageSuggestions (F30) has its own bucket, 10/min per instance (30 with 3).
+		{"RATE_LIMIT_DM_SUGGESTIONS_PER_MIN", 10, &rl.DMSuggestionsPerUserPerMinute},
 		// ListNotifications 30/min per instance (90 with 3); it used to fall back to the 60/min default.
 		{"RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", 30, &rl.NotificationsListPerUserPerMinute},
 		// The six list mutations 30/min, GetList / ListUserLists / ListListMembers 30/min, GetListTimeline 12/min (all per

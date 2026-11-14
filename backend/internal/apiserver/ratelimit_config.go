@@ -125,6 +125,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// (Messaging.NewAccountSendsPerDay) is applied by the send service, because a DailyCap holds one number per procedure.
 	rlMessagesSend := ratelimit.NewLimiter(cfg.RateLimit.MessagesSendPerUserPerMinute, idleBucketTTL)
 	rlMessagesRead := ratelimit.NewLimiter(cfg.RateLimit.MessagesReadPerUserPerMinute, idleBucketTTL)
+	// ListMessageSuggestions (F30) has its own bucket (RATE_LIMIT_DM_SUGGESTIONS_PER_MIN, 10/min); no daily cap (a read).
+	rlDMSuggestions := ratelimit.NewLimiter(cfg.RateLimit.DMSuggestionsPerUserPerMinute, idleBucketTTL)
 	messagesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesSendsPerDay)
 	messagesMarkReadDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMarkReadPerDay)
 	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
@@ -220,6 +222,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceSendMessageProcedure:              rlMessagesSend,
 			messagingv1connect.MessagingServiceListConversationsProcedure:        rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessagesProcedure:             rlMessagesRead,
+			messagingv1connect.MessagingServiceListMessageSuggestionsProcedure:   rlDMSuggestions,
 			notificationsv1connect.NotificationServiceListNotificationsProcedure: rlNotificationsList,
 			listsv1connect.ListServiceCreateListProcedure:                        rlListsWrite,
 			listsv1connect.ListServiceUpdateListProcedure:                        rlListsWrite,
