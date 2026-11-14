@@ -90,7 +90,11 @@ type Cleanup interface {
 // can clean the copies up (issue #151). *FirestoreRepo implements it.
 type CopiedLister interface {
 	// ListCopied pages uid's posts newest first (up to hidePage = 250 per call) and returns the ids of those whose
-	// repostCount or quoteCount is above zero. next is where to resume; done reports the last page. It writes nothing. The counters are written in the same batch as the copy, so they are not stale.
+	// repostCount or quoteCount is above zero. next is where to resume; done reports the last page. It writes nothing.
+	// It reads the plain fields only: on a cold post they are written in the same batch as the copy, so they are not stale;
+	// on a hot post (HOT_COUNTER_THRESHOLD) part of the count may wait on its shards for one rollup tick, which matters
+	// only when the plain field reads 0 while copies exist (cold releases took it there): a suspension running in that
+	// tick misses the post's copies. Reading the shards of every listed post would cost ViewShardCount reads per post.
 	ListCopied(ctx context.Context, uid string, after *Position) (ids []string, next *Position, done bool, err error)
 }
 

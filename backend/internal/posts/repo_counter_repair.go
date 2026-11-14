@@ -1,5 +1,5 @@
-// repo_counter_repair.go is the shard-aware side of the absolute counter writers (hot counters plan, PR 3). A hot post
-// keeps part of its likeCount, repostCount and shareCount as pending deltas on posts/{id}/viewShards (repo_engagement.go
+// repo_counter_repair.go is the shard-aware side of the absolute counter writers (hot counters plan, PR 3 and PR 5). A hot
+// post keeps part of its likeCount, repostCount, shareCount, replyCount and quoteCount as pending deltas on posts/{id}/viewShards (repo_engagement.go
 // stageCounter), which the rollup adds to the plain field with a delta fold (repo_view_rollup.go FoldCounters). A repair
 // that overwrote only the plain field would leave those deltas behind, and the next fold would count them twice.
 //
@@ -8,6 +8,9 @@
 //	tx.GetAll(post + its ViewShardCount shards)     1 + N reads
 //	Update(post, field = n)                          1 write (implicit Exists: a missing post fails, nothing is written)
 //	Update(shard, field = Increment(-v)) per v != 0  at most N writes; the views field and the other fields are untouched
+//
+// Callers: SetShareCount (opsctl recount-shares), RecountChildren (recount-replies / recount-quotes) and RepairChildCounts
+// (recount-children, both child counters in one post write and one write per shard: stageSetCounters).
 //
 // The database runs with OPTIMISTIC concurrency, so the transaction aborts (and the SDK retries it) when a shard or the
 // post is written between its read and its commit: a hot like, a view, a fold. That is acceptable for a one-shot operator
@@ -44,19 +47,38 @@ func (r *FirestoreRepo) counterDocs(postID string) []*firestore.DocumentRef {
 // storedCounterOf reads field from a GetAll of counterDocs: found is false for a missing post. The shards are returned
 // for the drain (only the existing ones).
 func storedCounterOf(snaps []*firestore.DocumentSnapshot, want int, field firestore.FieldPath) (StoredCount, []shardcount.Shard, bool, error) {
+	cs, shards, found, err := storedCountersOf(snaps, want, field)
+	if !found || err != nil {
+		return StoredCount{}, nil, found, err
+	}
+	return cs[0], shards, true, nil
+}
+
+// storedCountersOf is storedCounterOf for several fields of the same GetAll, one StoredCount per field in order.
+func storedCountersOf(snaps []*firestore.DocumentSnapshot, want int, fields ...firestore.FieldPath) ([]StoredCount, []shardcount.Shard, bool, error) {
 	if len(snaps) != want {
-		return StoredCount{}, nil, false, fmt.Errorf("posts: read counter: got %d documents for %d refs", len(snaps), want)
+		return nil, nil, false, fmt.Errorf("posts: read counter: got %d documents for %d refs", len(snaps), want)
 	}
 	if snaps[0] == nil || !snaps[0].Exists() {
-		return StoredCount{}, nil, false, nil
+		return nil, nil, false, nil
 	}
 	shards := shardcount.ShardsOf(snaps[1:])
+	plain := shardcount.Sum([]map[string]any{snaps[0].Data()}, fields...) // absent: 0
+	pending := pendingOf(shards, fields...)
+	out := make([]StoredCount, len(fields))
+	for i, f := range fields {
+		out[i] = StoredCount{Plain: plain.Get(f), Pending: pending.Get(f)}
+	}
+	return out, shards, true, nil
+}
+
+// pendingOf sums fields over the shards (the deltas the next rollup fold would add).
+func pendingOf(shards []shardcount.Shard, fields ...firestore.FieldPath) shardcount.Totals {
 	docs := make([]map[string]any, 0, len(shards))
 	for _, s := range shards {
 		docs = append(docs, s.Data)
 	}
-	plain := shardcount.Sum([]map[string]any{snaps[0].Data()}, field).Get(field) // absent: 0
-	return StoredCount{Plain: plain, Pending: shardcount.Sum(docs, field).Get(field)}, shards, true, nil
+	return shardcount.Sum(docs, fields...)
 }
 
 // storedCounter is one non-transactional GetAll of the post and its shards (1 + N reads): the counter as stored.
@@ -74,10 +96,39 @@ func (r *FirestoreRepo) storedCounter(ctx context.Context, postID string, field 
 // non-zero value of field drained by exactly that value (Increment(-v)), so plain + pending == n once committed. The
 // shards must have been read in the same transaction. Only field is written on the shards.
 func stageSetCounter(b store.Batch, post *firestore.DocumentRef, shards []shardcount.Shard, field firestore.FieldPath, n int64) {
-	b.Update(post, []firestore.Update{{FieldPath: field, Value: n}})
+	stageSetCounters(b, post, shards, counterSet{field: field, n: n})
+}
+
+// counterSet is one field of an absolute write and its value.
+type counterSet struct {
+	field firestore.FieldPath
+	n     int64
+}
+
+// stageSetCounters is stageSetCounter for several fields at once: ONE Update of the post with every set (in order), and
+// ONE Update per shard holding a non-zero value of any of the fields, with an Increment(-v) per such field (in the same
+// order). With one field it stages exactly what stageSetCounter always did. No sets stages nothing.
+func stageSetCounters(b store.Batch, post *firestore.DocumentRef, shards []shardcount.Shard, sets ...counterSet) {
+	if len(sets) == 0 {
+		return
+	}
+	ups := make([]firestore.Update, len(sets))
+	fields := make([]firestore.FieldPath, len(sets))
+	for i, s := range sets {
+		ups[i] = firestore.Update{FieldPath: s.field, Value: s.n}
+		fields[i] = s.field
+	}
+	b.Update(post, ups)
 	for _, s := range shards {
-		if v := shardcount.Sum([]map[string]any{s.Data}, field).Get(field); v != 0 {
-			b.Update(s.Ref, []firestore.Update{{FieldPath: field, Value: firestore.Increment(-v)}})
+		t := shardcount.Sum([]map[string]any{s.Data}, fields...)
+		var drain []firestore.Update
+		for _, f := range fields {
+			if v := t.Get(f); v != 0 {
+				drain = append(drain, firestore.Update{FieldPath: f, Value: firestore.Increment(-v)})
+			}
+		}
+		if len(drain) > 0 {
+			b.Update(s.Ref, drain)
 		}
 	}
 }

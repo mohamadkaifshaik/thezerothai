@@ -239,6 +239,8 @@ var (
 	likeCountField   = firestore.FieldPath{"likeCount"}
 	repostCountField = firestore.FieldPath{"repostCount"}
 	shareCountField  = firestore.FieldPath{"shareCount"}
+	replyCountField  = firestore.FieldPath{fieldReplyCount}
+	quoteCountField  = firestore.FieldPath{fieldQuoteCount}
 	// pollTotalField is poll.total; pollCountField(n) is poll.counts.<n>. FieldPath values, never dotted strings: the
 	// counts keys are numeric strings.
 	pollTotalField = firestore.FieldPath{"poll", "total"}
@@ -248,6 +250,8 @@ var (
 		{From: likeCountField, To: likeCountField},
 		{From: repostCountField, To: repostCountField},
 		{From: shareCountField, To: shareCountField},
+		{From: replyCountField, To: replyCountField},
+		{From: quoteCountField, To: quoteCountField},
 		{From: pollTotalField, To: pollTotalField},
 	}
 )
@@ -280,7 +284,7 @@ func counterFoldsOf(data map[string]any) []shardcount.Fold {
 	return out
 }
 
-// FoldCounters implements ViewRollupRepo (likeCount, repostCount, shareCount, poll.total and every poll.counts.<n>). Per post: one plain GetAll of the post and its shards (1 + ViewShardCount
+// FoldCounters implements ViewRollupRepo (likeCount, repostCount, shareCount, replyCount, quoteCount, poll.total and every poll.counts.<n>). Per post: one plain GetAll of the post and its shards (1 + ViewShardCount
 // reads), then one small transaction per shard that holds an engagement value (1 read, 2 writes: the shard and the
 // post), so a page never nears the 500-write limit of one commit and contention costs only that shard.
 //
