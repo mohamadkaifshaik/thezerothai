@@ -268,5 +268,21 @@ func ToProto(n Notification) *notificationsv1.Notification {
 		PostId:     n.PostID,
 		BeaconId:   n.BeaconID,
 		CreatedAt:  timestamppb.New(n.CreatedAt),
+		Actors:     liveActorsToProto(n.Actors),
 	}
+}
+
+// liveActorsToProto maps the read-time actors (List's hydration) to live AuthorSnapshots, is_private included.
+func liveActorsToProto(as []LiveActor) []*commonv1.AuthorSnapshot {
+	if len(as) == 0 {
+		return nil
+	}
+	out := make([]*commonv1.AuthorSnapshot, len(as))
+	for i, a := range as {
+		out[i] = &commonv1.AuthorSnapshot{
+			UserId: a.UserID, Handle: a.Handle, DisplayName: a.DisplayName,
+			AvatarUrl: a.AvatarURL, Verified: a.Verified, IsPrivate: a.IsPrivate,
+		}
+	}
+	return out
 }

@@ -156,6 +156,8 @@ type fakeDirectory struct {
 	// forgottenUnread is what ForgetUnread was called with.
 	forgottenUnread []string
 	seenAt          time.Time
+	// lookups records every GetProfiles call's uids, in call order.
+	lookups [][]string
 }
 
 func newDirectory(uids ...string) *fakeDirectory {
@@ -167,6 +169,7 @@ func newDirectory(uids ...string) *fakeDirectory {
 }
 
 func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	d.lookups = append(d.lookups, append([]string(nil), uids...))
 	if d.err != nil {
 		return nil, d.err
 	}
