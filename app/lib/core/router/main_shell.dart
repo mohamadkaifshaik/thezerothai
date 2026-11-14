@@ -22,6 +22,9 @@ import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/notifications/presentation/widgets/follow_requests_card.dart'
     show followRequestsCardAllowed;
 import '../../features/notifications/presentation/widgets/follow_requests_side_card.dart';
+import '../../features/auth/presentation/bloc/auth_bloc.dart';
+import '../../features/auth/presentation/bloc/auth_state.dart';
+import '../../features/auth/presentation/widgets/verify_email_view.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
@@ -271,6 +274,15 @@ class MainShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // An email/password user who has not verified yet never gets a GetMe (the
+    // session starts at `authenticated`), so the flags stay pending for good.
+    // Show the verification prompt, not the splash that waits for them; no
+    // shell chrome around it, as no flag is known. (Null without an
+    // AuthBloc, e.g. a shell mounted on its own.)
+    final unverified = context.select<AuthBloc?, bool>(
+      (bloc) => bloc?.state.status == AuthStatus.needsEmailVerification,
+    );
+    if (unverified) return const VerifyEmailView();
     // Until GetMe has said which features are on, every flag reads off: the
     // Home placeholder and the legacy bar would flash. Hold the splash.
     final pending = context.select(

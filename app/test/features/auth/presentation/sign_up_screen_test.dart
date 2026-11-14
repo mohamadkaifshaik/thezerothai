@@ -112,6 +112,41 @@ void main() {
       ).called(1);
     });
 
+    testWidgets('an existing account shows an inline note that stays, with a '
+        'way to log in', (tester) async {
+      when(
+        () => authRepository.signUpWithEmail(
+          email: 'user@example.com',
+          password: 'password1',
+        ),
+      ).thenThrow(const AuthFailure.emailAlreadyInUse());
+      // Built inside the test's fake-async zone so its events are pumped.
+      final bloc = AuthBloc(authRepository: authRepository);
+      addTearDown(bloc.close);
+
+      await tester.pumpWidget(wrap(bloc));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextFormField).at(0),
+        'user@example.com',
+      );
+      await tester.enterText(find.byType(TextFormField).at(1), 'password1');
+      await tester.enterText(find.byType(TextFormField).at(2), 'password1');
+      await tester.ensureVisible(find.widgetWithText(AppPillButton, 'Sign up'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Sign up'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('An account with this email already exists.'),
+        findsOneWidget,
+      );
+      final logIn = find.widgetWithText(TextButton, 'Log in instead');
+      await tester.ensureVisible(logIn);
+      await tester.tap(logIn);
+      await tester.pumpAndSettle();
+      expect(find.text('Good to see you.'), findsOneWidget);
+    });
+
     testWidgets('navigates back to sign-in', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
 

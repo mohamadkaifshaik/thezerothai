@@ -943,6 +943,26 @@ void main() {
     expect(find.text('Undo'), findsNothing);
   });
 
+  testWidgets('a signed-out re-emit (a failure shown then dismissed) keeps '
+      'the snackbar: no wipe without a sign-out', (tester) async {
+    await pump(tester, onboarding: ready());
+    ScaffoldMessenger.of(tester.element(find.byType(Scaffold).first))
+        .showSnackBar(const SnackBar(content: Text('Incorrect email')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Incorrect email'), findsOneWidget);
+
+    // AuthScreen dismisses the failure right after showing it: the status
+    // stays unauthenticated, nobody signed out.
+    authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Incorrect email'), findsOneWidget);
+  });
+
   testWidgets('a foreground push bumps the badge outside the list', (
     tester,
   ) async {
