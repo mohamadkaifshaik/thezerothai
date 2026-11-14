@@ -8,11 +8,41 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../format/view_count.dart';
 
-/// The view count to draw for [post], or null to draw none: the server set
-/// `view_count` (its presence is the visibility signal; never set on a REPOST
-/// row, an embed or a withheld row) AND `post_views` is on for the caller.
-/// False without a session above (some tests).
+/// The owner hid the view count everywhere, for everyone, on 2026-11-15.
+/// Views are still recorded (`ImpressionTracker` / `ImpressionDetector`, behind
+/// `post_views`) so real counts exist later. Set this true to show them again:
+/// on list cards they are the last slot of the action bar, and on the opened
+/// post they sit beside the timestamp. A test can turn them on for a subtree
+/// with [PostViewsVisibility].
+const bool kShowPostViews = false;
+
+/// Overrides [kShowPostViews] for the subtree below it (tests, and any future
+/// per-surface switch).
+class PostViewsVisibility extends InheritedWidget {
+  const PostViewsVisibility({
+    super.key,
+    required this.show,
+    required super.child,
+  });
+
+  final bool show;
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PostViewsVisibility>()?.show ??
+      kShowPostViews;
+
+  @override
+  bool updateShouldNotify(PostViewsVisibility oldWidget) =>
+      show != oldWidget.show;
+}
+
+/// The view count to draw for [post], or null to draw none: views are shown
+/// at all ([kShowPostViews]), the server set `view_count` (its presence is the
+/// visibility signal; never set on a REPOST row, an embed or a withheld row)
+/// AND `post_views` is on for the caller. False without a session above (some
+/// tests).
 int? shownViewCount(BuildContext context, pb.Post post) {
+  if (!PostViewsVisibility.of(context)) return null;
   if (!post.hasViewCount() || post.kind == PostKind.POST_KIND_REPOST) {
     return null;
   }

@@ -107,14 +107,21 @@ void main() {
   });
 
   group('PostCard applies the rule', () {
-    Future<void> pumpCard(WidgetTester tester, int n, String text) {
+    // The opened post keeps the pager (and its dots); list cards use the
+    // media row, which has neither.
+    Future<void> pumpCard(
+      WidgetTester tester,
+      int n,
+      String text, {
+      bool focal = true,
+    }) {
       final view = postView(1)
         ..post.text = text
         ..post.media.addAll(_images(n));
       return pumpThemed(
         tester,
         SingleChildScrollView(
-          child: PostCard(view: view, graphActionsEnabled: false),
+          child: PostCard(view: view, graphActionsEnabled: false, focal: focal),
         ),
       );
     }
@@ -133,6 +140,15 @@ void main() {
       await pumpCard(tester, 3, 'caption');
       expect(_current, findsNothing);
       expect(mediaPageCount(tester), 3);
+    });
+
+    testWidgets('a list card has a media row: no pager, no dots', (
+      tester,
+    ) async {
+      await pumpCard(tester, 3, '', focal: false);
+      expect(_current, findsNothing);
+      expect(mediaPageCount(tester), isNull);
+      expect(find.byType(ListView), findsOneWidget);
     });
 
     testWidgets('one image: no dots, with or without text', (tester) async {

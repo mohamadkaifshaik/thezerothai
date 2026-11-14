@@ -235,14 +235,13 @@ void main() {
     expect(outline(), findsOneWidget);
     expect(find.byIcon(Icons.ios_share), findsNothing);
 
-    // Reply, Repost, Like: three equal slots, left-aligned in each;
-    // Bookmark is grouped at the end, in its own 40 dp box.
+    // Reply, Repost, Like, Bookmark: four equal slots, left-aligned in each.
     final row = tester.getRect(find.byType(PostEngagementBar));
-    final slot = (row.width - AppSpacing.endActionWidth) / 3;
+    final slot = row.width / 4;
     final like = tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx;
     final bookmark = tester.getTopLeft(outline()).dx;
     expect(like, closeTo(row.left + 2 * slot, 1));
-    expect(bookmark, closeTo(row.right - AppIconSize.action, 1));
+    expect(bookmark, closeTo(row.left + 3 * slot, 1));
     // dz.css `.acts` glyph (R1 restyle; was 16).
     expect(tester.getSize(outline()), const Size.square(AppIconSize.action));
   });
@@ -258,10 +257,10 @@ void main() {
       expect(off.flagsCollection.isButton, isTrue);
       expect(off.flagsCollection.isSelected, Tristate.isFalse);
       expect(off.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
-      // 48 tall, 40 wide (the row's end boxes, AppSpacing.endActionWidth).
+      // 48 x 48 at least (AppSpacing.minTapTarget).
       expect(
         off.rect.size.shortestSide,
-        greaterThanOrEqualTo(AppSpacing.endActionWidth),
+        greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
       expect(
         tester.widget<Icon>(outline()).color,
@@ -274,7 +273,7 @@ void main() {
       expect(on.flagsCollection.isSelected, Tristate.isTrue);
       expect(
         on.rect.size.shortestSide,
-        greaterThanOrEqualTo(AppSpacing.endActionWidth),
+        greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
       expect(tester.widget<Icon>(filled()).color, AppPalette.tealElectric);
       handle.dispose();
@@ -592,7 +591,7 @@ void main() {
               );
               expect(
                 target.rect.size.shortestSide,
-                greaterThanOrEqualTo(AppSpacing.endActionWidth),
+                greaterThanOrEqualTo(AppSpacing.minTapTarget),
               );
               expect(
                 tester.widget<Icon>(filled()).color,
