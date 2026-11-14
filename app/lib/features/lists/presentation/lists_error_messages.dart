@@ -15,6 +15,9 @@ String listsErrorMessage(AppException error) {
     LimitReachedException(quota: kHomeTabsLimit) =>
       'You can pin up to $kMaxPinnedHomeTabs timelines to Home. Unpin one '
           'first.',
+    LimitReachedException(quota: kListFollowsLimit) =>
+      'You can follow up to $kMaxListFollows Lists. Unfollow one to follow '
+          'another.',
     LimitReachedException() => "You've reached the limit for this action.",
     QuotaExceededException() =>
       "You've hit today's limit for this action. It resets tomorrow.",

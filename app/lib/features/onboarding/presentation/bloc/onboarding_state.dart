@@ -35,6 +35,9 @@ abstract class OnboardingState with _$OnboardingState {
     @Default('') String displayName,
     @Default(HandleCheckStatus.idle) HandleCheckStatus handleCheckStatus,
     @Default('') String handleCheckMessage,
+    // Free handles near a taken one (SuggestHandles), at most 5; empty while
+    // none were asked for, the flag is off or the server had none.
+    @Default(<String>[]) List<String> handleSuggestions,
     @Default(false) bool isSubmitting,
     AppException? error,
     // Server feature flags enabled for the caller, e.g.
@@ -68,6 +71,11 @@ abstract class OnboardingState with _$OnboardingState {
     // keeps the splash instead of drawing the flags-off placeholder and the
     // legacy chrome. Cleared by any GetMe outcome.
     @Default(false) bool flagsPending,
+    // This session's CreateProfile just succeeded and `media` is on: the
+    // optional "Add a profile photo" step shows before Home. In memory only
+    // (never persisted), so a warm start never shows it; cleared by finishing
+    // or skipping the step and by sign-out.
+    @Default(false) bool photoStepPending,
   }) = _OnboardingState;
 
   const OnboardingState._();

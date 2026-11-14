@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/geometry.dart';
+import '../../../support/lists_flags_support.dart';
 import '../../../support/lists_pinned_stub.dart';
 import '../../../support/theme_harness.dart';
 
@@ -72,7 +73,7 @@ void main() {
         RepositoryProvider<ListsRepository>.value(value: repo),
         RepositoryProvider<HomeTabsRepository>.value(value: noPinnedTabs()),
       ],
-      child: const ListsScreen(),
+      child: withListsFlags(const {'lists'}, const ListsScreen()),
     ),
     brightness: env.brightness,
     size: env.size,

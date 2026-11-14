@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import '../../../../shared/widgets/primitives/app_tile_icon.dart';
+import '../../domain/lists_feature_flag.dart';
 
 /// "1 member" / "N members" (plain digits, no compact form: a list holds at
 /// most 150).
@@ -30,8 +31,14 @@ enum ListRowStyle {
 /// "Owner · N members", or "Private · N members" for a private List (only the
 /// owner ever receives one). The owner's name falls back to the @handle and
 /// is left out when the answer carries none.
-String listRowSubtitle(pb.ListInfo list) {
-  final members = listMemberCountLabel(list.memberCount);
+///
+/// With [followers] (the `list_follows` flag) the follower count follows:
+/// "Owner · N members · N followers".
+String listRowSubtitle(pb.ListInfo list, {bool followers = false}) {
+  final members = followers
+      ? '${listMemberCountLabel(list.memberCount)} · '
+            '${listFollowerCountLabel(list.followerCount)}'
+      : listMemberCountLabel(list.memberCount);
   final name = list.owner.displayName.trim();
   final owner = name.isNotEmpty
       ? name
@@ -60,6 +67,8 @@ class ListRow extends StatelessWidget {
     this.enabled = true,
     this.style = ListRowStyle.sheet,
     this.pinned = false,
+    this.followers = false,
+    this.footer,
   });
 
   final pb.ListInfo list;
@@ -81,6 +90,14 @@ class ListRow extends StatelessWidget {
   final ListRowStyle style;
   final bool pinned;
 
+  /// Adds the follower count to the page row's subtitle (and to what is
+  /// spoken); only with the `list_follows` flag.
+  final bool followers;
+
+  /// A widget under the row, lined up with the text (the Follow button at a
+  /// large text size, where it no longer fits beside it).
+  final Widget? footer;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -89,6 +106,7 @@ class ListRow extends StatelessWidget {
     final spoken = [
       list.name,
       members,
+      if (followers) listFollowerCountLabel(list.followerCount),
       if (list.isPrivate) 'private',
     ].join(', ');
     final page = style.page;
@@ -138,7 +156,11 @@ class ListRow extends StatelessWidget {
                       ),
                       Expanded(
                         child: page
-                            ? _PageLabel(list: list, lock: wide)
+                            ? _PageLabel(
+                                list: list,
+                                lock: wide,
+                                followers: followers,
+                              )
                             : _SheetLabel(list: list, members: members),
                       ),
                       if (!page && list.isPrivate) ...[
@@ -182,12 +204,33 @@ class ListRow extends StatelessWidget {
           ?trailing,
       ],
     );
-    return wide
-        ? Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [row, const Divider(height: 1)],
-          )
-        : row;
+    final footer = this.footer;
+    if (!wide && footer == null) return row;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        row,
+        if (footer != null)
+          Padding(
+            padding: EdgeInsetsDirectional.only(
+              start:
+                  gutter +
+                  AppListsLayout.tileSize +
+                  (wide
+                      ? AppListsLayout.wideRowGap
+                      : AppListsLayout.phoneRowGap),
+              end: gutter,
+              bottom: AppSpacing.sm,
+            ),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: footer,
+            ),
+          ),
+        if (wide) const Divider(height: 1),
+      ],
+    );
   }
 }
 
@@ -222,10 +265,15 @@ class _SheetLabel extends StatelessWidget {
 /// A page row's name over its muted subtitle; [lock] draws the wide mocks'
 /// lock before a private List's "Private".
 class _PageLabel extends StatelessWidget {
-  const _PageLabel({required this.list, required this.lock});
+  const _PageLabel({
+    required this.list,
+    required this.lock,
+    this.followers = false,
+  });
 
   final pb.ListInfo list;
   final bool lock;
+  final bool followers;
 
   @override
   Widget build(BuildContext context) {
@@ -239,7 +287,9 @@ class _PageLabel extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           // The wide mocks' row title is 15 (dz.css `.row b`); the phone's 17.
-          style: lock ? theme.textTheme.titleSmall : theme.textTheme.titleMedium,
+          style: lock
+              ? theme.textTheme.titleSmall
+              : theme.textTheme.titleMedium,
         ),
         Row(
           children: [
@@ -249,7 +299,7 @@ class _PageLabel extends StatelessWidget {
             ],
             Flexible(
               child: Text(
-                listRowSubtitle(list),
+                listRowSubtitle(list, followers: followers),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(color: muted),
@@ -266,8 +316,14 @@ class _PageLabel extends StatelessWidget {
 /// with an electric-teal glyph (the diagonal navy wash when [gradient], flat
 /// navy otherwise), or a 12 % teal tint when not [navy]. Decorative.
 class ListTileIcon extends StatelessWidget {
-  const ListTileIcon({super.key, required this.navy, this.gradient = false});
+  const ListTileIcon({
+    super.key,
+    required this.navy,
+    this.gradient = false,
+    this.icon = Icons.list_alt_outlined,
+  });
 
+  final IconData icon;
   final bool navy;
   final bool gradient;
 
@@ -285,11 +341,7 @@ class ListTileIcon extends StatelessWidget {
           gradient: navy && gradient ? AppGradients.communityCover : null,
           borderRadius: BorderRadius.circular(AppListsLayout.tileRadius),
         ),
-        child: Icon(
-          Icons.list_alt_outlined,
-          size: AppIconSize.lg,
-          color: glyph,
-        ),
+        child: Icon(icon, size: AppIconSize.lg, color: glyph),
       ),
     );
   }

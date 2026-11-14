@@ -29,6 +29,19 @@ syntax = "proto3";
 // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "lists", before any lookup. Clients learn it from
 // IdentityService.GetMe enabled_features.
 //
+// Following (FEATURE_LIST_FOLLOWS, wire name "list_follows", default off): a viewer can follow a PUBLIC list
+// (FollowList, UnfollowList). Only a public, not hidden list whose owner is ACTIVE and does not block the caller
+// (either way) can be followed; any other case is the same NOT_FOUND as a missing list. Unfollow works on any list,
+// including a private or deleted one (the viewer's own marker is removed). A follower who loses access (the list turns
+// private, is hidden, is deleted, or a block starts) stops seeing it at once on every read (ListFollowedLists, DiscoverLists,
+// GetList): access is decided at read time. follower_count is the number of followers, kept by the same transaction
+// that writes or removes a follow marker; it is visible on every list the caller may see. A list is never followed by
+// its own owner, and following a list the caller owns is a success with no effect.
+// Discovery (DiscoverLists, same flag): public, not hidden lists of ACTIVE owners not blocked either way, most
+// followed first. Suggestions (ListSuggestedMembers, FEATURE_LIST_SUGGESTIONS, wire name "list_suggestions"): owner only,
+// people the caller follows who could be added now (the AddListMember rules), most recently followed first.
+// Flag errors for these: FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "list_follows" or "list_suggestions".
+//
 // Idempotency (rule 4): every mutation takes idempotency_key (16-64 characters of [A-Za-z0-9_-], else
 // VALIDATION "idempotency_key", before any lookup) and stores the standard TTL'd idempotency/{sha256(uid|rpc|key)} document
 // (24 h) in the same transaction as its effect. A retry with the same key returns the stored outcome and writes nothing,
@@ -133,6 +146,48 @@ service ListService {
   rpc ListListMembers(ListListMembersRequest) returns (ListListMembersResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+
+  // Follow a public list (FEATURE_LIST_FOLLOWS). NOT_FOUND for every case the header comment lists (a private or hidden
+  // list, an owner who is not ACTIVE or blocks either way, a missing or deleted list). Following a list the caller owns
+  // is success with no effect. Following again is success with no effect.
+  // Cap: LIST_FOLLOWS_MAX_PER_USER (100) follows per account => FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] =
+  // "list_follows"; nothing is written.
+  // One transaction: idempotency doc, the list (fresh: visibility is checked again inside it), the follow marker
+  // (create), and follower_count + 1 on the list. Rate limit: the lists write bucket.
+  rpc FollowList(FollowListRequest) returns (FollowListResponse);
+
+  // Unfollow a list (FEATURE_LIST_FOLLOWS). Works on any list, including one that is now private, hidden or deleted; a
+  // list the caller never followed is success with no effect. When the list still exists, follower_count - 1 in the same
+  // transaction; when it is gone, only the marker is removed.
+  // A replay writes nothing.
+  rpc UnfollowList(UnfollowListRequest) returns (UnfollowListResponse);
+
+  // The lists the caller follows, newest follow first, with the caller's current view of each list. A list the
+  // caller can no longer see (private, hidden, deleted, owner not ACTIVE, a block either way) is left out, so a page may
+  // be short while next_page_token is set: keep following it. Paging: page_size 0 => 20, max 50 (clamped);
+  // page_token is sealed, bound to the caller, expires after 24 h (else VALIDATION "page_token").
+  // FEATURE_LIST_FOLLOWS only.
+  rpc ListFollowedLists(ListFollowedListsRequest) returns (ListFollowedListsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Popular public lists, most followed first (follower_count descending, then list id). Only public, not hidden lists
+  // whose owner is ACTIVE and does not block the caller (either way) are returned; a page may be short while
+  // next_page_token is set. Lists created before follower_count existed appear here only after their first follow or
+  // a recount. Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller, expires after 24 h.
+  // FEATURE_LIST_FOLLOWS only.
+  rpc DiscoverLists(DiscoverListsRequest) returns (DiscoverListsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Suggested members for one of the caller's lists (FEATURE_LIST_SUGGESTIONS). Owner only, else NOT_FOUND. Candidates are
+  // the accounts the caller most recently followed (at most the 30 newest), minus current members and the caller; each must
+  // pass the AddListMember rules (ACTIVE, no block either way, a protected account the caller follows). Most recently
+  // followed first. max_results: 0 => 5, max 10 (clamped). There is no cursor: the list is always short (the
+  // ListSuggestedUsers precedent). A list that is full at LIST_MAX_MEMBERS returns no suggestions.
+  rpc ListSuggestedMembers(ListSuggestedMembersRequest) returns (ListSuggestedMembersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 // One list as the caller may see it.
@@ -149,6 +204,10 @@ message ListInfo {
   int32 member_count = 6;
   // True when the caller has this list pinned as a Home tab (IdentityService.GetMe home_tabs).
   bool pinned_by_viewer = 7;
+  // Followers of the list. Set only when FEATURE_LIST_FOLLOWS is on for the caller; 0 otherwise.
+  int32 follower_count = 8;
+  // True when the caller follows this list. Set only when FEATURE_LIST_FOLLOWS is on for the caller; false otherwise.
+  bool followed_by_viewer = 9;
 }
 
 message CreateListRequest {
@@ -243,4 +302,54 @@ message ListListMembersResponse {
   repeated dzeroth.graph.v1.UserListItem users = 1;
   // "" => no more.
   string next_page_token = 2;
+}
+
+message FollowListRequest {
+  string idempotency_key = 1;
+  string list_id = 2;
+}
+
+message FollowListResponse {
+  ListInfo list = 1;
+}
+
+message UnfollowListRequest {
+  string idempotency_key = 1;
+  string list_id = 2;
+}
+
+message UnfollowListResponse {}
+
+message ListFollowedListsRequest {
+  // 0 => 20; max 50 (clamped).
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListFollowedListsResponse {
+  repeated ListInfo lists = 1;
+  // "" => no more.
+  string next_page_token = 2;
+}
+
+message DiscoverListsRequest {
+  // 0 => 20; max 50 (clamped).
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message DiscoverListsResponse {
+  repeated ListInfo lists = 1;
+  // "" => no more.
+  string next_page_token = 2;
+}
+
+message ListSuggestedMembersRequest {
+  string list_id = 1;
+  // 0 => 5; max 10 (clamped).
+  int32 max_results = 2;
+}
+
+message ListSuggestedMembersResponse {
+  repeated dzeroth.graph.v1.UserListItem users = 1;
 }

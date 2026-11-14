@@ -21,6 +21,7 @@ import '../../timeline/presentation/bloc/timeline_state.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
 import '../data/home_tabs_repository.dart';
 import '../data/lists_repository.dart';
+import '../domain/list_follow_rules.dart';
 import '../domain/lists_feature_flag.dart';
 import 'bloc/list_detail_cubit.dart';
 import 'bloc/list_detail_state.dart';
@@ -42,6 +43,8 @@ import 'widgets/lists_page_chrome.dart';
 ///   header), with one `GetList` only when none is known.
 /// - NOT_FOUND from either RPC replaces the screen with "This List is
 ///   unavailable" (and Unpin when pinned); one text for every cause.
+/// - With `list_follows` the hero shows the follower count and, on someone
+///   else's public List, Follow / Following (one FollowList / UnfollowList).
 /// - Edit is the owner's; Pin / Unpin is saved with one `SetHomeTabs`.
 /// - The header is the mocks' navy hero ([ListDetailHeader]); a phone holds
 ///   Back and the overflow menu in it, the wide layouts have a top bar above.
@@ -106,6 +109,11 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
     if (error != null && mounted) _say(listsErrorMessage(error));
   }
 
+  Future<void> _toggleFollow() async {
+    final error = await _detail.toggleFollow();
+    if (error != null && mounted) _say(listsErrorMessage(error));
+  }
+
   Future<void> _edit() async {
     final header = _detail.state.header;
     if (header == null) return;
@@ -136,6 +144,7 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
     final canReport =
         isFeatureEnabled(context, kFeatureReports) &&
         isFeatureEnabled(context, kFeatureLists);
+    final followsOn = isFeatureEnabled(context, kFeatureListFollows);
     final viewerUserId = context.select(
       (OnboardingBloc bloc) => bloc.state.profile?.userId,
     );
@@ -191,6 +200,10 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
                     header != null &&
                     viewerUserId != null &&
                     !isOwner;
+                final canFollow =
+                    followsOn &&
+                    header != null &&
+                    canFollowList(header, viewerUserId);
                 final phone = isListsPhone(context);
                 final menu = showReport
                     ? PopupMenuButton<String>(
@@ -242,6 +255,9 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
                         onRetry: _detail.ensureHeader,
                         onBack: phone ? _back : null,
                         menu: phone ? menu : null,
+                        showFollows: followsOn,
+                        canFollow: canFollow,
+                        onToggleFollow: _toggleFollow,
                       ),
                     ),
                   ],

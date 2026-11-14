@@ -199,4 +199,115 @@ extension type ListServiceClient (connect.Transport _transport) {
       onTrailer: onTrailer,
     );
   }
+
+  /// Follow a public list (FEATURE_LIST_FOLLOWS). NOT_FOUND for every case the header comment lists (a private or hidden
+  /// list, an owner who is not ACTIVE or blocks either way, a missing or deleted list). Following a list the caller owns
+  /// is success with no effect. Following again is success with no effect.
+  /// Cap: LIST_FOLLOWS_MAX_PER_USER (100) follows per account => FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] =
+  /// "list_follows"; nothing is written.
+  /// One transaction: idempotency doc, the list (fresh: visibility is checked again inside it), the follow marker
+  /// (create), and follower_count + 1 on the list. Rate limit: the lists write bucket.
+  Future<dzerothlistsv1lists.FollowListResponse> followList(
+    dzerothlistsv1lists.FollowListRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.ListService.followList,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Unfollow a list (FEATURE_LIST_FOLLOWS). Works on any list, including one that is now private, hidden or deleted; a
+  /// list the caller never followed is success with no effect. When the list still exists, follower_count - 1 in the same
+  /// transaction; when it is gone, only the marker is removed.
+  /// A replay writes nothing.
+  Future<dzerothlistsv1lists.UnfollowListResponse> unfollowList(
+    dzerothlistsv1lists.UnfollowListRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.ListService.unfollowList,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// The lists the caller follows, newest follow first, with the caller's current view of each list. A list the
+  /// caller can no longer see (private, hidden, deleted, owner not ACTIVE, a block either way) is left out, so a page may
+  /// be short while next_page_token is set: keep following it. Paging: page_size 0 => 20, max 50 (clamped);
+  /// page_token is sealed, bound to the caller, expires after 24 h (else VALIDATION "page_token").
+  /// FEATURE_LIST_FOLLOWS only.
+  Future<dzerothlistsv1lists.ListFollowedListsResponse> listFollowedLists(
+    dzerothlistsv1lists.ListFollowedListsRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.ListService.listFollowedLists,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Popular public lists, most followed first (follower_count descending, then list id). Only public, not hidden lists
+  /// whose owner is ACTIVE and does not block the caller (either way) are returned; a page may be short while
+  /// next_page_token is set. Lists created before follower_count existed appear here only after their first follow or
+  /// a recount. Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller, expires after 24 h.
+  /// FEATURE_LIST_FOLLOWS only.
+  Future<dzerothlistsv1lists.DiscoverListsResponse> discoverLists(
+    dzerothlistsv1lists.DiscoverListsRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.ListService.discoverLists,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Suggested members for one of the caller's lists (FEATURE_LIST_SUGGESTIONS). Owner only, else NOT_FOUND. Candidates are
+  /// the accounts the caller most recently followed (at most the 30 newest), minus current members and the caller; each must
+  /// pass the AddListMember rules (ACTIVE, no block either way, a protected account the caller follows). Most recently
+  /// followed first. max_results: 0 => 5, max 10 (clamped). There is no cursor: the list is always short (the
+  /// ListSuggestedUsers precedent). A list that is full at LIST_MAX_MEMBERS returns no suggestions.
+  Future<dzerothlistsv1lists.ListSuggestedMembersResponse> listSuggestedMembers(
+    dzerothlistsv1lists.ListSuggestedMembersRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.ListService.listSuggestedMembers,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
 }

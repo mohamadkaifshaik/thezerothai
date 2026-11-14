@@ -28,6 +28,7 @@ import '../../features/beacons/presentation/create_beacon_screen.dart';
 import '../../features/beacons/presentation/edit_beacon_screen.dart';
 import '../../features/beacons/presentation/my_beacons_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
+import '../../features/lists/presentation/discover_lists_screen.dart';
 import '../../features/lists/presentation/list_detail_screen.dart';
 import '../../features/lists/presentation/list_members_screen.dart';
 import '../../features/lists/presentation/manage_pinned_screen.dart';
@@ -72,6 +73,7 @@ import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
+import '../../features/onboarding/presentation/profile_photo_step_screen.dart';
 import '../../features/onboarding/presentation/session_error_screen.dart';
 import '../../features/posts/presentation/composer_route.dart';
 import '../../features/posts/presentation/composer_screen.dart';
@@ -137,6 +139,10 @@ class AppRouter {
   static const signInPath = '/sign-in';
   static const signUpPath = '/sign-up';
   static const onboardingPath = '/onboarding';
+
+  /// The optional "Add a profile photo" step right after this session's
+  /// CreateProfile (`media` on); see [OnboardingState.photoStepPending].
+  static const onboardingPhotoPath = '/onboarding/photo';
 
   /// Full-screen recoverable error for a session whose `GetMe` failed with
   /// nothing usable to show (`OnboardingStatus.error`). Outside the shell, so
@@ -218,6 +224,8 @@ class AppRouter {
   // The caller's Lists. `/lists/:id` (the detail) is under the
   // same `lists` flag redirect.
   static const listsPath = '/lists';
+  // Discover public Lists (needs `list_follows`); declared before `/lists/:id`.
+  static const discoverListsPath = '/lists/discover';
   static String listPath(String listId) =>
       '/lists/${Uri.encodeComponent(listId)}';
   static String listMembersPath(String listId) => '${listPath(listId)}/members';
@@ -354,6 +362,11 @@ class AppRouter {
         path: onboardingPath,
         builder: (context, state) =>
             const AuthGate(child: CreateProfileScreen()),
+      ),
+      GoRoute(
+        path: onboardingPhotoPath,
+        builder: (context, state) =>
+            const AuthGate(child: ProfilePhotoStepScreen()),
       ),
       GoRoute(
         path: sessionErrorPath,
@@ -522,6 +535,11 @@ class AppRouter {
           GoRoute(
             path: listsPath,
             builder: (context, state) => const AuthGate(child: ListsScreen()),
+          ),
+          GoRoute(
+            path: discoverListsPath,
+            builder: (context, state) =>
+                const AuthGate(child: DiscoverListsScreen()),
           ),
           GoRoute(
             path: '/lists/:id',
@@ -767,6 +785,8 @@ class AppRouter {
             folder: messagesSplitFolderOf(state.extra),
             thread: ThreadScreen(
               conversationId: state.pathParameters['id']!,
+              // A message-search result opened this chat at one message.
+              highlightMessageId: state.uri.queryParameters['m'],
               // The composer under the list (read-only threads and a
               // caller without `messaging` get none).
               composerBuilder: (context, conversation) =>
@@ -868,6 +888,7 @@ class AppRouter {
       path == signInPath ||
       path == signUpPath ||
       path == onboardingPath ||
+      path == onboardingPhotoPath ||
       path == sessionErrorPath;
 
   String get _landingPath => _pendingTarget ?? homePath;
@@ -931,6 +952,13 @@ class AppRouter {
             ? null
             : onboardingPath;
       case OnboardingStatus.ready:
+        // Right after this session's CreateProfile (media on): the optional
+        // photo step, then Home. Skipping or finishing clears the flag, which
+        // refreshes this redirect. A later visit to the path goes Home.
+        if (_onboardingBloc.state.photoStepPending) {
+          return loc == onboardingPhotoPath ? null : onboardingPhotoPath;
+        }
+        if (loc == onboardingPhotoPath) return _landingPath;
         if (loc == onboardingPath || loc == sessionErrorPath) {
           return _landingPath;
         }
@@ -1217,6 +1245,9 @@ class AppRouter {
           : homePath;
     }
     if (!_listsRoutes.hasMatch(loc)) return null;
+    if (loc == discoverListsPath && !features.contains(kFeatureListFollows)) {
+      return homePath;
+    }
     return features.contains(kFeatureLists) ? null : homePath;
   }
 

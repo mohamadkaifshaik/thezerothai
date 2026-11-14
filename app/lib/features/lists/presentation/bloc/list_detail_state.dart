@@ -23,6 +23,7 @@ class ListDetailState {
     this.pinFull = false,
     this.pinWriteUnavailable = false,
     this.pinBusy = false,
+    this.followBusy = false,
   });
 
   final ListDetailStatus status;
@@ -38,6 +39,9 @@ class ListDetailState {
   final bool pinWriteUnavailable;
   final bool pinBusy;
 
+  /// A FollowList / UnfollowList is in flight.
+  final bool followBusy;
+
   ListDetailState copyWith({
     ListDetailStatus? status,
     pb.ListInfo? header,
@@ -46,6 +50,7 @@ class ListDetailState {
     bool? pinFull,
     bool? pinWriteUnavailable,
     bool? pinBusy,
+    bool? followBusy,
   }) => ListDetailState(
     status: status ?? this.status,
     header: header ?? this.header,
@@ -54,5 +59,6 @@ class ListDetailState {
     pinFull: pinFull ?? this.pinFull,
     pinWriteUnavailable: pinWriteUnavailable ?? this.pinWriteUnavailable,
     pinBusy: pinBusy ?? this.pinBusy,
+    followBusy: followBusy ?? this.followBusy,
   );
 }

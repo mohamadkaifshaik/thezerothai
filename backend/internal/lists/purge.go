@@ -24,8 +24,9 @@ const (
 	// exportPage is the page of the export (a user owns at most LISTS_MAX_PER_USER = 20 lists, so one page in practice).
 	exportPage = 100
 
-	phaseOwn    = ""
-	phaseMember = "member"
+	phaseOwn     = ""
+	phaseMember  = "member"
+	phaseFollows = "follows" // appended after member: old checkpoints keep their meaning
 )
 
 // MemberPage is the outcome of one RemoveMemberPage call.
@@ -48,6 +49,9 @@ type PagePurger interface {
 	// Update (ArrayRemove and updatedAt) with a LastUpdateTime precondition, never a Set. Reads: one per list (minimum 1);
 	// writes: one per list. A list changed or deleted since the query makes the batch a Conflict with nothing written.
 	RemoveMemberPage(ctx context.Context, uid string) (MemberPage, error)
+	// PurgeFollowerPage removes up to followPurgePage of uid's follow markers and decrements each list's followerCount in the
+	// same transaction (the list may be gone: then only the marker goes). Repeating the call resumes.
+	PurgeFollowerPage(ctx context.Context, uid string) (MemberPage, error)
 }
 
 var _ PagePurger = (*FirestoreRepo)(nil)
@@ -65,6 +69,10 @@ func (r *FirestoreRepo) PurgeOwnedPage(ctx context.Context, uid string) (int, er
 	b := store.NewFirestoreBatch(r.client)
 	for i, d := range docs {
 		ids[i] = d.Ref.ID
+		// The list's follow markers go first, so a crash between the two leaves a list the next call finds again.
+		if _, err := r.deleteFollowMarkers(ctx, d.Ref.ID); err != nil {
+			return 0, logger.RedactErr(fmt.Errorf("lists: purge owned %s: markers: %w", logger.HashUID(uid), err), append([]string{uid}, ids...)...)
+		}
 		b.Delete(d.Ref)
 	}
 	if err := b.Commit(ctx); err != nil {
@@ -137,6 +145,15 @@ func (e *Eraser) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Chec
 		slog.InfoContext(ctx, "lists_purge", "uid_hash", logger.HashUID(uid), "phase", "own", "docs", n, "deleted_total", next.Deleted)
 		return next, false, nil
 	}
+	if cp.Phase == phaseFollows {
+		pg, err := e.repo.PurgeFollowerPage(ctx, uid)
+		if err != nil {
+			return cp, false, err
+		}
+		next := Checkpoint{Phase: phaseFollows, Deleted: cp.Deleted, Updated: cp.Updated + pg.Updated}
+		slog.InfoContext(ctx, "lists_purge", "uid_hash", logger.HashUID(uid), "phase", "follows", "docs", pg.Updated, "updated_total", next.Updated)
+		return next, pg.Scanned < followPurgePage, nil
+	}
 	pg, err := e.repo.RemoveMemberPage(ctx, uid)
 	if err != nil {
 		return cp, false, err
@@ -146,7 +163,10 @@ func (e *Eraser) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Chec
 	if pg.Conflict {
 		return next, false, nil // nothing was written: the next call re-queries
 	}
-	return next, pg.Scanned < purgePage, nil
+	if pg.Scanned < purgePage {
+		next.Phase = phaseFollows // the member phase is done; the follow markers are next
+	}
+	return next, false, nil
 }
 
 // ExportedList is one row of the `lists` export section: the user's own list with its member ids. Lists the user
@@ -206,6 +226,19 @@ type Exporter struct {
 	member  MemberOfSource
 	handles HandleSource
 	social  SocialSource
+	// follows is set by WithFollows; a nil follows writes no "follows" part (the golden export is unchanged without it).
+	follows FollowSource
+}
+
+// FollowSource reads the markers of one account for the export (FirestoreRepo.FollowedBy).
+type FollowSource interface {
+	FollowedBy(ctx context.Context, uid string, limit int) ([]FollowRow, error)
+}
+
+// WithFollows adds the "follows" part: the lists uid follows, as the markers name them (list id and when followed).
+func (x *Exporter) WithFollows(src FollowSource) *Exporter {
+	x.follows = src
+	return x
 }
 
 // NewExporter builds the section on an ExportSource (FirestoreRepo in production).
@@ -248,7 +281,39 @@ func (x *Exporter) ExportUser(ctx context.Context, uid string, w io.Writer) erro
 			return err
 		}
 	}
+	if x.follows != nil {
+		if err := x.writeFollows(ctx, uid, w); err != nil {
+			return err
+		}
+	}
 	if _, err := io.WriteString(w, "}\n"); err != nil {
+		return fmt.Errorf("lists: write export: %w", err)
+	}
+	return nil
+}
+
+// writeFollows writes `,"follows":[{"listId":...,"followedAt":...}]`: at most MaxFollowsPerUser rows (one read page).
+func (x *Exporter) writeFollows(ctx context.Context, uid string, w io.Writer) error {
+	rows, err := x.follows.FollowedBy(ctx, uid, MaxFollowsPerUser)
+	if err != nil {
+		return err
+	}
+	type followOut struct {
+		ListID     string    `json:"listId"`
+		FollowedAt time.Time `json:"followedAt"`
+	}
+	out := make([]followOut, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, followOut{ListID: r.ListID, FollowedAt: r.CreatedAt})
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return fmt.Errorf("lists: write export: %w", err)
+	}
+	if _, err := io.WriteString(w, `,"follows":`); err != nil {
+		return fmt.Errorf("lists: write export: %w", err)
+	}
+	if _, err := w.Write(b); err != nil {
 		return fmt.Errorf("lists: write export: %w", err)
 	}
 	return nil

@@ -33,6 +33,19 @@
 // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "lists", before any lookup. Clients learn it from
 // IdentityService.GetMe enabled_features.
 //
+// Following (FEATURE_LIST_FOLLOWS, wire name "list_follows", default off): a viewer can follow a PUBLIC list
+// (FollowList, UnfollowList). Only a public, not hidden list whose owner is ACTIVE and does not block the caller
+// (either way) can be followed; any other case is the same NOT_FOUND as a missing list. Unfollow works on any list,
+// including a private or deleted one (the viewer's own marker is removed). A follower who loses access (the list turns
+// private, is hidden, is deleted, or a block starts) stops seeing it at once on every read (ListFollowedLists, DiscoverLists,
+// GetList): access is decided at read time. follower_count is the number of followers, kept by the same transaction
+// that writes or removes a follow marker; it is visible on every list the caller may see. A list is never followed by
+// its own owner, and following a list the caller owns is a success with no effect.
+// Discovery (DiscoverLists, same flag): public, not hidden lists of ACTIVE owners not blocked either way, most
+// followed first. Suggestions (ListSuggestedMembers, FEATURE_LIST_SUGGESTIONS, wire name "list_suggestions"): owner only,
+// people the caller follows who could be added now (the AddListMember rules), most recently followed first.
+// Flag errors for these: FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "list_follows" or "list_suggestions".
+//
 // Idempotency (rule 4): every mutation takes idempotency_key (16-64 characters of [A-Za-z0-9_-], else
 // VALIDATION "idempotency_key", before any lookup) and stores the standard TTL'd idempotency/{sha256(uid|rpc|key)} document
 // (24 h) in the same transaction as its effect. A retry with the same key returns the stored outcome and writes nothing,
@@ -87,8 +100,12 @@ type ListInfo struct {
 	MemberCount int32 `protobuf:"varint,6,opt,name=member_count,json=memberCount,proto3" json:"member_count,omitempty"`
 	// True when the caller has this list pinned as a Home tab (IdentityService.GetMe home_tabs).
 	PinnedByViewer bool `protobuf:"varint,7,opt,name=pinned_by_viewer,json=pinnedByViewer,proto3" json:"pinned_by_viewer,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Followers of the list. Set only when FEATURE_LIST_FOLLOWS is on for the caller; 0 otherwise.
+	FollowerCount int32 `protobuf:"varint,8,opt,name=follower_count,json=followerCount,proto3" json:"follower_count,omitempty"`
+	// True when the caller follows this list. Set only when FEATURE_LIST_FOLLOWS is on for the caller; false otherwise.
+	FollowedByViewer bool `protobuf:"varint,9,opt,name=followed_by_viewer,json=followedByViewer,proto3" json:"followed_by_viewer,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ListInfo) Reset() {
@@ -166,6 +183,20 @@ func (x *ListInfo) GetMemberCount() int32 {
 func (x *ListInfo) GetPinnedByViewer() bool {
 	if x != nil {
 		return x.PinnedByViewer
+	}
+	return false
+}
+
+func (x *ListInfo) GetFollowerCount() int32 {
+	if x != nil {
+		return x.FollowerCount
+	}
+	return 0
+}
+
+func (x *ListInfo) GetFollowedByViewer() bool {
+	if x != nil {
+		return x.FollowedByViewer
 	}
 	return false
 }
@@ -1038,11 +1069,504 @@ func (x *ListListMembersResponse) GetNextPageToken() string {
 	return ""
 }
 
+type FollowListRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	ListId         string                 `protobuf:"bytes,2,opt,name=list_id,json=listId,proto3" json:"list_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *FollowListRequest) Reset() {
+	*x = FollowListRequest{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FollowListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FollowListRequest) ProtoMessage() {}
+
+func (x *FollowListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FollowListRequest.ProtoReflect.Descriptor instead.
+func (*FollowListRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *FollowListRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *FollowListRequest) GetListId() string {
+	if x != nil {
+		return x.ListId
+	}
+	return ""
+}
+
+type FollowListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	List          *ListInfo              `protobuf:"bytes,1,opt,name=list,proto3" json:"list,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FollowListResponse) Reset() {
+	*x = FollowListResponse{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FollowListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FollowListResponse) ProtoMessage() {}
+
+func (x *FollowListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FollowListResponse.ProtoReflect.Descriptor instead.
+func (*FollowListResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *FollowListResponse) GetList() *ListInfo {
+	if x != nil {
+		return x.List
+	}
+	return nil
+}
+
+type UnfollowListRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	ListId         string                 `protobuf:"bytes,2,opt,name=list_id,json=listId,proto3" json:"list_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *UnfollowListRequest) Reset() {
+	*x = UnfollowListRequest{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnfollowListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnfollowListRequest) ProtoMessage() {}
+
+func (x *UnfollowListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnfollowListRequest.ProtoReflect.Descriptor instead.
+func (*UnfollowListRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *UnfollowListRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *UnfollowListRequest) GetListId() string {
+	if x != nil {
+		return x.ListId
+	}
+	return ""
+}
+
+type UnfollowListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnfollowListResponse) Reset() {
+	*x = UnfollowListResponse{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnfollowListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnfollowListResponse) ProtoMessage() {}
+
+func (x *UnfollowListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnfollowListResponse.ProtoReflect.Descriptor instead.
+func (*UnfollowListResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{20}
+}
+
+type ListFollowedListsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 => 20; max 50 (clamped).
+	PageSize      int32  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFollowedListsRequest) Reset() {
+	*x = ListFollowedListsRequest{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFollowedListsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFollowedListsRequest) ProtoMessage() {}
+
+func (x *ListFollowedListsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFollowedListsRequest.ProtoReflect.Descriptor instead.
+func (*ListFollowedListsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ListFollowedListsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListFollowedListsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListFollowedListsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Lists []*ListInfo            `protobuf:"bytes,1,rep,name=lists,proto3" json:"lists,omitempty"`
+	// "" => no more.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFollowedListsResponse) Reset() {
+	*x = ListFollowedListsResponse{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFollowedListsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFollowedListsResponse) ProtoMessage() {}
+
+func (x *ListFollowedListsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFollowedListsResponse.ProtoReflect.Descriptor instead.
+func (*ListFollowedListsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ListFollowedListsResponse) GetLists() []*ListInfo {
+	if x != nil {
+		return x.Lists
+	}
+	return nil
+}
+
+func (x *ListFollowedListsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type DiscoverListsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 => 20; max 50 (clamped).
+	PageSize      int32  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiscoverListsRequest) Reset() {
+	*x = DiscoverListsRequest{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiscoverListsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiscoverListsRequest) ProtoMessage() {}
+
+func (x *DiscoverListsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiscoverListsRequest.ProtoReflect.Descriptor instead.
+func (*DiscoverListsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *DiscoverListsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *DiscoverListsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type DiscoverListsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Lists []*ListInfo            `protobuf:"bytes,1,rep,name=lists,proto3" json:"lists,omitempty"`
+	// "" => no more.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiscoverListsResponse) Reset() {
+	*x = DiscoverListsResponse{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiscoverListsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiscoverListsResponse) ProtoMessage() {}
+
+func (x *DiscoverListsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiscoverListsResponse.ProtoReflect.Descriptor instead.
+func (*DiscoverListsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *DiscoverListsResponse) GetLists() []*ListInfo {
+	if x != nil {
+		return x.Lists
+	}
+	return nil
+}
+
+func (x *DiscoverListsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type ListSuggestedMembersRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	ListId string                 `protobuf:"bytes,1,opt,name=list_id,json=listId,proto3" json:"list_id,omitempty"`
+	// 0 => 5; max 10 (clamped).
+	MaxResults    int32 `protobuf:"varint,2,opt,name=max_results,json=maxResults,proto3" json:"max_results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSuggestedMembersRequest) Reset() {
+	*x = ListSuggestedMembersRequest{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSuggestedMembersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSuggestedMembersRequest) ProtoMessage() {}
+
+func (x *ListSuggestedMembersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSuggestedMembersRequest.ProtoReflect.Descriptor instead.
+func (*ListSuggestedMembersRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ListSuggestedMembersRequest) GetListId() string {
+	if x != nil {
+		return x.ListId
+	}
+	return ""
+}
+
+func (x *ListSuggestedMembersRequest) GetMaxResults() int32 {
+	if x != nil {
+		return x.MaxResults
+	}
+	return 0
+}
+
+type ListSuggestedMembersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Users         []*v11.UserListItem    `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSuggestedMembersResponse) Reset() {
+	*x = ListSuggestedMembersResponse{}
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSuggestedMembersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSuggestedMembersResponse) ProtoMessage() {}
+
+func (x *ListSuggestedMembersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_lists_v1_lists_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSuggestedMembersResponse.ProtoReflect.Descriptor instead.
+func (*ListSuggestedMembersResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_lists_v1_lists_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ListSuggestedMembersResponse) GetUsers() []*v11.UserListItem {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
 var File_dzeroth_lists_v1_lists_proto protoreflect.FileDescriptor
 
 const file_dzeroth_lists_v1_lists_proto_rawDesc = "" +
 	"\n" +
-	"\x1cdzeroth/lists/v1/lists.proto\x12\x10dzeroth.lists.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/graph/v1/graph.proto\"\xfe\x01\n" +
+	"\x1cdzeroth/lists/v1/lists.proto\x12\x10dzeroth.lists.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/graph/v1/graph.proto\"\xd3\x02\n" +
 	"\bListInfo\x12\x17\n" +
 	"\alist_id\x18\x01 \x01(\tR\x06listId\x127\n" +
 	"\x05owner\x18\x02 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x05owner\x12\x12\n" +
@@ -1051,7 +1575,9 @@ const file_dzeroth_lists_v1_lists_proto_rawDesc = "" +
 	"\n" +
 	"is_private\x18\x05 \x01(\bR\tisPrivate\x12!\n" +
 	"\fmember_count\x18\x06 \x01(\x05R\vmemberCount\x12(\n" +
-	"\x10pinned_by_viewer\x18\a \x01(\bR\x0epinnedByViewer\"\xa5\x01\n" +
+	"\x10pinned_by_viewer\x18\a \x01(\bR\x0epinnedByViewer\x12%\n" +
+	"\x0efollower_count\x18\b \x01(\x05R\rfollowerCount\x12,\n" +
+	"\x12followed_by_viewer\x18\t \x01(\bR\x10followedByViewer\"\xa5\x01\n" +
 	"\x11CreateListRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
@@ -1110,7 +1636,37 @@ const file_dzeroth_lists_v1_lists_proto_rawDesc = "" +
 	"page_token\x18\x03 \x01(\tR\tpageToken\"w\n" +
 	"\x17ListListMembersResponse\x124\n" +
 	"\x05users\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.UserListItemR\x05users\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\x8e\x06\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"U\n" +
+	"\x11FollowListRequest\x12'\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
+	"\alist_id\x18\x02 \x01(\tR\x06listId\"D\n" +
+	"\x12FollowListResponse\x12.\n" +
+	"\x04list\x18\x01 \x01(\v2\x1a.dzeroth.lists.v1.ListInfoR\x04list\"W\n" +
+	"\x13UnfollowListRequest\x12'\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
+	"\alist_id\x18\x02 \x01(\tR\x06listId\"\x16\n" +
+	"\x14UnfollowListResponse\"V\n" +
+	"\x18ListFollowedListsRequest\x12\x1b\n" +
+	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\"u\n" +
+	"\x19ListFollowedListsResponse\x120\n" +
+	"\x05lists\x18\x01 \x03(\v2\x1a.dzeroth.lists.v1.ListInfoR\x05lists\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"R\n" +
+	"\x14DiscoverListsRequest\x12\x1b\n" +
+	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\"q\n" +
+	"\x15DiscoverListsResponse\x120\n" +
+	"\x05lists\x18\x01 \x03(\v2\x1a.dzeroth.lists.v1.ListInfoR\x05lists\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"W\n" +
+	"\x1bListSuggestedMembersRequest\x12\x17\n" +
+	"\alist_id\x18\x01 \x01(\tR\x06listId\x12\x1f\n" +
+	"\vmax_results\x18\x02 \x01(\x05R\n" +
+	"maxResults\"T\n" +
+	"\x1cListSuggestedMembersResponse\x124\n" +
+	"\x05users\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.UserListItemR\x05users2\x9c\n" +
+	"\n" +
 	"\vListService\x12W\n" +
 	"\n" +
 	"CreateList\x12#.dzeroth.lists.v1.CreateListRequest\x1a$.dzeroth.lists.v1.CreateListResponse\x12W\n" +
@@ -1122,7 +1678,13 @@ const file_dzeroth_lists_v1_lists_proto_rawDesc = "" +
 	"\rListUserLists\x12&.dzeroth.lists.v1.ListUserListsRequest\x1a'.dzeroth.lists.v1.ListUserListsResponse\"\x03\x90\x02\x01\x12`\n" +
 	"\rAddListMember\x12&.dzeroth.lists.v1.AddListMemberRequest\x1a'.dzeroth.lists.v1.AddListMemberResponse\x12i\n" +
 	"\x10RemoveListMember\x12).dzeroth.lists.v1.RemoveListMemberRequest\x1a*.dzeroth.lists.v1.RemoveListMemberResponse\x12k\n" +
-	"\x0fListListMembers\x12(.dzeroth.lists.v1.ListListMembersRequest\x1a).dzeroth.lists.v1.ListListMembersResponse\"\x03\x90\x02\x01BAZ?github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1;listsv1b\x06proto3"
+	"\x0fListListMembers\x12(.dzeroth.lists.v1.ListListMembersRequest\x1a).dzeroth.lists.v1.ListListMembersResponse\"\x03\x90\x02\x01\x12W\n" +
+	"\n" +
+	"FollowList\x12#.dzeroth.lists.v1.FollowListRequest\x1a$.dzeroth.lists.v1.FollowListResponse\x12]\n" +
+	"\fUnfollowList\x12%.dzeroth.lists.v1.UnfollowListRequest\x1a&.dzeroth.lists.v1.UnfollowListResponse\x12q\n" +
+	"\x11ListFollowedLists\x12*.dzeroth.lists.v1.ListFollowedListsRequest\x1a+.dzeroth.lists.v1.ListFollowedListsResponse\"\x03\x90\x02\x01\x12e\n" +
+	"\rDiscoverLists\x12&.dzeroth.lists.v1.DiscoverListsRequest\x1a'.dzeroth.lists.v1.DiscoverListsResponse\"\x03\x90\x02\x01\x12z\n" +
+	"\x14ListSuggestedMembers\x12-.dzeroth.lists.v1.ListSuggestedMembersRequest\x1a..dzeroth.lists.v1.ListSuggestedMembersResponse\"\x03\x90\x02\x01BAZ?github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1;listsv1b\x06proto3"
 
 var (
 	file_dzeroth_lists_v1_lists_proto_rawDescOnce sync.Once
@@ -1136,58 +1698,82 @@ func file_dzeroth_lists_v1_lists_proto_rawDescGZIP() []byte {
 	return file_dzeroth_lists_v1_lists_proto_rawDescData
 }
 
-var file_dzeroth_lists_v1_lists_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_dzeroth_lists_v1_lists_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_dzeroth_lists_v1_lists_proto_goTypes = []any{
-	(*ListInfo)(nil),                 // 0: dzeroth.lists.v1.ListInfo
-	(*CreateListRequest)(nil),        // 1: dzeroth.lists.v1.CreateListRequest
-	(*CreateListResponse)(nil),       // 2: dzeroth.lists.v1.CreateListResponse
-	(*UpdateListRequest)(nil),        // 3: dzeroth.lists.v1.UpdateListRequest
-	(*UpdateListResponse)(nil),       // 4: dzeroth.lists.v1.UpdateListResponse
-	(*DeleteListRequest)(nil),        // 5: dzeroth.lists.v1.DeleteListRequest
-	(*DeleteListResponse)(nil),       // 6: dzeroth.lists.v1.DeleteListResponse
-	(*GetListRequest)(nil),           // 7: dzeroth.lists.v1.GetListRequest
-	(*GetListResponse)(nil),          // 8: dzeroth.lists.v1.GetListResponse
-	(*ListUserListsRequest)(nil),     // 9: dzeroth.lists.v1.ListUserListsRequest
-	(*ListUserListsResponse)(nil),    // 10: dzeroth.lists.v1.ListUserListsResponse
-	(*AddListMemberRequest)(nil),     // 11: dzeroth.lists.v1.AddListMemberRequest
-	(*AddListMemberResponse)(nil),    // 12: dzeroth.lists.v1.AddListMemberResponse
-	(*RemoveListMemberRequest)(nil),  // 13: dzeroth.lists.v1.RemoveListMemberRequest
-	(*RemoveListMemberResponse)(nil), // 14: dzeroth.lists.v1.RemoveListMemberResponse
-	(*ListListMembersRequest)(nil),   // 15: dzeroth.lists.v1.ListListMembersRequest
-	(*ListListMembersResponse)(nil),  // 16: dzeroth.lists.v1.ListListMembersResponse
-	(*v1.AuthorSnapshot)(nil),        // 17: dzeroth.common.v1.AuthorSnapshot
-	(*v11.UserListItem)(nil),         // 18: dzeroth.graph.v1.UserListItem
+	(*ListInfo)(nil),                     // 0: dzeroth.lists.v1.ListInfo
+	(*CreateListRequest)(nil),            // 1: dzeroth.lists.v1.CreateListRequest
+	(*CreateListResponse)(nil),           // 2: dzeroth.lists.v1.CreateListResponse
+	(*UpdateListRequest)(nil),            // 3: dzeroth.lists.v1.UpdateListRequest
+	(*UpdateListResponse)(nil),           // 4: dzeroth.lists.v1.UpdateListResponse
+	(*DeleteListRequest)(nil),            // 5: dzeroth.lists.v1.DeleteListRequest
+	(*DeleteListResponse)(nil),           // 6: dzeroth.lists.v1.DeleteListResponse
+	(*GetListRequest)(nil),               // 7: dzeroth.lists.v1.GetListRequest
+	(*GetListResponse)(nil),              // 8: dzeroth.lists.v1.GetListResponse
+	(*ListUserListsRequest)(nil),         // 9: dzeroth.lists.v1.ListUserListsRequest
+	(*ListUserListsResponse)(nil),        // 10: dzeroth.lists.v1.ListUserListsResponse
+	(*AddListMemberRequest)(nil),         // 11: dzeroth.lists.v1.AddListMemberRequest
+	(*AddListMemberResponse)(nil),        // 12: dzeroth.lists.v1.AddListMemberResponse
+	(*RemoveListMemberRequest)(nil),      // 13: dzeroth.lists.v1.RemoveListMemberRequest
+	(*RemoveListMemberResponse)(nil),     // 14: dzeroth.lists.v1.RemoveListMemberResponse
+	(*ListListMembersRequest)(nil),       // 15: dzeroth.lists.v1.ListListMembersRequest
+	(*ListListMembersResponse)(nil),      // 16: dzeroth.lists.v1.ListListMembersResponse
+	(*FollowListRequest)(nil),            // 17: dzeroth.lists.v1.FollowListRequest
+	(*FollowListResponse)(nil),           // 18: dzeroth.lists.v1.FollowListResponse
+	(*UnfollowListRequest)(nil),          // 19: dzeroth.lists.v1.UnfollowListRequest
+	(*UnfollowListResponse)(nil),         // 20: dzeroth.lists.v1.UnfollowListResponse
+	(*ListFollowedListsRequest)(nil),     // 21: dzeroth.lists.v1.ListFollowedListsRequest
+	(*ListFollowedListsResponse)(nil),    // 22: dzeroth.lists.v1.ListFollowedListsResponse
+	(*DiscoverListsRequest)(nil),         // 23: dzeroth.lists.v1.DiscoverListsRequest
+	(*DiscoverListsResponse)(nil),        // 24: dzeroth.lists.v1.DiscoverListsResponse
+	(*ListSuggestedMembersRequest)(nil),  // 25: dzeroth.lists.v1.ListSuggestedMembersRequest
+	(*ListSuggestedMembersResponse)(nil), // 26: dzeroth.lists.v1.ListSuggestedMembersResponse
+	(*v1.AuthorSnapshot)(nil),            // 27: dzeroth.common.v1.AuthorSnapshot
+	(*v11.UserListItem)(nil),             // 28: dzeroth.graph.v1.UserListItem
 }
 var file_dzeroth_lists_v1_lists_proto_depIdxs = []int32{
-	17, // 0: dzeroth.lists.v1.ListInfo.owner:type_name -> dzeroth.common.v1.AuthorSnapshot
+	27, // 0: dzeroth.lists.v1.ListInfo.owner:type_name -> dzeroth.common.v1.AuthorSnapshot
 	0,  // 1: dzeroth.lists.v1.CreateListResponse.list:type_name -> dzeroth.lists.v1.ListInfo
 	0,  // 2: dzeroth.lists.v1.UpdateListResponse.list:type_name -> dzeroth.lists.v1.ListInfo
 	0,  // 3: dzeroth.lists.v1.GetListResponse.list:type_name -> dzeroth.lists.v1.ListInfo
 	0,  // 4: dzeroth.lists.v1.ListUserListsResponse.lists:type_name -> dzeroth.lists.v1.ListInfo
 	0,  // 5: dzeroth.lists.v1.AddListMemberResponse.list:type_name -> dzeroth.lists.v1.ListInfo
 	0,  // 6: dzeroth.lists.v1.RemoveListMemberResponse.list:type_name -> dzeroth.lists.v1.ListInfo
-	18, // 7: dzeroth.lists.v1.ListListMembersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	1,  // 8: dzeroth.lists.v1.ListService.CreateList:input_type -> dzeroth.lists.v1.CreateListRequest
-	3,  // 9: dzeroth.lists.v1.ListService.UpdateList:input_type -> dzeroth.lists.v1.UpdateListRequest
-	5,  // 10: dzeroth.lists.v1.ListService.DeleteList:input_type -> dzeroth.lists.v1.DeleteListRequest
-	7,  // 11: dzeroth.lists.v1.ListService.GetList:input_type -> dzeroth.lists.v1.GetListRequest
-	9,  // 12: dzeroth.lists.v1.ListService.ListUserLists:input_type -> dzeroth.lists.v1.ListUserListsRequest
-	11, // 13: dzeroth.lists.v1.ListService.AddListMember:input_type -> dzeroth.lists.v1.AddListMemberRequest
-	13, // 14: dzeroth.lists.v1.ListService.RemoveListMember:input_type -> dzeroth.lists.v1.RemoveListMemberRequest
-	15, // 15: dzeroth.lists.v1.ListService.ListListMembers:input_type -> dzeroth.lists.v1.ListListMembersRequest
-	2,  // 16: dzeroth.lists.v1.ListService.CreateList:output_type -> dzeroth.lists.v1.CreateListResponse
-	4,  // 17: dzeroth.lists.v1.ListService.UpdateList:output_type -> dzeroth.lists.v1.UpdateListResponse
-	6,  // 18: dzeroth.lists.v1.ListService.DeleteList:output_type -> dzeroth.lists.v1.DeleteListResponse
-	8,  // 19: dzeroth.lists.v1.ListService.GetList:output_type -> dzeroth.lists.v1.GetListResponse
-	10, // 20: dzeroth.lists.v1.ListService.ListUserLists:output_type -> dzeroth.lists.v1.ListUserListsResponse
-	12, // 21: dzeroth.lists.v1.ListService.AddListMember:output_type -> dzeroth.lists.v1.AddListMemberResponse
-	14, // 22: dzeroth.lists.v1.ListService.RemoveListMember:output_type -> dzeroth.lists.v1.RemoveListMemberResponse
-	16, // 23: dzeroth.lists.v1.ListService.ListListMembers:output_type -> dzeroth.lists.v1.ListListMembersResponse
-	16, // [16:24] is the sub-list for method output_type
-	8,  // [8:16] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	28, // 7: dzeroth.lists.v1.ListListMembersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	0,  // 8: dzeroth.lists.v1.FollowListResponse.list:type_name -> dzeroth.lists.v1.ListInfo
+	0,  // 9: dzeroth.lists.v1.ListFollowedListsResponse.lists:type_name -> dzeroth.lists.v1.ListInfo
+	0,  // 10: dzeroth.lists.v1.DiscoverListsResponse.lists:type_name -> dzeroth.lists.v1.ListInfo
+	28, // 11: dzeroth.lists.v1.ListSuggestedMembersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	1,  // 12: dzeroth.lists.v1.ListService.CreateList:input_type -> dzeroth.lists.v1.CreateListRequest
+	3,  // 13: dzeroth.lists.v1.ListService.UpdateList:input_type -> dzeroth.lists.v1.UpdateListRequest
+	5,  // 14: dzeroth.lists.v1.ListService.DeleteList:input_type -> dzeroth.lists.v1.DeleteListRequest
+	7,  // 15: dzeroth.lists.v1.ListService.GetList:input_type -> dzeroth.lists.v1.GetListRequest
+	9,  // 16: dzeroth.lists.v1.ListService.ListUserLists:input_type -> dzeroth.lists.v1.ListUserListsRequest
+	11, // 17: dzeroth.lists.v1.ListService.AddListMember:input_type -> dzeroth.lists.v1.AddListMemberRequest
+	13, // 18: dzeroth.lists.v1.ListService.RemoveListMember:input_type -> dzeroth.lists.v1.RemoveListMemberRequest
+	15, // 19: dzeroth.lists.v1.ListService.ListListMembers:input_type -> dzeroth.lists.v1.ListListMembersRequest
+	17, // 20: dzeroth.lists.v1.ListService.FollowList:input_type -> dzeroth.lists.v1.FollowListRequest
+	19, // 21: dzeroth.lists.v1.ListService.UnfollowList:input_type -> dzeroth.lists.v1.UnfollowListRequest
+	21, // 22: dzeroth.lists.v1.ListService.ListFollowedLists:input_type -> dzeroth.lists.v1.ListFollowedListsRequest
+	23, // 23: dzeroth.lists.v1.ListService.DiscoverLists:input_type -> dzeroth.lists.v1.DiscoverListsRequest
+	25, // 24: dzeroth.lists.v1.ListService.ListSuggestedMembers:input_type -> dzeroth.lists.v1.ListSuggestedMembersRequest
+	2,  // 25: dzeroth.lists.v1.ListService.CreateList:output_type -> dzeroth.lists.v1.CreateListResponse
+	4,  // 26: dzeroth.lists.v1.ListService.UpdateList:output_type -> dzeroth.lists.v1.UpdateListResponse
+	6,  // 27: dzeroth.lists.v1.ListService.DeleteList:output_type -> dzeroth.lists.v1.DeleteListResponse
+	8,  // 28: dzeroth.lists.v1.ListService.GetList:output_type -> dzeroth.lists.v1.GetListResponse
+	10, // 29: dzeroth.lists.v1.ListService.ListUserLists:output_type -> dzeroth.lists.v1.ListUserListsResponse
+	12, // 30: dzeroth.lists.v1.ListService.AddListMember:output_type -> dzeroth.lists.v1.AddListMemberResponse
+	14, // 31: dzeroth.lists.v1.ListService.RemoveListMember:output_type -> dzeroth.lists.v1.RemoveListMemberResponse
+	16, // 32: dzeroth.lists.v1.ListService.ListListMembers:output_type -> dzeroth.lists.v1.ListListMembersResponse
+	18, // 33: dzeroth.lists.v1.ListService.FollowList:output_type -> dzeroth.lists.v1.FollowListResponse
+	20, // 34: dzeroth.lists.v1.ListService.UnfollowList:output_type -> dzeroth.lists.v1.UnfollowListResponse
+	22, // 35: dzeroth.lists.v1.ListService.ListFollowedLists:output_type -> dzeroth.lists.v1.ListFollowedListsResponse
+	24, // 36: dzeroth.lists.v1.ListService.DiscoverLists:output_type -> dzeroth.lists.v1.DiscoverListsResponse
+	26, // 37: dzeroth.lists.v1.ListService.ListSuggestedMembers:output_type -> dzeroth.lists.v1.ListSuggestedMembersResponse
+	25, // [25:38] is the sub-list for method output_type
+	12, // [12:25] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_lists_v1_lists_proto_init() }
@@ -1203,7 +1789,7 @@ func file_dzeroth_lists_v1_lists_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_lists_v1_lists_proto_rawDesc), len(file_dzeroth_lists_v1_lists_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

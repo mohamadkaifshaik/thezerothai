@@ -97,6 +97,11 @@ func (r *fakeReader) Members(context.Context, string, string) (lists.ListMembers
 }
 func (r *fakeReader) OwnedBy(context.Context, string) ([]lists.List, error) { return nil, nil }
 
+// FollowedAmong: the timeline tests do not exercise following.
+func (r *fakeReader) FollowedAmong(context.Context, string, []string) (map[string]bool, error) {
+	return map[string]bool{}, nil
+}
+
 func view(id, name, owner string) lists.ListView {
 	return lists.ListView{Header: lists.Header{ID: id, Name: name}, Owner: identity.Profile{UserID: owner}}
 }
