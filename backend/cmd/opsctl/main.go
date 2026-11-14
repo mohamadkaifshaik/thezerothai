@@ -117,7 +117,10 @@ type backends struct {
 	childCounts posts.ChildRecounter
 	// childBulk serves recount-children: the id-ordered scan, the outside counts and RepairChildCounts.
 	childBulk posts.ChildBulkRecounter
-	close     func()
+	// listNameKeys and communityNameKeys serve `search backfill-name-keys`: each module's nameLower backfill (F20, F21).
+	listNameKeys      nameKeyBackfiller
+	communityNameKeys nameKeyBackfiller
+	close             func()
 }
 
 type opener func(ctx context.Context, project string) (*backends, error)
@@ -219,7 +222,10 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		listFollows:     lists.NewFirestoreRepo(client, nil, nil),
 		childCounts:     postsRepo,
 		childBulk:       postsRepo,
-		close:           func() { _ = client.Close() },
+		// The nameLower backfills are plain field Updates: no quota or idempotency store.
+		listNameKeys:      lists.NewFirestoreRepo(client, nil, nil),
+		communityNameKeys: communitiesRepo,
+		close:             func() { _ = client.Close() },
 	}, nil
 }
 
@@ -239,7 +245,7 @@ const usage = `usage:
   opsctl media-orphan-sweep --project P --profile-retire off|all [--dry-run]   (drains the daily orphan sweep's
                           backlog in delete mode whatever MEDIA_ORPHAN_SWEEP says; --profile-retire has no default and the
                           shell's PROFILE_MEDIA_RETIRE is not read; --dry-run computes one page and writes nothing)
-` + recountSharesUsage + recountListFollowsUsage + recountChildrenUsage + recountChildrenBulkUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
+` + recountSharesUsage + recountListFollowsUsage + recountChildrenUsage + recountChildrenBulkUsage + nameKeysUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -255,9 +261,9 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore, community suspend|restore|archive: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
-	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, recount-children, recount-list-follows --all-missing: resume after this post, media or list id (the checkpoint a capped run printed)")
+	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, recount-children, recount-list-follows --all-missing, search backfill-name-keys: resume after this post, media, list or community id (the checkpoint a capped run printed)")
 	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|all, which unshown profile images the sweep may delete (the legacy banner is read as off)")
-	write := fs.Bool("write", false, "recount-shares, recount-list-follows, recount-replies, recount-quotes, recount-children: set the stored counter (without it the command only prints the counts)")
+	write := fs.Bool("write", false, "recount-shares, recount-list-follows, recount-replies, recount-quotes, recount-children, search backfill-name-keys: write (without it the command only prints the counts)")
 	var bulk bulkRecountFlags
 	fs.StringVar(&bulk.before, "before", "", "recount-children (required): scan only posts created before this RFC 3339 time")
 	fs.IntVar(&bulk.rate, "rate-limit", defaultBulkRate, "recount-children: posts per second")
@@ -270,6 +276,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post, recount-shares, recount-replies, recount-quotes: post id")
 	fs.StringVar(&ma.list, "list", "", "recount-list-follows: list id")
 	allMissing := fs.Bool("all-missing", false, "recount-list-follows: scan every list and repair those with no followerCount field (instead of --list)")
+	collection := fs.String("collection", "", "search backfill-name-keys: lists or communities")
+	maxPages := fs.Int("max-pages", 0, "search backfill-name-keys: at most N pages of 200 (default 25)")
 	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide, beacon hide, community suspend: also resolve this report id")
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
 	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION or DISMISSED")
@@ -282,7 +290,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
 		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
-		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep", "recount-shares", "recount-list-follows", "recount-replies", "recount-quotes", "recount-children":
+		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep", "recount-shares", "recount-list-follows", "recount-replies", "recount-quotes", "recount-children", "search":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -291,7 +299,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	// the message to take down) are the first positional arguments. They come off before the flags are parsed, so --project
 	// and --dry-run may follow them.
 	sub, msgTarget := "", ""
-	if (cmd == "reports" || cmd == "messages" || cmd == "trends" || cmd == "polls" || cmd == "lists" || cmd == "beacon" || cmd == "community") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	if (cmd == "reports" || cmd == "messages" || cmd == "trends" || cmd == "polls" || cmd == "lists" || cmd == "beacon" || cmd == "community" || cmd == "search") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		sub, rest = rest[0], rest[1:]
 	}
 	if cmd == "polls" {
@@ -358,12 +366,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	// --after resumes a capped backfill; on any other command it would be silently ignored.
-	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "recount-children" && cmd != "recount-list-follows" {
+	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "recount-children" && cmd != "recount-list-follows" && cmd != "search" {
 		fmt.Fprintf(errOut, "--after is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
 	// recount-shares writes only with --write; on any other command it would be silently ignored.
-	if *write && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" {
+	if *write && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" && cmd != "search" {
 		fmt.Fprintf(errOut, "--write is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
@@ -389,6 +397,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		}
 	} else if ma.post != "" {
 		fmt.Fprintf(errOut, "--post is not supported by recount-children (use recount-replies / recount-quotes)\n%s", usage)
+		return 2
+	}
+	// --collection and --max-pages belong to search backfill-name-keys; elsewhere they would be silently ignored.
+	if (*collection != "" || *maxPages != 0) && cmd != "search" {
+		fmt.Fprintf(errOut, "--collection and --max-pages are for search backfill-name-keys only\n%s", usage)
 		return 2
 	}
 	// media-orphan-sweep deletes profile images only as --profile-retire says; there is no default, and nothing else takes it.
@@ -475,13 +488,17 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 			}
 		}
 	}
+	if cmd == "search" && sub != "backfill-name-keys" {
+		fmt.Fprintf(errOut, "usage: opsctl search backfill-name-keys --project P --collection lists|communities [--write]\n%s", usage)
+		return 2
+	}
 	if *project == "" {
 		fmt.Fprintf(errOut, "--project is required (there is no default project)\n%s", usage)
 		return 2
 	}
 	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
 	// report or post id.
-	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community"
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community" && cmd != "search"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -566,6 +583,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = recountChildren(ctx, b, cmd, ma.post, *write, out)
 	case "recount-children":
 		err = recountChildrenBulk(ctx, b, bulkArgs, out, now)
+	case "search":
+		err = backfillNameKeys(ctx, b, *collection, *after, *maxPages, *write, out)
 	case "suspend-user":
 		err = suspendUser(ctx, b, *uid, ma, out, now)
 	case "unsuspend-user":
