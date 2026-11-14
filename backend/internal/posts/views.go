@@ -4,9 +4,9 @@
 //   - The author always sees their own count. ToView sets it (the rolled-up posts/{id}.viewCount), and GetPost replaces it
 //     with the exact live shard sum (one GetAll of 10 shard docs, only for the author with FEATURE_POST_VIEWS on).
 //   - Anyone else sees the rolled-up count only once it reaches the threshold (POST_VIEWS_PUBLIC_THRESHOLD) and only when
-//     the author is not protected. That is decided by ApplyPublicViews, which every surface calls next to
-//     ApplyWireVisibility, where the author's protected state is known. A surface that never decides it never shows
-//     another author's count: the rule fails closed.
+//     the author is known not to be protected. That is decided by ApplyPublicViews, which every surface calls next to
+//     ApplyWireVisibility with the one Audience.ProtectedStatus answer of the row. A surface that never decides it, or
+//     a protected set that cannot be read, never shows another author's count: the rule fails closed.
 //   - Never on a REPOST row, an embed or a withheld row; nowhere while FEATURE_POST_VIEWS is globally off, and nowhere
 //     before SetViewCountRule ran (the zero rule is off).
 package posts
@@ -64,14 +64,16 @@ func authorViewCount(p *Post, viewer string) *int64 {
 }
 
 // ApplyPublicViews sets Post.view_count for a viewer who is not the author: the rolled-up count of p (the post v was
-// built from) when it is at least the threshold and the author is not protected. It never lowers what ToView set (the
-// author's own count) and does nothing on a withheld row or a REPOST row.
-func ApplyPublicViews(v *postsv1.PostView, p *Post, protectedAuthor bool) {
+// built from) when it is at least the threshold and the author is known not to be protected. protectedKnown is false
+// when the protected set could not be read (Audience.ProtectedStatus); the author is then treated as protected, so a
+// set outage never shows a protected account's count to anyone but its author (fail closed). It never lowers what
+// ToView set (the author's own count) and does nothing on a withheld row or a REPOST row.
+func ApplyPublicViews(v *postsv1.PostView, p *Post, protectedAuthor, protectedKnown bool) {
 	if v == nil || v.GetPost() == nil || v.Withheld || p == nil || v.Post.ViewCount != nil {
 		return
 	}
 	r, on := activeViewRule()
-	if !on || protectedAuthor || p.Kind == KindRepost || p.ViewCount < r.Threshold {
+	if !on || protectedAuthor || !protectedKnown || p.Kind == KindRepost || p.ViewCount < r.Threshold {
 		return
 	}
 	v.Post.ViewCount = proto.Int64(p.ViewCount)

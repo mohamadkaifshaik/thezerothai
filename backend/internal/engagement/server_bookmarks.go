@@ -128,9 +128,9 @@ func (s *Server) ListBookmarks(ctx context.Context, req *connect.Request[engagem
 	out := &engagementv1.ListBookmarksResponse{NextPageToken: page.NextPageToken, Bookmarks: make([]*engagementv1.Bookmark, 0, len(page.Rows))}
 	for _, r := range page.Rows {
 		v := posts.ToView(r.Post, page.Viewer, uid)
-		r.Hint.Apply(v)                                           // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author
-		posts.ApplyPublicViews(v, r.Post, r.Hint.Protected)       // view_count over the threshold (F1); none on a placeholder
-		v.BookmarkedByViewer = v.BookmarkedByViewer || v.Withheld // a placeholder row is a bookmark by definition (a REPOST row's flag describes the original)
+		r.Hint.Apply(v)                                                            // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author
+		posts.ApplyPublicViews(v, r.Post, r.Hint.Protected, r.Hint.ProtectedKnown) // view_count over the threshold (F1); none on a placeholder
+		v.BookmarkedByViewer = v.BookmarkedByViewer || v.Withheld                  // a placeholder row is a bookmark by definition (a REPOST row's flag describes the original)
 		out.Bookmarks = append(out.Bookmarks, &engagementv1.Bookmark{Post: v, BookmarkedAt: timestamppb.New(r.BookmarkedAt)})
 	}
 	return connect.NewResponse(out), nil

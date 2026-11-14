@@ -199,9 +199,9 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 		ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, post)) // no lookup without an embed, else the cached graph; PROTECTED strips the copy
 	}
 	if h, ok := s.svc.(VisibilityHinter); ok {
-		protected := h.ProtectedAuthor(ctx, uid, post)
+		protected, known := h.ProtectedStatus(ctx, uid, post) // one lookup for both appliers
 		ApplyWireVisibility(v, protected)
-		ApplyPublicViews(v, post, protected)
+		ApplyPublicViews(v, post, protected, known)
 	}
 	s.applyAuthorLiveViews(ctx, v, uid, post) // the author's exact count (F1 post insights)
 	return connect.NewResponse(&postsv1.GetPostResponse{Post: v}), nil
@@ -307,9 +307,11 @@ type PollBlockHinter interface {
 }
 
 // VisibilityHinter is implemented by the concrete service: whether the post's author is protected, for the computed wire
-// visibility (VISIBILITY_FOLLOWERS). It costs the caller no lookup.
+// visibility (VISIBILITY_FOLLOWERS). It costs the caller no lookup. ProtectedStatus is the same single lookup with
+// known = false when the set could not be read, for the view count rule (ApplyPublicViews).
 type VisibilityHinter interface {
 	ProtectedAuthor(ctx context.Context, viewer string, p *Post) bool
+	ProtectedStatus(ctx context.Context, viewer string, p *Post) (protected, known bool)
 }
 
 // GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread.
@@ -344,9 +346,9 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 			ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, p))
 		}
 		if h, ok := s.svc.(VisibilityHinter); ok {
-			protected := h.ProtectedAuthor(ctx, uid, p)
+			protected, known := h.ProtectedStatus(ctx, uid, p)
 			ApplyWireVisibility(v, protected)
-			ApplyPublicViews(v, p, protected)
+			ApplyPublicViews(v, p, protected, known)
 		}
 		return v
 	}

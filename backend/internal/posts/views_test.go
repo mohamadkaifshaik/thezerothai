@@ -5,7 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"connectrpc.com/connect"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 // withViewRule installs r for one test and restores the previous rule.
@@ -21,8 +24,8 @@ func withViewRule(t *testing.T, r *ViewCountRule) {
 }
 
 // TestViewCountVisibility is the hybrid rule table (owner decision 2026-11-14): the author always; anyone else from the
-// threshold on and never for a protected author; never on a REPOST row or a withheld row; nowhere while the flag is
-// globally off or before the rule is installed.
+// threshold on and only for an author known not to be protected (an unknown protected state, a set outage, fails
+// closed); never on a REPOST row or a withheld row; nowhere while the flag is globally off or before the rule is installed.
 func TestViewCountVisibility(t *testing.T) {
 	off := func() bool { return true }
 	on := &ViewCountRule{Threshold: 1000}
@@ -33,6 +36,7 @@ func TestViewCountVisibility(t *testing.T) {
 		count     int64
 		kind      Kind
 		protected bool
+		unknown   bool // the protected set could not be read (known = false)
 		withheld  bool
 		want      *int64
 	}{
@@ -43,6 +47,10 @@ func TestViewCountVisibility(t *testing.T) {
 		{name: "other at threshold", rule: on, viewer: "other", count: 1000, want: ptr(1000)},
 		{name: "other above threshold", rule: on, viewer: "other", count: 5000, want: ptr(5000)},
 		{name: "other above threshold, protected", rule: on, viewer: "other", count: 5000, protected: true},
+		{name: "author, protected state unknown", rule: on, viewer: "author", count: 5, unknown: true, want: ptr(5)},
+		{name: "other above threshold, protected state unknown", rule: on, viewer: "other", count: 5000, unknown: true},
+		{name: "other above threshold, protected and unknown", rule: on, viewer: "other", count: 5000, protected: true, unknown: true},
+		{name: "signed-out viewer above threshold, protected state unknown", rule: on, viewer: "", count: 5000, unknown: true},
 		{name: "signed-out viewer above threshold", rule: on, viewer: "", count: 5000, want: ptr(5000)},
 		{name: "REPOST row, author", rule: on, viewer: "author", count: 5000, kind: KindRepost},
 		{name: "REPOST row, other", rule: on, viewer: "other", count: 5000, kind: KindRepost},
@@ -65,7 +73,7 @@ func TestViewCountVisibility(t *testing.T) {
 			if tt.withheld {
 				ApplyWithheld(v)
 			}
-			ApplyPublicViews(v, p, tt.protected)
+			ApplyPublicViews(v, p, tt.protected, !tt.unknown)
 			got := v.GetPost().ViewCount
 			switch {
 			case tt.want == nil && got != nil:
@@ -87,8 +95,8 @@ func TestApplyWithheldDropsViewCount(t *testing.T) {
 	if v.Post.ViewCount != nil {
 		t.Fatal("a withheld row kept view_count")
 	}
-	ApplyPublicViews(nil, nil, false) // nil-safe
-	ApplyPublicViews(&postsv1.PostView{}, &Post{}, false)
+	ApplyPublicViews(nil, nil, false, true) // nil-safe
+	ApplyPublicViews(&postsv1.PostView{}, &Post{}, false, true)
 }
 
 // liveRepo is a Repo whose only working method is LiveViewCount.
@@ -159,6 +167,37 @@ func TestApplyAuthorLiveViews(t *testing.T) {
 			got := v.Post.ViewCount
 			if (tc.want == nil) != (got == nil) || (got != nil && *got != *tc.want) {
 				t.Fatalf("view_count = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestGetPostViewCountFailsClosedOnSetOutage: a follower reads an author's post while the protected set is unknown
+// (Decide never asks the set for a followed author, so the read succeeds). The author's protected state is unknown, so
+// the count over the threshold is not shown; with the set known and the author public it is.
+func TestGetPostViewCountFailsClosedOnSetOutage(t *testing.T) {
+	withViewRule(t, &ViewCountRule{Threshold: 1000})
+	for _, tc := range []struct {
+		name   string
+		setErr error
+		want   bool
+	}{
+		{"set unavailable", identity.ErrProtectedSetUnavailable, false},
+		{"set known, author public", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := restrictedEnv("")
+			f := e.protect() // nobody protected
+			f.err = tc.setErr
+			e.graph.snap = following(uZed)
+			e.repo.docs[rRoot].ViewCount = 5000
+			srv := NewServer(e.svc, replyAudienceRegistry(flags.Spec{Mode: flags.Off}))
+			got, err := srv.GetPost(callerCtx(testUID), connect.NewRequest(&postsv1.GetPostRequest{PostId: rRoot}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if vc := got.Msg.GetPost().GetPost().ViewCount; (vc != nil) != tc.want {
+				t.Fatalf("view_count = %v, want shown=%v", vc, tc.want)
 			}
 		})
 	}

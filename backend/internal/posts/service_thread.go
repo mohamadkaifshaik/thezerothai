@@ -571,13 +571,20 @@ func (s *service) PollBlockedAuthors(ctx context.Context, viewer string, p *Post
 // a new read for an anonymous viewer), and a followed author is then answered from the loader's cached copy
 // (L-4). An unknown follow state is treated as not following: the set is asked through Current.
 func (s *service) ProtectedAuthor(ctx context.Context, viewer string, p *Post) bool {
+	protected, _ := s.ProtectedStatus(ctx, viewer, p)
+	return protected
+}
+
+// ProtectedStatus implements VisibilityHinter: ProtectedAuthor plus known, false when the protected set could not be
+// read (Audience.ProtectedStatus). Same lookups as ProtectedAuthor.
+func (s *service) ProtectedStatus(ctx context.Context, viewer string, p *Post) (protected, known bool) {
 	following := false
 	if viewer != "" && p.AuthorID != viewer && s.aud.Enabled() {
 		if snap, err := s.graph.Snapshot(ctx, viewer); err == nil {
 			following = snap.Following[p.AuthorID]
 		}
 	}
-	return s.aud.ProtectedAuthor(ctx, viewer, p.AuthorID, following)
+	return s.aud.ProtectedStatus(ctx, viewer, p.AuthorID, following)
 }
 
 // embedStateFor is the pure decision: blocked wins over muted.

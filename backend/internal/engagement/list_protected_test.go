@@ -49,8 +49,8 @@ func (fakeAudience) refuse(s posts.Surface) posts.Decision {
 	return posts.Decision{Verdict: posts.Drop}
 }
 
-func (f fakeAudience) ProtectedAuthor(_ context.Context, _, author string, _ bool) bool {
-	return f.protected[author]
+func (f fakeAudience) ProtectedStatus(_ context.Context, _, author string, _ bool) (protected, known bool) {
+	return f.protected[author], true
 }
 
 func TestLists_ProtectedRows(t *testing.T) {
