@@ -251,6 +251,18 @@ void main() {
   });
 
   test(
+    'status-only recovery does not leave a free account verifying forever',
+    () async {
+      repo.transaction = () async =>
+          const SubscriptionPurchaseResult(PurchaseDisposition.refreshed);
+      await cubit.setAccount('a');
+      await cubit.restore();
+      expect(cubit.state.phase, SubscriptionPhase.ready);
+      expect(cubit.state.access?.tier, SubscriptionTier.free);
+    },
+  );
+
+  test(
     'unknown status is an unavailable state, not a confirmed free tier',
     () async {
       repo.access = (uid) async => SubscriptionAccess(

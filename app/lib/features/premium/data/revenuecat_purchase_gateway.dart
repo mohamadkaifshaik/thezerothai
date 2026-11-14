@@ -4,6 +4,7 @@ import 'package:purchases_flutter/purchases_flutter.dart' as rc;
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart' as ui;
 
 import '../domain/subscription_models.dart';
+import '../domain/subscription_catalog.dart';
 import 'subscription_sources.dart';
 
 /// One application-scoped instance, serialized by ServerSubscriptionRepository.
@@ -13,11 +14,18 @@ class RevenueCatPurchaseGateway
   static const proEntitlement = 'dzeroth_pro';
 
   /// Public SDK key is selected per build/platform; never use a secret API key.
-  factory RevenueCatPurchaseGateway.fromEnvironment() =>
-      RevenueCatPurchaseGateway(
-        publicApiKey: const String.fromEnvironment('REVENUECAT_PUBLIC_API_KEY'),
-        monthlyProducts: const {'monthly': SubscriptionTier.premium},
-      );
+  factory RevenueCatPurchaseGateway.fromEnvironment() {
+    const key = String.fromEnvironment('REVENUECAT_PUBLIC_API_KEY');
+    const catalog = String.fromEnvironment('REVENUECAT_MONTHLY_PRODUCTS_JSON');
+    return RevenueCatPurchaseGateway(
+      publicApiKey: key,
+      monthlyProducts: catalog.isNotEmpty
+          ? parseMonthlySubscriptionProducts(catalog)
+          : key.startsWith('test_')
+          ? const {'monthly': SubscriptionTier.premium}
+          : const {},
+    );
+  }
   RevenueCatPurchaseGateway({
     required String publicApiKey,
     required Map<String, SubscriptionTier> monthlyProducts,
@@ -80,7 +88,7 @@ class RevenueCatPurchaseGateway
         offering.availablePackages.isEmpty ||
         offering.availablePackages.any(
           (p) =>
-              p.packageType != rc.PackageType.monthly ||
+              p.storeProduct.subscriptionPeriod != 'P1M' ||
               !_monthlyProducts.containsKey(p.storeProduct.identifier),
         )) {
       throw StateError('Paywall catalog unavailable');
@@ -117,7 +125,7 @@ class RevenueCatPurchaseGateway
       final product = package.storeProduct;
       final tier = _monthlyProducts[product.identifier];
       if ((tier != SubscriptionTier.plus && tier != SubscriptionTier.premium) ||
-          package.packageType != rc.PackageType.monthly) {
+          product.subscriptionPeriod != 'P1M') {
         continue;
       }
       final offering = SubscriptionOffering(

@@ -9,7 +9,7 @@ class ServerSubscriptionRepository
     implements SubscriptionRepository, HostedSubscriptionRepository {
   ServerSubscriptionRepository({
     required SubscriptionStatusSource source,
-    required SubscriptionPurchaseGateway gateway,
+    required SubscriptionPurchaseGateway? gateway,
     required SessionEpoch sessionEpoch,
     required String? Function() currentUid,
     DateTime Function()? now,
@@ -20,7 +20,7 @@ class ServerSubscriptionRepository
        _now = now ?? DateTime.now;
 
   final SubscriptionStatusSource _source;
-  final SubscriptionPurchaseGateway _gateway;
+  final SubscriptionPurchaseGateway? _gateway;
   final SessionEpoch _epoch;
   final String? Function() _currentUid;
   final DateTime Function() _now;
@@ -73,12 +73,14 @@ class ServerSubscriptionRepository
   }
 
   Future<void> _identify(void Function() check) async {
+    final gateway = _gateway;
+    if (gateway == null) throw UnsupportedError('Store billing unavailable');
     final id = await _source.ensureBillingIdentity();
     check();
     if (!RegExp(r'^dzb_[A-Za-z0-9_-]{43}$').hasMatch(id)) {
       throw StateError('Invalid private billing identity');
     }
-    await _gateway.identify(id);
+    await gateway.identify(id);
     check();
   }
 
@@ -95,6 +97,7 @@ class ServerSubscriptionRepository
   Future<List<SubscriptionOffering>> getOfferings(String uid) =>
       _run(uid, (check) async {
         _offerings = const [];
+        if (_gateway == null) return _offerings;
         if (!_canBuy(await _access(uid, check))) return _offerings;
         await _identify(check);
         final offerings = await _gateway.getOfferings();
@@ -125,7 +128,7 @@ class ServerSubscriptionRepository
     // Retain uncertainty on SDK errors: a timeout may follow a real charge.
     _awaitingVerification = true;
     _offerings = const [];
-    final result = await _gateway.purchase(offering);
+    final result = await _gateway!.purchase(offering);
     check();
     if (result.disposition == PurchaseDisposition.canceled) {
       _awaitingVerification = false;
@@ -134,15 +137,20 @@ class ServerSubscriptionRepository
   });
 
   @override
-  Future<SubscriptionPurchaseResult> restore(String uid) =>
-      _run(uid, (check) async {
-        await _identify(check);
-        _awaitingVerification = true;
-        _offerings = const [];
-        final result = await _gateway.restore();
-        check();
-        return result;
-      });
+  Future<SubscriptionPurchaseResult> restore(String uid) => _run(uid, (
+    check,
+  ) async {
+    if (_gateway == null) {
+      await _access(uid, check);
+      return const SubscriptionPurchaseResult(PurchaseDisposition.refreshed);
+    }
+    await _identify(check);
+    _awaitingVerification = true;
+    _offerings = const [];
+    final result = await _gateway.restore();
+    check();
+    return result;
+  });
 
   /// Hosted UI shares the SDK queue and purchase uncertainty guard.
   @override

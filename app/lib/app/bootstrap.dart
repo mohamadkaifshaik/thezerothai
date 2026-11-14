@@ -459,14 +459,22 @@ Future<void> bootstrap() async {
       authRepository: authRepository,
       database: database,
       subscriptionRepository:
-          const String.fromEnvironment('REVENUECAT_PUBLIC_API_KEY').isEmpty
+          !const bool.fromEnvironment('BILLING_STATUS_ENABLED') &&
+              const String.fromEnvironment('REVENUECAT_PUBLIC_API_KEY').isEmpty
           ? null
           : ServerSubscriptionRepository(
               source: ConnectSubscriptionStatusSource(
                 api: apiClient,
                 currentUid: () => authRepository.currentUser?.uid,
               ),
-              gateway: RevenueCatPurchaseGateway.fromEnvironment(),
+              gateway:
+                  !kIsWeb &&
+                      (defaultTargetPlatform == TargetPlatform.android ||
+                          defaultTargetPlatform == TargetPlatform.iOS) &&
+                      const String.fromEnvironment('REVENUECAT_PUBLIC_API_KEY')
+                          .isNotEmpty
+                  ? RevenueCatPurchaseGateway.fromEnvironment()
+                  : null,
               sessionEpoch: database.sessionEpoch,
               currentUid: () => authRepository.currentUser?.uid,
             ),

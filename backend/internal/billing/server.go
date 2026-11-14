@@ -23,15 +23,40 @@ type Server struct {
 	bindings         SubscriptionReader
 	reconciler       *Reconciler
 	now              func() time.Time
-	sandboxPurchases bool
+	purchasableTiers map[Tier]bool
 }
 
 // EnableSandboxPurchases is restricted to a sandbox identity service. The
 // composition root additionally enforces ENV=local; it never enables real sales.
 func (s *Server) EnableSandboxPurchases() {
 	if s.identities != nil && s.identities.env == Sandbox && s.reconciler != nil {
-		s.sandboxPurchases = true
+		s.purchasableTiers = map[Tier]bool{TierPremium: true}
 	}
+}
+
+// EnableStorePurchases is called only at startup after the composition
+// root validates the dev rollout gate. Only reviewed, real-store products may
+// advertise checkout; verification and restore remain available with sales off.
+func (s *Server) EnableStorePurchases(products map[string]Product) {
+	s.purchasableTiers = nil
+	if s.identities == nil || !validEnvironment(s.identities.env) || s.bindings == nil || s.reconciler == nil {
+		return
+	}
+	tiers := make(map[Tier]bool)
+	for id, p := range products {
+		if id == "" || (p.Store != "play_store" && p.Store != "app_store") {
+			return
+		}
+		switch p.Entitlement {
+		case PlusEntitlement:
+			tiers[TierPlus] = true
+		case PremiumEntitlement, ProEntitlement:
+			tiers[TierPremium] = true
+		default:
+			return
+		}
+	}
+	s.purchasableTiers = tiers
 }
 
 // NewServer keeps sales dark until every advertised benefit and rollout gate is
@@ -71,8 +96,8 @@ func (s *Server) GetAvailablePlans(ctx context.Context, _ *connect.Request[billi
 		return nil, err
 	}
 	return connect.NewResponse(&billingv1.GetAvailablePlansResponse{Plans: []*billingv1.SubscriptionPlan{
-		{Tier: billingv1.SubscriptionTier_SUBSCRIPTION_TIER_PLUS, EntitlementId: PlusEntitlement, Period: "monthly"},
-		{Tier: billingv1.SubscriptionTier_SUBSCRIPTION_TIER_PREMIUM, EntitlementId: ProEntitlement, Period: "monthly", Purchasable: s.sandboxPurchases},
+		{Tier: billingv1.SubscriptionTier_SUBSCRIPTION_TIER_PLUS, EntitlementId: PlusEntitlement, Period: "monthly", Purchasable: s.purchasableTiers[TierPlus]},
+		{Tier: billingv1.SubscriptionTier_SUBSCRIPTION_TIER_PREMIUM, EntitlementId: ProEntitlement, Period: "monthly", Purchasable: s.purchasableTiers[TierPremium]},
 	}}), nil
 }
 
@@ -89,10 +114,13 @@ func (s *Server) GetMySubscription(ctx context.Context, _ *connect.Request[billi
 	if errors.Is(err, ErrNotFound) {
 		out.Tier = billingv1.SubscriptionTier_SUBSCRIPTION_TIER_FREE
 		out.VerificationState = billingv1.VerificationState_VERIFICATION_STATE_NO_SUBSCRIPTION
-		out.PurchasesAvailable = s.sandboxPurchases
+		out.PurchasesAvailable = len(s.purchasableTiers) > 0
 		return connect.NewResponse(out), nil
 	}
 	if err != nil || s.reconciler == nil {
+		return connect.NewResponse(out), nil
+	}
+	if s.identities != nil && b.Environment != s.identities.env {
 		return connect.NewResponse(out), nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
@@ -106,7 +134,7 @@ func (s *Server) GetMySubscription(ctx context.Context, _ *connect.Request[billi
 		return connect.NewResponse(out), nil
 	}
 	out.VerificationState = billingv1.VerificationState_VERIFICATION_STATE_VERIFIED
-	out.PurchasesAvailable = s.sandboxPurchases && tier == TierFree
+	out.PurchasesAvailable = len(s.purchasableTiers) > 0 && tier == TierFree
 	out.VerifiedAt = timestamppb.New(snapshot.VerifiedAt)
 	end := snapshot.VerifiedAt.Add(MaxVerificationAge)
 	out.Tier = billingv1.SubscriptionTier_SUBSCRIPTION_TIER_FREE
