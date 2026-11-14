@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
 
@@ -186,5 +187,16 @@ func TestFoldCounterShard_PollDeltas(t *testing.T) {
 	b = &pollBatch{}
 	if _, staged := shardcount.StageDeltaFold(b, post, []shardcount.Shard{{Ref: shard, Data: zeroed}}, counterFoldsOf(zeroed)...); staged || len(b.updPaths) != 0 {
 		t.Fatalf("redelivered fold staged %v", b.updPaths)
+	}
+}
+
+// TestPollToProtoClampsNegativeCounts: a count that dips below zero between two shard folds is shown as 0.
+func TestPollToProtoClampsNegativeCounts(t *testing.T) {
+	p := &Post{ID: "0000000000000000001", AuthorID: "a", Poll: &Poll{
+		Options: []string{"x", "y"}, Counts: []int64{-1, 3}, Total: -1, ClosesAt: time.Now().Add(time.Hour),
+	}}
+	out := pollToProto(p, ViewerSet{}, "a", time.Now())
+	if out.GetChoices()[0].GetVotes() != 0 || out.GetChoices()[1].GetVotes() != 3 || out.GetTotalVotes() != 0 {
+		t.Fatalf("poll = %v, want x=0 y=3 total=0", out)
 	}
 }

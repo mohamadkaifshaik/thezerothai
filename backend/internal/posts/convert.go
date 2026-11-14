@@ -197,13 +197,14 @@ func pollToProto(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.P
 	_, voted := vs.PollChoice(p)
 	visible := closed || vs.pollsOff || voted || (viewer != "" && viewer == p.AuthorID)
 	out := &postsv1.Poll{
-		ClosesAt: timestamppb.New(po.ClosesAt), TotalVotes: po.Total, ResultsVisible: visible, Closed: closed,
+		ClosesAt: timestamppb.New(po.ClosesAt), TotalVotes: max(po.Total, 0), ResultsVisible: visible, Closed: closed,
 		Choices: make([]*postsv1.PollChoice, len(po.Options)),
 	}
 	for i, label := range po.Options {
 		c := &postsv1.PollChoice{Label: label}
 		if visible && i < len(po.Counts) {
-			c.Votes = po.Counts[i]
+			// A hot poll's vote and change can fold in separate shard transactions, so a count may dip for one tick.
+			c.Votes = max(po.Counts[i], 0)
 		}
 		out.Choices[i] = c
 	}
