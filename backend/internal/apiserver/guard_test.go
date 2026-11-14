@@ -42,6 +42,7 @@ func defaultRateLimitCfg() config.Config {
 	// Search and trends limits (the config.Load defaults).
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 30
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 20
+	cfg.RateLimit.SearchDirectoryPerUserPerMinute = 20
 	// Follow request limits (the config.Load default).
 	cfg.RateLimit.FollowRequestsRespondPerUserPerMinute = 60
 	cfg.RateLimit.GraphListPerMinute = 20    // ListFollowRequests shares the graph list bucket (RATE_LIMIT_GRAPH_LIST_PER_MIN)
@@ -49,6 +50,7 @@ func defaultRateLimitCfg() config.Config {
 	// Messaging limits (the config.Load defaults).
 	cfg.RateLimit.MessagesSendPerUserPerMinute = 20
 	cfg.RateLimit.MessagesReadPerUserPerMinute = 30
+	cfg.RateLimit.DMSuggestionsPerUserPerMinute = 10
 	cfg.RateLimit.MessagesSendsPerDay = 300
 	cfg.RateLimit.MessagesMarkReadPerDay = 500 // (the config.Load defaults)
 	cfg.RateLimit.MessagesMutationsPerDay = 500

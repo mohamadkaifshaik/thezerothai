@@ -1,0 +1,29 @@
+{
+  "fold": [
+    {"name": "ascii", "in": "Go Devs", "out": "go devs"},
+    {"name": "trim", "in": "  Book Club \t", "out": "book club"},
+    {"name": "inner spaces kept", "in": "A  B", "out": "a  b"},
+    {"name": "nfc composes", "in": "Cafe\u0301", "out": "caf\u00e9"},
+    {"name": "precomposed upper", "in": "CAF\u00c9", "out": "caf\u00e9"},
+    {"name": "greek", "in": "\u039a\u03a9\u0394\u0399\u039a\u0391\u03a3", "out": "\u03ba\u03c9\u03b4\u03b9\u03ba\u03b1\u03c3"},
+    {"name": "devanagari unchanged", "in": "\u0939\u093f\u0902\u0926\u0940", "out": "\u0939\u093f\u0902\u0926\u0940"},
+    {"name": "emoji kept", "in": "Run \ud83c\udfc3 Club", "out": "run \ud83c\udfc3 club"},
+    {"name": "fullwidth not folded", "in": "\uff27\uff4f", "out": "\uff47\uff4f"},
+    {"name": "empty", "in": "", "out": ""},
+    {"name": "only spaces", "in": "   ", "out": ""}
+  ],
+  "query": [
+    {"name": "ok", "in": "Go", "out": "go"},
+    {"name": "one rune", "in": "a", "out": "a"},
+    {"name": "trimmed to empty", "in": "  ", "err": "empty"},
+    {"name": "empty", "in": "", "err": "empty"},
+    {"name": "thirty runes", "in": "abcdefghijabcdefghijabcdefghij", "out": "abcdefghijabcdefghijabcdefghij"},
+    {"name": "thirty one runes", "in": "abcdefghijabcdefghijabcdefghijk", "err": "too_long"},
+    {"name": "thirty runes after trim", "in": "  abcdefghijabcdefghijabcdefghij  ", "out": "abcdefghijabcdefghijabcdefghij"},
+    {"name": "control inside", "in": "a\u0007b", "err": "bad_chars"},
+    {"name": "newline inside", "in": "a\nb", "err": "bad_chars"},
+    {"name": "bidi override", "in": "a\u202eb", "err": "bad_chars"},
+    {"name": "bidi isolate", "in": "a\u2066b", "err": "bad_chars"},
+    {"name": "sigil kept", "in": "#Go", "out": "#go"}
+  ]
+}

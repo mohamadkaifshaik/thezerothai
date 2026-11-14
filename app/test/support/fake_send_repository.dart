@@ -22,6 +22,25 @@ import 'thread_test_support.dart';
 /// ([lostResponses], the dropped-response timeout), and can hold a send open
 /// ([gate]).
 class FakeSendRepository extends Fake implements MessagingRepository {
+  /// What `listMessageSuggestions` answers (the `dm_suggestions` picker).
+  List<pb.MessageSuggestion> suggestions = const [];
+
+  /// Thrown by `listMessageSuggestions` when set.
+  Object? suggestionsError;
+
+  /// The limits every `listMessageSuggestions` carried, in order.
+  final List<int> suggestionLimits = [];
+
+  @override
+  Future<List<pb.MessageSuggestion>> listMessageSuggestions({
+    int limit = 10,
+  }) async {
+    suggestionLimits.add(limit);
+    final e = suggestionsError;
+    if (e != null) throw e;
+    return suggestions;
+  }
+
   /// What the thread cache holds (newest first).
   ThreadSnapshot thread = ThreadSnapshot(
     messages: const [],

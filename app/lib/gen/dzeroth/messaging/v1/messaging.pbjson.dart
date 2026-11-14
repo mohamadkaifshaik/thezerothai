@@ -83,6 +83,26 @@ final $typed_data.Uint8List messageStateDescriptor = $convert.base64Decode(
     'VfU1RBVEVfVklTSUJMRRABEiEKHU1FU1NBR0VfU1RBVEVfREVMRVRFRF9BQ0NPVU5UEAISGQoV'
     'TUVTU0FHRV9TVEFURV9SRU1PVkVEEAM=');
 
+@$core.Deprecated('Use messageSuggestionReasonDescriptor instead')
+const MessageSuggestionReason$json = {
+  '1': 'MessageSuggestionReason',
+  '2': [
+    {'1': 'MESSAGE_SUGGESTION_REASON_UNSPECIFIED', '2': 0},
+    {'1': 'MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION', '2': 1},
+    {'1': 'MESSAGE_SUGGESTION_REASON_MET_ON_PLAN', '2': 2},
+    {'1': 'MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW', '2': 3},
+    {'1': 'MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER', '2': 4},
+  ],
+};
+
+/// Descriptor for `MessageSuggestionReason`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List messageSuggestionReasonDescriptor = $convert.base64Decode(
+    'ChdNZXNzYWdlU3VnZ2VzdGlvblJlYXNvbhIpCiVNRVNTQUdFX1NVR0dFU1RJT05fUkVBU09OX1'
+    'VOU1BFQ0lGSUVEEAASMQotTUVTU0FHRV9TVUdHRVNUSU9OX1JFQVNPTl9SRUNFTlRfQ09OVkVS'
+    'U0FUSU9OEAESKQolTUVTU0FHRV9TVUdHRVNUSU9OX1JFQVNPTl9NRVRfT05fUExBThACEisKJ0'
+    '1FU1NBR0VfU1VHR0VTVElPTl9SRUFTT05fTVVUVUFMX0ZPTExPVxADEi4KKk1FU1NBR0VfU1VH'
+    'R0VTVElPTl9SRUFTT05fQ09NTVVOSVRZX01FTUJFUhAE');
+
 @$core.Deprecated('Use conversationDescriptor instead')
 const Conversation$json = {
   '1': 'Conversation',
@@ -480,6 +500,82 @@ const DeleteConversationResponse$json = {
 final $typed_data.Uint8List deleteConversationResponseDescriptor =
     $convert.base64Decode('ChpEZWxldGVDb252ZXJzYXRpb25SZXNwb25zZQ==');
 
+@$core.Deprecated('Use listMessageSuggestionsRequestDescriptor instead')
+const ListMessageSuggestionsRequest$json = {
+  '1': 'ListMessageSuggestionsRequest',
+  '2': [
+    {'1': 'limit', '3': 1, '4': 1, '5': 5, '10': 'limit'},
+  ],
+};
+
+/// Descriptor for `ListMessageSuggestionsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listMessageSuggestionsRequestDescriptor =
+    $convert.base64Decode(
+        'Ch1MaXN0TWVzc2FnZVN1Z2dlc3Rpb25zUmVxdWVzdBIUCgVsaW1pdBgBIAEoBVIFbGltaXQ=');
+
+@$core.Deprecated('Use messageSuggestionDescriptor instead')
+const MessageSuggestion$json = {
+  '1': 'MessageSuggestion',
+  '2': [
+    {
+      '1': 'user',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.common.v1.AuthorSnapshot',
+      '10': 'user'
+    },
+    {
+      '1': 'reason',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.messaging.v1.MessageSuggestionReason',
+      '10': 'reason'
+    },
+    {
+      '1': 'plan_activity',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.beacons.v1.BeaconActivity',
+      '10': 'planActivity'
+    },
+    {'1': 'community_id', '3': 4, '4': 1, '5': 9, '10': 'communityId'},
+    {'1': 'community_name', '3': 5, '4': 1, '5': 9, '10': 'communityName'},
+  ],
+};
+
+/// Descriptor for `MessageSuggestion`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List messageSuggestionDescriptor = $convert.base64Decode(
+    'ChFNZXNzYWdlU3VnZ2VzdGlvbhI1CgR1c2VyGAEgASgLMiEuZHplcm90aC5jb21tb24udjEuQX'
+    'V0aG9yU25hcHNob3RSBHVzZXISRQoGcmVhc29uGAIgASgOMi0uZHplcm90aC5tZXNzYWdpbmcu'
+    'djEuTWVzc2FnZVN1Z2dlc3Rpb25SZWFzb25SBnJlYXNvbhJHCg1wbGFuX2FjdGl2aXR5GAMgAS'
+    'gOMiIuZHplcm90aC5iZWFjb25zLnYxLkJlYWNvbkFjdGl2aXR5UgxwbGFuQWN0aXZpdHkSIQoM'
+    'Y29tbXVuaXR5X2lkGAQgASgJUgtjb21tdW5pdHlJZBIlCg5jb21tdW5pdHlfbmFtZRgFIAEoCV'
+    'INY29tbXVuaXR5TmFtZQ==');
+
+@$core.Deprecated('Use listMessageSuggestionsResponseDescriptor instead')
+const ListMessageSuggestionsResponse$json = {
+  '1': 'ListMessageSuggestionsResponse',
+  '2': [
+    {
+      '1': 'suggestions',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.messaging.v1.MessageSuggestion',
+      '10': 'suggestions'
+    },
+  ],
+};
+
+/// Descriptor for `ListMessageSuggestionsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listMessageSuggestionsResponseDescriptor =
+    $convert.base64Decode(
+        'Ch5MaXN0TWVzc2FnZVN1Z2dlc3Rpb25zUmVzcG9uc2USSQoLc3VnZ2VzdGlvbnMYASADKAsyJy'
+        '5kemVyb3RoLm1lc3NhZ2luZy52MS5NZXNzYWdlU3VnZ2VzdGlvblILc3VnZ2VzdGlvbnM=');
+
 const $core.Map<$core.String, $core.dynamic> MessagingServiceBase$json = {
   '1': 'MessagingService',
   '2': [
@@ -514,6 +610,12 @@ const $core.Map<$core.String, $core.dynamic> MessagingServiceBase$json = {
       '1': 'DeleteConversation',
       '2': '.dzeroth.messaging.v1.DeleteConversationRequest',
       '3': '.dzeroth.messaging.v1.DeleteConversationResponse'
+    },
+    {
+      '1': 'ListMessageSuggestions',
+      '2': '.dzeroth.messaging.v1.ListMessageSuggestionsRequest',
+      '3': '.dzeroth.messaging.v1.ListMessageSuggestionsResponse',
+      '4': {'34': 1},
     },
   ],
 };
@@ -551,6 +653,11 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
       DeleteConversationRequest$json,
   '.dzeroth.messaging.v1.DeleteConversationResponse':
       DeleteConversationResponse$json,
+  '.dzeroth.messaging.v1.ListMessageSuggestionsRequest':
+      ListMessageSuggestionsRequest$json,
+  '.dzeroth.messaging.v1.ListMessageSuggestionsResponse':
+      ListMessageSuggestionsResponse$json,
+  '.dzeroth.messaging.v1.MessageSuggestion': MessageSuggestion$json,
 };
 
 /// Descriptor for `MessagingService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -568,4 +675,6 @@ final $typed_data.Uint8List messagingServiceDescriptor = $convert.base64Decode(
     'emVyb3RoLm1lc3NhZ2luZy52MS5BY2NlcHRNZXNzYWdlUmVxdWVzdFJlc3BvbnNlEncKEkRlbG'
     'V0ZUNvbnZlcnNhdGlvbhIvLmR6ZXJvdGgubWVzc2FnaW5nLnYxLkRlbGV0ZUNvbnZlcnNhdGlv'
     'blJlcXVlc3QaMC5kemVyb3RoLm1lc3NhZ2luZy52MS5EZWxldGVDb252ZXJzYXRpb25SZXNwb2'
-    '5zZQ==');
+    '5zZRKIAQoWTGlzdE1lc3NhZ2VTdWdnZXN0aW9ucxIzLmR6ZXJvdGgubWVzc2FnaW5nLnYxLkxp'
+    'c3RNZXNzYWdlU3VnZ2VzdGlvbnNSZXF1ZXN0GjQuZHplcm90aC5tZXNzYWdpbmcudjEuTGlzdE'
+    '1lc3NhZ2VTdWdnZXN0aW9uc1Jlc3BvbnNlIgOQAgE=');

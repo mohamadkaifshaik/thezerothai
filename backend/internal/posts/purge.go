@@ -1,9 +1,10 @@
 // purge.go implements Eraser, PurgePlan and Exporter on FirestoreRepo: the
 // right-to-delete and right-to-access paths for `posts`.
 //
-// Q-E:  posts where authorId == uid ORDER BY createdAt DESC, __name__ DESC LIMIT 500. Descending, so it uses the
-// existing (authorId ASC, createdAt DESC) index (no firestore.indexes.json change). The Limit(500) is an ops path
-// (purge rule); the query-limit rule's maximum of 50 governs RPC pagination only.
+// Q-E:  posts where authorId == uid ORDER BY createdAt DESC, __name__ DESC LIMIT 500 (export) or LIMIT purgeOwnPage
+// (purge phase 0, which also selects replyToId and quoteOfId). Descending, so it uses the existing (authorId ASC,
+// createdAt DESC) index (no firestore.indexes.json change). The limits are an ops path (purge rule); the query-limit
+// rule's maximum of 50 governs RPC pagination only.
 package posts
 
 import (
@@ -43,9 +44,11 @@ func (r *FirestoreRepo) authorQuery(uid string) firestore.Query {
 		OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
 }
 
-// PurgeUser implements Eraser. One call deletes one page (the newest <= 500 remaining posts) in one atomic
-// batch. Deleted docs drop out of the next page, so the purge is self-resuming after a crash and the checkpoint
-// only carries the running count. There are no counter updates: the user doc is deleted anyway.
+// PurgeUser implements Eraser. Phase 0: one call deletes one page (the newest <= purgeOwnPage remaining posts)
+// in one atomic batch, together with the replyCount / quoteCount decrements those posts held on the posts they
+// replied to or quoted (purge_release.go). Each delete carries an Exists precondition and deleted docs drop out of
+// the next page, so the purge is self-resuming after a crash, a redelivery never decrements twice, and the
+// checkpoint only carries the running count. The user's own postsCount is not touched: the user doc is deleted anyway.
 func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	if cp.Phase >= 2 {
 		return r.purgeRemovals(ctx, uid, cp)
@@ -53,24 +56,21 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 	if cp.Phase >= 1 {
 		return r.purgeCopies(ctx, uid, cp)
 	}
-	docs, err := r.authorQuery(uid).Select().Limit(opsPage).Documents(ctx).GetAll()
+	docs, err := r.authorQuery(uid).Select(fieldReplyToID, fieldQuoteOfID).Limit(purgeOwnPage).Documents(ctx).GetAll()
 	if err != nil {
 		return cp, false, fmt.Errorf("posts: purge %s: query: %w", logger.HashUID(uid), err)
 	}
 	if len(docs) == 0 {
 		return Checkpoint{Deleted: cp.Deleted, Phase: 1}, false, nil
 	}
-	b := store.NewFirestoreBatch(r.client)
-	for _, d := range docs {
-		b.Delete(d.Ref)
+	deleted, released, err := r.purgeOwn(ctx, uid, docs)
+	if err != nil {
+		return cp, false, err
 	}
-	if err := b.Commit(ctx); err != nil {
-		return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
-	}
-	next := Checkpoint{Deleted: cp.Deleted + len(docs)}
-	slog.InfoContext(ctx, "posts_purge_batch", "uid_hash", logger.HashUID(uid), "posts", len(docs), "deleted_total", next.Deleted)
+	next := Checkpoint{Deleted: cp.Deleted + deleted}
+	slog.InfoContext(ctx, "posts_purge_batch", "uid_hash", logger.HashUID(uid), "posts", deleted, "counters_released", released, "deleted_total", next.Deleted)
 	// A short page was the last one (the account is DELETING, so nothing new arrives): continue with the copies.
-	if len(docs) < opsPage {
+	if len(docs) < purgeOwnPage {
 		next.Phase = 1
 	}
 	return next, false, nil

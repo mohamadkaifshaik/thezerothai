@@ -18,8 +18,14 @@ func (s *Server) followsOn(uid string) bool {
 
 // info renders a View as a ListInfo, with the follow fields when the caller has FEATURE_LIST_FOLLOWS.
 func (s *Server) info(uid string, v View) *listsv1.ListInfo {
+	return WireInfo(v, s.followsOn(uid))
+}
+
+// WireInfo renders a View as a ListInfo for any handler (this module's and search.SearchLists): follows fills the follow
+// fields and is the caller's FEATURE_LIST_FOLLOWS verdict for the viewer.
+func WireInfo(v View, follows bool) *listsv1.ListInfo {
 	out := toListInfo(v)
-	if s.followsOn(uid) {
+	if follows {
 		out.FollowerCount = int32(v.Header.FollowerCount) //nolint:gosec // bounded by the follower cap in practice
 		out.FollowedByViewer = v.FollowedByViewer
 	}

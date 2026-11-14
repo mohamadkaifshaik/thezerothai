@@ -74,3 +74,8 @@ func (s *Server) AcceptMessageRequest(ctx context.Context, req *connect.Request[
 func (s *Server) DeleteConversation(ctx context.Context, req *connect.Request[messagingv1.DeleteConversationRequest]) (*connect.Response[messagingv1.DeleteConversationResponse], error) {
 	return call(ctx, req, s.svc.Delete)
 }
+
+// ListMessageSuggestions implements the RPC; the rules are Service.ListSuggestions.
+func (s *Server) ListMessageSuggestions(ctx context.Context, req *connect.Request[messagingv1.ListMessageSuggestionsRequest]) (*connect.Response[messagingv1.ListMessageSuggestionsResponse], error) {
+	return call(ctx, req, s.svc.ListSuggestions)
+}

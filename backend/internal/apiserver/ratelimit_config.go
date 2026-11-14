@@ -95,6 +95,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// default. SearchPeople alone also has a daily cap (limit_name "search_people_daily", SEARCH_PEOPLE_CALLS_PER_DAY).
 	rlSearchPeople := ratelimit.NewLimiter(cfg.RateLimit.SearchPeoplePerUserPerMinute, idleBucketTTL)
 	rlSearchPosts := ratelimit.NewLimiter(cfg.RateLimit.SearchPostsPerUserPerMinute, idleBucketTTL)
+	// SearchLists and SearchCommunities share one bucket (RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN, 20/min); no daily cap.
+	rlSearchDirectory := ratelimit.NewLimiter(cfg.RateLimit.SearchDirectoryPerUserPerMinute, idleBucketTTL)
 	searchPeopleDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SearchPeopleCallsPerDay)
 	// ListFollowers and ListFollowing share ONE daily cap (limit_name "follow_list_daily", FOLLOW_LIST_CALLS_PER_DAY); the
 	// blocked, muted and follow-request lists are only held by the graph list bucket.
@@ -123,6 +125,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// (Messaging.NewAccountSendsPerDay) is applied by the send service, because a DailyCap holds one number per procedure.
 	rlMessagesSend := ratelimit.NewLimiter(cfg.RateLimit.MessagesSendPerUserPerMinute, idleBucketTTL)
 	rlMessagesRead := ratelimit.NewLimiter(cfg.RateLimit.MessagesReadPerUserPerMinute, idleBucketTTL)
+	// ListMessageSuggestions (F30) has its own bucket (RATE_LIMIT_DM_SUGGESTIONS_PER_MIN, 10/min); no daily cap (a read).
+	rlDMSuggestions := ratelimit.NewLimiter(cfg.RateLimit.DMSuggestionsPerUserPerMinute, idleBucketTTL)
 	messagesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesSendsPerDay)
 	messagesMarkReadDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMarkReadPerDay)
 	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
@@ -213,9 +217,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceListSuggestedUsersProcedure:               rlSuggestions,
 			searchv1connect.SearchServiceSearchPeopleProcedure:                   rlSearchPeople,
 			searchv1connect.SearchServiceSearchPostsProcedure:                    rlSearchPosts,
+			searchv1connect.SearchServiceSearchListsProcedure:                    rlSearchDirectory,
+			searchv1connect.SearchServiceSearchCommunitiesProcedure:              rlSearchDirectory,
 			messagingv1connect.MessagingServiceSendMessageProcedure:              rlMessagesSend,
 			messagingv1connect.MessagingServiceListConversationsProcedure:        rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessagesProcedure:             rlMessagesRead,
+			messagingv1connect.MessagingServiceListMessageSuggestionsProcedure:   rlDMSuggestions,
 			notificationsv1connect.NotificationServiceListNotificationsProcedure: rlNotificationsList,
 			listsv1connect.ListServiceCreateListProcedure:                        rlListsWrite,
 			listsv1connect.ListServiceUpdateListProcedure:                        rlListsWrite,
