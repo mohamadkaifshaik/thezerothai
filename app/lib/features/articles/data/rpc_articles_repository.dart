@@ -77,6 +77,7 @@ class RpcArticlesRepository implements ArticlesRepository {
       publicationCaption: record.publicationCaption,
       publicationReplyPolicy: record.publicationReplyPolicy,
       excerpt: record.excerpt,
+      images: record.images,
     );
   }
 
@@ -223,6 +224,7 @@ class RpcArticlesRepository implements ArticlesRepository {
       publicationCaption: article.publicationCaption,
       publicationReplyPolicy: article.publicationReplyPolicy,
       excerpt: article.excerpt,
+      images: {for (final ref in article.images) ref.mediaId: ref},
     );
   }
 }
