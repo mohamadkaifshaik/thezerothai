@@ -3,6 +3,7 @@ package notifications
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -300,7 +301,7 @@ func TestList_HidesSuppressedActorsAtReadTime(t *testing.T) {
 	social := &fakeSocial{snaps: map[string]graphSnap{"me": {
 		Blocked: map[string]bool{"blocked": true}, Muted: map[string]bool{"muted": true}, BlockedBy: map[string]bool{"blockedby": true},
 	}}}
-	svc := newServiceWithSocial(repo, newDirectory("me"), &fakeSeen{}, func() time.Time { return t0.Add(time.Hour) }, social)
+	svc := newServiceWithSocial(repo, newOpenDirectory(), &fakeSeen{}, func() time.Time { return t0.Add(time.Hour) }, social)
 	res, err := svc.List(context.Background(), "me", ListInput{PageSize: 5})
 	mustNoErr(t, err)
 	if got := strings.Join(idsOf(res.Notifications), ","); got != "d,e" {
@@ -337,7 +338,7 @@ func TestList_AllFilteredStillPages(t *testing.T) {
 	}
 	repo.rows["me"]["old"] = Notification{ID: "old", Type: TypeFollow, Actor: Actor{UserID: "friend"}, ActorIDs: []string{"friend"}, CreatedAt: t0.Add(-time.Hour)}
 	social := &fakeSocial{snaps: map[string]graphSnap{"me": {Blocked: map[string]bool{"blocked": true}}}}
-	svc := newServiceWithSocial(repo, newDirectory("me"), &fakeSeen{}, func() time.Time { return t0.Add(time.Hour) }, social)
+	svc := newServiceWithSocial(repo, newOpenDirectory(), &fakeSeen{}, func() time.Time { return t0.Add(time.Hour) }, social)
 	p1, err := svc.List(context.Background(), "me", ListInput{PageSize: 3})
 	mustNoErr(t, err)
 	if len(p1.Notifications) != 0 || p1.NextPageToken == "" {
@@ -365,23 +366,43 @@ func TestList_GraphErrorFailsClosed(t *testing.T) {
 	}
 }
 
-func TestList_ProfileErrorIsLoggedNotFatal(t *testing.T) {
-	repo := newFakeRepo()
-	seedRows(repo, "me", 1, t0)
-	dir := newDirectory("me")
-	dir.err = errBoom
-	var buf bytes.Buffer
-	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	defer slog.SetDefault(old)
-	svc := newService(repo, dir, &fakeSeen{}, nil)
-	res, err := svc.List(context.Background(), "me", ListInput{})
-	mustNoErr(t, err)
-	if len(res.Notifications) != 1 || !res.SeenAt.IsZero() {
-		t.Errorf("res = %+v", res)
+// A failed Directory lookup fails a page that has rows to judge (an actor's status is never assumed), and on an empty
+// page only loses seen_at, logged.
+func TestList_ProfileError(t *testing.T) {
+	tests := []struct {
+		name     string
+		rows     int
+		wantFail bool
+	}{
+		{"rows to judge fail the page", 1, true},
+		{"an empty page degrades to no seen_at", 0, false},
 	}
-	if !strings.Contains(buf.String(), "notifications_list_seen_at_unavailable") {
-		t.Errorf("the GetProfiles error was not logged: %q", buf.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			seedRows(repo, "me", tt.rows, t0)
+			dir := newDirectory("me")
+			dir.err = errBoom
+			var buf bytes.Buffer
+			old := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+			defer slog.SetDefault(old)
+			svc := newService(repo, dir, &fakeSeen{}, nil)
+			res, err := svc.List(context.Background(), "me", ListInput{})
+			if tt.wantFail {
+				if err == nil || !errors.Is(err, errBoom) {
+					t.Fatalf("List = %v, %v; want the lookup error", idsOf(res.Notifications), err)
+				}
+				return
+			}
+			mustNoErr(t, err)
+			if len(res.Notifications) != 0 || !res.SeenAt.IsZero() {
+				t.Errorf("res = %+v", res)
+			}
+			if !strings.Contains(buf.String(), "notifications_list_seen_at_unavailable") {
+				t.Errorf("the GetProfiles error was not logged: %q", buf.String())
+			}
+		})
 	}
 }
 

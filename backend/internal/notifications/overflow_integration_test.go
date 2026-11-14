@@ -67,7 +67,7 @@ func TestIntegration_ListHidesOmittedBlockerAfterBlockedByOverflow(t *testing.T)
 
 	// A fresh graph service (a fresh 60 s cache, as after a refresh) serves both seams, as apiserver wires it.
 	graphSvc := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute)})
-	svc := NewService(Deps{Repo: notifRepo, Directory: newDirectory(b), Social: graphSvc, Blocks: graphSvc, Seen: &fakeSeen{},
+	svc := NewService(Deps{Repo: notifRepo, Directory: newDirectory(b, c), Social: graphSvc, Blocks: graphSvc, Seen: &fakeSeen{},
 		CursorKey: testKey, Now: func() time.Time { return t0.Add(2 * time.Hour) }})
 	list, err := svc.List(ctx, b, ListInput{PageSize: 10})
 	mustNoErr(t, err)
