@@ -55,7 +55,9 @@ func (s *Server) SearchPeople(ctx context.Context, req *connect.Request[searchv1
 // SearchPosts implements the RPC; the rules are Service.Posts.
 func (s *Server) SearchPosts(ctx context.Context, req *connect.Request[searchv1.SearchPostsRequest]) (*connect.Response[searchv1.SearchPostsResponse], error) {
 	return call(ctx, req, func(ctx context.Context, uid string, m *searchv1.SearchPostsRequest) (*searchv1.SearchPostsResponse, error) {
-		return s.svc.Posts(ctx, uid, m.GetQuery(), m.GetTab(), m.GetPageSize(), m.GetPageToken())
+		return s.svc.PostsWith(ctx, uid, PostsRequest{
+			Query: m.GetQuery(), Tab: m.GetTab(), PageSize: m.GetPageSize(), PageToken: m.GetPageToken(), FromFollowing: m.GetFromFollowing(),
+		})
 	})
 }
 
