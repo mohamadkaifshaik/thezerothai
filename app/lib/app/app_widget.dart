@@ -101,7 +101,7 @@ class AppWidget extends StatefulWidget {
     this.imagePicker,
     this.imageProcessor,
     this.gifSource,
-    this.gifPreparer = const IsolateGifPreparer(),
+    this.gifPreparer,
     required this.notificationsRepository,
     required this.messagingRepository,
     required this.moderationRepository,
@@ -228,7 +228,7 @@ class AppWidget extends StatefulWidget {
   /// Where the composer's GIF comes from; defaults to the device
   /// gallery. [gifPreparer] checks it and makes its still thumbnail.
   final GifSource? gifSource;
-  final GifPreparer gifPreparer;
+  final GifPreparer? gifPreparer;
 
   @override
   State<AppWidget> createState() => _AppWidgetState();
@@ -349,6 +349,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   late final ImageProcessor _imageProcessor =
       widget.imageProcessor ?? createPlatformImageProcessor();
   late final GifSource _gifSource = widget.gifSource ?? DeviceGifSource();
+  late final GifPreparer _gifPreparer =
+      widget.gifPreparer ?? createPlatformGifPreparer();
   // Recent searches: this device only, wiped on sign-out.
   late final RecentSearchesStore _recentSearches = DatabaseRecentSearchesStore(
     widget.database,
@@ -650,7 +652,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         RepositoryProvider<OwnPrivacyStore>.value(value: _ownPrivacy),
         RepositoryProvider<ImageProcessor>.value(value: _imageProcessor),
         RepositoryProvider<GifSource>.value(value: _gifSource),
-        RepositoryProvider<GifPreparer>.value(value: widget.gifPreparer),
+        RepositoryProvider<GifPreparer>.value(value: _gifPreparer),
         RepositoryProvider.value(value: widget.notificationsRepository),
         RepositoryProvider.value(value: widget.messagingRepository),
         RepositoryProvider.value(value: widget.moderationRepository),
