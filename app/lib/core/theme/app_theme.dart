@@ -163,7 +163,15 @@ abstract final class AppSize {
   static const double sideColumn = 350;
 
   /// Width of the avatar drawer (capped at 85 % of the screen).
-  static const double drawerWidth = 277;
+  static const double drawerWidth = 320;
+
+  /// The drawer header avatar, a tile's icon, and the decorative corner glow.
+  static const double drawerAvatar = 64;
+
+  /// Minimum height of a quick tile of the drawer grid.
+  static const double drawerTile = 96;
+  static const double drawerTileIcon = 32;
+  static const double drawerGlow = 200;
 
   /// Avatars.
   static const double avatarSm = 32;
@@ -1057,6 +1065,20 @@ abstract final class AppPalette {
 
   /// Text field fill on dark: dz.css `rgba(250,250,250,.06)` (pearl at 6 %).
   static const Color fieldFillDark = Color(0x0FFAFAFA);
+
+  // The avatar drawer (Quick Access Navigation Drawer): alternating tinted
+  // tiles, the divider and the aqua corner glow. Decorative; labels and icons
+  // keep the theme's text and primary colours (AA on every tint).
+  static const Color drawerTileBlue = Color(0xFFE2EFFB);
+  static const Color drawerTileTeal = Color(0xFFDCF4EF);
+  static const Color drawerTileBlueDark = Color(0xFF172C48);
+  static const Color drawerTileTealDark = Color(0xFF123A3C);
+  static const Color drawerDividerLight = Color(0xFFCADFEF);
+  static const Color drawerDividerDark = Color(0xFF2A3D5A);
+  static const Color drawerGlowAqua = Color(0xFFD3F0F8);
+  static const Color drawerGlowMint = Color(0xFFBDEBE3);
+  static const Color drawerGlowAquaDark = Color(0xFF1A4458);
+  static const Color drawerGlowMintDark = Color(0xFF14544F);
 }
 
 /// Redesign gradients. Declared only here.
@@ -1109,6 +1131,27 @@ abstract final class AppGradients {
   );
 }
 
+/// The decorative corner glow of the avatar drawer header: a large aqua
+/// disc and a smaller mint one over it, faded to transparent at the edge.
+abstract final class AppDrawerGlow {
+  static const RadialGradient aquaLight = RadialGradient(
+    colors: [AppPalette.drawerGlowAqua, Color(0x00D3F0F8)],
+    stops: [0.6, 1],
+  );
+  static const RadialGradient mintLight = RadialGradient(
+    colors: [AppPalette.drawerGlowMint, Color(0x00BDEBE3)],
+    stops: [0.6, 1],
+  );
+  static const RadialGradient aquaDark = RadialGradient(
+    colors: [AppPalette.drawerGlowAquaDark, Color(0x001A4458)],
+    stops: [0.6, 1],
+  );
+  static const RadialGradient mintDark = RadialGradient(
+    colors: [AppPalette.drawerGlowMintDark, Color(0x0014544F)],
+    stops: [0.6, 1],
+  );
+}
+
 /// Redesign shadows (outer parts only; Flutter has no inset shadow).
 abstract final class AppShadows {
   static const List<BoxShadow> card = [
@@ -1143,6 +1186,7 @@ class AppMotion {
   static const Duration expoOutShort = Duration(milliseconds: 300);
   static const Duration expoOutLong = Duration(milliseconds: 450);
   static const Duration backOutDuration = Duration(milliseconds: 350);
+
   /// A page push: a short fade and a slight slide, ease-out (see
   /// `AppPageTransitionsBuilder`). Not used under reduced motion.
   static const Duration pageTransition = Duration(milliseconds: 240);
@@ -1609,6 +1653,17 @@ abstract final class AppStudioLayout {
   static const double actionWidthPhone = 240;
   static const double actionGap = 12;
   static const double phoneGap = 18;
+}
+
+/// The optional "Add a profile photo" step after sign-up (CreateProfile
+/// mock's 84 dp dashed circle). Colours come from the theme.
+abstract final class AppPhotoStepLayout {
+  static const double circle = 84;
+  static const double border = 1.5;
+  static const double dash = 6;
+  static const double dashGap = 4;
+  static const double fillAlpha = 0.08;
+  static const double cameraIcon = 26;
 }
 
 /// Article editor geometry (dzeroth-mobile, tablet and desktop Article

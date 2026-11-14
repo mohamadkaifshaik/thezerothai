@@ -38,6 +38,7 @@ class ChangeHandleState {
     this.error,
     this.saved,
     this.cooldownUntil,
+    this.suggestions = const [],
   });
 
   /// What the user typed, trimmed and lowercased.
@@ -61,6 +62,10 @@ class ChangeHandleState {
   /// after it passed.
   final DateTime? cooldownUntil;
 
+  /// Free handles near a taken [handle] (SuggestHandles); empty unless the
+  /// answer was TAKEN and the `handle_suggestions` flag is on.
+  final List<String> suggestions;
+
   bool get isSaving => status == ChangeHandleStatus.saving;
 
   /// `unknown` = the availability probe was rate limited: ChangeHandle
@@ -82,6 +87,7 @@ class ChangeHandleState {
     identity.Profile? saved,
     DateTime? cooldownUntil,
     bool clearCooldown = false,
+    List<String>? suggestions,
   }) => ChangeHandleState(
     handle: handle ?? this.handle,
     checkStatus: checkStatus ?? this.checkStatus,
@@ -90,6 +96,7 @@ class ChangeHandleState {
     error: clearError ? null : (error ?? this.error),
     saved: saved ?? this.saved,
     cooldownUntil: clearCooldown ? null : (cooldownUntil ?? this.cooldownUntil),
+    suggestions: suggestions ?? this.suggestions,
   );
 }
 
@@ -107,6 +114,7 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
     Duration debounce = kHandleCheckDebounce,
     DateTime Function()? clock,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
+    this.suggestionsEnabled = false,
   }) : _repository = identityRepository,
        _current = currentHandle.toLowerCase(),
        _uuid = uuid ?? const Uuid(),
@@ -114,6 +122,10 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
        _clock = clock ?? DateTime.now,
        _onUnexpectedError = onUnexpectedError,
        super(const ChangeHandleState());
+
+  /// `handle_suggestions` is in `enabled_features`: only then is
+  /// SuggestHandles ever called from this screen.
+  final bool suggestionsEnabled;
 
   final IdentityRepository _repository;
   final String _current;
@@ -192,6 +204,9 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
       final response = await _repository.checkHandleAvailability(handle);
       if (isClosed || state.handle != handle) return;
       _emitCheck(handleCheckFromAnswer(response));
+      if (suggestionsEnabled && isHandleTakenAnswer(response)) {
+        await _suggest(handle);
+      }
     } on AppException catch (e, stack) {
       final check = handleCheckFromError(e);
       if (e is RateLimitedException) {
@@ -215,6 +230,12 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
         ),
       );
     }
+  }
+
+  Future<void> _suggest(String handle) async {
+    final handles = await _repository.suggestHandles(handle);
+    if (isClosed || state.handle != handle || handles.isEmpty) return;
+    emit(state.copyWith(suggestions: handles));
   }
 
   void _emitCheck(HandleCheck check) {
@@ -246,6 +267,7 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
           checkMessage: kHandleTakenMessage,
         ),
       );
+      if (suggestionsEnabled) await _suggest(handle);
     } on AppException catch (e, stack) {
       if (e is UnknownApiException) _onUnexpectedError?.call(e, stack);
       if (isClosed) return;

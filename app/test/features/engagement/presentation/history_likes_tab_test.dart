@@ -11,7 +11,15 @@ import 'package:dzeroth/core/storage/session_epoch.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
+import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/features/auth/domain/app_user.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/engagement/data/likes_repository.dart';
+import 'package:dzeroth/features/engagement/data/post_history_repository.dart';
+import 'package:dzeroth/features/engagement/presentation/opened_posts_tab.dart';
+import 'package:drift/native.dart';
 import 'package:dzeroth/features/engagement/domain/likes_list_feature_flag.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/bookmarks_cubit.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.dart';
@@ -50,6 +58,9 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
+class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
+    implements AuthBloc {}
+
 const _allFlags = {'posts', 'engagement', 'replies', 'bookmarks', 'likes_list'};
 const _flagOff = {'posts', 'engagement', 'replies', 'bookmarks'};
 
@@ -68,6 +79,9 @@ void main() {
   late EngagementCubit engagement;
   late _MockOnboardingBloc onboarding;
   late _MockPostsRepository posts;
+  late AppDatabase historyDb;
+  late PostHistoryRepository history;
+  late _MockAuthBloc auth;
   late GoRouter router;
   late Set<String> features;
   late StreamController<OnboardingState> onboardingStates;
@@ -97,6 +111,16 @@ void main() {
     onboardingStates = StreamController<OnboardingState>.broadcast();
     posts = _MockPostsRepository();
     when(() => posts.subFeatureEnabled(any())).thenReturn(true);
+    historyDb = AppDatabase.forTesting(NativeDatabase.memory());
+    history = PostHistoryRepository(historyDb);
+    auth = _MockAuthBloc();
+    whenListen(
+      auth,
+      const Stream<AuthState>.empty(),
+      initialState: const AuthState(
+        user: AppUser(uid: 'me', emailVerified: true, isPasswordProvider: true),
+      ),
+    );
   });
 
   // Not awaited: when a test fails the fake-async zone is not pumped again,
@@ -107,6 +131,7 @@ void main() {
     unawaited(overlay.close());
     unawaited(bookmarksRepo.dispose());
     unawaited(likesRepo.dispose());
+    unawaited(historyDb.close());
   });
 
   /// Opens [location] over a "came from" page, on the real route shape: the
@@ -169,6 +194,7 @@ void main() {
           RepositoryProvider<BookmarksRepository>.value(value: bookmarksRepo),
           RepositoryProvider<LikesRepository>.value(value: likesRepo),
           RepositoryProvider<PostsRepository>.value(value: posts),
+          RepositoryProvider<PostHistoryRepository>.value(value: history),
           RepositoryProvider<UnexpectedErrorReporter>.value(
             value: (error, stack) {},
           ),
@@ -176,6 +202,7 @@ void main() {
         child: MultiBlocProvider(
           providers: [
             BlocProvider<OnboardingBloc>.value(value: onboarding),
+            BlocProvider<AuthBloc>.value(value: auth),
             BlocProvider<EngagementCubit>.value(value: engagement),
             BlocProvider<BookmarksCubit>.value(value: overlay),
           ],
@@ -1005,5 +1032,61 @@ void main() {
       textScales: kMatrixTextScalesLarge,
       height: 900,
     );
+  });
+
+  group('the History tab (bookmark_history)', () {
+    const historyFlags = {
+      'posts',
+      'engagement',
+      'bookmarks',
+      'bookmark_history',
+    };
+    const allTabs = {...historyFlags, 'likes_list'};
+
+    testWidgets('flag off: no History tab in the bar', (tester) async {
+      await open(tester, flags: _flagOff);
+      expect(find.text('History'), findsNothing);
+      expect(find.text(kOpenedPostsEmptyTitle), findsNothing);
+    });
+
+    testWidgets('history only: the bar reads Bookmarks | History', (
+      tester,
+    ) async {
+      await open(tester, flags: historyFlags);
+      expect(find.text('Bookmarks'), findsWidgets);
+      expect(find.text('History'), findsOneWidget);
+      expect(find.text('Likes'), findsNothing);
+      await tester.tap(find.text('History'));
+      await tester.pumpAndSettle();
+      expect(find.text(kOpenedPostsEmptyTitle), findsOneWidget);
+    });
+
+    testWidgets('history and likes: Bookmarks | History | Likes, and Likes '
+        'still opens', (tester) async {
+      await open(tester, flags: allTabs);
+      expect(find.text('History'), findsOneWidget);
+      expect(find.text('Likes'), findsOneWidget);
+      await tester.tap(find.text('Likes'));
+      await tester.pumpAndSettle();
+      expect(find.text(kOpenedPostsEmptyTitle), findsNothing);
+      expect(find.text(kLikesEmptyTitle), findsOneWidget);
+    });
+
+    testWidgets('?tab=history opens the History tab', (tester) async {
+      await open(
+        tester,
+        flags: historyFlags,
+        location: '/bookmarks?tab=history',
+      );
+      expect(find.text(kOpenedPostsEmptyTitle), findsOneWidget);
+    });
+
+    testWidgets('?tab=history with the flag off falls back to Bookmarks', (
+      tester,
+    ) async {
+      await open(tester, flags: _flagOff, location: '/bookmarks?tab=history');
+      expect(find.text(kOpenedPostsEmptyTitle), findsNothing);
+      expect(find.text('History'), findsNothing);
+    });
   });
 }

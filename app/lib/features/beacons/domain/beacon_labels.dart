@@ -38,6 +38,18 @@ String beaconWhenText(pb.Beacon b) =>
 /// plan section 3, R-inline). The proto only takes a named place.
 const kMeetingPointNote = 'A named place, never coordinates.';
 
+/// "Riya and 2 others are going": the first of [names] and the rest of
+/// [total] ([names] is only the first page). With no names, "N are going".
+String goingSentence(List<String> names, int total) {
+  final count = total < names.length ? names.length : total;
+  if (names.isEmpty) return count == 1 ? '1 is going' : '$count are going';
+  final others = count - 1;
+  if (others <= 0) return '${names.first} is going';
+  return others == 1
+      ? '${names.first} and 1 other are going'
+      : '${names.first} and $others others are going';
+}
+
 /// `2 of 3 seats taken`.
 String beaconSeatsText(pb.Beacon b) =>
     '${b.acceptedCount} of ${b.openSpots} seats taken';

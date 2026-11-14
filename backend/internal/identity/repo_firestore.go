@@ -249,7 +249,7 @@ func (r *FirestoreRepo) ResolveHandle(ctx context.Context, handleLower string) (
 	return d.UID, nil
 }
 
-// ResolveHandles: one GetAll on handles/{lower} for every id in handleLowers (the service caps it at
+// ResolveHandles: one GetAll on handles/{lower} for every id in handleLowers (the service caps it at 12, SuggestHandles, or
 // MaxResolveHandles). Handles with no
 // document are absent from the result (not an error).
 func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error) {
