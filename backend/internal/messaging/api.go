@@ -48,6 +48,8 @@ type Service interface {
 	MarkRead(ctx context.Context, uid string, req *messagingv1.MarkConversationReadRequest) (*messagingv1.MarkConversationReadResponse, error)
 	Accept(ctx context.Context, uid string, req *messagingv1.AcceptMessageRequestRequest) (*messagingv1.AcceptMessageRequestResponse, error)
 	Delete(ctx context.Context, uid string, req *messagingv1.DeleteConversationRequest) (*messagingv1.DeleteConversationResponse, error)
+	// ListSuggestions answers ListMessageSuggestions (F30): messaging and dm_suggestions on for the caller; nothing stored.
+	ListSuggestions(ctx context.Context, uid string, req *messagingv1.ListMessageSuggestionsRequest) (*messagingv1.ListMessageSuggestionsResponse, error)
 }
 
 // Eraser is messaging's step in the account-deletion cascade (the `messaging` step between follow_requests and identity).

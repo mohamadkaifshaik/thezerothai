@@ -108,8 +108,10 @@ type Removal struct {
 
 // Community is one communities/{cid} document as the module sees it. Slices are copies the caller may keep.
 type Community struct {
-	ID                  string
-	Name                string
+	ID   string
+	Name string
+	// NameLower is the stored search key (namekey.Fold(Name)); "" until the backfill on a community written before the field.
+	NameLower           string
 	Description         string
 	Rules               []Rule
 	OwnerID             string // "" only when ARCHIVED (or SUSPENDED) with no successor (F12)
@@ -219,6 +221,9 @@ type Service interface {
 	ListCommunities(ctx context.Context, uid, pageToken string) ([]View, error)
 	// ListCommunityMembers is one member page (BANNED for the owner and moderators only).
 	ListCommunityMembers(ctx context.Context, uid string, in MembersInput) (MembersPage, error)
+	// SearchCommunities is ACTIVE communities whose folded name starts with prefix (F21, search.SearchCommunities), in
+	// folded-name order, with the caller's role per row; prefix is already folded (namekey.Query). See search.go.
+	SearchCommunities(ctx context.Context, uid, prefix string, pageSize int32, pageToken string) (SearchPage, error)
 	// SearchCommunityMembers finds members (JOINED) or, for the owner and moderators, banned users of one community by
 	// handle prefix: at most limit rows (1..20), handle order, no page token (F36, FEATURE_COMMUNITY_MEMBER_SEARCH).
 	SearchCommunityMembers(ctx context.Context, uid string, in SearchInput) ([]MemberItem, error)
@@ -358,4 +363,7 @@ type Repo interface {
 	// MembersByUID reads the member docs of uids in communityID with one GetAll (at most maxMembersByUID uids). A uid
 	// without a JOINED or BANNED doc is absent from the map.
 	MembersByUID(ctx context.Context, communityID string, uids []string) (map[string]MemberEntry, error)
+	// SearchByName reads ACTIVE communities whose nameLower starts with prefix, nameLower then id ascending, strictly after
+	// the anchor when set, at most limit (clamped to 1..SearchPageMax).
+	SearchByName(ctx context.Context, prefix string, after *NameAnchor, limit int) ([]Community, error)
 }

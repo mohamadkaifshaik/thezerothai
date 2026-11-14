@@ -60,6 +60,7 @@ class SearchQuery {
     this.peopleQuery,
     this.tagBody,
     this.peopleTooShort = false,
+    this.directoryQuery,
   });
 
   /// Shortest handle prefix (1-character prefixes are refused: enumeration
@@ -91,6 +92,15 @@ class SearchQuery {
   /// has no people at all). The People tab shows the "too short" hint while
   /// the post tabs may still search tag `a`.
   final bool peopleTooShort;
+
+  /// The query as SearchLists and SearchCommunities take it: the normalised
+  /// text with its sigil kept (the server strips none), 1 to
+  /// [maxDirectoryCodePoints] code points, no control or bidi character; null
+  /// when those tabs cannot search it.
+  final String? directoryQuery;
+
+  /// Longest list or community name prefix.
+  static const maxDirectoryCodePoints = 30;
 
   bool get isValid => issue == SearchQueryIssue.none;
   bool get canSearchPeople => peopleQuery != null;
@@ -133,8 +143,20 @@ class SearchQuery {
         : SearchQueryKind.word;
     final body = kind == SearchQueryKind.word ? text : text.substring(1);
 
-    SearchQuery fail(SearchQueryIssue issue) =>
-        SearchQuery._(kind: kind, body: body, issue: issue);
+    final directoryLength = text.runes.length;
+    final directory =
+        text.isNotEmpty &&
+            directoryLength <= maxDirectoryCodePoints &&
+            !text.runes.any(_isForbidden)
+        ? text
+        : null;
+
+    SearchQuery fail(SearchQueryIssue issue) => SearchQuery._(
+      kind: kind,
+      body: body,
+      issue: issue,
+      directoryQuery: directory,
+    );
 
     if (text.runes.any(_isForbidden)) return fail(SearchQueryIssue.invalid);
     if (body.isEmpty) return fail(SearchQueryIssue.empty);
@@ -161,6 +183,7 @@ class SearchQuery {
             ? SearchQueryIssue.tooShort
             : SearchQueryIssue.unsupported,
         peopleTooShort: tooShortForPeople,
+        directoryQuery: directory,
       );
     }
     return SearchQuery._(
@@ -170,6 +193,7 @@ class SearchQuery {
       peopleQuery: people,
       tagBody: tag,
       peopleTooShort: tooShortForPeople,
+      directoryQuery: directory,
     );
   }
 

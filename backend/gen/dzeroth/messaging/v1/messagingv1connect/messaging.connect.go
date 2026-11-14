@@ -27,6 +27,9 @@
 //     user dropped from an allowlist can still read and clean up (ReportContent of a MESSAGE target likewise).
 //   - Globally off: every RPC is FEATURE_DISABLED before any lookup; clients hide the destination, its routes and the
 //     profile Message button. Clients learn the flag from IdentityService.GetMe enabled_features.
+//   - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
+//     off) on for the caller, checked in that order, else FEATURE_DISABLED with metadata["feature"] = the off flag, before
+//     any lookup.
 //
 // Errors (clients branch on ErrorDetail.reason):
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in text | conversation_id | recipient_user_id | page_token |
@@ -114,6 +117,9 @@ const (
 	// MessagingServiceDeleteConversationProcedure is the fully-qualified name of the MessagingService's
 	// DeleteConversation RPC.
 	MessagingServiceDeleteConversationProcedure = "/dzeroth.messaging.v1.MessagingService/DeleteConversation"
+	// MessagingServiceListMessageSuggestionsProcedure is the fully-qualified name of the
+	// MessagingService's ListMessageSuggestions RPC.
+	MessagingServiceListMessageSuggestionsProcedure = "/dzeroth.messaging.v1.MessagingService/ListMessageSuggestions"
 )
 
 // MessagingServiceClient is a client for the dzeroth.messaging.v1.MessagingService service.
@@ -232,6 +238,29 @@ type MessagingServiceClient interface {
 	// Flag: not globally off. Refused under DEGRADED_MODE=readonly.
 	// Sets clearedAt on the conversation and deletes the caller's entry.
 	DeleteConversation(context.Context, *connect.Request[v1.DeleteConversationRequest]) (*connect.Response[v1.DeleteConversationResponse], error)
+	// People the caller is likely to message (F30), for the new-message screen. Computed on every call; nothing is stored.
+	// Sources, in this order (a person appears once, with the first reason that found them):
+	//  1. RECENT_CONVERSATION: the peers of the caller's newest 8 INBOX entries.
+	//  2. MET_ON_PLAN: the organiser and ACCEPTED participants of the caller's 2 most recent ended plans (FEATURE_BEACONS on
+	//     for the caller; the caller was the organiser or ACCEPTED; not hidden; ended within the last 30 days, the
+	//     beacons TTL), at most 4 rows read per plan. plan_activity is that plan's activity.
+	//  3. MUTUAL_FOLLOW: among the caller's 10 newest followees, those who follow the caller back.
+	//  4. COMMUNITY_MEMBER: the 6 newest JOINED members of the community the caller joined most recently (FEATURE_COMMUNITIES
+	//     on for the caller; an ACTIVE community). community_id and community_name name it.
+	//
+	// Every row is someone SendMessage would not refuse with CANNOT_MESSAGE at the time of the call, by the same rules:
+	// never the caller; not ACTIVE, messaging off for them, either side blocks the other (the caller's 60 s graph snapshot),
+	// or their "who can message me" policy is FOLLOWING_ONLY (with FEATURE_DM_POLICY on for them) and they do not follow
+	// the caller (an existing ACCEPTED conversation is exempt, as on send) => left out. Accounts the caller mutes are left
+	// out too. A caller past the blockedBy cap gets an empty list (fail closed). The reason chip is computed, never stored.
+	// limit 0 => 10, max 20 (clamped); negative => VALIDATION "limit". No pagination, by design (the ListSuggestedUsers
+	// precedent): one bounded call, no page token.
+	// Flags: "messaging" and "dm_suggestions" on for the caller (file comment). Rate limit: RATE_LIMIT_DM_SUGGESTIONS_PER_MIN
+	// 10/min/uid per instance; no daily cap. Answers under DEGRADED_MODE=readonly.
+	// Cost: at most 8 + 2 + 2 + 8 + 1 + 6 = 27 documents from the sources (inbox entries, plan memberships, plans,
+	// participant rows, community memberships, community members; the community doc is cached 60 s), then cache-first
+	// profile and follow-edge reads for at most 20 candidates (60 s caches). Writes nothing.
+	ListMessageSuggestions(context.Context, *connect.Request[v1.ListMessageSuggestionsRequest]) (*connect.Response[v1.ListMessageSuggestionsResponse], error)
 }
 
 // NewMessagingServiceClient constructs a client for the dzeroth.messaging.v1.MessagingService
@@ -283,17 +312,25 @@ func NewMessagingServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(messagingServiceMethods.ByName("DeleteConversation")),
 			connect.WithClientOptions(opts...),
 		),
+		listMessageSuggestions: connect.NewClient[v1.ListMessageSuggestionsRequest, v1.ListMessageSuggestionsResponse](
+			httpClient,
+			baseURL+MessagingServiceListMessageSuggestionsProcedure,
+			connect.WithSchema(messagingServiceMethods.ByName("ListMessageSuggestions")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // messagingServiceClient implements MessagingServiceClient.
 type messagingServiceClient struct {
-	sendMessage          *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
-	listConversations    *connect.Client[v1.ListConversationsRequest, v1.ListConversationsResponse]
-	listMessages         *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
-	markConversationRead *connect.Client[v1.MarkConversationReadRequest, v1.MarkConversationReadResponse]
-	acceptMessageRequest *connect.Client[v1.AcceptMessageRequestRequest, v1.AcceptMessageRequestResponse]
-	deleteConversation   *connect.Client[v1.DeleteConversationRequest, v1.DeleteConversationResponse]
+	sendMessage            *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	listConversations      *connect.Client[v1.ListConversationsRequest, v1.ListConversationsResponse]
+	listMessages           *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
+	markConversationRead   *connect.Client[v1.MarkConversationReadRequest, v1.MarkConversationReadResponse]
+	acceptMessageRequest   *connect.Client[v1.AcceptMessageRequestRequest, v1.AcceptMessageRequestResponse]
+	deleteConversation     *connect.Client[v1.DeleteConversationRequest, v1.DeleteConversationResponse]
+	listMessageSuggestions *connect.Client[v1.ListMessageSuggestionsRequest, v1.ListMessageSuggestionsResponse]
 }
 
 // SendMessage calls dzeroth.messaging.v1.MessagingService.SendMessage.
@@ -324,6 +361,11 @@ func (c *messagingServiceClient) AcceptMessageRequest(ctx context.Context, req *
 // DeleteConversation calls dzeroth.messaging.v1.MessagingService.DeleteConversation.
 func (c *messagingServiceClient) DeleteConversation(ctx context.Context, req *connect.Request[v1.DeleteConversationRequest]) (*connect.Response[v1.DeleteConversationResponse], error) {
 	return c.deleteConversation.CallUnary(ctx, req)
+}
+
+// ListMessageSuggestions calls dzeroth.messaging.v1.MessagingService.ListMessageSuggestions.
+func (c *messagingServiceClient) ListMessageSuggestions(ctx context.Context, req *connect.Request[v1.ListMessageSuggestionsRequest]) (*connect.Response[v1.ListMessageSuggestionsResponse], error) {
+	return c.listMessageSuggestions.CallUnary(ctx, req)
 }
 
 // MessagingServiceHandler is an implementation of the dzeroth.messaging.v1.MessagingService
@@ -443,6 +485,29 @@ type MessagingServiceHandler interface {
 	// Flag: not globally off. Refused under DEGRADED_MODE=readonly.
 	// Sets clearedAt on the conversation and deletes the caller's entry.
 	DeleteConversation(context.Context, *connect.Request[v1.DeleteConversationRequest]) (*connect.Response[v1.DeleteConversationResponse], error)
+	// People the caller is likely to message (F30), for the new-message screen. Computed on every call; nothing is stored.
+	// Sources, in this order (a person appears once, with the first reason that found them):
+	//  1. RECENT_CONVERSATION: the peers of the caller's newest 8 INBOX entries.
+	//  2. MET_ON_PLAN: the organiser and ACCEPTED participants of the caller's 2 most recent ended plans (FEATURE_BEACONS on
+	//     for the caller; the caller was the organiser or ACCEPTED; not hidden; ended within the last 30 days, the
+	//     beacons TTL), at most 4 rows read per plan. plan_activity is that plan's activity.
+	//  3. MUTUAL_FOLLOW: among the caller's 10 newest followees, those who follow the caller back.
+	//  4. COMMUNITY_MEMBER: the 6 newest JOINED members of the community the caller joined most recently (FEATURE_COMMUNITIES
+	//     on for the caller; an ACTIVE community). community_id and community_name name it.
+	//
+	// Every row is someone SendMessage would not refuse with CANNOT_MESSAGE at the time of the call, by the same rules:
+	// never the caller; not ACTIVE, messaging off for them, either side blocks the other (the caller's 60 s graph snapshot),
+	// or their "who can message me" policy is FOLLOWING_ONLY (with FEATURE_DM_POLICY on for them) and they do not follow
+	// the caller (an existing ACCEPTED conversation is exempt, as on send) => left out. Accounts the caller mutes are left
+	// out too. A caller past the blockedBy cap gets an empty list (fail closed). The reason chip is computed, never stored.
+	// limit 0 => 10, max 20 (clamped); negative => VALIDATION "limit". No pagination, by design (the ListSuggestedUsers
+	// precedent): one bounded call, no page token.
+	// Flags: "messaging" and "dm_suggestions" on for the caller (file comment). Rate limit: RATE_LIMIT_DM_SUGGESTIONS_PER_MIN
+	// 10/min/uid per instance; no daily cap. Answers under DEGRADED_MODE=readonly.
+	// Cost: at most 8 + 2 + 2 + 8 + 1 + 6 = 27 documents from the sources (inbox entries, plan memberships, plans,
+	// participant rows, community memberships, community members; the community doc is cached 60 s), then cache-first
+	// profile and follow-edge reads for at most 20 candidates (60 s caches). Writes nothing.
+	ListMessageSuggestions(context.Context, *connect.Request[v1.ListMessageSuggestionsRequest]) (*connect.Response[v1.ListMessageSuggestionsResponse], error)
 }
 
 // NewMessagingServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -490,6 +555,13 @@ func NewMessagingServiceHandler(svc MessagingServiceHandler, opts ...connect.Han
 		connect.WithSchema(messagingServiceMethods.ByName("DeleteConversation")),
 		connect.WithHandlerOptions(opts...),
 	)
+	messagingServiceListMessageSuggestionsHandler := connect.NewUnaryHandler(
+		MessagingServiceListMessageSuggestionsProcedure,
+		svc.ListMessageSuggestions,
+		connect.WithSchema(messagingServiceMethods.ByName("ListMessageSuggestions")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.messaging.v1.MessagingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MessagingServiceSendMessageProcedure:
@@ -504,6 +576,8 @@ func NewMessagingServiceHandler(svc MessagingServiceHandler, opts ...connect.Han
 			messagingServiceAcceptMessageRequestHandler.ServeHTTP(w, r)
 		case MessagingServiceDeleteConversationProcedure:
 			messagingServiceDeleteConversationHandler.ServeHTTP(w, r)
+		case MessagingServiceListMessageSuggestionsProcedure:
+			messagingServiceListMessageSuggestionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -535,4 +609,8 @@ func (UnimplementedMessagingServiceHandler) AcceptMessageRequest(context.Context
 
 func (UnimplementedMessagingServiceHandler) DeleteConversation(context.Context, *connect.Request[v1.DeleteConversationRequest]) (*connect.Response[v1.DeleteConversationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.messaging.v1.MessagingService.DeleteConversation is not implemented"))
+}
+
+func (UnimplementedMessagingServiceHandler) ListMessageSuggestions(context.Context, *connect.Request[v1.ListMessageSuggestionsRequest]) (*connect.Response[v1.ListMessageSuggestionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.messaging.v1.MessagingService.ListMessageSuggestions is not implemented"))
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/namekey"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -58,7 +59,10 @@ type removalDoc struct {
 // communityDoc is communities/{cid}. Every array is written as an array, never null. removalsTruncatedAt is absent
 // until a cap first drops an entry.
 type communityDoc struct {
-	Name                string       `firestore:"name"`
+	Name string `firestore:"name"`
+	// NameLower is namekey.Fold(Name), the SearchCommunities prefix key (F21): written by Create and by every rename in Update;
+	// a community created before the field has none until `opsctl search backfill-name-keys`.
+	NameLower           string       `firestore:"nameLower,omitempty"`
 	Description         string       `firestore:"description"`
 	Rules               []ruleDoc    `firestore:"rules"`
 	OwnerID             string       `firestore:"ownerId"`
@@ -105,7 +109,7 @@ func (d membershipsDoc) memberships() Memberships {
 
 func (d communityDoc) community(id string) Community {
 	c := Community{
-		ID: id, Name: d.Name, Description: d.Description, OwnerID: d.OwnerID, ModeratorIDs: slices.Clone(d.ModeratorIDs),
+		ID: id, Name: d.Name, NameLower: d.NameLower, Description: d.Description, OwnerID: d.OwnerID, ModeratorIDs: slices.Clone(d.ModeratorIDs),
 		MemberCount: d.MemberCount, Status: Status(d.Status), Visibility: d.Visibility, ModlogSeq: d.ModlogSeq,
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
@@ -305,7 +309,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		}
 		now := r.now().UTC()
 		doc := communityDoc{
-			Name: p.Name, Description: p.Description, Rules: ruleDocs(p.Rules), OwnerID: p.UID, ModeratorIDs: []string{},
+			Name: p.Name, NameLower: namekey.Fold(p.Name), Description: p.Description, Rules: ruleDocs(p.Rules), OwnerID: p.UID, ModeratorIDs: []string{},
 			MemberCount: 1, Status: string(StatusActive), Visibility: VisibilityPublic, RecentRemovals: []removalDoc{},
 			Modlog: []logDoc{}, ModlogSeq: 0, CreatedAt: now, UpdatedAt: now,
 		}
@@ -376,8 +380,9 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 		var updates []firestore.Update
 		next := c
 		if p.Name != nil && *p.Name != c.Name {
-			updates = append(updates, firestore.Update{Path: "name", Value: *p.Name})
-			next.Name = *p.Name
+			updates = append(updates, firestore.Update{Path: "name", Value: *p.Name},
+				firestore.Update{Path: namekey.Field, Value: namekey.Fold(*p.Name)}) // a rename rewrites the search key
+			next.Name, next.NameLower = *p.Name, namekey.Fold(*p.Name)
 		}
 		if p.Description != nil && *p.Description != c.Description {
 			updates = append(updates, firestore.Update{Path: "description", Value: *p.Description})

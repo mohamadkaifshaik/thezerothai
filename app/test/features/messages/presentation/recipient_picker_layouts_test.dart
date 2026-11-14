@@ -2,6 +2,10 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/messages/presentation/recipient_picker_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
@@ -150,6 +154,56 @@ void main() {
           await _open(tester, size, brightness: brightness);
           await _capture(tester, '$name-${brightness.name}');
         }, skip: !_screenshots);
+      }
+    }
+  });
+
+  // `dm_suggestions`: the server's "Suggested" section in the real shells
+  // and the 600 dp dialog card.
+  group('suggestions through the shell rig', () {
+    for (final MapEntry(key: name, value: size) in _sizes.entries) {
+      for (final brightness in Brightness.values) {
+        for (final scale in const [1.0, 2.0]) {
+          testWidgets('$name ${brightness.name} x$scale', (tester) async {
+            final server = tabletServer()
+              ..suggestions.addAll([
+                pb.MessageSuggestion(
+                  user: common.AuthorSnapshot(
+                    userId: 'u-zed',
+                    handle: 'zed',
+                    displayName: 'Zed Person',
+                  ),
+                  reason: MessageSuggestionReason
+                      .MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER,
+                  communityName: 'A community with a rather long name',
+                ),
+              ]);
+            final rig = MessagingFlowRig(
+              server: server,
+              flags: {...kMessagesTabletFlags, 'dm_suggestions'},
+            );
+            await rig.pump(
+              tester,
+              size: size,
+              brightness: brightness,
+              textScale: scale,
+              hoisted: true,
+            );
+            rig.appRouter.router.push(AppRouter.messageNewPath);
+            await tester.pumpAndSettle();
+            expect(find.text('Zed Person'), findsOneWidget);
+            expect(
+              find.text('In A community with a rather long name'),
+              findsOneWidget,
+            );
+            expect(find.text('Sam Rivera'), findsOneWidget);
+            expect(
+              server.count('/${MessagingService.name}/ListMessageSuggestions'),
+              1,
+            );
+            expect(tester.takeException(), isNull);
+          });
+        }
       }
     }
   });

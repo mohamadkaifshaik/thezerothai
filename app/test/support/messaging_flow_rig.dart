@@ -107,6 +107,9 @@ class FakeMessagingServer {
     ),
   };
 
+  /// What `ListMessageSuggestions` answers.
+  final List<pb.MessageSuggestion> suggestions = [];
+
   /// A procedure to fail with (once), e.g. to script an error.
   final Map<String, Object> failures = {};
 
@@ -209,6 +212,9 @@ class FakeMessagingServer {
       conversations.remove(request.conversationId);
       messages.remove(request.conversationId);
       return pb.DeleteConversationResponse();
+    }
+    if (procedure == '/${MessagingService.name}/ListMessageSuggestions') {
+      return pb.ListMessageSuggestionsResponse(suggestions: suggestions);
     }
     if (procedure == '/${GraphService.name}/ListFollowing') {
       // The caller follows Sam only.

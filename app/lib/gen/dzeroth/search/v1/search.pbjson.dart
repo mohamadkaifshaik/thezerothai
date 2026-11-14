@@ -18,8 +18,10 @@ import 'dart:typed_data' as $typed_data;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
     as $2;
 
-import '../../common/v1/common.pbjson.dart' as $3;
+import '../../common/v1/common.pbjson.dart' as $5;
+import '../../communities/v1/communities.pbjson.dart' as $4;
 import '../../graph/v1/graph.pbjson.dart' as $0;
+import '../../lists/v1/lists.pbjson.dart' as $3;
 import '../../posts/v1/posts.pbjson.dart' as $1;
 
 @$core.Deprecated('Use searchTabDescriptor instead')
@@ -95,6 +97,7 @@ const SearchPostsRequest$json = {
     },
     {'1': 'page_size', '3': 3, '4': 1, '5': 5, '10': 'pageSize'},
     {'1': 'page_token', '3': 4, '4': 1, '5': 9, '10': 'pageToken'},
+    {'1': 'from_following', '3': 5, '4': 1, '5': 8, '10': 'fromFollowing'},
   ],
 };
 
@@ -102,7 +105,8 @@ const SearchPostsRequest$json = {
 final $typed_data.Uint8List searchPostsRequestDescriptor = $convert.base64Decode(
     'ChJTZWFyY2hQb3N0c1JlcXVlc3QSFAoFcXVlcnkYASABKAlSBXF1ZXJ5Ei4KA3RhYhgCIAEoDj'
     'IcLmR6ZXJvdGguc2VhcmNoLnYxLlNlYXJjaFRhYlIDdGFiEhsKCXBhZ2Vfc2l6ZRgDIAEoBVII'
-    'cGFnZVNpemUSHQoKcGFnZV90b2tlbhgEIAEoCVIJcGFnZVRva2Vu');
+    'cGFnZVNpemUSHQoKcGFnZV90b2tlbhgEIAEoCVIJcGFnZVRva2VuEiUKDmZyb21fZm9sbG93aW'
+    '5nGAUgASgIUg1mcm9tRm9sbG93aW5n');
 
 @$core.Deprecated('Use searchPostsResponseDescriptor instead')
 const SearchPostsResponse$json = {
@@ -193,6 +197,80 @@ final $typed_data.Uint8List getTrendsResponseDescriptor = $convert.base64Decode(
     '5UcmVuZFIGdHJlbmRzEjsKC2NvbXB1dGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRp'
     'bWVzdGFtcFIKY29tcHV0ZWRBdA==');
 
+@$core.Deprecated('Use searchListsRequestDescriptor instead')
+const SearchListsRequest$json = {
+  '1': 'SearchListsRequest',
+  '2': [
+    {'1': 'query', '3': 1, '4': 1, '5': 9, '10': 'query'},
+    {'1': 'page_size', '3': 2, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 3, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `SearchListsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List searchListsRequestDescriptor = $convert.base64Decode(
+    'ChJTZWFyY2hMaXN0c1JlcXVlc3QSFAoFcXVlcnkYASABKAlSBXF1ZXJ5EhsKCXBhZ2Vfc2l6ZR'
+    'gCIAEoBVIIcGFnZVNpemUSHQoKcGFnZV90b2tlbhgDIAEoCVIJcGFnZVRva2Vu');
+
+@$core.Deprecated('Use searchListsResponseDescriptor instead')
+const SearchListsResponse$json = {
+  '1': 'SearchListsResponse',
+  '2': [
+    {
+      '1': 'lists',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.lists.v1.ListInfo',
+      '10': 'lists'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `SearchListsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List searchListsResponseDescriptor = $convert.base64Decode(
+    'ChNTZWFyY2hMaXN0c1Jlc3BvbnNlEjAKBWxpc3RzGAEgAygLMhouZHplcm90aC5saXN0cy52MS'
+    '5MaXN0SW5mb1IFbGlzdHMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJUg1uZXh0UGFnZVRva2Vu');
+
+@$core.Deprecated('Use searchCommunitiesRequestDescriptor instead')
+const SearchCommunitiesRequest$json = {
+  '1': 'SearchCommunitiesRequest',
+  '2': [
+    {'1': 'query', '3': 1, '4': 1, '5': 9, '10': 'query'},
+    {'1': 'page_size', '3': 2, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 3, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `SearchCommunitiesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List searchCommunitiesRequestDescriptor =
+    $convert.base64Decode(
+        'ChhTZWFyY2hDb21tdW5pdGllc1JlcXVlc3QSFAoFcXVlcnkYASABKAlSBXF1ZXJ5EhsKCXBhZ2'
+        'Vfc2l6ZRgCIAEoBVIIcGFnZVNpemUSHQoKcGFnZV90b2tlbhgDIAEoCVIJcGFnZVRva2Vu');
+
+@$core.Deprecated('Use searchCommunitiesResponseDescriptor instead')
+const SearchCommunitiesResponse$json = {
+  '1': 'SearchCommunitiesResponse',
+  '2': [
+    {
+      '1': 'communities',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.communities.v1.Community',
+      '10': 'communities'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `SearchCommunitiesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List searchCommunitiesResponseDescriptor = $convert.base64Decode(
+    'ChlTZWFyY2hDb21tdW5pdGllc1Jlc3BvbnNlEkMKC2NvbW11bml0aWVzGAEgAygLMiEuZHplcm'
+    '90aC5jb21tdW5pdGllcy52MS5Db21tdW5pdHlSC2NvbW11bml0aWVzEiYKD25leHRfcGFnZV90'
+    'b2tlbhgCIAEoCVINbmV4dFBhZ2VUb2tlbg==');
+
 const $core.Map<$core.String, $core.dynamic> SearchServiceBase$json = {
   '1': 'SearchService',
   '2': [
@@ -214,6 +292,18 @@ const $core.Map<$core.String, $core.dynamic> SearchServiceBase$json = {
       '3': '.dzeroth.search.v1.GetTrendsResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'SearchLists',
+      '2': '.dzeroth.search.v1.SearchListsRequest',
+      '3': '.dzeroth.search.v1.SearchListsResponse',
+      '4': {'34': 1},
+    },
+    {
+      '1': 'SearchCommunities',
+      '2': '.dzeroth.search.v1.SearchCommunitiesRequest',
+      '3': '.dzeroth.search.v1.SearchCommunitiesResponse',
+      '4': {'34': 1},
+    },
   ],
 };
 
@@ -223,14 +313,14 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.search.v1.SearchPeopleRequest': SearchPeopleRequest$json,
   '.dzeroth.search.v1.SearchPeopleResponse': SearchPeopleResponse$json,
   '.dzeroth.graph.v1.UserListItem': $0.UserListItem$json,
-  '.dzeroth.common.v1.AuthorSnapshot': $3.AuthorSnapshot$json,
+  '.dzeroth.common.v1.AuthorSnapshot': $5.AuthorSnapshot$json,
   '.google.protobuf.Timestamp': $2.Timestamp$json,
   '.dzeroth.graph.v1.Relationship': $0.Relationship$json,
   '.dzeroth.search.v1.SearchPostsRequest': SearchPostsRequest$json,
   '.dzeroth.search.v1.SearchPostsResponse': SearchPostsResponse$json,
   '.dzeroth.posts.v1.PostView': $1.PostView$json,
   '.dzeroth.posts.v1.Post': $1.Post$json,
-  '.dzeroth.common.v1.MediaRef': $3.MediaRef$json,
+  '.dzeroth.common.v1.MediaRef': $5.MediaRef$json,
   '.dzeroth.posts.v1.EmbeddedPost': $1.EmbeddedPost$json,
   '.dzeroth.posts.v1.Poll': $1.Poll$json,
   '.dzeroth.posts.v1.PollChoice': $1.PollChoice$json,
@@ -241,6 +331,13 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.search.v1.GetTrendsRequest': GetTrendsRequest$json,
   '.dzeroth.search.v1.GetTrendsResponse': GetTrendsResponse$json,
   '.dzeroth.search.v1.Trend': Trend$json,
+  '.dzeroth.search.v1.SearchListsRequest': SearchListsRequest$json,
+  '.dzeroth.search.v1.SearchListsResponse': SearchListsResponse$json,
+  '.dzeroth.lists.v1.ListInfo': $3.ListInfo$json,
+  '.dzeroth.search.v1.SearchCommunitiesRequest': SearchCommunitiesRequest$json,
+  '.dzeroth.search.v1.SearchCommunitiesResponse':
+      SearchCommunitiesResponse$json,
+  '.dzeroth.communities.v1.Community': $4.Community$json,
 };
 
 /// Descriptor for `SearchService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -250,4 +347,8 @@ final $typed_data.Uint8List searchServiceDescriptor = $convert.base64Decode(
     'ZSIDkAIBEmEKC1NlYXJjaFBvc3RzEiUuZHplcm90aC5zZWFyY2gudjEuU2VhcmNoUG9zdHNSZX'
     'F1ZXN0GiYuZHplcm90aC5zZWFyY2gudjEuU2VhcmNoUG9zdHNSZXNwb25zZSIDkAIBElsKCUdl'
     'dFRyZW5kcxIjLmR6ZXJvdGguc2VhcmNoLnYxLkdldFRyZW5kc1JlcXVlc3QaJC5kemVyb3RoLn'
-    'NlYXJjaC52MS5HZXRUcmVuZHNSZXNwb25zZSIDkAIB');
+    'NlYXJjaC52MS5HZXRUcmVuZHNSZXNwb25zZSIDkAIBEmEKC1NlYXJjaExpc3RzEiUuZHplcm90'
+    'aC5zZWFyY2gudjEuU2VhcmNoTGlzdHNSZXF1ZXN0GiYuZHplcm90aC5zZWFyY2gudjEuU2Vhcm'
+    'NoTGlzdHNSZXNwb25zZSIDkAIBEnMKEVNlYXJjaENvbW11bml0aWVzEisuZHplcm90aC5zZWFy'
+    'Y2gudjEuU2VhcmNoQ29tbXVuaXRpZXNSZXF1ZXN0GiwuZHplcm90aC5zZWFyY2gudjEuU2Vhcm'
+    'NoQ29tbXVuaXRpZXNSZXNwb25zZSIDkAIB');

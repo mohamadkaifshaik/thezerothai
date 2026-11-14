@@ -266,4 +266,20 @@ void main() {
       });
     }
   });
+
+  group('directoryQuery (lists and communities)', () {
+    test('keeps the sigil, folds case and trims', () {
+      expect(SearchQuery.parse('  Go Devs ').directoryQuery, 'go devs');
+      expect(SearchQuery.parse('@Bob').directoryQuery, '@bob');
+      expect(SearchQuery.parse('#Tag').directoryQuery, '#tag');
+    });
+
+    test('1 to 30 code points, no control characters', () {
+      expect(SearchQuery.parse('a').directoryQuery, 'a');
+      expect(SearchQuery.parse('a' * 30).directoryQuery, 'a' * 30);
+      expect(SearchQuery.parse('a' * 31).directoryQuery, isNull);
+      expect(SearchQuery.parse('   ').directoryQuery, isNull);
+      expect(SearchQuery.parse('ab').directoryQuery, isNull);
+    });
+  });
 }

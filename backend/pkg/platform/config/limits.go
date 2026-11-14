@@ -41,6 +41,10 @@ type RateLimitConfig struct {
 	// RATE_LIMIT_MESSAGES_READ_PER_MIN, default 30. Both are per instance (60/min and 90/min with 3 instances).
 	MessagesSendPerUserPerMinute int
 	MessagesReadPerUserPerMinute int
+	// DMSuggestionsPerUserPerMinute is the ListMessageSuggestions bucket (F30), env RATE_LIMIT_DM_SUGGESTIONS_PER_MIN, default
+	// 10, per instance (30 per minute with 3). No daily cap: one call reads at most about 27 source documents plus
+	// cache-first profiles and follow edges.
+	DMSuggestionsPerUserPerMinute int
 
 	// NotificationsListPerUserPerMinute is the ListNotifications bucket, env RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN,
 	// default 30 per instance (90 with 3), the read-bucket norm (messages, lists, communities and beacons reads are 30).
@@ -110,6 +114,10 @@ type RateLimitConfig struct {
 	// effective ceiling is x max-instances (90 and 60 per minute with 3). GetTrends uses the PerUserPerMinute default bucket.
 	SearchPeoplePerUserPerMinute int
 	SearchPostsPerUserPerMinute  int
+	// SearchDirectoryPerUserPerMinute is the one bucket SearchLists and SearchCommunities share (F20, F21), env
+	// RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN, default 20, per instance (60 per minute with 3). No daily cap: each call is one
+	// query of at most 20 documents.
+	SearchDirectoryPerUserPerMinute int
 
 	// PollVotePerUserPerMinute is the VotePoll bucket, env RATE_LIMIT_POLL_VOTE_PER_MIN, default 30, per
 	// instance (90 per minute with 3).

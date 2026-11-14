@@ -22,12 +22,25 @@ class FakeSearchRepository implements SearchRepository {
   SearchPostsPage Function(String query, SearchTab tab, String? pageToken)?
   postsHandler;
 
+  SearchListsPage listsResult = const SearchListsPage();
+  SearchCommunitiesPage communitiesResult = const SearchCommunitiesPage();
+
+  /// Per-call answers for the paged directory tabs (query, page token).
+  SearchListsPage Function(String query, String? pageToken)? listsHandler;
+  SearchCommunitiesPage Function(String query, String? pageToken)?
+  communitiesHandler;
+
+  /// The `fromFollowing` of every `searchPosts`, in order.
+  final List<bool> postsFromFollowing = [];
+
   /// Thrown by every call when set.
   Object? error;
 
   /// When set, the matching call waits for it before answering.
   Completer<void>? peopleGate;
   Completer<void>? postsGate;
+  Completer<void>? listsGate;
+  Completer<void>? communitiesGate;
   Completer<void>? trendsGate;
 
   final List<String> calls = [];
@@ -50,13 +63,41 @@ class FakeSearchRepository implements SearchRepository {
     required SearchTab tab,
     String? pageToken,
     int pageSize = 20,
+    bool fromFollowing = false,
   }) async {
     calls.add('posts:$query:${tab.name}');
     postsPageTokens.add(pageToken);
+    postsFromFollowing.add(fromFollowing);
     await postsGate?.future;
     final e = error;
     if (e != null) throw e;
     return postsHandler?.call(query, tab, pageToken) ?? postsResult;
+  }
+
+  @override
+  Future<SearchListsPage> searchLists(
+    String query, {
+    String? pageToken,
+    int pageSize = 20,
+  }) async {
+    calls.add('lists:$query');
+    await listsGate?.future;
+    final e = error;
+    if (e != null) throw e;
+    return listsHandler?.call(query, pageToken) ?? listsResult;
+  }
+
+  @override
+  Future<SearchCommunitiesPage> searchCommunities(
+    String query, {
+    String? pageToken,
+    int pageSize = 20,
+  }) async {
+    calls.add('communities:$query');
+    await communitiesGate?.future;
+    final e = error;
+    if (e != null) throw e;
+    return communitiesHandler?.call(query, pageToken) ?? communitiesResult;
   }
 
   @override
