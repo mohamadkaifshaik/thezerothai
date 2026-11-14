@@ -17,6 +17,11 @@ class FakeSearchRepository implements SearchRepository {
   SearchPostsPage postsResult = const SearchPostsPage();
   TrendsResult trendsResult = const TrendsResult();
 
+  /// When set, answers `searchPosts` instead of [postsResult] (per query, tab
+  /// and page token), so a test can script several hashtags and pages.
+  SearchPostsPage Function(String query, SearchTab tab, String? pageToken)?
+  postsHandler;
+
   /// Thrown by every call when set.
   Object? error;
 
@@ -51,7 +56,7 @@ class FakeSearchRepository implements SearchRepository {
     await postsGate?.future;
     final e = error;
     if (e != null) throw e;
-    return postsResult;
+    return postsHandler?.call(query, tab, pageToken) ?? postsResult;
   }
 
   @override

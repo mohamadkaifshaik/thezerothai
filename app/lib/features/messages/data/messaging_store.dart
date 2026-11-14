@@ -63,6 +63,16 @@ class ThreadSnapshot {
   );
 }
 
+/// The cached rows on-device search reads (see [MessagingStore.readSearchCorpus]).
+class SearchCorpus {
+  const SearchCorpus({this.conversations = const [], this.messages = const {}});
+
+  final List<pb.Conversation> conversations;
+
+  /// Messages per conversation id, newest first.
+  final Map<String, List<pb.Message>> messages;
+}
+
 /// Sort key of a conversation: zero-padded `updated_at` microseconds, then
 /// the id (a total order, newest first when sorted descending).
 String conversationSortKey(pb.Conversation c) {
@@ -521,6 +531,58 @@ class MessagingStore {
         await _putConversation(conversation);
       }
       await _trim(conversationId);
+    });
+  }
+
+  // --- search --------------------------------------------------------------
+
+  /// What on-device message search reads: the cached conversation headers
+  /// (all, or just [conversationId]) and the cached messages of those
+  /// conversations. A message whose header is not cached is not returned (its
+  /// block state cannot be checked). Read-only; nothing leaves the database.
+  Future<SearchCorpus> readSearchCorpus({String? conversationId}) async {
+    final headerRows =
+        await (_db.select(_db.conversationEntries)..where(
+              (t) => conversationId == null
+                  ? const Constant(true)
+                  : t.conversationId.equals(conversationId),
+            ))
+            .get();
+    final conversations = <pb.Conversation>[];
+    for (final row in headerRows) {
+      try {
+        conversations.add(pb.Conversation.fromBuffer(row.payload));
+      } catch (_) {
+        // Dropped by the next read of its folder.
+      }
+    }
+    if (conversations.isEmpty) return const SearchCorpus();
+    final ids = [for (final c in conversations) c.id];
+    final rows =
+        await (_db.select(_db.messageEntries)
+              ..where((t) => t.conversationId.isIn(ids))
+              ..orderBy([(t) => OrderingTerm.desc(t.sortKey)]))
+            .get();
+    final messages = <String, List<pb.Message>>{};
+    for (final row in rows) {
+      try {
+        messages
+            .putIfAbsent(row.conversationId, () => [])
+            .add(pb.Message.fromBuffer(row.payload));
+      } catch (_) {
+        // Dropped by the next read of its thread.
+      }
+    }
+    return SearchCorpus(conversations: conversations, messages: messages);
+  }
+
+  /// Marks [id] read-only in the cache (`can_reply` false) after the caller
+  /// blocked its peer, so search stops matching it before a refresh.
+  Future<void> markConversationReadOnly(String id, {required int session}) {
+    return _tx(session, () async {
+      final c = await conversation(id);
+      if (c == null || !c.canReply) return;
+      await _putConversation(c.deepCopy()..canReply = false);
     });
   }
 

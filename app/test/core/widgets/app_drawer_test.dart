@@ -137,6 +137,10 @@ void main() {
               builder: (context, state) => const Text('communities page'),
             ),
             GoRoute(
+              path: 'compose/articles',
+              builder: (context, state) => const Text('articles page'),
+            ),
+            GoRoute(
               path: 'settings',
               builder: (context, state) => const Text('settings page'),
             ),
@@ -199,11 +203,12 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('is 277dp wide and the rows are 56dp tall', (tester) async {
-      await pump(tester, profile: _alice);
+    testWidgets('is 320dp wide and the rows are 56dp tall', (tester) async {
+      expect(AppSize.drawerWidth, 320);
+      await pump(tester, profile: _alice, size: const Size(412, 800));
       await openDrawer(tester);
 
-      expectSize(tester, find.byType(Drawer), width: AppSize.drawerWidth);
+      expectSize(tester, find.byType(Drawer), width: 320);
       for (final label in ['Profile', 'Settings and Privacy', 'Sign out']) {
         final row = find.ancestor(
           of: find.text(label),
@@ -454,7 +459,7 @@ void main() {
         }
       });
 
-      testWidgets('sits between Profile and Settings, is 56dp, closes the '
+      testWidgets('is a tile above Profile and Settings, closes the '
           'drawer and opens /bookmarks', (tester) async {
         await pump(tester, profile: _alice, flags: {'posts', 'bookmarks'});
         await openDrawer(tester);
@@ -463,8 +468,8 @@ void main() {
           for (final l in ['Profile', 'History', 'Settings and Privacy'])
             tester.getTopLeft(find.text(l)).dy,
         ];
-        expect(y[0], lessThan(y[1]));
-        expect(y[1], lessThan(y[2]));
+        expect(y[1], lessThan(y[0]));
+        expect(y[0], lessThan(y[2]));
         expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
 
         await tester.tap(find.text('History'));
@@ -555,7 +560,13 @@ void main() {
             matching: find.text(label),
           );
           if (f.evaluate().isNotEmpty) {
-            found.add(MapEntry(tester.getTopLeft(f.first).dy, label));
+            final at = tester.getTopLeft(
+              find.ancestor(of: f.first, matching: find.byType(InkWell)).first,
+            );
+            // Tiles share a row: break ties left to right.
+            found.add(
+              MapEntry(at.dy.roundToDouble() * 1000 + at.dx / 1000, label),
+            );
           }
         }
         found.sort((a, b) => a.key.compareTo(b.key));
@@ -569,14 +580,14 @@ void main() {
         ),
         'posts only': (
           flags: {'posts'},
-          rows: ['Profile', 'Articles', 'Settings and Privacy', 'Sign out'],
+          rows: ['Articles', 'Profile', 'Settings and Privacy', 'Sign out'],
         ),
         'lists and communities': (
           flags: {'lists', 'communities'},
           rows: [
-            'Profile',
             'Lists',
             'Communities',
+            'Profile',
             'Settings and Privacy',
             'Sign out',
           ],
@@ -595,11 +606,11 @@ void main() {
             'graph',
           },
           rows: [
-            'Profile',
             'Articles',
             'Lists',
             'Communities',
             'History',
+            'Profile',
             'Settings and Privacy',
             'Sign out',
           ],
@@ -616,7 +627,7 @@ void main() {
         });
       }
 
-      testWidgets('the header avatar is 56dp and the counts are 48dp targets '
+      testWidgets('the header avatar is 64dp and the counts are 48dp targets '
           'with a spoken button label', (tester) async {
         final handle = tester.ensureSemantics();
         await pump(tester, profile: _alice);
@@ -628,7 +639,7 @@ void main() {
             matching: find.byType(AppAvatar),
           ),
         );
-        expect(avatar, const Size(56, 56));
+        expect(avatar, const Size(64, 64));
         for (final label in ['341 Following', '12 Followers']) {
           final size = tester.getSize(
             find.ancestor(
@@ -678,11 +689,286 @@ void main() {
       });
     });
 
+    group('restyle: tile grid, chevrons, header', () {
+      const tileFlags = {
+        'Articles': 'posts',
+        'Lists': 'lists',
+        'Communities': 'communities',
+        'History': 'bookmarks',
+      };
+
+      Finder tileFor(String label) => find
+          .ancestor(of: find.text(label), matching: find.byType(Material))
+          .first;
+
+      Rect tileRect(WidgetTester tester, String label) =>
+          tester.getRect(tileFor(label));
+
+      Color tileColor(WidgetTester tester, String label) =>
+          tester.widget<Material>(tileFor(label)).color!;
+
+      Set<String> flagsFor(int n) => {
+        if (n >= 1) 'posts',
+        if (n >= 2) 'lists',
+        if (n >= 3) 'communities',
+        if (n >= 4) 'bookmarks',
+      };
+      final visible = ['Articles', 'Lists', 'Communities', 'History'];
+
+      for (var n = 0; n <= 4; n++) {
+        testWidgets('grid with $n tile(s) fits, no hole, no overflow', (
+          tester,
+        ) async {
+          await pump(
+            tester,
+            profile: _alice,
+            flags: flagsFor(n),
+            size: const Size(412, 800),
+          );
+          await openDrawer(tester);
+          for (var i = 0; i < 4; i++) {
+            expect(
+              find.text(visible[i]),
+              i < n ? findsOneWidget : findsNothing,
+              reason: 'tile ${visible[i]} of $n',
+            );
+          }
+          if (n >= 1) {
+            final first = tileRect(tester, 'Articles');
+            // Two columns of equal width, 12dp apart, inside 16dp padding.
+            if (n >= 2) {
+              final second = tileRect(tester, 'Lists');
+              expect(second.top, first.top);
+              expect(second.left - first.right, AppSpacing.smd);
+              expect(second.width, first.width);
+            }
+            if (n == 1) {
+              // A lone tile is full width, not half of a row.
+              expect(first.width, 320 - 2 * AppSpacing.md);
+            }
+            if (n == 3) {
+              final third = tileRect(tester, 'Communities');
+              // 2 + 1: the last tile spans the full row.
+              expect(third.top, greaterThan(first.bottom));
+              expect(third.width, 320 - 2 * AppSpacing.md);
+            }
+            if (n == 4) {
+              final third = tileRect(tester, 'Communities');
+              final fourth = tileRect(tester, 'History');
+              expect(fourth.top, third.top);
+              expect(third.width, first.width);
+            }
+          }
+          for (var i = 0; i < n; i++) {
+            expect(
+              tileRect(tester, visible[i]).height,
+              greaterThanOrEqualTo(AppSize.drawerTile),
+            );
+          }
+          expectNoOverflow(tester);
+        });
+      }
+
+      testWidgets('tints alternate blue, teal / teal, blue (light and dark)', (
+        tester,
+      ) async {
+        for (final dark in [false, true]) {
+          await pump(
+            tester,
+            profile: _alice,
+            flags: flagsFor(4),
+            brightness: dark ? Brightness.dark : Brightness.light,
+          );
+          await openDrawer(tester);
+          final blue = dark
+              ? AppPalette.drawerTileBlueDark
+              : AppPalette.drawerTileBlue;
+          final teal = dark
+              ? AppPalette.drawerTileTealDark
+              : AppPalette.drawerTileTeal;
+          expect(tileColor(tester, 'Articles'), blue);
+          expect(tileColor(tester, 'Lists'), teal);
+          expect(tileColor(tester, 'Communities'), teal);
+          expect(tileColor(tester, 'History'), blue);
+        }
+      });
+
+      testWidgets('tile icons are 32dp in the primary colour', (tester) async {
+        await pump(tester, profile: _alice, flags: flagsFor(4));
+        await openDrawer(tester);
+        final icon = tester.widget<Icon>(find.byIcon(Icons.groups_outlined));
+        expect(icon.size, AppSize.drawerTileIcon);
+        expect(
+          icon.color,
+          Theme.of(tester.element(find.byType(AppDrawer))).colorScheme.primary,
+        );
+      });
+
+      testWidgets('every tile keeps its own gate', (tester) async {
+        for (final e in tileFlags.entries) {
+          // History needs posts and bookmarks; the others need one flag.
+          final flags = e.key == 'History' ? {'bookmarks', 'posts'} : {e.value};
+          await pump(tester, profile: _alice, flags: flags);
+          await openDrawer(tester);
+          expect(find.text(e.key), findsOneWidget, reason: e.key);
+          // Lists and Communities alone show only themselves.
+          if (e.key == 'Lists' || e.key == 'Communities') {
+            expect(find.text('Articles'), findsNothing, reason: e.key);
+            expect(find.text('History'), findsNothing, reason: e.key);
+          }
+        }
+      });
+
+      testWidgets('Articles closes the drawer and opens the articles page', (
+        tester,
+      ) async {
+        await pump(tester, profile: _alice, flags: {'posts'});
+        await openDrawer(tester);
+        await tester.tap(find.text('Articles'));
+        await tester.pumpAndSettle();
+        expect(find.byType(AppDrawer), findsNothing);
+        expect(find.text('articles page'), findsOneWidget);
+      });
+
+      testWidgets('tiles are labelled buttons of at least 48dp', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        await pump(tester, profile: _alice, flags: flagsFor(4));
+        await openDrawer(tester);
+        for (final label in visible) {
+          expect(
+            tester.getSemantics(find.bySemanticsLabel(label)),
+            matchesSemantics(label: label, isButton: true, hasTapAction: true),
+          );
+          final r = tileRect(tester, label);
+          expect(r.height, greaterThanOrEqualTo(48));
+          expect(r.width, greaterThanOrEqualTo(48));
+        }
+        handle.dispose();
+      });
+
+      testWidgets('rows have chevrons, Sign out has none', (tester) async {
+        await pump(
+          tester,
+          profile: _alice,
+          flags: {'graph', 'shells', 'ui_shell'},
+        );
+        await openDrawer(tester);
+        Finder chevronIn(String label) => find.descendant(
+          of: find
+              .ancestor(of: find.text(label), matching: find.byType(InkWell))
+              .first,
+          matching: find.byIcon(Icons.chevron_right),
+        );
+        for (final label in [
+          'Profile',
+          'Settings and Privacy',
+          'Creator Studio',
+          'Premium',
+          'Advertise',
+          'Calls',
+        ]) {
+          expect(chevronIn(label), findsOneWidget, reason: label);
+        }
+        expect(chevronIn('Sign out'), findsNothing);
+      });
+
+      testWidgets('the badge sits before the chevron on Follow requests', (
+        tester,
+      ) async {
+        await pump(
+          tester,
+          profile: _alice.deepCopy()..isPrivate = true,
+          flags: {'graph'},
+          pending: 7,
+        );
+        await openDrawer(tester);
+        final row = find
+            .ancestor(
+              of: find.text('Follow requests'),
+              matching: find.byType(InkWell),
+            )
+            .first;
+        final badge = find.descendant(
+          of: row,
+          matching: find.byType(FollowRequestCountBadge),
+        );
+        final chevron = find.descendant(
+          of: row,
+          matching: find.byIcon(Icons.chevron_right),
+        );
+        expect(badge, findsOneWidget);
+        expect(
+          tester.getTopRight(badge).dx,
+          lessThanOrEqualTo(tester.getTopLeft(chevron).dx),
+        );
+      });
+
+      testWidgets('header: avatar left of the name, counts below, bold name', (
+        tester,
+      ) async {
+        await pump(tester, profile: _alice);
+        await openDrawer(tester);
+        final avatar = tester.getRect(
+          find.descendant(
+            of: find.byType(AppDrawer),
+            matching: find.byType(AppAvatar),
+          ),
+        );
+        final name = tester.getRect(find.text('Alice A'));
+        final counts = tester.getRect(
+          find.text('341 Following', findRichText: true),
+        );
+        expect(name.left, greaterThan(avatar.right));
+        expect(counts.top, greaterThan(avatar.bottom - 1));
+        expect(
+          tester.widget<Text>(find.text('Alice A')).style!.fontWeight,
+          FontWeight.w700,
+        );
+      });
+
+      for (final dark in [false, true]) {
+        testWidgets('everything on, 2x text, short screen scrolls without '
+            'overflow (dark: $dark)', (tester) async {
+          await pump(
+            tester,
+            profile: _alice,
+            flags: {
+              'posts',
+              'lists',
+              'communities',
+              'bookmarks',
+              'graph',
+              'shells',
+              'ui_shell',
+            },
+            brightness: dark ? Brightness.dark : Brightness.light,
+            textScale: 2,
+            size: const Size(360, 500),
+          );
+          await openDrawer(tester);
+          expectNoOverflow(tester);
+          await tester.dragUntilVisible(
+            find.text('Sign out'),
+            find.byType(ListView),
+            const Offset(0, -200),
+          );
+          expect(find.text('Sign out'), findsOneWidget);
+          expectNoOverflow(tester);
+        });
+      }
+    });
+
     testWidgets('never exceeds 85 % of a very narrow screen', (tester) async {
       await pump(tester, profile: _alice, size: const Size(300, 700));
       await openDrawer(tester);
 
       expectSize(tester, find.byType(Drawer), width: 255);
+      // A 360dp phone gets 85 % of it (306); 412dp gets the full 320.
+      await pump(tester, profile: _alice, size: const Size(360, 700));
+      await openDrawer(tester);
+      expectSize(tester, find.byType(Drawer), width: 306);
     });
 
     testWidgets('labels are titleLarge 20dp and the icons are 24dp', (

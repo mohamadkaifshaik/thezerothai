@@ -24,6 +24,10 @@ import (
 // RequestAccountExport and GetAccountExport.
 const AccountLifecycleFlag = "account_lifecycle"
 
+// ExportZipFlag gates the ZIP archive format of an export (FEATURE_EXPORT_ZIP). Off for the caller, a ZIP request is
+// served as the JSON object: the format is additive and the response's format says which one came back.
+const ExportZipFlag = "export_zip"
+
 // FlagChecker is the minimal seam identity's server needs from pkg/platform/flags.Registry. It is
 // separate from FeatureFlags (api.go, used by the service for GetMe.enabled_features): the handler guards RPCs
 // before the service is called, and each consumer-side interface stays one method wide. *flags.Registry
@@ -253,11 +257,20 @@ func (s *Server) RequestAccountExport(ctx context.Context, req *connect.Request[
 	if err := authn.RequireRecentSignIn(ctx, s.reauthMaxAge, s.now()); err != nil {
 		return nil, err
 	}
-	view, err := s.lifecycle.RequestAccountExport(ctx, uid, req.Msg.GetIdempotencyKey())
+	format := exportFormatFromProto(req.Msg.GetFormat())
+	if format == ExportFormatZIP && !s.flagOn(uid, ExportZipFlag) {
+		format = ExportFormatJSON
+	}
+	view, err := s.lifecycle.RequestAccountExportFormat(ctx, uid, req.Msg.GetIdempotencyKey(), format)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&identityv1.RequestAccountExportResponse{ExportId: view.ID, Status: toProtoExportStatus(view.Status)}), nil
+	return connect.NewResponse(&identityv1.RequestAccountExportResponse{ExportId: view.ID, Status: toProtoExportStatus(view.Status), Format: toProtoExportFormat(view.Format)}), nil
+}
+
+// flagOn reports whether a flag is on for uid; no checker wired means off.
+func (s *Server) flagOn(uid, name string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, name)
 }
 
 func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[identityv1.GetAccountExportRequest]) (*connect.Response[identityv1.GetAccountExportResponse], error) {
@@ -285,6 +298,7 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 		ExportId:  view.ID,
 		Status:    toProtoExportStatus(view.Status),
 		ExpiresAt: timestamppb.New(view.ExpiresAt),
+		Format:    toProtoExportFormat(view.Format),
 	}
 	if recent {
 		resp.DownloadUrl = view.DownloadURL
@@ -293,6 +307,22 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 		}
 	}
 	return connect.NewResponse(resp), nil
+}
+
+// exportFormatFromProto maps the request's format; UNSPECIFIED and anything unknown mean JSON.
+func exportFormatFromProto(f identityv1.ExportFormat) ExportFormat {
+	if f == identityv1.ExportFormat_EXPORT_FORMAT_ZIP {
+		return ExportFormatZIP
+	}
+	return ExportFormatJSON
+}
+
+// toProtoExportFormat maps a stored format; an export written before the format existed is JSON.
+func toProtoExportFormat(f ExportFormat) identityv1.ExportFormat {
+	if f == ExportFormatZIP {
+		return identityv1.ExportFormat_EXPORT_FORMAT_ZIP
+	}
+	return identityv1.ExportFormat_EXPORT_FORMAT_JSON
 }
 
 func toProtoExportStatus(s ExportStatus) identityv1.ExportStatus {
