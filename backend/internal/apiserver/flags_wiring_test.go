@@ -135,12 +135,19 @@ func TestFeatureRegistry_IncludesUITablet(t *testing.T) {
 	}
 }
 
-// TestFeatureRegistry_IncludesShareFlags (shares design §4.6): every mode of FEATURE_DM_POST_SHARE and
-// FEATURE_SHARE_COUNT reaches the registry Build wires, and unset is off for everyone.
+// TestFeatureRegistry_IncludesShareFlags (shares design §4.6, plus the 2026-11-14 smaller-features flags): every mode
+// of FEATURE_DM_POST_SHARE, FEATURE_SHARE_COUNT and the smaller-features flags reaches the registry Build wires, and unset is off for everyone.
 func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
 	for _, flag := range []struct{ env, wire string }{
 		{"FEATURE_DM_POST_SHARE", "dm_post_share"},
 		{"FEATURE_SHARE_COUNT", "share_count"},
+		{"FEATURE_HANDLE_SUGGESTIONS", "handle_suggestions"},
+		{"FEATURE_LIST_FOLLOWS", "list_follows"},
+		{"FEATURE_LIST_SUGGESTIONS", "list_suggestions"},
+		{"FEATURE_BOOKMARK_HISTORY", "bookmark_history"},
+		{"FEATURE_ARTICLE_IMAGES", "article_images"},
+		{"FEATURE_EXPORT_ZIP", "export_zip"},
+		{"FEATURE_MESSAGE_SEARCH", "message_search"},
 	} {
 		for _, tc := range []struct {
 			name        string
