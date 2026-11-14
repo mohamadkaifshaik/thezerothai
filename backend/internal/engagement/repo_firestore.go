@@ -53,6 +53,19 @@ type WriteDeps struct {
 	Idempotency *idempotency.Store
 	// Views stages a view's shard increment and rollup marker (posts owns them); only RecordImpressions uses it.
 	Views posts.ViewWriter
+	// Stats stages the post author's creator stats (F2, identity owns users/{uid}/dailyStats): +1 engagement per like or
+	// repost received on the cold path, -1 per undo, in the same unit of work as the counter. Nil stages nothing.
+	Stats identity.StatsWriter
+}
+
+// stageEngagementStat stages delta on author's engagements for today when the counter write took the cold path (a
+// hot write's engagement is staged by the counter rollup when it folds the shard, never here too) and the actor is
+// not the author. It must share the unit of work of the counter's Exists-preconditioned Update (identity.StatsWriter).
+func (r *FirestoreRepo) stageEngagementStat(b store.Batch, author, actor string, delta, known int64) {
+	if r.w.Stats == nil || author == "" || author == actor || r.w.Writer.Hot(known) {
+		return
+	}
+	r.w.Stats.StageDaily(b, author, identity.StatsDay(r.now()), identity.DailyDelta{Engagements: delta})
 }
 
 // FirestoreRepo implements Repo (and Eraser, Exporter, the job's queries) against the shared client.
@@ -171,6 +184,7 @@ func (r *FirestoreRepo) Like(ctx context.Context, p LikeParams) (bool, error) {
 		now := r.now().UTC()
 		b.Create(r.likeRef(p.PostID, p.UID), likeDoc{PostID: p.PostID, UID: p.UID, CreatedAt: now})
 		done := r.w.Writer.StageLikeCount(b, p.PostID, 1, p.Known)
+		r.stageEngagementStat(b, p.AuthorID, p.UID, 1, p.Known)
 		b.Set(r.userLikesRef(p.UID), map[string]any{
 			"recent": firestore.ArrayUnion(p.PostID), "updatedAt": now,
 		}, firestore.MergeAll)
@@ -212,7 +226,10 @@ func (r *FirestoreRepo) retryConfig() store.RetryConfig {
 // same way (the 0-write no-op). A hot unlike of a post that is gone still commits: the like is deleted, and a shard -1
 // plus a counter marker are written under the gone post; the next rollup tick finds the post gone through that marker
 // and deletes its shards (the gone path), so nothing is left behind.
-func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string, known int64) (bool, error) {
+//
+// authorID is the post's author ("" when it was not found): their engagements for today move by -1 with the counter,
+// and the retry without the counter drops the stat too.
+func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string, known int64, authorID string) (bool, error) {
 	if err := r.ready(); err != nil {
 		return false, err
 	}
@@ -225,6 +242,7 @@ func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string, known in
 	res, err := store.CommitWithRetry(ctx, r.newBatch, r.retryConfig(), func(b store.Batch) {
 		b.Delete(r.likeRef(postID, uid), firestore.Exists)
 		committed = r.w.Writer.StageLikeCount(b, postID, -1, known)
+		r.stageEngagementStat(b, authorID, uid, -1, known)
 		remove(b)
 	})
 	store.NoteTxnAttempts(ctx, "engagement_txn_contention", res.Attempts)
@@ -273,6 +291,7 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 			b.Create(r.repostRef(p.Original.ID, p.UID), repostDoc{PostID: p.Original.ID, UID: p.UID, RepostPostID: id, CreatedAt: createdAt.UTC()})
 			r.w.Writer.StageRepost(b, np)
 			done := r.w.Writer.StageRepostCount(b, p.Original.ID, 1, p.Original.RepostCount)
+			r.stageEngagementStat(b, p.Original.AuthorID, p.UID, 1, p.Original.RepostCount)
 			r.w.Counters.AddPostsCount(b, p.UID, 1)
 			b.Set(r.userLikesRef(p.UID), map[string]any{
 				"recentReposts": firestore.ArrayUnion(p.Original.ID), "updatedAt": createdAt.UTC(),
@@ -316,8 +335,9 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 }
 
 // UndoRepost implements Repo: it reads reposts/{id}, then commits one batch. The reposts doc's
-// Exists precondition is the batch's only guard; the REPOST post is deleted blind.
-func (r *FirestoreRepo) UndoRepost(ctx context.Context, uid, originalID string) (UndoResult, error) {
+// Exists precondition is the batch's only guard; the REPOST post is deleted blind. authorID is the original's author
+// ("" when it was not found): their engagements for today move by -1 with the repostCount, never in the retry without it.
+func (r *FirestoreRepo) UndoRepost(ctx context.Context, uid, originalID, authorID string) (UndoResult, error) {
 	if err := r.ready(); err != nil {
 		return UndoResult{}, err
 	}
@@ -338,6 +358,7 @@ func (r *FirestoreRepo) UndoRepost(ctx context.Context, uid, originalID string) 
 			r.w.Writer.StageDelete(b, d.RepostPostID, false)
 			if withCount {
 				r.w.Writer.StageRepostCount(b, originalID, -1, 0) // cold: no count was read (repost removals stay plain)
+				r.stageEngagementStat(b, authorID, uid, -1, 0)
 			}
 			r.w.Counters.AddPostsCount(b, uid, -1)
 			b.Set(r.userLikesRef(uid), map[string]any{

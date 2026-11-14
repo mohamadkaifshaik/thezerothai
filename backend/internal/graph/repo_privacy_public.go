@@ -144,6 +144,7 @@ func (r *FirestoreRepo) AcceptPendingPage(ctx context.Context, a PendingPageArgs
 		}
 		if n := len(res.Accepted); n > 0 {
 			r.counters.AddFollowersCount(b, a.TargetUID, int64(n))
+			r.stageFollowers(b, a.TargetUID, int64(n), 0)
 		}
 		return b.Err()
 	})

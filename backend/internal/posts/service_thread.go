@@ -82,7 +82,13 @@ func (s *service) releaseParent(ctx context.Context, p *Post) {
 	if p.ReplyToID == "" {
 		return
 	}
-	if err := s.repo.AddReplyCount(ctx, p.ReplyToID, -1); err != nil {
+	// The parent's author (for the creator stats undo, F2) is not stored on the reply: one cache-first read. A failed or
+	// missing read drops only the stat; the counter release still runs.
+	author := ""
+	if parent, err := s.Get(ctx, p.ReplyToID); err == nil {
+		author = parent.AuthorID
+	}
+	if err := s.repo.AddReplyCount(ctx, p.ReplyToID, -1, author, p.AuthorID); err != nil {
 		slog.WarnContext(ctx, "posts_reply_count_release_failed", "error", logger.RedactErr(err, p.AuthorID).Error())
 	}
 	s.cache.DeletePost(p.ReplyToID) // its replyCount changed; other instances converge within the cache TTL

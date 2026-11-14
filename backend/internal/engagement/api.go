@@ -88,11 +88,13 @@ type Repo interface {
 	// Unlike removes the like. removed is false for a no-op. A post that is gone is handled inside (the counter
 	// is dropped and the delete is retried alone). known is the post's likeCount as read (0 when it was not found):
 	// it routes the counter write (posts.EngagementWriter.StageLikeCount).
-	Unlike(ctx context.Context, uid, postID string, known int64) (removed bool, err error)
+	// authorID is the post's author ("" when not found), for the creator stats undo (identity.StatsWriter).
+	Unlike(ctx context.Context, uid, postID string, known int64, authorID string) (removed bool, err error)
 	// Repost runs the repost transaction.
 	Repost(ctx context.Context, p RepostParams) (RepostResult, error)
 	// UndoRepost deletes the repost of originalID, if any.
-	UndoRepost(ctx context.Context, uid, originalID string) (UndoResult, error)
+	// authorID is the original's author ("" when not found), for the creator stats undo.
+	UndoRepost(ctx context.Context, uid, originalID, authorID string) (UndoResult, error)
 	// TrimLikes removes ids from userLikes.recent (best effort).
 	TrimLikes(ctx context.Context, uid string, recent, reposts []string) error
 }
@@ -103,6 +105,8 @@ type LikeParams struct {
 	// Known is the post's likeCount as the service read it (cache first): it routes the counter write to the plain
 	// field or, on a hot post, to its shards (posts.EngagementWriter.StageLikeCount).
 	Known int64
+	// AuthorID is the post's author: their creator stats get the engagement (cold path, not their own like).
+	AuthorID string
 }
 
 // RepostParams is one repost transaction.

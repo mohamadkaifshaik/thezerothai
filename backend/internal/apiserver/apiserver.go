@@ -155,6 +155,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// land in the same transaction/batch as the edge change, hence a repo-level setter rather
 	// than service.go opening its own separate write.
 	graphRepo.SetCounters(identityRepo)
+	// F2 creator insights: users/{uid}/dailyStats is identity's; graph, posts and engagement stage into it through
+	// identity.StatsWriter in their own units of work. Nothing is staged while FEATURE_CREATOR_INSIGHTS is globally off.
+	dailyStats := identity.NewDailyStatsRepo(fsClient, func() bool { return featureFlags.GloballyOff(identity.CreatorInsightsFlag) })
+	graphRepo.SetStats(dailyStats)
 	graphRepo.SetProfiles(identityRepo)
 	graphRepo.SetTxProfiles(identityRepo)
 	// The one protected-set loader of this instance (lazy, singleflight, 60 s, detached reads). It is built
@@ -316,6 +320,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Media:       postsMediaAttacher{lib: mediaMod.library},
 		// The publish sweep reads the author's users/{uid} inside its transaction: never cached.
 		Profiles: identityRepo,
+		// Creator stats (F2): replies and quotes received, the view rollup's impressions, hot-counter folds.
+		Stats: dailyStats,
 	})
 	// Beacons: the repo is built here because the outbox's beacon_cancelled handler (below) and the account-lifecycle
 	// registration need it (the eraser step and export section are registered whether or not FEATURE_BEACONS is on);
@@ -384,6 +390,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Writer: postsRepo, Counters: identityRepo, IDs: snowflakeNode,
 		Idempotency: idempotency.New(fsClient), // AddBookmark / RemoveBookmark idempotency docs
 		Views:       postsRepo,                 // RecordImpressions: posts' view shards and rollup markers (F1)
+		Stats:       dailyStats,                // creator stats (F2): likes and reposts received
 	})
 	audienceSvc := postsSvc
 	if bo.audienceSource != nil {
@@ -650,6 +657,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// impressions: users/{uid}/impressions (F1 post views); appended last, after billing_bindings.
 	if e := registerImpressionLifecycle(lifecycle, engagementRepo); e != nil {
 		return nil, nil, fmt.Errorf("impressions lifecycle registry: %w", e)
+	}
+	// daily_stats: users/{uid}/dailyStats (F2 creator insights); appended last, after impressions.
+	if e := registerDailyStatsLifecycle(lifecycle, dailyStats); e != nil {
+		return nil, nil, fmt.Errorf("daily stats lifecycle registry: %w", e)
 	}
 	billingServer := billing.NewServer(nil, nil, nil)
 	var articlePublishingAccess func(context.Context, string) error

@@ -60,9 +60,11 @@ type Repo interface {
 	Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error)
 	// AddReplyCount applies FieldValue.Increment(delta) to a parent's replyCount. A parent that is gone is not an
 	// error. Used by DeletePost for a reply (the create path does it inside the CreatePost transaction).
-	AddReplyCount(ctx context.Context, parentID string, delta int64) error
+	// author and actor are the parent's author and the reply's author: in the same batch the parent author's creator
+	// stats (engagements, today) move by delta, unless author is "" or actor.
+	AddReplyCount(ctx context.Context, parentID string, delta int64, author, actor string) error
 	// AddQuoteCount is AddReplyCount for quoteCount (DeletePost of a QUOTE, best effort).
-	AddQuoteCount(ctx context.Context, quotedID string, delta int64) error
+	AddQuoteCount(ctx context.Context, quotedID string, delta int64, author, actor string) error
 }
 
 // FirestoreRepo implements Repo against the shared Firestore client.

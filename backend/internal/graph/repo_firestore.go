@@ -123,7 +123,10 @@ type FirestoreRepo struct {
 	profiles ProfileReader
 	// txProfiles reads the Follow target's users doc inside the Follow transaction.
 	txProfiles identity.TxProfiles
-	hooks      followHooks
+	// stats stages the followee's creator stats (F2: followersGained / followersLost) next to the followersCount write.
+	// Nil stages nothing.
+	stats identity.StatsWriter
+	hooks followHooks
 
 	// Test seams for Unfollow's retry loop; nil means production behaviour (real commit, jittered timer).
 	commitBatch func(ctx context.Context, b *store.FirestoreBatch) error
@@ -147,6 +150,19 @@ func (r *FirestoreRepo) SetCounters(c identity.Counters) {
 	if tp, ok := c.(identity.TxProfiles); ok && r.txProfiles == nil {
 		r.txProfiles = tp
 	}
+}
+
+// SetStats wires the creator stats seam (F2, users/{uid}/dailyStats). Call once at startup; nil (the default) stages
+// nothing, so opsctl and tests that do not ask write no stats.
+func (r *FirestoreRepo) SetStats(s identity.StatsWriter) { r.stats = s }
+
+// stageFollowers stages a follower change of uid for today (IST) next to the followersCount Update of the same uid,
+// whose Exists precondition keeps a gone account out (identity.StatsWriter). Zero deltas stage nothing.
+func (r *FirestoreRepo) stageFollowers(b store.Batch, uid string, gained, lost int64) {
+	if r.stats == nil || (gained == 0 && lost == 0) {
+		return
+	}
+	r.stats.StageDaily(b, uid, identity.StatsDay(time.Now()), identity.DailyDelta{FollowersGained: gained, FollowersLost: lost})
 }
 
 // SetTxProfiles wires the transaction-scoped target read Follow needs. apiserver and opsctl call it
@@ -451,6 +467,7 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 		b.Update(r.graphRef(callerUID), callerUpdates)
 		r.counters.AddFollowingCount(b, callerUID, 1)
 		r.counters.AddFollowersCount(b, targetUID, 1)
+		r.stageFollowers(b, targetUID, 1, 0)
 		if b.Err() != nil {
 			return b.Err()
 		}
@@ -497,6 +514,7 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 			})
 			r.counters.AddFollowingCount(b, callerUID, -1)
 			r.counters.AddFollowersCount(b, targetUID, -1)
+			r.stageFollowers(b, targetUID, 0, 1)
 		})
 	noteTxnAttempts(ctx, res.Attempts)
 	switch {

@@ -121,6 +121,28 @@ type WriteDeps struct {
 	// Profiles reads the author's users/{uid} inside the scheduled-post publish transaction. Only
 	// PublishScheduled needs it; CreatePost reads the cached directory profile instead.
 	Profiles identity.TxProfiles
+	// Stats stages the creator daily stats (F2, identity owns users/{uid}/dailyStats) next to a counter write: a reply's
+	// or quote's engagement on the cold path, the view rollup's impressions, the counter rollup's folded engagements.
+	// Nil stages nothing (opsctl, tests).
+	Stats identity.StatsWriter
+}
+
+// stageStats stages d on uid's dailyStats doc for today (IST, the repo clock) when Stats is wired. Call it only in a
+// unit of work that also carries an Exists-preconditioned write on the post (identity.StatsWriter).
+func (r *FirestoreRepo) stageStats(b store.Batch, uid string, d identity.DailyDelta) {
+	if r.w.Stats == nil || uid == "" {
+		return
+	}
+	r.w.Stats.StageDaily(b, uid, identity.StatsDay(r.clock()), d)
+}
+
+// engagementStat is the stat of one engagement (+1) or its undo (-1) received by author from actor: nothing for
+// the author's own engagement (a self-reply thread is not reach).
+func (r *FirestoreRepo) stageEngagementStat(b store.Batch, author, actor string, delta int64) {
+	if author == actor {
+		return
+	}
+	r.stageStats(b, author, identity.DailyDelta{Engagements: delta})
 }
 
 // SetWriters supplies the CreatePost collaborators (a setter, like graph.FirestoreRepo.SetCounters, so the read
@@ -277,11 +299,19 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	}
 	r.w.Counters.AddPostsCount(b, p.AuthorID, 1)
 	committed := func() {}
+	// The creator stat rides the cold counter Update (its Exists fails a gone parent, stat included); a hot parent's
+	// engagement is staged by the counter rollup when it folds the shard (repo_view_rollup.go), never here too.
 	if p.ParentID != "" {
 		committed = r.stageCounter(b, p.ParentID, replyCountField, 1, p.ParentReplyCount)
+		if !r.Hot(p.ParentReplyCount) {
+			r.stageEngagementStat(b, p.Draft.ReplyToAuthorID, p.AuthorID, 1)
+		}
 	}
 	if p.QuoteID != "" {
 		committed = r.stageCounter(b, p.QuoteID, quoteCountField, 1, p.QuotedQuoteCount)
+		if !r.Hot(p.QuotedQuoteCount) {
+			r.stageEngagementStat(b, p.Draft.EmbeddedAuthorID, p.AuthorID, 1)
+		}
 	}
 	r.w.Idempotency.Put(b, p.IdemKey, idempotency.Record{
 		UID: p.AuthorID, RPC: createRPC, RequestHash: p.RequestHash,
