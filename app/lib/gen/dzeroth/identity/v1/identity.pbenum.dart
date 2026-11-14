@@ -92,5 +92,30 @@ class ExportStatus extends $pb.ProtobufEnum {
   const ExportStatus._(super.value, super.name);
 }
 
+/// The archive an export is delivered as. UNSPECIFIED and JSON are the single JSON object (the default). ZIP is a ZIP
+/// archive with one JSON file per area; it is honoured only while FEATURE_EXPORT_ZIP is on for the caller and otherwise
+/// falls back to JSON, which the response's format says.
+class ExportFormat extends $pb.ProtobufEnum {
+  static const ExportFormat EXPORT_FORMAT_UNSPECIFIED =
+      ExportFormat._(0, _omitEnumNames ? '' : 'EXPORT_FORMAT_UNSPECIFIED');
+  static const ExportFormat EXPORT_FORMAT_JSON =
+      ExportFormat._(1, _omitEnumNames ? '' : 'EXPORT_FORMAT_JSON');
+  static const ExportFormat EXPORT_FORMAT_ZIP =
+      ExportFormat._(2, _omitEnumNames ? '' : 'EXPORT_FORMAT_ZIP');
+
+  static const $core.List<ExportFormat> values = <ExportFormat>[
+    EXPORT_FORMAT_UNSPECIFIED,
+    EXPORT_FORMAT_JSON,
+    EXPORT_FORMAT_ZIP,
+  ];
+
+  static final $core.List<ExportFormat?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static ExportFormat? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const ExportFormat._(super.value, super.name);
+}
+
 const $core.bool _omitEnumNames =
     $core.bool.fromEnvironment('protobuf.omit_enum_names');

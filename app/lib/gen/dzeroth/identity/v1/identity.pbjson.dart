@@ -69,6 +69,21 @@ final $typed_data.Uint8List exportStatusDescriptor = $convert.base64Decode(
     '9TVEFUVVNfUEVORElORxABEhcKE0VYUE9SVF9TVEFUVVNfUkVBRFkQAhIYChRFWFBPUlRfU1RB'
     'VFVTX0ZBSUxFRBAD');
 
+@$core.Deprecated('Use exportFormatDescriptor instead')
+const ExportFormat$json = {
+  '1': 'ExportFormat',
+  '2': [
+    {'1': 'EXPORT_FORMAT_UNSPECIFIED', '2': 0},
+    {'1': 'EXPORT_FORMAT_JSON', '2': 1},
+    {'1': 'EXPORT_FORMAT_ZIP', '2': 2},
+  ],
+};
+
+/// Descriptor for `ExportFormat`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List exportFormatDescriptor = $convert.base64Decode(
+    'CgxFeHBvcnRGb3JtYXQSHQoZRVhQT1JUX0ZPUk1BVF9VTlNQRUNJRklFRBAAEhYKEkVYUE9SVF'
+    '9GT1JNQVRfSlNPThABEhUKEUVYUE9SVF9GT1JNQVRfWklQEAI=');
+
 @$core.Deprecated('Use profileDescriptor instead')
 const Profile$json = {
   '1': 'Profile',
@@ -541,6 +556,14 @@ const RequestAccountExportRequest$json = {
   '1': 'RequestAccountExportRequest',
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {
+      '1': 'format',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.identity.v1.ExportFormat',
+      '10': 'format'
+    },
   ],
 };
 
@@ -548,7 +571,8 @@ const RequestAccountExportRequest$json = {
 final $typed_data.Uint8List requestAccountExportRequestDescriptor =
     $convert.base64Decode(
         'ChtSZXF1ZXN0QWNjb3VudEV4cG9ydFJlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg'
-        '5pZGVtcG90ZW5jeUtleQ==');
+        '5pZGVtcG90ZW5jeUtleRI5CgZmb3JtYXQYAiABKA4yIS5kemVyb3RoLmlkZW50aXR5LnYxLkV4'
+        'cG9ydEZvcm1hdFIGZm9ybWF0');
 
 @$core.Deprecated('Use requestAccountExportResponseDescriptor instead')
 const RequestAccountExportResponse$json = {
@@ -563,15 +587,23 @@ const RequestAccountExportResponse$json = {
       '6': '.dzeroth.identity.v1.ExportStatus',
       '10': 'status'
     },
+    {
+      '1': 'format',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.identity.v1.ExportFormat',
+      '10': 'format'
+    },
   ],
 };
 
 /// Descriptor for `RequestAccountExportResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List requestAccountExportResponseDescriptor =
-    $convert.base64Decode(
-        'ChxSZXF1ZXN0QWNjb3VudEV4cG9ydFJlc3BvbnNlEhsKCWV4cG9ydF9pZBgBIAEoCVIIZXhwb3'
-        'J0SWQSOQoGc3RhdHVzGAIgASgOMiEuZHplcm90aC5pZGVudGl0eS52MS5FeHBvcnRTdGF0dXNS'
-        'BnN0YXR1cw==');
+final $typed_data.Uint8List requestAccountExportResponseDescriptor = $convert.base64Decode(
+    'ChxSZXF1ZXN0QWNjb3VudEV4cG9ydFJlc3BvbnNlEhsKCWV4cG9ydF9pZBgBIAEoCVIIZXhwb3'
+    'J0SWQSOQoGc3RhdHVzGAIgASgOMiEuZHplcm90aC5pZGVudGl0eS52MS5FeHBvcnRTdGF0dXNS'
+    'BnN0YXR1cxI5CgZmb3JtYXQYAyABKA4yIS5kemVyb3RoLmlkZW50aXR5LnYxLkV4cG9ydEZvcm'
+    '1hdFIGZm9ybWF0');
 
 @$core.Deprecated('Use getAccountExportRequestDescriptor instead')
 const GetAccountExportRequest$json = {
@@ -616,6 +648,14 @@ const GetAccountExportResponse$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'expiresAt'
     },
+    {
+      '1': 'format',
+      '3': 6,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.identity.v1.ExportFormat',
+      '10': 'format'
+    },
   ],
 };
 
@@ -626,7 +666,8 @@ final $typed_data.Uint8List getAccountExportResponseDescriptor = $convert.base64
     'dHVzEiEKDGRvd25sb2FkX3VybBgDIAEoCVILZG93bmxvYWRVcmwSUQoXZG93bmxvYWRfdXJsX2'
     'V4cGlyZXNfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUhRkb3dubG9hZFVy'
     'bEV4cGlyZXNBdBI5CgpleHBpcmVzX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdG'
-    'FtcFIJZXhwaXJlc0F0');
+    'FtcFIJZXhwaXJlc0F0EjkKBmZvcm1hdBgGIAEoDjIhLmR6ZXJvdGguaWRlbnRpdHkudjEuRXhw'
+    'b3J0Rm9ybWF0UgZmb3JtYXQ=');
 
 const $core.Map<$core.String, $core.dynamic> IdentityServiceBase$json = {
   '1': 'IdentityService',

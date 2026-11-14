@@ -74,6 +74,9 @@ const kTabletFlagModes = <String, Set<String>>{
 const kContextPaneRigPaths = <String>[
   '/home',
   '/explore',
+  '/explore/trending',
+  '/explore/media',
+  '/post/:id/photo/:index',
   '/notifications',
   '/search',
   '/follow-requests',

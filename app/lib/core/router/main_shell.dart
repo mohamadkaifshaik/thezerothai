@@ -630,7 +630,11 @@ class MainShell extends StatelessWidget {
                 const MessagesSideCard(),
               // "What's happening": the top 5 trends; draws nothing unless
               // `search` + `trends` are on and the shared list has rows.
-              if (exploreEntry) const WhatsHappeningCard(),
+              // Not beside Explore and its See all pages: they list the
+              // trends themselves.
+              if (exploreEntry &&
+                  !sidePaneLocation.startsWith(AppRouter.explorePath))
+                const WhatsHappeningCard(),
               // The profile's latest images (the desktop Profile mock's Media
               // grid): the page lends the strip over its own Media tab feed,
               // through a slot. Only on a profile, with `posts` and

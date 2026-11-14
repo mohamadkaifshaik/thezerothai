@@ -51,8 +51,13 @@ const (
 
 	// exportRPC is the operation name hashed into the export id with the caller's idempotency key.
 	exportRPC = "RequestAccountExport"
+	// exportRPCZip is the operation name for a ZIP export: a different id, so the same key never returns the other
+	// format's doc from a replay (a PENDING export of either format still answers any new request, see below).
+	exportRPCZip = "RequestAccountExport/zip"
 	// exportFilename is what a downloaded export is called.
 	exportFilename = "dzeroth-export.json"
+	// exportFilenameZip is what a downloaded ZIP export is called.
+	exportFilenameZip = "dzeroth-export.zip"
 	// Built-in step names (reserved: a registered eraser cannot use them).
 	stepAuthDisable = "auth_disable"
 	stepIdentity    = "identity"
@@ -356,7 +361,14 @@ func exportNotFound() error {
 // A new key while the user already has a PENDING export returns that export instead of starting a second expensive job,
 // and is handled like a replay of it. The app polls whichever export comes back, so this needs no client change.
 func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKey string) (ExportView, error) {
+	return l.RequestAccountExportFormat(ctx, uid, idempotencyKey, ExportFormatJSON)
+}
+
+// RequestAccountExportFormat is RequestAccountExport for an explicit format. The format picks the id's operation name
+// and the object's suffix; everything else (the one-export-at-a-time rule, replays, publish) is shared.
+func (l *Lifecycle) RequestAccountExportFormat(ctx context.Context, uid, idempotencyKey string, format ExportFormat) (ExportView, error) {
 	logger.SetRequestField(ctx, "account_op", "export_request")
+	logger.SetRequestField(ctx, "export_format", formatLabel(format))
 	if idempotencyKeyIssue(idempotencyKey) {
 		logger.SetRequestField(ctx, "outcome", "rejected:validation")
 		return ExportView{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
@@ -365,10 +377,14 @@ func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKe
 		logger.SetRequestField(ctx, "outcome", "rejected:unavailable")
 		return ExportView{}, apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "data export is not available right now")
 	}
-	id := idempotency.Key(uid, exportRPC, idempotencyKey)
+	rpc := exportRPC
+	if format == ExportFormatZIP {
+		rpc = exportRPCZip
+	}
+	id := idempotency.Key(uid, rpc, idempotencyKey)
 	now := l.stamp()
 	doc, replay, err := l.repo.CreateExport(ctx, CreateExportParams{
-		ID: id, UID: uid, ObjectPath: id + ".json", Now: now, Retention: l.retention, GiveUpBefore: now.Add(-exportFailAfter),
+		ID: id, UID: uid, ObjectPath: id + format.objectSuffix(), Format: format, Now: now, Retention: l.retention, GiveUpBefore: now.Add(-exportFailAfter),
 	})
 	if err != nil {
 		if store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded {
@@ -392,7 +408,15 @@ func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKe
 			mw.ReportError(ctx, l.log, "account_export_enqueue_failed", logger.RedactErr(fmt.Errorf("account_export_enqueue_failed: %w", err), uid))
 		}
 	}
-	return ExportView{ID: doc.ID, Status: doc.Status, ExpiresAt: doc.ExpireAt}, nil
+	return ExportView{ID: doc.ID, Status: doc.Status, Format: doc.Format, ExpiresAt: doc.ExpireAt}, nil
+}
+
+// formatLabel is the log value for an export format.
+func formatLabel(f ExportFormat) string {
+	if f == ExportFormatZIP {
+		return "zip"
+	}
+	return "json"
 }
 
 // GetAccountExport: one fresh read, never a write. An unknown id, another user's id, a malformed id and an expired
@@ -420,14 +444,14 @@ func (l *Lifecycle) GetAccountExport(ctx context.Context, uid, exportID string, 
 	}
 	logger.SetRequestField(ctx, "export_status", string(doc.Status))
 	logger.SetRequestField(ctx, "outcome", "ok")
-	view := ExportView{ID: doc.ID, Status: doc.Status, ExpiresAt: doc.ExpireAt}
+	view := ExportView{ID: doc.ID, Status: doc.Status, Format: doc.Format, ExpiresAt: doc.ExpireAt}
 	if doc.Status != ExportReady || !withURL {
 		return view, nil
 	}
 	if l.objects == nil {
 		return ExportView{}, errors.New("identity: export is READY but no export bucket is configured")
 	}
-	u, err := l.objects.SignedGetURL(ctx, doc.ObjectPath, exportFilename, l.urlTTL, now)
+	u, err := l.objects.SignedGetURL(ctx, doc.ObjectPath, doc.Format.filename(), l.urlTTL, now)
 	if err != nil {
 		return ExportView{}, fmt.Errorf("identity: sign export url: %w", err)
 	}

@@ -187,6 +187,7 @@ class AccountCubit extends Cubit<AccountState> {
   /// re-authentication starts.
   Future<AccountExport?> requestExport({
     required PasswordPrompt promptPassword,
+    bool zip = false,
   }) async {
     if (isClosed || state.status == AccountStatus.working) return null;
     final generation = ++_generation;
@@ -196,7 +197,7 @@ class AccountCubit extends Cubit<AccountState> {
       await _reauthenticate(promptPassword, revokeApple: false);
       if (_stale(generation)) return null;
       final export = await _withReauth(
-        () => _accounts.requestExport(idempotencyKey: key),
+        () => _accounts.requestExport(idempotencyKey: key, zip: zip),
         promptPassword,
         generation,
         revokeApple: false,

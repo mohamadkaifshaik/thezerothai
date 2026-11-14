@@ -1582,9 +1582,11 @@ class DeleteAccountResponse extends $pb.GeneratedMessage {
 class RequestAccountExportRequest extends $pb.GeneratedMessage {
   factory RequestAccountExportRequest({
     $core.String? idempotencyKey,
+    ExportFormat? format,
   }) {
     final result = RequestAccountExportRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (format != null) result.format = format;
     return result;
   }
 
@@ -1603,6 +1605,8 @@ class RequestAccountExportRequest extends $pb.GeneratedMessage {
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
       createEmptyInstance: RequestAccountExportRequest.$_createMessage)
     ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aE<ExportFormat>(2, _omitFieldNames ? '' : 'format',
+        enumValues: ExportFormat.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1641,16 +1645,28 @@ class RequestAccountExportRequest extends $pb.GeneratedMessage {
   $core.bool hasIdempotencyKey() => $_has(0);
   @$pb.TagNumber(1)
   void clearIdempotencyKey() => $_clearField(1);
+
+  /// Additive. Left out (UNSPECIFIED) means JSON. A replay or an already PENDING export answers with that export's format.
+  @$pb.TagNumber(2)
+  ExportFormat get format => $_getN(1);
+  @$pb.TagNumber(2)
+  set format(ExportFormat value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFormat() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFormat() => $_clearField(2);
 }
 
 class RequestAccountExportResponse extends $pb.GeneratedMessage {
   factory RequestAccountExportResponse({
     $core.String? exportId,
     ExportStatus? status,
+    ExportFormat? format,
   }) {
     final result = RequestAccountExportResponse._();
     if (exportId != null) result.exportId = exportId;
     if (status != null) result.status = status;
+    if (format != null) result.format = format;
     return result;
   }
 
@@ -1671,6 +1687,8 @@ class RequestAccountExportResponse extends $pb.GeneratedMessage {
     ..aOS(1, _omitFieldNames ? '' : 'exportId')
     ..aE<ExportStatus>(2, _omitFieldNames ? '' : 'status',
         enumValues: ExportStatus.values)
+    ..aE<ExportFormat>(3, _omitFieldNames ? '' : 'format',
+        enumValues: ExportFormat.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1718,6 +1736,16 @@ class RequestAccountExportResponse extends $pb.GeneratedMessage {
   $core.bool hasStatus() => $_has(1);
   @$pb.TagNumber(2)
   void clearStatus() => $_clearField(2);
+
+  /// The format of the export that was returned (it may be an earlier request's export; see RequestAccountExport).
+  @$pb.TagNumber(3)
+  ExportFormat get format => $_getN(2);
+  @$pb.TagNumber(3)
+  set format(ExportFormat value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFormat() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFormat() => $_clearField(3);
 }
 
 class GetAccountExportRequest extends $pb.GeneratedMessage {
@@ -1787,6 +1815,7 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
     $core.String? downloadUrl,
     $0.Timestamp? downloadUrlExpiresAt,
     $0.Timestamp? expiresAt,
+    ExportFormat? format,
   }) {
     final result = GetAccountExportResponse._();
     if (exportId != null) result.exportId = exportId;
@@ -1795,6 +1824,7 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
     if (downloadUrlExpiresAt != null)
       result.downloadUrlExpiresAt = downloadUrlExpiresAt;
     if (expiresAt != null) result.expiresAt = expiresAt;
+    if (format != null) result.format = format;
     return result;
   }
 
@@ -1820,6 +1850,8 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
         subBuilder: $0.Timestamp.$_createMessage)
     ..aOM<$0.Timestamp>(5, _omitFieldNames ? '' : 'expiresAt',
         subBuilder: $0.Timestamp.$_createMessage)
+    ..aE<ExportFormat>(6, _omitFieldNames ? '' : 'format',
+        enumValues: ExportFormat.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1899,6 +1931,16 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
   void clearExpiresAt() => $_clearField(5);
   @$pb.TagNumber(5)
   $0.Timestamp ensureExpiresAt() => $_ensure(4);
+
+  /// The format of this export: the download is a ZIP archive or the JSON object.
+  @$pb.TagNumber(6)
+  ExportFormat get format => $_getN(5);
+  @$pb.TagNumber(6)
+  set format(ExportFormat value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasFormat() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearFormat() => $_clearField(6);
 }
 
 class IdentityServiceApi {

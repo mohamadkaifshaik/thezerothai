@@ -18,11 +18,20 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // AccountLifecycleFlag is the wire name of FEATURE_ACCOUNT_LIFECYCLE, the flag guarding DeleteAccount,
 // RequestAccountExport and GetAccountExport.
 const AccountLifecycleFlag = "account_lifecycle"
+
+// HandleSuggestionsFlag is the wire name of FEATURE_HANDLE_SUGGESTIONS, the flag guarding SuggestHandles and the
+// `feature` metadata of its FEATURE_DISABLED.
+const HandleSuggestionsFlag = "handle_suggestions"
+
+// ExportZipFlag gates the ZIP archive format of an export (FEATURE_EXPORT_ZIP). Off for the caller, a ZIP request is
+// served as the JSON object: the format is additive and the response's format says which one came back.
+const ExportZipFlag = "export_zip"
 
 // FlagChecker is the minimal seam identity's server needs from pkg/platform/flags.Registry. It is
 // separate from FeatureFlags (api.go, used by the service for GetMe.enabled_features): the handler guards RPCs
@@ -119,6 +128,30 @@ func (s *Server) CheckHandleAvailability(ctx context.Context, req *connect.Reque
 		return nil, err
 	}
 	return connect.NewResponse(&identityv1.CheckHandleAvailabilityResponse{Available: available, Reason: reason}), nil
+}
+
+// SuggestHandles answers up to 5 free handles derived from the one the caller tried. It sits behind
+// FEATURE_HANDLE_SUGGESTIONS on for the caller: off is FAILED_PRECONDITION + FEATURE_DISABLED with metadata
+// feature=handle_suggestions, before any Firestore access. It is profile-exempt and shares CheckHandleAvailability's
+// limiter bucket and verified-identity gate (apiserver/ratelimit_config.go). It writes nothing.
+func (s *Server) SuggestHandles(ctx context.Context, req *connect.Request[identityv1.SuggestHandlesRequest]) (*connect.Response[identityv1.SuggestHandlesResponse], error) {
+	uid, err := callerUID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var enabled func(uid, name string) bool
+	if s.flags != nil {
+		enabled = s.flags.Enabled
+	}
+	if err := flags.Guard(ctx, enabled, uid, HandleSuggestionsFlag); err != nil {
+		logger.SetRequestField(ctx, "feature", HandleSuggestionsFlag)
+		return nil, flags.DisabledError().WithMeta("feature", HandleSuggestionsFlag)
+	}
+	handles, err := s.svc.SuggestHandles(ctx, req.Msg.GetHandle())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&identityv1.SuggestHandlesResponse{Handles: handles}), nil
 }
 
 func (s *Server) GetMe(ctx context.Context, _ *connect.Request[identityv1.GetMeRequest]) (*connect.Response[identityv1.GetMeResponse], error) {
@@ -247,11 +280,20 @@ func (s *Server) RequestAccountExport(ctx context.Context, req *connect.Request[
 	if err := authn.RequireRecentSignIn(ctx, s.reauthMaxAge, s.now()); err != nil {
 		return nil, err
 	}
-	view, err := s.lifecycle.RequestAccountExport(ctx, uid, req.Msg.GetIdempotencyKey())
+	format := exportFormatFromProto(req.Msg.GetFormat())
+	if format == ExportFormatZIP && !s.flagOn(uid, ExportZipFlag) {
+		format = ExportFormatJSON
+	}
+	view, err := s.lifecycle.RequestAccountExportFormat(ctx, uid, req.Msg.GetIdempotencyKey(), format)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&identityv1.RequestAccountExportResponse{ExportId: view.ID, Status: toProtoExportStatus(view.Status)}), nil
+	return connect.NewResponse(&identityv1.RequestAccountExportResponse{ExportId: view.ID, Status: toProtoExportStatus(view.Status), Format: toProtoExportFormat(view.Format)}), nil
+}
+
+// flagOn reports whether a flag is on for uid; no checker wired means off.
+func (s *Server) flagOn(uid, name string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, name)
 }
 
 func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[identityv1.GetAccountExportRequest]) (*connect.Response[identityv1.GetAccountExportResponse], error) {
@@ -279,6 +321,7 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 		ExportId:  view.ID,
 		Status:    toProtoExportStatus(view.Status),
 		ExpiresAt: timestamppb.New(view.ExpiresAt),
+		Format:    toProtoExportFormat(view.Format),
 	}
 	if recent {
 		resp.DownloadUrl = view.DownloadURL
@@ -287,6 +330,22 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 		}
 	}
 	return connect.NewResponse(resp), nil
+}
+
+// exportFormatFromProto maps the request's format; UNSPECIFIED and anything unknown mean JSON.
+func exportFormatFromProto(f identityv1.ExportFormat) ExportFormat {
+	if f == identityv1.ExportFormat_EXPORT_FORMAT_ZIP {
+		return ExportFormatZIP
+	}
+	return ExportFormatJSON
+}
+
+// toProtoExportFormat maps a stored format; an export written before the format existed is JSON.
+func toProtoExportFormat(f ExportFormat) identityv1.ExportFormat {
+	if f == ExportFormatZIP {
+		return identityv1.ExportFormat_EXPORT_FORMAT_ZIP
+	}
+	return identityv1.ExportFormat_EXPORT_FORMAT_JSON
 }
 
 func toProtoExportStatus(s ExportStatus) identityv1.ExportStatus {
