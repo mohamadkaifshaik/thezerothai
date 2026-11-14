@@ -347,13 +347,26 @@ enum ExportStatus {
   EXPORT_STATUS_FAILED = 3;
 }
 
+// The archive an export is delivered as. UNSPECIFIED and JSON are the single JSON object (the default). ZIP is a ZIP
+// archive with one JSON file per area; it is honoured only while FEATURE_EXPORT_ZIP is on for the caller and otherwise
+// falls back to JSON, which the response's format says.
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  EXPORT_FORMAT_JSON = 1;
+  EXPORT_FORMAT_ZIP = 2;
+}
+
 message RequestAccountExportRequest {
   string idempotency_key = 1;
+  // Additive. Left out (UNSPECIFIED) means JSON. A replay or an already PENDING export answers with that export's format.
+  ExportFormat format = 2;
 }
 
 message RequestAccountExportResponse {
   string export_id = 1;
   ExportStatus status = 2;
+  // The format of the export that was returned (it may be an earlier request's export; see RequestAccountExport).
+  ExportFormat format = 3;
 }
 
 message GetAccountExportRequest {
@@ -370,4 +383,6 @@ message GetAccountExportResponse {
   // exports doc (Firestore TTL) are deleted after it; both delete late, so the server returns NOT_FOUND from this
   // time on. Deleting the account deletes its exports at once.
   google.protobuf.Timestamp expires_at = 5;
+  // The format of this export: the download is a ZIP archive or the JSON object.
+  ExportFormat format = 6;
 }
