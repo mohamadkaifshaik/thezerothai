@@ -155,7 +155,7 @@ func TestRepo_LikeRepostCycle(t *testing.T) {
 	if _, err := e.repo.Like(ctx, LikeParams{UID: "u3", PostID: pid}); !errors.Is(err, ErrPostGone) {
 		t.Errorf("Like of a deleted post = %v, want ErrPostGone", err)
 	}
-	if removed, err := e.repo.Unlike(ctx, "u3", pid); err != nil || removed {
+	if removed, err := e.repo.Unlike(ctx, "u3", pid, 0); err != nil || removed {
 		t.Errorf("Unlike of nothing: removed=%v err=%v", removed, err)
 	}
 }
@@ -296,7 +296,7 @@ func TestRepo_Rule4Replays(t *testing.T) {
 	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid}); err != nil || replayed {
 		t.Fatalf("Like: replayed=%v err=%v", replayed, err)
 	}
-	if removed, err := e.repo.Unlike(context.Background(), uid, pid); err != nil || !removed {
+	if removed, err := e.repo.Unlike(context.Background(), uid, pid, 0); err != nil || !removed {
 		t.Fatalf("Unlike: removed=%v err=%v", removed, err)
 	}
 	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid}); err != nil || replayed {

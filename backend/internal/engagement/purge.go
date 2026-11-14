@@ -49,7 +49,7 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 	}
 	switch cp.Step {
 	case purgeStepLikes:
-		n, full, err := r.purgePage(ctx, uid, likesCollection, r.w.Writer.StageLikeCount)
+		n, full, err := r.purgePage(ctx, uid, likesCollection, cold(r.w.Writer.StageLikeCount))
 		if err != nil {
 			return cp, false, err
 		}
@@ -59,7 +59,7 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 		}
 		return next, false, nil
 	case purgeStepReposts:
-		n, full, err := r.purgePage(ctx, uid, repostsCollection, r.w.Writer.StageRepostCount)
+		n, full, err := r.purgePage(ctx, uid, repostsCollection, cold(r.w.Writer.StageRepostCount))
 		if err != nil {
 			return cp, false, err
 		}
@@ -69,7 +69,7 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 		}
 		return next, false, nil
 	case purgeStepShares:
-		n, full, err := r.purgePage(ctx, uid, postSharesCollection, r.w.Writer.StageShareCount)
+		n, full, err := r.purgePage(ctx, uid, postSharesCollection, cold(r.w.Writer.StageShareCount))
 		if err != nil {
 			return cp, false, err
 		}
@@ -87,6 +87,12 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 		slog.InfoContext(ctx, "engagement_purge_done", "uid_hash", logger.HashUID(uid), "deleted_total", cp.Deleted)
 		return Checkpoint{Step: purgeStepDoc, Deleted: cp.Deleted}, true, nil
 	}
+}
+
+// cold adapts a counter stager to the purge's -1: the purge reads no post, so it passes known = 0 (always the plain
+// Increment, exactly as before hot counters) and has no marker to record.
+func cold(stage func(b store.Batch, postID string, delta, known int64) func()) func(store.Batch, string, int64) {
+	return func(b store.Batch, postID string, delta int64) { stage(b, postID, delta, 0) }
 }
 
 // purgePage deletes up to purgePage docs of the user's likes, reposts or share markers with their post's counter

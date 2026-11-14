@@ -364,7 +364,7 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	// wrote nothing, gives up on its own context.
 	ch, leader := s.likeFlight.do(uid+"/"+target.ID, func() (any, error) {
 		fctx := context.WithoutCancel(ctx) // runTx bounds the transaction with txTimeout
-		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID})
+		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID, Known: target.LikeCount})
 		if err != nil {
 			return nil, err
 		}
@@ -499,7 +499,11 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 	if err != nil {
 		return Result{}, logger.RedactErr(fmt.Errorf("engagement: unlike: load post: %w", err), uid)
 	}
-	removed, err := s.d.Repo.Unlike(ctx, uid, id)
+	var known int64 // the likeCount as read routes the counter write (hot posts: their shards); 0 = cold when not found
+	if found {
+		known = target.LikeCount
+	}
+	removed, err := s.d.Repo.Unlike(ctx, uid, id, known)
 	if err != nil {
 		return Result{}, logger.RedactErrPosts(fmt.Errorf("engagement: unlike: %w", err), []string{postID, id}, uid)
 	}

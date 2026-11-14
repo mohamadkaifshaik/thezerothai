@@ -197,6 +197,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// attachment) and job publisher. The jobs publisher is lazy (no I/O before ListenAndServe) and is also the
 	// account lifecycle's. The identity directory media needs is bound after identity is built.
 	postsRepo := posts.NewFirestoreRepo(fsClient)
+	// HOT_COUNTER_THRESHOLD (0 = off): likes, reposts and shares of a post at or past it go to its shards, folded by the
+	// view rollup's counter half on every tick (hot counters design 2026-11-14).
+	postsRepo.SetHotCounterThreshold(cfg.HotCounterThreshold)
 	snowflakeNode, err := snowflake.NewNode()
 	if err != nil {
 		return nil, nil, fmt.Errorf("snowflake node: %w", err)

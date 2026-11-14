@@ -1,7 +1,8 @@
 // repo_engagement.go holds the storage paths engagement drives through posts' seams. posts owns
 // posts/*, so every write to a post doc made on behalf of a like, a repost, a quote or its clean-up lives here:
 //
-//	batch staging (EngagementWriter): likeCount / repostCount / shareCount increments, the REPOST create, the REPOST delete
+//	batch staging (EngagementWriter): likeCount / repostCount / shareCount increments (plain, or on the post's shards
+//	  once it is hot: HOT_COUNTER_THRESHOLD), the REPOST create, the REPOST delete
 //	opsctl recount-shares (ShareCounter): read and set posts/{id}.shareCount
 //	clean-up (Cleanup): RemoveReposts, TombstoneQuotes
 //	  Q-O  posts where repostOfId == X LIMIT n         -> automatic single-field index
@@ -25,6 +26,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/shardcount"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -35,14 +37,25 @@ const CleanupPage = 100
 // EngagementWriter is the batch-staging seam engagement uses to change posts docs inside its own transaction or
 // batch (the identity.Counters pattern: posts appends, engagement commits). *FirestoreRepo implements it.
 type EngagementWriter interface {
-	// StageLikeCount appends FieldValue.Increment(delta) on posts/{id}.likeCount. The Update carries an implicit
-	// Exists precondition, so a post deleted in between fails the commit with NotFound.
-	StageLikeCount(b store.Batch, postID string, delta int64)
+	// StageLikeCount appends the change of posts/{id}.likeCount by delta. known is the post's likeCount as the caller
+	// read it (0 when it has none: every clean-up path). Cold (HOT_COUNTER_THRESHOLD off, or known below it): one
+	// FieldValue.Increment(delta) Update of the post; it carries an implicit Exists precondition, so a post deleted in
+	// between fails the commit with NotFound. Hot: the delta goes to one random shard of posts/{id}/viewShards (field
+	// likeCount) plus the post's counter rollup marker, which carry NO precondition on the post: a caller that needs the
+	// post to exist calls GuardHot in its transaction first. committed must be called once the unit of work committed
+	// (it records the marker in the memo, as ViewWriter.StageViews); it is a no-op on the cold path, and a transaction
+	// body that re-runs keeps only its last one.
+	StageLikeCount(b store.Batch, postID string, delta, known int64) (committed func())
 	// StageRepostCount is StageLikeCount for repostCount.
-	StageRepostCount(b store.Batch, postID string, delta int64)
-	// StageShareCount is StageLikeCount for shareCount (the postShares marker's counter, shares design D4). The one
-	// share counter helper: a later sharded counter replaces its body, not its callers.
-	StageShareCount(b store.Batch, postID string, delta int64)
+	StageRepostCount(b store.Batch, postID string, delta, known int64) (committed func())
+	// StageShareCount is StageLikeCount for shareCount (the postShares marker's counter, shares design D4).
+	StageShareCount(b store.Batch, postID string, delta, known int64) (committed func())
+	// GuardHot is the existence check of a hot counter write, which has lost the Update's implicit Exists: when a write
+	// with known would take the hot path, it reads posts/{id} in tx (a read, so it must come before every write of the
+	// transaction) and answers ErrNotFound when the post is gone; on the cold path it reads nothing and answers nil.
+	GuardHot(tx *firestore.Transaction, postID string, known int64) error
+	// Hot reports whether a counter write with known takes the hot path (HOT_COUNTER_THRESHOLD > 0 and known >= it).
+	Hot(known int64) bool
 	// StagePollVote appends the blind counter bump of one vote: Increment(poll.counts.<choice>) and Increment(poll.total) on
 	// posts/{id} in ONE Update (one write), with the implicit Exists precondition, so a post deleted in between fails the commit
 	// with NotFound. The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric
@@ -89,19 +102,66 @@ var (
 // Call once at startup (the service has its own SetRepostLinks). Any RepostLinks satisfies it.
 func (r *FirestoreRepo) SetRepostLinks(l ReleaseStager) { r.links = l }
 
+// SetHotCounterThreshold installs HOT_COUNTER_THRESHOLD (startup, and tests): 0 (the default) keeps every counter write
+// cold. Per repo rather than process-wide, so opsctl and tests that build their own repo stay cold unless they ask.
+func (r *FirestoreRepo) SetHotCounterThreshold(n int64) { r.hotThreshold = max(n, 0) }
+
+// Hot implements EngagementWriter.
+func (r *FirestoreRepo) Hot(known int64) bool { return r.hotThreshold > 0 && known >= r.hotThreshold }
+
+// GuardHot implements EngagementWriter. The database runs with OPTIMISTIC concurrency (infra/terraform/modules/firestore):
+// the read takes no lock, and the transaction fails at commit (and is retried) only when the post doc itself was
+// written in between (a rollup fold, a cold Increment, an edit). Hot writers never write the post doc, so concurrent
+// hot likers do not conflict with each other on it.
+func (r *FirestoreRepo) GuardHot(tx *firestore.Transaction, postID string, known int64) error {
+	if !r.Hot(known) {
+		return nil
+	}
+	_, err := tx.Get(r.ref(postID))
+	switch {
+	case status.Code(err) == codes.NotFound:
+		return ErrNotFound
+	case err != nil:
+		return fmt.Errorf("posts: read hot post: %w", err)
+	}
+	return nil
+}
+
 // StageLikeCount implements EngagementWriter.
-func (r *FirestoreRepo) StageLikeCount(b store.Batch, postID string, delta int64) {
-	bumpCount(b, r.ref(postID), "likeCount", delta)
+func (r *FirestoreRepo) StageLikeCount(b store.Batch, postID string, delta, known int64) func() {
+	return r.stageCounter(b, postID, likeCountField, delta, known)
 }
 
 // StageRepostCount implements EngagementWriter.
-func (r *FirestoreRepo) StageRepostCount(b store.Batch, postID string, delta int64) {
-	bumpCount(b, r.ref(postID), "repostCount", delta)
+func (r *FirestoreRepo) StageRepostCount(b store.Batch, postID string, delta, known int64) func() {
+	return r.stageCounter(b, postID, repostCountField, delta, known)
 }
 
 // StageShareCount implements EngagementWriter.
-func (r *FirestoreRepo) StageShareCount(b store.Batch, postID string, delta int64) {
-	bumpCount(b, r.ref(postID), "shareCount", delta)
+func (r *FirestoreRepo) StageShareCount(b store.Batch, postID string, delta, known int64) func() {
+	return r.stageCounter(b, postID, shareCountField, delta, known)
+}
+
+// stageCounter routes one counter change: cold is exactly the plain Increment it always was (bumpCount); hot is one
+// shard increment of the same field name on posts/{id}/viewShards plus the counter marker (repo_views.go), which the
+// rollup folds into the plain field with a delta fold on its next tick. A stale hot decision is harmless either way: the
+// plain field stays the source of truth and the fold only adds what the shards hold.
+func (r *FirestoreRepo) stageCounter(b store.Batch, postID string, field firestore.FieldPath, delta, known int64) func() {
+	if !r.Hot(known) {
+		bumpCount(b, r.ref(postID), field[0], delta)
+		return func() {}
+	}
+	viewShards.StageIncrement(b, r.ref(postID), shardcount.Delta{Field: field, N: delta})
+	return r.stageMarkers(b, counterMarkers, []string{postID}, r.clock())
+}
+
+// clock is the hot path's time: the marker window is taken when the write is staged (the rollup's foldBefore grace
+// covers a commit that lands after that window closed).
+func (r *FirestoreRepo) clock() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
 }
 
 // ShareCounter is the operator seam of opsctl recount-shares: the stored shareCount of one post, fresh from Firestore,

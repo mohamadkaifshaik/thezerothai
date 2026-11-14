@@ -154,24 +154,39 @@ func (r *FirestoreRepo) runTx(ctx context.Context, fn store.TxnFunc) (int, error
 	return total, err
 }
 
-// Like implements Repo: one transaction that writes the like doc, likeCount and userLikes.
+// Like implements Repo: one transaction that writes the like doc, likeCount and userLikes. On a hot post
+// (p.Known at or above HOT_COUNTER_THRESHOLD) the count goes to the post's shards, which carry no precondition, so the
+// transaction first reads the post (GuardHot): a post that is gone is still ErrPostGone with nothing written.
 func (r *FirestoreRepo) Like(ctx context.Context, p LikeParams) (bool, error) {
 	if err := r.ready(); err != nil {
 		return false, err
 	}
+	var committed func()
 	attempts, err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		committed = nil
+		if err := r.w.Writer.GuardHot(tx, p.PostID, p.Known); err != nil {
+			return err
+		}
 		b := store.NewFirestoreTxBatch(tx)
 		now := r.now().UTC()
 		b.Create(r.likeRef(p.PostID, p.UID), likeDoc{PostID: p.PostID, UID: p.UID, CreatedAt: now})
-		r.w.Writer.StageLikeCount(b, p.PostID, 1)
+		done := r.w.Writer.StageLikeCount(b, p.PostID, 1, p.Known)
 		b.Set(r.userLikesRef(p.UID), map[string]any{
 			"recent": firestore.ArrayUnion(p.PostID), "updatedAt": now,
 		}, firestore.MergeAll)
-		return b.Err()
+		if err := b.Err(); err != nil {
+			return err
+		}
+		committed = done
+		return nil
 	})
 	store.NoteTxnAttempts(ctx, "engagement_txn_contention", attempts)
+	if errors.Is(err, posts.ErrNotFound) {
+		return false, ErrPostGone // the hot path's read found no post
+	}
 	switch status.Code(err) {
 	case codes.OK:
+		committed()
 		return false, nil
 	case codes.AlreadyExists:
 		return true, nil // the like exists: a replay, nothing was written
@@ -192,8 +207,12 @@ func (r *FirestoreRepo) retryConfig() store.RetryConfig {
 
 // Unlike implements Repo: one blind batch (Delete with Exists, likeCount -1, ArrayRemove). A failed
 // precondition is ambiguous (the like is absent, or the post is gone), so it is retried once without the
-// counter; failing again is the correct 0-write no-op.
-func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string) (bool, error) {
+// counter; failing again is the correct 0-write no-op. On a hot post (known) the -1 is a shard write with no
+// precondition, so the like's Exists is the batch's only one: a failure means the like is absent, the retry fails the
+// same way (the 0-write no-op). A hot unlike of a post that is gone still commits: the like is deleted, and a shard -1
+// plus a counter marker are written under the gone post; the next rollup tick finds the post gone through that marker
+// and deletes its shards (the gone path), so nothing is left behind.
+func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string, known int64) (bool, error) {
 	if err := r.ready(); err != nil {
 		return false, err
 	}
@@ -202,9 +221,10 @@ func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string) (bool, e
 			"recent": firestore.ArrayRemove(postID), "updatedAt": r.now().UTC(),
 		}, firestore.MergeAll)
 	}
+	committed := func() {}
 	res, err := store.CommitWithRetry(ctx, r.newBatch, r.retryConfig(), func(b store.Batch) {
 		b.Delete(r.likeRef(postID, uid), firestore.Exists)
-		r.w.Writer.StageLikeCount(b, postID, -1)
+		committed = r.w.Writer.StageLikeCount(b, postID, -1, known)
 		remove(b)
 	})
 	store.NoteTxnAttempts(ctx, "engagement_txn_contention", res.Attempts)
@@ -212,6 +232,7 @@ func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string) (bool, e
 		return false, fmt.Errorf("engagement: unlike: %w", err)
 	}
 	if res.Committed {
+		committed()
 		return true, nil
 	}
 	res, err = store.CommitWithRetry(ctx, r.newBatch, r.retryConfig(), func(b store.Batch) {
@@ -233,19 +254,25 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 	var err error
 	for try := 0; try <= maxIDCollisionRuns; try++ {
 		var post *posts.Post
+		var committed func()
 		var attempts int
 		attempts, err = r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-			post = nil
+			post, committed = nil, nil
 			id := r.w.IDs.Generate()
 			createdAt, err := snowflake.Time(id)
 			if err != nil {
 				return fmt.Errorf("engagement: %w", err)
 			}
 			np := posts.NewRepostPost(id, createdAt, p.Author, p.SnapshotVersion, p.Original)
+			// A hot original's repostCount goes to its shards: read it first (before any write) so a gone one is
+			// still ErrPostGone with nothing written.
+			if err := r.w.Writer.GuardHot(tx, p.Original.ID, p.Original.RepostCount); err != nil {
+				return err
+			}
 			b := store.NewFirestoreTxBatch(tx)
 			b.Create(r.repostRef(p.Original.ID, p.UID), repostDoc{PostID: p.Original.ID, UID: p.UID, RepostPostID: id, CreatedAt: createdAt.UTC()})
 			r.w.Writer.StageRepost(b, np)
-			r.w.Writer.StageRepostCount(b, p.Original.ID, 1)
+			done := r.w.Writer.StageRepostCount(b, p.Original.ID, 1, p.Original.RepostCount)
 			r.w.Counters.AddPostsCount(b, p.UID, 1)
 			b.Set(r.userLikesRef(p.UID), map[string]any{
 				"recentReposts": firestore.ArrayUnion(p.Original.ID), "updatedAt": createdAt.UTC(),
@@ -253,12 +280,16 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 			if err := b.Err(); err != nil {
 				return err
 			}
-			post = np
+			post, committed = np, done
 			return nil
 		})
 		store.NoteTxnAttempts(ctx, "engagement_txn_contention", attempts)
+		if errors.Is(err, posts.ErrNotFound) {
+			return RepostResult{}, ErrPostGone
+		}
 		switch status.Code(err) {
 		case codes.OK:
+			committed()
 			return RepostResult{Post: post}, nil
 		case codes.NotFound:
 			return RepostResult{}, ErrPostGone
@@ -306,7 +337,7 @@ func (r *FirestoreRepo) UndoRepost(ctx context.Context, uid, originalID string) 
 			b.Delete(r.repostRef(originalID, uid), firestore.Exists)
 			r.w.Writer.StageDelete(b, d.RepostPostID, false)
 			if withCount {
-				r.w.Writer.StageRepostCount(b, originalID, -1)
+				r.w.Writer.StageRepostCount(b, originalID, -1, 0) // cold: no count was read (repost removals stay plain)
 			}
 			r.w.Counters.AddPostsCount(b, uid, -1)
 			b.Set(r.userLikesRef(uid), map[string]any{
@@ -370,7 +401,7 @@ func (r *FirestoreRepo) release(ctx context.Context, originalID, uid string) err
 	for _, withCount := range []bool{true, false} {
 		b := store.NewFirestoreBatch(r.client)
 		if withCount {
-			r.w.Writer.StageRepostCount(b, originalID, -1)
+			r.w.Writer.StageRepostCount(b, originalID, -1, 0) // cold: a release reads no count
 		}
 		b.Set(r.userLikesRef(uid), upd, firestore.MergeAll)
 		err := b.Commit(ctx)
