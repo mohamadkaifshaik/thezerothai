@@ -711,6 +711,29 @@ class MessagingRepository {
     );
   }
 
+  /// People the caller may message, with the reason each is suggested
+  /// (`ListMessageSuggestions`, `dm_suggestions`; the server caps [limit] at
+  /// 20 and sends no token). Not run through the gate: its FEATURE_DISABLED
+  /// names `dm_suggestions` and must not read as messaging being off.
+  /// RATE_LIMITED is held like the list reads.
+  Future<List<pb.MessageSuggestion>> listMessageSuggestions({
+    int limit = 10,
+  }) async {
+    final held = _hold.check();
+    if (held != null) throw held;
+    try {
+      final response = await guardApiCall(
+        () => _apiClient.messaging.listMessageSuggestions(
+          pb.ListMessageSuggestionsRequest(limit: limit),
+        ),
+      );
+      return response.suggestions;
+    } on RateLimitedException catch (error) {
+      _hold.record(error);
+      rethrow;
+    }
+  }
+
   /// A list read: held while the RATE_LIMITED hold is set, and a
   /// RATE_LIMITED answer is recorded in it.
   Future<T> _readCall<T>(Future<T> Function() call) async {

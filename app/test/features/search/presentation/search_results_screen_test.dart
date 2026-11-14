@@ -603,6 +603,7 @@ class _PagedSearch extends FakeSearchRepository {
     required SearchTab tab,
     String? pageToken,
     int pageSize = 20,
+    bool fromFollowing = false,
   }) async {
     calls.add('posts:$query:${tab.name}');
     postsPageTokens.add(pageToken);
