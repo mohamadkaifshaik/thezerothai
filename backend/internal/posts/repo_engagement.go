@@ -3,7 +3,7 @@
 //
 //	batch staging (EngagementWriter): likeCount / repostCount / shareCount increments (plain, or on the post's shards
 //	  once it is hot: HOT_COUNTER_THRESHOLD), the REPOST create, the REPOST delete
-//	opsctl recount-shares (ShareCounter): read and set posts/{id}.shareCount
+//	opsctl recount-shares (ShareCounter): read and set posts/{id}.shareCount, shard-aware (repo_counter_repair.go)
 //	clean-up (Cleanup): RemoveReposts, TombstoneQuotes
 //	  Q-O  posts where repostOfId == X LIMIT n         -> automatic single-field index
 //	  Q-Q  posts where quoteOfId == X LIMIT n          -> automatic single-field index
@@ -165,49 +165,34 @@ func (r *FirestoreRepo) clock() time.Time {
 }
 
 // ShareCounter is the operator seam of opsctl recount-shares: the stored shareCount of one post, fresh from Firestore,
-// and its repair. *FirestoreRepo implements it.
+// and its repair. Both are shard-aware (repo_counter_repair.go): a hot post may hold part of its count as pending deltas
+// on its viewShards until the next rollup tick. *FirestoreRepo implements it.
 type ShareCounter interface {
-	// StoredShareCount reads posts/{id}.shareCount (absent = 0). found is false for a missing post.
-	StoredShareCount(ctx context.Context, postID string) (n int64, found bool, err error)
-	// SetShareCount sets posts/{id}.shareCount to n with an Exists precondition; a missing post is ErrNotFound.
+	// StoredShareCount reads posts/{id}.shareCount (absent = 0) and the shareCount deltas pending on its shards, in one
+	// GetAll. found is false for a missing post.
+	StoredShareCount(ctx context.Context, postID string) (c StoredCount, found bool, err error)
+	// SetShareCount sets posts/{id}.shareCount to n (below 0 is 0) and drains the post's pending shareCount shards in the
+	// same transaction, so the next rollup fold adds nothing on top; a missing post is ErrNotFound.
 	SetShareCount(ctx context.Context, postID string, n int64) error
 }
 
 var _ ShareCounter = (*FirestoreRepo)(nil)
 
-// StoredShareCount implements ShareCounter: one read.
-func (r *FirestoreRepo) StoredShareCount(ctx context.Context, postID string) (int64, bool, error) {
+// StoredShareCount implements ShareCounter: 1 + ViewShardCount reads.
+func (r *FirestoreRepo) StoredShareCount(ctx context.Context, postID string) (StoredCount, bool, error) {
 	if !ids.ValidPostID(postID) {
-		return 0, false, ErrInvalidID
+		return StoredCount{}, false, ErrInvalidID
 	}
-	snap, err := r.ref(postID).Get(ctx)
-	if status.Code(err) == codes.NotFound {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, fmt.Errorf("posts: read shareCount: %w", err)
-	}
-	v, err := snap.DataAt("shareCount")
-	if err != nil {
-		return 0, true, nil // absent: 0
-	}
-	n, _ := v.(int64)
-	return n, true, nil
+	return r.storedCounter(ctx, postID, shareCountField)
 }
 
-// SetShareCount implements ShareCounter: one write.
+// SetShareCount implements ShareCounter: one transaction (1 + ViewShardCount reads; the post write plus one per
+// non-zero shard).
 func (r *FirestoreRepo) SetShareCount(ctx context.Context, postID string, n int64) error {
 	if !ids.ValidPostID(postID) {
 		return ErrInvalidID
 	}
-	_, err := r.ref(postID).Update(ctx, []firestore.Update{{Path: "shareCount", Value: max(n, 0)}})
-	if status.Code(err) == codes.NotFound {
-		return ErrNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("posts: set shareCount: %w", err)
-	}
-	return nil
+	return r.setCounter(ctx, postID, shareCountField, max(n, 0))
 }
 
 // StagePollVote implements EngagementWriter.
