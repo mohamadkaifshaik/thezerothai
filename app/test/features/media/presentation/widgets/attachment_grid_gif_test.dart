@@ -97,27 +97,34 @@ void main() {
 
   for (final width in [360.0, 600.0, 1200.0]) {
     for (final brightness in Brightness.values) {
-      testWidgets(
-        'rejected tile at ${width.toInt()} ${brightness.name} x2.0: no overflow',
-        (tester) async {
-          stubHappyUpload(
-            repo,
-            result: (id) => rejectedGif(
-              id,
-              'Image uploads are temporarily limited. Please try again later.',
-            ),
-          );
-          source.next = imageBytes('a');
-          await cubit.pickGif();
-          await expectLater(
-            cubit.uploadAll(),
-            throwsA(isA<ValidationException>()),
-          );
-          await host(tester, width: width, brightness: brightness, scale: 2);
-          expect(tester.takeException(), isNull);
-          expect(find.byType(AttachmentTile), findsOneWidget);
-        },
-      );
+      for (final scale in [2.0, 3.0]) {
+        testWidgets(
+          'rejected tile at ${width.toInt()} ${brightness.name} x$scale: no overflow',
+          (tester) async {
+            stubHappyUpload(
+              repo,
+              result: (id) => rejectedGif(
+                id,
+                'Image uploads are temporarily limited. Please try again later.',
+              ),
+            );
+            source.next = imageBytes('a');
+            await cubit.pickGif();
+            await expectLater(
+              cubit.uploadAll(),
+              throwsA(isA<ValidationException>()),
+            );
+            await host(
+              tester,
+              width: width,
+              brightness: brightness,
+              scale: scale,
+            );
+            expect(tester.takeException(), isNull);
+            expect(find.byType(AttachmentTile), findsOneWidget);
+          },
+        );
+      }
     }
   }
 

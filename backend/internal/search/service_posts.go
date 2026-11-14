@@ -93,6 +93,9 @@ type PostsDeps struct {
 	TagEntries int
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// Plans hydrates Post.beacon (posts.HydrateBeacons, the apiserver adapter over beacons.Service). Nil fails closed:
+	// every plan card renders unavailable, with no read.
+	Plans posts.BeaconPlans
 }
 
 // Option configures New.
@@ -659,12 +662,15 @@ func blockCause(snap graph.Snapshot, uid string, p *posts.Post) string {
 
 // views renders the kept rows with the viewer's flags (one cached userLikes read when engagement or bookmarks is on and a
 // row is returned; posts.HydrateViewer), the tombstone of a QUOTE whose quoted author is not ACTIVE, the PROTECTED embed
-// strip and the computed wire visibility. kept is f.kept after the tab's ranking and cut.
+// strip and the computed wire visibility. kept is f.kept after the tab's ranking and cut. Plan cards are decided for the
+// caller as on the timeline (posts.HydrateBeacons). Cost: at most one batched Previews read (one GetAll of the page's
+// distinct plans) per page, and none when no kept row carries a plan or FEATURE_POST_BEACON_EMBED is globally off.
 func (r *postsRuntime) views(ctx context.Context, uid string, kept []*posts.Post, f filtered) []*postsv1.PostView {
 	var vs posts.ViewerSet
 	if len(kept) > 0 {
 		vs = posts.HydrateViewer(ctx, r.fc, r.d.Viewer, uid)
 	}
+	vs = posts.HydrateBeacons(ctx, r.fc, r.d.Plans, vs, uid, kept...) // a tombstoned QUOTE carries no card: only KindPost rows are read
 	out := make([]*postsv1.PostView, 0, len(kept))
 	for _, p := range kept {
 		src := p

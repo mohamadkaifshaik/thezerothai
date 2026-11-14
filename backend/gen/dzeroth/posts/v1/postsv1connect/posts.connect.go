@@ -263,7 +263,8 @@ type PostServiceClient interface {
 	// Caps: 25 pending (soft: counted outside the transaction, so concurrent calls can overshoot it by the number in
 	// flight) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of publish_at (exact:
 	// counted inside the transaction, so concurrent calls cannot exceed it; a near-simultaneous duplicate that finds the
-	// window full is answered with the stored item) => LIMIT_REACHED "scheduled_window". There is no daily schedule quota and no daily posts quota at publish.
+	// window full is answered with the stored item) => LIMIT_REACHED "scheduled_window". Both carry metadata["max"], the
+	// configured cap as a decimal string (SCHEDULED_MAX_PENDING; the window cap). There is no daily schedule quota and no daily posts quota at publish.
 	// The transaction reads quotas/{uid} and rewrites it unchanged (counting nothing) so racing schedules by one user
 	// conflict and the window cap stays exact.
 	// A replay and a refusal at the pending or window cap write nothing.
@@ -289,7 +290,7 @@ type PostServiceClient interface {
 	// Edit a PENDING scheduled post. Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for the caller. Only the fields
 	// that are set change; at least one must be set (else VALIDATION). text follows the CreatePost rules (a post that
 	// carries media may have empty text), publish_at the SchedulePost rules (truncated to the minute, within [now + 2 min,
-	// now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window"), reply_policy the CreatePost rules
+	// now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window" with metadata["max"]), reply_policy the CreatePost rules
 	// (needs FEATURE_REPLY_AUDIENCE). Media and the labels are not editable. An item that is not PENDING (published,
 	// cancelled, failed) or whose stored publish_at is less than 60 s away is FAILED_PRECONDITION; unknown =>
 	// NOT_FOUND. Idempotent by state: an edit whose values already equal the stored ones writes nothing and returns the
@@ -626,7 +627,8 @@ type PostServiceHandler interface {
 	// Caps: 25 pending (soft: counted outside the transaction, so concurrent calls can overshoot it by the number in
 	// flight) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of publish_at (exact:
 	// counted inside the transaction, so concurrent calls cannot exceed it; a near-simultaneous duplicate that finds the
-	// window full is answered with the stored item) => LIMIT_REACHED "scheduled_window". There is no daily schedule quota and no daily posts quota at publish.
+	// window full is answered with the stored item) => LIMIT_REACHED "scheduled_window". Both carry metadata["max"], the
+	// configured cap as a decimal string (SCHEDULED_MAX_PENDING; the window cap). There is no daily schedule quota and no daily posts quota at publish.
 	// The transaction reads quotas/{uid} and rewrites it unchanged (counting nothing) so racing schedules by one user
 	// conflict and the window cap stays exact.
 	// A replay and a refusal at the pending or window cap write nothing.
@@ -652,7 +654,7 @@ type PostServiceHandler interface {
 	// Edit a PENDING scheduled post. Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for the caller. Only the fields
 	// that are set change; at least one must be set (else VALIDATION). text follows the CreatePost rules (a post that
 	// carries media may have empty text), publish_at the SchedulePost rules (truncated to the minute, within [now + 2 min,
-	// now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window"), reply_policy the CreatePost rules
+	// now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window" with metadata["max"]), reply_policy the CreatePost rules
 	// (needs FEATURE_REPLY_AUDIENCE). Media and the labels are not editable. An item that is not PENDING (published,
 	// cancelled, failed) or whose stored publish_at is less than 60 s away is FAILED_PRECONDITION; unknown =>
 	// NOT_FOUND. Idempotent by state: an edit whose values already equal the stored ones writes nothing and returns the

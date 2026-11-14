@@ -1,5 +1,6 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
+import 'package:dzeroth/features/search/presentation/widgets/explore_trends_section.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
@@ -357,8 +358,14 @@ void main() {
                 expect(find.text('Trending'), findsNothing);
               } else {
                 expect(path(), '/explore');
+                // The "Trending" tab shows with People (follow_suggestions);
+                // with `trends` on its heading is folded into the tab.
                 expect(
                   find.text('Trending'),
+                  t || f ? findsOneWidget : findsNothing,
+                );
+                expect(
+                  find.byType(ExploreTrendsSection),
                   t ? findsOneWidget : findsNothing,
                 );
                 // At desktop width the side column's "You might like" is the

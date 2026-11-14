@@ -213,8 +213,8 @@ type Notification struct {
 	// beacon (BeaconService.GetBeacon).
 	BeaconId string `protobuf:"bytes,7,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
 	// Up to 3 distinct actors folded into this row, newest first, for the grouped avatar stack ("Riya and 2 others").
-	// Each is a live row hydrated from the identity directory (one batched lookup per page, cache first, up to 60 s
-	// stale); a hidden (blocked or muted) actor is never listed. Empty on rows that predate the field: clients fall
+	// Each is a live row hydrated from the identity directory (batched per page, cache first, up to 60 s
+	// stale); a hidden (blocked, muted or not ACTIVE) actor is never listed. Empty on rows that predate the field: clients fall
 	// back to `actor`.
 	Actors        []*v1.AuthorSnapshot `protobuf:"bytes,8,rep,name=actors,proto3" json:"actors,omitempty"`
 	unknownFields protoimpl.UnknownFields

@@ -60,6 +60,7 @@ import 'widgets/draft_dialogs.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/reply_audience_sheet.dart';
 import 'widgets/schedule_controls.dart';
+import '../../../shared/widgets/primitives/submit_shortcut.dart';
 import 'widgets/schedule_dialog.dart';
 import 'widgets/send_conflict_dialog.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
@@ -947,162 +948,170 @@ class _ComposerViewState extends State<_ComposerView> {
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) _requestClose(context, state);
           },
-          child: Scaffold(
-            // The keyboard shrinks the body, so the field and the bottom bar
-            // (photos, counter) stay above it.
-            body: SafeArea(
-              child: AppMainColumn(
-                child: Column(
-                  children: [
-                    _ComposerHeader(
-                      title: isQuote ? 'Quote' : 'New post',
-                      onClose: state.isSubmitting
-                          ? null
-                          : () => _requestClose(context, state),
-                      onDrafts: cubit.draftsActive
-                          ? () => _openDrafts(context)
-                          : null,
-                      post: phone ? post : null,
-                    ),
-                    // The header announces "Scheduling post"; this bar is
-                    // only the picture of it.
-                    if (state.isSubmitting && scheduling)
-                      const ExcludeSemantics(
-                        child: LinearProgressIndicator(minHeight: 2),
+          child: SubmitShortcut(
+            // Ctrl/Cmd+Enter posts, exactly when the Post button is on.
+            canSubmit: () => cubit.state.canSubmit && !cubit.state.isSubmitting,
+            onSubmit: cubit.submit,
+            child: Scaffold(
+              // The keyboard shrinks the body, so the field and the bottom bar
+              // (photos, counter) stay above it.
+              body: SafeArea(
+                child: AppMainColumn(
+                  child: Column(
+                    children: [
+                      _ComposerHeader(
+                        title: isQuote ? 'Quote' : 'New post',
+                        onClose: state.isSubmitting
+                            ? null
+                            : () => _requestClose(context, state),
+                        onDrafts: cubit.draftsActive
+                            ? () => _openDrafts(context)
+                            : null,
+                        post: phone ? post : null,
                       ),
-                    if (scheduling)
-                      ScheduleLine(
-                        publishAt: state.scheduledAt!,
-                        enabled: !state.isSubmitting,
-                        onTap: () => _openSchedule(context),
-                      ),
-                    // L-9: the photos are reachable by link before the post
-                    // goes out. The dialog says so too, but photos can be
-                    // added after the time was set.
-                    if (scheduling && state.hasAttachments)
-                      const _ScheduleImagesNoteBox(),
-                    Expanded(
-                      child: poll == null
-                          ? _questionArea(context, state, isQuote)
-                          // With a poll the question and the builder scroll
-                          // together: four choices and the length do not fit
-                          // above the keyboard on a phone.
-                          : SingleChildScrollView(
-                              child: Column(
-                                children: [
-                                  _questionArea(context, state, isQuote),
-                                  Padding(
-                                    padding:
-                                        const EdgeInsetsDirectional.fromSTEB(
-                                          AppSpacing.md,
-                                          0,
-                                          AppSpacing.md,
-                                          AppSpacing.md,
-                                        ),
-                                    child: ComposerPollBuilder(
-                                      poll: poll,
-                                      durationClamped:
-                                          state.pollDurationClamped,
-                                      enabled: !state.isSubmitting,
-                                      onChoiceChanged: cubit.pollChoiceChanged,
-                                      onChoiceAdded: cubit.pollChoiceAdded,
-                                      onChoiceRemoved: cubit.pollChoiceRemoved,
-                                      onLengthChanged:
-                                          cubit.pollDurationChanged,
-                                      onRemove: cubit.pollRemoved,
+                      // The header announces "Scheduling post"; this bar is
+                      // only the picture of it.
+                      if (state.isSubmitting && scheduling)
+                        const ExcludeSemantics(
+                          child: LinearProgressIndicator(minHeight: 2),
+                        ),
+                      if (scheduling)
+                        ScheduleLine(
+                          publishAt: state.scheduledAt!,
+                          enabled: !state.isSubmitting,
+                          onTap: () => _openSchedule(context),
+                        ),
+                      // L-9: the photos are reachable by link before the post
+                      // goes out. The dialog says so too, but photos can be
+                      // added after the time was set.
+                      if (scheduling && state.hasAttachments)
+                        const _ScheduleImagesNoteBox(),
+                      Expanded(
+                        child: poll == null
+                            ? _questionArea(context, state, isQuote)
+                            // With a poll the question and the builder scroll
+                            // together: four choices and the length do not fit
+                            // above the keyboard on a phone.
+                            : SingleChildScrollView(
+                                child: Column(
+                                  children: [
+                                    _questionArea(context, state, isQuote),
+                                    Padding(
+                                      padding:
+                                          const EdgeInsetsDirectional.fromSTEB(
+                                            AppSpacing.md,
+                                            0,
+                                            AppSpacing.md,
+                                            AppSpacing.md,
+                                          ),
+                                      child: ComposerPollBuilder(
+                                        poll: poll,
+                                        durationClamped:
+                                            state.pollDurationClamped,
+                                        enabled: !state.isSubmitting,
+                                        onChoiceChanged:
+                                            cubit.pollChoiceChanged,
+                                        onChoiceAdded: cubit.pollChoiceAdded,
+                                        onChoiceRemoved:
+                                            cubit.pollChoiceRemoved,
+                                        onLengthChanged:
+                                            cubit.pollDurationChanged,
+                                        onRemove: cubit.pollRemoved,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
+                              ),
+                      ),
+                      if (isQuote) _QuotePreview(preview: widget.quotePreview),
+                      if (widget.mediaEnabled)
+                        AttachmentGrid(enabled: !state.isSubmitting),
+                      // A community post takes no reply policy:
+                      // the cubit hides this control while one is chosen.
+                      if (cubit.canChooseReplyAudience)
+                        _ReplyAudienceLink(
+                          audience: state.replyAudience,
+                          enabled: !state.isSubmitting,
+                          onChanged: cubit.replyAudienceChanged,
+                        ),
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                          AppSpacing.sm,
+                          AppSpacing.xs,
+                          AppSpacing.md,
+                          AppSpacing.xs,
+                        ),
+                        // Photos at the start, the counter at the end; the hint
+                        // (when there is one) takes the space between.
+                        child: Row(
+                          children: [
+                            // Scrolls sideways when the ring and the count leave
+                            // it too little room (large text on a small phone).
+                            Expanded(
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (widget.mediaEnabled)
+                                      _AddPhotoButton(block: rules.photo),
+                                    if (rules.showGif)
+                                      ComposerGifButton(
+                                        block: rules.gif,
+                                        enabled:
+                                            !state.isSubmitting && !attachBusy,
+                                        onPressed: () => context
+                                            .read<AttachmentsCubit>()
+                                            .pickGif(),
+                                      ),
+                                    if (rules.showPoll)
+                                      ComposerPollButton(
+                                        block: rules.poll,
+                                        enabled: !state.isSubmitting,
+                                        selected: state.hasPoll,
+                                        // Open: it only takes you back to the
+                                        // question (Remove poll is in the builder).
+                                        onPressed: state.hasPoll
+                                            ? _questionFocus.requestFocus
+                                            : cubit.pollAdded,
+                                      ),
+                                    if (cubit.canSchedule)
+                                      ScheduleButton(
+                                        scheduled: scheduling,
+                                        enabled:
+                                            !state.isSubmitting &&
+                                            rules.schedule ==
+                                                ComposerBlock.none,
+                                        tooltip: rules.schedule.scheduleTooltip,
+                                        onPressed: () => _openSchedule(context),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
-                    ),
-                    if (isQuote) _QuotePreview(preview: widget.quotePreview),
-                    if (widget.mediaEnabled)
-                      AttachmentGrid(enabled: !state.isSubmitting),
-                    // A community post takes no reply policy:
-                    // the cubit hides this control while one is chosen.
-                    if (cubit.canChooseReplyAudience)
-                      _ReplyAudienceLink(
-                        audience: state.replyAudience,
-                        enabled: !state.isSubmitting,
-                        onChanged: cubit.replyAudienceChanged,
-                      ),
-                    const Divider(height: 1),
-                    Padding(
-                      padding: const EdgeInsetsDirectional.fromSTEB(
-                        AppSpacing.sm,
-                        AppSpacing.xs,
-                        AppSpacing.md,
-                        AppSpacing.xs,
-                      ),
-                      // Photos at the start, the counter at the end; the hint
-                      // (when there is one) takes the space between.
-                      child: Row(
-                        children: [
-                          // Scrolls sideways when the ring and the count leave
-                          // it too little room (large text on a small phone).
-                          Expanded(
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (widget.mediaEnabled)
-                                    _AddPhotoButton(block: rules.photo),
-                                  if (rules.showGif)
-                                    ComposerGifButton(
-                                      block: rules.gif,
-                                      enabled:
-                                          !state.isSubmitting && !attachBusy,
-                                      onPressed: () => context
-                                          .read<AttachmentsCubit>()
-                                          .pickGif(),
-                                    ),
-                                  if (rules.showPoll)
-                                    ComposerPollButton(
-                                      block: rules.poll,
-                                      enabled: !state.isSubmitting,
-                                      selected: state.hasPoll,
-                                      // Open: it only takes you back to the
-                                      // question (Remove poll is in the builder).
-                                      onPressed: state.hasPoll
-                                          ? _questionFocus.requestFocus
-                                          : cubit.pollAdded,
-                                    ),
-                                  if (cubit.canSchedule)
-                                    ScheduleButton(
-                                      scheduled: scheduling,
-                                      enabled:
-                                          !state.isSubmitting &&
-                                          rules.schedule == ComposerBlock.none,
-                                      tooltip: rules.schedule.scheduleTooltip,
-                                      onPressed: () => _openSchedule(context),
-                                    ),
+                            DraftProblemHint(problem: state.draft.problem),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CharacterCounter.ring(
+                                  remaining: state.draft.remaining,
+                                  ringOf: kMaxPostCodePoints,
+                                  ringSize: phone
+                                      ? AppSize.counterRingPhone
+                                      : AppSize.counterRing,
+                                ),
+                                if (!phone) ...[
+                                  const SizedBox(width: AppSpacing.smd),
+                                  post,
                                 ],
-                              ),
-                            ),
-                          ),
-                          DraftProblemHint(problem: state.draft.problem),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CharacterCounter.ring(
-                                remaining: state.draft.remaining,
-                                ringOf: kMaxPostCodePoints,
-                                ringSize: phone
-                                    ? AppSize.counterRingPhone
-                                    : AppSize.counterRing,
-                              ),
-                              if (!phone) ...[
-                                const SizedBox(width: AppSpacing.smd),
-                                post,
                               ],
-                            ],
-                          ),
-                        ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

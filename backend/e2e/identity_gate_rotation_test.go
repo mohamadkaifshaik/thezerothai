@@ -19,7 +19,7 @@ import (
 // TestE2E_UnverifiedAccountRotation_AnswersFromTokenClaims: mint five unverified password accounts
 // and rotate 20 calls over them, alternating GetMe and CheckHandleAvailability. Every call is answered from the
 // token claims (EMAIL_NOT_VERIFIED / PROFILE_REQUIRED) with gate=email_unverified and no
-// limit_name. PerUserPerMinute = 1 and CheckHandle 1/min make the gate-before-limiter order observable: if any
+// limit_name. GetMe 1/min and CheckHandle 1/min make the gate-before-limiter order observable: if any
 // minted uid reached the limiter, its second call would be RATE_LIMITED. A bank of minted uids therefore creates
 // no limiter state.
 func TestE2E_UnverifiedAccountRotation_AnswersFromTokenClaims(t *testing.T) {
@@ -28,6 +28,7 @@ func TestE2E_UnverifiedAccountRotation_AnswersFromTokenClaims(t *testing.T) {
 	log, logs := captureLogger()
 	client, _ := newTestServerCfgLog(t, func(cfg *config.Config) {
 		cfg.RateLimit.PerUserPerMinute = 1
+		cfg.RateLimit.GetMePerUserPerMinute = 1 // GetMe has its own bucket (L1)
 		cfg.RateLimit.CheckHandlePerUserPerMinute = 1
 		cfg.RateLimit.PerIPPerMinute = 1000
 	}, log)
