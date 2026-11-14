@@ -19,10 +19,13 @@
 // step either: it runs after the posts and graph steps, when no counter write can reach the author any more.
 //
 // Hot doc: a creator's doc for today takes one write per like, repost, reply, quote and follow they receive (plus at
-// most one per rollup batch), and Firestore sustains about one write per second on one document. That is the same
-// exposure the plain counters already have (posts/{id}.likeCount, users/{uid}.followersCount); hot posts move their
-// engagements to the rollup (HOT_COUNTER_THRESHOLD), which then writes the doc once per fold. A creator who receives more
-// than about one engagement per second across all posts is the future sharding candidate (shardcount, like viewShards).
+// most one per rollup batch), and Firestore sustains about one write per second on one document. That is MORE than any
+// single plain counter takes (posts/{id}.likeCount is one post's likes, users/{uid}.followersCount one account's
+// follows): this doc gathers the engagements of all the creator's posts plus their follows. Past the limit the cause's
+// own commit (the like, the follow) contends and is retried or fails, not just the stat. Hot posts move their
+// engagements to the rollup (HOT_COUNTER_THRESHOLD), which then writes the doc once per fold. A creator who receives
+// more than about one engagement or follow per second sustained is the future sharding candidate (shardcount, as
+// viewShards).
 //
 // Retention: expireAt is the IST day's start + DailyStatsTTL (400 days) on every write, so the TTL policy
 // (infra/terraform/modules/firestore, collection group dailyStats) deletes the doc about 400 days later. The account

@@ -604,6 +604,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	identityServer := identity.NewServer(identitySvc,
 		identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags),
+		// F2 Creator Studio insights: the caller's dailyStats and their top posts by views (posts, through the adapter).
+		identity.WithCreatorInsights(identity.NewCreatorInsights(identity.InsightsDeps{
+			Flags: featureFlags, Stats: dailyStats, TopPosts: topPostsAdapter{src: postsRepo},
+		})),
 		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
 	graphServer := graph.NewServer(graphSvc)
 

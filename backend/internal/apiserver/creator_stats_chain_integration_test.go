@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"connectrpc.com/connect"
 
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
@@ -32,6 +34,7 @@ func creatorStatsOn(c *config.Config) {
 	c.RateLimit.CreatorInsightsPerUserPerMinute = 1_000_000
 	c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.On}
 	c.FeatureReplies = flags.Spec{Name: "replies", Mode: flags.On}
+	c.FeatureQuotes = flags.Spec{Name: "quotes", Mode: flags.On}
 	c.FeaturePostViews = flags.Spec{Name: "post_views", Mode: flags.On}
 	c.FeatureCreatorInsights = flags.Spec{Name: "creator_insights", Mode: flags.On}
 }
@@ -58,6 +61,16 @@ func readStatsSum(t *testing.T, fs *firestore.Client, uid string) statsSum {
 		}
 	}
 	return s
+}
+
+// resetViewRollupGate deletes viewRollup/state, the views half's min-interval gate, which is one global doc in the
+// emulator project every chain shares: without it a second test calling the view-rollup route within a minute of
+// another would get "fresh" and fold nothing (a missing doc is due).
+func resetViewRollupGate(t *testing.T, fs *firestore.Client) {
+	t.Helper()
+	if _, err := fs.Doc("viewRollup/state").Delete(context.Background()); err != nil {
+		t.Fatalf("reset the view rollup gate: %v", err)
+	}
 }
 
 func TestCreatorStatsChain_WritersExportErase(t *testing.T) {
@@ -102,6 +115,7 @@ func TestCreatorStatsChain_WritersExportErase(t *testing.T) {
 			must("close the view window", err)
 		}
 	}
+	resetViewRollupGate(t, e.fs)
 	for range 2 {
 		if got := postRoute(t, e.url+"/internal/cron/view-rollup", http.MethodPost); got != http.StatusNoContent {
 			t.Fatalf("view-rollup = %d, want 204", got)
@@ -114,12 +128,39 @@ func TestCreatorStatsChain_WritersExportErase(t *testing.T) {
 		t.Fatalf("b (who only acted) got stats: %+v", got)
 	}
 
-	// Undo paths subtract on the day of the undo.
+	// The other writers: a second reply, a repost and a quote (+3, engagements 5), each with its own author lookup.
+	rr, err := e.posts.CreatePost(ctx, authed(b.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("cs-reply2"), Text: "another reply", ReplyToPostId: pid}))
+	must("b replies again", err)
+	_, err = eng.RepostPost(ctx, authed(b.token, &engagementv1.RepostPostRequest{IdempotencyKey: contractKey("cs-repost"), PostId: pid}))
+	must("b reposts", err)
+	qr, err := e.posts.CreatePost(ctx, authed(b.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("cs-quote"), Text: "a quote", QuoteOfPostId: pid}))
+	must("b quotes", err)
+	if got := readStatsSum(t, e.fs, a.uid); got.engagements != 5 {
+		t.Fatalf("after reply, repost and quote: %+v, want engagements 5", got)
+	}
+
+	// Undo paths subtract on the day of the undo: unlike, undo repost, quote delete, reply delete (-4, engagements 1),
+	// unfollow (lost 1). Then c follows (gained 2) and a blocks c, which removes c's follow (lost 2).
 	_, err = eng.UnlikePost(ctx, authed(b.token, &engagementv1.UnlikePostRequest{IdempotencyKey: contractKey("cs-unlike"), PostId: pid}))
 	must("b unlikes", err)
+	_, err = eng.UndoRepost(ctx, authed(b.token, &engagementv1.UndoRepostRequest{IdempotencyKey: contractKey("cs-unrepost"), PostId: pid}))
+	must("b undoes the repost", err)
+	_, err = e.posts.DeletePost(ctx, authed(b.token, &postsv1.DeletePostRequest{IdempotencyKey: contractKey("cs-del-quote"), PostId: qr.Msg.GetPost().GetPost().GetPostId()}))
+	must("b deletes the quote", err)
+	_, err = e.posts.DeletePost(ctx, authed(b.token, &postsv1.DeletePostRequest{IdempotencyKey: contractKey("cs-del-reply"), PostId: rr.Msg.GetPost().GetPost().GetPostId()}))
+	must("b deletes a reply", err)
 	_, err = e.graph.Unfollow(ctx, authed(b.token, &graphv1.UnfollowRequest{IdempotencyKey: contractKey("cs-unfollow"), UserId: a.uid}))
 	must("b unfollows", err)
-	want := statsSum{impressions: 1, engagements: 1, gained: 1, lost: 1}
+	c := e.newUser(t)
+	e.follow(t, c, a)
+	_, err = e.graph.Block(ctx, authed(a.token, &graphv1.BlockRequest{IdempotencyKey: contractKey("cs-block"), UserId: c.uid}))
+	must("a blocks c", err)
+	for _, actor := range []testUser{b, c} {
+		if got := readStatsSum(t, e.fs, actor.uid); got.docs != 0 {
+			t.Fatalf("an actor got stats: %+v", got)
+		}
+	}
+	want := statsSum{impressions: 1, engagements: 1, gained: 2, lost: 2}
 	got := readStatsSum(t, e.fs, a.uid)
 	got.docs = 0
 	if got != want {
@@ -158,10 +199,12 @@ func TestCreatorStatsChain_WritersExportErase(t *testing.T) {
 	if _, err := e.fs.Doc("users/"+a.uid).Update(ctx, []firestore.Update{{Path: "deletionRequestedAt", Value: time.Now().Add(-5 * time.Minute)}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range e.pull(t) {
-		if m["kind"] == "account_delete" && m["uid"] == a.uid {
-			if code := e.deliver(t, m); code != http.StatusNoContent {
-				t.Fatalf("delete delivery = %d", code)
+	for round := 0; round < 5 && fsDocExists(t, e.fs, "users/"+a.uid); round++ { // a job may publish continuations
+		for _, m := range e.pull(t) {
+			if m["kind"] == "account_delete" && m["uid"] == a.uid {
+				if code := e.deliver(t, m); code != http.StatusNoContent {
+					t.Fatalf("delete delivery = %d", code)
+				}
 			}
 		}
 	}
@@ -171,4 +214,55 @@ func TestCreatorStatsChain_WritersExportErase(t *testing.T) {
 	if left := readStatsSum(t, e.fs, a.uid); left.docs != 0 {
 		t.Fatalf("%d dailyStats docs survived the erasure", left.docs)
 	}
+}
+
+// TestCreatorInsightsChain_RPC: GetCreatorInsights over the chain. Flag off: FEATURE_DISABLED feature=creator_insights.
+// On: the author sees the like and the rolled-up view in the current window and the post in top_posts; another caller
+// sees only their own (empty) insights.
+func TestCreatorInsightsChain_RPC(t *testing.T) {
+	ctx := context.Background()
+	off := newPollChain(t, func(c *config.Config) {
+		creatorStatsOn(c)
+		c.FeatureCreatorInsights = flags.Spec{Name: "creator_insights", Mode: flags.Off}
+	})
+	u := off.user(t)
+	_, err := off.identity.GetCreatorInsights(ctx, authed(u.token, &identityv1.GetCreatorInsightsRequest{}))
+	wantReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "creator_insights")
+
+	e := newPollChain(t, creatorStatsOn)
+	a, b := e.user(t), e.user(t)
+	pid := e.plainPost(t, a)
+	if _, err := e.eng.LikePost(ctx, authed(b.token, &engagementv1.LikePostRequest{IdempotencyKey: contractKey("ci-like"), PostId: pid})); err != nil {
+		t.Fatalf("LikePost: %v", err)
+	}
+	if err := e.record(b, contractKey("ci-view"), pid); err != nil {
+		t.Fatalf("RecordImpressions: %v", err)
+	}
+	e.closeViewWindows(t, pid)
+	resetViewRollupGate(t, e.fs)
+	if got := postRoute(t, e.url+"/internal/cron/view-rollup", http.MethodPost); got != http.StatusNoContent {
+		t.Fatalf("view-rollup = %d", got)
+	}
+
+	r, err := e.identity.GetCreatorInsights(ctx, authed(a.token, &identityv1.GetCreatorInsightsRequest{}))
+	if err != nil {
+		t.Fatalf("GetCreatorInsights: %v", err)
+	}
+	m := r.Msg
+	if m.GetWindowDays() != 28 || len(m.GetDays()) != 28 || m.GetCurrent().GetEngagements() != 1 || m.GetCurrent().GetImpressions() != 1 ||
+		m.GetPrevious().GetImpressions() != 0 || m.ImpressionsChangePct != nil {
+		t.Fatalf("author insights = %v", m)
+	}
+	if len(m.GetTopPosts()) != 1 || m.GetTopPosts()[0].GetPostId() != pid || m.GetTopPosts()[0].GetViewCount() != 1 || m.GetTopPosts()[0].GetLikeCount() != 1 {
+		t.Fatalf("top posts = %v", m.GetTopPosts())
+	}
+	other, err := e.identity.GetCreatorInsights(ctx, authed(b.token, &identityv1.GetCreatorInsightsRequest{WindowDays: 7}))
+	if err != nil {
+		t.Fatalf("GetCreatorInsights (b): %v", err)
+	}
+	if other.Msg.GetCurrent().GetEngagements() != 0 || other.Msg.GetCurrent().GetImpressions() != 0 || len(other.Msg.GetTopPosts()) != 0 || len(other.Msg.GetDays()) != 7 {
+		t.Fatalf("b sees %v, want only their own empty insights", other.Msg)
+	}
+	_, err = e.identity.GetCreatorInsights(ctx, authed(a.token, &identityv1.GetCreatorInsightsRequest{WindowDays: 29}))
+	wantReason(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "window_days")
 }
