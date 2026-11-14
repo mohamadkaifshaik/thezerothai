@@ -8,6 +8,8 @@ import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/share/share_links.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../gen/dzeroth/engagement/v1/engagement.pbenum.dart'
+    show ShareChannel;
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     as pbenum
@@ -15,12 +17,15 @@ import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../../../shared/widgets/post/post_action_bar.dart';
 import '../../../../shared/widgets/post/post_share_menu.dart';
+import '../../../messages/domain/share_post_target.dart';
+import '../../../messages/presentation/share_post_picker.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../posts/domain/posts_feature_flag.dart';
 import '../../../posts/domain/reply_audience.dart';
 import '../../../posts/presentation/quote_gate.dart';
 import '../../domain/bookmarks_feature_flag.dart';
 import '../../domain/engagement_entry.dart';
+import '../../domain/share_count_feature_flag.dart';
 import '../bloc/bookmarks_cubit.dart';
 import '../bloc/bookmarks_state.dart';
 import '../bloc/engagement_cubit.dart';
@@ -112,6 +117,10 @@ class PostEngagementBar extends StatelessWidget {
     final flagOn = isFeatureEnabled(context, kFeatureBookmarks);
     final bookmarksOn = bookmarkEnabled ?? flagOn;
     final shareLinks = ShareLinksScope.maybeOf(context);
+    final canSendInMessage = _canSendInMessage(context);
+    // The share count is drawn, and outside shares are reported, only with
+    // `share_count` on for the caller.
+    final shareCountOn = isFeatureEnabled(context, kFeatureShareCount);
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -136,42 +145,70 @@ class PostEngagementBar extends StatelessWidget {
       builder: (context, state) {
         final entry = state.entries[target];
         final current = entry != null && entry.matches(view) ? entry : shown;
-        Widget bar({bool bookmarked = false, VoidCallback? onBookmark}) =>
-            PostActionBar(
-              showDisabled: false,
-              spread: spread,
-              iconSize: iconSize,
-              replyDisabledHint: replyBlocked
-                  ? replyNotAllowedHint(view)
-                  : null,
-              replyCount: view.post.replyCount.toInt(),
-              repostCount: current.repostCount ?? 0,
-              likeCount: current.likeCount ?? 0,
-              liked: current.liked,
-              reposted: current.reposted,
-              bookmarked: bookmarked,
-              actions: PostActions(
-                onReply: replies && !replyBlocked
-                    ? onReply ??
-                          () => context.push(AppRouter.composeReplyPath(target))
-                    : null,
-                onLike: () =>
-                    cubit.setLiked(target, liked: !current.liked, shown: shown),
-                onRepostFrom: (anchor) =>
-                    _repost(context, cubit, target, current, shown, anchor),
-                onBookmark: onBookmark,
-                onShareAt: shareLinks == null
-                    ? null
-                    : (anchor) => unawaited(
-                        showPostShareMenu(
-                          context,
-                          url: shareLinks.postUrl(target),
-                          nativeShare: shareLinks.nativeShare,
-                          anchor: anchor,
-                        ),
-                      ),
-              ),
-            );
+        Widget bar({
+          bool bookmarked = false,
+          VoidCallback? onBookmark,
+        }) => PostActionBar(
+          showDisabled: false,
+          spread: spread,
+          iconSize: iconSize,
+          replyDisabledHint: replyBlocked ? replyNotAllowedHint(view) : null,
+          replyCount: view.post.replyCount.toInt(),
+          repostCount: current.repostCount ?? 0,
+          likeCount: current.likeCount ?? 0,
+          shareCount: shareCountOn ? (current.shareCount ?? 0) : 0,
+          liked: current.liked,
+          reposted: current.reposted,
+          bookmarked: bookmarked,
+          actions: PostActions(
+            onReply: replies && !replyBlocked
+                ? onReply ??
+                      () => context.push(AppRouter.composeReplyPath(target))
+                : null,
+            onLike: () =>
+                cubit.setLiked(target, liked: !current.liked, shown: shown),
+            onRepostFrom: (anchor) =>
+                _repost(context, cubit, target, current, shown, anchor),
+            onBookmark: onBookmark,
+            onShareAt: shareLinks == null
+                ? null
+                : (anchor) => unawaited(
+                    showPostShareMenu(
+                      context,
+                      url: shareLinks.postUrl(target),
+                      nativeShare: shareLinks.nativeShare,
+                      anchor: anchor,
+                      // Called only after the link was copied or the
+                      // share sheet reported a completed share.
+                      onShared: shareCountOn
+                          ? (choice) => unawaited(
+                              cubit.recordShare(
+                                target,
+                                choice == PostShareChoice.copyLink
+                                    ? ShareChannel.SHARE_CHANNEL_COPY_LINK
+                                    : ShareChannel.SHARE_CHANNEL_SHARE_SHEET,
+                                shown: current,
+                              ),
+                            )
+                          : null,
+                      onSendInMessage: canSendInMessage
+                          ? () {
+                              if (!context.mounted) return;
+                              unawaited(
+                                showSharePostPicker(
+                                  context,
+                                  target: SharePostTarget(
+                                    postId: target,
+                                    url: shareLinks.postUrl(target),
+                                  ),
+                                ),
+                              );
+                            }
+                          : null,
+                    ),
+                  ),
+          ),
+        );
         // Bookmarks: the icon exists only with the `bookmarks`
         // flag, and only here, where the action row is (so `engagement` too).
         // Flag off: no BookmarksCubit is read at all.
@@ -184,6 +221,22 @@ class PostEngagementBar extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// Whether the share menu offers "Send in a message": `messaging` and
+  /// `dm_post_share` are on for the caller, and the post is not another
+  /// user's followers-only (protected) post, which only its author may send
+  /// (the server refuses anyone else with PROTECTED_ACCOUNT, as for Repost).
+  /// A REPOST row's original is not known to be protected here; the server
+  /// decides and the picker shows its answer.
+  bool _canSendInMessage(BuildContext context) {
+    if (!sharePostInMessageAllowed(context)) return false;
+    final viewerId = context.read<OnboardingBloc>().state.profile?.userId;
+    final protectedByOther =
+        view.post.kind != PostKind.POST_KIND_REPOST &&
+        view.post.visibility == pbenum.Visibility.VISIBILITY_FOLLOWERS &&
+        view.post.author.userId != viewerId;
+    return !protectedByOther;
   }
 
   Future<void> _repost(

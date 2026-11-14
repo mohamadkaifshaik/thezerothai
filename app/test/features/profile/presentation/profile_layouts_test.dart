@@ -88,7 +88,8 @@ class _FakeShare implements NativeShare {
   bool get isAvailable => true;
 
   @override
-  Future<void> shareUrl(String url, {Rect? anchor}) async {}
+  Future<NativeShareStatus> shareUrl(String url, {Rect? anchor}) async =>
+      NativeShareStatus.completed;
 }
 
 void main() {
@@ -171,7 +172,7 @@ void main() {
           handle.dispose();
         });
 
-        testWidgets('the avatar is ${width < 600 ? 76 : 120}dp', (
+        testWidgets('the avatar is ${width < 600 ? 64 : 88}dp', (
           tester,
         ) async {
           final rig = ProfileTabletRig();
@@ -953,6 +954,28 @@ void main() {
             brightness: brightness,
           );
           await _capture(tester, 'edit-profile-$look-${brightness.name}');
+        }, skip: !_screenshots);
+      }
+    }
+  });
+
+  group('Profile screenshots', () {
+    setUpAll(() async {
+      if (_screenshots) await loadAppFonts();
+    });
+    for (final brightness in Brightness.values) {
+      for (final MapEntry(key: look, value: width) in _looks.entries) {
+        testWidgets('profile $look ${brightness.name}', (tester) async {
+          useFailingImageCache();
+          final rig = ProfileTabletRig();
+          await rig.pump(
+            tester,
+            width: width,
+            height: width < 600 ? 844 : 900,
+            flags: _fullFlags,
+            brightness: brightness,
+          );
+          await _capture(tester, 'profile-$look-${brightness.name}');
         }, skip: !_screenshots);
       }
     }

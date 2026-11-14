@@ -66,8 +66,8 @@ func NewJobs(repo *FirestoreRepo, cleanup posts.Cleanup, gone PostGone, pub JobP
 }
 
 // Handle implements identity.JobHandler. It reads the post, then pages through its
-// dependants: likes and reposts are deleted, the REPOST reposter's postsCount is decremented and quote tombstones
-// are written.
+// dependants: likes, share markers and reposts are deleted, the REPOST reposter's postsCount is decremented and quote
+// tombstones are written.
 func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	var m postDeleteMessage
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -91,6 +91,11 @@ func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 		// Likes: delete the docs; the counter died with the post.
 		{"likes", func() (int, bool, error) {
 			return j.repo.deleteLikesOf(ctx, m.PostID, jobPage)
+		}},
+		// Share markers (postShares): delete the docs; the counter died with the post. Direct-message cards turn
+		// unavailable on their own (decided at read time).
+		{"shares", func() (int, bool, error) {
+			return j.repo.deleteSharesOf(ctx, m.PostID, jobPage)
 		}},
 		// Reposts: REPOST posts, their reposts docs and the reposters' postsCount.
 		{"reposts", func() (int, bool, error) {
@@ -142,9 +147,15 @@ steps:
 // deleteLikesOf deletes up to limit like docs of postID (Q-L: likes where postId == X LIMIT n, automatic index).
 // full reports whether the page was full (more may remain). Blind deletes in one batch; reads len(page), minimum 1.
 func (r *FirestoreRepo) deleteLikesOf(ctx context.Context, postID string, limit int) (n int, full bool, err error) {
-	docs, err := r.client.Collection(likesCollection).Where("postId", "==", postID).Limit(limit).Documents(ctx).GetAll()
+	return r.deleteByPost(ctx, likesCollection, postID, limit)
+}
+
+// deleteByPost deletes up to limit docs of collection whose postId is postID (a single-field equality, automatic index),
+// blind, in one batch. full reports whether the page was full.
+func (r *FirestoreRepo) deleteByPost(ctx context.Context, collection, postID string, limit int) (n int, full bool, err error) {
+	docs, err := r.client.Collection(collection).Where("postId", "==", postID).Limit(limit).Documents(ctx).GetAll()
 	if err != nil {
-		return 0, false, fmt.Errorf("engagement: likes query: %w", err)
+		return 0, false, fmt.Errorf("engagement: %s query: %w", collection, err)
 	}
 	if len(docs) == 0 {
 		return 0, false, nil
@@ -154,7 +165,7 @@ func (r *FirestoreRepo) deleteLikesOf(ctx context.Context, postID string, limit 
 		b.Delete(d.Ref)
 	}
 	if err := b.Commit(ctx); err != nil {
-		return 0, false, fmt.Errorf("engagement: delete likes: %w", err)
+		return 0, false, fmt.Errorf("engagement: delete %s: %w", collection, err)
 	}
 	return len(docs), len(docs) >= limit, nil
 }

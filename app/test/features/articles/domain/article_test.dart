@@ -161,10 +161,7 @@ void main() {
     ]) {
       expect(() => ArticleDraft.fromJson(value), throwsFormatException);
     }
-    expect(
-      () => ArticleBlock.fromJson({'kind': 'future', 'runs': []}),
-      throwsFormatException,
-    );
+    // An unknown kind is no longer an error: see the opaque-block tests.
     expect(
       () => ArticleBlock.fromJson({'kind': 'image', 'runs': []}),
       throwsFormatException,
@@ -247,4 +244,85 @@ void main() {
       });
     },
   );
+
+  group('image and unknown blocks', () {
+    const future = {
+      'kind': 'gallery',
+      'runs': [],
+      'items': [1, 2],
+    };
+
+    test('an unknown kind is kept verbatim and skipped by text', () {
+      final block = ArticleBlock.fromJson(future);
+      expect(block.kind, ArticleBlockKind.unknown);
+      expect(block.plainText, isEmpty);
+      expect(block.toJson(), future);
+      final draft = ArticleDraft.fromJson({
+        ...ArticleDraft(id: '1', authorId: 'a').toJson(),
+        'blocks': [future],
+      });
+      expect(jsonDecode(draft.bodyJson), [future]);
+    });
+
+    test('an image block round-trips media id, alt text and caption', () {
+      final json = {
+        'kind': 'image',
+        'runs': [],
+        'mediaId': '1234567890123456789',
+        'altText': 'A tree',
+        'caption': 'Oak',
+      };
+      expect(ArticleBlock.fromJson(json).toJson(), json);
+      expect(
+        ArticleBlock(kind: ArticleBlockKind.image, mediaId: 'm' * 19).toJson(),
+        {'kind': 'image', 'runs': [], 'mediaId': 'm' * 19},
+      );
+    });
+
+    test('text blocks cannot carry a caption', () {
+      expect(
+        () => ArticleBlock(kind: ArticleBlockKind.paragraph, caption: 'x'),
+        throwsArgumentError,
+      );
+      expect(
+        () => ArticleBlock.fromJson({
+          'kind': 'paragraph',
+          'runs': [],
+          'caption': 'x',
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('an image-only body can publish; limits are reported', () {
+      final image = ArticleBlock(
+        kind: ArticleBlockKind.image,
+        mediaId: 'm' * 19,
+      );
+      expect(
+        ArticleDraft(
+          id: '1',
+          authorId: 'a',
+          title: 't',
+          blocks: [image],
+        ).publishErrors,
+        isEmpty,
+      );
+      expect(
+        ArticleDraft(
+          id: '1',
+          authorId: 'a',
+          title: 't',
+          blocks: [
+            ArticleBlock(
+              kind: ArticleBlockKind.image,
+              mediaId: 'm' * 19,
+              caption: 'c' * 281,
+            ),
+          ],
+        ).publishErrors,
+        contains('caption'),
+      );
+    });
+  });
 }

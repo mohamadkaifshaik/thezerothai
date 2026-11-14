@@ -5,6 +5,7 @@ import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../../shared/widgets/primitives/app_rings.dart';
 import '../../../../shared/widgets/primitives/pin_to_home.dart';
 import '../../domain/lists_feature_flag.dart';
+import 'list_follow_button.dart';
 import '../bloc/list_detail_state.dart';
 import 'list_row.dart';
 import 'list_unavailable_view.dart';
@@ -37,7 +38,9 @@ final ButtonStyle kListHeroIconStyle = IconButton.styleFrom(
 ///   says why. The buttons wrap, so they fit at 360 dp and text scale 2.0.
 /// - Without a header (offline cold start) a plain "List" title shows, with
 ///   Retry when the one `GetList` fell through.
-/// - Not built: the mocks' "Followers" count (no such field).
+/// - With [showFollows] (the `list_follows` flag) the "N Followers" stat sits
+///   beside "N Members" (the owner sees it too) and, when [canFollow] (a public
+///   List that is not the viewer's), a Follow / Following button joins Pin.
 class ListDetailHeader extends StatelessWidget {
   const ListDetailHeader({
     super.key,
@@ -50,6 +53,9 @@ class ListDetailHeader extends StatelessWidget {
     required this.onRetry,
     this.onBack,
     this.menu,
+    this.showFollows = false,
+    this.canFollow = false,
+    this.onToggleFollow,
   });
 
   final ListDetailState state;
@@ -65,6 +71,13 @@ class ListDetailHeader extends StatelessWidget {
 
   /// The phone's overflow menu (Report), inside the hero.
   final Widget? menu;
+
+  /// The `list_follows` flag is on: show the follower count.
+  final bool showFollows;
+
+  /// Offer Follow / Following (a public List of someone else).
+  final bool canFollow;
+  final VoidCallback? onToggleFollow;
 
   @override
   Widget build(BuildContext context) {
@@ -239,47 +252,25 @@ class ListDetailHeader extends StatelessWidget {
               ),
             ),
           ),
-        Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: Semantics(
-            button: true,
-            label: listMemberCountLabel(header.memberCount),
-            excludeSemantics: true,
-            onTap: onMembers,
-            child: InkWell(
+        Wrap(
+          spacing: AppSpacing.md,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _Stat(
+              count: header.memberCount,
+              noun: header.memberCount == 1 ? 'Member' : 'Members',
+              spoken: listMemberCountLabel(header.memberCount),
+              phone: phone,
               onTap: onMembers,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: AppSpacing.minTapTarget,
-                ),
-                child: Align(
-                  widthFactor: 1,
-                  child: Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: '${header.memberCount}',
-                          style: TextStyle(
-                            fontSize: phone
-                                ? AppListsLayout.heroPhoneStat
-                                : AppListsLayout.heroWideStat,
-                            fontWeight: FontWeight.w800,
-                            color: AppPalette.pearl,
-                          ),
-                        ),
-                        TextSpan(
-                          text: header.memberCount == 1
-                              ? ' Member'
-                              : ' Members',
-                          style: TextStyle(fontSize: bodySize, color: muted),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
             ),
-          ),
+            if (showFollows)
+              _Stat(
+                count: header.followerCount,
+                noun: header.followerCount == 1 ? 'Follower' : 'Followers',
+                spoken: listFollowerCountLabel(header.followerCount),
+                phone: phone,
+              ),
+          ],
         ),
         Wrap(
           spacing: AppListsLayout.heroButtonGap,
@@ -294,6 +285,14 @@ class ListDetailHeader extends StatelessWidget {
               busy: state.pinBusy,
               onToggle: onTogglePin,
             ),
+            if (showFollows && canFollow)
+              ListFollowButton(
+                listName: header.name,
+                following: header.followedByViewer,
+                busy: state.followBusy,
+                onDark: true,
+                onToggle: onToggleFollow ?? () {},
+              ),
             if (isOwner)
               OutlinedButton(
                 style: kListOnDarkOutlinedButtonStyle,
@@ -352,6 +351,64 @@ class _Title extends StatelessWidget {
             style: const TextStyle(color: AppPalette.tealElectric),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// "N Members" / "N Followers": a bold count and a muted noun. With [onTap]
+/// it is a 48 dp button (Members opens the members page); without, plain text.
+class _Stat extends StatelessWidget {
+  const _Stat({
+    required this.count,
+    required this.noun,
+    required this.spoken,
+    required this.phone,
+    this.onTap,
+  });
+
+  final int count;
+  final String noun;
+  final String spoken;
+  final bool phone;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bodySize = phone
+        ? AppListsLayout.heroPhoneBody
+        : AppListsLayout.heroWideBody;
+    final text = Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: '$count',
+            style: TextStyle(
+              fontSize: phone
+                  ? AppListsLayout.heroPhoneStat
+                  : AppListsLayout.heroWideStat,
+              fontWeight: FontWeight.w800,
+              color: AppPalette.pearl,
+            ),
+          ),
+          TextSpan(
+            text: ' $noun',
+            style: TextStyle(fontSize: bodySize, color: AppPalette.mutedOnDark),
+          ),
+        ],
+      ),
+    );
+    return Semantics(
+      button: onTap != null,
+      label: spoken,
+      excludeSemantics: true,
+      onTap: onTap,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
+          child: Align(widthFactor: 1, child: text),
+        ),
       ),
     );
   }

@@ -19,9 +19,10 @@ class _FakeNativeShare implements NativeShare {
   final calls = <({String url, Rect? anchor})>[];
 
   @override
-  Future<void> shareUrl(String url, {Rect? anchor}) async {
+  Future<NativeShareStatus> shareUrl(String url, {Rect? anchor}) async {
     calls.add((url: url, anchor: anchor));
     if (error != null) throw error!;
+    return NativeShareStatus.completed;
   }
 }
 

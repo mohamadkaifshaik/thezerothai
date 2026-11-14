@@ -15,6 +15,7 @@ import 'package:dzeroth/features/beacons/presentation/plans_list_detail.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/your_plans_section.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -153,8 +154,17 @@ void main() {
       // The placeholder: icon, one line, New plan.
       expect(inShellPage(find.text(kPickAPlan)), findsOneWidget);
       expect(
-        inShellPage(find.widgetWithText(FilledButton, 'New plan')),
+        inShellPage(find.widgetWithText(AppPillButton, 'New plan')),
         findsOneWidget,
+      );
+      // Content-sized like the other pills, not stretched across the pane.
+      expect(
+        tester
+            .getSize(
+              inShellPage(find.widgetWithText(AppPillButton, 'New plan')),
+            )
+            .width,
+        lessThan(240),
       );
     });
 
@@ -245,7 +255,7 @@ void main() {
       final rig = PlansTabletRig();
       await rig.pump(tester);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'New plan'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'New plan'));
       await tester.pumpAndSettle();
       expect(rig.uri.path, AppRouter.planNewPath);
       expect(find.text('New plan stub'), findsOneWidget);

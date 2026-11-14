@@ -268,6 +268,96 @@ void main() {
       );
     });
 
+    test(
+      'skipReauth goes straight to the delete (recent Google sign-in)',
+      () async {
+        stubDelete((_) async => null);
+        final cubit = build();
+
+        await cubit.deleteAccount(promptPassword: _pw, skipReauth: true);
+
+        expect(cubit.state.status, AccountStatus.deleted);
+        verifyNever(
+          () =>
+              auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+        );
+        verifyDeleteCalls(1);
+      },
+    );
+
+    test('skipReauth then REAUTH_REQUIRED: one re-auth, one retry, same key, '
+        'no loop', () async {
+      final keys = <String>[];
+      var calls = 0;
+      stubDelete((i) async {
+        keys.add(i.namedArguments[#idempotencyKey] as String);
+        if (++calls <= 2) throw const ReauthRequiredException('old');
+        return null;
+      });
+      final cubit = build();
+
+      await cubit.deleteAccount(promptPassword: _pw, skipReauth: true);
+
+      expect(cubit.state.status, AccountStatus.failed);
+      expect(cubit.state.error, isA<ReauthRequiredException>());
+      verify(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).called(1);
+      verifyDeleteCalls(2);
+      expect(keys[0], keys[1]);
+    });
+
+    test(
+      'after a REAUTH_REQUIRED the next tap never skips the re-auth',
+      () async {
+        when(() => auth.reauthNeedsGesture).thenReturn(true);
+        var calls = 0;
+        stubDelete((_) async {
+          if (++calls == 1) throw const ReauthRequiredException('old');
+          return null;
+        });
+        final cubit = build();
+
+        await cubit.deleteAccount(promptPassword: _pw, skipReauth: true);
+        expect(cubit.state.error, isA<ReauthRequiredException>());
+        verifyNever(
+          () =>
+              auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+        );
+
+        await cubit.deleteAccount(promptPassword: _pw, skipReauth: true);
+        expect(cubit.state.status, AccountStatus.deleted);
+        verify(
+          () =>
+              auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+        ).called(1);
+      },
+    );
+
+    test('a wrong password fails with invalidCredentials and sends nothing; '
+        'the key survives for the retry', () async {
+      var attempt = 0;
+      stubReauth((_) async {
+        if (++attempt == 1) throw const AuthFailure.invalidCredentials();
+        return const ReauthResult();
+      });
+      stubDelete((_) async => null);
+      final cubit = build();
+
+      await cubit.deleteAccount(promptPassword: _pw);
+      expect(cubit.state.authFailure, isA<AuthInvalidCredentials>());
+      verifyNever(
+        () => accounts.deleteAccount(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      );
+
+      cubit.dismissMessage();
+      expect(cubit.state.status, AccountStatus.idle);
+      await cubit.deleteAccount(promptPassword: _pw);
+      expect(cubit.state.status, AccountStatus.deleted);
+    });
+
     test('on web the fallback re-auth is skipped (outside the gesture); the '
         'next tap retries with the same key', () async {
       when(() => auth.reauthNeedsGesture).thenReturn(true);

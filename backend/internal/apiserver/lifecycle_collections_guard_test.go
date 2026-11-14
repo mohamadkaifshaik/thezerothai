@@ -100,6 +100,10 @@ var lifecycleCollections = []collectionRow{
 	// userLikes/{uid}; the posts step also removes the copies of the user's content inside other users' docs.
 	{Name: "likes", Disposition: erasedByStep, Step: "engagement", Section: "engagement", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
 	{Name: "reposts", Disposition: erasedByStep, Step: "engagement", Section: "engagement", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
+	// postShares/{postId}_{uid} {postId, uid, createdAt}: one marker per account per post shared (direct message or outside
+	// share; no channel, conversation or recipient). The same step deletes each marker with its post's shareCount -1; the
+	// section lists them as "shares".
+	{Name: "postShares", Disposition: erasedByStep, Step: "engagement", Section: "engagement", Owner: "engagement", Cite: "ADR-0018 D7 (the likes erasure it mirrors), shares design 2026-11-13 §3.3 (owner decisions Q4, Q8)"},
 	{Name: "userLikes", Disposition: erasedByStep, Step: "engagement", ExportNote: "a cache of the likes and reposts sections (post ids only)", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
 	{Name: "media", Disposition: erasedByStep, Step: "media", Section: "media", Owner: "media", Cite: "ADR-0005, ADR-0011 Q1 (P4 media Eraser: objects first, then documents)"},
 	{Name: "reports", Disposition: erasedByStep, Step: "reports", Section: "reports", Owner: "moderation (P7)", Cite: "ADR-0016 D5 (reporterId cleared; reports about the user kept until resolved + 90 d), ADR-0011 Q1"},
@@ -145,6 +149,7 @@ var lifecycleCollections = []collectionRow{
 	// residue and needs no allowlist entry. The `lists` section exports the user's own lists with member ids; lists the user is a member
 	// of belong to their owners and are not exported. quotas.listCreates and listAdds are covered by the `quotas` row.
 	{Name: "lists", Disposition: erasedByStep, Step: "lists", Section: "lists", Owner: "lists", Cite: "ADR-0030 D8"},
+	{Name: "listFollows", Disposition: erasedByStep, Step: "lists", Section: "lists", Owner: "lists", Cite: "ADR-0030 D8; follower markers erased with their counts on account delete, removed with the list on list delete, exported in the lists section"},
 	// Communities/{cid} (ownerId, moderatorIds[], modlog[] with actor and target uids), its communityMembers
 	// subcollection (uid, state) and communityMemberships/{uid} (doc id = uid; joined, owned, banned, modlogged). Deleting users/{uid} removes
 	// none of it. The `communities` step (communities.Eraser, BeforeIdentity after poll_votes) reads the memberships doc and, per community

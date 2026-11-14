@@ -61,6 +61,7 @@ class PostActionBar extends StatelessWidget {
     this.replyCount = 0,
     this.repostCount = 0,
     this.likeCount = 0,
+    this.shareCount = 0,
     this.liked = false,
     this.reposted = false,
     this.bookmarked = false,
@@ -74,6 +75,10 @@ class PostActionBar extends StatelessWidget {
   final int replyCount;
   final int repostCount;
   final int likeCount;
+
+  /// The share count drawn beside the Share glyph; 0 draws none. The caller
+  /// passes it only while the `share_count` flag is on for the viewer.
+  final int shareCount;
   final bool liked;
   final bool reposted;
 
@@ -154,6 +159,7 @@ class PostActionBar extends StatelessWidget {
         icon: Icons.ios_share,
         iconSize: iconSize,
         label: 'Share',
+        count: shareCount,
         alignEnd: alignEnd,
         onPressed: actions.onShareAt != null
             ? () => actions.onShareAt!(targetRectOf(buttonContext))
@@ -258,6 +264,12 @@ class _ActionButton extends StatelessWidget {
       child: InkResponse(
         onTap: onPressed,
         radius: AppSpacing.lg,
+        // No press ripple or pressed circle behind the icon (owner,
+        // 2026-11-13): the button's own state (a filled heart, a count) is
+        // the feedback. A faint hover stays for pointers, and the focus
+        // highlight stays for the keyboard.
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
         child: ConstrainedBox(
           constraints: BoxConstraints(
             minWidth: AppSpacing.minTapTarget,

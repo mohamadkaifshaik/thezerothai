@@ -35,7 +35,8 @@
   },
   "engagement": {
     "likes": [],
-    "reposts": []
+    "reposts": [],
+    "shares": []
   },
   "exportVersion": 1,
   "follow_requests": {
@@ -71,6 +72,7 @@
     "userId": "<uid:A>"
   },
   "lists": {
+    "follows": [],
     "lists": [
       {
         "createdAt": "<time>",

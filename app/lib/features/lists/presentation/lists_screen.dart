@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -15,6 +16,8 @@ import '../data/home_tabs_repository.dart';
 import '../data/lists_repository.dart';
 import '../domain/home_tab_entry.dart';
 import '../domain/lists_feature_flag.dart';
+import 'bloc/list_feed_cubit.dart';
+import 'bloc/list_feed_state.dart';
 import 'bloc/lists_cubit.dart';
 import 'bloc/lists_state.dart';
 import 'widgets/list_editor_sheet.dart';
@@ -40,7 +43,11 @@ import '../../../core/widgets/shell_fab.dart';
 /// - The `lists` flag gates the route (the router redirects Home) and every
 ///   entry point; FEATURE_DISABLED or UNIMPLEMENTED shows the calm
 ///   "not available yet" state.
-/// - Not built (founder F10): the search pill and "Discover new Lists".
+/// - Not built (founder F10): the search pill.
+/// - With `list_follows`: a "Discover lists" entry (opens `/lists/discover`)
+///   and "Lists you follow" (`ListFollowedLists`, pages of 20 behind "Show
+///   more") below the viewer's own Lists; the section is hidden when it is
+///   empty, and a failure there never touches the page's own state.
 class ListsScreen extends StatefulWidget {
   const ListsScreen({super.key});
 
@@ -53,9 +60,28 @@ class _ListsScreenState extends State<ListsScreen> {
   late final HomeTabsRepository _tabs = context.read<HomeTabsRepository>();
   late final ListsCubit _cubit = ListsCubit(repository: _repository)..load();
 
+  /// Created on the first build with `list_follows` on, never before.
+  ListFeedCubit? _followed;
+
+  ListFeedCubit _followedCubit() => _followed ??= ListFeedCubit(
+    repository: _repository,
+    unfollowedLeavesFeed: true,
+    fetch: (token) => _repository.listFollowedLists(
+      pageSize: kListFollowsPageSize,
+      pageToken: token,
+    ),
+  )..load();
+
+  Future<void> _openList(String listId) async {
+    await context.push(AppRouter.listPath(listId));
+    // The viewer may have followed or unfollowed it over there.
+    if (mounted) _followed?.load();
+  }
+
   @override
   void dispose() {
     _cubit.close();
+    _followed?.close();
     super.dispose();
   }
 
@@ -84,8 +110,12 @@ class _ListsScreenState extends State<ListsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final followsOn = isFeatureEnabled(context, kFeatureListFollows);
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the scroll view runs behind it
+        // and ends with the bar's inset (ShellBottomInsetSliver).
+        bottom: false,
         child: AppMainColumn(
           child: BlocBuilder<ListsCubit, ListsState>(
             bloc: _cubit,
@@ -135,7 +165,7 @@ class _ListsScreenState extends State<ListsScreen> {
                           ),
                       ],
                     ),
-                    Expanded(child: _body(context, state)),
+                    Expanded(child: _body(context, state, followsOn)),
                   ],
                 ),
               );
@@ -146,7 +176,7 @@ class _ListsScreenState extends State<ListsScreen> {
     );
   }
 
-  Widget _body(BuildContext context, ListsState state) {
+  Widget _body(BuildContext context, ListsState state, bool followsOn) {
     switch (state.status) {
       case ListsStatus.loading:
         return const UserListSkeleton(semanticsLabel: 'Loading Lists');
@@ -212,10 +242,12 @@ class _ListsScreenState extends State<ListsScreen> {
                     ),
                   ],
                   if (lists.isEmpty)
-                    const SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: _EmptyLists(),
-                    )
+                    followsOn
+                        ? const SliverToBoxAdapter(child: _EmptyLists())
+                        : const SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: _EmptyLists(),
+                          )
                   else if (rest.isNotEmpty) ...[
                     const SliverToBoxAdapter(
                       child: ListsSectionHeader(title: 'Your Lists'),
@@ -225,6 +257,7 @@ class _ListsScreenState extends State<ListsScreen> {
                       itemBuilder: (context, i) => row(rest[i]),
                     ),
                   ],
+                  if (followsOn) ..._followSlivers(context, style),
                   const ShellBottomInsetSliver(),
                 ],
               ),
@@ -232,6 +265,63 @@ class _ListsScreenState extends State<ListsScreen> {
           },
         );
     }
+  }
+
+  /// "Discover lists" and "Lists you follow" (the `list_follows` flag is on).
+  List<Widget> _followSlivers(BuildContext context, ListRowStyle style) {
+    return [
+      SliverToBoxAdapter(
+        child: _DiscoverEntry(
+          style: style,
+          onTap: () => context.push(AppRouter.discoverListsPath),
+        ),
+      ),
+      BlocBuilder<ListFeedCubit, ListFeedState>(
+        bloc: _followedCubit(),
+        builder: (context, followed) {
+          // Loading, failed or empty: no section (and no error on the page).
+          if (followed.status != ListFeedStatus.ready ||
+              followed.lists.isEmpty) {
+            return const SliverToBoxAdapter(child: SizedBox.shrink());
+          }
+          return SliverMainAxisGroup(
+            slivers: [
+              const SliverToBoxAdapter(
+                child: ListsSectionHeader(title: 'Lists you follow'),
+              ),
+              SliverList.builder(
+                itemCount: followed.lists.length,
+                itemBuilder: (context, i) {
+                  final list = followed.lists[i];
+                  return ListRow(
+                    key: ValueKey('followed-${list.listId}'),
+                    list: list,
+                    style: style,
+                    followers: true,
+                    onTap: () => _openList(list.listId),
+                  );
+                },
+              ),
+              if (followed.hasMore || followed.loadMoreFailed)
+                SliverToBoxAdapter(
+                  child: Center(
+                    child: TextButton(
+                      onPressed: followed.loadingMore
+                          ? null
+                          : _followedCubit().loadMore,
+                      child: Text(
+                        followed.loadMoreFailed
+                            ? "Couldn't load more. Retry"
+                            : 'Show more',
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    ];
   }
 
   /// The List tabs of Home, in their order, as the Lists this page knows:
@@ -260,6 +350,79 @@ class _EmptyLists extends StatelessWidget {
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyLarge?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The "Discover lists" row (the Lists page's entry to `/lists/discover`):
+/// the page row look of the width, a teal-tinted tile and a chevron.
+class _DiscoverEntry extends StatelessWidget {
+  const _DiscoverEntry({required this.style, required this.onTap});
+
+  final ListRowStyle style;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final wide = style == ListRowStyle.wide;
+    final gutter = wide
+        ? AppListsLayout.wideGutter
+        : AppListsLayout.phoneGutter;
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return Semantics(
+      button: true,
+      label: 'Discover lists',
+      excludeSemantics: true,
+      onTap: onTap,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: gutter,
+              vertical: wide
+                  ? AppListsLayout.wideRowPaddingV
+                  : AppListsLayout.phoneRowPaddingV,
+            ),
+            child: Row(
+              children: [
+                const ListTileIcon(navy: false, icon: Icons.explore_outlined),
+                SizedBox(
+                  width: wide
+                      ? AppListsLayout.wideRowGap
+                      : AppListsLayout.phoneRowGap,
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Discover lists',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: wide
+                            ? theme.textTheme.titleSmall
+                            : theme.textTheme.titleMedium,
+                      ),
+                      Text(
+                        'Public Lists, most followed first',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: muted),
+              ],
+            ),
           ),
         ),
       ),

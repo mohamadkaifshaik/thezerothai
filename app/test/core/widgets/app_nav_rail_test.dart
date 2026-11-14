@@ -237,7 +237,7 @@ List<String> _visible(WidgetTester tester, List<AppNavDestination> all) {
 }
 
 void main() {
-  // Label visibility depends on measured widths: use the bundled DM Sans
+  // Label visibility depends on measured widths: use the bundled Inter
   // (the default test font draws every glyph 1 em wide).
   setUpAll(loadAppFonts);
 
@@ -518,7 +518,13 @@ void main() {
         expect(paragraph.textAlign, TextAlign.center);
         expect(paragraph.maxLines, 2);
         // The other labels are one line, at the same scale.
-        for (final label in ['Home', 'Explore', 'Plans', 'Messages']) {
+        // ("Messages" also wraps from 1.3: Inter is wider than the old font.)
+        for (final label in [
+          'Home',
+          'Explore',
+          'Plans',
+          if (scale < 1.3) 'Messages',
+        ]) {
           expect(
             tester.getSize(_inRail(find.text(label))).height,
             line,
@@ -753,7 +759,10 @@ void main() {
         );
         final selected = painted(_inRail(find.text('Notifications')));
         expect(selected.fontWeight, FontWeight.w800);
-        expect(selected.fontVariations, isNull);
+        expect(
+          selected.fontVariations?.where((v) => v.axis == 'wght'),
+          anyOf(isNull, isEmpty),
+        );
         expect(selected.fontSize, 12);
         expect(selected.color, scheme.onSurface);
         final other = painted(_inRail(find.text('Home')));

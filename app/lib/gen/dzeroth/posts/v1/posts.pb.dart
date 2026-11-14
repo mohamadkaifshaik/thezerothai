@@ -568,6 +568,7 @@ class Post extends $pb.GeneratedMessage {
     CommunityRef? community,
     ArticlePreview? article,
     BeaconPreview? beacon,
+    $fixnum.Int64? shareCount,
   }) {
     final result = Post._();
     if (postId != null) result.postId = postId;
@@ -594,6 +595,7 @@ class Post extends $pb.GeneratedMessage {
     if (community != null) result.community = community;
     if (article != null) result.article = article;
     if (beacon != null) result.beacon = beacon;
+    if (shareCount != null) result.shareCount = shareCount;
     return result;
   }
 
@@ -647,6 +649,7 @@ class Post extends $pb.GeneratedMessage {
         subBuilder: ArticlePreview.$_createMessage)
     ..aOM<BeaconPreview>(24, _omitFieldNames ? '' : 'beacon',
         subBuilder: BeaconPreview.$_createMessage)
+    ..aInt64(25, _omitFieldNames ? '' : 'shareCount')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -899,6 +902,22 @@ class Post extends $pb.GeneratedMessage {
   void clearBeacon() => $_clearField(24);
   @$pb.TagNumber(24)
   BeaconPreview ensureBeacon() => $_ensure(23);
+
+  /// How many distinct accounts shared this post (other than its author): sent it in a direct message
+  /// (MessagingService.SendMessage shared_post_id) or reported a copy-link / share-sheet share
+  /// (dzeroth.engagement.v1.EngagementService.RecordPostShare). Each account counts at most once per post, whatever the
+  /// channel and however often. Never says who shared or where. Kept on posts/{id}.shareCount by FieldValue.Increment
+  /// with the per-account marker; an account deletion decrements it, like like_count. 0 on a REPOST row (read the
+  /// embed's original), on a withheld row, and on posts that predate the field. Clients show it only when
+  /// GetMe.enabled_features lists "share_count".
+  @$pb.TagNumber(25)
+  $fixnum.Int64 get shareCount => $_getI64(24);
+  @$pb.TagNumber(25)
+  set shareCount($fixnum.Int64 value) => $_setInt64(24, value);
+  @$pb.TagNumber(25)
+  $core.bool hasShareCount() => $_has(24);
+  @$pb.TagNumber(25)
+  void clearShareCount() => $_clearField(25);
 }
 
 /// Bounded summary only. The reader fetches the authorized body separately.

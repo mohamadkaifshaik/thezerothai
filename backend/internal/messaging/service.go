@@ -53,6 +53,12 @@ type Deps struct {
 	Events     Events
 	Badge      BadgeCache
 	Limits     Limits
+	// PostShare, Cards and Shares serve a shared post (post_share.go). PostShare is required for a send with
+	// shared_post_id (without it such a send is an internal error); Cards nil renders every card unavailable; Shares nil
+	// records no share.
+	PostShare PostShareCheck
+	Cards     PostCards
+	Shares    ShareRecorder
 	// AllowAnonymous is config.AuthEmulator only: the verified-email gate of Send and Accept lets emulator callers through.
 	AllowAnonymous bool
 	// CursorKey seals the list tokens (CURSOR_HMAC_KEY, like every other module); required for ListConversations.

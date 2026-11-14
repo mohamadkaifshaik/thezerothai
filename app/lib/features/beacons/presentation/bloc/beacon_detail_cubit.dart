@@ -21,9 +21,17 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   BeaconDetailCubit({
     required BeaconsRepository repository,
     required String beaconId,
+    pb.BeaconView? initialView,
   }) : _repository = repository,
        _beaconId = beaconId,
-       super(const BeaconDetailState());
+       super(
+         initialView == null
+             ? const BeaconDetailState()
+             : BeaconDetailState(
+                 status: BeaconDetailStatus.ready,
+                 view: initialView,
+               ),
+       );
 
   static const _uuid = Uuid();
 
@@ -44,9 +52,33 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
       final view = await _repository.getBeacon(_beaconId);
       if (isClosed || generation != _generation) return;
       emit(state.copyWith(status: BeaconDetailStatus.ready, view: view));
+      await _loadFaces(view, generation);
     } on AppException catch (error) {
       if (isClosed || generation != _generation) return;
       emit(state.copyWith(status: BeaconDetailStatus.error, error: error));
+    }
+  }
+
+  /// The first 3 people going, only for a viewer who may list participants
+  /// (the organiser, or accepted); anyone else keeps the count alone with no
+  /// read. A refusal (NOT_FOUND, FORBIDDEN, a paused service, anything else)
+  /// leaves the card on the count: the faces are decoration, never an error.
+  Future<void> _loadFaces(pb.BeaconView view, int generation) async {
+    if (!(view.viewer.canManage || view.viewer.canLeave)) {
+      if (state.faces.isNotEmpty) emit(state.copyWith(faces: const []));
+      return;
+    }
+    try {
+      final page = await _repository.listParticipants(
+        beaconId: _beaconId,
+        filter: pb.ParticipantFilter.PARTICIPANT_FILTER_ACCEPTED,
+        limit: 3,
+      );
+      if (isClosed || generation != _generation) return;
+      emit(state.copyWith(faces: page.participants));
+    } on AppException {
+      if (isClosed || generation != _generation) return;
+      emit(state.copyWith(faces: const []));
     }
   }
 
@@ -61,7 +93,9 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
     if (!ok) return;
   }
 
-  /// Asks to join with [note] (0-140). True on success.
+  /// Asks to join with [note] (0-140); an empty note is the one-tap "I'm in".
+  /// True on success. A `note_required` refusal sets
+  /// [BeaconDetailState.noteRequired] (and no [BeaconDetailState.actionError]).
   Future<bool> request(String note) {
     final normalized = note.trim();
     return _run(
@@ -102,7 +136,9 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   }) async {
     if (state.busy != null || state.view == null) return false;
     final key = _keys.putIfAbsent('${action.name}|$payload', _uuid.v4);
-    emit(state.copyWith(busy: action, clearActionError: true));
+    emit(
+      state.copyWith(busy: action, clearActionError: true, noteRequired: false),
+    );
     var ok = false;
     try {
       await write(key);
@@ -115,6 +151,8 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
         // more: that is the end state they asked for, so just reload.
         _keys.clear();
         ok = true;
+      } else if (action == BeaconAction.request && isNoteRequired(error)) {
+        emit(state.copyWith(noteRequired: true));
       } else {
         emit(state.copyWith(actionError: beaconsErrorMessage(error)));
       }

@@ -219,6 +219,9 @@ message UserListItem {
   // The caller's relationship to `user`, computed from the caller's own graph, so clients can render
   // follow buttons on list rows without calling GetRelationships.
   Relationship relationship = 3;
+  // The user's bio (<= 160 chars), hydrated from the live profile like `user` (up to 60 s stale); empty if none.
+  // Lets the follower, following and suggested rows show it without a second call. Costs no extra read.
+  string bio = 4;
 }
 
 message FollowRequest {

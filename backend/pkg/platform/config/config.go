@@ -200,6 +200,41 @@ type Config struct {
 	// you share" strip of a chat. On for the caller on top of FEATURE_BEACONS not globally off.
 	// FEATURE_CHAT_SHARED_PLANS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureChatSharedPlans flags.Spec
+	// FeatureDMPostShare is the flag (wire name `dm_post_share`) gating SendMessageRequest.shared_post_id (a post sent in a
+	// direct message): on for the caller, on top of FEATURE_MESSAGING. While it is globally off every Message.shared_post
+	// card is the unavailable form. FEATURE_DM_POST_SHARE[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureDMPostShare flags.Spec
+	// FeatureShareCount is the flag (wire name `share_count`) gating EngagementService.RecordPostShare (on for the caller);
+	// a direct-message share is recorded for Post.share_count while it is not globally off. Clients show the count only
+	// when it is on for the viewer. FEATURE_SHARE_COUNT[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureShareCount flags.Spec
+	// FeatureHandleSuggestions is the flag (wire name `handle_suggestions`) gating free handle suggestions offered when a chosen handle is taken (sign-up and Change handle): on for the caller.
+	// FEATURE_HANDLE_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureHandleSuggestions flags.Spec
+	// FeatureListFollows is the flag (wire name `list_follows`) gating following a public List, its follower count and the Discover lists page: on for the caller.
+	// FEATURE_LIST_FOLLOWS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureListFollows flags.Spec
+	// FeatureListSuggestions is the flag (wire name `list_suggestions`) gating suggested members on a List the caller owns: on for the caller.
+	// FEATURE_LIST_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureListSuggestions flags.Spec
+	// FeatureBookmarkHistory is the flag (wire name `bookmark_history`) gating the History tab beside Bookmarks (posts the caller recently opened): on for the caller.
+	// FEATURE_BOOKMARK_HISTORY[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureBookmarkHistory flags.Spec
+	// FeatureArticleImages is the flag (wire name `article_images`) gating image blocks inside an article body: on for the caller.
+	// FEATURE_ARTICLE_IMAGES[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureArticleImages flags.Spec
+	// FeatureExportZip is the flag (wire name `export_zip`) gating a data export delivered as one ZIP archive: on for the caller.
+	// FEATURE_EXPORT_ZIP[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureExportZip flags.Spec
+	// FeatureMessageSearch is the flag (wire name `message_search`) gating searching the caller's own direct messages: on for the caller.
+	// FEATURE_MESSAGE_SEARCH[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureMessageSearch flags.Spec
+	// FeatureBeaconQuickJoin is the flag (wire name `beacon_quick_join`) gating the follow-gated empty note of
+	// BeaconService.RequestToJoin: with it on for the caller, an empty note is accepted only when the organiser follows the
+	// caller (else FAILED_PRECONDITION "note_required"), and ViewerState.quick_join_allowed is computed by GetBeacon and the
+	// beacon lists. On for the caller on top of FEATURE_BEACONS on for the caller.
+	// FEATURE_BEACON_QUICK_JOIN[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureBeaconQuickJoin flags.Spec
 	// FeatureReadReceipts is the flag (wire name `read_receipts`) gating read receipts (F3): UpdateProfile.read_receipts=true,
 	// the receipt stamp of MarkConversationRead and Conversation.peer_read_at of ListMessages need it on for the caller (peer_read_at
 	// also for the peer); Profile.read_receipts is shown unless it is globally off. Needs `messaging` for any effect.
@@ -532,6 +567,8 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", 30, &rl.SearchPeoplePerUserPerMinute},
 		// VotePoll 30/min per instance (90 with 3).
 		{"RATE_LIMIT_POLL_VOTE_PER_MIN", 30, &rl.PollVotePerUserPerMinute},
+		// RecordPostShare 20/min per instance (60 with 3).
+		{"RATE_LIMIT_SHARES_PER_MIN", 20, &rl.SharesPerUserPerMinute},
 		{"RATE_LIMIT_SEARCH_POSTS_PER_MIN", 20, &rl.SearchPostsPerUserPerMinute},
 		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
@@ -605,6 +642,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: MESSAGES_SENDS_PER_DAY must be > 0 (got %d)", messagesSendsPerDay)
 	}
 	rl.MessagesSendsPerDay = int64(messagesSendsPerDay)
+	// RecordPostShare daily call cap (limit_name "shares_daily"); see RateLimitConfig.SharesRecordedPerDay. A cap of 0
+	// would lock every user out of the RPC.
+	sharesRecordedPerDay, err := getInt("SHARES_RECORDED_PER_DAY", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	if sharesRecordedPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: SHARES_RECORDED_PER_DAY must be > 0 (got %d)", sharesRecordedPerDay)
+	}
+	rl.SharesRecordedPerDay = int64(sharesRecordedPerDay)
 	// Security review M-1: MarkConversationRead's own daily cap (limit_name "messages_mark_read_daily") and ONE
 	// cap shared by AcceptMessageRequest + DeleteConversation (limit_name "messages_mutation_daily"); see
 	// RateLimitConfig.MessagesMarkReadPerDay / MessagesMutationsPerDay for the defaults' math. A cap of 0 would lock every
@@ -901,6 +948,46 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureDMPostShare, err := flags.LoadSpec("DM_POST_SHARE", "dm_post_share", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureShareCount, err := flags.LoadSpec("SHARE_COUNT", "share_count", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureHandleSuggestions, err := flags.LoadSpec("HANDLE_SUGGESTIONS", "handle_suggestions", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureListFollows, err := flags.LoadSpec("LIST_FOLLOWS", "list_follows", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureListSuggestions, err := flags.LoadSpec("LIST_SUGGESTIONS", "list_suggestions", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureBookmarkHistory, err := flags.LoadSpec("BOOKMARK_HISTORY", "bookmark_history", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureArticleImages, err := flags.LoadSpec("ARTICLE_IMAGES", "article_images", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureExportZip, err := flags.LoadSpec("EXPORT_ZIP", "export_zip", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureMessageSearch, err := flags.LoadSpec("MESSAGE_SEARCH", "message_search", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1075,6 +1162,16 @@ func Load() (Config, error) {
 		FeatureBeacons:               featureBeacons,
 		FeaturePostBeaconEmbed:       featurePostBeaconEmbed,
 		FeatureChatSharedPlans:       featureChatSharedPlans,
+		FeatureDMPostShare:           featureDMPostShare,
+		FeatureShareCount:            featureShareCount,
+		FeatureHandleSuggestions:     featureHandleSuggestions,
+		FeatureListFollows:           featureListFollows,
+		FeatureListSuggestions:       featureListSuggestions,
+		FeatureBookmarkHistory:       featureBookmarkHistory,
+		FeatureArticleImages:         featureArticleImages,
+		FeatureExportZip:             featureExportZip,
+		FeatureMessageSearch:         featureMessageSearch,
+		FeatureBeaconQuickJoin:       featureBeaconQuickJoin,
 		FeatureReadReceipts:          featureReadReceipts,
 		FeatureProfileExtras:         featureProfileExtras,
 		FeatureProfileTabs:           featureProfileTabs,

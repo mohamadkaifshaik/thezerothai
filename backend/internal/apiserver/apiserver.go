@@ -404,6 +404,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Audience: engAudience,
 		// VotePoll: the vote batch, the vote doc TTL and the lazy userLikes trim are config.
 		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept, PollVoteChangesMax: cfg.Composer.PollVoteChangesMax,
+		// RecordPostShare and the direct-message share seam: the postShares markers (shares design D4).
+		ShareRepo: engagementRepo,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
@@ -745,7 +747,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return articlesv1connect.NewArticleServiceHandler(articles.NewServer(fsClient, postsSvc, featureFlags, func(ctx context.Context, uid, id string) (string, error) {
 			ref, err := mediaMod.library.ResolvePostCover(ctx, uid, id)
 			return ref.URL, err
-		}).WithPublishingAccess(articlePublishingAccess), o...)
+		}).WithPublishingAccess(articlePublishingAccess).WithImages(articleImageResolver{mediaMod.library}, articleImageAttacher{mediaMod.library}), o...)
 	})
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
@@ -778,6 +780,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 		CursorKey: cfg.CursorHMACKey,
 		Log:       log,
+		// A post sent in a message (shares design): the GetPost rules for the sender, the per-reader cards, and the
+		// best-effort share record into engagement's postShares.
+		PostShare: postShareCheck{posts: postsSvc.(posts.Engagement)},
+		Cards:     postCards{posts: postsSvc.(posts.Engagement)},
+		Shares:    engagementMod,
 	})
 	reporter, ok := messagingSvc.(messaging.MessageReporter)
 	if !ok {
@@ -844,7 +851,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	beaconsSvc := beacons.New(beacons.Deps{
 		Repo: beaconsRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, Communities: communitiesSvc.(communities.Reader),
-		CommunityFlags: featureFlags, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
+		CommunityFlags: featureFlags, Flags: featureFlags, Follows: graphSvc, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
 		Events: beaconEvents,
 		Outbox: ob, // the cancellation notices: staged in the cancel transaction, re-run by the outbox sweep (B07)
 		Limits: beacons.Limits{MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots},

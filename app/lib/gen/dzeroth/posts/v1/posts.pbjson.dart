@@ -411,6 +411,7 @@ const Post$json = {
       '6': '.dzeroth.posts.v1.BeaconPreview',
       '10': 'beacon'
     },
+    {'1': 'share_count', '3': 25, '4': 1, '5': 3, '10': 'shareCount'},
   ],
 };
 
@@ -435,7 +436,8 @@ final $typed_data.Uint8List postDescriptor = $convert.base64Decode(
     'emVyb3RoLnBvc3RzLnYxLlBvbGxSBHBvbGwSPAoJY29tbXVuaXR5GBYgASgLMh4uZHplcm90aC'
     '5wb3N0cy52MS5Db21tdW5pdHlSZWZSCWNvbW11bml0eRI6CgdhcnRpY2xlGBcgASgLMiAuZHpl'
     'cm90aC5wb3N0cy52MS5BcnRpY2xlUHJldmlld1IHYXJ0aWNsZRI3CgZiZWFjb24YGCABKAsyHy'
-    '5kemVyb3RoLnBvc3RzLnYxLkJlYWNvblByZXZpZXdSBmJlYWNvbg==');
+    '5kemVyb3RoLnBvc3RzLnYxLkJlYWNvblByZXZpZXdSBmJlYWNvbhIfCgtzaGFyZV9jb3VudBgZ'
+    'IAEoA1IKc2hhcmVDb3VudA==');
 
 @$core.Deprecated('Use articlePreviewDescriptor instead')
 const ArticlePreview$json = {

@@ -11,6 +11,7 @@ import '../../auth/presentation/widgets/auth_page_layout.dart' show AuthFrame;
 import '../../auth/presentation/widgets/verify_email_view.dart';
 import '../domain/handle_rules.dart' show HandleCheckStatus;
 import 'bloc/onboarding_bloc.dart';
+import 'widgets/handle_suggestion_chips.dart';
 import 'bloc/onboarding_event.dart';
 import 'bloc/onboarding_state.dart';
 
@@ -160,6 +161,22 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
               onChanged: (value) => context.read<OnboardingBloc>().add(
                 OnboardingHandleChanged(value),
               ),
+            ),
+            // After a TAKEN answer: free handles close to it. A tap fills
+            // the field and checks that handle again.
+            HandleSuggestionChips(
+              handles: state.handleCheckStatus == HandleCheckStatus.unavailable
+                  ? state.handleSuggestions
+                  : const [],
+              onChosen: (handle) {
+                _handleController.value = TextEditingValue(
+                  text: handle,
+                  selection: TextSelection.collapsed(offset: handle.length),
+                );
+                context.read<OnboardingBloc>().add(
+                  OnboardingHandleChanged(handle),
+                );
+              },
             ),
           ],
         );

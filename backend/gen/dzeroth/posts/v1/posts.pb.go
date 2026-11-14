@@ -896,7 +896,15 @@ type Post struct {
 	// The plan this post shares (CreatePostRequest.beacon_id), decided for the viewer of this response (BeaconPreview).
 	// Unset for a post with no plan, for a REPOST or QUOTE row (the card is on the original), and everywhere while
 	// FEATURE_POST_BEACON_EMBED is globally off.
-	Beacon        *BeaconPreview `protobuf:"bytes,24,opt,name=beacon,proto3" json:"beacon,omitempty"`
+	Beacon *BeaconPreview `protobuf:"bytes,24,opt,name=beacon,proto3" json:"beacon,omitempty"`
+	// How many distinct accounts shared this post (other than its author): sent it in a direct message
+	// (MessagingService.SendMessage shared_post_id) or reported a copy-link / share-sheet share
+	// (dzeroth.engagement.v1.EngagementService.RecordPostShare). Each account counts at most once per post, whatever the
+	// channel and however often. Never says who shared or where. Kept on posts/{id}.shareCount by FieldValue.Increment
+	// with the per-account marker; an account deletion decrements it, like like_count. 0 on a REPOST row (read the
+	// embed's original), on a withheld row, and on posts that predate the field. Clients show it only when
+	// GetMe.enabled_features lists "share_count".
+	ShareCount    int64 `protobuf:"varint,25,opt,name=share_count,json=shareCount,proto3" json:"share_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1097,6 +1105,13 @@ func (x *Post) GetBeacon() *BeaconPreview {
 		return x.Beacon
 	}
 	return nil
+}
+
+func (x *Post) GetShareCount() int64 {
+	if x != nil {
+		return x.ShareCount
+	}
+	return 0
 }
 
 // Bounded summary only. The reader fetches the authorized body separately.
@@ -2732,7 +2747,7 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\freply_policy\x18\t \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\vreplyPolicy\x12*\n" +
 	"\x04poll\x18\n" +
 	" \x01(\v2\x16.dzeroth.posts.v1.PollR\x04poll\x12:\n" +
-	"\aarticle\x18\v \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\"\xc5\b\n" +
+	"\aarticle\x18\v \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\"\xe6\b\n" +
 	"\x04Post\x12\x17\n" +
 	"\apost_id\x18\x01 \x01(\tR\x06postId\x129\n" +
 	"\x06author\x18\x02 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x06author\x12.\n" +
@@ -2765,7 +2780,9 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\x04poll\x18\x15 \x01(\v2\x16.dzeroth.posts.v1.PollR\x04poll\x12<\n" +
 	"\tcommunity\x18\x16 \x01(\v2\x1e.dzeroth.posts.v1.CommunityRefR\tcommunity\x12:\n" +
 	"\aarticle\x18\x17 \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\x127\n" +
-	"\x06beacon\x18\x18 \x01(\v2\x1f.dzeroth.posts.v1.BeaconPreviewR\x06beacon\"|\n" +
+	"\x06beacon\x18\x18 \x01(\v2\x1f.dzeroth.posts.v1.BeaconPreviewR\x06beacon\x12\x1f\n" +
+	"\vshare_count\x18\x19 \x01(\x03R\n" +
+	"shareCount\"|\n" +
 	"\x0eArticlePreview\x12\x1d\n" +
 	"\n" +
 	"article_id\x18\x01 \x01(\tR\tarticleId\x12\x14\n" +

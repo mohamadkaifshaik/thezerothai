@@ -30,9 +30,14 @@
 //
 // Errors (clients branch on ErrorDetail.reason):
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in text | conversation_id | recipient_user_id | page_token |
-//     since_token | idempotency_key (and folder, ListConversations only); before any lookup.
+//     since_token | idempotency_key | shared_post_id (and folder, ListConversations only); before any lookup.
 //   - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "messaging".
-//   - NOT_FOUND: one message for every cause (above).
+//   - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id may also answer NOT_FOUND
+//     "post not found" (the GetPost bytes) when the caller may not see the post or a block in either direction stands
+//     between the caller and its author.
+//   - FAILED_PRECONDITION + ERROR_REASON_PROTECTED_ACCOUNT: SendMessage sharing a protected account's post by anyone but
+//     that account; FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "dm_post_share" for a share with that
+//     flag off for the caller.
 //   - FAILED_PRECONDITION + ERROR_REASON_CANNOT_MESSAGE: one reason, with identical bytes, for a block in either
 //     direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose peer
 //     deleted the account. It is no oracle beyond what GetProfile's NOT_FOUND already reveals.
@@ -140,6 +145,31 @@ type MessagingServiceClient interface {
 	// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is
 	// generic ("New message") and carries only the conversation id (NOTIFICATION_TYPE_MESSAGE).
 	// A refused send writes nothing.
+	// Sharing a post (shared_post_id set): every rule above applies unchanged (blocks, DM policy, requests, caps, push).
+	// In addition, before the send transaction and after the recipient checks:
+	//   - Flag FEATURE_DM_POST_SHARE (wire name "dm_post_share"): on for the caller (else FAILED_PRECONDITION +
+	//     FEATURE_DISABLED, metadata["feature"] = "dm_post_share", before any lookup); FEATURE_POSTS must be on.
+	//   - shared_post_id: 19 digits (else VALIDATION "shared_post_id", before any lookup). A REPOST id shares its original;
+	//     the stored and returned id is the original's.
+	//   - The post must be visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or deleting
+	//     author, an author who blocks the caller, a QUOTE or REPOST whose embedded author blocks the caller), and by the
+	//     card's rule: no block in either direction, so a caller who blocked the author (or a QUOTE's embedded author) may
+	//     not send it either. Every case => NOT_FOUND "post not found", byte-identical to GetPost, writing nothing.
+	//   - Protected authors: a post by a protected account may be sent only by that account (the RepostPost rule); any
+	//     other caller who can see it => FAILED_PRECONDITION + PROTECTED_ACCOUNT, writing nothing.
+	//   - The client sends a text even without a caption: the canonical post URL (so a client that predates the card shows a
+	//     link that opens through GetPost). A client that renders shared_post hides a text equal to that URL.
+	//   - Idempotency: shared_post_id is part of the request body, so the same key with a different post => VALIDATION
+	//     "idempotency_key", like a different text.
+	//   - The message document stores the post id only, never a copy of the post: Message.shared_post is decided for each
+	//     reader at read time (ListMessages). The inbox preview never carries post text (MessagePreview.shared_post).
+	//   - After the commit (never for a replay or a refusal, and never inside the send transaction, so a hot post cannot
+	//     abort a DM) the share is recorded once per (caller, post) for Post.share_count when FEATURE_SHARE_COUNT is not
+	//     globally off and the caller is not the post's author: best effort, a failure is logged and never fails the send.
+	//
+	// Worst case added by a share: the post visibility check (cache-first: the post, its author's status, the caller's
+	// graph already read, the protected set; 0-3 reads), then on a first share by this caller of this post 1 read
+	// (postShares marker) + 2 writes (marker Create, posts.shareCount Increment); 1 read and 0 writes otherwise.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The caller's conversations in one folder, most recent activity first. The path comes from the caller's token;
 	// there is no user id parameter. folder must be INBOX or REQUESTS, else VALIDATION "folder".
@@ -168,6 +198,14 @@ type MessagingServiceClient interface {
 	// RATE_LIMITED answer pauses polling.
 	// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
 	// shared with ListConversations.
+	// Shared posts: every returned VISIBLE message that carries a post gets Message.shared_post, decided for the CALLER
+	// (the reader, sender or recipient alike) by the GetPost rules at read time, on every page kind including a since
+	// poll. Only the page's shared post ids are hydrated, in one batched cache-first read (posts.GetMany: at most one
+	// read per distinct post not in the instance cache, plus its author's status through the identity directory, 60 s);
+	// the caller's graph snapshot (60 s) is read only when the page carries a shared post; a caller past the blockedBy
+	// cap also consults each card author's graph (60 s, at most one per distinct author), as GetPost does. A since poll with no new
+	// shared post therefore still reads no post, profile or graph. While FEATURE_DM_POST_SHARE is globally off every
+	// card is the unavailable form.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// Marks the conversation read for the caller: unread count 0 and the read time on the caller's own entry (a field
 	// update with an Exists precondition). The read time (last_read_at) is never shown to the peer. When the caller's "Read
@@ -318,6 +356,31 @@ type MessagingServiceHandler interface {
 	// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is
 	// generic ("New message") and carries only the conversation id (NOTIFICATION_TYPE_MESSAGE).
 	// A refused send writes nothing.
+	// Sharing a post (shared_post_id set): every rule above applies unchanged (blocks, DM policy, requests, caps, push).
+	// In addition, before the send transaction and after the recipient checks:
+	//   - Flag FEATURE_DM_POST_SHARE (wire name "dm_post_share"): on for the caller (else FAILED_PRECONDITION +
+	//     FEATURE_DISABLED, metadata["feature"] = "dm_post_share", before any lookup); FEATURE_POSTS must be on.
+	//   - shared_post_id: 19 digits (else VALIDATION "shared_post_id", before any lookup). A REPOST id shares its original;
+	//     the stored and returned id is the original's.
+	//   - The post must be visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or deleting
+	//     author, an author who blocks the caller, a QUOTE or REPOST whose embedded author blocks the caller), and by the
+	//     card's rule: no block in either direction, so a caller who blocked the author (or a QUOTE's embedded author) may
+	//     not send it either. Every case => NOT_FOUND "post not found", byte-identical to GetPost, writing nothing.
+	//   - Protected authors: a post by a protected account may be sent only by that account (the RepostPost rule); any
+	//     other caller who can see it => FAILED_PRECONDITION + PROTECTED_ACCOUNT, writing nothing.
+	//   - The client sends a text even without a caption: the canonical post URL (so a client that predates the card shows a
+	//     link that opens through GetPost). A client that renders shared_post hides a text equal to that URL.
+	//   - Idempotency: shared_post_id is part of the request body, so the same key with a different post => VALIDATION
+	//     "idempotency_key", like a different text.
+	//   - The message document stores the post id only, never a copy of the post: Message.shared_post is decided for each
+	//     reader at read time (ListMessages). The inbox preview never carries post text (MessagePreview.shared_post).
+	//   - After the commit (never for a replay or a refusal, and never inside the send transaction, so a hot post cannot
+	//     abort a DM) the share is recorded once per (caller, post) for Post.share_count when FEATURE_SHARE_COUNT is not
+	//     globally off and the caller is not the post's author: best effort, a failure is logged and never fails the send.
+	//
+	// Worst case added by a share: the post visibility check (cache-first: the post, its author's status, the caller's
+	// graph already read, the protected set; 0-3 reads), then on a first share by this caller of this post 1 read
+	// (postShares marker) + 2 writes (marker Create, posts.shareCount Increment); 1 read and 0 writes otherwise.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The caller's conversations in one folder, most recent activity first. The path comes from the caller's token;
 	// there is no user id parameter. folder must be INBOX or REQUESTS, else VALIDATION "folder".
@@ -346,6 +409,14 @@ type MessagingServiceHandler interface {
 	// RATE_LIMITED answer pauses polling.
 	// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
 	// shared with ListConversations.
+	// Shared posts: every returned VISIBLE message that carries a post gets Message.shared_post, decided for the CALLER
+	// (the reader, sender or recipient alike) by the GetPost rules at read time, on every page kind including a since
+	// poll. Only the page's shared post ids are hydrated, in one batched cache-first read (posts.GetMany: at most one
+	// read per distinct post not in the instance cache, plus its author's status through the identity directory, 60 s);
+	// the caller's graph snapshot (60 s) is read only when the page carries a shared post; a caller past the blockedBy
+	// cap also consults each card author's graph (60 s, at most one per distinct author), as GetPost does. A since poll with no new
+	// shared post therefore still reads no post, profile or graph. While FEATURE_DM_POST_SHARE is globally off every
+	// card is the unavailable form.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// Marks the conversation read for the caller: unread count 0 and the read time on the caller's own entry (a field
 	// update with an Exists precondition). The read time (last_read_at) is never shown to the peer. When the caller's "Read

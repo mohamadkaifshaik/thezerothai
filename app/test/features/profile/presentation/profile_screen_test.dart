@@ -1,5 +1,6 @@
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/profile_skeleton.dart';
 import 'package:dzeroth/core/widgets/app_error_view.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -66,7 +67,9 @@ void main() {
     );
 
     await tester.pumpWidget(wrap());
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // A skeleton, not a bare spinner, while the profile loads.
+    expect(find.byKey(kProfileSkeletonKey), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
 
     await tester.pumpAndSettle();
 

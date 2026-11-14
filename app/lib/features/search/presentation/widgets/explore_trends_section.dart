@@ -2,37 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../data/search_repository.dart' show Trend;
+import '../../domain/explore_media.dart' show kExploreTopTrends;
+import '../../domain/search_routes.dart';
 import '../bloc/trends_cubit.dart';
 import '../bloc/trends_state.dart';
-import '../../domain/search_routes.dart';
+import 'explore_section_header.dart';
 import 'trend_row.dart';
 import 'trends_loader.dart';
 import 'trends_status_views.dart';
 
-/// Rows Explore shows before "Show more", and the most it
-/// expands to.
-const kExploreTrendsCollapsedRows = 10;
-const kExploreTrendsMaxRows = 30;
+/// Rows the Trending page lists, at most: the one `GetTrends` asks for 30.
+const kExploreTrendsMaxRows = kTrendsFetchLimit;
 
-/// The trends part of Explore's Trending tab, as a sliver: a "Trending
-/// today" caption (the list is computed once a day), up to 10 [TrendRow]s with
-/// "Show more" to 30, or the loading, empty ("Nothing is trending yet") and
-/// failed states. Mount it only with `trends` on; needs [TrendsCubit] in scope.
-/// [now] is injectable for the staleness caption.
-class ExploreTrendsSection extends StatefulWidget {
-  const ExploreTrendsSection({super.key, this.now});
-
-  final DateTime Function()? now;
-
-  @override
-  State<ExploreTrendsSection> createState() => _ExploreTrendsSectionState();
-}
-
-class _ExploreTrendsSectionState extends State<ExploreTrendsSection> {
-  bool _expanded = false;
+/// The "Trending" section of Explore, as a sliver: a header with "See all >"
+/// (the full list, [AppRouter.exploreTrendingPath]) over the top
+/// [kExploreTopTrends] [TrendRow]s, or the loading, empty ("Nothing is
+/// trending yet") and failed states. Mount it only with `trends` on; needs
+/// [TrendsCubit] in scope.
+class ExploreTrendsSection extends StatelessWidget {
+  const ExploreTrendsSection({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -40,72 +32,59 @@ class _ExploreTrendsSectionState extends State<ExploreTrendsSection> {
       child: BlocBuilder<TrendsCubit, TrendsState>(
         builder: (context, state) {
           final trends = state.trends;
+          Widget? body;
           switch (state.status) {
             case TrendsStatus.unavailable:
               return const SliverToBoxAdapter(child: SizedBox.shrink());
             case TrendsStatus.initial:
             case TrendsStatus.loading:
-              if (trends.isEmpty) {
-                return const SliverToBoxAdapter(child: TrendsSkeleton());
-              }
+              if (trends.isEmpty) body = const TrendsSkeleton(rows: 3);
             case TrendsStatus.failed:
               if (trends.isEmpty) {
-                return SliverToBoxAdapter(
-                  child: TrendsErrorNotice(
-                    error: state.error,
-                    onRetry: () =>
-                        context.read<TrendsCubit>().ensureLoaded(force: true),
-                  ),
+                body = TrendsErrorNotice(
+                  error: state.error,
+                  onRetry: () =>
+                      context.read<TrendsCubit>().ensureLoaded(force: true),
                 );
               }
             case TrendsStatus.ready:
               if (trends.isEmpty) {
-                return const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
-                    child: AppEmptyView(
-                      icon: Icons.trending_up,
-                      title: 'Nothing is trending yet',
-                      subtitle:
-                          'Popular hashtags show up here once enough '
-                          'people use them.',
-                    ),
+                body = const Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                  child: AppEmptyView(
+                    icon: Icons.trending_up,
+                    title: 'Nothing is trending yet',
+                    subtitle:
+                        'Popular hashtags show up here once enough '
+                        'people use them.',
                   ),
                 );
               }
           }
-          final canExpand =
-              !_expanded && trends.length > kExploreTrendsCollapsedRows;
-          final shown = _expanded
-              ? trends.take(kExploreTrendsMaxRows).toList()
-              : trends.take(kExploreTrendsCollapsedRows).toList();
-          final now = (widget.now ?? DateTime.now)();
+          final shown = trends.take(kExploreTopTrends).toList();
           return SliverMainAxisGroup(
             slivers: [
               SliverToBoxAdapter(
-                child: _Caption(
-                  stale: trendsAreStale(state.computedAt, now),
-                  failed: state.status == TrendsStatus.failed,
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                    top: AppExplorePeopleLayout.sectionGap,
+                  ),
+                  child: ExploreSectionHeader(
+                    title: 'Trending',
+                    onSeeAll: () => context.push(AppRouter.exploreTrendingPath),
+                  ),
                 ),
               ),
-              SliverList.builder(
-                itemCount: shown.length,
-                itemBuilder: (context, i) => _row(context, shown[i]),
-              ),
-              if (canExpand)
-                SliverToBoxAdapter(
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton(
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size(0, AppSpacing.minTapTarget),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                        ),
-                      ),
-                      onPressed: () => setState(() => _expanded = true),
-                      child: const Text('Show more'),
-                    ),
+              SliverToBoxAdapter(child: ExploreTrendsNote(state: state)),
+              if (body != null)
+                SliverToBoxAdapter(child: body)
+              else
+                SliverList.builder(
+                  itemCount: shown.length,
+                  itemBuilder: (context, i) => exploreTrendRow(
+                    context,
+                    shown[i],
+                    last: i == shown.length - 1,
                   ),
                 ),
             ],
@@ -114,56 +93,53 @@ class _ExploreTrendsSectionState extends State<ExploreTrendsSection> {
       ),
     );
   }
-
-  Widget _row(BuildContext context, Trend trend) => TrendRow(
-    key: ValueKey(trend.tag),
-    trend: trend,
-    ranked: true,
-    onTap: () => context.push(searchResultsLocation('#${trend.tag}')),
-  );
 }
 
-class _Caption extends StatelessWidget {
-  const _Caption({required this.stale, required this.failed});
+/// One ranked trend row that opens the tag's results (Explore's section and
+/// the Trending page share it).
+Widget exploreTrendRow(
+  BuildContext context,
+  Trend trend, {
+  bool last = false,
+}) => TrendRow(
+  key: ValueKey(trend.tag),
+  trend: trend,
+  ranked: true,
+  last: last,
+  onTap: () => context.push(searchResultsLocation('#${trend.tag}')),
+);
 
-  final bool stale;
-  final bool failed;
+/// The honest one-liner under the Trending title: "Couldn't refresh" while a
+/// failed call keeps the last list on screen, or "more than a day old" when the
+/// daily sweep missed a run. Nothing otherwise.
+class ExploreTrendsNote extends StatelessWidget {
+  const ExploreTrendsNote({super.key, required this.state, this.now});
+
+  final TrendsState state;
+  final DateTime Function()? now;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final note = failed
+    if (state.trends.isEmpty) return const SizedBox.shrink();
+    final note = state.status == TrendsStatus.failed
         ? "Couldn't refresh. Showing the last list."
-        : stale
+        : trendsAreStale(state.computedAt, (now ?? DateTime.now)())
         ? 'This list is more than a day old.'
         : null;
+    if (note == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
-        AppSpacing.md,
+        0,
         AppSpacing.md,
         AppSpacing.xs,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Semantics(
-            header: true,
-            child: Text(
-              'Trending today',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          if (note != null)
-            Text(
-              note,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-        ],
+      child: Text(
+        note,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
       ),
     );
   }

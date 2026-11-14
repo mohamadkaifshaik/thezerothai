@@ -17,6 +17,7 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../core/widgets/shell_geometry.dart';
+import '../../engagement/presentation/post_open_recorder.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_avatar.dart';
@@ -104,6 +105,7 @@ class ThreadScreen extends StatelessWidget {
           create: (context) => ThreadCubit(
             postsRepository: context.read<PostsRepository>(),
             postId: postId,
+            onOpened: postOpenRecorder(context),
           )..load(),
         ),
         BlocProvider<ThreadModerationCubit>(
@@ -229,6 +231,9 @@ class _ThreadView extends StatelessWidget {
               onBack: () => leavePostScreen(context),
             ),
             body: SafeArea(
+              // The floating bar overlays the page: the scroll view runs
+              // behind it and ends with the bar's inset.
+              bottom: false,
               child: Center(
                 child: ConstrainedBox(
                   // 680 on the tablet layout (the readable column), else

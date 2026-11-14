@@ -34,6 +34,14 @@ class ConversationsResult {
   final int? requestCount;
 }
 
+/// One older page fetched for search and held in memory only.
+class OlderSearchPage {
+  const OlderSearchPage(this.messages, this.nextPageToken);
+
+  final List<pb.Message> messages;
+  final String nextPageToken;
+}
+
 /// Talks to `MessagingService` and keeps the inbox, requests and the newest
 /// 200 messages per conversation in drift. It is the
 /// only caller of the messaging RPCs.
@@ -436,6 +444,31 @@ class MessagingRepository {
     });
   }
 
+  // --- search (on device) ---------------------------------------------------
+
+  /// The cached headers and messages on-device search reads. No request.
+  Future<SearchCorpus> cachedSearchCorpus({String? conversationId}) =>
+      _store.readSearchCorpus(conversationId: conversationId);
+
+  /// The token below the oldest message cached for [conversationId] ('' =
+  /// nothing older is known).
+  Future<String> olderSearchToken(String conversationId) async =>
+      (await _store.readThread(conversationId)).olderPageToken;
+
+  /// One older page of [conversationId] for search, NOT written to the cache
+  /// (the cache keeps the newest 200 per conversation and would trim it again;
+  /// the caller holds it in memory only). [pageToken] comes from
+  /// [olderSearchToken] or the previous page's `nextPageToken`.
+  Future<OlderSearchPage> fetchOlderForSearch(
+    String conversationId,
+    String pageToken,
+  ) {
+    return _single('search-older:$conversationId', () async {
+      final page = await _listMessages(conversationId, pageToken: pageToken);
+      return OlderSearchPage(page.messages.toList(), page.nextPageToken);
+    });
+  }
+
   // --- mutations -----------------------------------------------------------
 
   /// Sends [text] to an existing [conversationId] or, with
@@ -444,11 +477,18 @@ class MessagingRepository {
   /// retry (a retry returns the stored message). Per caller: with the flag
   /// off for the caller no RPC is sent. The message and conversation are
   /// cached on success.
+  ///
+  /// [sharedPostId] (a post id; the server resolves a REPOST to its original)
+  /// shares that post in the message; [text] is then the caption, or the post
+  /// link when there is none (a client that predates the card still shows a
+  /// link). The server needs `dm_post_share` for the caller; its
+  /// FEATURE_DISABLED for that flag does not turn off plain sends here.
   Future<pb.SendMessageResponse> sendMessage({
     required String idempotencyKey,
     required String text,
     String? conversationId,
     String? recipientUserId,
+    String? sharedPostId,
   }) async {
     assert(
       (conversationId == null) != (recipientUserId == null),
@@ -461,6 +501,7 @@ class MessagingRepository {
     );
     if (conversationId != null) request.conversationId = conversationId;
     if (recipientUserId != null) request.recipientUserId = recipientUserId;
+    if (sharedPostId != null) request.sharedPostId = sharedPostId;
     final response = await _gate.run(
       () => _apiClient.messaging.sendMessage(request),
     );
@@ -557,6 +598,12 @@ class MessagingRepository {
   /// persisted request count is left for the next first Inbox page to correct.
   /// A conversation that is not a cached request is left alone.
   Future<void> dropBlockedRequest(String conversationId) async {
+    // Any conversation: its cached header turns read-only, which also stops
+    // on-device search matching it before the next refresh.
+    await _store.markConversationReadOnly(
+      conversationId,
+      session: _store.session,
+    );
     if (!await _isRequest(conversationId)) return;
     await _store.removeConversationEntry(conversationId);
     _notifyConversationsChanged();

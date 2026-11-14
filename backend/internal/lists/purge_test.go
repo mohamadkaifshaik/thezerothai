@@ -12,6 +12,7 @@ import (
 
 // fakePurger plays back one answer per call and records the calls, so the phase machine is tested without Firestore.
 type fakePurger struct {
+	followStubs
 	owned     []int
 	members   []MemberPage
 	ownedErr  error
@@ -66,12 +67,12 @@ func TestEraser_Phases(t *testing.T) {
 		wantCalls string
 		want      Checkpoint
 	}{
-		{"an account with no lists takes one empty page per phase", &fakePurger{owned: []int{0}, members: []MemberPage{{}}}, Checkpoint{}, "own member", Checkpoint{Phase: "member"}},
-		{"own lists, then membership", &fakePurger{owned: []int{2}, members: []MemberPage{{Scanned: 3, Updated: 3}}}, Checkpoint{}, "own member", Checkpoint{Phase: "member", Deleted: 2, Updated: 3}},
-		{"a full own page runs again before the member phase", &fakePurger{owned: []int{500, 7}, members: []MemberPage{{}}}, Checkpoint{}, "own own member", Checkpoint{Phase: "member", Deleted: 507}},
-		{"a full member page runs again", &fakePurger{owned: []int{0}, members: []MemberPage{{Scanned: 500, Updated: 500}, {Scanned: 1, Updated: 1}}}, Checkpoint{}, "own member member", Checkpoint{Phase: "member", Updated: 501}},
-		{"a conflict re-queries and counts nothing", &fakePurger{owned: []int{0}, members: []MemberPage{{Scanned: 4, Conflict: true}, {Scanned: 4, Updated: 4}}}, Checkpoint{}, "own member member", Checkpoint{Phase: "member", Updated: 4}},
-		{"resumes in the member phase from a checkpoint", &fakePurger{members: []MemberPage{{}}}, Checkpoint{Phase: "member", Deleted: 5}, "member", Checkpoint{Phase: "member", Deleted: 5}},
+		{"an account with no lists takes one empty page per phase", &fakePurger{owned: []int{0}, members: []MemberPage{{}}}, Checkpoint{}, "own member follows", Checkpoint{Phase: "follows"}},
+		{"own lists, then membership", &fakePurger{owned: []int{2}, members: []MemberPage{{Scanned: 3, Updated: 3}}}, Checkpoint{}, "own member follows", Checkpoint{Phase: "follows", Deleted: 2, Updated: 3}},
+		{"a full own page runs again before the member phase", &fakePurger{owned: []int{500, 7}, members: []MemberPage{{}}}, Checkpoint{}, "own own member follows", Checkpoint{Phase: "follows", Deleted: 507}},
+		{"a full member page runs again", &fakePurger{owned: []int{0}, members: []MemberPage{{Scanned: 500, Updated: 500}, {Scanned: 1, Updated: 1}}}, Checkpoint{}, "own member member follows", Checkpoint{Phase: "follows", Updated: 501}},
+		{"a conflict re-queries and counts nothing", &fakePurger{owned: []int{0}, members: []MemberPage{{Scanned: 4, Conflict: true}, {Scanned: 4, Updated: 4}}}, Checkpoint{}, "own member member follows", Checkpoint{Phase: "follows", Updated: 4}},
+		{"resumes in the member phase from a checkpoint", &fakePurger{members: []MemberPage{{}}}, Checkpoint{Phase: "member", Deleted: 5}, "member follows", Checkpoint{Phase: "follows", Deleted: 5}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -164,4 +165,10 @@ func TestExporter_EmptyAndPaging(t *testing.T) {
 	if n := strings.Count(buf.String(), `"listId"`); n != exportPage+1 {
 		t.Errorf("rows = %d, want %d", n, exportPage+1)
 	}
+}
+
+// PurgeFollowerPage: this fake models the own and member phases only; an empty follow page is a no-op.
+func (f *fakePurger) PurgeFollowerPage(context.Context, string) (MemberPage, error) {
+	f.calls = append(f.calls, "follows")
+	return MemberPage{}, nil
 }

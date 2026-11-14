@@ -60,7 +60,7 @@ func (l *Lifecycle) WriteSection(ctx context.Context, uid string, w io.Writer) e
 			}
 			first = false
 			// Exports contain user content, never publication replay keys.
-			value := map[string]any{"articleId": a.ID, "title": a.Title, "bodyJson": a.Body, "coverMediaId": a.CoverMediaID, "postId": a.PostID, "revision": a.Revision, "updatedAt": a.UpdatedAt}
+			value := map[string]any{"articleId": a.ID, "title": a.Title, "bodyJson": a.Body, "coverMediaId": a.CoverMediaID, "imageMediaIds": a.ImageMediaIDs, "postId": a.PostID, "revision": a.Revision, "updatedAt": a.UpdatedAt}
 			if err = json.NewEncoder(w).Encode(value); err != nil {
 				return err
 			}

@@ -17,6 +17,7 @@ class EngagementEntry {
     required this.reposted,
     this.likeCount,
     this.repostCount,
+    this.shareCount,
     this.likeBusy = false,
     this.repostBusy = false,
     this.base,
@@ -32,6 +33,7 @@ class EngagementEntry {
       reposted: view.repostedByViewer,
       likeCount: isRepost ? null : view.post.likeCount.toInt(),
       repostCount: isRepost ? null : view.post.repostCount.toInt(),
+      shareCount: isRepost ? null : view.post.shareCount.toInt(),
     );
   }
 
@@ -39,6 +41,10 @@ class EngagementEntry {
   final bool reposted;
   final int? likeCount;
   final int? repostCount;
+
+  /// Distinct accounts that shared the post (`Post.share_count`); null for a
+  /// REPOST row until a share answer brings the real number.
+  final int? shareCount;
   final bool likeBusy;
   final bool repostBusy;
 
@@ -56,7 +62,8 @@ class EngagementEntry {
       liked == other.liked &&
       reposted == other.reposted &&
       likeCount == other.likeCount &&
-      repostCount == other.repostCount;
+      repostCount == other.repostCount &&
+      shareCount == other.shareCount;
 
   /// Whether this entry is still newer than [view]: a request is running, or
   /// the row still says what it said when the entry was created.
@@ -73,6 +80,7 @@ class EngagementEntry {
     bool? reposted,
     int? likeCount,
     int? repostCount,
+    int? shareCount,
     bool? likeBusy,
     bool? repostBusy,
   }) => EngagementEntry(
@@ -80,6 +88,7 @@ class EngagementEntry {
     reposted: reposted ?? this.reposted,
     likeCount: likeCount ?? this.likeCount,
     repostCount: repostCount ?? this.repostCount,
+    shareCount: shareCount ?? this.shareCount,
     likeBusy: likeBusy ?? this.likeBusy,
     repostBusy: repostBusy ?? this.repostBusy,
     base: base,
@@ -92,6 +101,7 @@ class EngagementEntry {
       other.reposted == reposted &&
       other.likeCount == likeCount &&
       other.repostCount == repostCount &&
+      other.shareCount == shareCount &&
       other.likeBusy == likeBusy &&
       other.repostBusy == repostBusy;
 
@@ -101,6 +111,7 @@ class EngagementEntry {
     reposted,
     likeCount,
     repostCount,
+    shareCount,
     likeBusy,
     repostBusy,
   );

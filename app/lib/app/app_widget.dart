@@ -69,6 +69,7 @@ import '../features/settings/data/own_privacy_store.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/data/drafts_repository.dart';
+import '../features/engagement/data/post_history_repository.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
@@ -295,6 +296,9 @@ class _AppWidgetState extends State<AppWidget> {
   // The store is also provided to the tree: Delete account forgets the
   // Unsent posts on this device; Delete account wipes the deleted uid's.
   late final DraftsRepository _drafts = DraftsRepository(widget.database);
+  late final PostHistoryRepository _postHistory = PostHistoryRepository(
+    widget.database,
+  );
   // deleted uid's record there (L-6).
   late final PushOptInStore _pushOptInStore = DatabasePushOptInStore(
     widget.database,
@@ -371,7 +375,10 @@ class _AppWidgetState extends State<AppWidget> {
         () => _messengerKey.currentState?.clearSnackBars(),
       )
       ..register('pending posts', _pendingPosts.clear)
-      ..register('engagement', _engagement.reset)
+      ..register('engagement', () {
+        _engagement.reset();
+        widget.engagementRepository.clearShareSession();
+      })
       ..register('polls', () => _polls?.reset())
       ..register('bookmarks', _bookmarks.reset)
       ..register('suggestions', _suggestions.reset)
@@ -604,6 +611,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.database),
         RepositoryProvider<PushOptInStore>.value(value: _pushOptInStore),
         RepositoryProvider<DraftsRepository>.value(value: _drafts),
+        RepositoryProvider<PostHistoryRepository>.value(value: _postHistory),
         RepositoryProvider<UnexpectedErrorReporter>.value(
           value: reportUnexpectedError,
         ),

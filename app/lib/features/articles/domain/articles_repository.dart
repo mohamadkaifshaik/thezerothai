@@ -1,3 +1,4 @@
+import '../../../gen/dzeroth/common/v1/common.pb.dart' show MediaRef;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../posts/domain/reply_audience.dart';
 import 'article.dart';
@@ -15,6 +16,7 @@ class ArticleRecord {
     this.publicationCaption = '',
     this.publicationReplyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
     this.excerpt = '',
+    this.images = const {},
   });
   final ArticleDraft draft;
   final DateTime updatedAt;
@@ -38,6 +40,13 @@ class ArticleRecord {
   /// Server-computed plain-text excerpt. List rows carry only this (their
   /// draft has no blocks); open the article with get() to read the body.
   final String excerpt;
+
+  /// The body's inline images by media id, as the server resolved them for
+  /// this reader (GetArticle and PublishArticle). An image block with no
+  /// entry (deleted, withheld, not usable) is shown as a placeholder. A save
+  /// answer carries none, so the editor keeps the map it already had
+  /// ([withImages]).
+  final Map<String, MediaRef> images;
   bool get published => postId.isNotEmpty;
 
   /// This record once the server refused its pending publication
@@ -54,6 +63,23 @@ class ArticleRecord {
     publicationCaption: publicationCaption,
     publicationReplyPolicy: publicationReplyPolicy,
     excerpt: excerpt,
+    images: images,
+  );
+
+  /// This record with [images] (a save's answer carries none).
+  ArticleRecord withImages(Map<String, MediaRef> images) => ArticleRecord(
+    draft: draft,
+    updatedAt: updatedAt,
+    postId: postId,
+    coverUrl: coverUrl,
+    authorName: authorName,
+    authorHandle: authorHandle,
+    authorAvatar: authorAvatar,
+    publicationPending: publicationPending,
+    publicationCaption: publicationCaption,
+    publicationReplyPolicy: publicationReplyPolicy,
+    excerpt: excerpt,
+    images: images,
   );
 
   /// The list summary: the server excerpt, or one derived from loaded blocks.

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -35,6 +37,15 @@ type Server struct {
 	now              func() time.Time
 	resolveCover     func(context.Context, string, string) (string, error)
 	publishingAccess func(context.Context, string) error
+	images           ImageResolver
+	attacher         ImageAttacher
+}
+
+// WithImages wires inline image blocks: resolver answers reads (nil leaves images out of every response), attacher claims
+// them at publication (nil fails a publication that has images, closed). Both come from media in apiserver.
+func (s *Server) WithImages(resolver ImageResolver, attacher ImageAttacher) *Server {
+	s.images, s.attacher = resolver, attacher
+	return s
 }
 
 // WithPublishingAccess is a server-injected entitlement check. Nil fails closed
@@ -67,7 +78,29 @@ func (s *Server) draftWire(ctx context.Context, a *record) *av.Article {
 			out.CoverUrl = url
 		}
 	}
+	s.withImages(ctx, out, a, "")
 	return out
+}
+
+// withImages sets out.Images: the article's inline images the author or reader can be shown, in body order. postID "" is
+// an unpublished article's draft; a published article passes its root post. A failed resolution leaves the images out (the
+// article still reads, and each block shows its placeholder), so an outage here never fails the read. Unusable images are
+// absent by design (deleted, withheld, retired, marked).
+func (s *Server) withImages(ctx context.Context, out *av.Article, a *record, postID string) {
+	ids := imageIDsOf(a.Body)
+	if s.images == nil || len(ids) == 0 {
+		return
+	}
+	refs, err := s.images.ResolveArticleImages(ctx, a.AuthorID, postID, ids)
+	if err != nil {
+		slog.WarnContext(ctx, "article_images_unresolved", "article_id", a.ID, "error", err.Error())
+		return
+	}
+	for _, id := range ids {
+		if ref, ok := refs[id]; ok && ref != nil {
+			out.Images = append(out.Images, ref)
+		}
+	}
 }
 func (s *Server) guard(ctx context.Context) (string, error) {
 	if err := posts.GuardFeature(ctx, s.flags); err != nil {
@@ -133,6 +166,7 @@ func (s *Server) GetArticle(ctx context.Context, req *connect.Request[av.GetArti
 		out.Post = postWire(p, uid)
 		out.Article = wire(a)
 		cover(out.Article, p)
+		s.withImages(ctx, out.Article, a, a.PostID)
 	} else {
 		if err = own(a, uid); err != nil {
 			return nil, err
@@ -153,11 +187,21 @@ func (s *Server) SaveArticle(ctx context.Context, req *connect.Request[av.SaveAr
 	if err = validArticleID(in.GetArticleId()); err != nil {
 		return nil, err
 	}
-	if _, err = validateContent(in.GetTitle(), in.GetBodyJson(), false); err != nil {
+	info, err := inspectContent(in.GetTitle(), in.GetBodyJson(), false)
+	if err != nil {
 		return nil, err
 	}
 	if in.GetCoverMediaId() != "" && !validID.MatchString(in.GetCoverMediaId()) {
 		return nil, apierr.Validation("cover_media_id", "invalid media id")
+	}
+	if in.GetCoverMediaId() != "" && slices.Contains(info.ImageIDs, in.GetCoverMediaId()) {
+		return nil, apierr.Validation("cover_media_id", "a cover image cannot also be an inline image")
+	}
+	// Only images this save adds are checked (owned, usable, unattached): an image the draft already holds is kept as it
+	// is, so a later withdrawal never locks the draft. The read is before the transaction; the revision check inside it
+	// makes the stored set the one read here.
+	if err = s.checkNewImages(ctx, uid, in.GetArticleId(), info.ImageIDs); err != nil {
+		return nil, err
 	}
 	a, err := s.repo.saveDraft(ctx, in.GetArticleId(), uid, func(current *record, drafts func() (int, error)) (*record, error) {
 		if current == nil {
@@ -187,6 +231,7 @@ func (s *Server) SaveArticle(ctx context.Context, req *connect.Request[av.SaveAr
 		next.Title = in.GetTitle()
 		next.Body = in.GetBodyJson()
 		next.CoverMediaID = in.GetCoverMediaId()
+		next.ImageMediaIDs = info.ImageIDs
 		next.Revision++
 		next.UpdatedAt = s.now().UTC()
 		return &next, nil
@@ -196,6 +241,52 @@ func (s *Server) SaveArticle(ctx context.Context, req *connect.Request[av.SaveAr
 	}
 	return connect.NewResponse(&av.SaveArticleResponse{Article: s.draftWire(ctx, a)}), nil
 }
+
+// checkNewImages applies the save rules to the inline images a save adds to the draft id: with FEATURE_ARTICLE_IMAGES off
+// a save may not add one (it may keep the ones already there, so an author's images survive the flag); with it on each new
+// image must be the author's, usable, unattached and not a GIF. A draft that does not exist yet holds nothing, so every
+// image it names is new.
+func (s *Server) checkNewImages(ctx context.Context, uid, id string, imageIDs []string) error {
+	if len(imageIDs) == 0 {
+		return nil
+	}
+	var stored []string
+	cur, err := s.repo.get(ctx, id)
+	switch {
+	case err == nil:
+		stored = imageIDsOf(cur.Body)
+	case connect.CodeOf(err) != connect.CodeNotFound:
+		return err
+	}
+	var added []string
+	for _, imageID := range imageIDs {
+		if !slices.Contains(stored, imageID) {
+			added = append(added, imageID)
+		}
+	}
+	if len(added) == 0 {
+		return nil
+	}
+	if !s.imagesEnabled(uid) {
+		return apierr.Validation("body", "inline images are not available for this account yet")
+	}
+	if s.images == nil {
+		return connect.NewError(connect.CodeUnavailable, errors.New("article image verification unavailable"))
+	}
+	usable, err := s.images.ResolveArticleImages(ctx, uid, "", added)
+	if err != nil {
+		return fmt.Errorf("articles: verify images: %w", err)
+	}
+	if len(usable) != len(added) {
+		return ErrImageNotReady
+	}
+	return nil
+}
+
+func (s *Server) imagesEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, "article_images")
+}
+
 func (s *Server) ListArticles(ctx context.Context, req *connect.Request[av.ListArticlesRequest]) (*connect.Response[av.ListArticlesResponse], error) {
 	uid, err := s.guard(ctx)
 	if err != nil {
@@ -353,6 +444,7 @@ func (s *Server) PublishArticle(ctx context.Context, req *connect.Request[av.Pub
 		}
 		article := wire(a)
 		cover(article, p)
+		s.withImages(ctx, article, a, a.PostID)
 		return connect.NewResponse(&av.PublishArticleResponse{Article: article, Post: postWire(p, uid)}), nil
 	}
 	excerpt, _ := validateContent(a.Title, a.Body, true)
@@ -362,7 +454,7 @@ func (s *Server) PublishArticle(ctx context.Context, req *connect.Request[av.Pub
 	}
 	sum := sha256.Sum256([]byte(fmt.Sprintf("article:%s:%s:%d:%s", uid, id, a.Revision, a.PendingKey)))
 	in := posts.CreateInput{IdempotencyKey: hex.EncodeToString(sum[:]), Text: text, ReplyPolicy: a.ReplyPolicy, ReplyAudienceEnabled: s.flags != nil && s.flags.Enabled(uid, "reply_audience"), Article: &posts.ArticlePreview{ArticleID: id, Title: a.Title, Excerpt: excerpt}}
-	in.ArticlePublication = &publicationIntent{repo: s.repo, expected: a, now: s.now().UTC()}
+	in.ArticlePublication = &publicationIntent{repo: s.repo, expected: a, now: s.now().UTC(), uid: uid, images: s.attacher}
 	if a.CoverMediaID != "" {
 		in.MediaIDs = []string{a.CoverMediaID}
 		in.MediaEnabled = s.flags != nil && s.flags.Enabled(uid, "media")
@@ -389,5 +481,6 @@ func (s *Server) PublishArticle(ctx context.Context, req *connect.Request[av.Pub
 	a.UpdatedAt = s.now().UTC()
 	article := wire(a)
 	cover(article, p)
+	s.withImages(ctx, article, a, a.PostID)
 	return connect.NewResponse(&av.PublishArticleResponse{Article: article, Post: postWire(p, uid)}), nil
 }

@@ -40,8 +40,10 @@ class _FakeNativeShare implements NativeShare {
   final calls = <({String url, Rect? anchor})>[];
 
   @override
-  Future<void> shareUrl(String url, {Rect? anchor}) async =>
-      calls.add((url: url, anchor: anchor));
+  Future<NativeShareStatus> shareUrl(String url, {Rect? anchor}) async {
+    calls.add((url: url, anchor: anchor));
+    return NativeShareStatus.completed;
+  }
 }
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>

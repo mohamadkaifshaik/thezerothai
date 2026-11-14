@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/app_theme.dart';
 import 'beacons_screen.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import 'bloc/plans_session.dart';
 
 /// Plans list–detail on the tablet layout from 840dp (band B; tablet plan
@@ -110,10 +111,13 @@ class PlansDetailPlaceholder extends StatelessWidget {
                 const SizedBox(height: AppSpacing.md),
                 const Text(kPickAPlan, textAlign: TextAlign.center),
                 const SizedBox(height: AppSpacing.md),
-                FilledButton.icon(
+                // Content-sized like the other pill buttons (the theme's
+                // FilledButton stretches to the full width).
+                AppPillButton(
+                  label: 'New plan',
+                  icon: Icons.add,
+                  compact: true,
                   onPressed: onNewPlan,
-                  icon: const Icon(Icons.add),
-                  label: const Text('New plan'),
                 ),
               ],
             ),

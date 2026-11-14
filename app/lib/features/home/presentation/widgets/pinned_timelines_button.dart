@@ -5,7 +5,8 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 
 /// The Feed top bar's "Pinned timelines" control (Feed design): a round 44 dp
-/// flat white button (no shadow), inside a 48 dp hit area. Opens Manage
+/// flat white button (no shadow), inside a 48 dp hit area; in dark mode the
+/// plain grey icon with no disc, like `AppIconButton`'s raised. Opens Manage
 /// pinned. It lives in the bar, not at the end of the tab strip, so the tabs
 /// keep the whole row.
 class PinnedTimelinesButton extends StatelessWidget {
@@ -17,6 +18,7 @@ class PinnedTimelinesButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const hit = Size.square(AppSpacing.minTapTarget);
+    final disc = Theme.of(context).brightness == Brightness.light;
     return SizedBox.fromSize(
       size: hit,
       child: Center(
@@ -30,8 +32,8 @@ class PinnedTimelinesButton extends StatelessWidget {
             padding: EdgeInsets.zero,
             tapTargetSize: MaterialTapTargetSize.padded,
             shape: const CircleBorder(),
-            backgroundColor: AppPalette.white,
-            foregroundColor: AppPalette.navy,
+            backgroundColor: disc ? AppPalette.white : null,
+            foregroundColor: disc ? AppPalette.navy : null,
           ),
         ),
       ),

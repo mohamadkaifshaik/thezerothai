@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
@@ -12,6 +13,7 @@ import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/post/post_card.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
+import '../../engagement/presentation/post_open_recorder.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -54,6 +56,7 @@ class PostDetailScreen extends StatelessWidget {
       create: (context) => PostDetailCubit(
         postsRepository: context.read<PostsRepository>(),
         postId: postId,
+        onOpened: postOpenRecorder(context),
       )..load(),
       child: const _PostDetailView(),
     );
@@ -73,7 +76,9 @@ class _Frame extends StatelessWidget {
         title: 'Post',
         onBack: () => leavePostScreen(context),
       ),
-      body: SafeArea(child: child),
+      // The floating bar overlays the page: the scroll view runs behind it and
+      // ends with the bar's inset.
+      body: SafeArea(bottom: false, child: child),
     );
   }
 }
@@ -144,6 +149,7 @@ class _ReadyPost extends StatelessWidget {
     final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
 
     return SingleChildScrollView(
+      padding: shellBottomInsets(context),
       child: Center(
         child: ConstrainedBox(
           // 680 on the tablet layout (the readable column), else 600.

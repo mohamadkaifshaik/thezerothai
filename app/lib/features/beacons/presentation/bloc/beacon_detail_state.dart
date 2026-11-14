@@ -18,7 +18,14 @@ class BeaconDetailState {
     this.error,
     this.busy,
     this.actionError,
+    this.noteRequired = false,
+    this.faces = const [],
   });
+
+  /// Up to 3 people going (ACCEPTED, oldest first), for the People card's
+  /// faces. Empty when the viewer may not list participants, or the read
+  /// failed: the card then only counts.
+  final List<pb.Participant> faces;
 
   final BeaconDetailStatus status;
 
@@ -37,6 +44,10 @@ class BeaconDetailState {
   /// Friendly text of the last failed action, for a snackbar.
   final String? actionError;
 
+  /// The last request was refused with `note_required`: the screen opens the
+  /// note sheet (no [actionError] is set for it).
+  final bool noteRequired;
+
   BeaconDetailState copyWith({
     BeaconDetailStatus? status,
     pb.BeaconView? view,
@@ -46,11 +57,15 @@ class BeaconDetailState {
     bool clearBusy = false,
     String? actionError,
     bool clearActionError = false,
+    bool? noteRequired,
+    List<pb.Participant>? faces,
   }) => BeaconDetailState(
     status: status ?? this.status,
     view: view ?? this.view,
     error: clearError ? null : (error ?? this.error),
     busy: clearBusy ? null : (busy ?? this.busy),
     actionError: clearActionError ? null : (actionError ?? this.actionError),
+    noteRequired: noteRequired ?? this.noteRequired,
+    faces: faces ?? this.faces,
   );
 }

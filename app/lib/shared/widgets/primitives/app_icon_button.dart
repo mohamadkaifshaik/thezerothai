@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 
-/// A 48 x 48 icon button (dz.css `.iconbtn`). [raised] is the white disc with
-/// a soft shadow (`.iconbtn.raised`). A [tooltip] is required: it is the
+/// A 48 x 48 icon button (dz.css `.iconbtn`). [raised] is the flat white disc
+/// (`.iconbtn.raised`) with no shadow, like the Feed's pinned-timelines
+/// button, in light mode only: in dark mode a white disc glares, so a raised
+/// button is the plain grey icon of an unraised one (owner, 2026-11-14:
+/// match the Explore header's Settings). A [tooltip] is required: it is the
 /// semantics label and the long-press hint.
 class AppIconButton extends StatelessWidget {
   const AppIconButton({
@@ -23,6 +26,7 @@ class AppIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     const target = Size(AppSpacing.minTapTarget, AppSpacing.minTapTarget);
     final colors = context.appColors;
+    final disc = raised && Theme.of(context).brightness == Brightness.light;
     final button = IconButton(
       icon: Icon(icon),
       tooltip: tooltip,
@@ -33,19 +37,12 @@ class AppIconButton extends StatelessWidget {
         padding: EdgeInsets.zero,
         tapTargetSize: MaterialTapTargetSize.padded,
         shape: const CircleBorder(),
-        backgroundColor: raised ? AppPalette.white : null,
-        foregroundColor: raised ? AppPalette.navy : null,
-        disabledBackgroundColor: raised ? colors.disabledPillFill : null,
+        backgroundColor: disc ? AppPalette.white : null,
+        foregroundColor: disc ? AppPalette.navy : null,
+        disabledBackgroundColor: disc ? colors.disabledPillFill : null,
         disabledForegroundColor: colors.disabledPillLabel,
       ),
     );
-    if (!raised || onPressed == null) return button;
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: AppShadows.card,
-      ),
-      child: button,
-    );
+    return button;
   }
 }

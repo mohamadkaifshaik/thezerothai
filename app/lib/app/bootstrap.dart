@@ -43,6 +43,7 @@ import '../features/lists/data/home_tabs_repository.dart';
 import '../features/lists/data/lists_repository.dart';
 import '../features/lists/domain/lists_feature_flag.dart';
 import '../features/engagement/domain/engagement_feature_flag.dart';
+import '../features/engagement/domain/share_count_feature_flag.dart';
 import '../features/engagement/domain/likes_list_feature_flag.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/graph/data/suggestions_repository.dart';
@@ -306,9 +307,17 @@ Future<void> bootstrap() async {
     kFeatureEngagement,
     onUnexpectedError: reportUnexpectedError,
   );
+  // The share count rides its own gate: a refused RecordPostShare (flag off
+  // for the caller) must not switch off likes and reposts.
+  final shareCountGate = buildServiceGate(
+    onboardingBloc,
+    kFeatureShareCount,
+    onUnexpectedError: reportUnexpectedError,
+  );
   final engagementRepository = EngagementRepository(
     apiClient: apiClient,
     gate: engagementGate,
+    shareGate: shareCountGate,
     store: timelineStore,
   );
   // Polls: VotePoll rides the `engagement` gate (read only: its

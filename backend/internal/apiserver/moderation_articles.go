@@ -26,5 +26,5 @@ func (l articleReportLookup) ReportedArticle(ctx context.Context, articleID, pos
 	case err != nil:
 		return moderation.ReportedArticle{}, err
 	}
-	return moderation.ReportedArticle{ArticleID: e.ArticleID, Title: e.Title, Revision: e.Revision, Body: e.Body, Truncated: e.Truncated}, nil
+	return moderation.ReportedArticle{ArticleID: e.ArticleID, Title: e.Title, Revision: e.Revision, Body: e.Body, Truncated: e.Truncated, ImageMediaIDs: e.ImageMediaIDs}, nil
 }

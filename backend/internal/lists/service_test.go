@@ -26,6 +26,7 @@ const (
 
 // fakeRepo records the params it was given and answers with a canned result. Guarded by a mutex so a parallel test stays race free.
 type fakeRepo struct {
+	followStubs
 	mu sync.Mutex
 
 	create    CreateResult

@@ -15,39 +15,39 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'messaging.pb.dart' as $2;
+import 'messaging.pb.dart' as $3;
 import 'messaging.pbjson.dart';
 
 export 'messaging.pb.dart';
 
 abstract class MessagingServiceBase extends $pb.GeneratedService {
-  $async.Future<$2.SendMessageResponse> sendMessage(
-      $pb.ServerContext ctx, $2.SendMessageRequest request);
-  $async.Future<$2.ListConversationsResponse> listConversations(
-      $pb.ServerContext ctx, $2.ListConversationsRequest request);
-  $async.Future<$2.ListMessagesResponse> listMessages(
-      $pb.ServerContext ctx, $2.ListMessagesRequest request);
-  $async.Future<$2.MarkConversationReadResponse> markConversationRead(
-      $pb.ServerContext ctx, $2.MarkConversationReadRequest request);
-  $async.Future<$2.AcceptMessageRequestResponse> acceptMessageRequest(
-      $pb.ServerContext ctx, $2.AcceptMessageRequestRequest request);
-  $async.Future<$2.DeleteConversationResponse> deleteConversation(
-      $pb.ServerContext ctx, $2.DeleteConversationRequest request);
+  $async.Future<$3.SendMessageResponse> sendMessage(
+      $pb.ServerContext ctx, $3.SendMessageRequest request);
+  $async.Future<$3.ListConversationsResponse> listConversations(
+      $pb.ServerContext ctx, $3.ListConversationsRequest request);
+  $async.Future<$3.ListMessagesResponse> listMessages(
+      $pb.ServerContext ctx, $3.ListMessagesRequest request);
+  $async.Future<$3.MarkConversationReadResponse> markConversationRead(
+      $pb.ServerContext ctx, $3.MarkConversationReadRequest request);
+  $async.Future<$3.AcceptMessageRequestResponse> acceptMessageRequest(
+      $pb.ServerContext ctx, $3.AcceptMessageRequestRequest request);
+  $async.Future<$3.DeleteConversationResponse> deleteConversation(
+      $pb.ServerContext ctx, $3.DeleteConversationRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
       case 'SendMessage':
-        return $2.SendMessageRequest();
+        return $3.SendMessageRequest();
       case 'ListConversations':
-        return $2.ListConversationsRequest();
+        return $3.ListConversationsRequest();
       case 'ListMessages':
-        return $2.ListMessagesRequest();
+        return $3.ListMessagesRequest();
       case 'MarkConversationRead':
-        return $2.MarkConversationReadRequest();
+        return $3.MarkConversationReadRequest();
       case 'AcceptMessageRequest':
-        return $2.AcceptMessageRequestRequest();
+        return $3.AcceptMessageRequestRequest();
       case 'DeleteConversation':
-        return $2.DeleteConversationRequest();
+        return $3.DeleteConversationRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -57,19 +57,19 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
       $core.String methodName, $pb.GeneratedMessage request) {
     switch (methodName) {
       case 'SendMessage':
-        return sendMessage(ctx, request as $2.SendMessageRequest);
+        return sendMessage(ctx, request as $3.SendMessageRequest);
       case 'ListConversations':
-        return listConversations(ctx, request as $2.ListConversationsRequest);
+        return listConversations(ctx, request as $3.ListConversationsRequest);
       case 'ListMessages':
-        return listMessages(ctx, request as $2.ListMessagesRequest);
+        return listMessages(ctx, request as $3.ListMessagesRequest);
       case 'MarkConversationRead':
         return markConversationRead(
-            ctx, request as $2.MarkConversationReadRequest);
+            ctx, request as $3.MarkConversationReadRequest);
       case 'AcceptMessageRequest':
         return acceptMessageRequest(
-            ctx, request as $2.AcceptMessageRequestRequest);
+            ctx, request as $3.AcceptMessageRequestRequest);
       case 'DeleteConversation':
-        return deleteConversation(ctx, request as $2.DeleteConversationRequest);
+        return deleteConversation(ctx, request as $3.DeleteConversationRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

@@ -21,6 +21,66 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
 import '../../common/v1/common.pbjson.dart' as $2;
 import '../../posts/v1/posts.pbjson.dart' as $0;
 
+@$core.Deprecated('Use shareChannelDescriptor instead')
+const ShareChannel$json = {
+  '1': 'ShareChannel',
+  '2': [
+    {'1': 'SHARE_CHANNEL_UNSPECIFIED', '2': 0},
+    {'1': 'SHARE_CHANNEL_COPY_LINK', '2': 1},
+    {'1': 'SHARE_CHANNEL_SHARE_SHEET', '2': 2},
+  ],
+};
+
+/// Descriptor for `ShareChannel`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List shareChannelDescriptor = $convert.base64Decode(
+    'CgxTaGFyZUNoYW5uZWwSHQoZU0hBUkVfQ0hBTk5FTF9VTlNQRUNJRklFRBAAEhsKF1NIQVJFX0'
+    'NIQU5ORUxfQ09QWV9MSU5LEAESHQoZU0hBUkVfQ0hBTk5FTF9TSEFSRV9TSEVFVBAC');
+
+@$core.Deprecated('Use recordPostShareRequestDescriptor instead')
+const RecordPostShareRequest$json = {
+  '1': 'RecordPostShareRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'post_id', '3': 2, '4': 1, '5': 9, '10': 'postId'},
+    {
+      '1': 'channel',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.engagement.v1.ShareChannel',
+      '10': 'channel'
+    },
+  ],
+};
+
+/// Descriptor for `RecordPostShareRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List recordPostShareRequestDescriptor = $convert.base64Decode(
+    'ChZSZWNvcmRQb3N0U2hhcmVSZXF1ZXN0EicKD2lkZW1wb3RlbmN5X2tleRgBIAEoCVIOaWRlbX'
+    'BvdGVuY3lLZXkSFwoHcG9zdF9pZBgCIAEoCVIGcG9zdElkEj0KB2NoYW5uZWwYAyABKA4yIy5k'
+    'emVyb3RoLmVuZ2FnZW1lbnQudjEuU2hhcmVDaGFubmVsUgdjaGFubmVs');
+
+@$core.Deprecated('Use recordPostShareResponseDescriptor instead')
+const RecordPostShareResponse$json = {
+  '1': 'RecordPostShareResponse',
+  '2': [
+    {
+      '1': 'engagement',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.engagement.v1.PostEngagement',
+      '10': 'engagement'
+    },
+    {'1': 'counted', '3': 2, '4': 1, '5': 8, '10': 'counted'},
+  ],
+};
+
+/// Descriptor for `RecordPostShareResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List recordPostShareResponseDescriptor = $convert.base64Decode(
+    'ChdSZWNvcmRQb3N0U2hhcmVSZXNwb25zZRJFCgplbmdhZ2VtZW50GAEgASgLMiUuZHplcm90aC'
+    '5lbmdhZ2VtZW50LnYxLlBvc3RFbmdhZ2VtZW50UgplbmdhZ2VtZW50EhgKB2NvdW50ZWQYAiAB'
+    'KAhSB2NvdW50ZWQ=');
+
 @$core.Deprecated('Use postEngagementDescriptor instead')
 const PostEngagement$json = {
   '1': 'PostEngagement',
@@ -36,6 +96,7 @@ const PostEngagement$json = {
       '5': 8,
       '10': 'repostedByViewer'
     },
+    {'1': 'share_count', '3': 6, '4': 1, '5': 3, '10': 'shareCount'},
   ],
 };
 
@@ -44,7 +105,8 @@ final $typed_data.Uint8List postEngagementDescriptor = $convert.base64Decode(
     'Cg5Qb3N0RW5nYWdlbWVudBIXCgdwb3N0X2lkGAEgASgJUgZwb3N0SWQSHQoKbGlrZV9jb3VudB'
     'gCIAEoA1IJbGlrZUNvdW50EiEKDHJlcG9zdF9jb3VudBgDIAEoA1ILcmVwb3N0Q291bnQSJgoP'
     'bGlrZWRfYnlfdmlld2VyGAQgASgIUg1saWtlZEJ5Vmlld2VyEiwKEnJlcG9zdGVkX2J5X3ZpZX'
-    'dlchgFIAEoCFIQcmVwb3N0ZWRCeVZpZXdlcg==');
+    'dlchgFIAEoCFIQcmVwb3N0ZWRCeVZpZXdlchIfCgtzaGFyZV9jb3VudBgGIAEoA1IKc2hhcmVD'
+    'b3VudA==');
 
 @$core.Deprecated('Use likePostRequestDescriptor instead')
 const LikePostRequest$json = {
@@ -455,6 +517,11 @@ const $core.Map<$core.String, $core.dynamic> EngagementServiceBase$json = {
       '2': '.dzeroth.engagement.v1.VotePollRequest',
       '3': '.dzeroth.engagement.v1.VotePollResponse'
     },
+    {
+      '1': 'RecordPostShare',
+      '2': '.dzeroth.engagement.v1.RecordPostShareRequest',
+      '3': '.dzeroth.engagement.v1.RecordPostShareResponse'
+    },
   ],
 };
 
@@ -494,6 +561,9 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.engagement.v1.ListLikedPostsResponse': ListLikedPostsResponse$json,
   '.dzeroth.engagement.v1.VotePollRequest': VotePollRequest$json,
   '.dzeroth.engagement.v1.VotePollResponse': VotePollResponse$json,
+  '.dzeroth.engagement.v1.RecordPostShareRequest': RecordPostShareRequest$json,
+  '.dzeroth.engagement.v1.RecordPostShareResponse':
+      RecordPostShareResponse$json,
 };
 
 /// Descriptor for `EngagementService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -515,4 +585,6 @@ final $typed_data.Uint8List engagementServiceDescriptor = $convert.base64Decode(
     'Lkxpc3RMaWtlZFBvc3RzUmVxdWVzdBotLmR6ZXJvdGguZW5nYWdlbWVudC52MS5MaXN0TGlrZW'
     'RQb3N0c1Jlc3BvbnNlIgOQAgESWwoIVm90ZVBvbGwSJi5kemVyb3RoLmVuZ2FnZW1lbnQudjEu'
     'Vm90ZVBvbGxSZXF1ZXN0GicuZHplcm90aC5lbmdhZ2VtZW50LnYxLlZvdGVQb2xsUmVzcG9uc2'
-    'U=');
+    'UScAoPUmVjb3JkUG9zdFNoYXJlEi0uZHplcm90aC5lbmdhZ2VtZW50LnYxLlJlY29yZFBvc3RT'
+    'aGFyZVJlcXVlc3QaLi5kemVyb3RoLmVuZ2FnZW1lbnQudjEuUmVjb3JkUG9zdFNoYXJlUmVzcG'
+    '9uc2U=');

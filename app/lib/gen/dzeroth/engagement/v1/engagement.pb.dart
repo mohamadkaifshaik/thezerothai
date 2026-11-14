@@ -19,8 +19,175 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as $1;
 
 import '../../posts/v1/posts.pb.dart' as $0;
+import 'engagement.pbenum.dart';
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
+
+export 'engagement.pbenum.dart';
+
+class RecordPostShareRequest extends $pb.GeneratedMessage {
+  factory RecordPostShareRequest({
+    $core.String? idempotencyKey,
+    $core.String? postId,
+    ShareChannel? channel,
+  }) {
+    final result = RecordPostShareRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (postId != null) result.postId = postId;
+    if (channel != null) result.channel = channel;
+    return result;
+  }
+
+  RecordPostShareRequest._();
+
+  factory RecordPostShareRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RecordPostShareRequest()..mergeFromBuffer(data, registry);
+  factory RecordPostShareRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RecordPostShareRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RecordPostShareRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: RecordPostShareRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'postId')
+    ..aE<ShareChannel>(3, _omitFieldNames ? '' : 'channel',
+        enumValues: ShareChannel.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RecordPostShareRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RecordPostShareRequest copyWith(
+          void Function(RecordPostShareRequest) updates) =>
+      super.copyWith((message) => updates(message as RecordPostShareRequest))
+          as RecordPostShareRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use RecordPostShareRequest() / RecordPostShareRequest.new instead')
+  static RecordPostShareRequest create() => RecordPostShareRequest._();
+  static $pb.GeneratedMessage $_createMessage() => RecordPostShareRequest._();
+  @$core.override
+  RecordPostShareRequest createEmptyInstance() => RecordPostShareRequest._();
+  @$core.pragma('dart2js:noInline')
+  static RecordPostShareRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RecordPostShareRequest>(
+          RecordPostShareRequest.$_createMessage);
+  static RecordPostShareRequest? _defaultInstance;
+
+  /// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; the (post_id, caller) pair is the record.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  /// The shared post; a REPOST id records a share of its original.
+  @$pb.TagNumber(2)
+  $core.String get postId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set postId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPostId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPostId() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  ShareChannel get channel => $_getN(2);
+  @$pb.TagNumber(3)
+  set channel(ShareChannel value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasChannel() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearChannel() => $_clearField(3);
+}
+
+class RecordPostShareResponse extends $pb.GeneratedMessage {
+  factory RecordPostShareResponse({
+    PostEngagement? engagement,
+    $core.bool? counted,
+  }) {
+    final result = RecordPostShareResponse._();
+    if (engagement != null) result.engagement = engagement;
+    if (counted != null) result.counted = counted;
+    return result;
+  }
+
+  RecordPostShareResponse._();
+
+  factory RecordPostShareResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RecordPostShareResponse()..mergeFromBuffer(data, registry);
+  factory RecordPostShareResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RecordPostShareResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RecordPostShareResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: RecordPostShareResponse.$_createMessage)
+    ..aOM<PostEngagement>(1, _omitFieldNames ? '' : 'engagement',
+        subBuilder: PostEngagement.$_createMessage)
+    ..aOB(2, _omitFieldNames ? '' : 'counted')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RecordPostShareResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RecordPostShareResponse copyWith(
+          void Function(RecordPostShareResponse) updates) =>
+      super.copyWith((message) => updates(message as RecordPostShareResponse))
+          as RecordPostShareResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use RecordPostShareResponse() / RecordPostShareResponse.new instead')
+  static RecordPostShareResponse create() => RecordPostShareResponse._();
+  static $pb.GeneratedMessage $_createMessage() => RecordPostShareResponse._();
+  @$core.override
+  RecordPostShareResponse createEmptyInstance() => RecordPostShareResponse._();
+  @$core.pragma('dart2js:noInline')
+  static RecordPostShareResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RecordPostShareResponse>(
+          RecordPostShareResponse.$_createMessage);
+  static RecordPostShareResponse? _defaultInstance;
+
+  /// The post (the original for a REPOST id) as the caller now sees it, share_count included. counted is true only
+  /// when this call created the caller's marker.
+  @$pb.TagNumber(1)
+  PostEngagement get engagement => $_getN(0);
+  @$pb.TagNumber(1)
+  set engagement(PostEngagement value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasEngagement() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearEngagement() => $_clearField(1);
+  @$pb.TagNumber(1)
+  PostEngagement ensureEngagement() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  $core.bool get counted => $_getBF(1);
+  @$pb.TagNumber(2)
+  set counted($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasCounted() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCounted() => $_clearField(2);
+}
 
 /// The post's engagement as the caller now sees it. Counts are the instance's best knowledge (the post doc read
 /// plus this call's own change), so they may lag other users' concurrent actions by up to the 60 s cache TTL.
@@ -31,6 +198,7 @@ class PostEngagement extends $pb.GeneratedMessage {
     $fixnum.Int64? repostCount,
     $core.bool? likedByViewer,
     $core.bool? repostedByViewer,
+    $fixnum.Int64? shareCount,
   }) {
     final result = PostEngagement._();
     if (postId != null) result.postId = postId;
@@ -38,6 +206,7 @@ class PostEngagement extends $pb.GeneratedMessage {
     if (repostCount != null) result.repostCount = repostCount;
     if (likedByViewer != null) result.likedByViewer = likedByViewer;
     if (repostedByViewer != null) result.repostedByViewer = repostedByViewer;
+    if (shareCount != null) result.shareCount = shareCount;
     return result;
   }
 
@@ -60,6 +229,7 @@ class PostEngagement extends $pb.GeneratedMessage {
     ..aInt64(3, _omitFieldNames ? '' : 'repostCount')
     ..aOB(4, _omitFieldNames ? '' : 'likedByViewer')
     ..aOB(5, _omitFieldNames ? '' : 'repostedByViewer')
+    ..aInt64(6, _omitFieldNames ? '' : 'shareCount')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -129,6 +299,17 @@ class PostEngagement extends $pb.GeneratedMessage {
   $core.bool hasRepostedByViewer() => $_has(4);
   @$pb.TagNumber(5)
   void clearRepostedByViewer() => $_clearField(5);
+
+  /// posts/{id}.shareCount (Post.share_count), from the same post read as like_count and with the same staleness; plus
+  /// this call's own change for RecordPostShare.
+  @$pb.TagNumber(6)
+  $fixnum.Int64 get shareCount => $_getI64(5);
+  @$pb.TagNumber(6)
+  set shareCount($fixnum.Int64 value) => $_setInt64(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasShareCount() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearShareCount() => $_clearField(6);
 }
 
 class LikePostRequest extends $pb.GeneratedMessage {
@@ -1717,6 +1898,37 @@ class EngagementServiceApi {
           $pb.ClientContext? ctx, VotePollRequest request) =>
       _client.invoke<VotePollResponse>(
           ctx, 'EngagementService', 'VotePoll', request, VotePollResponse());
+
+  /// Report that the caller shared a post outside the app: "Copy link" succeeded, or the native share sheet reported a
+  /// completed share (not a dismissal; where the platform cannot tell, the client does not call). Feeds Post.share_count.
+  /// Client-reported and therefore unverifiable: it counts at most ONCE per (caller, post), merged with direct-message
+  /// shares (MessagingService.SendMessage shared_post_id) into one marker, so one account can move a post's count by at
+  /// most 1 however it shares and however often it calls. The author's own shares are never counted.
+  /// Order (each refusal writes nothing):
+  /// 1. Interceptors: per-uid bucket RATE_LIMIT_SHARES_PER_MIN (20/min per instance, at most 60/min with 3 instances)
+  ///    and the in-memory daily cap SHARES_RECORDED_PER_DAY (300 per uid per instance, counting every call) =>
+  ///    RESOURCE_EXHAUSTED + RATE_LIMITED, metadata["limit"] = "shares_daily" for the cap. DEGRADED_MODE=readonly =>
+  ///    UNAVAILABLE + DEGRADED_MODE.
+  /// 2. Flags, before any lookup: FEATURE_SHARE_COUNT (wire name "share_count") on for the caller, else
+  ///    FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "share_count". FEATURE_POSTS must be on.
+  /// 3. Shape, before any lookup: idempotency_key format, post_id 19 digits, channel not UNSPECIFIED, verified email or
+  ///    Google/Apple provider; else VALIDATION (field "idempotency_key" | "post_id" | "channel") or EMAIL_NOT_VERIFIED.
+  /// 4. The post must be visible to the caller by the GetPost rules (else NOT_FOUND "post not found", byte-identical); a
+  ///    REPOST id records a share of its original. A protected author's post may be copied by a follower who can see it
+  ///    (the link opens only for followers), but it is not counted: success, nothing written.
+  /// 5. The caller is the author => success, nothing written.
+  /// 6. One read of postShares/{postId}_{uid}; present => success, nothing written (the replay and the repeat). Absent
+  ///    => one batch: Create postShares/{postId}_{uid} {postId, uid, createdAt} and Increment posts/{id}.shareCount
+  ///    (Exists precondition). A concurrent first share loses the Create and commits nothing, so the count moves once.
+  /// Idempotency (the like rule): state-setting and keyed by (post_id, caller); the key is validated but not stored.
+  /// channel is logged as a request field for aggregate metrics and is NOT stored.
+  /// Worst case: the visibility check (cache-first, 0-3 reads) + 1 read + 2 writes on a first share; 1 read otherwise.
+  /// A hot post's counter contention after the bounded retry => UNAVAILABLE with retry_after: the client drops it (the
+  /// share itself already happened; never retry in a loop).
+  $async.Future<RecordPostShareResponse> recordPostShare(
+          $pb.ClientContext? ctx, RecordPostShareRequest request) =>
+      _client.invoke<RecordPostShareResponse>(ctx, 'EngagementService',
+          'RecordPostShare', request, RecordPostShareResponse());
 }
 
 const $core.bool _omitFieldNames =

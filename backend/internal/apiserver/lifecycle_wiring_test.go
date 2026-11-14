@@ -445,8 +445,12 @@ func TestListsAdapters(t *testing.T) {
 		t.Errorf("step %q: next %s done %v err %v; purger saw %q", step.Name(), next, done, err, p.gotUID)
 	}
 	next, done, err = step.Run(context.Background(), "u1", []byte(`{"phase":"member","deleted":3}`))
-	if err != nil || !done || string(next) != `{"phase":"member","deleted":3}` {
+	if err != nil || done || string(next) != `{"phase":"follows","deleted":3}` {
 		t.Errorf("member phase: next %s done %v err %v", next, done, err)
+	}
+	next, done, err = step.Run(context.Background(), "u1", next)
+	if err != nil || !done || string(next) != `{"phase":"follows","deleted":3}` {
+		t.Errorf("follows phase: next %s done %v err %v", next, done, err)
 	}
 	if _, _, err := step.Run(context.Background(), "u1", []byte(`{not json`)); err == nil {
 		t.Error("a corrupt checkpoint was accepted")
@@ -503,4 +507,9 @@ func TestCommunitiesAdapters(t *testing.T) {
 	if sec.Name() != "communities" || sec.WriteSection(context.Background(), "u1", &buf) != nil || buf.String() != want {
 		t.Errorf("section %q = %q", sec.Name(), buf.String())
 	}
+}
+
+// PurgeFollowerPage: the follower phase of the lists eraser; the wiring tests do not exercise follows.
+func (f *fakeListsPurger) PurgeFollowerPage(context.Context, string) (lists.MemberPage, error) {
+	return lists.MemberPage{}, nil
 }

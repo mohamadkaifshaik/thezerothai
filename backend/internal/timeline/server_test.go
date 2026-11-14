@@ -93,7 +93,7 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 		},
 		"graph": {"Reader": true, "Snapshot": true},
 		// lists: the Reader seam, its value type, the flag gate and the three exports GetListTimeline shares with GetList.
-		"lists": {"Header": true, "Reader": true, "ListMembers": true, "FlagName": true, "ListView": true, "List": true, "Guard": true, "FlagChecker": true, "ErrNotFound": true, "NotFoundError": true, "ValidateListID": true, "MembersInfo": true},
+		"lists": {"Header": true, "Reader": true, "ListMembers": true, "FlagName": true, "ListView": true, "List": true, "Guard": true, "FlagChecker": true, "ErrNotFound": true, "NotFoundError": true, "ValidateListID": true, "MembersInfo": true, "FollowFlagName": true},
 		// communities: the flag gate, its checker seam and the Reader GetCommunityTimeline reads.
 		"communities": {"FlagName": true, "Guard": true, "FlagChecker": true,
 			// The Reader seam and its value types, the NOT_FOUND and id checks, the header renderer and the roles and statuses the feed reads.

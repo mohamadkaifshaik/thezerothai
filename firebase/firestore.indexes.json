@@ -1,6 +1,22 @@
 {
   "indexes": [
     {
+      "collectionGroup": "listFollows",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "lists",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPrivate", "order": "ASCENDING" },
+        { "fieldPath": "followerCount", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "posts",
       "queryScope": "COLLECTION",
       "fields": [
@@ -238,6 +254,7 @@
     { "collectionGroup": "userLikes", "fieldPath": "recentReposts", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "bookmarks", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "pollVotes", "indexes": [] },
+    { "collectionGroup": "postShares", "fieldPath": "createdAt", "indexes": [] },
 
     { "collectionGroup": "media", "fieldPath": "blurhash", "indexes": [] },
 
@@ -262,6 +279,7 @@
 
     { "collectionGroup": "messages", "fieldPath": "text", "indexes": [] },
     { "collectionGroup": "messages", "fieldPath": "requestHash", "indexes": [] },
+    { "collectionGroup": "messages", "fieldPath": "sharedPostId", "indexes": [] },
     { "collectionGroup": "dmInbox", "fieldPath": "peer", "indexes": [] },
     { "collectionGroup": "dmInbox", "fieldPath": "last", "indexes": [] },
     { "collectionGroup": "dmRequests", "fieldPath": "peer", "indexes": [] },

@@ -1,3 +1,6 @@
+import '../../../core/widgets/shell_side_column.dart';
+import 'widgets/thread_side_boxes.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -87,10 +90,28 @@ class DraftThreadScreen extends StatelessWidget {
   }
 }
 
-class _DraftView extends StatelessWidget {
+class _DraftView extends StatefulWidget {
   const _DraftView({required this.peer});
 
   final common.AuthorSnapshot peer;
+
+  @override
+  State<_DraftView> createState() => _DraftViewState();
+}
+
+class _DraftViewState extends State<_DraftView> {
+  common.AuthorSnapshot get peer => widget.peer;
+
+  /// The desktop Chat mock's peer card (nothing else exists yet: no
+  /// conversation to mute, delete or share plans in), inside the shell from
+  /// 1200 dp.
+  final _sideColumn = ShellSideColumnLease();
+
+  @override
+  void dispose() {
+    _sideColumn.dispose();
+    super.dispose();
+  }
 
   void _back(BuildContext context) {
     if (context.canPop()) {
@@ -102,6 +123,16 @@ class _DraftView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    _sideColumn.set(
+      context,
+      active: shellSideColumnBeside(context),
+      builder: (context) => ThreadSideBoxes(
+        peer: peer,
+        onViewProfile: peer.handle.isEmpty
+            ? null
+            : () => context.push(AppRouter.profilePath(peer.handle)),
+      ),
+    );
     final name = peer.displayName.isEmpty
         ? '@${peer.handle}'
         : peer.displayName;

@@ -1,7 +1,10 @@
+import '../../../core/widgets/shell_side_column.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
@@ -258,6 +261,7 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
 
   @override
   void dispose() {
+    _sideColumn.dispose();
     _searchText.dispose();
     _search.close();
     _joined.close();
@@ -619,6 +623,8 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     }
   }
 
+  final _sideColumn = ShellSideColumnLease();
+
   @override
   Widget build(BuildContext context) {
     final viewerUserId = context.select(
@@ -630,8 +636,23 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
         isFeatureEnabled(context, kFeatureCommunities) &&
         isFeatureEnabled(context, kFeatureCommunityMemberSearch);
     final theme = Theme.of(context);
+    // Inside the desktop shell the search is the side column's (the
+    // CommunityMembers mock); the controller is the page's, so the text is
+    // the same wherever the field is.
+    final searchBeside = shellSideColumnBeside(context);
+    _sideColumn.set(
+      context,
+      active: searchOn && searchBeside,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+        child: _searchField(),
+      ),
+    );
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the scroll view runs behind it
+        // and ends with the bar's inset.
+        bottom: false,
         child: AppMainColumn(
           child: Column(
             children: [
@@ -667,7 +688,7 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
                   ],
                 ),
               ),
-              if (searchOn)
+              if (searchOn && !searchBeside)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.md,
@@ -701,6 +722,8 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
                     AppRouter.communityModerationLogPath(widget.communityId),
                   ),
                 ),
+              // The last thing on the page clears the floating bar.
+              if (moderates) const ShellBottomInsetBox(),
             ],
           ),
         ),

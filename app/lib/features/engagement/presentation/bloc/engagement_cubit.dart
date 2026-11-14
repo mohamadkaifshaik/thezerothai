@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/engagement/v1/engagement.pb.dart' as pb;
+import '../../../../gen/dzeroth/engagement/v1/engagement.pbenum.dart'
+    show ShareChannel;
 import '../../data/engagement_repository.dart';
 import '../../domain/engagement_entry.dart';
 import 'engagement_state.dart';
@@ -91,6 +93,34 @@ class EngagementCubit extends Cubit<EngagementState> {
     required bool reposted,
     required EngagementEntry shown,
   }) => _set(postId, reposted, shown, isLike: false);
+
+  /// The caller shared [postId] outside the app (a copied link or a
+  /// completed share sheet): reports it once per post per session
+  /// ([EngagementRepository.recordPostShare]) and, when the server answers,
+  /// shows its share count on every card of that target. Silent on any
+  /// failure. [shown] is what the row displays now (the starting point when
+  /// the target has no entry yet).
+  Future<void> recordShare(
+    String postId,
+    ShareChannel channel, {
+    required EngagementEntry shown,
+  }) async {
+    if (isClosed || postId.isEmpty) return;
+    final generation = _generation;
+    final result = await _repository.recordPostShare(
+      postId: postId,
+      channel: channel,
+    );
+    if (result == null || isClosed || generation != _generation) return;
+    var target = _targets[postId];
+    if (target == null || (!target.busy && !target.base.sameState(shown))) {
+      target = _targets[postId] = _Target(shown);
+    }
+    target.confirmed = target.confirmed.copyWith(
+      shareCount: result.shareCount.toInt(),
+    );
+    _publish(postId);
+  }
 
   /// The failure was shown; clears it.
   void failureShown() {
@@ -258,6 +288,7 @@ class EngagementCubit extends Cubit<EngagementState> {
       reposted: e.reposted,
       likeCount: e.likeCount,
       repostCount: e.repostCount,
+      shareCount: e.shareCount,
       likeBusy: t.like.busy,
       repostBusy: t.repost.busy,
       base: t.base,

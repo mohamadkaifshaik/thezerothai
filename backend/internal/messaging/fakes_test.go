@@ -351,7 +351,7 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 		}
 	}
 	if res.Msg.CreatedAt.IsZero() {
-		res.Msg = MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: wireTime(p.Now)}
+		res.Msg = MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: wireTime(p.Now), SharedPostID: p.SharedPostID}
 	}
 	if res.Conv.State == "" {
 		res.Conv = ConvDoc{Kind: kindDirect, Participants: sortedPair(p.UID, p.PeerUID), State: stateAccepted}

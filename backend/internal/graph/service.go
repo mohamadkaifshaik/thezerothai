@@ -81,6 +81,10 @@ type Repo interface {
 	// FollowEdgeExists reports whether follows/{followerUID}_{followeeUID} exists: one point read whether or
 	// not the document is there (GetProfileRelationship). A missing document is false, not an error.
 	FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error)
+	// FollowEdgesExist reports, for each follower, whether follows/{follower}_{followeeUID} exists: one batched read
+	// (GetAll) of the distinct followers' edge docs (FollowLookup's cache-miss path). A missing document is false. The
+	// error text names no uid.
+	FollowEdgesExist(ctx context.Context, followeeUID string, followerUIDs []string) (map[string]bool, error)
 
 	// RespondToRequest answers one pending follow request in a single transaction: accept, decline,
 	// or a replay (the request is gone) that writes nothing. A requester at the 5,000 following cap is a LimitReachedError.

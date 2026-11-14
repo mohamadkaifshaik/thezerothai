@@ -9,6 +9,17 @@ const articleMaxTitleCodePoints = 100;
 const articleMaxBodyCodePoints = 100000;
 const articleMaxBlocks = 1000;
 
+/// Server wire name of the flag that lets an author insert image blocks
+/// (`GetMe.enabled_features`, FEATURE_ARTICLE_IMAGES). The reader and a save
+/// of images already stored never depend on it.
+const kFeatureArticleImages = 'article_images';
+
+/// Backend limits of an image block (articles content.go): at most 20 image
+/// blocks per body, alt text 1000 and caption 280 code points.
+const articleMaxImages = 20;
+const articleMaxImageAltCodePoints = 1000;
+const articleMaxImageCaptionCodePoints = 280;
+
 /// The server's cap on the serialized body: UTF-8 bytes of the JSON block
 /// array sent as `body_json` (backend articles maxBodyBytes). It counts
 /// formatting, links and JSON syntax, not only text, so it can bind well
@@ -42,6 +53,10 @@ enum ArticleBlockKind {
   code,
   image,
   divider,
+
+  /// A block kind this client does not know (a newer server). It is kept
+  /// verbatim so a re-save never deletes it, and the reader skips it.
+  unknown,
 }
 
 class ArticleTextRun {
@@ -95,12 +110,17 @@ class ArticleBlock {
     Iterable<ArticleTextRun> runs = const [],
     this.mediaId,
     this.altText = '',
-  }) : runs = List.unmodifiable(runs) {
+    this.caption = '',
+  }) : runs = List.unmodifiable(runs),
+       _raw = null {
+    if (kind == ArticleBlockKind.unknown) {
+      throw ArgumentError('Use ArticleBlock.opaque for an unknown kind');
+    }
     if (kind == ArticleBlockKind.image) {
       if (mediaId == null || mediaId!.trim().isEmpty || this.runs.isNotEmpty) {
         throw ArgumentError('Images require a media id and no text runs');
       }
-    } else if (mediaId != null || altText.isNotEmpty) {
+    } else if (mediaId != null || altText.isNotEmpty || caption.isNotEmpty) {
       throw ArgumentError('Media fields belong to image blocks');
     }
     if (kind == ArticleBlockKind.divider && this.runs.isNotEmpty) {
@@ -108,29 +128,58 @@ class ArticleBlock {
     }
   }
 
+  /// A block of a kind this client does not know: [toJson] returns [raw]
+  /// unchanged, so saving never drops it.
+  ArticleBlock.opaque(Map<dynamic, dynamic> raw)
+    : kind = ArticleBlockKind.unknown,
+      runs = const [],
+      mediaId = null,
+      altText = '',
+      caption = '',
+      _raw = Map.unmodifiable(raw);
+
   final ArticleBlockKind kind;
   final List<ArticleTextRun> runs;
   final String? mediaId;
   final String altText;
+
+  /// An image block's optional one-line caption; empty on every other kind.
+  final String caption;
+  final Map<dynamic, dynamic>? _raw;
   String get plainText => runs.map((run) => run.text).join();
 
-  Map<String, Object?> toJson() => {
-    'kind': kind.name,
-    'runs': runs.map((run) => run.toJson()).toList(),
-    if (mediaId != null) 'mediaId': mediaId,
-    if (kind == ArticleBlockKind.image) 'altText': altText,
-  };
+  Map<String, Object?> toJson() => _raw != null
+      ? Map<String, Object?>.from(_raw)
+      : {
+          'kind': kind.name,
+          'runs': runs.map((run) => run.toJson()).toList(),
+          if (mediaId != null) 'mediaId': mediaId,
+          if (kind == ArticleBlockKind.image && altText.isNotEmpty)
+            'altText': altText,
+          if (kind == ArticleBlockKind.image && caption.isNotEmpty)
+            'caption': caption,
+        };
 
   factory ArticleBlock.fromJson(Object? value) {
     final json = _map(value);
+    // An unknown kind (a newer server) is kept opaque, not an error: the
+    // article still opens and a save sends the block back untouched.
+    final kind = json['kind'];
+    if (kind is String &&
+        !ArticleBlockKind.values.any(
+          (known) => known != ArticleBlockKind.unknown && known.name == kind,
+        )) {
+      return ArticleBlock.opaque(json);
+    }
     final runs = json['runs'];
     if (runs is! List) throw const FormatException('Invalid block runs');
     try {
       return ArticleBlock(
-        kind: _enum(ArticleBlockKind.values, json['kind']),
+        kind: _enum(ArticleBlockKind.values, kind),
         runs: runs.map(ArticleTextRun.fromJson),
         mediaId: _optionalString(json, 'mediaId'),
         altText: _optionalString(json, 'altText') ?? '',
+        caption: _optionalString(json, 'caption') ?? '',
       );
     } on ArgumentError {
       throw const FormatException('Invalid article block');
@@ -206,7 +255,8 @@ class ArticleDraft {
         _controls.hasMatch(title)) {
       errors.add('title');
     }
-    if (plainText.trim().isEmpty ||
+    if ((plainText.trim().isEmpty &&
+            !blocks.any((b) => b.kind == ArticleBlockKind.image)) ||
         plainText.runes.length > articleMaxBodyCodePoints ||
         blocks.length > articleMaxBlocks ||
         _controls.hasMatch(plainText)) {
@@ -224,6 +274,17 @@ class ArticleDraft {
           _controls.hasMatch(block.altText),
     )) {
       errors.add('altText');
+    }
+    if (blocks.any(
+      (block) =>
+          block.caption.runes.length > articleMaxImageCaptionCodePoints ||
+          _controls.hasMatch(block.caption),
+    )) {
+      errors.add('caption');
+    }
+    if (blocks.where((b) => b.kind == ArticleBlockKind.image).length >
+        articleMaxImages) {
+      errors.add('images');
     }
     return List.unmodifiable(errors);
   }

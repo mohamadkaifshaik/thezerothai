@@ -1,8 +1,9 @@
 // purge.go implements Eraser and the export section for engagement: the right-to-delete and
-// right-to-access paths for likes/*, reposts/* and userLikes/*.
+// right-to-access paths for likes/*, reposts/*, postShares/* and userLikes/*.
 //
-//	Q-U  likes   where uid == X LIMIT 100            -> automatic single-field index
-//	Q-V  reposts where uid == X LIMIT 100            -> automatic single-field index
+//	Q-U  likes      where uid == X LIMIT 100         -> automatic single-field index
+//	Q-V  reposts    where uid == X LIMIT 100         -> automatic single-field index
+//	Q-S1 postShares where uid == X LIMIT 100         -> automatic single-field index
 //	Q-X  export: the same with ORDER BY __name__, StartAfter(last), pages of 500
 //
 // The Limit(100) pages are an ops path (purge rule; the query-limit rule's maximum of 50 governs RPC pagination only).
@@ -31,21 +32,24 @@ const (
 	purgeStepLikes   = 0
 	purgeStepReposts = 1
 	purgeStepDoc     = 2
+	// purgeStepShares runs between the reposts and userLikes/{uid}. It is numbered 3, not inserted as 2, so a checkpoint
+	// stored by an older revision keeps its meaning (2 is still the last step).
+	purgeStepShares = 3
 )
 
 var _ Eraser = (*FirestoreRepo)(nil)
 
-// PurgeUser implements Eraser. One call does one bounded unit of work. Each like/repost is an atomic pair (delete
-// with Exists, the post's counter -1); a page whose batch hits a deleted post falls back to one delete-only
-// batch per doc. Reads: one per doc paged (1 for an empty page); writes: one counter per doc; deletes: one per
-// doc, +1 for userLikes.
+// PurgeUser implements Eraser. One call does one bounded unit of work. Each like/repost/share marker is an atomic pair
+// (delete with Exists, the post's counter -1, so an account deletion lowers share_count like like_count); a page whose
+// batch hits a deleted post falls back to one delete-only batch per doc. Reads: one per doc paged (1 for an empty page);
+// writes: one counter per doc; deletes: one per doc, +1 for userLikes. Order: likes, reposts, shares, userLikes.
 func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	if err := r.ready(); err != nil {
 		return cp, false, err
 	}
 	switch cp.Step {
 	case purgeStepLikes:
-		n, full, err := r.purgePage(ctx, uid, likesCollection, true)
+		n, full, err := r.purgePage(ctx, uid, likesCollection, r.w.Writer.StageLikeCount)
 		if err != nil {
 			return cp, false, err
 		}
@@ -55,11 +59,21 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 		}
 		return next, false, nil
 	case purgeStepReposts:
-		n, full, err := r.purgePage(ctx, uid, repostsCollection, false)
+		n, full, err := r.purgePage(ctx, uid, repostsCollection, r.w.Writer.StageRepostCount)
 		if err != nil {
 			return cp, false, err
 		}
 		next := Checkpoint{Step: purgeStepReposts, Deleted: cp.Deleted + n}
+		if !full {
+			next.Step = purgeStepShares
+		}
+		return next, false, nil
+	case purgeStepShares:
+		n, full, err := r.purgePage(ctx, uid, postSharesCollection, r.w.Writer.StageShareCount)
+		if err != nil {
+			return cp, false, err
+		}
+		next := Checkpoint{Step: purgeStepShares, Deleted: cp.Deleted + n}
 		if !full {
 			next.Step = purgeStepDoc
 		}
@@ -75,8 +89,9 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 	}
 }
 
-// purgePage deletes up to purgePage docs of the user's likes or reposts with their post's counter.
-func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, likes bool) (n int, full bool, err error) {
+// purgePage deletes up to purgePage docs of the user's likes, reposts or share markers with their post's counter
+// (counter stages the -1: StageLikeCount, StageRepostCount or StageShareCount).
+func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, counter func(store.Batch, string, int64)) (n int, full bool, err error) {
 	docs, err := r.client.Collection(collection).Where("uid", "==", uid).Limit(purgePage).Documents(ctx).GetAll()
 	if err != nil {
 		return 0, false, fmt.Errorf("engagement: purge %s: query: %w", logger.HashUID(uid), err)
@@ -94,16 +109,12 @@ func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, l
 		s, _ := pid.(string)
 		rows = append(rows, row{ref: d.Ref, postID: s})
 	}
-	stage := func(b store.Batch, rw row, counter bool) {
+	stage := func(b store.Batch, rw row, withCounter bool) {
 		b.Delete(rw.ref, firestore.Exists)
-		if !counter || rw.postID == "" {
+		if !withCounter || rw.postID == "" {
 			return
 		}
-		if likes {
-			r.w.Writer.StageLikeCount(b, rw.postID, -1)
-		} else {
-			r.w.Writer.StageRepostCount(b, rw.postID, -1)
-		}
+		counter(b, rw.postID, -1)
 	}
 	b := store.NewFirestoreBatch(r.client)
 	for _, rw := range rows {
@@ -139,7 +150,7 @@ func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, l
 	return done, len(docs) >= purgePage, nil
 }
 
-// Exporter writes the `engagement` export section: the user's likes and reposts as post id and time.
+// Exporter writes the `engagement` export section: the user's likes, reposts and shares as post id and time.
 type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
 }
@@ -151,8 +162,9 @@ type exportedEntry struct {
 	CreatedAt time.Time `json:"createdAt" firestore:"createdAt"`
 }
 
-// ExportUser implements Exporter: {"likes":[...],"reposts":[...]} streamed in pages of exportPage (bounded
-// memory). Reads: one per doc, minimum 1 per collection.
+// ExportUser implements Exporter: {"likes":[...],"reposts":[...],"shares":[...]} streamed in pages of exportPage (bounded
+// memory). A share is the post id and when the account first shared it (the marker holds no channel or recipient).
+// Reads: one per doc, minimum 1 per collection.
 func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	if _, err := io.WriteString(w, `{"likes":[`); err != nil {
 		return fmt.Errorf("engagement: write export: %w", err)
@@ -164,6 +176,12 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 		return fmt.Errorf("engagement: write export: %w", err)
 	}
 	if err := r.exportCollection(ctx, uid, repostsCollection, w); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, `],"shares":[`); err != nil {
+		return fmt.Errorf("engagement: write export: %w", err)
+	}
+	if err := r.exportCollection(ctx, uid, postSharesCollection, w); err != nil {
 		return err
 	}
 	if _, err := io.WriteString(w, "]}\n"); err != nil {

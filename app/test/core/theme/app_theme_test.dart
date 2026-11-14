@@ -342,7 +342,7 @@ void main() {
     }
   });
 
-  test('the type scale is DM Sans and Manrope (ADR-0033; typography_test)', () {
+  test('the type scale is Inter (ADR-0033; typography_test)', () {
     for (final theme in [appLightTheme, appDarkTheme]) {
       final text = theme.textTheme;
       expect(text.displayLarge!.fontFamily, AppFonts.display);
@@ -364,7 +364,7 @@ void main() {
     expect(AppSize.headerRow * 2, 106);
     expect(AppSize.contentMax, 600);
     expect(AppSize.sideColumn, 350);
-    expect(AppSize.drawerWidth, 277);
+    expect(AppSize.drawerWidth, 320);
     expect(AppSize.drawerRow, 56);
     expect(AppSize.avatarMd, 40);
     expect(AppSize.avatarSm, 32);

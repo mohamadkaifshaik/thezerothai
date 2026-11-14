@@ -38,6 +38,11 @@ const (
 	// MaxActorIDs bounds Notification.ActorIDs on a collapsed like row (the last N distinct actors):
 	// a viral post must not grow one document toward Firestore's 1 MiB or its 1 write/s sustained limit.
 	MaxActorIDs = 50
+	// MaxShownActors is the most actors List hydrates onto one row (Notification.actors, the avatar stack).
+	MaxShownActors = 3
+	// MaxPageProfileLookup bounds the ids of List's one Directory lookup per page (the caller, for seen_at, plus the
+	// shown actors): identity's batched GetProfiles takes at most 50 ids per call.
+	MaxPageProfileLookup = 50
 	// MaxFCMTokenBytes bounds a registration token (real ones are ~160-200 bytes).
 	MaxFCMTokenBytes = 4096
 )
@@ -161,6 +166,20 @@ type Notification struct {
 	// BeaconID is the subject beacon of a beacon-type row (empty otherwise).
 	BeaconID  string
 	CreatedAt time.Time
+	// Actors is read-time only (never stored): up to MaxShownActors visible actors of the row, newest first, hydrated
+	// live by List from the identity Directory. Empty on a row with no ActorIDs or when the lookup failed.
+	Actors []LiveActor
+}
+
+// LiveActor is one live actor of a listed row (Notification.actors): the identity profile as of read time, at most
+// as stale as the Directory cache. Unlike the frozen Actor it carries the is_private lock badge (display only).
+type LiveActor struct {
+	UserID      string
+	Handle      string
+	DisplayName string
+	AvatarURL   string
+	Verified    bool
+	IsPrivate   bool
 }
 
 // Device is one users/{uid}/devices/{deviceId} row.

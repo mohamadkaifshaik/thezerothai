@@ -18,7 +18,8 @@ import 'package:protobuf/protobuf.dart' as $pb;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as $0;
 
-import '../../posts/v1/posts.pb.dart' as $1;
+import '../../common/v1/common.pb.dart' as $1;
+import '../../posts/v1/posts.pb.dart' as $2;
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
@@ -35,8 +36,9 @@ class Article extends $pb.GeneratedMessage {
     $core.String? coverUrl,
     $core.bool? publicationPending,
     $core.String? publicationCaption,
-    $1.ReplyPolicy? publicationReplyPolicy,
+    $2.ReplyPolicy? publicationReplyPolicy,
     $core.String? excerpt,
+    $core.Iterable<$1.MediaRef>? images,
   }) {
     final result = Article._();
     if (articleId != null) result.articleId = articleId;
@@ -55,6 +57,7 @@ class Article extends $pb.GeneratedMessage {
     if (publicationReplyPolicy != null)
       result.publicationReplyPolicy = publicationReplyPolicy;
     if (excerpt != null) result.excerpt = excerpt;
+    if (images != null) result.images.addAll(images);
     return result;
   }
 
@@ -84,9 +87,11 @@ class Article extends $pb.GeneratedMessage {
     ..aOS(9, _omitFieldNames ? '' : 'coverUrl')
     ..aOB(10, _omitFieldNames ? '' : 'publicationPending')
     ..aOS(11, _omitFieldNames ? '' : 'publicationCaption')
-    ..aE<$1.ReplyPolicy>(12, _omitFieldNames ? '' : 'publicationReplyPolicy',
-        enumValues: $1.ReplyPolicy.values)
+    ..aE<$2.ReplyPolicy>(12, _omitFieldNames ? '' : 'publicationReplyPolicy',
+        enumValues: $2.ReplyPolicy.values)
     ..aOS(13, _omitFieldNames ? '' : 'excerpt')
+    ..pPM<$1.MediaRef>(14, _omitFieldNames ? '' : 'images',
+        subBuilder: $1.MediaRef.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -213,9 +218,9 @@ class Article extends $pb.GeneratedMessage {
   void clearPublicationCaption() => $_clearField(11);
 
   @$pb.TagNumber(12)
-  $1.ReplyPolicy get publicationReplyPolicy => $_getN(11);
+  $2.ReplyPolicy get publicationReplyPolicy => $_getN(11);
   @$pb.TagNumber(12)
-  set publicationReplyPolicy($1.ReplyPolicy value) => $_setField(12, value);
+  set publicationReplyPolicy($2.ReplyPolicy value) => $_setField(12, value);
   @$pb.TagNumber(12)
   $core.bool hasPublicationReplyPolicy() => $_has(11);
   @$pb.TagNumber(12)
@@ -231,6 +236,13 @@ class Article extends $pb.GeneratedMessage {
   $core.bool hasExcerpt() => $_has(12);
   @$pb.TagNumber(13)
   void clearExcerpt() => $_clearField(13);
+
+  /// Inline image blocks of body_json, resolved on read (GetArticle and PublishArticle; empty elsewhere). One entry per
+  /// image the reader can show: a block whose media was deleted, withheld or is not usable is simply absent, and the
+  /// client shows a placeholder for it. Match an entry to its block by media_id. The alt text and caption stay in
+  /// body_json. Never sent by SaveArticle; the server ignores it on input.
+  @$pb.TagNumber(14)
+  $pb.PbList<$1.MediaRef> get images => $_getList(13);
 }
 
 class GetArticleRequest extends $pb.GeneratedMessage {
@@ -294,7 +306,7 @@ class GetArticleRequest extends $pb.GeneratedMessage {
 class GetArticleResponse extends $pb.GeneratedMessage {
   factory GetArticleResponse({
     Article? article,
-    $1.PostView? post,
+    $2.PostView? post,
   }) {
     final result = GetArticleResponse._();
     if (article != null) result.article = article;
@@ -318,8 +330,8 @@ class GetArticleResponse extends $pb.GeneratedMessage {
       createEmptyInstance: GetArticleResponse.$_createMessage)
     ..aOM<Article>(1, _omitFieldNames ? '' : 'article',
         subBuilder: Article.$_createMessage)
-    ..aOM<$1.PostView>(2, _omitFieldNames ? '' : 'post',
-        subBuilder: $1.PostView.$_createMessage)
+    ..aOM<$2.PostView>(2, _omitFieldNames ? '' : 'post',
+        subBuilder: $2.PostView.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -356,15 +368,15 @@ class GetArticleResponse extends $pb.GeneratedMessage {
   Article ensureArticle() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  $1.PostView get post => $_getN(1);
+  $2.PostView get post => $_getN(1);
   @$pb.TagNumber(2)
-  set post($1.PostView value) => $_setField(2, value);
+  set post($2.PostView value) => $_setField(2, value);
   @$pb.TagNumber(2)
   $core.bool hasPost() => $_has(1);
   @$pb.TagNumber(2)
   void clearPost() => $_clearField(2);
   @$pb.TagNumber(2)
-  $1.PostView ensurePost() => $_ensure(1);
+  $2.PostView ensurePost() => $_ensure(1);
 }
 
 class ListArticlesRequest extends $pb.GeneratedMessage {
@@ -772,7 +784,7 @@ class PublishArticleRequest extends $pb.GeneratedMessage {
     $fixnum.Int64? expectedRevision,
     $core.String? idempotencyKey,
     $core.String? caption,
-    $1.ReplyPolicy? replyPolicy,
+    $2.ReplyPolicy? replyPolicy,
   }) {
     final result = PublishArticleRequest._();
     if (articleId != null) result.articleId = articleId;
@@ -801,8 +813,8 @@ class PublishArticleRequest extends $pb.GeneratedMessage {
     ..aInt64(2, _omitFieldNames ? '' : 'expectedRevision')
     ..aOS(3, _omitFieldNames ? '' : 'idempotencyKey')
     ..aOS(4, _omitFieldNames ? '' : 'caption')
-    ..aE<$1.ReplyPolicy>(5, _omitFieldNames ? '' : 'replyPolicy',
-        enumValues: $1.ReplyPolicy.values)
+    ..aE<$2.ReplyPolicy>(5, _omitFieldNames ? '' : 'replyPolicy',
+        enumValues: $2.ReplyPolicy.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -866,9 +878,9 @@ class PublishArticleRequest extends $pb.GeneratedMessage {
   void clearCaption() => $_clearField(4);
 
   @$pb.TagNumber(5)
-  $1.ReplyPolicy get replyPolicy => $_getN(4);
+  $2.ReplyPolicy get replyPolicy => $_getN(4);
   @$pb.TagNumber(5)
-  set replyPolicy($1.ReplyPolicy value) => $_setField(5, value);
+  set replyPolicy($2.ReplyPolicy value) => $_setField(5, value);
   @$pb.TagNumber(5)
   $core.bool hasReplyPolicy() => $_has(4);
   @$pb.TagNumber(5)
@@ -878,7 +890,7 @@ class PublishArticleRequest extends $pb.GeneratedMessage {
 class PublishArticleResponse extends $pb.GeneratedMessage {
   factory PublishArticleResponse({
     Article? article,
-    $1.PostView? post,
+    $2.PostView? post,
   }) {
     final result = PublishArticleResponse._();
     if (article != null) result.article = article;
@@ -902,8 +914,8 @@ class PublishArticleResponse extends $pb.GeneratedMessage {
       createEmptyInstance: PublishArticleResponse.$_createMessage)
     ..aOM<Article>(1, _omitFieldNames ? '' : 'article',
         subBuilder: Article.$_createMessage)
-    ..aOM<$1.PostView>(2, _omitFieldNames ? '' : 'post',
-        subBuilder: $1.PostView.$_createMessage)
+    ..aOM<$2.PostView>(2, _omitFieldNames ? '' : 'post',
+        subBuilder: $2.PostView.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -942,15 +954,15 @@ class PublishArticleResponse extends $pb.GeneratedMessage {
   Article ensureArticle() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  $1.PostView get post => $_getN(1);
+  $2.PostView get post => $_getN(1);
   @$pb.TagNumber(2)
-  set post($1.PostView value) => $_setField(2, value);
+  set post($2.PostView value) => $_setField(2, value);
   @$pb.TagNumber(2)
   $core.bool hasPost() => $_has(1);
   @$pb.TagNumber(2)
   void clearPost() => $_clearField(2);
   @$pb.TagNumber(2)
-  $1.PostView ensurePost() => $_ensure(1);
+  $2.PostView ensurePost() => $_ensure(1);
 }
 
 /// Article bodies are read separately from bounded timeline previews.
