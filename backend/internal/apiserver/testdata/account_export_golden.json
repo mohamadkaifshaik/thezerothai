@@ -166,14 +166,16 @@
         "mentions": [
           "<handle:f>"
         ],
-        "text": "hello @<handle:f> from A"
+        "text": "hello @<handle:f> from A",
+        "viewCount": 0
       },
       {
         "createdAt": "<time>",
         "hashtags": [],
         "id": "<post-id>",
         "mentions": [],
-        "text": "unicode ünïcödé 日本語 😀 emoji and RTL שלום مرحبا"
+        "text": "unicode ünïcödé 日本語 😀 emoji and RTL שלום مرحبا",
+        "viewCount": 0
       },
       {
         "createdAt": "<time>",
@@ -182,7 +184,8 @@
         ],
         "id": "<post-id>",
         "mentions": [],
-        "text": "plain ascii post #golden"
+        "text": "plain ascii post #golden",
+        "viewCount": 0
       }
     ],
     "userId": "<uid:A>"

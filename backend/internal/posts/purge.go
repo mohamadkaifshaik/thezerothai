@@ -23,6 +23,9 @@ import (
 // opsPage is the page size of the purge and export queries, and the batch bound (Firestore's 500 writes).
 const opsPage = 500
 
+// purgeChunk is how many posts one purge batch deletes: each is 1 + viewShardWrites writes, under Firestore's 500.
+const purgeChunk = opsPage / (1 + viewShardWrites)
+
 // planCountCap bounds the dry-run count aggregation.
 const planCountCap = 100_000
 
@@ -43,9 +46,11 @@ func (r *FirestoreRepo) authorQuery(uid string) firestore.Query {
 		OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
 }
 
-// PurgeUser implements Eraser. One call deletes one page (the newest <= 500 remaining posts) in one atomic
-// batch. Deleted docs drop out of the next page, so the purge is self-resuming after a crash and the checkpoint
-// only carries the running count. There are no counter updates: the user doc is deleted anyway.
+// PurgeUser implements Eraser. One call deletes one page (the newest <= 500 remaining posts), each post with its view
+// shards (F1: 10 blind deletes) in the same batch, in batches of purgeChunk posts so a batch stays under Firestore's 500
+// writes. Deleted docs drop out of the next page, so the purge is self-resuming after a crash (a post is never deleted
+// without its shards) and the checkpoint only carries the running count. There are no counter updates: the user doc is
+// deleted anyway.
 func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	if cp.Phase >= 2 {
 		return r.purgeRemovals(ctx, uid, cp)
@@ -60,12 +65,15 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 	if len(docs) == 0 {
 		return Checkpoint{Deleted: cp.Deleted, Phase: 1}, false, nil
 	}
-	b := store.NewFirestoreBatch(r.client)
-	for _, d := range docs {
-		b.Delete(d.Ref)
-	}
-	if err := b.Commit(ctx); err != nil {
-		return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
+	for start := 0; start < len(docs); start += purgeChunk {
+		b := store.NewFirestoreBatch(r.client)
+		for _, d := range docs[start:min(start+purgeChunk, len(docs))] {
+			b.Delete(d.Ref)
+			r.stageViewShardsDelete(b, d.Ref.ID)
+		}
+		if err := b.Commit(ctx); err != nil {
+			return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
+		}
 	}
 	next := Checkpoint{Deleted: cp.Deleted + len(docs)}
 	slog.InfoContext(ctx, "posts_purge_batch", "uid_hash", logger.HashUID(uid), "posts", len(docs), "deleted_total", next.Deleted)
@@ -201,6 +209,9 @@ type exportedPost struct {
 	// BeaconID is the id of the author's own plan the post shared (FEATURE_POST_BEACON_EMBED); omitted without one, so plain
 	// posts export byte for byte as before. The plan itself is exported by the beacons section.
 	BeaconID string `json:"beaconId,omitempty"`
+	// ViewCount is the post's rolled-up view count (F1 post views): an anonymous total, never who viewed. Always present
+	// (0 for a post nobody viewed, or not yet rolled up).
+	ViewCount int64 `json:"viewCount"`
 }
 
 // exportedPoll is a poll in the export.
@@ -235,7 +246,8 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 				return fmt.Errorf("posts: export decode post %s: %w", s.Ref.ID, err)
 			}
 			ep := exportedPost{ID: s.Ref.ID, Text: d.Text, CreatedAt: d.CreatedAt.UTC(), Hashtags: d.Hashtags, Mentions: make([]string, 0, len(d.Mentions)), ReplyToPostID: d.ReplyToID,
-				PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI, ReplyPolicy: d.ReplyPolicy, BeaconID: d.BeaconID}
+				PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI, ReplyPolicy: d.ReplyPolicy, BeaconID: d.BeaconID,
+				ViewCount: max(d.ViewCount, 0)}
 			if po := d.Poll.toPoll(); po != nil {
 				ep.Poll = &exportedPoll{Choices: po.Options, ClosesAt: po.ClosesAt, Counts: po.Counts, Total: po.Total}
 			}

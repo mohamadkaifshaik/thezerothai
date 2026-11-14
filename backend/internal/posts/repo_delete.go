@@ -32,6 +32,7 @@ func (r *FirestoreRepo) DeleteOwn(ctx context.Context, id, authorID string, stag
 		store.RetryConfig{MaxAttempts: maxDeleteAttempts, Backoff: deleteRetryBackoff, Commit: r.commitBatch, Sleep: r.backoff},
 		func(b store.Batch) {
 			b.Delete(r.ref(id), firestore.Exists)
+			r.stageViewShardsDelete(b, id) // F1: the view shards go with the post (blind, no read)
 			r.w.Counters.AddPostsCount(b, authorID, -1)
 			for _, st := range stage {
 				st(b)

@@ -126,3 +126,13 @@ func (r *FirestoreRepo) StageViews(b store.Batch, postIDs []string, now time.Tim
 	}
 	return func() { r.viewMemo.note(window, marked) }
 }
+
+// stageViewShardsDelete appends the blind deletes of a post's view shards (ViewShardCount writes, no read): every path
+// that deletes a post doc stages them in the same batch. A view committed after the delete recreates a shard; the
+// rollup then finds the post gone and deletes its shards.
+func (r *FirestoreRepo) stageViewShardsDelete(b store.Batch, postID string) {
+	viewShards.StageDelete(b, r.ref(postID))
+}
+
+// viewShardWrites is how many writes stageViewShardsDelete adds per post (batch sizing).
+const viewShardWrites = ViewShardCount

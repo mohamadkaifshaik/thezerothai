@@ -163,3 +163,10 @@ func TestApplyAuthorLiveViews(t *testing.T) {
 		})
 	}
 }
+
+// TestPurgeChunkFitsABatch: a purge batch (posts plus their view shards) stays within Firestore's 500 writes.
+func TestPurgeChunkFitsABatch(t *testing.T) {
+	if purgeChunk < 1 || purgeChunk*(1+viewShardWrites) > 500 {
+		t.Fatalf("purgeChunk %d x %d writes exceeds 500", purgeChunk, 1+viewShardWrites)
+	}
+}
