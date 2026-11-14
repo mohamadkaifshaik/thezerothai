@@ -32,10 +32,21 @@ class AccountRepository {
   /// Starts a data export, or returns the one already running: the same key
   /// re-joins its export, and a new key gets the user's PENDING export if there
   /// is one, so the returned id may come from an earlier request.
-  Future<AccountExport> requestExport({required String idempotencyKey}) async {
+  ///
+  /// [zip] asks for the ZIP archive; the server serves JSON when the flag is
+  /// off for the caller, and the response's format says which one it is.
+  Future<AccountExport> requestExport({
+    required String idempotencyKey,
+    bool zip = false,
+  }) async {
     final response = await guardApiCall(
       () => _apiClient.identity.requestAccountExport(
-        identity.RequestAccountExportRequest(idempotencyKey: idempotencyKey),
+        identity.RequestAccountExportRequest(
+          idempotencyKey: idempotencyKey,
+          format: zip
+              ? identity.ExportFormat.EXPORT_FORMAT_ZIP
+              : identity.ExportFormat.EXPORT_FORMAT_JSON,
+        ),
       ),
     );
     return AccountExport(exportId: response.exportId, status: response.status);
