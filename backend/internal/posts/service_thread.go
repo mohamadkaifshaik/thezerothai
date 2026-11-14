@@ -521,6 +521,7 @@ func applyReply(p *CreateParams, parent *Post) {
 		conv = parent.ID
 	}
 	p.ParentID = parent.ID
+	p.ParentReplyCount = parent.ReplyCount // the hot decision of the replyCount write (the parent is already read)
 	p.Draft.Kind, p.Draft.IsReply = KindReply, true
 	p.Draft.ReplyToID, p.Draft.ReplyToHandle = parent.ID, parent.Author.Handle
 	p.Draft.ReplyToAuthorID = parent.AuthorID // transient, for PostEvents.Created only (never persisted)

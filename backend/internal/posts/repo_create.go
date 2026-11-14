@@ -6,8 +6,12 @@
 //	        a community post: + communityMembers/{uid} (fresh, after the replay check; the community doc is read before the
 //	        transaction through the 60 s cache)
 //	        media/* (only with images: one GetAll over media_ids)
+//	        a reply or quote to a hot parent (HOT_COUNTER_THRESHOLD): + posts/{parent} (GuardHot, the existence check the
+//	        shard write lost)
 //	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1)
 //	        (+ one media/{id}.postId update per image, <= 4)
+//	        a reply or quote: the parent's replyCount / quoteCount +1, a plain Increment when cold (its implicit Exists
+//	        fails a gone parent at commit), or one shard of posts/{parent}/viewShards plus the counter marker when hot
 //
 // A poll is built here per attempt from the validated draft (closesAt = this attempt's createdAt + the duration); it
 // needs no extra read or write.
@@ -73,9 +77,14 @@ type CreateParams struct {
 	// ParentID is the post being replied to: its replyCount is incremented in the same transaction, which
 	// fails with ErrParentGone if the parent was deleted in the meantime. Empty for root posts.
 	ParentID string
+	// ParentReplyCount is the parent's replyCount as the service read it (cache-first, for the visibility check): the
+	// hot decision of the replyCount write (EngagementWriter.Hot). Never part of the request hash.
+	ParentReplyCount int64
 	// QuoteID is the post being quoted: its quoteCount is incremented the same way (ErrParentGone when it is
 	// gone). A request carries a ParentID or a QuoteID, never both.
 	QuoteID string
+	// QuotedQuoteCount is ParentReplyCount for the quoted post's quoteCount.
+	QuotedQuoteCount int64
 	// Poll is the validated poll of a root post, nil for none. The transaction builds the stored Poll from it inside
 	// every attempt: closesAt = that attempt's Snowflake createdAt + the duration, counts all 0.
 	Poll *PollDraft
@@ -127,16 +136,17 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 	defer cancel()
 
 	var (
-		res      CreateResult
-		attempts int
-		err      error
+		res       CreateResult
+		attempts  int
+		err       error
+		committed func()
 	)
 	for try := 0; try <= maxIDCollisionRetries; try++ {
 		res = CreateResult{}
 		_, err = store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 			attempts++
 			var err error
-			res, err = r.createAttempt(ctx, tx, p, attempts)
+			res, committed, err = r.createAttempt(ctx, tx, p, attempts)
 			return err
 		})
 		if (p.ParentID != "" || p.QuoteID != "") && status.Code(err) == codes.NotFound {
@@ -155,34 +165,37 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 	if err != nil {
 		return CreateResult{Attempts: attempts}, err
 	}
+	if res.Post != nil && committed != nil {
+		committed() // the last attempt's hot counter marker is now committed (a no-op when cold)
+	}
 	return res, nil
 }
 
-func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transaction, p CreateParams, attempt int) (CreateResult, error) {
+func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transaction, p CreateParams, attempt int) (CreateResult, func(), error) {
 	rec, err := r.w.Idempotency.Get(ctx, tx, p.IdemKey)
 	switch {
 	case err == nil:
 		if rec.RequestHash != p.RequestHash {
-			return CreateResult{}, ErrIdempotencyKeyReused
+			return CreateResult{}, nil, ErrIdempotencyKeyReused
 		}
 		id := rec.Result[idemPostID]
 		if id == "" {
-			return CreateResult{}, fmt.Errorf("posts: idempotency record %s has no post id", p.IdemKey)
+			return CreateResult{}, nil, fmt.Errorf("posts: idempotency record %s has no post id", p.IdemKey)
 		}
-		return CreateResult{ReplayID: id}, nil
+		return CreateResult{ReplayID: id}, nil, nil
 	case !errors.Is(err, idempotency.ErrNotFound):
-		return CreateResult{}, fmt.Errorf("posts: idempotency lookup: %w", err)
+		return CreateResult{}, nil, fmt.Errorf("posts: idempotency lookup: %w", err)
 	}
 
 	if p.TextAccessError != nil {
-		return CreateResult{}, p.TextAccessError
+		return CreateResult{}, nil, p.TextAccessError
 	}
 
 	var articleClaim ArticlePublicationClaim
 	if p.ArticlePublication != nil {
 		articleClaim, err = p.ArticlePublication.LoadForPublish(ctx, tx)
 		if err != nil {
-			return CreateResult{}, err
+			return CreateResult{}, nil, err
 		}
 	}
 
@@ -190,7 +203,7 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	// staged. The gate maps a missing doc to not_member itself, so a QUOTE into a community cannot be mistaken for a vanished parent.
 	if p.Community != nil {
 		if err := p.Community.Gate.CheckMember(ctx, tx, p.Draft.CommunityID, p.AuthorID); err != nil {
-			return CreateResult{}, err
+			return CreateResult{}, nil, err
 		}
 	}
 
@@ -198,31 +211,37 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	var claim MediaClaim
 	if len(p.MediaIDs) > 0 {
 		if r.w.Media == nil {
-			return CreateResult{}, ErrMediaNotReady
+			return CreateResult{}, nil, ErrMediaNotReady
 		}
 		claim, err = r.w.Media.LoadForPost(ctx, tx, p.AuthorID, p.MediaIDs)
 		if err != nil {
-			return CreateResult{}, err
+			return CreateResult{}, nil, err
 		}
 		if claim.HasGIF() { // The second gate, then the only-image rule; nothing is staged yet
 			if !p.GifEnabled {
-				return CreateResult{}, ErrGifDisabled
+				return CreateResult{}, nil, ErrGifDisabled
 			}
 			if len(p.MediaIDs) > 1 {
-				return CreateResult{}, ErrGifNotAlone
+				return CreateResult{}, nil, ErrGifNotAlone
 			}
 		}
+	}
+
+	// A hot parent counter write goes to a shard and so loses the Update's implicit Exists: read the parent here, the last
+	// read before any write, so a gone parent still writes nothing and answers ErrParentGone (cold reads nothing).
+	if err := r.guardParent(tx, p); err != nil {
+		return CreateResult{}, nil, err
 	}
 
 	// Drawn inside the attempt: createdAt is the Snowflake ms of THIS attempt (D13, D18).
 	id := r.w.IDs.Generate()
 	createdAt, err := snowflake.Time(id)
 	if err != nil {
-		return CreateResult{}, fmt.Errorf("posts: %w", err)
+		return CreateResult{}, nil, fmt.Errorf("posts: %w", err)
 	}
 	if r.attemptHook != nil {
 		if err := r.attemptHook(attempt, id); err != nil {
-			return CreateResult{}, err
+			return CreateResult{}, nil, err
 		}
 	}
 	post := p.Draft
@@ -245,7 +264,7 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	b := store.NewFirestoreTxBatch(tx)
 	if p.Community != nil && !p.Community.capDrawn {
 		if err := p.Community.Gate.AllowPost(ctx, p.AuthorID, p.Draft.CommunityID); err != nil {
-			return CreateResult{}, err
+			return CreateResult{}, nil, err
 		}
 		p.Community.capDrawn = true
 	}
@@ -257,11 +276,12 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		claim.Attach(b, id)
 	}
 	r.w.Counters.AddPostsCount(b, p.AuthorID, 1)
+	committed := func() {}
 	if p.ParentID != "" {
-		bumpReplyCount(b, r.ref(p.ParentID), 1)
+		committed = r.stageCounter(b, p.ParentID, replyCountField, 1, p.ParentReplyCount)
 	}
 	if p.QuoteID != "" {
-		bumpCount(b, r.ref(p.QuoteID), "quoteCount", 1)
+		committed = r.stageCounter(b, p.QuoteID, quoteCountField, 1, p.QuotedQuoteCount)
 	}
 	r.w.Idempotency.Put(b, p.IdemKey, idempotency.Record{
 		UID: p.AuthorID, RPC: createRPC, RequestHash: p.RequestHash,
@@ -269,9 +289,26 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		ExpireAt: createdAt.Add(idempotency.TTL),
 	})
 	if err := b.Err(); err != nil {
-		return CreateResult{}, err
+		return CreateResult{}, nil, err
 	}
-	return CreateResult{Post: &post}, nil
+	return CreateResult{Post: &post}, committed, nil
+}
+
+// guardParent is GuardHot for the reply parent or the quoted post: nil when the counter write is cold or the post
+// exists, ErrParentGone when a hot write's post is gone (the same answer the cold path's commit gives).
+func (r *FirestoreRepo) guardParent(tx *firestore.Transaction, p CreateParams) error {
+	id, known := p.ParentID, p.ParentReplyCount
+	if id == "" {
+		id, known = p.QuoteID, p.QuotedQuoteCount
+	}
+	if id == "" {
+		return nil
+	}
+	err := r.GuardHot(tx, id, known)
+	if errors.Is(err, ErrNotFound) {
+		return ErrParentGone
+	}
+	return err
 }
 
 // mediaWithAlts copies refs and sets each AltText from the parallel alts slice (empty means none).

@@ -23,9 +23,11 @@ const recountChildrenBulkUsage = `  opsctl recount-children --project P --before
                           differs, in one transaction that re-reads the post and recounts both counters; a count at its
                           100,000 cap is never written. REPOSTs are skipped (their counters stay 0). --rate-limit is posts
                           per second (default 50, max 500); --max-posts bounds one run (default 50,000) and --write stops
-                          after 5,000 writes; rerun with --resume. Reads: about 3 per post (1 page read + 2 count()
-                          aggregations, each 1 read per 1,000 children, at least 1), so ~3,000 per 1,000 posts; a REPOST
-                          costs 1; a repaired post adds 1 read + 2 aggregations + 1 write. The checkpoint (default
+                          after 5,000 writes; rerun with --resume. Reads: about 13 per post (1 page read, 10 counter
+                          shard reads + 2 count() aggregations, each 1 read per 1,000 children, at least 1), so ~13,000 per
+                          1,000 posts; a REPOST costs 1; a repaired post adds 11 reads + 2 aggregations + 1 write (+ 1 per
+                          shard drained). A stored counter is the plain field plus the deltas a hot post still holds on its
+                          shards; a repair sets the plain field and drains them. The checkpoint (default
                           ./recount-children.checkpoint.json, written atomically after every page) records the last post id,
                           --before and the mode; --resume continues from it and refuses a different --before or mode. An
                           existing checkpoint is never overwritten without --resume or --force (which starts over). The
@@ -501,7 +503,7 @@ func decidePost(ctx context.Context, r posts.ChildBulkRecounter, a bulkRecountAr
 			continue
 		}
 		res.stats.Mismatched++
-		stored, counted, action := f.Stored, f.Counted, "dry-run"
+		shown, action := f, "dry-run"
 		switch {
 		case f.Capped:
 			res.stats.Capped++
@@ -510,14 +512,18 @@ func decidePost(ctx context.Context, r posts.ChildBulkRecounter, a bulkRecountAr
 		case missing:
 			action = "missing"
 		case fixFields[i].Written:
-			stored, counted, action = fixFields[i].Stored, fixFields[i].Counted, "written"
+			shown, action = fixFields[i], "written"
 		case fixFields[i].Capped:
 			res.stats.Capped++
-			stored, counted, action = fixFields[i].Stored, fixFields[i].Counted, "capped-not-written"
+			shown, action = fixFields[i], "capped-not-written"
 		default:
-			stored, counted, action = fixFields[i].Stored, fixFields[i].Counted, "in-step-on-reread"
+			shown, action = fixFields[i], "in-step-on-reread"
 		}
-		res.lines = append(res.lines, fmt.Sprintf("post=%s field=%s stored=%d recounted=%d action=%s", p.ID, fieldLabel[i], stored, counted, action))
+		line := fmt.Sprintf("post=%s field=%s stored=%d recounted=%d action=%s", p.ID, fieldLabel[i], shown.Stored, shown.Counted, action)
+		if shown.Pending != 0 { // a hot post: stored includes the deltas still on its shards (a cold line is unchanged)
+			line += fmt.Sprintf(" pending=%d", shown.Pending)
+		}
+		res.lines = append(res.lines, line)
 	}
 	return res, nil
 }

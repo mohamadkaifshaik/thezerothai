@@ -105,7 +105,7 @@ func TestRepairChildCounts_Integration(t *testing.T) {
 	seedChild(t, client, snowID(t, base, 13), KindReply, 0, 0, inStep, "")
 
 	c, err := repo.CountChildParent(ctx, ChildParent{ID: target, Kind: KindPost, Replies: 9, Quotes: 1})
-	if err != nil || c.Replies != (ChildRecount{Stored: 9, Counted: 2}) || c.Quotes != (ChildRecount{Stored: 1, Counted: 1}) || !c.Stale() || c.Reads != 2 {
+	if err != nil || c.Replies != (ChildRecount{Stored: 9, Counted: 2}) || c.Quotes != (ChildRecount{Stored: 1, Counted: 1}) || !c.Stale() || c.Reads != 2+ViewShardCount { // 2 aggregations + the shard GetAll
 		t.Fatalf("count = %+v, %v", c, err)
 	}
 	if r, _ := counts(t, client, target); r != 9 {
@@ -116,8 +116,8 @@ func TestRepairChildCounts_Integration(t *testing.T) {
 	}
 
 	got, err := repo.RepairChildCounts(ctx, target)
-	if err != nil || !got.Replies.Written || got.Quotes.Written || got.Replies.Counted != 2 || got.Reads != 3 {
-		t.Fatalf("repair = %+v, %v; want replyCount written only, 3 reads", got, err)
+	if err != nil || !got.Replies.Written || got.Quotes.Written || got.Replies.Counted != 2 || got.Reads != 3+ViewShardCount {
+		t.Fatalf("repair = %+v, %v; want replyCount written only, 3 + ViewShardCount reads", got, err)
 	}
 	if r, q := counts(t, client, target); r != 2 || q != 1 {
 		t.Fatalf("after repair counts = %d, %d; want 2, 1", r, q)
