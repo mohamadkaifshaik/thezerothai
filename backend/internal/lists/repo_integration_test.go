@@ -517,21 +517,22 @@ func TestEraser_Integration(t *testing.T) {
 		t.Errorf("an unrelated list changed: %v", d)
 	}
 
-	// A rerun from the start is two empty pages and changes nothing: every list is exactly as the first run left it.
+	// A rerun from the start is three empty pages (own, member, follows) and changes nothing: every list is exactly as the
+	// first run left it.
 	settled := map[string]string{}
 	for _, id := range append(append([]string{untouched}, others...), own...) {
 		d, ok := e.doc(t, id)
 		settled[id] = fmt.Sprint(ok, d)
 	}
 	var rerun Checkpoint
-	for i := range 2 {
+	for i := range 3 {
 		next, done, err := eraser.PurgeUser(ctx, "doomed", rerun)
 		if err != nil {
 			t.Fatal(err)
 		}
 		rerun = next
-		if done != (i == 1) {
-			t.Errorf("rerun page %d: done %v, want %v", i, done, i == 1)
+		if done != (i == 2) {
+			t.Errorf("rerun page %d: done %v, want %v", i, done, i == 2)
 		}
 	}
 	for id, was := range settled {
