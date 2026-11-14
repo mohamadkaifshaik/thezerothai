@@ -54,6 +54,9 @@ const (
 type ArticleServiceClient interface {
 	GetArticle(context.Context, *connect.Request[v1.GetArticleRequest]) (*connect.Response[v1.GetArticleResponse], error)
 	ListArticles(context.Context, *connect.Request[v1.ListArticlesRequest]) (*connect.Response[v1.ListArticlesResponse], error)
+	// Creating a new draft id is refused at 50 unpublished drafts per author (a soft cap): FAILED_PRECONDITION +
+	// LIMIT_REACHED, metadata["limit"] = "article_drafts" and metadata["max"] = the cap as a decimal string. Editing an
+	// existing draft is never refused by the cap.
 	SaveArticle(context.Context, *connect.Request[v1.SaveArticleRequest]) (*connect.Response[v1.SaveArticleResponse], error)
 	DeleteArticle(context.Context, *connect.Request[v1.DeleteArticleRequest]) (*connect.Response[v1.DeleteArticleResponse], error)
 	PublishArticle(context.Context, *connect.Request[v1.PublishArticleRequest]) (*connect.Response[v1.PublishArticleResponse], error)
@@ -143,6 +146,9 @@ func (c *articleServiceClient) PublishArticle(ctx context.Context, req *connect.
 type ArticleServiceHandler interface {
 	GetArticle(context.Context, *connect.Request[v1.GetArticleRequest]) (*connect.Response[v1.GetArticleResponse], error)
 	ListArticles(context.Context, *connect.Request[v1.ListArticlesRequest]) (*connect.Response[v1.ListArticlesResponse], error)
+	// Creating a new draft id is refused at 50 unpublished drafts per author (a soft cap): FAILED_PRECONDITION +
+	// LIMIT_REACHED, metadata["limit"] = "article_drafts" and metadata["max"] = the cap as a decimal string. Editing an
+	// existing draft is never refused by the cap.
 	SaveArticle(context.Context, *connect.Request[v1.SaveArticleRequest]) (*connect.Response[v1.SaveArticleResponse], error)
 	DeleteArticle(context.Context, *connect.Request[v1.DeleteArticleRequest]) (*connect.Response[v1.DeleteArticleResponse], error)
 	PublishArticle(context.Context, *connect.Request[v1.PublishArticleRequest]) (*connect.Response[v1.PublishArticleResponse], error)

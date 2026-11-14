@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -53,11 +54,11 @@ func locked() error {
 }
 
 // draftLimit refuses a new draft at maxDraftsPerAuthor: FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] =
-// "article_drafts". Not retryable; the author publishes or deletes a draft first.
+// "article_drafts" and metadata["max"] = the cap ("50"). Not retryable; the author publishes or deletes a draft first.
 func draftLimit() error {
 	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED,
 		fmt.Sprintf("You have %d drafts. Publish or delete one to start a new draft.", maxDraftsPerAuthor)).
-		WithMeta("limit", draftLimitName)
+		WithMeta("limit", draftLimitName).WithMeta(metaLimitMax, strconv.Itoa(maxDraftsPerAuthor))
 }
 func (r *firestoreRepo) get(ctx context.Context, id string) (*record, error) {
 	d, err := r.client.Collection("articles").Doc(id).Get(ctx)

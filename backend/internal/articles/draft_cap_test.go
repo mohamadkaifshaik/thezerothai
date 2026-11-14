@@ -37,7 +37,7 @@ func saveID(s *Server, ctx context.Context, id string, expected int64) error {
 func isDraftLimit(err error) bool {
 	var ae *apierr.Error
 	return errors.As(err, &ae) && ae.Code == connect.CodeFailedPrecondition &&
-		ae.Reason == commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED && ae.Metadata["limit"] == draftLimitName
+		ae.Reason == commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED && ae.Metadata["limit"] == draftLimitName && ae.Metadata["max"] == "50"
 }
 
 func TestDraftCapOnNewDrafts(t *testing.T) {
@@ -64,7 +64,7 @@ func TestDraftCapOnNewDrafts(t *testing.T) {
 			err := saveID(s, ctx, testID, 0)
 			if tc.wantRefused {
 				if !isDraftLimit(err) {
-					t.Fatalf("err = %v, want LIMIT_REACHED limit=%s", err, draftLimitName)
+					t.Fatalf("err = %v, want LIMIT_REACHED limit=%s max=50", err, draftLimitName)
 				}
 				if _, ok := r.rows[testID]; ok {
 					t.Fatal("a refused draft was stored")

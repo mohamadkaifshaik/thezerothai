@@ -979,6 +979,10 @@ class ArticleServiceApi {
           $pb.ClientContext? ctx, ListArticlesRequest request) =>
       _client.invoke<ListArticlesResponse>(ctx, 'ArticleService',
           'ListArticles', request, ListArticlesResponse());
+
+  /// Creating a new draft id is refused at 50 unpublished drafts per author (a soft cap): FAILED_PRECONDITION +
+  /// LIMIT_REACHED, metadata["limit"] = "article_drafts" and metadata["max"] = the cap as a decimal string. Editing an
+  /// existing draft is never refused by the cap.
   $async.Future<SaveArticleResponse> saveArticle(
           $pb.ClientContext? ctx, SaveArticleRequest request) =>
       _client.invoke<SaveArticleResponse>(

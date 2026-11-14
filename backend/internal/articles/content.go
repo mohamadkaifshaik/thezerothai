@@ -18,10 +18,12 @@ const maxBodyBytes = 180000
 // maxDraftsPerAuthor caps an author's unpublished drafts (pending publications included). Only creating a new
 // draft id is refused at the cap; editing, publishing and deleting an existing draft always stay allowed, so an
 // author already over it (drafts made before the cap) is never locked out. draftLimitName is the
-// LIMIT_REACHED metadata["limit"] value the client matches.
+// LIMIT_REACHED metadata["limit"] value the client matches; metaLimitMax carries the cap itself (metadata["max"], a
+// decimal string), so the client shows the number without hard-coding it.
 const (
 	maxDraftsPerAuthor = 50
 	draftLimitName     = "article_drafts"
+	metaLimitMax       = "max"
 )
 
 type textRun struct {

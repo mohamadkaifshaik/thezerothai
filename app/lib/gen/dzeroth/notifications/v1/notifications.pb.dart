@@ -173,8 +173,8 @@ class Notification extends $pb.GeneratedMessage {
   void clearBeaconId() => $_clearField(7);
 
   /// Up to 3 distinct actors folded into this row, newest first, for the grouped avatar stack ("Riya and 2 others").
-  /// Each is a live row hydrated from the identity directory (one batched lookup per page, cache first, up to 60 s
-  /// stale); a hidden (blocked or muted) actor is never listed. Empty on rows that predate the field: clients fall
+  /// Each is a live row hydrated from the identity directory (batched per page, cache first, up to 60 s
+  /// stale); a hidden (blocked, muted or not ACTIVE) actor is never listed. Empty on rows that predate the field: clients fall
   /// back to `actor`.
   @$pb.TagNumber(8)
   $pb.PbList<$0.AuthorSnapshot> get actors => $_getList(7);
@@ -1154,12 +1154,15 @@ class NotificationServiceApi {
   /// Newest-first notifications for the caller. Every RPC checks FEATURE_NOTIFICATIONS (FAILED_PRECONDITION +
   /// FEATURE_DISABLED when off, before any lookup).
   /// Rows whose most recent actor the caller blocks or mutes, or who blocks the caller, are hidden at read time
-  /// (collapsed rows lose such actors from actor_count). Filtering runs after the page query, so a page can be
+  /// (collapsed rows lose such actors from actor_count). Rows whose most recent actor is no longer ACTIVE (suspended,
+  /// pending deletion, or gone) are hidden the same way, and a folded actor proven not ACTIVE is dropped from
+  /// actors and actor_count. Account status comes from a cache-first profile lookup; a failed lookup fails a page
+  /// that has rows (status is never assumed). Filtering runs after the page query, so a page can be
   /// shorter than page_size, or empty, while more rows exist: keep paging while next_page_token (or
   /// gap_page_token) is set; never infer the end from a short page.
   /// The caller's graph snapshot is cached 60 s and skipped on an empty page; the seen_at profile is cached by the
   /// account-status interceptor. Writes nothing.
-  /// Rate limit: default per-minute bucket.
+  /// Rate limit: its own per-user bucket, RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN (default 30/min per instance).
   $async.Future<ListNotificationsResponse> listNotifications(
           $pb.ClientContext? ctx, ListNotificationsRequest request) =>
       _client.invoke<ListNotificationsResponse>(ctx, 'NotificationService',
