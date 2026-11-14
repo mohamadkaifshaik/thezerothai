@@ -73,6 +73,7 @@ import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
+import '../../features/onboarding/presentation/profile_photo_step_screen.dart';
 import '../../features/onboarding/presentation/session_error_screen.dart';
 import '../../features/posts/presentation/composer_route.dart';
 import '../../features/posts/presentation/composer_screen.dart';
@@ -138,6 +139,10 @@ class AppRouter {
   static const signInPath = '/sign-in';
   static const signUpPath = '/sign-up';
   static const onboardingPath = '/onboarding';
+
+  /// The optional "Add a profile photo" step right after this session's
+  /// CreateProfile (`media` on); see [OnboardingState.photoStepPending].
+  static const onboardingPhotoPath = '/onboarding/photo';
 
   /// Full-screen recoverable error for a session whose `GetMe` failed with
   /// nothing usable to show (`OnboardingStatus.error`). Outside the shell, so
@@ -357,6 +362,11 @@ class AppRouter {
         path: onboardingPath,
         builder: (context, state) =>
             const AuthGate(child: CreateProfileScreen()),
+      ),
+      GoRoute(
+        path: onboardingPhotoPath,
+        builder: (context, state) =>
+            const AuthGate(child: ProfilePhotoStepScreen()),
       ),
       GoRoute(
         path: sessionErrorPath,
@@ -775,6 +785,8 @@ class AppRouter {
             folder: messagesSplitFolderOf(state.extra),
             thread: ThreadScreen(
               conversationId: state.pathParameters['id']!,
+              // A message-search result opened this chat at one message.
+              highlightMessageId: state.uri.queryParameters['m'],
               // The composer under the list (read-only threads and a
               // caller without `messaging` get none).
               composerBuilder: (context, conversation) =>
@@ -876,6 +888,7 @@ class AppRouter {
       path == signInPath ||
       path == signUpPath ||
       path == onboardingPath ||
+      path == onboardingPhotoPath ||
       path == sessionErrorPath;
 
   String get _landingPath => _pendingTarget ?? homePath;
@@ -939,6 +952,13 @@ class AppRouter {
             ? null
             : onboardingPath;
       case OnboardingStatus.ready:
+        // Right after this session's CreateProfile (media on): the optional
+        // photo step, then Home. Skipping or finishing clears the flag, which
+        // refreshes this redirect. A later visit to the path goes Home.
+        if (_onboardingBloc.state.photoStepPending) {
+          return loc == onboardingPhotoPath ? null : onboardingPhotoPath;
+        }
+        if (loc == onboardingPhotoPath) return _landingPath;
         if (loc == onboardingPath || loc == sessionErrorPath) {
           return _landingPath;
         }

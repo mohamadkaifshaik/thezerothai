@@ -11,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
+import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -348,6 +349,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
         padding: shellBottomInsets(context),
         child: _Details(
           view: state.view!,
+          faces: state.faces,
           busy: state.busy,
           heroBar: _heroBar(state),
           canMessage: _flag(kFeatureMessaging),
@@ -392,6 +394,7 @@ class _HeroButton extends StatelessWidget {
 class _Details extends StatelessWidget {
   const _Details({
     required this.view,
+    this.faces = const [],
     required this.busy,
     required this.heroBar,
     required this.canMessage,
@@ -406,6 +409,10 @@ class _Details extends StatelessWidget {
   });
 
   final pb.BeaconView view;
+
+  /// Up to 3 people going, for the People card (empty when the viewer may not
+  /// list them).
+  final List<pb.Participant> faces;
   final BeaconAction? busy;
   final Widget heroBar;
 
@@ -517,7 +524,11 @@ class _Details extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.md),
               ],
-              _PeopleCard(beacon: b, onTap: mayList ? onPeople : null),
+              _PeopleCard(
+                beacon: b,
+                faces: faces,
+                onTap: mayList ? onPeople : null,
+              ),
               if (!mayList) ...[
                 const SizedBox(height: AppSpacing.sm),
                 const _Footnote(kPeopleListNote, center: false),
@@ -593,9 +604,17 @@ class _Footnote extends StatelessWidget {
 /// see the list) it opens People and has a chevron; otherwise it only says
 /// the counts.
 class _PeopleCard extends StatelessWidget {
-  const _PeopleCard({required this.beacon, required this.onTap});
+  const _PeopleCard({
+    required this.beacon,
+    required this.onTap,
+    this.faces = const [],
+  });
 
   final pb.Beacon beacon;
+
+  /// The first people going; with them the card adds the faces and "Riya and
+  /// 2 others are going". Without, the title's count is all it says.
+  final List<pb.Participant> faces;
   final VoidCallback? onTap;
 
   @override
@@ -604,6 +623,16 @@ class _PeopleCard extends StatelessWidget {
     final b = beacon;
     final open = (b.openSpots - b.acceptedCount).clamp(0, b.openSpots);
     final title = 'People · ${b.acceptedCount} going';
+    final going = goingSentence(
+      faces
+          .map(
+            (p) => p.user.displayName.isEmpty
+                ? '@${p.user.handle}'
+                : p.user.displayName,
+          )
+          .toList(),
+      b.acceptedCount,
+    );
     final spots = open == 1 ? '1 open spot left' : '$open open spots left';
     final content = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
@@ -622,6 +651,41 @@ class _PeopleCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(title, style: theme.textTheme.titleSmall),
+                  if (faces.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Row(
+                      key: const ValueKey('plan-going-faces'),
+                      children: [
+                        AppAvatarStack(
+                          total: b.acceptedCount < faces.length
+                              ? faces.length
+                              : b.acceptedCount,
+                          maxVisible: 3,
+                          items: [
+                            for (final p in faces)
+                              AppAvatarStackItem(
+                                url: p.user.avatarUrl,
+                                name: p.user.displayName.isEmpty
+                                    ? '@${p.user.handle}'
+                                    : p.user.displayName,
+                              ),
+                          ],
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            going,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                  ],
                   Text(
                     spots,
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -644,7 +708,7 @@ class _PeopleCard extends StatelessWidget {
       key: const ValueKey('plan-people-card'),
       container: true,
       button: onTap != null,
-      label: '$title, $spots',
+      label: [title, if (faces.isNotEmpty) going, spots].join(', '),
       onTap: onTap,
       excludeSemantics: true,
       child: AppCard(

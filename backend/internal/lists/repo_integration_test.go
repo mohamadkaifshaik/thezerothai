@@ -489,8 +489,15 @@ func TestEraser_Integration(t *testing.T) {
 	}
 	{
 		next, done, err := eraser.PurgeUser(ctx, "doomed", cp)
+		if err != nil || done || next.Phase != phaseFollows {
+			t.Fatalf("member phase: done %v phase %q err %v, want not done and the follows phase next", done, next.Phase, err)
+		}
+		cp = next
+	}
+	{
+		next, done, err := eraser.PurgeUser(ctx, "doomed", cp)
 		if err != nil || !done {
-			t.Fatalf("member phase: done %v err %v", done, err)
+			t.Fatalf("follows phase: done %v err %v", done, err)
 		}
 		cp = next
 	}
@@ -510,21 +517,22 @@ func TestEraser_Integration(t *testing.T) {
 		t.Errorf("an unrelated list changed: %v", d)
 	}
 
-	// A rerun from the start is two empty pages and changes nothing: every list is exactly as the first run left it.
+	// A rerun from the start is three empty pages (own, member, follows) and changes nothing: every list is exactly as the
+	// first run left it.
 	settled := map[string]string{}
 	for _, id := range append(append([]string{untouched}, others...), own...) {
 		d, ok := e.doc(t, id)
 		settled[id] = fmt.Sprint(ok, d)
 	}
 	var rerun Checkpoint
-	for i := range 2 {
+	for i := range 3 {
 		next, done, err := eraser.PurgeUser(ctx, "doomed", rerun)
 		if err != nil {
 			t.Fatal(err)
 		}
 		rerun = next
-		if done != (i == 1) {
-			t.Errorf("rerun page %d: done %v, want %v", i, done, i == 1)
+		if done != (i == 2) {
+			t.Errorf("rerun page %d: done %v, want %v", i, done, i == 2)
 		}
 	}
 	for id, was := range settled {
@@ -535,7 +543,7 @@ func TestEraser_Integration(t *testing.T) {
 	}
 }
 
-// An account at 501 own lists (more than the cap can produce, but the step must page): two own pages, then the member phase.
+// An account at 501 own lists (more than the cap can produce, but the step must page): two own pages, then the member and follows phases.
 func TestEraser_Integration_Paging(t *testing.T) {
 	if testing.Short() {
 		t.Skip("seeds 501 lists")
@@ -544,16 +552,17 @@ func TestEraser_Integration_Paging(t *testing.T) {
 	e.seedLists(t, "doomed", 501, nil)
 	eraser := NewEraser(e.repo)
 	var cp Checkpoint
-	// A page is at most 500 deletes (Firestore's batch limit): the first call leaves the 501st list, the second removes it, the third finds none.
-	wantLeft := []int{1, 0, 0}
+	// A page is at most 500 deletes (Firestore's batch limit): the first call leaves the 501st list, the second removes it, the
+	// third finds none and runs the member phase, the fourth runs the follows phase and is done.
+	wantLeft := []int{1, 0, 0, 0}
 	for i := range wantLeft {
 		next, done, err := eraser.PurgeUser(context.Background(), "doomed", cp)
 		if err != nil {
 			t.Fatal(err)
 		}
 		cp = next
-		if done != (i == 2) {
-			t.Errorf("call %d: done %v, want %v", i+1, done, i == 2)
+		if last := i == len(wantLeft)-1; done != last {
+			t.Errorf("call %d: done %v, want %v", i+1, done, last)
 		}
 		docs, err := e.client.Collection("lists").Where("ownerId", "==", "doomed").Limit(10).Documents(context.Background()).GetAll()
 		if err != nil || len(docs) != wantLeft[i] {

@@ -53,6 +53,28 @@ extension type IdentityServiceClient (connect.Transport _transport) {
     );
   }
 
+  /// Up to 5 free handles to offer when the handle the caller chose is taken (sign-up and Change handle). Read-only.
+  /// Gated by FEATURE_HANDLE_SUGGESTIONS (FEATURE_DISABLED feature=handle_suggestions while off) and shares the
+  /// CheckHandleAvailability limiter bucket and its verified-identity gate. Candidates are derived from the input
+  /// (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
+  /// input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
+  Future<dzerothidentityv1identity.SuggestHandlesResponse> suggestHandles(
+    dzerothidentityv1identity.SuggestHandlesRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.suggestHandles,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
   /// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).
   /// enabled_features comes from server env config, with no lookup.

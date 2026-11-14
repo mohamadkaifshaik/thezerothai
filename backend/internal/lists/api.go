@@ -45,3 +45,18 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 	}
 	return err
 }
+
+// GuardFlag is Guard for a sub-feature flag (list_follows, list_suggestions): the same FEATURE_DISABLED answer with
+// metadata feature=name. The lists flag itself is checked by Guard first.
+func GuardFlag(ctx context.Context, fc FlagChecker, uid, name string) error {
+	err := flags.Guard(ctx, func(uid, n string) bool { return fc != nil && fc.Enabled(uid, n) }, uid, name)
+	if err == nil {
+		return nil
+	}
+	logger.SetRequestField(ctx, "feature", name)
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		return ae.WithMeta("feature", name)
+	}
+	return err
+}

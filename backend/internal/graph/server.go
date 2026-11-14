@@ -87,6 +87,8 @@ func toProtoListItem(item ListItem) *graphv1.UserListItem {
 	out := &graphv1.UserListItem{
 		User:         toProtoAuthorSnapshot(item.User),
 		Relationship: toProtoRelationship(item.Relationship),
+		// The public bio from the same hydrated profile as `user`: no extra read, at most as stale as the Directory cache.
+		Bio: item.User.Bio,
 	}
 	if !item.Since.IsZero() {
 		out.Since = timestamppb.New(item.Since)
