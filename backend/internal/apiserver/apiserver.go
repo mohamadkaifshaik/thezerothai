@@ -889,6 +889,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
 		}),
 		search.WithTrends(trendsStore, nil),
+		// F20/F21: SearchLists and SearchCommunities read through the two modules' search methods (their visibility rules).
+		search.WithDirectory(search.DirectoryDeps{Lists: listsSvc, Communities: communitiesSvc}),
 		// The denylist also applies at serve time, so a deploy takes effect within the 10 min copy.
 		search.WithTrendsDenylist(cfg.Search.TrendsDenylist)))
 	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, identitySvc.(identity.Directory), featureFlags, search.RefresherConfig{

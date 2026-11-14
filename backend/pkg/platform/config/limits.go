@@ -110,6 +110,10 @@ type RateLimitConfig struct {
 	// effective ceiling is x max-instances (90 and 60 per minute with 3). GetTrends uses the PerUserPerMinute default bucket.
 	SearchPeoplePerUserPerMinute int
 	SearchPostsPerUserPerMinute  int
+	// SearchDirectoryPerUserPerMinute is the one bucket SearchLists and SearchCommunities share (F20, F21), env
+	// RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN, default 20, per instance (60 per minute with 3). No daily cap: each call is one
+	// query of at most 20 documents.
+	SearchDirectoryPerUserPerMinute int
 
 	// PollVotePerUserPerMinute is the VotePoll bucket, env RATE_LIMIT_POLL_VOTE_PER_MIN, default 30, per
 	// instance (90 per minute with 3).

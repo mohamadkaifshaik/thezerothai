@@ -126,15 +126,7 @@ func (s *service) ListCommunities(ctx context.Context, uid, pageToken string) ([
 	joined, banned := setOf(ms.Joined), setOf(ms.Banned)
 	out := make([]View, 0, len(ranked))
 	for _, c := range ranked {
-		role := c.RoleOf(uid)
-		switch {
-		case role != RoleNone:
-		case banned[c.ID]:
-			role = RoleBanned
-		case joined[c.ID]:
-			role = RoleMember
-		}
-		out = append(out, View{Community: c, Role: role})
+		out = append(out, View{Community: c, Role: viewerRole(c, uid, joined, banned)})
 	}
 	return out, nil
 }
