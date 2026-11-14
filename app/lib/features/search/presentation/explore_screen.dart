@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +7,14 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_shell_scope.dart';
 import '../../../core/widgets/app_top_bar.dart';
+import '../../../shared/widgets/primitives/app_tab_bar.dart';
+import '../../beacons/data/beacons_repository.dart';
+import '../../beacons/domain/beacons_feature_flag.dart';
+import '../../beacons/presentation/bloc/beacons_cubit.dart';
+import '../../graph/presentation/graph_feature_flags.dart';
+import '../domain/explore_tab.dart';
+import 'widgets/explore_people_section.dart';
+import 'widgets/explore_plans_section.dart';
 import '../../../shared/widgets/primitives/app_icon_button.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
@@ -19,9 +28,12 @@ import 'widgets/app_search_field.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/explore`: a root destination of the new shell. A
-/// two-row sticky header (the search field and Settings, then a one-tab
-/// "Trending" bar), the trends list, and the "Who to follow" card (W3's, which
-/// draws nothing unless its own flags are on). No news, sports or
+/// sticky header (the search field and Settings, plus a tab bar only when
+/// more than Trending is on), the trends list, and the "Who to follow" card
+/// (W3's, which draws nothing unless its own flags are on). F18 tabs:
+/// Trending, Plans (public plans, with `beacons`) and People (the suggestions,
+/// with `graph` and `follow_suggestions`); a tab whose flag is off is not
+/// shown and Trending alone has no bar. No Nearby tab, no news, sports or
 /// entertainment tabs, no "Happening nearby" hero (nothing counts plans
 /// tonight), no "Posts for you" (F7). The route needs `search` and `ui_shell`.
 /// The height reserved for the search field in Explore's header at text scale
@@ -45,6 +57,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// needs is off). Shared with the Media page by its route's `extra`.
   ExploreMediaCubit? _media;
 
+  /// The Plans tab's public list, made when the tab is first opened (opening
+  /// Explore sends no ListBeacons) and kept for the session of the screen.
+  BeaconsCubit? _plans;
+  ExploreTab _tab = ExploreTab.trending;
+
   bool _mediaAllowed(BuildContext context) =>
       isFeatureEnabled(context, kFeatureSearch) &&
       isFeatureEnabled(context, kFeatureMedia) &&
@@ -53,6 +70,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void dispose() {
     _media?.close();
+    _plans?.close();
     super.dispose();
   }
 
@@ -69,13 +87,54 @@ class _ExploreScreenState extends State<ExploreScreen> {
             repository: context.read<SearchRepository>(),
           )
         : null;
+    final tabs = exploreTabsFor(
+      plans: isFeatureEnabled(context, kFeatureBeacons),
+      people: isFollowSuggestionsEnabled(context),
+    );
+    final tab = resolveExploreTab(_tab, tabs);
+    final showBar = showsExploreTabBar(tabs);
+    final tabBar = showBar ? AppTabBar.heightFor(context) : 0.0;
+    BeaconsCubit? plans;
+    if (tab == ExploreTab.plans) {
+      plans = _plans ??= BeaconsCubit(
+        repository: context.read<BeaconsRepository>(),
+      )..load();
+    }
+    final header = SliverPersistentHeader(
+      pinned: true,
+      delegate: _ExploreHeader(
+        extent: rowHeight + tabBar,
+        rowHeight: rowHeight,
+        tabs: showBar ? tabs : const [],
+        selected: tab,
+        onTab: (t) => setState(() => _tab = t),
+        tabBarHeight: tabBar,
+      ),
+    );
+    if (tab == ExploreTab.plans || tab == ExploreTab.people) {
+      return Scaffold(
+        body: RefreshIndicator(
+          onRefresh: () => tab == ExploreTab.plans
+              ? plans!.load()
+              : ExplorePeopleSection.reload(context),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              header,
+              if (tab == ExploreTab.plans)
+                ExplorePlansSection(cubit: plans!)
+              else
+                const ExplorePeopleSection(),
+              const ShellBottomInsetSliver(),
+            ],
+          ),
+        ),
+      );
+    }
     Widget scroll = CustomScrollView(
       slivers: [
-        SliverPersistentHeader(
-          pinned: true,
-          delegate: _ExploreHeader(extent: rowHeight, rowHeight: rowHeight),
-        ),
-        if (trends) const ExploreTrendsSection(),
+        header,
+        if (trends) ExploreTrendsSection(showTitle: !showBar),
         if (media != null) ExploreMediaSection(cubit: media),
         // Inline below desktop; from 1200 dp the shell's side column carries
         // the same suggestions ("You might like"), so one card, one place.
@@ -96,10 +155,21 @@ class _ExploreScreenState extends State<ExploreScreen> {
 }
 
 class _ExploreHeader extends SliverPersistentHeaderDelegate {
-  const _ExploreHeader({required this.extent, required this.rowHeight});
+  const _ExploreHeader({
+    required this.extent,
+    required this.rowHeight,
+    required this.tabs,
+    required this.selected,
+    required this.onTab,
+    required this.tabBarHeight,
+  });
 
   final double extent;
   final double rowHeight;
+  final List<ExploreTab> tabs;
+  final ExploreTab selected;
+  final ValueChanged<ExploreTab> onTab;
+  final double tabBarHeight;
 
   @override
   double get minExtent => extent;
@@ -109,7 +179,11 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(_ExploreHeader old) =>
-      old.extent != extent || old.rowHeight != rowHeight;
+      old.extent != extent ||
+      old.rowHeight != rowHeight ||
+      old.selected != selected ||
+      old.tabBarHeight != tabBarHeight ||
+      !listEquals(old.tabs, tabs);
 
   @override
   Widget build(
@@ -145,6 +219,14 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
               ],
             ),
           ),
+          if (tabs.isNotEmpty)
+            AppTabBar(
+              tabs: [for (final t in tabs) AppTab(label: t.label)],
+              selectedIndex: tabs.indexOf(selected),
+              onChanged: (i) => onTab(tabs[i]),
+              equalWidth: true,
+              semanticLabel: 'Explore',
+            ),
         ],
       ),
     );
