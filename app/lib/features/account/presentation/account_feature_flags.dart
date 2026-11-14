@@ -7,6 +7,10 @@ import '../domain/account_feature_flag.dart';
 bool isAccountLifecycleEnabled(BuildContext context) =>
     isFeatureEnabled(context, kFeatureAccountLifecycle);
 
+/// Reactive check for the "Download as ZIP" option (rebuilds when the flag changes).
+bool isExportZipEnabled(BuildContext context) =>
+    isFeatureEnabled(context, kFeatureExportZip);
+
 /// Non-reactive check (e.g. inside a `create:` callback).
 bool accountLifecycleEnabledSnapshot(BuildContext context) =>
     featureEnabledSnapshot(context, kFeatureAccountLifecycle);

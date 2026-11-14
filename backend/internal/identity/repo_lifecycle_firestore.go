@@ -38,12 +38,14 @@ type exportDocFS struct {
 	ObjectPath string    `firestore:"objectPath"`
 	CreatedAt  time.Time `firestore:"createdAt"`
 	ExpireAt   time.Time `firestore:"expireAt"`
+	// Format is absent for the JSON object (the default) and "zip" for the ZIP archive.
+	Format string `firestore:"format,omitempty"`
 	// LeaseUntil is absent until the first claim (L-4).
 	LeaseUntil *time.Time `firestore:"leaseUntil,omitempty"`
 }
 
 func (d exportDocFS) toDomain(id string, updateTime time.Time) ExportDoc {
-	return ExportDoc{ID: id, UID: d.UID, Status: ExportStatus(d.Status), ObjectPath: d.ObjectPath, CreatedAt: d.CreatedAt, ExpireAt: d.ExpireAt, LeaseUntil: derefTime(d.LeaseUntil), UpdateTime: updateTime}
+	return ExportDoc{ID: id, UID: d.UID, Status: ExportStatus(d.Status), ObjectPath: d.ObjectPath, CreatedAt: d.CreatedAt, ExpireAt: d.ExpireAt, Format: ExportFormat(d.Format), LeaseUntil: derefTime(d.LeaseUntil), UpdateTime: updateTime}
 }
 
 func (r *FirestoreRepo) exportRef(id string) *firestore.DocumentRef {
@@ -184,7 +186,7 @@ func (r *FirestoreRepo) CreateExport(ctx context.Context, p CreateExportParams) 
 				return nil
 			}
 		}
-		doc := exportDocFS{UID: p.UID, Status: string(ExportPending), ObjectPath: p.ObjectPath, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention)}
+		doc := exportDocFS{UID: p.UID, Status: string(ExportPending), ObjectPath: p.ObjectPath, Format: string(p.Format), CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention)}
 		b := store.NewFirestoreTxBatch(tx)
 		quota.Touch(b, quotas.Ref(p.UID), qrec) // counts nothing; it makes racing requests conflict (above)
 		b.Create(r.exportRef(p.ID), doc)
