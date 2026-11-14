@@ -777,6 +777,8 @@ class AppRouter {
             folder: messagesSplitFolderOf(state.extra),
             thread: ThreadScreen(
               conversationId: state.pathParameters['id']!,
+              // A message-search result opened this chat at one message.
+              highlightMessageId: state.uri.queryParameters['m'],
               // The composer under the list (read-only threads and a
               // caller without `messaging` get none).
               composerBuilder: (context, conversation) =>

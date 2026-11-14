@@ -20,6 +20,8 @@ type fakeLifecycle struct {
 	lastUID string
 	lastKey string
 	lastID  string
+	// lastFormat is the format RequestAccountExportFormat was last called with.
+	lastFormat ExportFormat
 	// lastWithURL is the withURL GetAccountExport was last called with.
 	lastWithURL bool
 	at          time.Time
@@ -36,6 +38,12 @@ func (f *fakeLifecycle) DeleteAccount(_ context.Context, uid, key string) (time.
 func (f *fakeLifecycle) RequestAccountExport(_ context.Context, uid, key string) (ExportView, error) {
 	f.calls++
 	f.lastUID, f.lastKey = uid, key
+	return f.view, f.err
+}
+
+func (f *fakeLifecycle) RequestAccountExportFormat(_ context.Context, uid, key string, format ExportFormat) (ExportView, error) {
+	f.calls++
+	f.lastUID, f.lastKey, f.lastFormat = uid, key, format
 	return f.view, f.err
 }
 

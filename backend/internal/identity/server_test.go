@@ -32,6 +32,9 @@ type fakeService struct {
 	lastAvailable bool
 	lastReason    string
 
+	suggestions  []string
+	suggestCalls int
+
 	meResult   MeResult
 	lastTarget ProfileTarget
 	lastParams UpdateProfileParams
@@ -42,6 +45,10 @@ func (f *fakeService) CreateProfile(context.Context, string, string, string, str
 }
 func (f *fakeService) CheckHandleAvailability(context.Context, string) (bool, string, error) {
 	return f.lastAvailable, f.lastReason, f.err
+}
+func (f *fakeService) SuggestHandles(context.Context, string) ([]string, error) {
+	f.suggestCalls++
+	return f.suggestions, f.err
 }
 func (f *fakeService) GetMe(context.Context, string) (MeResult, error) {
 	return f.meResult, f.err
