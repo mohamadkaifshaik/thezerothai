@@ -24,7 +24,7 @@ func (r articleImageResolver) ResolveArticleImages(ctx context.Context, authorID
 	out := make(map[string]*commonv1.MediaRef, len(refs))
 	for id, ref := range refs {
 		out[id] = &commonv1.MediaRef{
-			MediaId: ref.ID, Url: ref.URL, ThumbUrl: ref.ThumbURL, Width: int32(ref.Width), Height: int32(ref.Height),
+			MediaId: ref.ID, Url: ref.URL, ThumbUrl: ref.ThumbURL, Width: int32(ref.Width), Height: int32(ref.Height), //nolint:gosec // validated <= 4096 at CreateUpload
 			Blurhash: ref.Blurhash, ContentType: ref.ContentType,
 		}
 	}
