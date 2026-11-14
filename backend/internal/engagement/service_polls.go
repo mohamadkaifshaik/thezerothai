@@ -249,7 +249,8 @@ func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post
 	if s.d.Audience != nil && s.d.Graph != nil {
 		// No read: the snapshot is the one the visibility check just cached.
 		if snap, err := s.d.Graph.Snapshot(ctx, uid); err == nil {
-			out.Hint = RowHint{Protected: s.d.Audience.ProtectedAuthor(ctx, uid, post.AuthorID, snap.Following[post.AuthorID])}
+			protected, known := s.d.Audience.ProtectedStatus(ctx, uid, post.AuthorID, snap.Following[post.AuthorID])
+			out.Hint = RowHint{Protected: protected, ProtectedKnown: known}
 		}
 	}
 	if wrote {

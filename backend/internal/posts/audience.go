@@ -218,18 +218,31 @@ func (a *Audience) EmbedState(ctx context.Context, viewer string, snap graph.Sna
 // it asks Current like any other row, so the wire value never changes. A set outage logs one ERROR per request
 // (the loader's fallback), WARN after that (L-4).
 func (a *Audience) ProtectedAuthor(ctx context.Context, viewer, author string, following bool) bool {
+	protected, _ := a.ProtectedStatus(ctx, viewer, author, following)
+	return protected
+}
+
+// ProtectedStatus is ProtectedAuthor with the outage made visible: known is false when the set could not be read (no
+// fresh copy and Current failed), and protected is then false. It makes the same loader calls as ProtectedAuthor, so
+// a row asks once and feeds both the wire visibility (protected, best effort) and the view count rule
+// (ApplyPublicViews, which needs known: an unknown state never shows another viewer a count). With no loader wired
+// nobody is protected, which is known.
+func (a *Audience) ProtectedStatus(ctx context.Context, viewer, author string, following bool) (protected, known bool) {
 	if !a.Enabled() {
-		return false
+		return false, true
 	}
 	if author == viewer || following {
 		if c, ok := a.authors.(identity.ProtectedAuthorsCached); ok {
 			if set, fresh := c.Cached(); fresh {
-				return set.Has(author)
+				return set.Has(author), true
 			}
 		}
 	}
 	set, err := a.set(ctx)
-	return err == nil && set != nil && set.Has(author)
+	if err != nil {
+		return false, false
+	}
+	return set != nil && set.Has(author), true
 }
 
 // RefuseShare is the D5 write rule for RepostPost and CreatePost(quote_of_post_id): p is the post the caller may

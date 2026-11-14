@@ -29,7 +29,10 @@ const (
 	viewRollupStepMin       = 2 * time.Second
 	viewRollupRouteDeadline = 25 * time.Second
 	viewRollupRouteInterval = time.Minute
-	viewRollupOp            = "cron/view-rollup"
+	// viewRollupTickInterval is the gate on the 5-minute publish-scheduled tick: just under 15 minutes, so every third
+	// tick runs even when the steps before it took a few seconds longer than last time.
+	viewRollupTickInterval = 14 * time.Minute
+	viewRollupOp           = "cron/view-rollup"
 )
 
 // viewRollupRunner is the one method of posts.ViewRollup the step needs.
@@ -76,10 +79,10 @@ func viewRollupHandler(step viewRollupStep, log *slog.Logger, projectID string) 
 	return cronStepHandler(step.run, viewRollupOp, viewRollupRouteDeadline, log, projectID)
 }
 
-// newViewRollups builds the two runners over one repo: the tick's (15-minute gate, the default) and the route's. forget
+// newViewRollups builds the two runners over one repo: the tick's (viewRollupTickInterval) and the route's. forget
 // evicts a folded post from this instance's posts cache (nil = none).
 func newViewRollups(repo posts.ViewRollupRepo, off func() bool, readOnly bool, forget func(string)) (tick, route *posts.ViewRollup) {
-	tick = &posts.ViewRollup{Repo: repo, Off: off, ReadOnly: readOnly, Forget: forget}
+	tick = &posts.ViewRollup{Repo: repo, Off: off, ReadOnly: readOnly, MinInterval: viewRollupTickInterval, Forget: forget}
 	route = &posts.ViewRollup{Repo: repo, Off: off, ReadOnly: readOnly, MinInterval: viewRollupRouteInterval, Forget: forget}
 	return tick, route
 }

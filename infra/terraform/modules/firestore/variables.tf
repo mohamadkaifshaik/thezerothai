@@ -85,6 +85,13 @@ variable "ttl_fields" {
       collection = "outbox"
       field      = "expireAt"
     }
+    # A view dedupe record (users/{uid}/impressions/{postId}_{yyyymmdd}, F1 post views); expireAt = createdAt + 48 h.
+    # Collection-group key. The account erasure deletes them outright; the TTL only keeps the subcollection small.
+    # Edited only, not applied: apply it before FEATURE_POST_VIEWS leaves off in a project.
+    impressions_expire_at = {
+      collection = "impressions"
+      field      = "expireAt"
+    }
   }
 }
 

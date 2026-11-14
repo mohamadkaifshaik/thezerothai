@@ -71,10 +71,11 @@ func (d dropTally) total() int {
 
 // RowAudience is the part of posts.Audience the lists use (satisfied by *posts.Audience): the one visibility predicate
 // Decide on the list surface drops a row whose author, or whose REPOSTed original's author, is
-// protected and not followed, and marks a QUOTE of one PROTECTED; ProtectedAuthor feeds the computed wire visibility.
+// protected and not followed, and marks a QUOTE of one PROTECTED; ProtectedStatus feeds the computed wire visibility and
+// the view count rule (known is false when the set could not be read).
 type RowAudience interface {
 	Decide(ctx context.Context, viewer string, snap graph.Snapshot, p *posts.Post, surface posts.Surface) (posts.Decision, error)
-	ProtectedAuthor(ctx context.Context, viewer, author string, following bool) bool
+	ProtectedStatus(ctx context.Context, viewer, author string, following bool) (protected, known bool)
 }
 
 // RowHint is what the handler needs to render a kept row besides the post: the embed state and whether the author is
@@ -82,6 +83,9 @@ type RowAudience interface {
 type RowHint struct {
 	Embed     postsv1.EmbedViewerState
 	Protected bool
+	// ProtectedKnown: Protected came from a readable protected set. False (the zero value, or a set outage) hides
+	// another author's view_count (posts.ApplyPublicViews fails closed); the wire visibility still reads Protected.
+	ProtectedKnown bool
 	// Withheld: the caller may no longer see the row's protected author; the row is a stripped placeholder.
 	// Set only by dropRows for the owner lists.
 	Withheld bool
@@ -232,7 +236,8 @@ func (s *service) dropRows(ctx context.Context, uid string, ids []string, live m
 				res.Tally.protected++ // kept in storage: a follow, or an unprotect, brings it back
 				continue
 			}
-			hint = RowHint{Embed: d.Embed, Protected: s.d.Audience.ProtectedAuthor(ctx, uid, p.AuthorID, snap.Following[p.AuthorID])}
+			protected, known := s.d.Audience.ProtectedStatus(ctx, uid, p.AuthorID, snap.Following[p.AuthorID])
+			hint = RowHint{Embed: d.Embed, Protected: protected, ProtectedKnown: known}
 		}
 		if tombstoned {
 			hint.Embed = postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED // a tombstone has no author to hide or mark

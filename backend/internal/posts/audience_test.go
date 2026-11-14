@@ -369,6 +369,51 @@ func TestAudienceProtectedAuthorOutageIsFalse(t *testing.T) {
 	}
 }
 
+// TestAudienceProtectedStatus: known is false only when the set could not be read; protected matches ProtectedAuthor
+// in every case, with the same Current calls (one lookup feeds both appliers).
+func TestAudienceProtectedStatus(t *testing.T) {
+	down := identity.ErrProtectedSetUnavailable
+	tests := []struct {
+		name          string
+		loader        *cachedProtected // nil: no loader wired
+		viewer        string
+		author        string
+		following     bool
+		wantProtected bool
+		wantKnown     bool
+		wantCalls     int
+	}{
+		{"no loader: nobody protected, known", nil, "v", "p", false, false, true, 0},
+		{"protected stranger", &cachedProtected{fakeProtected: fakeProtected{set: fakeSet{"p": true}}}, "v", "p", false, true, true, 1},
+		{"public stranger", &cachedProtected{fakeProtected: fakeProtected{set: fakeSet{"p": true}}}, "v", "q", false, false, true, 1},
+		{"followed, fresh copy", &cachedProtected{fakeProtected: fakeProtected{set: fakeSet{"p": true}}, fresh: true}, "v", "p", true, true, true, 0},
+		{"set down, stranger: unknown", &cachedProtected{fakeProtected: fakeProtected{err: down}}, "v", "p", false, false, false, 1},
+		{"set down, followed, no fresh copy: unknown", &cachedProtected{fakeProtected: fakeProtected{err: down}}, "v", "p", true, false, false, 1},
+		{"set down, own post, no fresh copy: unknown", &cachedProtected{fakeProtected: fakeProtected{err: down}}, "p", "p", false, false, false, 1},
+		{"set down, followed, fresh copy: known", &cachedProtected{fakeProtected: fakeProtected{set: fakeSet{"p": true}, err: down}, fresh: true}, "v", "p", true, true, true, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var a *Audience
+			if tt.loader == nil {
+				a = newAudience(nil, noBlockOverflow)
+			} else {
+				a = newAudience(tt.loader, noBlockOverflow)
+			}
+			protected, known := a.ProtectedStatus(context.Background(), tt.viewer, tt.author, tt.following)
+			if protected != tt.wantProtected || known != tt.wantKnown {
+				t.Fatalf("ProtectedStatus = (%v, %v), want (%v, %v)", protected, known, tt.wantProtected, tt.wantKnown)
+			}
+			if tt.loader != nil && tt.loader.calls != tt.wantCalls {
+				t.Fatalf("Current calls = %d, want %d", tt.loader.calls, tt.wantCalls)
+			}
+			if got := a.ProtectedAuthor(context.Background(), tt.viewer, tt.author, tt.following); got != protected {
+				t.Fatalf("ProtectedAuthor = %v, want %v (the wire value is unchanged)", got, protected)
+			}
+		})
+	}
+}
+
 // ApplyWithheld leaves post_id, kind and the author snapshot and nothing else (L-2).
 func TestApplyWithheldStripsEverythingButIDKindAuthor(t *testing.T) {
 	p := post("42", "uid-prot")

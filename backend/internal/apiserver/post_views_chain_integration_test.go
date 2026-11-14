@@ -124,7 +124,9 @@ func TestPostViewsChain_RecordRollupRead(t *testing.T) {
 	if v, _ := snap.DataAt("viewCount"); v != int64(2) {
 		t.Fatalf("viewCount = %v, want 2 after the rollup and its redelivery", v)
 	}
-	if got := e.viewCountOf(t, d, pid); got == nil || *got != 2 {
+	// Through a cold chain: the first chain's 60 s instance post cache still holds the post as read before the rollup.
+	cold := newPollChain(t, viewsMode(flags.On, 2))
+	if got := cold.viewCountOf(t, d, pid); got == nil || *got != 2 {
 		t.Fatalf("other viewer at the threshold = %v, want 2", got)
 	}
 	if left, _ := e.fs.Collection("viewDirty").Where("postId", "==", pid).Limit(5).Documents(context.Background()).GetAll(); len(left) != 0 {
