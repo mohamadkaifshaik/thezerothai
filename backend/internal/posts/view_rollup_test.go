@@ -206,3 +206,20 @@ func TestViewRollupDue(t *testing.T) {
 		t.Error("log attrs")
 	}
 }
+
+// TestViewRollup_ForgetsFoldedPosts: every post of a folded page is evicted from the instance cache once, and a post of
+// the open window is not (its viewCount did not change).
+func TestViewRollup_ForgetsFoldedPosts(t *testing.T) {
+	f := newFakeRollup()
+	cur := viewWindow(rollupNow)
+	f.markers = []ViewMarker{{PostID: "a", Window: cur - 2}, {PostID: "a", Window: cur - 1}, {PostID: "b", Window: cur - 1}, {PostID: "c", Window: cur}}
+	f.shards = map[string]int64{"a": 7, "b": 2, "c": 1}
+	forgot := map[string]int{}
+	v := &ViewRollup{Repo: f, Now: func() time.Time { return rollupNow }, Forget: func(id string) { forgot[id]++ }}
+	if _, err := v.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(forgot) != 2 || forgot["a"] != 1 || forgot["b"] != 1 {
+		t.Fatalf("forgot = %v, want a and b once each", forgot)
+	}
+}
