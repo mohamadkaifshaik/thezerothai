@@ -358,6 +358,9 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 		RootUnavailable:   t.RootUnavailable,
 		NextPageToken:     t.NextPageToken,
 	}
+	if req.Msg.GetPageToken() == "" {
+		s.applyAuthorLiveViews(ctx, out.Focal, uid, t.Focal) // the opened post: the author's exact count, as on GetPost
+	}
 	if t.Parent != nil {
 		out.Parent = view(t.Parent)
 	}
