@@ -102,8 +102,9 @@ func createHash(b Beacon) string {
 }
 
 // updateHash is the UpdateBeacon request hash. Without start_at, duration and cost it is the pre-F28 string byte for
-// byte, so a retry in flight across the deploy still matches its stored idempotency record.
-func updateHash(beaconID string, title, details, venue *string, spots *int, sched schedule) string {
+// byte, and without an audience the pre-F28b one, so a retry in flight across a deploy still matches its stored
+// idempotency record. audience is the requested communityId ("" = public), nil when unset.
+func updateHash(beaconID string, title, details, venue *string, spots *int, sched schedule, audience *string) string {
 	s := fmt.Sprintf("beacon_id=%s|title=%s|details=%s|venue=%s|open_spots=%s", beaconID, optString(title), optString(details), optString(venue), optInt(spots))
 	if sched.set() {
 		start := "unset"
@@ -115,6 +116,13 @@ func updateHash(beaconID string, title, details, venue *string, spots *int, sche
 			cost = string(*sched.cost)
 		}
 		s += fmt.Sprintf("|start=%s|duration=%s|cost=%s", start, optInt(sched.duration), cost)
+	}
+	if audience != nil {
+		a := "public"
+		if *audience != "" {
+			a = "c:" + *audience
+		}
+		s += "|audience=" + a
 	}
 	return idempotency.HashRequest(s)
 }
@@ -344,6 +352,12 @@ func mapErr(ctx context.Context, op, uid, beaconID string, err error) error {
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
 		logger.SetRequestField(ctx, "limit", limitEditRows)
 		return limitReached(limitEditRows, "too many participant rows to reschedule this beacon")
+	case errors.Is(err, ErrAudienceNarrowing):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:"+reasonAudienceNarrowing)
+		return audienceRefused(reasonAudienceNarrowing, "a plan's audience can only be widened, not narrowed")
+	case errors.Is(err, ErrAudienceIncompatible):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:"+reasonAudienceIncompatible)
+		return audienceRefused(reasonAudienceIncompatible, "a plan cannot move to another community")
 	case errors.Is(err, ErrFull):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:full")
 		return stateConflict("full")
@@ -548,24 +562,52 @@ func (s *service) UpdateBeacon(ctx context.Context, uid string, in UpdateInput) 
 	if err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 	}
+	var audience *string
+	if in.Audience != nil {
+		if err := validateAudience(in.Audience.CommunityID, in.Audience.Public); err != nil {
+			return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
+		}
+		audience = &in.Audience.CommunityID
+	}
 	a, err := s.organised(ctx, uid, in.BeaconID)
 	if err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 	}
+	if err := s.widenGate(ctx, uid, a.beacon, audience); err != nil {
+		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
+	}
 	res, err := s.d.Repo.Update(ctx, UpdateParams{
 		UID: uid, BeaconID: in.BeaconID, IdemKey: idempotency.Key(uid, rpcUpdateBeacon, in.Key),
-		RequestHash: updateHash(in.BeaconID, title, details, venue, in.OpenSpots, sched),
+		RequestHash: updateHash(in.BeaconID, title, details, venue, in.OpenSpots, sched, audience),
 		Title:       title, Details: details, Venue: venue, OpenSpots: in.OpenSpots,
-		StartAt: sched.start, DurationMin: sched.duration, Cost: sched.cost, MaxEditRows: MaxEditRows, Now: now,
+		StartAt: sched.start, DurationMin: sched.duration, Cost: sched.cost, AudienceCommunityID: audience,
+		MaxEditRows: MaxEditRows, Now: now,
 	})
 	if err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 	}
 	noteOutcome(ctx, res.Outcome)
+	if res.Outcome == Written && res.Widened {
+		logger.SetRequestField(ctx, "audience_widened", true)
+	}
 	if res.Outcome == Written && res.Rescheduled {
 		s.notifyUpdated(ctx, res)
 	}
 	return s.view(res.Beacon, a.organiser, uid), nil
+}
+
+// widenGate is F28b before the transaction, on the beacon resolve read: a widening needs the organiser to pass the
+// community write gate on the stored community (FEATURE_COMMUNITIES not globally off, JOINED, community ACTIVE:
+// SUSPENDED is ErrNotFound, ARCHIVED COMMUNITY_STATE). resolve lets the organiser past the community check so a plan
+// always stays cancellable; widening is not that, so a plan cannot leave a community that suspended, archived or banned
+// its organiser. Any other move passes here: narrowing and incompatible moves are refused by the repository after its
+// idempotency lookup, like every other rule on stored state, so a same-key retry of a request that committed (say, the
+// stored community resent) still replays its answer after a later widening.
+func (s *service) widenGate(ctx context.Context, uid string, b Beacon, audience *string) error {
+	if audience == nil || audienceMove(b.CommunityID, *audience) != AudienceWiden {
+		return nil
+	}
+	return s.requireMember(ctx, uid, b.CommunityID, false, true)
 }
 
 // MaxEditRows bounds the participant rows (every state) one reschedule rewrites: each costs a participant write and a

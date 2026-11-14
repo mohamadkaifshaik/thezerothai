@@ -254,7 +254,7 @@ type CreateInput struct {
 }
 
 // UpdateInput is an UpdateBeacon request: a nil field is unchanged. StartAt, DurationMin and Cost (F28) may change only
-// before the beacon starts.
+// before the beacon starts; Audience (F28b) may only widen.
 type UpdateInput struct {
 	Key         string
 	BeaconID    string
@@ -265,6 +265,14 @@ type UpdateInput struct {
 	StartAt     *time.Time
 	DurationMin *int
 	Cost        *Cost
+	Audience    *AudienceInput
+}
+
+// AudienceInput is an UpdateBeacon audience as sent (F28b), the CreateBeacon shape: exactly one of CommunityID and Public
+// (Public false and no community is VALIDATION "audience").
+type AudienceInput struct {
+	CommunityID string
+	Public      bool
 }
 
 // ListInput is a ListBeacons request after the transport layer. Exactly one of CommunityID and Public is set; a zero
@@ -315,8 +323,12 @@ var (
 	ErrEnded = errors.New("beacons: beacon ended")
 	// ErrStarted: UpdateBeacon changing start_at, duration or cost once the beacon has started (F28).
 	ErrStarted = errors.New("beacons: beacon started")
-	// ErrEditRows: a reschedule would rewrite more participant rows than one transaction may hold (F28).
+	// ErrEditRows: a reschedule or a widening would rewrite more participant rows than one transaction may hold (F28).
 	ErrEditRows = errors.New("beacons: too many participant rows to reschedule")
+	// ErrAudienceNarrowing: UpdateBeacon moving a public beacon into a community (F28b: widen only).
+	ErrAudienceNarrowing = errors.New("beacons: audience can only be widened")
+	// ErrAudienceIncompatible: UpdateBeacon moving a community beacon into another community (F28b).
+	ErrAudienceIncompatible = errors.New("beacons: audience cannot move to another community")
 	// ErrCancelled: a mutation on a cancelled beacon.
 	ErrCancelled = errors.New("beacons: beacon cancelled")
 	// ErrFull: a request or an accept while every seat is taken.
@@ -408,7 +420,9 @@ type CreateResult struct {
 }
 
 // UpdateParams is one UpdateBeacon write. Now decides ENDED and, for StartAt, DurationMin and Cost, STARTED. MaxEditRows
-// bounds the participant rows a reschedule rewrites in its transaction (ErrEditRows above it).
+// bounds the participant rows a reschedule or a widening rewrites in its transaction (ErrEditRows above it).
+// AudienceCommunityID (F28b) is the requested communityId ("" = public; nil = unchanged), compared with the stored one by
+// audienceMove inside the transaction: a narrowing or incompatible move refuses and writes nothing.
 type UpdateParams struct {
 	UID, BeaconID, IdemKey, RequestHash string
 	Title, Details, Venue               *string
@@ -416,17 +430,20 @@ type UpdateParams struct {
 	StartAt                             *time.Time
 	DurationMin                         *int
 	Cost                                *Cost
+	AudienceCommunityID                 *string
 	MaxEditRows                         int
 	Now                                 time.Time
 }
 
 // UpdateResult is what Repo.Update answers: the beacon after the write (or as it is now on a replay). Rescheduled is set
 // on a Written outcome that changed start_at, duration or cost; Accepted then holds the uids ACCEPTED at that commit (the
-// people the change is announced to).
+// people the change is announced to). Widened is set on a Written outcome that made a community beacon public (F28b); it
+// announces nothing.
 type UpdateResult struct {
 	Outcome     Outcome
 	Beacon      Beacon
 	Rescheduled bool
+	Widened     bool
 	Accepted    []string
 }
 

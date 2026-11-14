@@ -286,8 +286,10 @@ func liveStatus(accepted, openSpots int) Status {
 // are written field-level (never a Set, so a deleted beacon stays deleted); open_spots below accepted_count is VALIDATION
 // "open_spots"; the stored status follows accepted_count against the new open_spots. A change of start, duration or cost
 // (F28, repo_reschedule.go) refuses with ErrStarted once the stored start passed, and a new start or duration also
-// rewrites the TTL and window of every participant and membership row in the same commit. Nothing to change writes only
-// the idempotency document.
+// rewrites the TTL and window of every participant and membership row in the same commit. An audience (F28b) is compared
+// with the stored one by audienceMove: narrowing or incompatible refuses (ErrAudienceNarrowing, ErrAudienceIncompatible)
+// and writes nothing; a widening sets communityId "" on the beacon and on every membership row in the same commit. Nothing
+// to change writes only the idempotency document.
 func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResult, error) {
 	if err := r.ready(); err != nil {
 		return UpdateResult{}, err
@@ -316,6 +318,14 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 		case StatusEnded:
 			return ErrEnded
 		}
+		widen := false
+		if p.AudienceCommunityID != nil {
+			move := audienceMove(d.CommunityID, *p.AudienceCommunityID)
+			if err := move.err(); err != nil {
+				return err
+			}
+			widen = move == AudienceWiden
+		}
 		var updates []firestore.Update
 		if p.Title != nil && *p.Title != d.Title {
 			updates = append(updates, firestore.Update{Path: "title", Value: *p.Title})
@@ -342,7 +352,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 				d.Status = s
 			}
 		}
-		plan, err := r.planReschedule(ctx, tx, p, &d)
+		plan, err := r.planReschedule(ctx, tx, p, &d, widen)
 		if err != nil {
 			return err
 		}
@@ -364,6 +374,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 		if outcome == Written && plan.changed {
 			res.Rescheduled, res.Accepted = true, plan.accepted
 		}
+		res.Widened = outcome == Written && plan.widened
 		return nil
 	})
 	store.NoteTxnAttempts(ctx, "beacons_txn_contention", attempts)
