@@ -13,13 +13,22 @@ import 'post_card.dart';
 /// on phones and 16 dp wider, plus the inset in its 48 dp tap box, 14 dp
 /// down), the body column 12 dp after the tap box and, on every
 /// [mediaEvery]th row, a 16:9 media slot under the text.
+///
+/// The layout follows the feed card (#936): the header row (avatar, two name
+/// bars), then the body bars and the media slot from the avatar's left edge
+/// across the full width. With [indentBody] the old rail-friendly layout
+/// stays: avatar and body in two columns, as [PostCard.indentBody].
 class PostListSkeleton extends StatelessWidget {
   const PostListSkeleton({
     super.key,
     this.rows = 5,
     this.semanticsLabel = 'Loading posts',
     this.mediaEvery = 3,
+    this.indentBody = false,
   });
+
+  /// Keep the body in a column beside the avatar (rows with a thread rail).
+  final bool indentBody;
 
   final int rows;
 
@@ -29,6 +38,16 @@ class PostListSkeleton extends StatelessWidget {
 
   /// Same footprint as the real avatar.
   static const double _avatarSize = AppSize.avatarPost;
+
+  /// The card's footprint: the avatar circle sits [kPostAvatarInset] in from
+  /// the gutter (its tap box), and the body starts at that same edge.
+  static EdgeInsetsGeometry padding(double gutter) =>
+      EdgeInsetsDirectional.fromSTEB(
+        gutter + kPostAvatarInset,
+        kPostListTop + kPostAvatarInset,
+        gutter,
+        AppSpacing.smd,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -42,18 +61,22 @@ class PostListSkeleton extends StatelessWidget {
         child: Column(
           children: [
             for (var i = 0; i < rows; i++) ...[
-              AppSkeletonRow(
-                avatarSize: _avatarSize,
-                barWidths: const [0.4, 1, 0.7],
-                mediaSlot: mediaEvery > 0 && i % mediaEvery == 1,
-                padding: EdgeInsetsDirectional.fromSTEB(
-                  gutter + kPostAvatarInset,
-                  kPostListTop + kPostAvatarInset,
-                  gutter,
-                  AppSpacing.smd,
+              if (indentBody)
+                AppSkeletonRow(
+                  avatarSize: _avatarSize,
+                  barWidths: const [0.4, 1, 0.7],
+                  mediaSlot: mediaEvery > 0 && i % mediaEvery == 1,
+                  padding: padding(gutter),
+                  gap: kPostAvatarInset + kPostAvatarGap,
+                )
+              else
+                AppSkeletonCard(
+                  avatarSize: _avatarSize,
+                  barWidths: const [1, 1, 0.7],
+                  mediaSlot: mediaEvery > 0 && i % mediaEvery == 1,
+                  padding: padding(gutter),
+                  gap: kPostAvatarInset + kPostAvatarGap,
                 ),
-                gap: kPostAvatarInset + kPostAvatarGap,
-              ),
               const Divider(height: 1),
             ],
           ],
