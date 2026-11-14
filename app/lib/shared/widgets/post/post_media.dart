@@ -38,7 +38,13 @@ class PostMedia extends StatelessWidget {
     this.useFullImage = false,
     this.onOpenImage,
     this.showPageIndicator = false,
+    this.row = false,
   });
+
+  /// The list-card layout: a fixed-height row of whole pictures (see
+  /// [tileSize]), swipeable when there are several. False keeps the pager
+  /// (the opened post, an embedded quote).
+  final bool row;
 
   final List<common.MediaRef> media;
   final ValueChanged<int>? onOpenImage;
@@ -92,10 +98,34 @@ class PostMedia extends StatelessWidget {
     return math.max(cap, floor);
   }
 
+  /// A row tile's size: [rowHeight] tall and as wide as [ref]'s aspect ratio
+  /// makes it (1:1 when its size is unknown), so the whole picture fills the
+  /// tile with no crop and no bars. A tile wider than [maxWidth] is capped to
+  /// it and gets shorter to keep the ratio (a panorama), still whole.
+  static Size tileSize(
+    common.MediaRef ref, {
+    required double rowHeight,
+    required double maxWidth,
+  }) {
+    final aspect = ref.width > 0 && ref.height > 0
+        ? ref.width / ref.height
+        : 1.0;
+    final width = rowHeight * aspect;
+    if (width <= maxWidth) return Size(width, rowHeight);
+    return Size(maxWidth, maxWidth / aspect);
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = media.take(4).toList();
     if (items.isEmpty) return const SizedBox.shrink();
+    if (row) {
+      return _MediaRow(
+        media: items,
+        useFullImage: useFullImage,
+        onOpenImage: onOpenImage,
+      );
+    }
     final colors = Theme.of(context).colorScheme;
     final single = items.length == 1;
     final first = items.first;
@@ -147,6 +177,89 @@ class PostMedia extends StatelessWidget {
       framed: framed,
       tile: tile,
       gap: _gap,
+    );
+  }
+}
+
+/// A list card's media: whole pictures at the row height, left-aligned at the
+/// body's edge. One picture is a single tile; 2-4 are a horizontal list with a
+/// gap, scrolled freely (no snapping: the tiles differ in width, so there is
+/// no page to snap to). A tile shorter than the row (a capped panorama) sits at
+/// the top. The row is clipped at the body's right edge.
+class _MediaRow extends StatelessWidget {
+  const _MediaRow({
+    required this.media,
+    required this.useFullImage,
+    required this.onOpenImage,
+  });
+
+  final List<common.MediaRef> media;
+  final bool useFullImage;
+  final ValueChanged<int>? onOpenImage;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final rowHeight = AppSize.postMediaRowHeight(
+      MediaQuery.sizeOf(context).width,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sizes = [
+          for (final ref in media)
+            PostMedia.tileSize(
+              ref,
+              rowHeight: rowHeight,
+              maxWidth: constraints.maxWidth,
+            ),
+        ];
+        final height = sizes.fold<double>(
+          0,
+          (tallest, size) => size.height > tallest ? size.height : tallest,
+        );
+        Widget tile(int index) => SizedBox.fromSize(
+          size: sizes[index],
+          // dz.css `.media`: the 20 dp `cardSmall` radius, with the hairline,
+          // drawn over the picture so it adds nothing to the tile's size.
+          child: DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.cardSmall),
+              border: Border.all(color: colors.outlineVariant),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.cardSmall),
+              child: _MediaTile(
+                media: media[index],
+                useFullImage: useFullImage,
+                inRow: true,
+                onOpen: onOpenImage == null ? null : () => onOpenImage!(index),
+              ),
+            ),
+          ),
+        );
+        if (media.length == 1) {
+          return Align(
+            alignment: AlignmentDirectional.topStart,
+            heightFactor: 1,
+            child: tile(0),
+          );
+        }
+        return SizedBox(
+          height: height,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            primary: false,
+            itemCount: media.length,
+            separatorBuilder: (_, _) =>
+                const SizedBox(width: AppSize.postMediaRowGap),
+            itemBuilder: (context, index) => Align(
+              alignment: AlignmentDirectional.topStart,
+              child: tile(index),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -254,16 +367,22 @@ class _MediaTile extends StatelessWidget {
   const _MediaTile({
     required this.media,
     required this.useFullImage,
+    this.inRow = false,
     this.onOpen,
   });
 
   final common.MediaRef media;
   final bool useFullImage;
+
+  /// Drawn in the media row: a GIF fills its tile (no 2x pixel cap letterbox).
+  final bool inRow;
   final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
-    if (media.contentType == kGifContentType) return _GifTile(media: media);
+    if (media.contentType == kGifContentType) {
+      return _GifTile(media: media, capUpscale: !inRow);
+    }
     final colors = Theme.of(context).colorScheme;
     // Lists never fall back to the full image (M2); the detail view prefers it
     // and may use the thumbnail while `url` is missing.
@@ -359,9 +478,12 @@ Widget _networkImage(String url, ColorScheme colors, {Widget? placeholder}) {
 /// returns to the still (the user's pause). The whole tile is the target
 /// (far over 48dp); the ALT chip stays a separate control.
 class _GifTile extends StatefulWidget {
-  const _GifTile({required this.media});
+  const _GifTile({required this.media, this.capUpscale = true});
 
   final common.MediaRef media;
+
+  /// Hold the pixels to [PostMedia.maxGifUpscale] times the GIF's own size.
+  final bool capUpscale;
 
   @override
   State<_GifTile> createState() => _GifTileState();
@@ -387,7 +509,8 @@ class _GifTileState extends State<_GifTile> {
         : _networkImage(media.thumbUrl, colors);
     // The pixels never pass twice the GIF's own size, even when the frame is
     // larger (its floor); the frame's surface color letterboxes the rest.
-    Widget bounded(Widget image) => media.width > 0 && media.height > 0
+    Widget bounded(Widget image) =>
+        widget.capUpscale && media.width > 0 && media.height > 0
         ? ColoredBox(
             color: colors.surfaceContainerHigh,
             child: Center(

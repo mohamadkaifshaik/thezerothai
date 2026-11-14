@@ -163,8 +163,8 @@ void main() {
         Icons.chat_bubble_outline,
         Icons.repeat,
         Icons.favorite_border,
-        Icons.bookmark_border,
         Icons.ios_share,
+        Icons.bookmark_border,
       ];
       final xs = [for (final i in icons) tester.getCenter(find.byIcon(i)).dx];
       for (var i = 1; i < xs.length; i++) {
@@ -197,15 +197,19 @@ void main() {
           ),
         );
         // A list card's row spans the card's full width (no 440 dp cap): the
-        // first box starts it, Share ends it.
+        // first box starts it; the five slots are equal (the last, Bookmark,
+        // starts at four fifths of the width).
         expect(box(Icons.chat_bubble_outline).left, closeTo(bar.left, 1));
-        expect(box(Icons.ios_share).right, closeTo(bar.right, 1));
+        expect(
+          box(Icons.bookmark_border).left,
+          closeTo(bar.left + bar.width * 4 / 5, 1),
+        );
         final icons = [
           Icons.chat_bubble_outline,
           Icons.repeat,
           Icons.favorite_border,
-          Icons.bookmark_border,
           Icons.ios_share,
+          Icons.bookmark_border,
         ];
         final gaps = [
           for (var i = 1; i < icons.length; i++)

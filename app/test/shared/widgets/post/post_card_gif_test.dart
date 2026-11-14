@@ -57,7 +57,7 @@ void main() {
     expect(find.byType(GifBadge), findsOneWidget);
     expect(urls(tester), {_still}, reason: 'the full file is not fetched yet');
 
-    await tester.tap(find.byType(PostMedia));
+    await tester.tap(find.byIcon(Icons.play_arrow_rounded));
     await tester.pump();
 
     expect(urls(tester), contains(_full));

@@ -2,6 +2,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:dzeroth/shared/widgets/post/post_views_stat.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:fixnum/fixnum.dart';
@@ -72,12 +73,19 @@ void main() {
     final bar = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
     expect(text.left, closeTo(avatar.left, 0.5));
     expect(bar.left, closeTo(avatar.left, 0.5));
-    // Below the header row, full width: the media frame spans the card.
+    // Below the header row; the media row starts at the body's left edge.
     expect(text.top, greaterThan(avatar.bottom - 1));
     final card = tester.getRect(find.byType(PostCard));
-    final frame = tester.getRect(find.byType(AspectRatio).first);
+    final frame = tester.getRect(
+      find
+          .descendant(
+            of: find.byType(PostMedia),
+            matching: find.byType(ClipRRect),
+          )
+          .first,
+    );
     expect(frame.left, closeTo(avatar.left, 0.5));
-    expect(frame.right, closeTo(card.right - postCardGutter(400), 0.5));
+    expect(frame.right, lessThanOrEqualTo(card.right - postCardGutter(400)));
   });
 
   testWidgets('indentBody keeps the body beside the avatar (thread rail)', (
