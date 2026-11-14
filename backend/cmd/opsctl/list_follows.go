@@ -35,9 +35,13 @@ func recountListFollows(ctx context.Context, b *backends, listID string, write b
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "list %s: followerCount=%d markers=%d\n", listID, res.Stored, res.Counted)
+	stored := fmt.Sprint(res.Stored)
+	if res.Missing {
+		stored = "missing"
+	}
+	fmt.Fprintf(out, "list %s: followerCount=%s markers=%d\n", listID, stored, res.Counted)
 	switch {
-	case res.Stored == res.Counted:
+	case res.InStep():
 		fmt.Fprintln(out, "in step: nothing to write")
 	case res.Written:
 		fmt.Fprintf(out, "set followerCount to %d\n", res.Counted)

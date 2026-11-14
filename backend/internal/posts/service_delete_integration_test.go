@@ -291,11 +291,11 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 	ctx := context.Background()
 	// First batch, then the process "dies".
 	cp, done, err := repo.PurgeUser(ctx, uid, Checkpoint{})
-	if err != nil || done || cp.Deleted != 500 {
+	if err != nil || done || cp.Deleted != purgeOwnPage {
 		t.Fatalf("first batch: cp=%+v done=%v err=%v", cp, done, err)
 	}
-	if got := countByAuthor(t, client, uid); got != 703 {
-		t.Fatalf("after the first batch %d remain, want 703", got)
+	if got := countByAuthor(t, client, uid); got != 953 {
+		t.Fatalf("after the first batch %d remain, want 953", got)
 	}
 	// Re-run from a fresh (zero) checkpoint would also work; resume with the saved one.
 	calls := 1
@@ -307,10 +307,10 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 			t.Fatal("purge did not finish")
 		}
 	}
-	// 3 post batches (500, 500, 203) + 1 copy-phase call (an empty embeddedAuthorId page) + 1
+	// 5 post batches (4 x purgeOwnPage = 250, then 203) + 1 copy-phase call (an empty embeddedAuthorId page) + 1
 	// postRemovals call (phase 2: an empty authorId page).
-	if cp.Deleted != 1203 || calls != 5 {
-		t.Fatalf("deleted=%d calls=%d, want 1203 in 5 calls", cp.Deleted, calls)
+	if cp.Deleted != 1203 || calls != 7 {
+		t.Fatalf("deleted=%d calls=%d, want 1203 in 7 calls", cp.Deleted, calls)
 	}
 	if got := countByAuthor(t, client, uid); got != 0 {
 		t.Fatalf("%d posts remain for the purged user", got)
