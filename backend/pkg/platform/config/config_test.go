@@ -81,6 +81,8 @@ func clearEnv(t *testing.T) {
 		"FEATURE_EXPORT_ZIP", "FEATURE_EXPORT_ZIP_ALLOWLIST", "FEATURE_EXPORT_ZIP_PERCENT",
 		"FEATURE_MESSAGE_SEARCH", "FEATURE_MESSAGE_SEARCH_ALLOWLIST", "FEATURE_MESSAGE_SEARCH_PERCENT",
 		"RATE_LIMIT_SHARES_PER_MIN", "SHARES_RECORDED_PER_DAY",
+		"FEATURE_POST_VIEWS", "FEATURE_POST_VIEWS_ALLOWLIST", "FEATURE_POST_VIEWS_PERCENT", "POST_VIEWS_PUBLIC_THRESHOLD",
+		"RATE_LIMIT_IMPRESSIONS_PER_MIN", "IMPRESSIONS_RECORDED_PER_DAY",
 		"FEATURE_UI_TABLET", "FEATURE_UI_TABLET_ALLOWLIST", "FEATURE_UI_TABLET_PERCENT",
 		"RATE_LIMIT_BEACONS_WRITE_PER_MIN", "RATE_LIMIT_BEACONS_ACTION_PER_MIN", "RATE_LIMIT_BEACONS_READ_PER_MIN", "BEACONS_CREATED_PER_DAY",
 		"BEACONS_MAX_OPEN_PER_USER", "BEACONS_MAX_PENDING_REQUESTS", "BEACONS_MAX_OPEN_SPOTS",
@@ -827,5 +829,49 @@ func TestLoad_BeaconQuickJoin(t *testing.T) {
 	}
 	if cfg.FeatureBeaconQuickJoin.Mode != flags.Allowlist || len(cfg.FeatureBeaconQuickJoin.Allowlist) != 2 {
 		t.Errorf("FeatureBeaconQuickJoin = %+v, want an allowlist of 2", cfg.FeatureBeaconQuickJoin)
+	}
+}
+
+// TestLoad_PostViews (F1 post views): the flag defaults off, the public threshold defaults to 1000 and must be >= 1, and
+// the RecordImpressions bucket and daily call cap have their defaults and refuse a zero cap.
+func TestLoad_PostViews(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.FeaturePostViews.Mode != flags.Off || cfg.FeaturePostViews.Name != "post_views" {
+		t.Errorf("FeaturePostViews = %+v, want off with wire name post_views", cfg.FeaturePostViews)
+	}
+	if cfg.PostViewsPublicThreshold != 1000 {
+		t.Errorf("PostViewsPublicThreshold = %d, want 1000", cfg.PostViewsPublicThreshold)
+	}
+	if cfg.RateLimit.ImpressionsPerUserPerMinute != 6 || cfg.RateLimit.ImpressionsRecordedPerDay != 500 {
+		t.Errorf("impressions limits = %d/min, %d/day, want 6 and 500", cfg.RateLimit.ImpressionsPerUserPerMinute, cfg.RateLimit.ImpressionsRecordedPerDay)
+	}
+	for _, tc := range []struct {
+		name, key, value, wantErr string
+	}{
+		{"threshold zero", "POST_VIEWS_PUBLIC_THRESHOLD", "0", "POST_VIEWS_PUBLIC_THRESHOLD must be >= 1"},
+		{"threshold negative", "POST_VIEWS_PUBLIC_THRESHOLD", "-5", "POST_VIEWS_PUBLIC_THRESHOLD must be >= 1"},
+		{"daily cap zero", "IMPRESSIONS_RECORDED_PER_DAY", "0", "IMPRESSIONS_RECORDED_PER_DAY must be > 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv(tc.key, tc.value)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Load() error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+	clearEnv(t)
+	t.Setenv("POST_VIEWS_PUBLIC_THRESHOLD", "25")
+	t.Setenv("FEATURE_POST_VIEWS", "on")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PostViewsPublicThreshold != 25 || cfg.FeaturePostViews.Mode != flags.On {
+		t.Errorf("override: threshold %d mode %q, want 25 and on", cfg.PostViewsPublicThreshold, cfg.FeaturePostViews.Mode)
 	}
 }

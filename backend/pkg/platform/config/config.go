@@ -229,6 +229,15 @@ type Config struct {
 	// FeatureMessageSearch is the flag (wire name `message_search`) gating searching the caller's own direct messages: on for the caller.
 	// FEATURE_MESSAGE_SEARCH[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureMessageSearch flags.Spec
+	// FeaturePostViews is the flag (wire name `post_views`) gating F1 post view counts: EngagementService.RecordImpressions
+	// on for the caller, and Post.view_count on every read while it is not globally off (globally off is the kill switch:
+	// no count on any surface, the author's own included). FEATURE_POST_VIEWS[_ALLOWLIST|_PERCENT], default off in every
+	// environment.
+	FeaturePostViews flags.Spec
+	// PostViewsPublicThreshold is POST_VIEWS_PUBLIC_THRESHOLD (default 1000, at least 1): the rolled-up view count a post
+	// needs before anyone but its author sees Post.view_count (owner decision 2026-11-14, the hybrid rule). A protected
+	// author's count is never shown to anyone else, whatever the count.
+	PostViewsPublicThreshold int64
 	// FeatureBeaconQuickJoin is the flag (wire name `beacon_quick_join`) gating the follow-gated empty note of
 	// BeaconService.RequestToJoin: with it on for the caller, an empty note is accepted only when the organiser follows the
 	// caller (else FAILED_PRECONDITION "note_required"), and ViewerState.quick_join_allowed is computed by GetBeacon and the
@@ -569,6 +578,8 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_POLL_VOTE_PER_MIN", 30, &rl.PollVotePerUserPerMinute},
 		// RecordPostShare 20/min per instance (60 with 3).
 		{"RATE_LIMIT_SHARES_PER_MIN", 20, &rl.SharesPerUserPerMinute},
+		// RecordImpressions 6/min per instance (18 with 3): the client flushes every 30 s and on pause.
+		{"RATE_LIMIT_IMPRESSIONS_PER_MIN", 6, &rl.ImpressionsPerUserPerMinute},
 		{"RATE_LIMIT_SEARCH_POSTS_PER_MIN", 20, &rl.SearchPostsPerUserPerMinute},
 		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
@@ -652,6 +663,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: SHARES_RECORDED_PER_DAY must be > 0 (got %d)", sharesRecordedPerDay)
 	}
 	rl.SharesRecordedPerDay = int64(sharesRecordedPerDay)
+	// RecordImpressions daily call cap (limit_name "impressions_daily"); see RateLimitConfig.ImpressionsRecordedPerDay. A cap
+	// of 0 would lock every user out of the RPC.
+	impressionsRecordedPerDay, err := getInt("IMPRESSIONS_RECORDED_PER_DAY", 500)
+	if err != nil {
+		return Config{}, err
+	}
+	if impressionsRecordedPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: IMPRESSIONS_RECORDED_PER_DAY must be > 0 (got %d)", impressionsRecordedPerDay)
+	}
+	rl.ImpressionsRecordedPerDay = int64(impressionsRecordedPerDay)
 	// Security review M-1: MarkConversationRead's own daily cap (limit_name "messages_mark_read_daily") and ONE
 	// cap shared by AcceptMessageRequest + DeleteConversation (limit_name "messages_mutation_daily"); see
 	// RateLimitConfig.MessagesMarkReadPerDay / MessagesMutationsPerDay for the defaults' math. A cap of 0 would lock every
@@ -984,6 +1005,17 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	postViewsPublicThreshold, err := getInt("POST_VIEWS_PUBLIC_THRESHOLD", 1000)
+	if err != nil {
+		return Config{}, err
+	}
+	if postViewsPublicThreshold < 1 {
+		return Config{}, fmt.Errorf("config: POST_VIEWS_PUBLIC_THRESHOLD must be >= 1 (got %d)", postViewsPublicThreshold)
+	}
 	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1171,6 +1203,8 @@ func Load() (Config, error) {
 		FeatureArticleImages:         featureArticleImages,
 		FeatureExportZip:             featureExportZip,
 		FeatureMessageSearch:         featureMessageSearch,
+		FeaturePostViews:             featurePostViews,
+		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),
 		FeatureBeaconQuickJoin:       featureBeaconQuickJoin,
 		FeatureReadReceipts:          featureReadReceipts,
 		FeatureProfileExtras:         featureProfileExtras,

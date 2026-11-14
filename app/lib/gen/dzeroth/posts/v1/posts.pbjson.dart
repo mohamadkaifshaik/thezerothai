@@ -412,6 +412,18 @@ const Post$json = {
       '10': 'beacon'
     },
     {'1': 'share_count', '3': 25, '4': 1, '5': 3, '10': 'shareCount'},
+    {
+      '1': 'view_count',
+      '3': 26,
+      '4': 1,
+      '5': 3,
+      '9': 0,
+      '10': 'viewCount',
+      '17': true
+    },
+  ],
+  '8': [
+    {'1': '_view_count'},
   ],
 };
 
@@ -437,7 +449,8 @@ final $typed_data.Uint8List postDescriptor = $convert.base64Decode(
     '5wb3N0cy52MS5Db21tdW5pdHlSZWZSCWNvbW11bml0eRI6CgdhcnRpY2xlGBcgASgLMiAuZHpl'
     'cm90aC5wb3N0cy52MS5BcnRpY2xlUHJldmlld1IHYXJ0aWNsZRI3CgZiZWFjb24YGCABKAsyHy'
     '5kemVyb3RoLnBvc3RzLnYxLkJlYWNvblByZXZpZXdSBmJlYWNvbhIfCgtzaGFyZV9jb3VudBgZ'
-    'IAEoA1IKc2hhcmVDb3VudA==');
+    'IAEoA1IKc2hhcmVDb3VudBIiCgp2aWV3X2NvdW50GBogASgDSABSCXZpZXdDb3VudIgBAUINCg'
+    'tfdmlld19jb3VudA==');
 
 @$core.Deprecated('Use articlePreviewDescriptor instead')
 const ArticlePreview$json = {

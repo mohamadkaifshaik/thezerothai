@@ -123,6 +123,15 @@ type RateLimitConfig struct {
 	SharesPerUserPerMinute int
 	SharesRecordedPerDay   int64
 
+	// ImpressionsPerUserPerMinute is the RecordImpressions bucket, env RATE_LIMIT_IMPRESSIONS_PER_MIN, default 6, per
+	// instance (18 per minute with 3; the client flushes every 30 s and on pause). ImpressionsRecordedPerDay is its
+	// in-memory daily call cap (one counter per uid per instance, ratelimit.DailyCap), env IMPRESSIONS_RECORDED_PER_DAY,
+	// default 500, logged as limit_name "impressions_daily"; it counts every call. With at most 50 ids per call it bounds
+	// one account to 25,000 impression checks (50 reads and 100 writes per call at worst) per instance and IST day; the
+	// (viewer, post, day) impression doc bounds the counted views to the distinct posts the account can see.
+	ImpressionsPerUserPerMinute int
+	ImpressionsRecordedPerDay   int64
+
 	// CommunityModActionsPerDay is the in-memory daily cap per actor over HideCommunityPost and SetMemberRole (bans go through
 	// it), env COMMUNITY_MOD_ACTIONS_PER_DAY, default 200, logged as limit_name "community_mod_actions_daily". RestoreCommunityPost
 	// is not capped. CommunityPostsPerCommunityPerDay is the cap on CreatePost into one community per uid and community (key

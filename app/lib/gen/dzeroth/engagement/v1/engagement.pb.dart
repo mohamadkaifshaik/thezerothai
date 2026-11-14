@@ -112,6 +112,122 @@ class RecordPostShareRequest extends $pb.GeneratedMessage {
   void clearChannel() => $_clearField(3);
 }
 
+class RecordImpressionsRequest extends $pb.GeneratedMessage {
+  factory RecordImpressionsRequest({
+    $core.String? idempotencyKey,
+    $core.Iterable<$core.String>? postIds,
+  }) {
+    final result = RecordImpressionsRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (postIds != null) result.postIds.addAll(postIds);
+    return result;
+  }
+
+  RecordImpressionsRequest._();
+
+  factory RecordImpressionsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RecordImpressionsRequest()..mergeFromBuffer(data, registry);
+  factory RecordImpressionsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RecordImpressionsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RecordImpressionsRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: RecordImpressionsRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..pPS(2, _omitFieldNames ? '' : 'postIds')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RecordImpressionsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RecordImpressionsRequest copyWith(
+          void Function(RecordImpressionsRequest) updates) =>
+      super.copyWith((message) => updates(message as RecordImpressionsRequest))
+          as RecordImpressionsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use RecordImpressionsRequest() / RecordImpressionsRequest.new instead')
+  static RecordImpressionsRequest create() => RecordImpressionsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => RecordImpressionsRequest._();
+  @$core.override
+  RecordImpressionsRequest createEmptyInstance() =>
+      RecordImpressionsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static RecordImpressionsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RecordImpressionsRequest>(
+          RecordImpressionsRequest.$_createMessage);
+  static RecordImpressionsRequest? _defaultInstance;
+
+  /// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; the (caller, post, IST day) impression is the record.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  /// The posts the caller saw, 1 to 50 (duplicates merged); a REPOST id counts its original.
+  @$pb.TagNumber(2)
+  $pb.PbList<$core.String> get postIds => $_getList(1);
+}
+
+/// Empty on purpose: the answer never depends on what each id was (RecordImpressions).
+class RecordImpressionsResponse extends $pb.GeneratedMessage {
+  factory RecordImpressionsResponse() => RecordImpressionsResponse._();
+
+  RecordImpressionsResponse._();
+
+  factory RecordImpressionsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RecordImpressionsResponse()..mergeFromBuffer(data, registry);
+  factory RecordImpressionsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RecordImpressionsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RecordImpressionsResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: RecordImpressionsResponse.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RecordImpressionsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RecordImpressionsResponse copyWith(
+          void Function(RecordImpressionsResponse) updates) =>
+      super.copyWith((message) => updates(message as RecordImpressionsResponse))
+          as RecordImpressionsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use RecordImpressionsResponse() / RecordImpressionsResponse.new instead')
+  static RecordImpressionsResponse create() => RecordImpressionsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      RecordImpressionsResponse._();
+  @$core.override
+  RecordImpressionsResponse createEmptyInstance() =>
+      RecordImpressionsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static RecordImpressionsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RecordImpressionsResponse>(
+          RecordImpressionsResponse.$_createMessage);
+  static RecordImpressionsResponse? _defaultInstance;
+}
+
 class RecordPostShareResponse extends $pb.GeneratedMessage {
   factory RecordPostShareResponse({
     PostEngagement? engagement,
@@ -1929,6 +2045,37 @@ class EngagementServiceApi {
           $pb.ClientContext? ctx, RecordPostShareRequest request) =>
       _client.invoke<RecordPostShareResponse>(ctx, 'EngagementService',
           'RecordPostShare', request, RecordPostShareResponse());
+
+  /// Report posts the caller saw (F1 post views, feeds Post.view_count). The client collects the ids of posts that were
+  /// on screen, removes the ones it already sent today (its own dedupe), and flushes at most 50 per call, every 30 s and
+  /// when the app is paused. Client-reported and therefore unverifiable: the server counts at most ONE impression per
+  /// (caller, post, IST day) and never the author's own views. Fire and forget: the response is empty and identical
+  /// whatever each id turned out to be (counted, already seen today, the caller's own, missing, hidden, or not visible to
+  /// the caller), so it is not an existence oracle. Never retry a success; an error may be retried once with the same key.
+  /// Order (each refusal writes nothing):
+  /// 1. Interceptors: per-uid bucket RATE_LIMIT_IMPRESSIONS_PER_MIN (6/min per instance) and the in-memory daily cap
+  ///    IMPRESSIONS_RECORDED_PER_DAY (500 calls per uid per instance, counting every call) => RESOURCE_EXHAUSTED +
+  ///    RATE_LIMITED, metadata["limit"] = "impressions_daily" for the cap. DEGRADED_MODE=readonly => UNAVAILABLE +
+  ///    DEGRADED_MODE.
+  /// 2. Flags, before any lookup: FEATURE_POST_VIEWS (wire name "post_views") on for the caller, else
+  ///    FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "post_views". FEATURE_POSTS must be on.
+  /// 3. Shape, before any lookup: idempotency_key format, 1 to 50 post_ids, each 19 digits (duplicates are merged);
+  ///    else VALIDATION (field "idempotency_key" | "post_ids").
+  /// 4. The posts, in one cache-first read: a REPOST id counts its original; ids that are missing, hidden, by an author
+  ///    who blocks the caller or whom the caller may not see (a protected author the caller does not follow), and the
+  ///    caller's own posts are dropped silently. A viewer the author blocks is counted but never identified.
+  /// 5. One GetAll of users/{uid}/impressions/{postId}_{yyyymmdd} (IST day) for what is left; for each absent doc, in
+  ///    one batch: Create the impression {postId, day, createdAt, expireAt = createdAt + 48 h} and increment one of 10
+  ///    shard docs posts/{id}/viewShards/{n}. The impression doc is the dedupe record (a concurrent duplicate loses its
+  ///    Create and commits nothing). A rollup folds the shards into posts/{id}.viewCount.
+  /// Idempotency (the like rule): keyed by (caller, post, IST day); the key is validated but not stored.
+  /// Worst case: the post read (cache-first, 0-2 batch reads of up to 50) + 50 reads + 100 writes (plus one small
+  /// rollup marker per post and instance every 5 minutes). Hot-post shard contention after the bounded retry =>
+  /// UNAVAILABLE with retry_after: the client drops the batch.
+  $async.Future<RecordImpressionsResponse> recordImpressions(
+          $pb.ClientContext? ctx, RecordImpressionsRequest request) =>
+      _client.invoke<RecordImpressionsResponse>(ctx, 'EngagementService',
+          'RecordImpressions', request, RecordImpressionsResponse());
 }
 
 const $core.bool _omitFieldNames =

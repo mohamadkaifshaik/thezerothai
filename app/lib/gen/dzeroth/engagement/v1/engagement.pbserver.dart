@@ -41,6 +41,8 @@ abstract class EngagementServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $3.VotePollRequest request);
   $async.Future<$3.RecordPostShareResponse> recordPostShare(
       $pb.ServerContext ctx, $3.RecordPostShareRequest request);
+  $async.Future<$3.RecordImpressionsResponse> recordImpressions(
+      $pb.ServerContext ctx, $3.RecordImpressionsRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -64,6 +66,8 @@ abstract class EngagementServiceBase extends $pb.GeneratedService {
         return $3.VotePollRequest();
       case 'RecordPostShare':
         return $3.RecordPostShareRequest();
+      case 'RecordImpressions':
+        return $3.RecordImpressionsRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -92,6 +96,8 @@ abstract class EngagementServiceBase extends $pb.GeneratedService {
         return votePoll(ctx, request as $3.VotePollRequest);
       case 'RecordPostShare':
         return recordPostShare(ctx, request as $3.RecordPostShareRequest);
+      case 'RecordImpressions':
+        return recordImpressions(ctx, request as $3.RecordImpressionsRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
