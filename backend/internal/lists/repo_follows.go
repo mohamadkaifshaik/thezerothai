@@ -223,8 +223,9 @@ func (r *FirestoreRepo) FollowedPage(ctx context.Context, viewer string, before 
 	return out, nil
 }
 
-// DiscoverPage implements Repo: public lists ordered by followerCount descending, then document id ascending (the index
-// chore(firestore) on lists: isPrivate ASC, followerCount DESC). Lists without the followerCount field are not returned (a list
+// DiscoverPage implements Repo: public lists ordered by followerCount descending, then document id ascending (the index on
+// lists: isPrivate ASC, followerCount DESC, __name__ ASC; the __name__ entry must stay explicit, as Firestore otherwise
+// gives it the last field's direction, DESC, and this query then fails for want of an index). Lists without the followerCount field are not returned (a list
 // created before the field needs a recount or a first follow). hidden, owner status and blocks are filtered by the service.
 func (r *FirestoreRepo) DiscoverPage(ctx context.Context, after *DiscoverAnchor, limit int) ([]List, error) {
 	if err := r.readable(); err != nil {
@@ -352,16 +353,28 @@ func (r *FirestoreRepo) deleteFollowMarkers(ctx context.Context, listID string) 
 	}
 }
 
-// FollowRecount is the outcome of RecountFollowers: the stored followerCount and the count of markers.
+// FollowRecount is the outcome of RecountFollowers: the stored followerCount and the count of markers. Missing is true when
+// the list document has no followerCount field at all (a list created before the field existed); Stored is then 0.
 type FollowRecount struct {
 	Stored  int64
 	Counted int64
+	Missing bool
 	Written bool
+}
+
+// InStep reports whether the stored count is present and equals the marker count, so a write would change nothing.
+func (r FollowRecount) InStep() bool { return !r.Missing && r.Stored == r.Counted }
+
+// hasFollowerCount reports whether the list document stores a followerCount field. DataTo decodes a missing field as 0,
+// which would look in step with zero markers, yet DiscoverLists orders by followerCount and so never returns such a list.
+func hasFollowerCount(snap *firestore.DocumentSnapshot) bool {
+	_, err := snap.DataAt("followerCount")
+	return err == nil
 }
 
 // RecountFollowers compares lists/{listID}.followerCount with the number of its markers. With write it sets the stored count
 // to the counted value in one transaction (the list read and the markers counted inside it, so a concurrent follow conflicts
-// and retries). Without write it only reads.
+// and retries), also when the field is missing. Without write it only reads.
 func (r *FirestoreRepo) RecountFollowers(ctx context.Context, listID string, write bool) (FollowRecount, error) {
 	if err := r.readable(); err != nil {
 		return FollowRecount{}, err
@@ -403,7 +416,7 @@ func (r *FirestoreRepo) RecountFollowers(ctx context.Context, listID string, wri
 		if err != nil {
 			return FollowRecount{}, logger.RedactErr(err, listID)
 		}
-		return FollowRecount{Stored: d.FollowerCount, Counted: n}, nil
+		return FollowRecount{Stored: d.FollowerCount, Counted: n, Missing: !hasFollowerCount(snap)}, nil
 	}
 	var out FollowRecount
 	_, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -422,8 +435,8 @@ func (r *FirestoreRepo) RecountFollowers(ctx context.Context, listID string, wri
 		if err != nil {
 			return err
 		}
-		out = FollowRecount{Stored: d.FollowerCount, Counted: n}
-		if out.Stored == out.Counted {
+		out = FollowRecount{Stored: d.FollowerCount, Counted: n, Missing: !hasFollowerCount(snap)}
+		if out.InStep() {
 			return nil
 		}
 		b := store.NewFirestoreTxBatch(tx)

@@ -13,6 +13,10 @@ import (
 // List (visible): hidden when the displayed actor is blocked or muted by the caller or blocks the caller, including
 // the F-04 overflow lookup. Folded actors only change a row's actor count, never whether it shows, so they are not read.
 //
+// It does NOT apply List's account-status rule (activeActors): a row whose displayed actor is SUSPENDED or DELETING
+// still counts here until the purge sweeps it, so the badge can exceed the rows List shows by those rows. Applying the
+// rule would cost a Directory lookup of up to UnreadBadgeCap actors on every GetMe miss and retire the count() path.
+//
 // Reads, per call (GetMe caches the answer 30 s per uid):
 //   - the caller's graph snapshot (graph's 60 s cache; one graph/{uid} read on a miss), shared with every other read path;
 //   - a caller whose snapshot hides nobody (no blocked, muted or blockedBy entry, no overflow): one count() aggregation,

@@ -115,7 +115,12 @@ type backends struct {
 	// listNameKeys and communityNameKeys serve `search backfill-name-keys`: each module's nameLower backfill (F20, F21).
 	listNameKeys      nameKeyBackfiller
 	communityNameKeys nameKeyBackfiller
-	close             func()
+	// childCounts serves recount-replies and recount-quotes: posts' stored replyCount / quoteCount and the count of
+	// the posts referencing it.
+	childCounts posts.ChildRecounter
+	// childBulk serves recount-children: the id-ordered scan, the outside counts and RepairChildCounts.
+	childBulk posts.ChildBulkRecounter
+	close     func()
 }
 
 type opener func(ctx context.Context, project string) (*backends, error)
@@ -218,6 +223,8 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		// The nameLower backfills are plain field Updates: no quota or idempotency store.
 		listNameKeys:      lists.NewFirestoreRepo(client, nil, nil),
 		communityNameKeys: communitiesRepo,
+		childCounts:       postsRepo,
+		childBulk:         postsRepo,
 		close:             func() { _ = client.Close() },
 	}, nil
 }
@@ -238,7 +245,7 @@ const usage = `usage:
   opsctl media-orphan-sweep --project P --profile-retire off|all [--dry-run]   (drains the daily orphan sweep's
                           backlog in delete mode whatever MEDIA_ORPHAN_SWEEP says; --profile-retire has no default and the
                           shell's PROFILE_MEDIA_RETIRE is not read; --dry-run computes one page and writes nothing)
-` + recountSharesUsage + recountListFollowsUsage + nameKeysUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
+` + recountSharesUsage + recountListFollowsUsage + recountChildrenUsage + recountChildrenBulkUsage + nameKeysUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -254,12 +261,19 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore, community suspend|restore|archive: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
-	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, search backfill-name-keys: resume after this post, media, list or community id (the checkpoint a capped run printed)")
+	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, recount-children, search backfill-name-keys: resume after this post, media, list or community id (the checkpoint a capped run printed)")
 	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|all, which unshown profile images the sweep may delete (the legacy banner is read as off)")
-	write := fs.Bool("write", false, "recount-shares, recount-list-follows, search backfill-name-keys: write (without it the command only prints the counts)")
+	write := fs.Bool("write", false, "recount-shares, recount-list-follows, recount-replies, recount-quotes, recount-children, search backfill-name-keys: write (without it the command only prints the counts)")
+	var bulk bulkRecountFlags
+	fs.StringVar(&bulk.before, "before", "", "recount-children (required): scan only posts created before this RFC 3339 time")
+	fs.IntVar(&bulk.rate, "rate-limit", defaultBulkRate, "recount-children: posts per second")
+	fs.IntVar(&bulk.maxPosts, "max-posts", defaultBulkMaxPosts, "recount-children: most posts scanned in one run")
+	fs.StringVar(&bulk.checkpoint, "checkpoint", "", "recount-children: checkpoint file (default ./"+defaultBulkCheckpoint+")")
+	fs.BoolVar(&bulk.resume, "resume", false, "recount-children: continue the checkpoint file (same --before and mode)")
+	fs.BoolVar(&bulk.force, "force", false, "recount-children: start over, replacing an existing checkpoint file")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
-	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post, recount-shares: post id")
+	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post, recount-shares, recount-replies, recount-quotes: post id")
 	fs.StringVar(&ma.list, "list", "", "recount-list-follows: list id")
 	collection := fs.String("collection", "", "search backfill-name-keys: lists or communities")
 	maxPages := fs.Int("max-pages", 0, "search backfill-name-keys: at most N pages of 200 (default 25)")
@@ -275,7 +289,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
 		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
-		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep", "recount-shares", "recount-list-follows", "search":
+		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep", "recount-shares", "recount-list-follows", "recount-replies", "recount-quotes", "recount-children", "search":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -351,13 +365,32 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	// --after resumes a capped backfill; on any other command it would be silently ignored.
-	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "search" {
+	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "recount-children" && cmd != "search" {
 		fmt.Fprintf(errOut, "--after is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
 	// recount-shares writes only with --write; on any other command it would be silently ignored.
-	if *write && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "search" {
+	if *write && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" && cmd != "search" {
 		fmt.Fprintf(errOut, "--write is not supported by %s\n%s", cmd, usage)
+		return 2
+	}
+	// The recount-children flags are rejected elsewhere (they would be silently ignored); --post is the single-post commands'.
+	if cmd != "recount-children" {
+		var stray string
+		fs.Visit(func(f *flag.Flag) {
+			switch f.Name {
+			case "before", "rate-limit", "max-posts", "checkpoint", "resume", "force":
+				if stray == "" {
+					stray = f.Name
+				}
+			}
+		})
+		if stray != "" {
+			fmt.Fprintf(errOut, "--%s is not supported by %s\n%s", stray, cmd, usage)
+			return 2
+		}
+	} else if ma.post != "" {
+		fmt.Fprintf(errOut, "--post is not supported by recount-children (use recount-replies / recount-quotes)\n%s", usage)
 		return 2
 	}
 	// --collection and --max-pages belong to search backfill-name-keys; elsewhere they would be silently ignored.
@@ -459,7 +492,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
 	// report or post id.
-	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community" && cmd != "search"
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community" && cmd != "search"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -471,6 +504,15 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	if cmd == "media-orphan-sweep" {
 		// Printed before the prod prompt, so the operator confirms while reading the effective switches and clock.
 		fmt.Fprint(out, mediaOrphanSweepHeader(*project, sweepRetire, *dryRun, now()))
+	}
+	var bulkArgs bulkRecountArgs
+	if cmd == "recount-children" {
+		var err error
+		bulk.write, bulk.after = *write, *after
+		if bulkArgs, err = parseBulkRecountArgs(bulk, *project, now()); err != nil {
+			fmt.Fprintf(errOut, "%v\n%s", err, usage)
+			return 2
+		}
 	}
 	if isProd(*project) && !confirmed(in, out, *project) {
 		fmt.Fprintln(errOut, "aborted: confirmation did not match")
@@ -533,6 +575,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = recountListFollows(ctx, b, ma.list, *write, out)
 	case "search":
 		err = backfillNameKeys(ctx, b, *collection, *after, *maxPages, *write, out)
+	case "recount-replies", "recount-quotes":
+		err = recountChildren(ctx, b, cmd, ma.post, *write, out)
+	case "recount-children":
+		err = recountChildrenBulk(ctx, b, bulkArgs, out, now)
 	case "suspend-user":
 		err = suspendUser(ctx, b, *uid, ma, out, now)
 	case "unsuspend-user":
@@ -603,6 +649,10 @@ func driveLoop[C any](ctx context.Context, out io.Writer, cp C,
 ) error {
 	failures := 0
 	for calls := 1; calls <= maxPurgeCalls; calls++ {
+		// Ctrl-C: stop at once with the checkpoint instead of failing maxConsecutiveErrors calls on a cancelled context.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("interrupted (checkpoint %s): %w", describe(cp), err)
+		}
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
 		next, done, err := step(cctx, cp)
 		cancel()
