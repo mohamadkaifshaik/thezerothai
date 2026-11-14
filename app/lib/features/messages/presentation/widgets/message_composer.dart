@@ -93,13 +93,22 @@ class _MessageComposerState extends State<MessageComposer> {
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (!messageEnterSends) return KeyEventResult.ignored;
     final key = event.logicalKey;
     if (key != LogicalKeyboardKey.enter &&
         key != LogicalKeyboardKey.numpadEnter) {
       return KeyEventResult.ignored;
     }
     final keyboard = HardwareKeyboard.instance;
+    // Ctrl+Enter (Windows, Linux) or Cmd+Enter (macOS) sends on every
+    // platform, whatever plain Enter does there; `_submit` checks `canSend`
+    // (nothing to send, or a send still in flight, sends nothing).
+    if ((keyboard.isControlPressed || keyboard.isMetaPressed) &&
+        !keyboard.isShiftPressed &&
+        !keyboard.isAltPressed) {
+      if (event is KeyDownEvent) _submit();
+      return KeyEventResult.handled;
+    }
+    if (!messageEnterSends) return KeyEventResult.ignored;
     // Shift+Enter is a new line; so is Enter with any other modifier.
     if (keyboard.isShiftPressed ||
         keyboard.isControlPressed ||

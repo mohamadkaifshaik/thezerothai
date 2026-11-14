@@ -329,7 +329,10 @@ class _NotificationsViewState extends State<_NotificationsView>
         child = AppErrorView(error: state.error!, onRetry: cubit.refresh);
       } else if (state.status == NotificationsStatus.loading ||
           state.refreshing) {
-        child = const PostListSkeleton(semanticsLabel: 'Loading notifications');
+        child = const PostListSkeleton(
+          semanticsLabel: 'Loading notifications',
+          indentBody: true,
+        );
       } else {
         child = const AppEmptyView(
           icon: Icons.notifications_none,

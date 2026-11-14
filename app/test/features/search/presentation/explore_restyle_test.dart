@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/features/search/presentation/widgets/explore_trends_section.dart';
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/domain/explore_media.dart';
 import 'package:dzeroth/features/search/presentation/bloc/explore_media_cubit.dart';
@@ -600,7 +601,8 @@ void main() {
         _sizes['phone']!,
         flags: {...kContextPaneFlags, 'media'}..remove('trends'),
       );
-      expect(find.text('Trending'), findsNothing);
+      // The tab bar (People is on) still names the page; the section is gone.
+      expect(find.byType(ExploreTrendsSection), findsNothing);
       expect(find.text('Who to follow'), findsOneWidget);
     });
 

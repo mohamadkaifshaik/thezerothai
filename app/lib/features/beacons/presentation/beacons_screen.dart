@@ -471,7 +471,7 @@ class PlansList extends StatelessWidget {
             if (top != null && index == 0) return top;
             final i = index - offset;
             if (i == state.views.length) {
-              return _LoadMore(state: state, onLoadMore: cubit.loadMore);
+              return PlansLoadMore(state: state, onLoadMore: cubit.loadMore);
             }
             final view = state.views[i];
             return BeaconRow(
@@ -621,8 +621,14 @@ class _HeadlineActions extends StatelessWidget {
   );
 }
 
-class _LoadMore extends StatelessWidget {
-  const _LoadMore({required this.state, required this.onLoadMore});
+/// The end of a plans list: "Load more", its spinner, or the failed page's
+/// message (shared with Explore's Plans tab).
+class PlansLoadMore extends StatelessWidget {
+  const PlansLoadMore({
+    super.key,
+    required this.state,
+    required this.onLoadMore,
+  });
 
   final BeaconsState state;
   final VoidCallback onLoadMore;
