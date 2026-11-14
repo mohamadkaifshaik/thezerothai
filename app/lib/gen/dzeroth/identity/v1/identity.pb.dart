@@ -606,6 +606,122 @@ class CheckHandleAvailabilityResponse extends $pb.GeneratedMessage {
   void clearReason() => $_clearField(2);
 }
 
+class SuggestHandlesRequest extends $pb.GeneratedMessage {
+  factory SuggestHandlesRequest({
+    $core.String? handle,
+  }) {
+    final result = SuggestHandlesRequest._();
+    if (handle != null) result.handle = handle;
+    return result;
+  }
+
+  SuggestHandlesRequest._();
+
+  factory SuggestHandlesRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SuggestHandlesRequest()..mergeFromBuffer(data, registry);
+  factory SuggestHandlesRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SuggestHandlesRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SuggestHandlesRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: SuggestHandlesRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'handle')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SuggestHandlesRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SuggestHandlesRequest copyWith(
+          void Function(SuggestHandlesRequest) updates) =>
+      super.copyWith((message) => updates(message as SuggestHandlesRequest))
+          as SuggestHandlesRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SuggestHandlesRequest() / SuggestHandlesRequest.new instead')
+  static SuggestHandlesRequest create() => SuggestHandlesRequest._();
+  static $pb.GeneratedMessage $_createMessage() => SuggestHandlesRequest._();
+  @$core.override
+  SuggestHandlesRequest createEmptyInstance() => SuggestHandlesRequest._();
+  @$core.pragma('dart2js:noInline')
+  static SuggestHandlesRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SuggestHandlesRequest>(
+          SuggestHandlesRequest.$_createMessage);
+  static SuggestHandlesRequest? _defaultInstance;
+
+  /// The handle the caller tried (taken or not). Invalid input answers an empty list.
+  @$pb.TagNumber(1)
+  $core.String get handle => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set handle($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHandle() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHandle() => $_clearField(1);
+}
+
+class SuggestHandlesResponse extends $pb.GeneratedMessage {
+  factory SuggestHandlesResponse({
+    $core.Iterable<$core.String>? handles,
+  }) {
+    final result = SuggestHandlesResponse._();
+    if (handles != null) result.handles.addAll(handles);
+    return result;
+  }
+
+  SuggestHandlesResponse._();
+
+  factory SuggestHandlesResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SuggestHandlesResponse()..mergeFromBuffer(data, registry);
+  factory SuggestHandlesResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SuggestHandlesResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SuggestHandlesResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: SuggestHandlesResponse.$_createMessage)
+    ..pPS(1, _omitFieldNames ? '' : 'handles')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SuggestHandlesResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SuggestHandlesResponse copyWith(
+          void Function(SuggestHandlesResponse) updates) =>
+      super.copyWith((message) => updates(message as SuggestHandlesResponse))
+          as SuggestHandlesResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SuggestHandlesResponse() / SuggestHandlesResponse.new instead')
+  static SuggestHandlesResponse create() => SuggestHandlesResponse._();
+  static $pb.GeneratedMessage $_createMessage() => SuggestHandlesResponse._();
+  @$core.override
+  SuggestHandlesResponse createEmptyInstance() => SuggestHandlesResponse._();
+  @$core.pragma('dart2js:noInline')
+  static SuggestHandlesResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SuggestHandlesResponse>(
+          SuggestHandlesResponse.$_createMessage);
+  static SuggestHandlesResponse? _defaultInstance;
+
+  /// 0 to 5 free handles, in the order they were found. Never reserved, invalid or taken.
+  @$pb.TagNumber(1)
+  $pb.PbList<$core.String> get handles => $_getList(0);
+}
+
 class GetMeRequest extends $pb.GeneratedMessage {
   factory GetMeRequest() => GetMeRequest._();
 
@@ -1856,6 +1972,16 @@ class IdentityServiceApi {
           'CheckHandleAvailability',
           request,
           CheckHandleAvailabilityResponse());
+
+  /// Up to 5 free handles to offer when the handle the caller chose is taken (sign-up and Change handle). Read-only.
+  /// Gated by FEATURE_HANDLE_SUGGESTIONS (FEATURE_DISABLED feature=handle_suggestions while off) and shares the
+  /// CheckHandleAvailability limiter bucket and its verified-identity gate. Candidates are derived from the input
+  /// (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
+  /// input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
+  $async.Future<SuggestHandlesResponse> suggestHandles(
+          $pb.ClientContext? ctx, SuggestHandlesRequest request) =>
+      _client.invoke<SuggestHandlesResponse>(ctx, 'IdentityService',
+          'SuggestHandles', request, SuggestHandlesResponse());
 
   /// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).

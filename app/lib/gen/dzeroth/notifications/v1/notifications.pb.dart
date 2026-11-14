@@ -33,6 +33,7 @@ class Notification extends $pb.GeneratedMessage {
     $core.String? postId,
     $1.Timestamp? createdAt,
     $core.String? beaconId,
+    $core.Iterable<$0.AuthorSnapshot>? actors,
   }) {
     final result = Notification._();
     if (id != null) result.id = id;
@@ -42,6 +43,7 @@ class Notification extends $pb.GeneratedMessage {
     if (postId != null) result.postId = postId;
     if (createdAt != null) result.createdAt = createdAt;
     if (beaconId != null) result.beaconId = beaconId;
+    if (actors != null) result.actors.addAll(actors);
     return result;
   }
 
@@ -69,6 +71,8 @@ class Notification extends $pb.GeneratedMessage {
     ..aOM<$1.Timestamp>(6, _omitFieldNames ? '' : 'createdAt',
         subBuilder: $1.Timestamp.$_createMessage)
     ..aOS(7, _omitFieldNames ? '' : 'beaconId')
+    ..pPM<$0.AuthorSnapshot>(8, _omitFieldNames ? '' : 'actors',
+        subBuilder: $0.AuthorSnapshot.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -167,6 +171,13 @@ class Notification extends $pb.GeneratedMessage {
   $core.bool hasBeaconId() => $_has(6);
   @$pb.TagNumber(7)
   void clearBeaconId() => $_clearField(7);
+
+  /// Up to 3 distinct actors folded into this row, newest first, for the grouped avatar stack ("Riya and 2 others").
+  /// Each is a live row hydrated from the identity directory (one batched lookup per page, cache first, up to 60 s
+  /// stale); a hidden (blocked or muted) actor is never listed. Empty on rows that predate the field: clients fall
+  /// back to `actor`.
+  @$pb.TagNumber(8)
+  $pb.PbList<$0.AuthorSnapshot> get actors => $_getList(7);
 }
 
 class ListNotificationsRequest extends $pb.GeneratedMessage {

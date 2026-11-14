@@ -34,6 +34,15 @@ service IdentityService {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
+  // Up to 5 free handles to offer when the handle the caller chose is taken (sign-up and Change handle). Read-only.
+  // Gated by FEATURE_HANDLE_SUGGESTIONS (FEATURE_DISABLED feature=handle_suggestions while off) and shares the
+  // CheckHandleAvailability limiter bucket and its verified-identity gate. Candidates are derived from the input
+  // (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
+  // input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
+  rpc SuggestHandles(SuggestHandlesRequest) returns (SuggestHandlesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
   // The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   // unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).
   // enabled_features comes from server env config, with no lookup.
@@ -234,6 +243,16 @@ message CheckHandleAvailabilityResponse {
   bool available = 1;
   // Set when the handle is syntactically invalid or reserved; empty otherwise.
   string reason = 2;
+}
+
+message SuggestHandlesRequest {
+  // The handle the caller tried (taken or not). Invalid input answers an empty list.
+  string handle = 1;
+}
+
+message SuggestHandlesResponse {
+  // 0 to 5 free handles, in the order they were found. Never reserved, invalid or taken.
+  repeated string handles = 1;
 }
 
 message GetMeRequest {}

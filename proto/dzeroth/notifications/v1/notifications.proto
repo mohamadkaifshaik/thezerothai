@@ -136,6 +136,11 @@ message Notification {
   // Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED, BEACON_CANCELLED and BEACON_UPDATED only; empty otherwise). Tapping opens the
   // beacon (BeaconService.GetBeacon).
   string beacon_id = 7;
+  // Up to 3 distinct actors folded into this row, newest first, for the grouped avatar stack ("Riya and 2 others").
+  // Each is a live row hydrated from the identity directory (one batched lookup per page, cache first, up to 60 s
+  // stale); a hidden (blocked or muted) actor is never listed. Empty on rows that predate the field: clients fall
+  // back to `actor`.
+  repeated dzeroth.common.v1.AuthorSnapshot actors = 8;
 }
 
 message ListNotificationsRequest {

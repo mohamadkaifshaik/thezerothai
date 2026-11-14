@@ -125,6 +125,12 @@ func (s *Server) CheckHandleAvailability(ctx context.Context, req *connect.Reque
 	return connect.NewResponse(&identityv1.CheckHandleAvailabilityResponse{Available: available, Reason: reason}), nil
 }
 
+// SuggestHandles is a placeholder until the handle-suggestions change lands: the RPC is in the contract
+// (FEATURE_HANDLE_SUGGESTIONS, off everywhere) but not served yet, so it answers Unimplemented and reads nothing.
+func (s *Server) SuggestHandles(context.Context, *connect.Request[identityv1.SuggestHandlesRequest]) (*connect.Response[identityv1.SuggestHandlesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("identity.v1.IdentityService.SuggestHandles is not implemented"))
+}
+
 func (s *Server) GetMe(ctx context.Context, _ *connect.Request[identityv1.GetMeRequest]) (*connect.Response[identityv1.GetMeResponse], error) {
 	uid, err := callerUID(ctx)
 	if err != nil {

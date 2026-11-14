@@ -652,6 +652,96 @@ func (x *CheckHandleAvailabilityResponse) GetReason() string {
 	return ""
 }
 
+type SuggestHandlesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The handle the caller tried (taken or not). Invalid input answers an empty list.
+	Handle        string `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SuggestHandlesRequest) Reset() {
+	*x = SuggestHandlesRequest{}
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SuggestHandlesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SuggestHandlesRequest) ProtoMessage() {}
+
+func (x *SuggestHandlesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SuggestHandlesRequest.ProtoReflect.Descriptor instead.
+func (*SuggestHandlesRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SuggestHandlesRequest) GetHandle() string {
+	if x != nil {
+		return x.Handle
+	}
+	return ""
+}
+
+type SuggestHandlesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 to 5 free handles, in the order they were found. Never reserved, invalid or taken.
+	Handles       []string `protobuf:"bytes,1,rep,name=handles,proto3" json:"handles,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SuggestHandlesResponse) Reset() {
+	*x = SuggestHandlesResponse{}
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SuggestHandlesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SuggestHandlesResponse) ProtoMessage() {}
+
+func (x *SuggestHandlesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SuggestHandlesResponse.ProtoReflect.Descriptor instead.
+func (*SuggestHandlesResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SuggestHandlesResponse) GetHandles() []string {
+	if x != nil {
+		return x.Handles
+	}
+	return nil
+}
+
 type GetMeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -660,7 +750,7 @@ type GetMeRequest struct {
 
 func (x *GetMeRequest) Reset() {
 	*x = GetMeRequest{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[5]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -672,7 +762,7 @@ func (x *GetMeRequest) String() string {
 func (*GetMeRequest) ProtoMessage() {}
 
 func (x *GetMeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[5]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -685,7 +775,7 @@ func (x *GetMeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMeRequest.ProtoReflect.Descriptor instead.
 func (*GetMeRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{5}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{7}
 }
 
 type GetMeResponse struct {
@@ -721,7 +811,7 @@ type GetMeResponse struct {
 
 func (x *GetMeResponse) Reset() {
 	*x = GetMeResponse{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[6]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -733,7 +823,7 @@ func (x *GetMeResponse) String() string {
 func (*GetMeResponse) ProtoMessage() {}
 
 func (x *GetMeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[6]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -746,7 +836,7 @@ func (x *GetMeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMeResponse.ProtoReflect.Descriptor instead.
 func (*GetMeResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{6}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetMeResponse) GetProfile() *Profile {
@@ -818,7 +908,7 @@ type GetProfileRequest struct {
 
 func (x *GetProfileRequest) Reset() {
 	*x = GetProfileRequest{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[7]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -830,7 +920,7 @@ func (x *GetProfileRequest) String() string {
 func (*GetProfileRequest) ProtoMessage() {}
 
 func (x *GetProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[7]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -843,7 +933,7 @@ func (x *GetProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProfileRequest.ProtoReflect.Descriptor instead.
 func (*GetProfileRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{7}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetProfileRequest) GetTarget() isGetProfileRequest_Target {
@@ -897,7 +987,7 @@ type GetProfileResponse struct {
 
 func (x *GetProfileResponse) Reset() {
 	*x = GetProfileResponse{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[8]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -909,7 +999,7 @@ func (x *GetProfileResponse) String() string {
 func (*GetProfileResponse) ProtoMessage() {}
 
 func (x *GetProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[8]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -922,7 +1012,7 @@ func (x *GetProfileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProfileResponse.ProtoReflect.Descriptor instead.
 func (*GetProfileResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{8}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetProfileResponse) GetProfile() *Profile {
@@ -974,7 +1064,7 @@ type UpdateProfileRequest struct {
 
 func (x *UpdateProfileRequest) Reset() {
 	*x = UpdateProfileRequest{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[9]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -986,7 +1076,7 @@ func (x *UpdateProfileRequest) String() string {
 func (*UpdateProfileRequest) ProtoMessage() {}
 
 func (x *UpdateProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[9]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -999,7 +1089,7 @@ func (x *UpdateProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProfileRequest.ProtoReflect.Descriptor instead.
 func (*UpdateProfileRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{9}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpdateProfileRequest) GetIdempotencyKey() string {
@@ -1081,7 +1171,7 @@ type UpdateProfileResponse struct {
 
 func (x *UpdateProfileResponse) Reset() {
 	*x = UpdateProfileResponse{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[10]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1093,7 +1183,7 @@ func (x *UpdateProfileResponse) String() string {
 func (*UpdateProfileResponse) ProtoMessage() {}
 
 func (x *UpdateProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[10]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1106,7 +1196,7 @@ func (x *UpdateProfileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProfileResponse.ProtoReflect.Descriptor instead.
 func (*UpdateProfileResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{10}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UpdateProfileResponse) GetProfile() *Profile {
@@ -1126,7 +1216,7 @@ type ChangeHandleRequest struct {
 
 func (x *ChangeHandleRequest) Reset() {
 	*x = ChangeHandleRequest{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[11]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1138,7 +1228,7 @@ func (x *ChangeHandleRequest) String() string {
 func (*ChangeHandleRequest) ProtoMessage() {}
 
 func (x *ChangeHandleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[11]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1151,7 +1241,7 @@ func (x *ChangeHandleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangeHandleRequest.ProtoReflect.Descriptor instead.
 func (*ChangeHandleRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{11}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ChangeHandleRequest) GetIdempotencyKey() string {
@@ -1177,7 +1267,7 @@ type ChangeHandleResponse struct {
 
 func (x *ChangeHandleResponse) Reset() {
 	*x = ChangeHandleResponse{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[12]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1189,7 +1279,7 @@ func (x *ChangeHandleResponse) String() string {
 func (*ChangeHandleResponse) ProtoMessage() {}
 
 func (x *ChangeHandleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[12]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1202,7 +1292,7 @@ func (x *ChangeHandleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangeHandleResponse.ProtoReflect.Descriptor instead.
 func (*ChangeHandleResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{12}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ChangeHandleResponse) GetProfile() *Profile {
@@ -1221,7 +1311,7 @@ type DeleteAccountRequest struct {
 
 func (x *DeleteAccountRequest) Reset() {
 	*x = DeleteAccountRequest{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[13]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1233,7 +1323,7 @@ func (x *DeleteAccountRequest) String() string {
 func (*DeleteAccountRequest) ProtoMessage() {}
 
 func (x *DeleteAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[13]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1246,7 +1336,7 @@ func (x *DeleteAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAccountRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAccountRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{13}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DeleteAccountRequest) GetIdempotencyKey() string {
@@ -1265,7 +1355,7 @@ type DeleteAccountResponse struct {
 
 func (x *DeleteAccountResponse) Reset() {
 	*x = DeleteAccountResponse{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[14]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1277,7 +1367,7 @@ func (x *DeleteAccountResponse) String() string {
 func (*DeleteAccountResponse) ProtoMessage() {}
 
 func (x *DeleteAccountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[14]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1290,7 +1380,7 @@ func (x *DeleteAccountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAccountResponse.ProtoReflect.Descriptor instead.
 func (*DeleteAccountResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{14}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DeleteAccountResponse) GetDeletionRequestedAt() *timestamppb.Timestamp {
@@ -1311,7 +1401,7 @@ type RequestAccountExportRequest struct {
 
 func (x *RequestAccountExportRequest) Reset() {
 	*x = RequestAccountExportRequest{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[15]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1323,7 +1413,7 @@ func (x *RequestAccountExportRequest) String() string {
 func (*RequestAccountExportRequest) ProtoMessage() {}
 
 func (x *RequestAccountExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[15]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1336,7 +1426,7 @@ func (x *RequestAccountExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestAccountExportRequest.ProtoReflect.Descriptor instead.
 func (*RequestAccountExportRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{15}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RequestAccountExportRequest) GetIdempotencyKey() string {
@@ -1365,7 +1455,7 @@ type RequestAccountExportResponse struct {
 
 func (x *RequestAccountExportResponse) Reset() {
 	*x = RequestAccountExportResponse{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[16]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1377,7 +1467,7 @@ func (x *RequestAccountExportResponse) String() string {
 func (*RequestAccountExportResponse) ProtoMessage() {}
 
 func (x *RequestAccountExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[16]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1390,7 +1480,7 @@ func (x *RequestAccountExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestAccountExportResponse.ProtoReflect.Descriptor instead.
 func (*RequestAccountExportResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{16}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RequestAccountExportResponse) GetExportId() string {
@@ -1423,7 +1513,7 @@ type GetAccountExportRequest struct {
 
 func (x *GetAccountExportRequest) Reset() {
 	*x = GetAccountExportRequest{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[17]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1435,7 +1525,7 @@ func (x *GetAccountExportRequest) String() string {
 func (*GetAccountExportRequest) ProtoMessage() {}
 
 func (x *GetAccountExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[17]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1448,7 +1538,7 @@ func (x *GetAccountExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAccountExportRequest.ProtoReflect.Descriptor instead.
 func (*GetAccountExportRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{17}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetAccountExportRequest) GetExportId() string {
@@ -1477,7 +1567,7 @@ type GetAccountExportResponse struct {
 
 func (x *GetAccountExportResponse) Reset() {
 	*x = GetAccountExportResponse{}
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[18]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1489,7 +1579,7 @@ func (x *GetAccountExportResponse) String() string {
 func (*GetAccountExportResponse) ProtoMessage() {}
 
 func (x *GetAccountExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[18]
+	mi := &file_dzeroth_identity_v1_identity_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1502,7 +1592,7 @@ func (x *GetAccountExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAccountExportResponse.ProtoReflect.Descriptor instead.
 func (*GetAccountExportResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{18}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetAccountExportResponse) GetExportId() string {
@@ -1587,7 +1677,11 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x06handle\x18\x01 \x01(\tR\x06handle\"W\n" +
 	"\x1fCheckHandleAvailabilityResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x0e\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"/\n" +
+	"\x15SuggestHandlesRequest\x12\x16\n" +
+	"\x06handle\x18\x01 \x01(\tR\x06handle\"2\n" +
+	"\x16SuggestHandlesResponse\x12\x18\n" +
+	"\ahandles\x18\x01 \x03(\tR\ahandles\"\x0e\n" +
 	"\fGetMeRequest\"\xc7\x03\n" +
 	"\rGetMeResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\x12:\n" +
@@ -1674,10 +1768,11 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\fExportFormat\x12\x1d\n" +
 	"\x19EXPORT_FORMAT_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12EXPORT_FORMAT_JSON\x10\x01\x12\x15\n" +
-	"\x11EXPORT_FORMAT_ZIP\x10\x022\xe6\a\n" +
+	"\x11EXPORT_FORMAT_ZIP\x10\x022\xd6\b\n" +
 	"\x0fIdentityService\x12f\n" +
 	"\rCreateProfile\x12).dzeroth.identity.v1.CreateProfileRequest\x1a*.dzeroth.identity.v1.CreateProfileResponse\x12\x89\x01\n" +
-	"\x17CheckHandleAvailability\x123.dzeroth.identity.v1.CheckHandleAvailabilityRequest\x1a4.dzeroth.identity.v1.CheckHandleAvailabilityResponse\"\x03\x90\x02\x01\x12S\n" +
+	"\x17CheckHandleAvailability\x123.dzeroth.identity.v1.CheckHandleAvailabilityRequest\x1a4.dzeroth.identity.v1.CheckHandleAvailabilityResponse\"\x03\x90\x02\x01\x12n\n" +
+	"\x0eSuggestHandles\x12*.dzeroth.identity.v1.SuggestHandlesRequest\x1a+.dzeroth.identity.v1.SuggestHandlesResponse\"\x03\x90\x02\x01\x12S\n" +
 	"\x05GetMe\x12!.dzeroth.identity.v1.GetMeRequest\x1a\".dzeroth.identity.v1.GetMeResponse\"\x03\x90\x02\x01\x12b\n" +
 	"\n" +
 	"GetProfile\x12&.dzeroth.identity.v1.GetProfileRequest\x1a'.dzeroth.identity.v1.GetProfileResponse\"\x03\x90\x02\x01\x12f\n" +
@@ -1700,7 +1795,7 @@ func file_dzeroth_identity_v1_identity_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_identity_v1_identity_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_dzeroth_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_dzeroth_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_dzeroth_identity_v1_identity_proto_goTypes = []any{
 	(AccountStatus)(0),                      // 0: dzeroth.identity.v1.AccountStatus
 	(DmPolicy)(0),                           // 1: dzeroth.identity.v1.DmPolicy
@@ -1711,62 +1806,66 @@ var file_dzeroth_identity_v1_identity_proto_goTypes = []any{
 	(*CreateProfileResponse)(nil),           // 6: dzeroth.identity.v1.CreateProfileResponse
 	(*CheckHandleAvailabilityRequest)(nil),  // 7: dzeroth.identity.v1.CheckHandleAvailabilityRequest
 	(*CheckHandleAvailabilityResponse)(nil), // 8: dzeroth.identity.v1.CheckHandleAvailabilityResponse
-	(*GetMeRequest)(nil),                    // 9: dzeroth.identity.v1.GetMeRequest
-	(*GetMeResponse)(nil),                   // 10: dzeroth.identity.v1.GetMeResponse
-	(*GetProfileRequest)(nil),               // 11: dzeroth.identity.v1.GetProfileRequest
-	(*GetProfileResponse)(nil),              // 12: dzeroth.identity.v1.GetProfileResponse
-	(*UpdateProfileRequest)(nil),            // 13: dzeroth.identity.v1.UpdateProfileRequest
-	(*UpdateProfileResponse)(nil),           // 14: dzeroth.identity.v1.UpdateProfileResponse
-	(*ChangeHandleRequest)(nil),             // 15: dzeroth.identity.v1.ChangeHandleRequest
-	(*ChangeHandleResponse)(nil),            // 16: dzeroth.identity.v1.ChangeHandleResponse
-	(*DeleteAccountRequest)(nil),            // 17: dzeroth.identity.v1.DeleteAccountRequest
-	(*DeleteAccountResponse)(nil),           // 18: dzeroth.identity.v1.DeleteAccountResponse
-	(*RequestAccountExportRequest)(nil),     // 19: dzeroth.identity.v1.RequestAccountExportRequest
-	(*RequestAccountExportResponse)(nil),    // 20: dzeroth.identity.v1.RequestAccountExportResponse
-	(*GetAccountExportRequest)(nil),         // 21: dzeroth.identity.v1.GetAccountExportRequest
-	(*GetAccountExportResponse)(nil),        // 22: dzeroth.identity.v1.GetAccountExportResponse
-	(*timestamppb.Timestamp)(nil),           // 23: google.protobuf.Timestamp
-	(*v1.HomeTab)(nil),                      // 24: dzeroth.common.v1.HomeTab
+	(*SuggestHandlesRequest)(nil),           // 9: dzeroth.identity.v1.SuggestHandlesRequest
+	(*SuggestHandlesResponse)(nil),          // 10: dzeroth.identity.v1.SuggestHandlesResponse
+	(*GetMeRequest)(nil),                    // 11: dzeroth.identity.v1.GetMeRequest
+	(*GetMeResponse)(nil),                   // 12: dzeroth.identity.v1.GetMeResponse
+	(*GetProfileRequest)(nil),               // 13: dzeroth.identity.v1.GetProfileRequest
+	(*GetProfileResponse)(nil),              // 14: dzeroth.identity.v1.GetProfileResponse
+	(*UpdateProfileRequest)(nil),            // 15: dzeroth.identity.v1.UpdateProfileRequest
+	(*UpdateProfileResponse)(nil),           // 16: dzeroth.identity.v1.UpdateProfileResponse
+	(*ChangeHandleRequest)(nil),             // 17: dzeroth.identity.v1.ChangeHandleRequest
+	(*ChangeHandleResponse)(nil),            // 18: dzeroth.identity.v1.ChangeHandleResponse
+	(*DeleteAccountRequest)(nil),            // 19: dzeroth.identity.v1.DeleteAccountRequest
+	(*DeleteAccountResponse)(nil),           // 20: dzeroth.identity.v1.DeleteAccountResponse
+	(*RequestAccountExportRequest)(nil),     // 21: dzeroth.identity.v1.RequestAccountExportRequest
+	(*RequestAccountExportResponse)(nil),    // 22: dzeroth.identity.v1.RequestAccountExportResponse
+	(*GetAccountExportRequest)(nil),         // 23: dzeroth.identity.v1.GetAccountExportRequest
+	(*GetAccountExportResponse)(nil),        // 24: dzeroth.identity.v1.GetAccountExportResponse
+	(*timestamppb.Timestamp)(nil),           // 25: google.protobuf.Timestamp
+	(*v1.HomeTab)(nil),                      // 26: dzeroth.common.v1.HomeTab
 }
 var file_dzeroth_identity_v1_identity_proto_depIdxs = []int32{
-	23, // 0: dzeroth.identity.v1.Profile.created_at:type_name -> google.protobuf.Timestamp
+	25, // 0: dzeroth.identity.v1.Profile.created_at:type_name -> google.protobuf.Timestamp
 	1,  // 1: dzeroth.identity.v1.Profile.dm_policy:type_name -> dzeroth.identity.v1.DmPolicy
 	4,  // 2: dzeroth.identity.v1.CreateProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
 	4,  // 3: dzeroth.identity.v1.GetMeResponse.profile:type_name -> dzeroth.identity.v1.Profile
 	0,  // 4: dzeroth.identity.v1.GetMeResponse.status:type_name -> dzeroth.identity.v1.AccountStatus
-	24, // 5: dzeroth.identity.v1.GetMeResponse.home_tabs:type_name -> dzeroth.common.v1.HomeTab
+	26, // 5: dzeroth.identity.v1.GetMeResponse.home_tabs:type_name -> dzeroth.common.v1.HomeTab
 	4,  // 6: dzeroth.identity.v1.GetProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
 	1,  // 7: dzeroth.identity.v1.UpdateProfileRequest.dm_policy:type_name -> dzeroth.identity.v1.DmPolicy
 	4,  // 8: dzeroth.identity.v1.UpdateProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
 	4,  // 9: dzeroth.identity.v1.ChangeHandleResponse.profile:type_name -> dzeroth.identity.v1.Profile
-	23, // 10: dzeroth.identity.v1.DeleteAccountResponse.deletion_requested_at:type_name -> google.protobuf.Timestamp
+	25, // 10: dzeroth.identity.v1.DeleteAccountResponse.deletion_requested_at:type_name -> google.protobuf.Timestamp
 	3,  // 11: dzeroth.identity.v1.RequestAccountExportRequest.format:type_name -> dzeroth.identity.v1.ExportFormat
 	2,  // 12: dzeroth.identity.v1.RequestAccountExportResponse.status:type_name -> dzeroth.identity.v1.ExportStatus
 	3,  // 13: dzeroth.identity.v1.RequestAccountExportResponse.format:type_name -> dzeroth.identity.v1.ExportFormat
 	2,  // 14: dzeroth.identity.v1.GetAccountExportResponse.status:type_name -> dzeroth.identity.v1.ExportStatus
-	23, // 15: dzeroth.identity.v1.GetAccountExportResponse.download_url_expires_at:type_name -> google.protobuf.Timestamp
-	23, // 16: dzeroth.identity.v1.GetAccountExportResponse.expires_at:type_name -> google.protobuf.Timestamp
+	25, // 15: dzeroth.identity.v1.GetAccountExportResponse.download_url_expires_at:type_name -> google.protobuf.Timestamp
+	25, // 16: dzeroth.identity.v1.GetAccountExportResponse.expires_at:type_name -> google.protobuf.Timestamp
 	3,  // 17: dzeroth.identity.v1.GetAccountExportResponse.format:type_name -> dzeroth.identity.v1.ExportFormat
 	5,  // 18: dzeroth.identity.v1.IdentityService.CreateProfile:input_type -> dzeroth.identity.v1.CreateProfileRequest
 	7,  // 19: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:input_type -> dzeroth.identity.v1.CheckHandleAvailabilityRequest
-	9,  // 20: dzeroth.identity.v1.IdentityService.GetMe:input_type -> dzeroth.identity.v1.GetMeRequest
-	11, // 21: dzeroth.identity.v1.IdentityService.GetProfile:input_type -> dzeroth.identity.v1.GetProfileRequest
-	13, // 22: dzeroth.identity.v1.IdentityService.UpdateProfile:input_type -> dzeroth.identity.v1.UpdateProfileRequest
-	15, // 23: dzeroth.identity.v1.IdentityService.ChangeHandle:input_type -> dzeroth.identity.v1.ChangeHandleRequest
-	17, // 24: dzeroth.identity.v1.IdentityService.DeleteAccount:input_type -> dzeroth.identity.v1.DeleteAccountRequest
-	19, // 25: dzeroth.identity.v1.IdentityService.RequestAccountExport:input_type -> dzeroth.identity.v1.RequestAccountExportRequest
-	21, // 26: dzeroth.identity.v1.IdentityService.GetAccountExport:input_type -> dzeroth.identity.v1.GetAccountExportRequest
-	6,  // 27: dzeroth.identity.v1.IdentityService.CreateProfile:output_type -> dzeroth.identity.v1.CreateProfileResponse
-	8,  // 28: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:output_type -> dzeroth.identity.v1.CheckHandleAvailabilityResponse
-	10, // 29: dzeroth.identity.v1.IdentityService.GetMe:output_type -> dzeroth.identity.v1.GetMeResponse
-	12, // 30: dzeroth.identity.v1.IdentityService.GetProfile:output_type -> dzeroth.identity.v1.GetProfileResponse
-	14, // 31: dzeroth.identity.v1.IdentityService.UpdateProfile:output_type -> dzeroth.identity.v1.UpdateProfileResponse
-	16, // 32: dzeroth.identity.v1.IdentityService.ChangeHandle:output_type -> dzeroth.identity.v1.ChangeHandleResponse
-	18, // 33: dzeroth.identity.v1.IdentityService.DeleteAccount:output_type -> dzeroth.identity.v1.DeleteAccountResponse
-	20, // 34: dzeroth.identity.v1.IdentityService.RequestAccountExport:output_type -> dzeroth.identity.v1.RequestAccountExportResponse
-	22, // 35: dzeroth.identity.v1.IdentityService.GetAccountExport:output_type -> dzeroth.identity.v1.GetAccountExportResponse
-	27, // [27:36] is the sub-list for method output_type
-	18, // [18:27] is the sub-list for method input_type
+	9,  // 20: dzeroth.identity.v1.IdentityService.SuggestHandles:input_type -> dzeroth.identity.v1.SuggestHandlesRequest
+	11, // 21: dzeroth.identity.v1.IdentityService.GetMe:input_type -> dzeroth.identity.v1.GetMeRequest
+	13, // 22: dzeroth.identity.v1.IdentityService.GetProfile:input_type -> dzeroth.identity.v1.GetProfileRequest
+	15, // 23: dzeroth.identity.v1.IdentityService.UpdateProfile:input_type -> dzeroth.identity.v1.UpdateProfileRequest
+	17, // 24: dzeroth.identity.v1.IdentityService.ChangeHandle:input_type -> dzeroth.identity.v1.ChangeHandleRequest
+	19, // 25: dzeroth.identity.v1.IdentityService.DeleteAccount:input_type -> dzeroth.identity.v1.DeleteAccountRequest
+	21, // 26: dzeroth.identity.v1.IdentityService.RequestAccountExport:input_type -> dzeroth.identity.v1.RequestAccountExportRequest
+	23, // 27: dzeroth.identity.v1.IdentityService.GetAccountExport:input_type -> dzeroth.identity.v1.GetAccountExportRequest
+	6,  // 28: dzeroth.identity.v1.IdentityService.CreateProfile:output_type -> dzeroth.identity.v1.CreateProfileResponse
+	8,  // 29: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:output_type -> dzeroth.identity.v1.CheckHandleAvailabilityResponse
+	10, // 30: dzeroth.identity.v1.IdentityService.SuggestHandles:output_type -> dzeroth.identity.v1.SuggestHandlesResponse
+	12, // 31: dzeroth.identity.v1.IdentityService.GetMe:output_type -> dzeroth.identity.v1.GetMeResponse
+	14, // 32: dzeroth.identity.v1.IdentityService.GetProfile:output_type -> dzeroth.identity.v1.GetProfileResponse
+	16, // 33: dzeroth.identity.v1.IdentityService.UpdateProfile:output_type -> dzeroth.identity.v1.UpdateProfileResponse
+	18, // 34: dzeroth.identity.v1.IdentityService.ChangeHandle:output_type -> dzeroth.identity.v1.ChangeHandleResponse
+	20, // 35: dzeroth.identity.v1.IdentityService.DeleteAccount:output_type -> dzeroth.identity.v1.DeleteAccountResponse
+	22, // 36: dzeroth.identity.v1.IdentityService.RequestAccountExport:output_type -> dzeroth.identity.v1.RequestAccountExportResponse
+	24, // 37: dzeroth.identity.v1.IdentityService.GetAccountExport:output_type -> dzeroth.identity.v1.GetAccountExportResponse
+	28, // [28:38] is the sub-list for method output_type
+	18, // [18:28] is the sub-list for method input_type
 	18, // [18:18] is the sub-list for extension type_name
 	18, // [18:18] is the sub-list for extension extendee
 	0,  // [0:18] is the sub-list for field type_name
@@ -1777,18 +1876,18 @@ func file_dzeroth_identity_v1_identity_proto_init() {
 	if File_dzeroth_identity_v1_identity_proto != nil {
 		return
 	}
-	file_dzeroth_identity_v1_identity_proto_msgTypes[7].OneofWrappers = []any{
+	file_dzeroth_identity_v1_identity_proto_msgTypes[9].OneofWrappers = []any{
 		(*GetProfileRequest_UserId)(nil),
 		(*GetProfileRequest_Handle)(nil),
 	}
-	file_dzeroth_identity_v1_identity_proto_msgTypes[9].OneofWrappers = []any{}
+	file_dzeroth_identity_v1_identity_proto_msgTypes[11].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_identity_v1_identity_proto_rawDesc), len(file_dzeroth_identity_v1_identity_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
