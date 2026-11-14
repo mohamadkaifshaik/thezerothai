@@ -16,6 +16,7 @@ import '../../auth/domain/auth_failure.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../settings/presentation/settings_up.dart';
 import '../data/account_repository.dart';
+import 'account_feature_flags.dart';
 import 'bloc/account_cubit.dart';
 import 'bloc/data_export_cubit.dart';
 import 'widgets/password_prompt_dialog.dart';
@@ -93,7 +94,8 @@ class _DataExportScreenState extends State<DataExportScreen> {
       builder: (context, state) {
         final (lead, accent) = _headline(state);
         final status = _status(context, state);
-        final (primary, secondary) = _actions(state);
+        final zipOn = isExportZipEnabled(context);
+        final (primary, secondary) = _actions(state, zipOn: zipOn);
         return AppFormPage(
           title: 'Download my data',
           // The tablet layout with nothing to pop: up to Your account.
@@ -152,14 +154,24 @@ class _DataExportScreenState extends State<DataExportScreen> {
   void _request() =>
       _export.request(promptPassword: () => showPasswordPromptDialog(context));
 
+  void _requestZip() => _export.request(
+    promptPassword: () => showPasswordPromptDialog(context),
+    zip: true,
+  );
+
   /// What the page offers in each phase: the call to action and, while the
   /// export is late, "Check again". Each goes straight to its handler (the
   /// re-authentication must start inside the tap).
-  (AppFormAction?, AppFormAction?) _actions(DataExportState state) =>
+  (AppFormAction?, AppFormAction?) _actions(
+    DataExportState state, {
+    required bool zipOn,
+  }) =>
       switch (state.phase) {
         DataExportPhase.idle => (
           AppFormAction(label: 'Request export', onPressed: _request),
-          null,
+          zipOn
+              ? AppFormAction(label: 'Download as ZIP', onPressed: _requestZip)
+              : null,
         ),
         DataExportPhase.requesting || DataExportPhase.waiting => (null, null),
         DataExportPhase.ready => (
@@ -178,7 +190,9 @@ class _DataExportScreenState extends State<DataExportScreen> {
         ),
         DataExportPhase.expired => (
           AppFormAction(label: 'Request a new export', onPressed: _request),
-          null,
+          zipOn
+              ? AppFormAction(label: 'Download as ZIP', onPressed: _requestZip)
+              : null,
         ),
         // A failed job or a mapped error shows its own retry (or none).
         DataExportPhase.failed =>
