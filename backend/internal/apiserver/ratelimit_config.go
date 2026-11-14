@@ -143,7 +143,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// The other NotificationService RPCs stay on the default bucket.
 	rlNotificationsList := ratelimit.NewLimiter(cfg.RateLimit.NotificationsListPerUserPerMinute, idleBucketTTL)
 
-	// GetMe has its own per-user bucket (RATE_LIMIT_GET_ME_PER_MIN, 30/min per instance), the read-bucket norm; it used to
+	// GetMe has its own per-user bucket (RATE_LIMIT_GET_ME_PER_MIN, 60/min per instance, the old shared value); it used to
 	// fall back to the 60/min default (audit follow-up L1). A cache miss costs up to about 100 reads for the unread badge
 	// of a caller with any block or mute, and the notifications fan-out's ForgetUnread forces misses; the bucket bounds
 	// that cost without letting GetMe drain, or be drained by, the shared default. No daily cap (a read).

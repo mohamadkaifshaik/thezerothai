@@ -611,7 +611,7 @@ func Load() (Config, error) {
 		// ListNotifications 30/min per instance (90 with 3); it used to fall back to the 60/min default.
 		{"RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", 30, &rl.NotificationsListPerUserPerMinute},
 		// GetMe 30/min per instance (90 with 3); it used to fall back to the 60/min default (L1: the badge's read cost).
-		{"RATE_LIMIT_GET_ME_PER_MIN", 30, &rl.GetMePerUserPerMinute},
+		{"RATE_LIMIT_GET_ME_PER_MIN", 60, &rl.GetMePerUserPerMinute},
 		// The six list mutations 30/min, GetList / ListUserLists / ListListMembers 30/min, GetListTimeline 12/min (all per
 		// instance, x3 with 3 instances).
 		{"RATE_LIMIT_LISTS_WRITE_PER_MIN", 30, &rl.ListsWritePerUserPerMinute},

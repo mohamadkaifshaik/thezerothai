@@ -81,7 +81,7 @@ extension type IdentityServiceClient (connect.Transport _transport) {
   /// caller (including the blocked-by overflow lookup), is not counted. It does NOT apply ListNotifications' account
   /// status rule, so a row whose actor is no longer ACTIVE still counts until it is purged. Capped at 100, cached 30 s;
   /// a failed count answers 0 (not cached) and GetMe still answers.
-  /// Rate limit: its own per-user bucket, RATE_LIMIT_GET_ME_PER_MIN (default 30/min per instance); no daily cap.
+  /// Rate limit: its own per-user bucket, RATE_LIMIT_GET_ME_PER_MIN (default 60/min per instance); no daily cap.
   /// enabled_features comes from server env config, with no lookup.
   /// pending_follow_request_count: for a protected caller only, a count() aggregation on followRequests
   /// where followeeId == caller, cached 30 s; every other caller gets 0 without a lookup. A

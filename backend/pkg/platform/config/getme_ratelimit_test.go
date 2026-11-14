@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestLoad_GetMeRateLimit pins RATE_LIMIT_GET_ME_PER_MIN (audit follow-up L1): default 30, overridable, and a zero,
+// TestLoad_GetMeRateLimit pins RATE_LIMIT_GET_ME_PER_MIN (audit follow-up L1): default 60, overridable, and a zero,
 // negative or unparseable value fails startup naming the key.
 func TestLoad_GetMeRateLimit(t *testing.T) {
 	const key = "RATE_LIMIT_GET_ME_PER_MIN"
@@ -14,7 +14,7 @@ func TestLoad_GetMeRateLimit(t *testing.T) {
 		val  string // "" leaves the key unset
 		want int
 	}{
-		{"default", "", 30},
+		{"default", "", 60},
 		{"override", "45", 45},
 	}
 	for _, tt := range tests {
