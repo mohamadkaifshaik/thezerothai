@@ -255,7 +255,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore, community suspend|restore|archive: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
-	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, recount-children: resume after this post or media id (the checkpoint a capped run printed)")
+	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, recount-children, recount-list-follows --all-missing: resume after this post, media or list id (the checkpoint a capped run printed)")
 	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|all, which unshown profile images the sweep may delete (the legacy banner is read as off)")
 	write := fs.Bool("write", false, "recount-shares, recount-list-follows, recount-replies, recount-quotes, recount-children: set the stored counter (without it the command only prints the counts)")
 	var bulk bulkRecountFlags
@@ -269,6 +269,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post, recount-shares, recount-replies, recount-quotes: post id")
 	fs.StringVar(&ma.list, "list", "", "recount-list-follows: list id")
+	allMissing := fs.Bool("all-missing", false, "recount-list-follows: scan every list and repair those with no followerCount field (instead of --list)")
 	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide, beacon hide, community suspend: also resolve this report id")
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
 	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION or DISMISSED")
@@ -357,13 +358,18 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	// --after resumes a capped backfill; on any other command it would be silently ignored.
-	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "recount-children" {
+	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "recount-children" && cmd != "recount-list-follows" {
 		fmt.Fprintf(errOut, "--after is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
 	// recount-shares writes only with --write; on any other command it would be silently ignored.
 	if *write && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" {
 		fmt.Fprintf(errOut, "--write is not supported by %s\n%s", cmd, usage)
+		return 2
+	}
+	// --all-missing switches recount-list-follows to the all-lists scan; on any other command it would be silently ignored.
+	if *allMissing && cmd != "recount-list-follows" {
+		fmt.Fprintf(errOut, "--all-missing is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
 	// The recount-children flags are rejected elsewhere (they would be silently ignored); --post is the single-post commands'.
@@ -555,7 +561,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "recount-shares":
 		err = recountShares(ctx, b, ma.post, *write, out)
 	case "recount-list-follows":
-		err = recountListFollows(ctx, b, ma.list, *write, out)
+		err = recountListFollows(ctx, b, recountListFollowsArgs{list: ma.list, allMissing: *allMissing, after: *after, write: *write}, out)
 	case "recount-replies", "recount-quotes":
 		err = recountChildren(ctx, b, cmd, ma.post, *write, out)
 	case "recount-children":
