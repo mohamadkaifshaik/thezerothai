@@ -579,6 +579,8 @@ func Load() (Config, error) {
 		// RecordPostShare 20/min per instance (60 with 3).
 		{"RATE_LIMIT_SHARES_PER_MIN", 20, &rl.SharesPerUserPerMinute},
 		{"RATE_LIMIT_SEARCH_POSTS_PER_MIN", 20, &rl.SearchPostsPerUserPerMinute},
+		// SearchLists and SearchCommunities share one bucket, 20/min per instance (60 with 3).
+		{"RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN", 20, &rl.SearchDirectoryPerUserPerMinute},
 		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
 		{"RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", 60, &rl.ProfileRelationshipPerUserPerMinute},

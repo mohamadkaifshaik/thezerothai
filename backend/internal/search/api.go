@@ -41,6 +41,10 @@ type Service interface {
 	Posts(ctx context.Context, uid, query string, tab searchv1.SearchTab, pageSize int32, pageToken string) (*searchv1.SearchPostsResponse, error)
 	// Trends answers GetTrends (flag "trends"): the cached trending-hashtags list, optionally filtered by prefix.
 	Trends(ctx context.Context, uid string, limit int32, prefix string) (*searchv1.GetTrendsResponse, error)
+	// Lists answers SearchLists (flags search, search_lists, lists): public lists by folded-name prefix, paged.
+	Lists(ctx context.Context, uid, query string, pageSize int32, pageToken string) (*searchv1.SearchListsResponse, error)
+	// Communities answers SearchCommunities (flags search, search_lists, communities): ACTIVE communities by folded-name prefix.
+	Communities(ctx context.Context, uid, query string, pageSize int32, pageToken string) (*searchv1.SearchCommunitiesResponse, error)
 }
 
 // TrendsRefresher recomputes trends/current from the posts created since the last run. A scheduled step

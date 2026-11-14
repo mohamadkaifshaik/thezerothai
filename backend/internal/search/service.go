@@ -19,8 +19,9 @@ type service struct {
 	people *people // nil until WithPeople: SearchPeople then answers Unimplemented (the skeleton)
 	// pr is the SearchPosts runtime (WithPosts); nil leaves SearchPosts Unimplemented for an enabled caller.
 	pr         *postsRuntime
-	trends     *trendsCache // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
-	trendsDeny []string     // TRENDS_DENYLIST (WithTrendsDenylist), folded into trendsCache.deny by New
+	trends     *trendsCache  // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
+	trendsDeny []string      // TRENDS_DENYLIST (WithTrendsDenylist), folded into trendsCache.deny by New
+	dir        DirectoryDeps // SearchLists and SearchCommunities (WithDirectory); a nil seam is Unimplemented
 	now        func() time.Time
 }
 

@@ -39,6 +39,16 @@ func searchViolations(rl ratelimit.Config) []string {
 	if rl.PerProcedure[people] == nil || rl.PerProcedure[searchv1connect.SearchServiceSearchPostsProcedure] == nil {
 		out = append(out, "SearchPeople and SearchPosts need their own per-minute buckets")
 	}
+	// F20/F21: SearchLists and SearchCommunities share one bucket of their own, and no daily cap.
+	sl, sc := searchv1connect.SearchServiceSearchListsProcedure, searchv1connect.SearchServiceSearchCommunitiesProcedure
+	if b := rl.PerProcedure[sl]; b == nil || b != rl.PerProcedure[sc] || b == rl.PerProcedure[people] || b == rl.PerProcedure[searchv1connect.SearchServiceSearchPostsProcedure] {
+		out = append(out, "SearchLists and SearchCommunities need one shared bucket of their own")
+	}
+	for _, p := range []string{sl, sc} {
+		if _, ok := rl.DailyCaps[p]; ok {
+			out = append(out, "search procedure "+p+" must not be on a daily cap")
+		}
+	}
 	return out
 }
 
@@ -64,6 +74,12 @@ func TestSearchWiring_Guard(t *testing.T) {
 			c.DailyCaps[trends] = ratelimit.NamedDailyCap{Name: "x_daily", Cap: ratelimit.NewDailyCap(400)}
 		}, "search procedure " + trends},
 		{"posts loses its bucket", func(c *ratelimit.Config) { delete(c.PerProcedure, posts) }, "own per-minute buckets"},
+		{"lists loses its bucket", func(c *ratelimit.Config) {
+			delete(c.PerProcedure, searchv1connect.SearchServiceSearchListsProcedure)
+		}, "one shared bucket"},
+		{"communities on another bucket", func(c *ratelimit.Config) {
+			c.PerProcedure[searchv1connect.SearchServiceSearchCommunitiesProcedure] = c.PerProcedure[posts]
+		}, "one shared bucket"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
