@@ -216,6 +216,10 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
   /// `cost` on UpdateBeacon, answers OK and returns the old values.
   bool ignoresSchedule = false;
 
+  /// A server from before F28b: it ignores `public` on UpdateBeacon, answers
+  /// OK and returns the plan still in its community.
+  bool ignoresAudience = false;
+
   @override
   Future<pb.BeaconView> updateBeacon({
     required String idempotencyKey,
@@ -235,6 +239,9 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
         b.durationMinutes = request.durationMinutes;
       }
       if (request.hasCost()) b.cost = request.cost;
+    }
+    if (!ignoresAudience && request.hasPublic() && request.public) {
+      b.communityId = '';
     }
     if (request.hasOpenSpots()) {
       if (request.openSpots < b.acceptedCount) {

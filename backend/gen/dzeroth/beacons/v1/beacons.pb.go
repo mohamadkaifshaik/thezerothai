@@ -64,11 +64,15 @@
 // - FAILED_PRECONDITION, metadata["reason"] = "full" | "ended" | "cancelled" | "already_requested" |
 //   "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon) | "started"
 //   (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started).
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "audience", metadata["reason"] = "audience_narrowing"
+//   (UpdateBeacon moving a public beacon into a community) | "audience_incompatible" (UpdateBeacon moving a community
+//   beacon into another community); checked against the stored audience, nothing is written. An audience is only ever
+//   widened (F28b).
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "beacons_open" (BEACONS_MAX_OPEN_PER_USER, 5 OPEN or
 //   FULL beacons per organiser) | "beacon_requests_pending" (BEACONS_MAX_PENDING_REQUESTS, 10 REQUESTED rows per
 //   user) | "beacon_participants" (open_spots above BEACONS_MAX_OPEN_SPOTS, 20) | "beacon_edit_rows" (UpdateBeacon
-//   rescheduling a beacon with more than 200 participant rows, every state; a bound on the one transaction that moves
-//   them); nothing is written.
+//   rescheduling or widening a beacon with more than 200 participant rows, every state; a bound on the one transaction
+//   that rewrites them); nothing is written.
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_BEACONS_WRITE_PER_MIN (10: Create, Update, Cancel),
 //   RATE_LIMIT_BEACONS_ACTION_PER_MIN (20: Request, Withdraw, Respond, Leave, Remove), RATE_LIMIT_BEACONS_READ_PER_MIN
 //   (30: Get, List*, ListSharedBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
@@ -1318,7 +1322,17 @@ type UpdateBeaconRequest struct {
 	// Unset = unchanged. 15-240; only before the beacon starts.
 	DurationMinutes *int32 `protobuf:"varint,8,opt,name=duration_minutes,json=durationMinutes,proto3,oneof" json:"duration_minutes,omitempty"`
 	// Unset = unchanged. != UNSPECIFIED; only before the beacon starts.
-	Cost          *BeaconCost `protobuf:"varint,9,opt,name=cost,proto3,enum=dzeroth.beacons.v1.BeaconCost,oneof" json:"cost,omitempty"`
+	Cost *BeaconCost `protobuf:"varint,9,opt,name=cost,proto3,enum=dzeroth.beacons.v1.BeaconCost,oneof" json:"cost,omitempty"`
+	// Unset = unchanged. Widen only (F28b, see UpdateBeacon): the one change accepted is public = true on a community
+	// beacon. public = false => VALIDATION "audience" and a community_id that is not 19 digits => VALIDATION
+	// "community_id", before any lookup. The stored audience resent is a no-op; a public beacon into a community =>
+	// "audience_narrowing"; a community beacon into another community => "audience_incompatible".
+	//
+	// Types that are valid to be assigned to Audience:
+	//
+	//	*UpdateBeaconRequest_CommunityId
+	//	*UpdateBeaconRequest_Public
+	Audience      isUpdateBeaconRequest_Audience `protobuf_oneof:"audience"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1415,6 +1429,47 @@ func (x *UpdateBeaconRequest) GetCost() BeaconCost {
 	}
 	return BeaconCost_BEACON_COST_UNSPECIFIED
 }
+
+func (x *UpdateBeaconRequest) GetAudience() isUpdateBeaconRequest_Audience {
+	if x != nil {
+		return x.Audience
+	}
+	return nil
+}
+
+func (x *UpdateBeaconRequest) GetCommunityId() string {
+	if x != nil {
+		if x, ok := x.Audience.(*UpdateBeaconRequest_CommunityId); ok {
+			return x.CommunityId
+		}
+	}
+	return ""
+}
+
+func (x *UpdateBeaconRequest) GetPublic() bool {
+	if x != nil {
+		if x, ok := x.Audience.(*UpdateBeaconRequest_Public); ok {
+			return x.Public
+		}
+	}
+	return false
+}
+
+type isUpdateBeaconRequest_Audience interface {
+	isUpdateBeaconRequest_Audience()
+}
+
+type UpdateBeaconRequest_CommunityId struct {
+	CommunityId string `protobuf:"bytes,10,opt,name=community_id,json=communityId,proto3,oneof"`
+}
+
+type UpdateBeaconRequest_Public struct {
+	Public bool `protobuf:"varint,11,opt,name=public,proto3,oneof"`
+}
+
+func (*UpdateBeaconRequest_CommunityId) isUpdateBeaconRequest_Audience() {}
+
+func (*UpdateBeaconRequest_Public) isUpdateBeaconRequest_Audience() {}
 
 type UpdateBeaconResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2727,18 +2782,23 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\n" +
 	"\baudience\"J\n" +
 	"\x14CreateBeaconResponse\x122\n" +
-	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"\xc1\x03\n" +
+	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"\x8c\x04\n" +
 	"\x13UpdateBeaconRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tbeacon_id\x18\x02 \x01(\tR\bbeaconId\x12\x19\n" +
-	"\x05title\x18\x03 \x01(\tH\x00R\x05title\x88\x01\x01\x12\x1d\n" +
-	"\adetails\x18\x04 \x01(\tH\x01R\adetails\x88\x01\x01\x12\x19\n" +
-	"\x05venue\x18\x05 \x01(\tH\x02R\x05venue\x88\x01\x01\x12\"\n" +
+	"\x05title\x18\x03 \x01(\tH\x01R\x05title\x88\x01\x01\x12\x1d\n" +
+	"\adetails\x18\x04 \x01(\tH\x02R\adetails\x88\x01\x01\x12\x19\n" +
+	"\x05venue\x18\x05 \x01(\tH\x03R\x05venue\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"open_spots\x18\x06 \x01(\x05H\x03R\topenSpots\x88\x01\x01\x125\n" +
+	"open_spots\x18\x06 \x01(\x05H\x04R\topenSpots\x88\x01\x01\x125\n" +
 	"\bstart_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x12.\n" +
-	"\x10duration_minutes\x18\b \x01(\x05H\x04R\x0fdurationMinutes\x88\x01\x01\x127\n" +
-	"\x04cost\x18\t \x01(\x0e2\x1e.dzeroth.beacons.v1.BeaconCostH\x05R\x04cost\x88\x01\x01B\b\n" +
+	"\x10duration_minutes\x18\b \x01(\x05H\x05R\x0fdurationMinutes\x88\x01\x01\x127\n" +
+	"\x04cost\x18\t \x01(\x0e2\x1e.dzeroth.beacons.v1.BeaconCostH\x06R\x04cost\x88\x01\x01\x12#\n" +
+	"\fcommunity_id\x18\n" +
+	" \x01(\tH\x00R\vcommunityId\x12\x18\n" +
+	"\x06public\x18\v \x01(\bH\x00R\x06publicB\n" +
+	"\n" +
+	"\baudienceB\b\n" +
 	"\x06_titleB\n" +
 	"\n" +
 	"\b_detailsB\b\n" +
@@ -3039,7 +3099,10 @@ func file_dzeroth_beacons_v1_beacons_proto_init() {
 		(*CreateBeaconRequest_CommunityId)(nil),
 		(*CreateBeaconRequest_Public)(nil),
 	}
-	file_dzeroth_beacons_v1_beacons_proto_msgTypes[6].OneofWrappers = []any{}
+	file_dzeroth_beacons_v1_beacons_proto_msgTypes[6].OneofWrappers = []any{
+		(*UpdateBeaconRequest_CommunityId)(nil),
+		(*UpdateBeaconRequest_Public)(nil),
+	}
 	file_dzeroth_beacons_v1_beacons_proto_msgTypes[12].OneofWrappers = []any{
 		(*ListBeaconsRequest_CommunityId)(nil),
 		(*ListBeaconsRequest_Public)(nil),
