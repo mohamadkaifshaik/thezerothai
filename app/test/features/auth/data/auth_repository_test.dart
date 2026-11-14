@@ -35,6 +35,27 @@ void main() {
     googleSignIn = _MockGoogleSignIn();
   });
 
+  group('signUpWithEmail', () {
+    test('a failed first verification email does not fail sign-up', () async {
+      final credential = _MockUserCredential();
+      final user = _MockUser();
+      when(
+        () => firebaseAuth.createUserWithEmailAndPassword(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+        ),
+      ).thenAnswer((_) async => credential);
+      when(() => credential.user).thenReturn(user);
+      when(user.sendEmailVerification)
+          .thenThrow(fb.FirebaseAuthException(code: 'too-many-requests'));
+      await AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      ).signUpWithEmail(email: 'new@example.com', password: 'longpassword1');
+      verify(user.sendEmailVerification).called(1);
+    });
+  });
+
   group('password reset', () {
     AuthRepository repo() =>
         AuthRepository(firebaseAuth: firebaseAuth, googleSignIn: googleSignIn);

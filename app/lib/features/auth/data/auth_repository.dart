@@ -152,9 +152,20 @@ class AuthRepository implements AuthTokenProvider {
         email: email,
         password: password,
       );
-      await credential.user?.sendEmailVerification();
+      await _sendFirstVerification(credential.user);
     } on fb.FirebaseAuthException catch (e) {
       throw _mapFirebaseAuthException(e);
+    }
+  }
+
+  /// The account exists once createUser returns, so a failed first
+  /// verification email must not fail sign-up: a retry would then hit
+  /// "already exists". The verify screen offers Resend.
+  Future<void> _sendFirstVerification(fb.User? user) async {
+    try {
+      await user?.sendEmailVerification();
+    } on Object catch (_) {
+      // Best effort; the user can resend from the verify screen.
     }
   }
 
