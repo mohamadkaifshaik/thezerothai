@@ -55,8 +55,10 @@ func (s *Server) ListLikedPosts(ctx context.Context, req *connect.Request[engage
 		return nil, err
 	}
 	out := &engagementv1.ListLikedPostsResponse{NextPageToken: page.NextPageToken, Posts: make([]*postsv1.PostView, 0, len(page.Posts))}
+	// Plan cards: at most one batched beacons read per page, only when a kept row carries a plan (hydrateBeacons).
+	vs := s.hydrateBeacons(ctx, page.Viewer, uid, page.Posts, func(i int) bool { return i < len(page.Hints) && page.Hints[i].Withheld })
 	for i, p := range page.Posts {
-		v := posts.ToView(p, page.Viewer, uid)
+		v := posts.ToView(p, vs, uid)
 		if i < len(page.Hints) {
 			page.Hints[i].Apply(v) // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author
 			posts.ApplyPublicViews(v, p, page.Hints[i].Protected, page.Hints[i].ProtectedKnown)

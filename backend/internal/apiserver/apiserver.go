@@ -887,8 +887,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, errors.New("communities service does not implement RecentCoMembers")
 	}
 	suggestCommunities.src = communityMates
-	// Post.beacon: CreatePost's beacon_id and the card hydration of every post producer.
-	wirePostPlans(beaconsSvc, postsSvc, postsServer, timelineServer)
+	// Post.beacon: CreatePost's beacon_id and the card hydration of every post producer (posts, timeline, the engagement
+	// owner lists, and SearchPosts below through PostsDeps.Plans).
+	plans := postPlans{svc: beaconsSvc}
+	wirePostPlans(plans, postsSvc, postsServer, timelineServer, engagementServer)
 	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
@@ -912,7 +914,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries, Prefixes: handlePrefixes}),
 		search.WithPosts(search.PostsDeps{
 			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience, Authors: searchAuthors,
-			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
+			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries, Plans: plans,
 		}),
 		search.WithTrends(trendsStore, nil),
 		// F20/F21: SearchLists and SearchCommunities read through the two modules' search methods (their visibility rules).
