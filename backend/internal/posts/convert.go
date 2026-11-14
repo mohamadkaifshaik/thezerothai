@@ -60,6 +60,8 @@ func toProtoAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Pos
 	if p.Kind != KindRepost {
 		out.ShareCount = p.ShareCount
 	}
+	// view_count: the author's own here; another viewer's only through ApplyPublicViews (views.go).
+	out.ViewCount = authorViewCount(p, viewer)
 	return out
 }
 

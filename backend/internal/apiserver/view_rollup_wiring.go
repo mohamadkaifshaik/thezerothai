@@ -76,9 +76,10 @@ func viewRollupHandler(step viewRollupStep, log *slog.Logger, projectID string) 
 	return cronStepHandler(step.run, viewRollupOp, viewRollupRouteDeadline, log, projectID)
 }
 
-// newViewRollups builds the two runners over one repo: the tick's (15-minute gate, the default) and the route's.
-func newViewRollups(repo posts.ViewRollupRepo, off func() bool, readOnly bool) (tick, route *posts.ViewRollup) {
-	tick = &posts.ViewRollup{Repo: repo, Off: off, ReadOnly: readOnly}
-	route = &posts.ViewRollup{Repo: repo, Off: off, ReadOnly: readOnly, MinInterval: viewRollupRouteInterval}
+// newViewRollups builds the two runners over one repo: the tick's (15-minute gate, the default) and the route's. forget
+// evicts a folded post from this instance's posts cache (nil = none).
+func newViewRollups(repo posts.ViewRollupRepo, off func() bool, readOnly bool, forget func(string)) (tick, route *posts.ViewRollup) {
+	tick = &posts.ViewRollup{Repo: repo, Off: off, ReadOnly: readOnly, Forget: forget}
+	route = &posts.ViewRollup{Repo: repo, Off: off, ReadOnly: readOnly, MinInterval: viewRollupRouteInterval, Forget: forget}
 	return tick, route
 }

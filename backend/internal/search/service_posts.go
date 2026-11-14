@@ -675,7 +675,9 @@ func (r *postsRuntime) views(ctx context.Context, uid string, kept []*posts.Post
 		if st, ok := f.embed[p.ID]; ok {
 			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens
 		}
-		posts.ApplyWireVisibility(v, r.d.Audience.ProtectedAuthor(ctx, uid, p.AuthorID, f.snap.Following[p.AuthorID]))
+		protected := r.d.Audience.ProtectedAuthor(ctx, uid, p.AuthorID, f.snap.Following[p.AuthorID])
+		posts.ApplyWireVisibility(v, protected)
+		posts.ApplyPublicViews(v, p, protected)
 		out = append(out, v)
 	}
 	return out

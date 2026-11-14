@@ -74,5 +74,6 @@ func (s *Server) VotePoll(ctx context.Context, req *connect.Request[engagementv1
 	}
 	v := posts.ToView(res.Post, res.Viewer, uid) // the one converter: results visible for this voter, viewer_poll_choice from this call's vote
 	res.Hint.Apply(v)
+	posts.ApplyPublicViews(v, res.Post, res.Hint.Protected)
 	return connect.NewResponse(&engagementv1.VotePollResponse{Post: v}), nil
 }

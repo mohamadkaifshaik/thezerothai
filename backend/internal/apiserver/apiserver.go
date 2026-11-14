@@ -131,6 +131,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// --- feature flags ---
 	featureFlags := featureRegistry(cfg)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
+	// F1 post views: who sees Post.view_count (posts/views.go). Process-wide: the converters are free functions.
+	posts.SetViewCountRule(posts.ViewCountRule{Threshold: cfg.PostViewsPublicThreshold, Off: func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }})
 	// The private-accounts limits, so an operator can see what the revision enforces. Numbers only.
 	log.Info("privacy_limits", "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
 		"protected_set_max_stale", cfg.Privacy.ProtectedSetMaxStale.String(), "respond_per_min", cfg.RateLimit.FollowRequestsRespondPerUserPerMinute)
@@ -954,7 +956,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	outboxStep := outboxSweepStep{sweeper: ob, readOnly: cfg.Degraded == config.DegradedReadonly, log: log}
 	// The view rollup (F1 post views) rides the same tick last, under its own 15-minute gate (view_rollup_wiring.go);
 	// /internal/cron/view-rollup runs it alone. Skipped while FEATURE_POST_VIEWS is globally off or under DEGRADED_MODE=readonly.
-	viewRollupTick, viewRollupRoute := newViewRollups(postsRepo, func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }, cfg.Degraded == config.DegradedReadonly)
+	viewRollupTick, viewRollupRoute := newViewRollups(postsRepo, func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }, cfg.Degraded == config.DegradedReadonly, postsCache.DeletePost)
 	routes.internal("/internal/cron/publish-scheduled", withViewRollup(withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingWebhookRecovery, log), viewRollupStep{rollup: viewRollupTick, log: log}, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/outbox-sweep", outboxSweepHandler(outboxStep, log, cfg.ProjectID))
 	routes.internal("/internal/cron/view-rollup", viewRollupHandler(viewRollupStep{rollup: viewRollupRoute, log: log}, log, cfg.ProjectID))

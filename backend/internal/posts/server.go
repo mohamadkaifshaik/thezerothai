@@ -199,8 +199,11 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 		ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, post)) // no lookup without an embed, else the cached graph; PROTECTED strips the copy
 	}
 	if h, ok := s.svc.(VisibilityHinter); ok {
-		ApplyWireVisibility(v, h.ProtectedAuthor(ctx, uid, post))
+		protected := h.ProtectedAuthor(ctx, uid, post)
+		ApplyWireVisibility(v, protected)
+		ApplyPublicViews(v, post, protected)
 	}
+	s.applyAuthorLiveViews(ctx, v, uid, post) // the author's exact count (F1 post insights)
 	return connect.NewResponse(&postsv1.GetPostResponse{Post: v}), nil
 }
 
@@ -341,7 +344,9 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 			ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, p))
 		}
 		if h, ok := s.svc.(VisibilityHinter); ok {
-			ApplyWireVisibility(v, h.ProtectedAuthor(ctx, uid, p))
+			protected := h.ProtectedAuthor(ctx, uid, p)
+			ApplyWireVisibility(v, protected)
+			ApplyPublicViews(v, p, protected)
 		}
 		return v
 	}

@@ -89,7 +89,7 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 			// The author-status rule (F-03) every feed shares with GetPost and search.
 			"AuthorDirectory": true, "ResolveActiveAuthors": true, "AuthorDrop": true, "AuthorTombstone": true, "TombstonedQuote": true,
 			// Viewer flags are posts' ViewerFlags seam; ToView renders them.
-			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "Audience": true, "NewSnapshotAudience": true, "SurfaceDirect": true, "SurfaceOwnProfile": true, "Surface": true, "Show": true, "ApplyEmbedState": true, "ApplyWireVisibility": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true, "Poll": true, "BeaconPlans": true, "BeaconLive": true, "HydrateBeacons": true, "PostBeaconFlagName": true,
+			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "Audience": true, "NewSnapshotAudience": true, "SurfaceDirect": true, "SurfaceOwnProfile": true, "Surface": true, "Show": true, "ApplyEmbedState": true, "ApplyWireVisibility": true, "ApplyPublicViews": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true, "Poll": true, "BeaconPlans": true, "BeaconLive": true, "HydrateBeacons": true, "PostBeaconFlagName": true,
 		},
 		"graph": {"Reader": true, "Snapshot": true},
 		// lists: the Reader seam, its value type, the flag gate and the three exports GetListTimeline shares with GetList.
