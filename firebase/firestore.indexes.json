@@ -13,7 +13,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "isPrivate", "order": "ASCENDING" },
-        { "fieldPath": "followerCount", "order": "DESCENDING" }
+        { "fieldPath": "followerCount", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
