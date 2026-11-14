@@ -66,6 +66,9 @@ abstract class OnboardingState with _$OnboardingState {
     // flags stay whatever this session loaded (none on a cold start; flags
     // are never persisted). Cleared by the next successful GetMe.
     @Default(false) bool refreshFailed,
+    // A Retry of that failed refresh is in flight: the banner shows progress
+    // and ignores taps. Only set while `refreshFailed` is.
+    @Default(false) bool refreshing,
     // A cached profile is showing (status ready) but this session's first
     // GetMe has not answered, so `enabledFeatures` is not known yet: the shell
     // keeps the splash instead of drawing the flags-off placeholder and the

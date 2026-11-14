@@ -236,6 +236,12 @@ func (f *fakeRepo) Update(_ context.Context, p UpdateParams) (UpdateResult, erro
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.updatedBy = append(f.updatedBy, p)
+	if f.err == nil && f.update.Outcome != Replayed && p.AudienceCommunityID != nil {
+		// The audience rule on the stored doc, as FirestoreRepo.Update applies it after its idempotency lookup (F28b).
+		if err := audienceMove(f.docs[p.BeaconID].CommunityID, *p.AudienceCommunityID).err(); err != nil {
+			return UpdateResult{}, err
+		}
+	}
 	return f.update, f.err
 }
 

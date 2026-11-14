@@ -907,6 +907,8 @@ class CreateBeaconResponse extends $pb.GeneratedMessage {
   BeaconView ensureView() => $_ensure(0);
 }
 
+enum UpdateBeaconRequest_Audience { communityId, public, notSet }
+
 class UpdateBeaconRequest extends $pb.GeneratedMessage {
   factory UpdateBeaconRequest({
     $core.String? idempotencyKey,
@@ -918,6 +920,8 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
     $1.Timestamp? startAt,
     $core.int? durationMinutes,
     BeaconCost? cost,
+    $core.String? communityId,
+    $core.bool? public,
   }) {
     final result = UpdateBeaconRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -929,6 +933,8 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
     if (startAt != null) result.startAt = startAt;
     if (durationMinutes != null) result.durationMinutes = durationMinutes;
     if (cost != null) result.cost = cost;
+    if (communityId != null) result.communityId = communityId;
+    if (public != null) result.public = public;
     return result;
   }
 
@@ -941,11 +947,18 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
           [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
       UpdateBeaconRequest()..mergeFromJson(json, registry);
 
+  static const $core.Map<$core.int, UpdateBeaconRequest_Audience>
+      _UpdateBeaconRequest_AudienceByTag = {
+    10: UpdateBeaconRequest_Audience.communityId,
+    11: UpdateBeaconRequest_Audience.public,
+    0: UpdateBeaconRequest_Audience.notSet
+  };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
       _omitMessageNames ? '' : 'UpdateBeaconRequest',
       package:
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.beacons.v1'),
       createEmptyInstance: UpdateBeaconRequest.$_createMessage)
+    ..oo(0, [10, 11])
     ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
     ..aOS(2, _omitFieldNames ? '' : 'beaconId')
     ..aOS(3, _omitFieldNames ? '' : 'title')
@@ -957,6 +970,8 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
     ..aI(8, _omitFieldNames ? '' : 'durationMinutes')
     ..aE<BeaconCost>(9, _omitFieldNames ? '' : 'cost',
         enumValues: BeaconCost.values)
+    ..aOS(10, _omitFieldNames ? '' : 'communityId')
+    ..aOB(11, _omitFieldNames ? '' : 'public')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -981,6 +996,14 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<UpdateBeaconRequest>(
           UpdateBeaconRequest.$_createMessage);
   static UpdateBeaconRequest? _defaultInstance;
+
+  @$pb.TagNumber(10)
+  @$pb.TagNumber(11)
+  UpdateBeaconRequest_Audience whichAudience() =>
+      _UpdateBeaconRequest_AudienceByTag[$_whichOneof(0)]!;
+  @$pb.TagNumber(10)
+  @$pb.TagNumber(11)
+  void clearAudience() => $_clearField($_whichOneof(0));
 
   @$pb.TagNumber(1)
   $core.String get idempotencyKey => $_getSZ(0);
@@ -1068,6 +1091,24 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
   $core.bool hasCost() => $_has(8);
   @$pb.TagNumber(9)
   void clearCost() => $_clearField(9);
+
+  @$pb.TagNumber(10)
+  $core.String get communityId => $_getSZ(9);
+  @$pb.TagNumber(10)
+  set communityId($core.String value) => $_setString(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasCommunityId() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearCommunityId() => $_clearField(10);
+
+  @$pb.TagNumber(11)
+  $core.bool get public => $_getBF(10);
+  @$pb.TagNumber(11)
+  set public($core.bool value) => $_setBool(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasPublic() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearPublic() => $_clearField(11);
 }
 
 class UpdateBeaconResponse extends $pb.GeneratedMessage {
@@ -2791,8 +2832,19 @@ class BeaconServiceApi {
   /// participant row, and start/end of every membership row, in the one transaction (at most 200 participant rows, else
   /// LIMIT_REACHED "beacon_edit_rows"). A change of any of the three keeps every participant as they are (accepted
   /// people stay and may LeaveBeacon) and notifies the ACCEPTED participants once per edit
-  /// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience stays immutable: cancel and create again. A request that changes
-  /// nothing writes only the idempotency doc.
+  /// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience may only be widened (F28b, widen only): the order is community <
+  /// public, so the one move is a community beacon made public (public = true). Every community is PUBLIC to read (F6),
+  /// so this exposes no community content, and everyone who could see the beacon (JOINED members, participants) still
+  /// can. Resending the stored audience is not a change. Moving a public beacon into a community => VALIDATION "audience",
+  /// metadata["reason"] = "audience_narrowing"; into another community => "audience_incompatible"; both against the stored
+  /// audience in the transaction, nothing written. Widening needs the organiser to pass the community write gate of
+  /// RequestToJoin on the stored community (FEATURE_COMMUNITIES not globally off, JOINED, else FORBIDDEN "not_member";
+  /// SUSPENDED => NOT_FOUND; ARCHIVED => COMMUNITY_STATE "community_archived"), so a plan cannot leave a community that
+  /// suspended, archived or banned its organiser (cancelling stays open to the organiser in every case). It is
+  /// allowed while the beacon is OPEN or FULL, also after it started (people may still ask to join), rewrites the
+  /// audience of every membership row in the same transaction (the "beacon_edit_rows" bound) and sends no notification:
+  /// nobody loses access and nothing about the plan itself changes. A request that changes nothing writes only the
+  /// idempotency doc.
   $async.Future<UpdateBeaconResponse> updateBeacon(
           $pb.ClientContext? ctx, UpdateBeaconRequest request) =>
       _client.invoke<UpdateBeaconResponse>(ctx, 'BeaconService', 'UpdateBeacon',

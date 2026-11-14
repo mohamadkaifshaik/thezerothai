@@ -29,9 +29,12 @@ import 'widgets/plan_tips.dart';
 
 /// `/plans/:id/edit` (R34): title, details, meeting point and open spots,
 /// and (F28, R12) until the plan starts its date, time, duration and cost,
-/// the fields `UpdateBeacon` accepts. Activity, chat and audience are shown
-/// read-only ("Set when the plan was created"); once the plan has started,
-/// so are the start and the cost, with why. Save is enabled when something
+/// the fields `UpdateBeacon` accepts. On a live plan the audience ("Who can
+/// see it", F28b) offers only the current one and wider ones: a community
+/// plan may be made public, a public plan stays public, with
+/// [kPlanAudienceWidenNote]. Activity and chat are shown read-only ("Set when
+/// the plan was created"); once the plan has started, so are the start and
+/// the cost, with why. Save is enabled when something
 /// changed, the text rules pass, a new start is 5 minutes to 30 days away
 /// and open spots cover the people already going. [now], [pickDate] and
 /// [pickTime] are seams for tests.
@@ -82,6 +85,12 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   /// passes while the form is open must not remove the fields and drop an
   /// unsaved time change; the server's `started` error explains instead.
   bool _scheduleOpen = false;
+
+  /// F28b: whether the audience selector is on the form (a live plan,
+  /// decided once when it fills), and whether a community plan is to be
+  /// made public. The audience only widens, so nothing narrower is offered.
+  bool _audienceOpen = false;
+  bool _makePublic = false;
   bool _discarded = false;
 
   /// The plan with the edits, for the preview; null until it is loaded.
@@ -132,6 +141,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
       startAt: schedule && _startChanged(b) ? _start : null,
       durationMinutes: schedule ? _duration : null,
       cost: schedule ? _cost : null,
+      makePublic: _makePublic,
     );
   }
 
@@ -139,6 +149,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
     if (_filled) return;
     _filled = true;
     _scheduleOpen = _live(b) && _now().isBefore(_storedStart(b));
+    _audienceOpen = _live(b);
     _title.text = b.title;
     _details.text = b.details;
     _venue.text = b.venue;
@@ -295,6 +306,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
       normalizeListText(_details.text) != b.details ||
       normalizeListText(_venue.text) != b.venue ||
       _openSpots != b.openSpots ||
+      _makePublic ||
       (_scheduleEditable(b) &&
           (_startChanged(b) ||
               _duration != b.durationMinutes ||
@@ -319,6 +331,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
       startAt: schedule && _startChanged(b) ? _start : null,
       durationMinutes: schedule ? _duration : null,
       cost: schedule ? _cost : null,
+      makePublic: _makePublic,
     );
   }
 
@@ -498,11 +511,20 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                     )
                                   else
                                     spots,
+                                  if (b != null && _audienceOpen)
+                                    _AudienceField(
+                                      community: b.communityId.isNotEmpty,
+                                      makePublic: _makePublic,
+                                      enabled: !busy,
+                                      onChanged: (p) =>
+                                          _update(() => _makePublic = p),
+                                    ),
                                   if (b != null) ...[
                                     const SizedBox(height: AppSpacing.lg),
                                     _ReadOnly(
                                       beacon: b,
                                       started: !_scheduleEditable(b),
+                                      showAudience: !_audienceOpen,
                                     ),
                                   ],
                                   if (state.saveError != null) ...[
@@ -534,14 +556,68 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   }
 }
 
+/// "Who can see it" (F28b): only the plan's audience and wider ones. A
+/// community plan offers Community (as it is) and Public; a public plan
+/// offers Public alone. The note says why nothing narrower is there.
+class _AudienceField extends StatelessWidget {
+  const _AudienceField({
+    required this.community,
+    required this.makePublic,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  /// Whether the plan as stored is scoped to a community.
+  final bool community;
+
+  /// Whether the form makes the community plan public.
+  final bool makePublic;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return PlanFormSection(
+      title: 'Who can see it',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          PlanChoiceChips<bool>(
+            values: community ? const [false, true] : const [true],
+            selected: !community || makePublic,
+            label: (public) => public ? 'Public' : 'Community',
+            enabled: enabled,
+            onSelected: (public) => onChanged(community && public),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            kPlanAudienceWidenNote,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// What the form does not change, shown as it is (the designs' "Set when
-/// the plan was created"): the activity and chat, and the audience. Once
-/// the plan has started ([started]), the start and the cost too, with why.
+/// the plan was created"): the activity and chat, and the audience when the
+/// form has no audience selector ([showAudience]: a plan that is no longer
+/// live). Once the plan has started ([started]), the start and the cost
+/// too, with why.
 class _ReadOnly extends StatelessWidget {
-  const _ReadOnly({required this.beacon, required this.started});
+  const _ReadOnly({
+    required this.beacon,
+    required this.started,
+    required this.showAudience,
+  });
 
   final pb.Beacon beacon;
   final bool started;
+  final bool showAudience;
 
   @override
   Widget build(BuildContext context) {
@@ -556,7 +632,7 @@ class _ReadOnly extends StatelessWidget {
         ],
         '${activityLabel(b.activity)} · Chat: '
             '${chatPreferenceLabel(b.chatPreference)}',
-        'Who can see it: $audience',
+        if (showAudience) 'Who can see it: $audience',
       ],
       note: started ? kPlanStartedNote : null,
     );
