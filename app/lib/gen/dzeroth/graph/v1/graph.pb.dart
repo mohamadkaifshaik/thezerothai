@@ -125,11 +125,13 @@ class UserListItem extends $pb.GeneratedMessage {
     $0.AuthorSnapshot? user,
     $1.Timestamp? since,
     Relationship? relationship,
+    $core.String? bio,
   }) {
     final result = UserListItem._();
     if (user != null) result.user = user;
     if (since != null) result.since = since;
     if (relationship != null) result.relationship = relationship;
+    if (bio != null) result.bio = bio;
     return result;
   }
 
@@ -153,6 +155,7 @@ class UserListItem extends $pb.GeneratedMessage {
         subBuilder: $1.Timestamp.$_createMessage)
     ..aOM<Relationship>(3, _omitFieldNames ? '' : 'relationship',
         subBuilder: Relationship.$_createMessage)
+    ..aOS(4, _omitFieldNames ? '' : 'bio')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -211,6 +214,17 @@ class UserListItem extends $pb.GeneratedMessage {
   void clearRelationship() => $_clearField(3);
   @$pb.TagNumber(3)
   Relationship ensureRelationship() => $_ensure(2);
+
+  /// The user's bio (<= 160 chars), hydrated from the live profile like `user` (up to 60 s stale); empty if none.
+  /// Lets the follower, following and suggested rows show it without a second call. Costs no extra read.
+  @$pb.TagNumber(4)
+  $core.String get bio => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set bio($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasBio() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearBio() => $_clearField(4);
 }
 
 class FollowRequest extends $pb.GeneratedMessage {

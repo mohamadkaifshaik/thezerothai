@@ -25,6 +25,16 @@ void main() {
 
   setUp(() {
     beacons = _MockBeacons();
+    // The organiser's view also reads the first faces; these tests do not care.
+    when(
+      () => beacons.listParticipants(
+        beaconId: _bid,
+        filter: pb.ParticipantFilter.PARTICIPANT_FILTER_ACCEPTED,
+        limit: 3,
+      ),
+    ).thenAnswer(
+      (_) async => ParticipantsPage(participants: const [], nextPageToken: ''),
+    );
   });
 
   test('load is ready with the view; NOT_FOUND is an error', () async {

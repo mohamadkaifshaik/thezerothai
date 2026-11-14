@@ -246,8 +246,8 @@ func TestAccountLifecycle_RestrictedCallersOnlyReachDeleteAccount(t *testing.T) 
 		return true
 	})
 	exempt := profileExemptProcedures()
-	if len(exempt) != 2 {
-		t.Fatalf("the pre-profile exemption set has %d procedures, want exactly CreateProfile and CheckHandleAvailability", len(exempt))
+	if len(exempt) != 3 {
+		t.Fatalf("the pre-profile exemption set has %d procedures, want exactly CreateProfile, CheckHandleAvailability and SuggestHandles", len(exempt))
 	}
 
 	for _, status := range []string{"SUSPENDED", "DELETING"} {

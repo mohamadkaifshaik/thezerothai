@@ -239,6 +239,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     required PostsRepository postsRepository,
     required String postId,
     Uuid? uuid,
+    this.onOpened,
   }) : _repository = postsRepository,
        _postId = postId,
        _uuid = uuid ?? const Uuid(),
@@ -249,6 +250,10 @@ class ThreadCubit extends Cubit<ThreadState> {
   final PostsRepository _repository;
   final String _postId;
   final Uuid _uuid;
+
+  /// Called with the post id once the thread of a first load is on screen
+  /// (not on a pull-to-refresh). Bookmark history records the open here.
+  final void Function(String postId)? onOpened;
   final Map<String, String> _deleteKeys = {};
   late final StreamSubscription<String> _removedSub;
 
@@ -292,6 +297,7 @@ class ThreadCubit extends Cubit<ThreadState> {
       _generation++;
       _localReplies.clear();
       emit(_fromResponse(response));
+      if (!keepOnError) onOpened?.call(_postId);
     } on NotFoundException {
       if (isClosed) return;
       emit(const ThreadState(status: ThreadStatus.notFound));
