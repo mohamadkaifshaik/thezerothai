@@ -1022,6 +1022,41 @@ void main() {
         gate.complete(ok());
         await pumpEventQueue();
       });
+
+      test('the banner Retry is in flight until GetMe answers, then the '
+          'failure stays flagged', () async {
+        var calls = 0;
+        late Completer<identity.GetMeResponse> gate;
+        when(() => identityRepository.getMe()).thenAnswer((_) {
+          if (calls++ == 0) return Future.error(const NetworkException('x'));
+          gate = Completer<identity.GetMeResponse>();
+          return gate.future;
+        });
+        final bloc = OnboardingBloc(identityRepository: identityRepository);
+        addTearDown(bloc.close);
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await pumpEventQueue();
+        expect(bloc.state.refreshFailed, isTrue);
+        expect(bloc.state.refreshing, isFalse);
+
+        bloc.add(const OnboardingRefreshRequested());
+        await pumpEventQueue();
+        expect(bloc.state.refreshing, isTrue);
+        expect(bloc.state.refreshFailed, isTrue);
+
+        gate.completeError(const NetworkException('still offline'));
+        await pumpEventQueue();
+        expect(bloc.state.refreshing, isFalse);
+        expect(bloc.state.refreshFailed, isTrue);
+
+        bloc.add(const OnboardingRefreshRequested());
+        await pumpEventQueue();
+        expect(bloc.state.refreshing, isTrue);
+        gate.complete(ok());
+        await pumpEventQueue();
+        expect(bloc.state.refreshing, isFalse);
+        expect(bloc.state.refreshFailed, isFalse);
+      });
     });
 
     blocTest<OnboardingBloc, OnboardingState>(

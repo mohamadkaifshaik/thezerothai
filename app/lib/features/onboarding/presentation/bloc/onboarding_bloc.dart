@@ -122,8 +122,17 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   ) async {
     // Signed out (e.g. a FEATURE_DISABLED answer arriving after sign-out): no
     // session-less GetMe and nothing emitted into the signed-out state.
-    if (_uid == null) return;
-    await _loadMe(emit);
+    final uid = _uid;
+    if (uid == null) return;
+    // The banner's Retry shows its in-flight indicator from this flag.
+    if (state.refreshFailed) emit(state.copyWith(refreshing: true));
+    try {
+      await _loadMe(emit);
+    } finally {
+      if (!emit.isDone && _uid == uid && state.refreshing) {
+        emit(state.copyWith(refreshing: false));
+      }
+    }
   }
 
   /// Cache-first: render the locally cached profile instantly (if any) while
@@ -199,6 +208,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           state.copyWith(
             status: OnboardingStatus.ready,
             refreshFailed: true,
+            refreshing: false,
             flagsPending: false,
           ),
         );
@@ -229,6 +239,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),
         accountRestricted: false,
         refreshFailed: false,
+        refreshing: false,
         flagsPending: false,
         isSubmitting: isSubmitting ?? state.isSubmitting,
         error: null,
