@@ -40,6 +40,11 @@ final class OnboardingProfileUpdated extends OnboardingEvent {
   final identity.Profile profile;
 }
 
+/// The optional profile photo step was finished or skipped: Home opens.
+final class OnboardingPhotoStepFinished extends OnboardingEvent {
+  const OnboardingPhotoStepFinished();
+}
+
 final class OnboardingProfileSubmitted extends OnboardingEvent {
   const OnboardingProfileSubmitted();
 }

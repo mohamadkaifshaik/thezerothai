@@ -19,7 +19,13 @@ class BeaconDetailState {
     this.busy,
     this.actionError,
     this.noteRequired = false,
+    this.faces = const [],
   });
+
+  /// Up to 3 people going (ACCEPTED, oldest first), for the People card's
+  /// faces. Empty when the viewer may not list participants, or the read
+  /// failed: the card then only counts.
+  final List<pb.Participant> faces;
 
   final BeaconDetailStatus status;
 
@@ -52,6 +58,7 @@ class BeaconDetailState {
     String? actionError,
     bool clearActionError = false,
     bool? noteRequired,
+    List<pb.Participant>? faces,
   }) => BeaconDetailState(
     status: status ?? this.status,
     view: view ?? this.view,
@@ -59,5 +66,6 @@ class BeaconDetailState {
     busy: clearBusy ? null : (busy ?? this.busy),
     actionError: clearActionError ? null : (actionError ?? this.actionError),
     noteRequired: noteRequired ?? this.noteRequired,
+    faces: faces ?? this.faces,
   );
 }

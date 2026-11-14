@@ -151,6 +151,9 @@ type UpdateProfileParams struct {
 type Service interface {
 	CreateProfile(ctx context.Context, uid, idempotencyKey, handle, displayName string) (Profile, error)
 	CheckHandleAvailability(ctx context.Context, handle string) (available bool, reason string, err error)
+	// SuggestHandles returns up to MaxHandleSuggestions free handles derived from handle (see suggest_handles.go).
+	// It never writes Firestore. The FEATURE_HANDLE_SUGGESTIONS gate is the handler's (server.go).
+	SuggestHandles(ctx context.Context, handle string) ([]string, error)
 	GetMe(ctx context.Context, uid string) (MeResult, error)
 	GetProfile(ctx context.Context, callerUID string, target ProfileTarget) (Profile, error)
 	UpdateProfile(ctx context.Context, uid string, params UpdateProfileParams) (Profile, error)

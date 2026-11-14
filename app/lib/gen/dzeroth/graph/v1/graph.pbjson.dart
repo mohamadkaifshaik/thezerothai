@@ -89,6 +89,7 @@ const UserListItem$json = {
       '6': '.dzeroth.graph.v1.Relationship',
       '10': 'relationship'
     },
+    {'1': 'bio', '3': 4, '4': 1, '5': 9, '10': 'bio'},
   ],
 };
 
@@ -97,7 +98,7 @@ final $typed_data.Uint8List userListItemDescriptor = $convert.base64Decode(
     'CgxVc2VyTGlzdEl0ZW0SNQoEdXNlchgBIAEoCzIhLmR6ZXJvdGguY29tbW9uLnYxLkF1dGhvcl'
     'NuYXBzaG90UgR1c2VyEjAKBXNpbmNlGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFt'
     'cFIFc2luY2USQgoMcmVsYXRpb25zaGlwGAMgASgLMh4uZHplcm90aC5ncmFwaC52MS5SZWxhdG'
-    'lvbnNoaXBSDHJlbGF0aW9uc2hpcA==');
+    'lvbnNoaXBSDHJlbGF0aW9uc2hpcBIQCgNiaW8YBCABKAlSA2Jpbw==');
 
 @$core.Deprecated('Use followRequestDescriptor instead')
 const FollowRequest$json = {

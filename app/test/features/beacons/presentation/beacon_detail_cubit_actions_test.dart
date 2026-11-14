@@ -36,6 +36,16 @@ void main() {
     gets = [];
     when(() => beacons.getBeacon(_bid))
         .thenAnswer((_) async => gets.removeAt(0));
+    // A going viewer also reads the first faces; the actions do not care.
+    when(
+      () => beacons.listParticipants(
+        beaconId: _bid,
+        filter: pb.ParticipantFilter.PARTICIPANT_FILTER_ACCEPTED,
+        limit: 3,
+      ),
+    ).thenAnswer(
+      (_) async => ParticipantsPage(participants: const [], nextPageToken: ''),
+    );
   });
 
   List<String> keysOf(void Function() call) =>

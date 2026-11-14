@@ -25,6 +25,8 @@ abstract class IdentityServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $2.CreateProfileRequest request);
   $async.Future<$2.CheckHandleAvailabilityResponse> checkHandleAvailability(
       $pb.ServerContext ctx, $2.CheckHandleAvailabilityRequest request);
+  $async.Future<$2.SuggestHandlesResponse> suggestHandles(
+      $pb.ServerContext ctx, $2.SuggestHandlesRequest request);
   $async.Future<$2.GetMeResponse> getMe(
       $pb.ServerContext ctx, $2.GetMeRequest request);
   $async.Future<$2.GetProfileResponse> getProfile(
@@ -46,6 +48,8 @@ abstract class IdentityServiceBase extends $pb.GeneratedService {
         return $2.CreateProfileRequest();
       case 'CheckHandleAvailability':
         return $2.CheckHandleAvailabilityRequest();
+      case 'SuggestHandles':
+        return $2.SuggestHandlesRequest();
       case 'GetMe':
         return $2.GetMeRequest();
       case 'GetProfile':
@@ -73,6 +77,8 @@ abstract class IdentityServiceBase extends $pb.GeneratedService {
       case 'CheckHandleAvailability':
         return checkHandleAvailability(
             ctx, request as $2.CheckHandleAvailabilityRequest);
+      case 'SuggestHandles':
+        return suggestHandles(ctx, request as $2.SuggestHandlesRequest);
       case 'GetMe':
         return getMe(ctx, request as $2.GetMeRequest);
       case 'GetProfile':

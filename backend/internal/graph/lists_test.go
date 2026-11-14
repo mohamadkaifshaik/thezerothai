@@ -336,3 +336,34 @@ func TestToProtoAuthorSnapshot_IsPrivateFromTheHydratedProfile(t *testing.T) {
 		t.Errorf("rows = %v, want [true false]", rows)
 	}
 }
+
+// Every UserListItem row (followers, following, suggested, requests, blocked, muted and the ListItemsToProto callers)
+// carries the bio of the profile that fills `user`, so the row costs no extra read.
+func TestToProtoListItem_BioFromTheHydratedProfile(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   ListItem
+		want string
+	}{
+		{"bio set", ListItem{User: identity.Profile{UserID: "a", Handle: "a", Bio: "Writes about tea."}}, "Writes about tea."},
+		{"no bio", ListItem{User: identity.Profile{UserID: "b", Handle: "b"}}, ""},
+		{"protected with bio", ListItem{User: identity.Profile{UserID: "p", Handle: "p", Bio: "Quiet.", IsPrivate: true}}, "Quiet."},
+		{"follow row with since", ListItem{User: identity.Profile{UserID: "f", Bio: "Hi"}, Since: time.Unix(1700000000, 0)}, "Hi"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := toProtoListItem(tt.in)
+			if got.GetBio() != tt.want {
+				t.Errorf("bio = %q, want %q", got.GetBio(), tt.want)
+			}
+			if got.GetUser().GetUserId() != tt.in.User.UserID {
+				t.Errorf("user_id = %q, want %q", got.GetUser().GetUserId(), tt.in.User.UserID)
+			}
+			if rows := ListItemsToProto([]ListItem{tt.in}); rows[0].GetBio() != tt.want {
+				t.Errorf("ListItemsToProto bio = %q, want %q", rows[0].GetBio(), tt.want)
+			}
+		})
+	}
+}

@@ -33,6 +33,7 @@ class PostDetailCubit extends Cubit<PostDetailState> {
     required PostsRepository postsRepository,
     required String postId,
     Uuid? uuid,
+    this.onOpened,
   }) : _repository = postsRepository,
        _postId = postId,
        _uuid = uuid ?? const Uuid(),
@@ -41,6 +42,10 @@ class PostDetailCubit extends Cubit<PostDetailState> {
   final PostsRepository _repository;
   final String _postId;
   final Uuid _uuid;
+
+  /// Called with the post id once the post is on screen. Bookmark history
+  /// records the open here.
+  final void Function(String postId)? onOpened;
   String? _deleteKey;
 
   Future<void> load() async {
@@ -49,6 +54,7 @@ class PostDetailCubit extends Cubit<PostDetailState> {
       final view = await _repository.getPost(_postId);
       if (isClosed) return;
       emit(PostDetailState(status: PostDetailStatus.ready, view: view));
+      onOpened?.call(_postId);
     } on NotFoundException {
       if (isClosed) return;
       emit(const PostDetailState(status: PostDetailStatus.notFound));
