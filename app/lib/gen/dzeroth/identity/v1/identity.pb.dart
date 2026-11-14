@@ -606,6 +606,122 @@ class CheckHandleAvailabilityResponse extends $pb.GeneratedMessage {
   void clearReason() => $_clearField(2);
 }
 
+class SuggestHandlesRequest extends $pb.GeneratedMessage {
+  factory SuggestHandlesRequest({
+    $core.String? handle,
+  }) {
+    final result = SuggestHandlesRequest._();
+    if (handle != null) result.handle = handle;
+    return result;
+  }
+
+  SuggestHandlesRequest._();
+
+  factory SuggestHandlesRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SuggestHandlesRequest()..mergeFromBuffer(data, registry);
+  factory SuggestHandlesRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SuggestHandlesRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SuggestHandlesRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: SuggestHandlesRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'handle')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SuggestHandlesRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SuggestHandlesRequest copyWith(
+          void Function(SuggestHandlesRequest) updates) =>
+      super.copyWith((message) => updates(message as SuggestHandlesRequest))
+          as SuggestHandlesRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SuggestHandlesRequest() / SuggestHandlesRequest.new instead')
+  static SuggestHandlesRequest create() => SuggestHandlesRequest._();
+  static $pb.GeneratedMessage $_createMessage() => SuggestHandlesRequest._();
+  @$core.override
+  SuggestHandlesRequest createEmptyInstance() => SuggestHandlesRequest._();
+  @$core.pragma('dart2js:noInline')
+  static SuggestHandlesRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SuggestHandlesRequest>(
+          SuggestHandlesRequest.$_createMessage);
+  static SuggestHandlesRequest? _defaultInstance;
+
+  /// The handle the caller tried (taken or not). Invalid input answers an empty list.
+  @$pb.TagNumber(1)
+  $core.String get handle => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set handle($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHandle() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHandle() => $_clearField(1);
+}
+
+class SuggestHandlesResponse extends $pb.GeneratedMessage {
+  factory SuggestHandlesResponse({
+    $core.Iterable<$core.String>? handles,
+  }) {
+    final result = SuggestHandlesResponse._();
+    if (handles != null) result.handles.addAll(handles);
+    return result;
+  }
+
+  SuggestHandlesResponse._();
+
+  factory SuggestHandlesResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SuggestHandlesResponse()..mergeFromBuffer(data, registry);
+  factory SuggestHandlesResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SuggestHandlesResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SuggestHandlesResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
+      createEmptyInstance: SuggestHandlesResponse.$_createMessage)
+    ..pPS(1, _omitFieldNames ? '' : 'handles')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SuggestHandlesResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SuggestHandlesResponse copyWith(
+          void Function(SuggestHandlesResponse) updates) =>
+      super.copyWith((message) => updates(message as SuggestHandlesResponse))
+          as SuggestHandlesResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SuggestHandlesResponse() / SuggestHandlesResponse.new instead')
+  static SuggestHandlesResponse create() => SuggestHandlesResponse._();
+  static $pb.GeneratedMessage $_createMessage() => SuggestHandlesResponse._();
+  @$core.override
+  SuggestHandlesResponse createEmptyInstance() => SuggestHandlesResponse._();
+  @$core.pragma('dart2js:noInline')
+  static SuggestHandlesResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SuggestHandlesResponse>(
+          SuggestHandlesResponse.$_createMessage);
+  static SuggestHandlesResponse? _defaultInstance;
+
+  /// 0 to 5 free handles, in the order they were found. Never reserved, invalid or taken.
+  @$pb.TagNumber(1)
+  $pb.PbList<$core.String> get handles => $_getList(0);
+}
+
 class GetMeRequest extends $pb.GeneratedMessage {
   factory GetMeRequest() => GetMeRequest._();
 
@@ -1466,9 +1582,11 @@ class DeleteAccountResponse extends $pb.GeneratedMessage {
 class RequestAccountExportRequest extends $pb.GeneratedMessage {
   factory RequestAccountExportRequest({
     $core.String? idempotencyKey,
+    ExportFormat? format,
   }) {
     final result = RequestAccountExportRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (format != null) result.format = format;
     return result;
   }
 
@@ -1487,6 +1605,8 @@ class RequestAccountExportRequest extends $pb.GeneratedMessage {
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
       createEmptyInstance: RequestAccountExportRequest.$_createMessage)
     ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aE<ExportFormat>(2, _omitFieldNames ? '' : 'format',
+        enumValues: ExportFormat.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1525,16 +1645,28 @@ class RequestAccountExportRequest extends $pb.GeneratedMessage {
   $core.bool hasIdempotencyKey() => $_has(0);
   @$pb.TagNumber(1)
   void clearIdempotencyKey() => $_clearField(1);
+
+  /// Additive. Left out (UNSPECIFIED) means JSON. A replay or an already PENDING export answers with that export's format.
+  @$pb.TagNumber(2)
+  ExportFormat get format => $_getN(1);
+  @$pb.TagNumber(2)
+  set format(ExportFormat value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFormat() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFormat() => $_clearField(2);
 }
 
 class RequestAccountExportResponse extends $pb.GeneratedMessage {
   factory RequestAccountExportResponse({
     $core.String? exportId,
     ExportStatus? status,
+    ExportFormat? format,
   }) {
     final result = RequestAccountExportResponse._();
     if (exportId != null) result.exportId = exportId;
     if (status != null) result.status = status;
+    if (format != null) result.format = format;
     return result;
   }
 
@@ -1555,6 +1687,8 @@ class RequestAccountExportResponse extends $pb.GeneratedMessage {
     ..aOS(1, _omitFieldNames ? '' : 'exportId')
     ..aE<ExportStatus>(2, _omitFieldNames ? '' : 'status',
         enumValues: ExportStatus.values)
+    ..aE<ExportFormat>(3, _omitFieldNames ? '' : 'format',
+        enumValues: ExportFormat.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1602,6 +1736,16 @@ class RequestAccountExportResponse extends $pb.GeneratedMessage {
   $core.bool hasStatus() => $_has(1);
   @$pb.TagNumber(2)
   void clearStatus() => $_clearField(2);
+
+  /// The format of the export that was returned (it may be an earlier request's export; see RequestAccountExport).
+  @$pb.TagNumber(3)
+  ExportFormat get format => $_getN(2);
+  @$pb.TagNumber(3)
+  set format(ExportFormat value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFormat() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFormat() => $_clearField(3);
 }
 
 class GetAccountExportRequest extends $pb.GeneratedMessage {
@@ -1671,6 +1815,7 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
     $core.String? downloadUrl,
     $0.Timestamp? downloadUrlExpiresAt,
     $0.Timestamp? expiresAt,
+    ExportFormat? format,
   }) {
     final result = GetAccountExportResponse._();
     if (exportId != null) result.exportId = exportId;
@@ -1679,6 +1824,7 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
     if (downloadUrlExpiresAt != null)
       result.downloadUrlExpiresAt = downloadUrlExpiresAt;
     if (expiresAt != null) result.expiresAt = expiresAt;
+    if (format != null) result.format = format;
     return result;
   }
 
@@ -1704,6 +1850,8 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
         subBuilder: $0.Timestamp.$_createMessage)
     ..aOM<$0.Timestamp>(5, _omitFieldNames ? '' : 'expiresAt',
         subBuilder: $0.Timestamp.$_createMessage)
+    ..aE<ExportFormat>(6, _omitFieldNames ? '' : 'format',
+        enumValues: ExportFormat.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1783,6 +1931,16 @@ class GetAccountExportResponse extends $pb.GeneratedMessage {
   void clearExpiresAt() => $_clearField(5);
   @$pb.TagNumber(5)
   $0.Timestamp ensureExpiresAt() => $_ensure(4);
+
+  /// The format of this export: the download is a ZIP archive or the JSON object.
+  @$pb.TagNumber(6)
+  ExportFormat get format => $_getN(5);
+  @$pb.TagNumber(6)
+  set format(ExportFormat value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasFormat() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearFormat() => $_clearField(6);
 }
 
 class IdentityServiceApi {
@@ -1814,6 +1972,16 @@ class IdentityServiceApi {
           'CheckHandleAvailability',
           request,
           CheckHandleAvailabilityResponse());
+
+  /// Up to 5 free handles to offer when the handle the caller chose is taken (sign-up and Change handle). Read-only.
+  /// Gated by FEATURE_HANDLE_SUGGESTIONS (FEATURE_DISABLED feature=handle_suggestions while off) and shares the
+  /// CheckHandleAvailability limiter bucket and its verified-identity gate. Candidates are derived from the input
+  /// (suffixes such as "name2" or "name_2"), each checked with the same format and reserved rules, and never equal the
+  /// input. Reads: at most one batched handles lookup over at most 12 candidates per call; no negative cache is used.
+  $async.Future<SuggestHandlesResponse> suggestHandles(
+          $pb.ClientContext? ctx, SuggestHandlesRequest request) =>
+      _client.invoke<SuggestHandlesResponse>(ctx, 'IdentityService',
+          'SuggestHandles', request, SuggestHandlesResponse());
 
   /// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).

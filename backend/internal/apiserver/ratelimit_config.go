@@ -196,6 +196,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			mediav1connect.MediaServiceCreateUploadProcedure:                     rlMedia,
 			mediav1connect.MediaServiceFinalizeUploadProcedure:                   rlMediaFinalize,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure:    rlCheckHandle,
+			identityv1connect.IdentityServiceSuggestHandlesProcedure:             rlCheckHandle,
 			graphv1connect.GraphServiceFollowProcedure:                           rlGraphFollow,
 			graphv1connect.GraphServiceUnfollowProcedure:                         rlGraphFollow,
 			graphv1connect.GraphServiceBlockProcedure:                            rlGraphBlock,
@@ -221,10 +222,15 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			listsv1connect.ListServiceDeleteListProcedure:                        rlListsWrite,
 			listsv1connect.ListServiceAddListMemberProcedure:                     rlListsWrite,
 			listsv1connect.ListServiceRemoveListMemberProcedure:                  rlListsWrite,
+			listsv1connect.ListServiceFollowListProcedure:                        rlListsWrite,
+			listsv1connect.ListServiceUnfollowListProcedure:                      rlListsWrite,
 			timelinev1connect.TimelineServiceSetHomeTabsProcedure:                rlListsWrite,
 			listsv1connect.ListServiceGetListProcedure:                           rlListsRead,
 			listsv1connect.ListServiceListUserListsProcedure:                     rlListsRead,
 			listsv1connect.ListServiceListListMembersProcedure:                   rlListsRead,
+			listsv1connect.ListServiceListFollowedListsProcedure:                 rlListsRead,
+			listsv1connect.ListServiceDiscoverListsProcedure:                     rlListsRead,
+			listsv1connect.ListServiceListSuggestedMembersProcedure:              rlListsRead,
 			timelinev1connect.TimelineServiceGetListTimelineProcedure:            rlListTimeline,
 			communitiesv1connect.CommunityServiceCreateCommunityProcedure:        rlCommunitiesWrite,
 			communitiesv1connect.CommunityServiceUpdateCommunityProcedure:        rlCommunitiesWrite,
@@ -304,5 +310,8 @@ func profileExemptProcedures() map[string]struct{} {
 		// CheckHandleAvailability is read-only and must work before a profile exists (sign-up form);
 		// see the deviation note in pkg/platform/authn.ProfileExemptProcedures.
 		identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure,
+		// SuggestHandles is its read-only companion on the same sign-up form (and Change handle): same limiter bucket,
+		// same verified-identity gate, no profile needed.
+		identityv1connect.IdentityServiceSuggestHandlesProcedure,
 	)
 }

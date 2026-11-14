@@ -33,5 +33,5 @@ func registerListsLifecycle(l *identity.Lifecycle, repo *lists.FirestoreRepo, ha
 	if err := l.RegisterEraser(identity.BeforeIdentity, listsEraserStep(lists.NewEraser(repo))); err != nil {
 		return err
 	}
-	return l.RegisterExportSection(listsSection{lists.NewExporter(repo).WithMembership(repo, handles, social)})
+	return l.RegisterExportSection(listsSection{lists.NewExporter(repo).WithMembership(repo, handles, social).WithFollows(repo)})
 }

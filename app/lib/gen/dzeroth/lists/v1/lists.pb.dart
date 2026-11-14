@@ -30,6 +30,8 @@ class ListInfo extends $pb.GeneratedMessage {
     $core.bool? isPrivate,
     $core.int? memberCount,
     $core.bool? pinnedByViewer,
+    $core.int? followerCount,
+    $core.bool? followedByViewer,
   }) {
     final result = ListInfo._();
     if (listId != null) result.listId = listId;
@@ -39,6 +41,8 @@ class ListInfo extends $pb.GeneratedMessage {
     if (isPrivate != null) result.isPrivate = isPrivate;
     if (memberCount != null) result.memberCount = memberCount;
     if (pinnedByViewer != null) result.pinnedByViewer = pinnedByViewer;
+    if (followerCount != null) result.followerCount = followerCount;
+    if (followedByViewer != null) result.followedByViewer = followedByViewer;
     return result;
   }
 
@@ -64,6 +68,8 @@ class ListInfo extends $pb.GeneratedMessage {
     ..aOB(5, _omitFieldNames ? '' : 'isPrivate')
     ..aI(6, _omitFieldNames ? '' : 'memberCount')
     ..aOB(7, _omitFieldNames ? '' : 'pinnedByViewer')
+    ..aI(8, _omitFieldNames ? '' : 'followerCount')
+    ..aOB(9, _omitFieldNames ? '' : 'followedByViewer')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -155,6 +161,26 @@ class ListInfo extends $pb.GeneratedMessage {
   $core.bool hasPinnedByViewer() => $_has(6);
   @$pb.TagNumber(7)
   void clearPinnedByViewer() => $_clearField(7);
+
+  /// Followers of the list. Set only when FEATURE_LIST_FOLLOWS is on for the caller; 0 otherwise.
+  @$pb.TagNumber(8)
+  $core.int get followerCount => $_getIZ(7);
+  @$pb.TagNumber(8)
+  set followerCount($core.int value) => $_setSignedInt32(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasFollowerCount() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearFollowerCount() => $_clearField(8);
+
+  /// True when the caller follows this list. Set only when FEATURE_LIST_FOLLOWS is on for the caller; false otherwise.
+  @$pb.TagNumber(9)
+  $core.bool get followedByViewer => $_getBF(8);
+  @$pb.TagNumber(9)
+  set followedByViewer($core.bool value) => $_setBool(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasFollowedByViewer() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearFollowedByViewer() => $_clearField(9);
 }
 
 class CreateListRequest extends $pb.GeneratedMessage {
@@ -1336,6 +1362,671 @@ class ListListMembersResponse extends $pb.GeneratedMessage {
   void clearNextPageToken() => $_clearField(2);
 }
 
+class FollowListRequest extends $pb.GeneratedMessage {
+  factory FollowListRequest({
+    $core.String? idempotencyKey,
+    $core.String? listId,
+  }) {
+    final result = FollowListRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (listId != null) result.listId = listId;
+    return result;
+  }
+
+  FollowListRequest._();
+
+  factory FollowListRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FollowListRequest()..mergeFromBuffer(data, registry);
+  factory FollowListRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FollowListRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FollowListRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: FollowListRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'listId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FollowListRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FollowListRequest copyWith(void Function(FollowListRequest) updates) =>
+      super.copyWith((message) => updates(message as FollowListRequest))
+          as FollowListRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FollowListRequest() / FollowListRequest.new instead')
+  static FollowListRequest create() => FollowListRequest._();
+  static $pb.GeneratedMessage $_createMessage() => FollowListRequest._();
+  @$core.override
+  FollowListRequest createEmptyInstance() => FollowListRequest._();
+  @$core.pragma('dart2js:noInline')
+  static FollowListRequest getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<FollowListRequest>(
+          FollowListRequest.$_createMessage);
+  static FollowListRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get listId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set listId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasListId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearListId() => $_clearField(2);
+}
+
+class FollowListResponse extends $pb.GeneratedMessage {
+  factory FollowListResponse({
+    ListInfo? list,
+  }) {
+    final result = FollowListResponse._();
+    if (list != null) result.list = list;
+    return result;
+  }
+
+  FollowListResponse._();
+
+  factory FollowListResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FollowListResponse()..mergeFromBuffer(data, registry);
+  factory FollowListResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FollowListResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FollowListResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: FollowListResponse.$_createMessage)
+    ..aOM<ListInfo>(1, _omitFieldNames ? '' : 'list',
+        subBuilder: ListInfo.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FollowListResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FollowListResponse copyWith(void Function(FollowListResponse) updates) =>
+      super.copyWith((message) => updates(message as FollowListResponse))
+          as FollowListResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FollowListResponse() / FollowListResponse.new instead')
+  static FollowListResponse create() => FollowListResponse._();
+  static $pb.GeneratedMessage $_createMessage() => FollowListResponse._();
+  @$core.override
+  FollowListResponse createEmptyInstance() => FollowListResponse._();
+  @$core.pragma('dart2js:noInline')
+  static FollowListResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<FollowListResponse>(
+          FollowListResponse.$_createMessage);
+  static FollowListResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  ListInfo get list => $_getN(0);
+  @$pb.TagNumber(1)
+  set list(ListInfo value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasList() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearList() => $_clearField(1);
+  @$pb.TagNumber(1)
+  ListInfo ensureList() => $_ensure(0);
+}
+
+class UnfollowListRequest extends $pb.GeneratedMessage {
+  factory UnfollowListRequest({
+    $core.String? idempotencyKey,
+    $core.String? listId,
+  }) {
+    final result = UnfollowListRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (listId != null) result.listId = listId;
+    return result;
+  }
+
+  UnfollowListRequest._();
+
+  factory UnfollowListRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UnfollowListRequest()..mergeFromBuffer(data, registry);
+  factory UnfollowListRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UnfollowListRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UnfollowListRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: UnfollowListRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'listId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UnfollowListRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UnfollowListRequest copyWith(void Function(UnfollowListRequest) updates) =>
+      super.copyWith((message) => updates(message as UnfollowListRequest))
+          as UnfollowListRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use UnfollowListRequest() / UnfollowListRequest.new instead')
+  static UnfollowListRequest create() => UnfollowListRequest._();
+  static $pb.GeneratedMessage $_createMessage() => UnfollowListRequest._();
+  @$core.override
+  UnfollowListRequest createEmptyInstance() => UnfollowListRequest._();
+  @$core.pragma('dart2js:noInline')
+  static UnfollowListRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UnfollowListRequest>(
+          UnfollowListRequest.$_createMessage);
+  static UnfollowListRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get listId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set listId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasListId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearListId() => $_clearField(2);
+}
+
+class UnfollowListResponse extends $pb.GeneratedMessage {
+  factory UnfollowListResponse() => UnfollowListResponse._();
+
+  UnfollowListResponse._();
+
+  factory UnfollowListResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UnfollowListResponse()..mergeFromBuffer(data, registry);
+  factory UnfollowListResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UnfollowListResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UnfollowListResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: UnfollowListResponse.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UnfollowListResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UnfollowListResponse copyWith(void Function(UnfollowListResponse) updates) =>
+      super.copyWith((message) => updates(message as UnfollowListResponse))
+          as UnfollowListResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use UnfollowListResponse() / UnfollowListResponse.new instead')
+  static UnfollowListResponse create() => UnfollowListResponse._();
+  static $pb.GeneratedMessage $_createMessage() => UnfollowListResponse._();
+  @$core.override
+  UnfollowListResponse createEmptyInstance() => UnfollowListResponse._();
+  @$core.pragma('dart2js:noInline')
+  static UnfollowListResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UnfollowListResponse>(
+          UnfollowListResponse.$_createMessage);
+  static UnfollowListResponse? _defaultInstance;
+}
+
+class ListFollowedListsRequest extends $pb.GeneratedMessage {
+  factory ListFollowedListsRequest({
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = ListFollowedListsRequest._();
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ListFollowedListsRequest._();
+
+  factory ListFollowedListsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListFollowedListsRequest()..mergeFromBuffer(data, registry);
+  factory ListFollowedListsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListFollowedListsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListFollowedListsRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: ListFollowedListsRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(2, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListFollowedListsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListFollowedListsRequest copyWith(
+          void Function(ListFollowedListsRequest) updates) =>
+      super.copyWith((message) => updates(message as ListFollowedListsRequest))
+          as ListFollowedListsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListFollowedListsRequest() / ListFollowedListsRequest.new instead')
+  static ListFollowedListsRequest create() => ListFollowedListsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ListFollowedListsRequest._();
+  @$core.override
+  ListFollowedListsRequest createEmptyInstance() =>
+      ListFollowedListsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListFollowedListsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListFollowedListsRequest>(
+          ListFollowedListsRequest.$_createMessage);
+  static ListFollowedListsRequest? _defaultInstance;
+
+  /// 0 => 20; max 50 (clamped).
+  @$pb.TagNumber(1)
+  $core.int get pageSize => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set pageSize($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPageSize() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPageSize() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get pageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageToken() => $_clearField(2);
+}
+
+class ListFollowedListsResponse extends $pb.GeneratedMessage {
+  factory ListFollowedListsResponse({
+    $core.Iterable<ListInfo>? lists,
+    $core.String? nextPageToken,
+  }) {
+    final result = ListFollowedListsResponse._();
+    if (lists != null) result.lists.addAll(lists);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  ListFollowedListsResponse._();
+
+  factory ListFollowedListsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListFollowedListsResponse()..mergeFromBuffer(data, registry);
+  factory ListFollowedListsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListFollowedListsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListFollowedListsResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: ListFollowedListsResponse.$_createMessage)
+    ..pPM<ListInfo>(1, _omitFieldNames ? '' : 'lists',
+        subBuilder: ListInfo.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListFollowedListsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListFollowedListsResponse copyWith(
+          void Function(ListFollowedListsResponse) updates) =>
+      super.copyWith((message) => updates(message as ListFollowedListsResponse))
+          as ListFollowedListsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListFollowedListsResponse() / ListFollowedListsResponse.new instead')
+  static ListFollowedListsResponse create() => ListFollowedListsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListFollowedListsResponse._();
+  @$core.override
+  ListFollowedListsResponse createEmptyInstance() =>
+      ListFollowedListsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListFollowedListsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListFollowedListsResponse>(
+          ListFollowedListsResponse.$_createMessage);
+  static ListFollowedListsResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<ListInfo> get lists => $_getList(0);
+
+  /// "" => no more.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
+class DiscoverListsRequest extends $pb.GeneratedMessage {
+  factory DiscoverListsRequest({
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = DiscoverListsRequest._();
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  DiscoverListsRequest._();
+
+  factory DiscoverListsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DiscoverListsRequest()..mergeFromBuffer(data, registry);
+  factory DiscoverListsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DiscoverListsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'DiscoverListsRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: DiscoverListsRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(2, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DiscoverListsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DiscoverListsRequest copyWith(void Function(DiscoverListsRequest) updates) =>
+      super.copyWith((message) => updates(message as DiscoverListsRequest))
+          as DiscoverListsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use DiscoverListsRequest() / DiscoverListsRequest.new instead')
+  static DiscoverListsRequest create() => DiscoverListsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => DiscoverListsRequest._();
+  @$core.override
+  DiscoverListsRequest createEmptyInstance() => DiscoverListsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static DiscoverListsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<DiscoverListsRequest>(
+          DiscoverListsRequest.$_createMessage);
+  static DiscoverListsRequest? _defaultInstance;
+
+  /// 0 => 20; max 50 (clamped).
+  @$pb.TagNumber(1)
+  $core.int get pageSize => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set pageSize($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPageSize() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPageSize() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get pageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageToken() => $_clearField(2);
+}
+
+class DiscoverListsResponse extends $pb.GeneratedMessage {
+  factory DiscoverListsResponse({
+    $core.Iterable<ListInfo>? lists,
+    $core.String? nextPageToken,
+  }) {
+    final result = DiscoverListsResponse._();
+    if (lists != null) result.lists.addAll(lists);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  DiscoverListsResponse._();
+
+  factory DiscoverListsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DiscoverListsResponse()..mergeFromBuffer(data, registry);
+  factory DiscoverListsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DiscoverListsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'DiscoverListsResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: DiscoverListsResponse.$_createMessage)
+    ..pPM<ListInfo>(1, _omitFieldNames ? '' : 'lists',
+        subBuilder: ListInfo.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DiscoverListsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DiscoverListsResponse copyWith(
+          void Function(DiscoverListsResponse) updates) =>
+      super.copyWith((message) => updates(message as DiscoverListsResponse))
+          as DiscoverListsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use DiscoverListsResponse() / DiscoverListsResponse.new instead')
+  static DiscoverListsResponse create() => DiscoverListsResponse._();
+  static $pb.GeneratedMessage $_createMessage() => DiscoverListsResponse._();
+  @$core.override
+  DiscoverListsResponse createEmptyInstance() => DiscoverListsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static DiscoverListsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<DiscoverListsResponse>(
+          DiscoverListsResponse.$_createMessage);
+  static DiscoverListsResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<ListInfo> get lists => $_getList(0);
+
+  /// "" => no more.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
+class ListSuggestedMembersRequest extends $pb.GeneratedMessage {
+  factory ListSuggestedMembersRequest({
+    $core.String? listId,
+    $core.int? maxResults,
+  }) {
+    final result = ListSuggestedMembersRequest._();
+    if (listId != null) result.listId = listId;
+    if (maxResults != null) result.maxResults = maxResults;
+    return result;
+  }
+
+  ListSuggestedMembersRequest._();
+
+  factory ListSuggestedMembersRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSuggestedMembersRequest()..mergeFromBuffer(data, registry);
+  factory ListSuggestedMembersRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSuggestedMembersRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListSuggestedMembersRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: ListSuggestedMembersRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'listId')
+    ..aI(2, _omitFieldNames ? '' : 'maxResults')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSuggestedMembersRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSuggestedMembersRequest copyWith(
+          void Function(ListSuggestedMembersRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListSuggestedMembersRequest))
+          as ListSuggestedMembersRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListSuggestedMembersRequest() / ListSuggestedMembersRequest.new instead')
+  static ListSuggestedMembersRequest create() =>
+      ListSuggestedMembersRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListSuggestedMembersRequest._();
+  @$core.override
+  ListSuggestedMembersRequest createEmptyInstance() =>
+      ListSuggestedMembersRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListSuggestedMembersRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListSuggestedMembersRequest>(
+          ListSuggestedMembersRequest.$_createMessage);
+  static ListSuggestedMembersRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get listId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set listId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasListId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearListId() => $_clearField(1);
+
+  /// 0 => 5; max 10 (clamped).
+  @$pb.TagNumber(2)
+  $core.int get maxResults => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set maxResults($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMaxResults() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMaxResults() => $_clearField(2);
+}
+
+class ListSuggestedMembersResponse extends $pb.GeneratedMessage {
+  factory ListSuggestedMembersResponse({
+    $core.Iterable<$1.UserListItem>? users,
+  }) {
+    final result = ListSuggestedMembersResponse._();
+    if (users != null) result.users.addAll(users);
+    return result;
+  }
+
+  ListSuggestedMembersResponse._();
+
+  factory ListSuggestedMembersResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSuggestedMembersResponse()..mergeFromBuffer(data, registry);
+  factory ListSuggestedMembersResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSuggestedMembersResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListSuggestedMembersResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.lists.v1'),
+      createEmptyInstance: ListSuggestedMembersResponse.$_createMessage)
+    ..pPM<$1.UserListItem>(1, _omitFieldNames ? '' : 'users',
+        subBuilder: $1.UserListItem.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSuggestedMembersResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSuggestedMembersResponse copyWith(
+          void Function(ListSuggestedMembersResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListSuggestedMembersResponse))
+          as ListSuggestedMembersResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListSuggestedMembersResponse() / ListSuggestedMembersResponse.new instead')
+  static ListSuggestedMembersResponse create() =>
+      ListSuggestedMembersResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListSuggestedMembersResponse._();
+  @$core.override
+  ListSuggestedMembersResponse createEmptyInstance() =>
+      ListSuggestedMembersResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListSuggestedMembersResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListSuggestedMembersResponse>(
+          ListSuggestedMembersResponse.$_createMessage);
+  static ListSuggestedMembersResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<$1.UserListItem> get users => $_getList(0);
+}
+
 class ListServiceApi {
   final $pb.RpcClient _client;
 
@@ -1436,6 +2127,57 @@ class ListServiceApi {
           $pb.ClientContext? ctx, ListListMembersRequest request) =>
       _client.invoke<ListListMembersResponse>(ctx, 'ListService',
           'ListListMembers', request, ListListMembersResponse());
+
+  /// Follow a public list (FEATURE_LIST_FOLLOWS). NOT_FOUND for every case the header comment lists (a private or hidden
+  /// list, an owner who is not ACTIVE or blocks either way, a missing or deleted list). Following a list the caller owns
+  /// is success with no effect. Following again is success with no effect.
+  /// Cap: LIST_FOLLOWS_MAX_PER_USER (100) follows per account => FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] =
+  /// "list_follows"; nothing is written.
+  /// One transaction: idempotency doc, the list (fresh: visibility is checked again inside it), the follow marker
+  /// (create), and follower_count + 1 on the list. Rate limit: the lists write bucket.
+  $async.Future<FollowListResponse> followList(
+          $pb.ClientContext? ctx, FollowListRequest request) =>
+      _client.invoke<FollowListResponse>(
+          ctx, 'ListService', 'FollowList', request, FollowListResponse());
+
+  /// Unfollow a list (FEATURE_LIST_FOLLOWS). Works on any list, including one that is now private, hidden or deleted; a
+  /// list the caller never followed is success with no effect. When the list still exists, follower_count - 1 in the same
+  /// transaction; when it is gone, only the marker is removed.
+  /// A replay writes nothing.
+  $async.Future<UnfollowListResponse> unfollowList(
+          $pb.ClientContext? ctx, UnfollowListRequest request) =>
+      _client.invoke<UnfollowListResponse>(
+          ctx, 'ListService', 'UnfollowList', request, UnfollowListResponse());
+
+  /// The lists the caller follows, newest follow first, with the caller's current view of each list. A list the
+  /// caller can no longer see (private, hidden, deleted, owner not ACTIVE, a block either way) is left out, so a page may
+  /// be short while next_page_token is set: keep following it. Paging: page_size 0 => 20, max 50 (clamped);
+  /// page_token is sealed, bound to the caller, expires after 24 h (else VALIDATION "page_token").
+  /// FEATURE_LIST_FOLLOWS only.
+  $async.Future<ListFollowedListsResponse> listFollowedLists(
+          $pb.ClientContext? ctx, ListFollowedListsRequest request) =>
+      _client.invoke<ListFollowedListsResponse>(ctx, 'ListService',
+          'ListFollowedLists', request, ListFollowedListsResponse());
+
+  /// Popular public lists, most followed first (follower_count descending, then list id). Only public, not hidden lists
+  /// whose owner is ACTIVE and does not block the caller (either way) are returned; a page may be short while
+  /// next_page_token is set. Lists created before follower_count existed appear here only after their first follow or
+  /// a recount. Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller, expires after 24 h.
+  /// FEATURE_LIST_FOLLOWS only.
+  $async.Future<DiscoverListsResponse> discoverLists(
+          $pb.ClientContext? ctx, DiscoverListsRequest request) =>
+      _client.invoke<DiscoverListsResponse>(ctx, 'ListService', 'DiscoverLists',
+          request, DiscoverListsResponse());
+
+  /// Suggested members for one of the caller's lists (FEATURE_LIST_SUGGESTIONS). Owner only, else NOT_FOUND. Candidates are
+  /// the accounts the caller most recently followed (at most the 30 newest), minus current members and the caller; each must
+  /// pass the AddListMember rules (ACTIVE, no block either way, a protected account the caller follows). Most recently
+  /// followed first. max_results: 0 => 5, max 10 (clamped). There is no cursor: the list is always short (the
+  /// ListSuggestedUsers precedent). A list that is full at LIST_MAX_MEMBERS returns no suggestions.
+  $async.Future<ListSuggestedMembersResponse> listSuggestedMembers(
+          $pb.ClientContext? ctx, ListSuggestedMembersRequest request) =>
+      _client.invoke<ListSuggestedMembersResponse>(ctx, 'ListService',
+          'ListSuggestedMembers', request, ListSuggestedMembersResponse());
 }
 
 const $core.bool _omitFieldNames =

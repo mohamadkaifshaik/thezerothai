@@ -210,6 +210,21 @@ class UserListRow extends StatelessWidget {
                           ?.copyWith(color: theme.colorScheme.onSurfaceVariant)
                           .merge(handleStyle),
                     ),
+                    // The profile bio (the server's UserListItem.bio): one or
+                    // two lines, hidden when empty. Not in the design mocks.
+                    if (item.bio.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.xs / 2),
+                        child: Text(
+                          item.bio.trim(),
+                          key: const ValueKey('user-row-bio'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
                 // A caller's own [trailing] follows the same rule: it is measured

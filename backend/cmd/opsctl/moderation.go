@@ -56,6 +56,8 @@ var (
 // modArgs are the flag values the moderator commands use.
 type modArgs struct {
 	id, post, report, status, resolution, note string
+	// list is recount-list-follows' --list id.
+	list string
 	// fields is clear-profile-fields' --fields list (parsed by identity.ParseProfileFields).
 	fields string
 	limit  int

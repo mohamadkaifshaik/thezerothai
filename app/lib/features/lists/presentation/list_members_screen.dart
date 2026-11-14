@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -19,7 +20,9 @@ import '../../graph/presentation/widgets/paged_user_list.dart';
 import '../../graph/presentation/widgets/user_list_row.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/lists_repository.dart';
+import '../domain/lists_feature_flag.dart';
 import 'lists_error_messages.dart';
+import 'widgets/list_suggested_members_card.dart';
 import 'widgets/lists_page_chrome.dart';
 import 'widgets/list_unavailable_view.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
@@ -34,8 +37,13 @@ import '../../../shared/widgets/primitives/app_dialog.dart';
 ///   message if the call fails; one idempotency key per member, reused on a
 ///   retry.
 /// - The header names the List (from the header the detail screen holds) and
-///   one "Members · N" tab shows the count; the mocks' "Suggested" tab is not
-///   built (no RPC suggests members).
+///   one "Members · N" tab shows the count; the mocks' "Suggested" tab is a
+///   card instead: with `list_suggestions` on and the viewer owning the List,
+///   "Suggested members" (up to 10, `ListSuggestedMembers`) with an Add button
+///   each (`AddListMember`); an added person leaves the card and joins the top
+///   of Members. Flag off or not the owner: no card, no call. The owner is read
+///   from the header the detail screen holds; a deep link with none cached
+///   shows no card.
 /// - NOT_FOUND shows the same "This List is unavailable" as the detail;
 ///   FEATURE_DISABLED / UNIMPLEMENTED shows "not available yet".
 class ListMembersScreen extends StatefulWidget {
@@ -137,6 +145,7 @@ class _ListMembersScreenState extends State<ListMembersScreen> {
         viewerUserId != null &&
         _lists.header(widget.listId)?.owner.userId == viewerUserId;
     final phone = isListsPhone(context);
+    final suggestionsOn = isFeatureEnabled(context, kFeatureListSuggestions);
     return Scaffold(
       body: SafeArea(
         // The floating bar overlays the page: the scroll view runs behind it
@@ -160,16 +169,26 @@ class _ListMembersScreenState extends State<ListMembersScreen> {
                 ),
                 builder: (context, header) {
                   final list = header.data;
-                  return list == null
-                      ? const SizedBox.shrink()
-                      : AppTabBar(
-                          equalWidth: true,
-                          selectedIndex: 0,
-                          onChanged: (_) {},
-                          tabs: [
-                            AppTab(label: 'Members · ${list.memberCount}'),
-                          ],
-                        );
+                  if (list == null) return const SizedBox.shrink();
+                  final owner =
+                      viewerUserId != null && list.owner.userId == viewerUserId;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AppTabBar(
+                        equalWidth: true,
+                        selectedIndex: 0,
+                        onChanged: (_) {},
+                        tabs: [AppTab(label: 'Members · ${list.memberCount}')],
+                      ),
+                      if (suggestionsOn && owner)
+                        ListSuggestedMembersCard(
+                          listId: widget.listId,
+                          onAdded: _cubit.insertFirst,
+                        ),
+                    ],
+                  );
                 },
               ),
               Expanded(

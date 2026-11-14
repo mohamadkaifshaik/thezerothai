@@ -15,6 +15,7 @@ import '../../onboarding/domain/handle_rules.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../../settings/presentation/settings_up.dart';
+import '../../onboarding/presentation/widgets/handle_suggestion_chips.dart';
 import 'bloc/change_handle_cubit.dart';
 import 'profile_edit_error_messages.dart';
 import 'widgets/profile_edit_unavailable.dart';
@@ -39,6 +40,11 @@ class ChangeHandleScreen extends StatelessWidget {
         identityRepository: context.read<IdentityRepository>(),
         currentHandle: handle,
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+        suggestionsEnabled: context
+            .read<OnboardingBloc>()
+            .state
+            .enabledFeatures
+            .contains(kFeatureHandleSuggestions),
       ),
       child: _ChangeHandleView(currentHandle: handle),
     );
@@ -191,6 +197,17 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
                 onChanged: cubit.handleChanged,
                 onSubmitted: (_) {
                   if (state.canSave) _confirmAndSave(context, state.handle);
+                },
+              ),
+              // After a TAKEN answer (flag on): free handles near it.
+              HandleSuggestionChips(
+                handles: unavailable ? state.suggestions : const [],
+                onChosen: (handle) {
+                  _controller.value = TextEditingValue(
+                    text: handle,
+                    selection: TextSelection.collapsed(offset: handle.length),
+                  );
+                  cubit.handleChanged(handle);
                 },
               ),
             ],

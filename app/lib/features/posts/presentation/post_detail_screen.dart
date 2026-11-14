@@ -13,6 +13,7 @@ import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/post/post_card.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
+import '../../engagement/presentation/post_open_recorder.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -55,6 +56,7 @@ class PostDetailScreen extends StatelessWidget {
       create: (context) => PostDetailCubit(
         postsRepository: context.read<PostsRepository>(),
         postId: postId,
+        onOpened: postOpenRecorder(context),
       )..load(),
       child: const _PostDetailView(),
     );

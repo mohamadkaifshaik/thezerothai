@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:uuid/uuid.dart';
 
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
@@ -34,6 +35,9 @@ class ListMembersPage {
   final String nextPageToken;
   bool get hasMore => nextPageToken.isNotEmpty;
 }
+
+/// 1 page of [ListsRepository.listFollowedLists] / [ListsRepository.discoverLists].
+typedef ListFollowsPage = ListsPage;
 
 /// The only caller of `ListService`.
 ///
@@ -266,6 +270,134 @@ class ListsRepository {
         return page;
       }
       token = page.nextPageToken;
+    }
+  }
+
+  // ---- list follows and suggestions (flags `list_follows`, `list_suggestions`)
+  //
+  // These go around the `lists` gate's FEATURE_DISABLED memory: a server that
+  // has only these two flags off must not switch every other Lists RPC off
+  // until the next GetMe. The UI checks the flag first; a server
+  // FEATURE_DISABLED or UNIMPLEMENTED comes back as a
+  // [FeatureDisabledException] carrying the flag name.
+
+  static const _uuid = Uuid();
+
+  /// A fresh idempotency key (36 chars of [A-Za-z0-9-], within 16-64).
+  static String newIdempotencyKey() => _uuid.v4();
+
+  /// Follows a public List. Returns its header (count and
+  /// `followed_by_viewer` updated), also noted for the detail screen.
+  Future<pb.ListInfo> followList({
+    required String idempotencyKey,
+    required String listId,
+  }) async {
+    final epoch = _epoch.value;
+    final r = await _followCall(
+      () => _apiClient.lists.followList(
+        pb.FollowListRequest(idempotencyKey: idempotencyKey, listId: listId),
+      ),
+    );
+    return _seen(r.list, epoch);
+  }
+
+  /// Unfollows a List. The response is empty, so the new header is the last
+  /// one seen with the viewer's follow removed (count floored at 0); null
+  /// when none is known.
+  Future<pb.ListInfo?> unfollowList({
+    required String idempotencyKey,
+    required String listId,
+    pb.ListInfo? current,
+  }) async {
+    final epoch = _epoch.value;
+    await _followCall(
+      () => _apiClient.lists.unfollowList(
+        pb.UnfollowListRequest(idempotencyKey: idempotencyKey, listId: listId),
+      ),
+    );
+    final base = current ?? header(listId);
+    if (base == null) return null;
+    final next = base.deepCopy()
+      ..followedByViewer = false
+      ..followerCount = base.followerCount > 0 ? base.followerCount - 1 : 0;
+    return _seen(next, epoch);
+  }
+
+  Future<ListsPage> listFollowedLists({
+    int pageSize = kListFollowsPageSize,
+    String pageToken = '',
+  }) async {
+    final epoch = _epoch.value;
+    final r = await _followCall(
+      () => _apiClient.lists.listFollowedLists(
+        pb.ListFollowedListsRequest(pageSize: pageSize, pageToken: pageToken),
+      ),
+    );
+    for (final l in r.lists) {
+      _seen(l, epoch);
+    }
+    return ListsPage(lists: r.lists.toList(), nextPageToken: r.nextPageToken);
+  }
+
+  /// Public Lists, most followed first.
+  Future<ListsPage> discoverLists({
+    int pageSize = kListFollowsPageSize,
+    String pageToken = '',
+  }) async {
+    final epoch = _epoch.value;
+    final r = await _followCall(
+      () => _apiClient.lists.discoverLists(
+        pb.DiscoverListsRequest(pageSize: pageSize, pageToken: pageToken),
+      ),
+    );
+    for (final l in r.lists) {
+      _seen(l, epoch);
+    }
+    return ListsPage(lists: r.lists.toList(), nextPageToken: r.nextPageToken);
+  }
+
+  /// Up to [maxResults] people who may fit the List (owner only; the server
+  /// answers NOT_FOUND otherwise).
+  Future<List<graph_pb.UserListItem>> listSuggestedMembers({
+    required String listId,
+    int maxResults = kListSuggestionsMax,
+  }) async {
+    final r = await _followCall(
+      () => _apiClient.lists.listSuggestedMembers(
+        pb.ListSuggestedMembersRequest(listId: listId, maxResults: maxResults),
+      ),
+      feature: kFeatureListSuggestions,
+    );
+    return r.users.toList();
+  }
+
+  Future<T> _followCall<T>(
+    Future<T> Function() call, {
+    String feature = kFeatureListFollows,
+  }) async {
+    if (!_gate.enabled) {
+      throw const FeatureDisabledException(
+        "Lists aren't available yet.",
+        feature: kFeatureLists,
+      );
+    }
+    try {
+      return await guardApiCall(() async {
+        try {
+          return await call();
+        } on connect.ConnectException catch (error) {
+          if (error.code == connect.Code.unimplemented) {
+            throw FeatureDisabledException(
+              "This isn't available yet.",
+              feature: feature,
+            );
+          }
+          rethrow;
+        }
+      });
+    } on FeatureDisabledException catch (error) {
+      // Never remembered by the `lists` gate; name the flag that is off.
+      throw FeatureDisabledException(error.message, feature: feature);
     }
   }
 
