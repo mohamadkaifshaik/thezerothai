@@ -223,6 +223,7 @@ class _ReplyEditorState extends State<_ReplyEditor> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   PostCard(
+                                    indentBody: true,
                                     view: widget.parent,
                                     // Own posts are told apart (no "Ask to
                                     // join" on the viewer's own plan, the

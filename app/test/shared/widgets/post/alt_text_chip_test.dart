@@ -354,6 +354,9 @@ void main() {
         ),
       );
 
+      // The image spans the card's width, so the chip sits below the fold.
+      await tester.ensureVisible(chip);
+      await tester.pumpAndSettle();
       await tester.tap(chip);
       await tester.pumpAndSettle();
 

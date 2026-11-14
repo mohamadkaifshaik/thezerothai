@@ -148,15 +148,16 @@ void main() {
         Icons.favorite_border,
         Icons.ios_share,
       ].map((icon) => tester.getTopLeft(find.byIcon(icon)).dx).toList();
-      // Equal slots: Share takes the fourth, in the same left-aligned place.
+      // The counted actions take equal slots across the width; Share is
+      // grouped at the end in its own 40 dp box, its glyph flush right.
       final bar = tester.getRect(find.byType(PostActionBar));
-      final slot = bar.width / 4;
-      for (var i = 0; i < 4; i++) {
+      final slot = (bar.width - AppSpacing.endActionWidth) / 3;
+      for (var i = 0; i < 3; i++) {
         expect(lefts[i], closeTo(bar.left + i * slot, 1));
       }
       final share = tester.getRect(find.byIcon(Icons.ios_share));
+      expect(lefts[3], closeTo(bar.right - AppIconSize.action, 1));
       // 18 dp glyphs (dz.css `.acts`, R1 restyle; was 16).
-      expect(bar.right - share.right, closeTo(slot - AppIconSize.action, 1));
       expect(share.width, AppIconSize.action);
     });
 
@@ -201,18 +202,20 @@ void main() {
           ),
         ),
       );
-      // Like and Bookmark: two equal slots, Bookmark in the second (not flush
-      // right with a gap in between, as when it was right-aligned).
+      // Like takes the counted slot; Bookmark is grouped at the end.
       final bar = tester.getRect(find.byType(PostActionBar));
       final icon = tester.getRect(find.byIcon(Icons.bookmark_border));
-      expect(icon.left - bar.left, closeTo(bar.width / 2, 1));
+      expect(icon.left, closeTo(bar.right - AppIconSize.action, 1));
       expect(
         tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx,
         closeTo(bar.left, 1),
       );
       expect(icon.width, AppIconSize.action);
       final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
-      expect(off.rect.size.shortestSide, greaterThanOrEqualTo(48));
+      expect(
+        off.rect.size.shortestSide,
+        greaterThanOrEqualTo(AppSpacing.endActionWidth),
+      );
       await tester.tap(find.byIcon(Icons.bookmark_border));
       expect(taps, 1);
 
@@ -254,12 +257,14 @@ void main() {
       // The designs' order (R1 restyle; was Share, then Bookmark).
       expect(like.right, lessThan(bookmark.left));
       expect(bookmark.right, lessThan(share.left));
-      // Three equal slots (Like, Bookmark, Share), left-aligned in each.
+      // Like at the start; Bookmark and Share grouped at the end, 40 dp each.
       final bar = tester.getRect(find.byType(PostActionBar));
-      final slot = bar.width / 3;
       expect(like.left, closeTo(bar.left, 1));
-      expect(bookmark.left, closeTo(bar.left + slot, 1));
-      expect(share.left, closeTo(bar.left + 2 * slot, 1));
+      expect(
+        bookmark.left,
+        closeTo(bar.right - AppSpacing.endActionWidth - AppIconSize.action, 1),
+      );
+      expect(share.left, closeTo(bar.right - AppIconSize.action, 1));
     });
 
     testWidgets('liked and reposted use the like / repost colours and are '
@@ -330,7 +335,8 @@ void main() {
       )) {
         final size = tester.getSize(find.byWidget(target));
         expect(size.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
-        expect(size.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+        // Bookmark / Share at the row's end are 40 dp wide.
+        expect(size.width, greaterThanOrEqualTo(AppSpacing.endActionWidth));
       }
       handle.dispose();
     });

@@ -115,7 +115,14 @@ class PostMedia extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.cardSmall),
-        child: AspectRatio(aspectRatio: aspect, child: child),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: useFullImage
+                ? double.infinity
+                : AppSize.postMediaListMaxHeight,
+          ),
+          child: AspectRatio(aspectRatio: aspect, child: child),
+        ),
       ),
     );
 

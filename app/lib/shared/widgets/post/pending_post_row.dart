@@ -43,7 +43,7 @@ class PendingPostRow extends StatelessWidget {
     final snapshot = author ?? common.AuthorSnapshot();
     final created = createdAt;
     // Under the post body, on the reading side in RTL as well.
-    final bodyStart = postCardGutterOf(context) + kPostBodyStart;
+    final bodyStart = postCardGutterOf(context) + kPostAvatarInset;
     final row = Opacity(
       opacity: 0.6,
       child: Column(

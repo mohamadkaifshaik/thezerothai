@@ -235,40 +235,51 @@ void main() {
     expect(outline(), findsOneWidget);
     expect(find.byIcon(Icons.ios_share), findsNothing);
 
-    // Reply, Repost, Like, Bookmark: four equal slots, left-aligned in each.
+    // Reply, Repost, Like: three equal slots, left-aligned in each;
+    // Bookmark is grouped at the end, in its own 40 dp box.
     final row = tester.getRect(find.byType(PostEngagementBar));
-    final slot = row.width / 4;
+    final slot = (row.width - AppSpacing.endActionWidth) / 3;
     final like = tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx;
     final bookmark = tester.getTopLeft(outline()).dx;
     expect(like, closeTo(row.left + 2 * slot, 1));
-    expect(bookmark, closeTo(row.left + 3 * slot, 1));
+    expect(bookmark, closeTo(row.right - AppIconSize.action, 1));
     // dz.css `.acts` glyph (R1 restyle; was 16).
     expect(tester.getSize(outline()), const Size.square(AppIconSize.action));
   });
 
-  testWidgets('semantics: "Bookmark", a 48dp button; "Bookmarked" is selected '
-      'and accent', (tester) async {
-    final handle = tester.ensureSemantics();
-    await pump(tester, _view());
+  testWidgets(
+    'semantics: "Bookmark", a 48 x 40 dp button; "Bookmarked" is selected '
+    'and accent',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      await pump(tester, _view());
 
-    final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
-    expect(off.flagsCollection.isButton, isTrue);
-    expect(off.flagsCollection.isSelected, Tristate.isFalse);
-    expect(off.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
-    expect(off.rect.size.shortestSide, greaterThanOrEqualTo(48));
-    expect(
-      tester.widget<Icon>(outline()).color,
-      isNot(appDarkTheme.colorScheme.primary),
-    );
+      final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
+      expect(off.flagsCollection.isButton, isTrue);
+      expect(off.flagsCollection.isSelected, Tristate.isFalse);
+      expect(off.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      // 48 tall, 40 wide (the row's end boxes, AppSpacing.endActionWidth).
+      expect(
+        off.rect.size.shortestSide,
+        greaterThanOrEqualTo(AppSpacing.endActionWidth),
+      );
+      expect(
+        tester.widget<Icon>(outline()).color,
+        isNot(appDarkTheme.colorScheme.primary),
+      );
 
-    await tester.pumpWidget(const SizedBox());
-    await pump(tester, _view(), serverState: true);
-    final on = tester.getSemantics(find.bySemanticsLabel('Bookmarked'));
-    expect(on.flagsCollection.isSelected, Tristate.isTrue);
-    expect(on.rect.size.shortestSide, greaterThanOrEqualTo(48));
-    expect(tester.widget<Icon>(filled()).color, AppPalette.tealElectric);
-    handle.dispose();
-  });
+      await tester.pumpWidget(const SizedBox());
+      await pump(tester, _view(), serverState: true);
+      final on = tester.getSemantics(find.bySemanticsLabel('Bookmarked'));
+      expect(on.flagsCollection.isSelected, Tristate.isTrue);
+      expect(
+        on.rect.size.shortestSide,
+        greaterThanOrEqualTo(AppSpacing.endActionWidth),
+      );
+      expect(tester.widget<Icon>(filled()).color, AppPalette.tealElectric);
+      handle.dispose();
+    },
+  );
 
   testWidgets('tap is optimistic, sends one AddBookmark, then toasts '
       '"Added to Bookmarks" with no View action while /bookmarks does '
@@ -544,7 +555,7 @@ void main() {
         for (final scale in const [1.0, 1.3, 2.0]) {
           testWidgets(
             '${dark ? 'dark' : 'light'} ${width.toInt()}dp x$scale: five slots '
-            'inside the row, no overflow, 48dp target',
+            'inside the row, no overflow, 48 x 40 dp target',
             (tester) async {
               tester.view.physicalSize = Size(width, 900);
               tester.view.devicePixelRatio = 1;
@@ -579,7 +590,10 @@ void main() {
               final target = tester.getSemantics(
                 find.bySemanticsLabel('Bookmarked'),
               );
-              expect(target.rect.size.shortestSide, greaterThanOrEqualTo(48));
+              expect(
+                target.rect.size.shortestSide,
+                greaterThanOrEqualTo(AppSpacing.endActionWidth),
+              );
               expect(
                 tester.widget<Icon>(filled()).color,
                 dark ? AppPalette.tealElectric : AppPalette.tealText,

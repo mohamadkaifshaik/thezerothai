@@ -31,6 +31,7 @@ class _ContextPost extends StatelessWidget {
               connectBefore: connectBefore,
               connectAfter: connectAfter,
               child: PostCard(
+                indentBody: connectBefore || connectAfter,
                 view: view,
                 viewerUserId: viewerUserId,
                 graphActionsEnabled: graphEnabled,
@@ -70,9 +71,13 @@ class _Tombstone extends StatelessWidget {
 
 /// "Replying to @handle" above a post, aligned with the content column.
 class _ReplyingTo extends StatelessWidget {
-  const _ReplyingTo({required this.handle});
+  const _ReplyingTo({required this.handle, this.indented = true});
 
   final String handle;
+
+  /// Under the body column (a row with a thread rail); false: under the
+  /// avatar circle's left edge, where an un-railed card's body starts.
+  final bool indented;
 
   @override
   Widget build(BuildContext context) {
@@ -81,7 +86,7 @@ class _ReplyingTo extends StatelessWidget {
     return Padding(
       // Where the post body starts (the card's gutter, avatar column and gap).
       padding: EdgeInsetsDirectional.fromSTEB(
-        gutter + kPostBodyStart,
+        gutter + (indented ? kPostBodyStart : kPostAvatarInset),
         AppSpacing.sm,
         gutter,
         0,

@@ -152,9 +152,16 @@ class PostCard extends StatelessWidget {
     this.moderationControl,
     this.focal = false,
     this.onReply,
+    this.indentBody = false,
   });
 
   final pb.PostView view;
+
+  /// Keep the body (text, media, embeds, actions) in a column to the right of
+  /// the avatar, so a thread rail can run down the avatar column. Only rows
+  /// that draw one ([ConversationRow] with a connector) pass true; every other
+  /// list card puts the body under the avatar, on the card's full width.
+  final bool indentBody;
 
   /// The opened post of a thread, laid out like X's post page (captured
   /// 2026-11-02): name over handle beside the avatar (no relative time), text
@@ -670,24 +677,50 @@ class PostCard extends StatelessWidget {
         ],
       );
     } else {
-      row = Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          avatar,
-          const SizedBox(width: kPostAvatarGap),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      // The bar's 48dp boxes already leave 16dp above its glyphs.
+      final tail = bar ?? const SizedBox(height: AppSpacing.xs);
+      if (indentBody) {
+        row = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            avatar,
+            const SizedBox(width: kPostAvatarGap),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [header, ...content, tail],
+              ),
+            ),
+          ],
+        );
+      } else {
+        // The avatar and the author line (name, handle, time, menu) share the
+        // first row, centred on the avatar's 48 dp box (the name line has the
+        // same 48 dp tap height, so they line up with no offset). Everything
+        // below starts under the avatar circle's left edge and spans the
+        // card's full width.
+        row = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                header,
-                ...content,
-                // The bar's 48dp boxes already leave 16dp above its glyphs.
-                if (bar != null) bar else const SizedBox(height: AppSpacing.xs),
+                avatar,
+                const SizedBox(width: kPostAvatarGap),
+                Expanded(child: header),
               ],
             ),
-          ),
-        ],
-      );
+            Padding(
+              padding: const EdgeInsetsDirectional.only(
+                start: kPostAvatarInset,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [...content, tail],
+              ),
+            ),
+          ],
+        );
+      }
     }
 
     // One context row: the repost label wins over the community label.
@@ -840,7 +873,7 @@ class _RepostPlaceholder extends StatelessWidget {
             trailing: menu,
           ),
           Padding(
-            padding: const EdgeInsetsDirectional.only(start: kPostBodyStart),
+            padding: const EdgeInsetsDirectional.only(start: kPostAvatarInset),
             child: placeholder == EmbedPlaceholder.protected
                 ? ProtectedPostBox(
                     author: original,

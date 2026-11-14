@@ -24,10 +24,23 @@ int? shownViewCount(BuildContext context, pb.Post post) {
   return post.viewCount.toInt();
 }
 
-/// A read-only "eye + 1.2K" stat. Not a button: no tap target, so it takes
+/// The glyph of the views stat (a bar chart, as for impressions elsewhere).
+/// One line to swap; the owner's alternatives were
+/// `Icons.signal_cellular_alt_rounded` and `Icons.insights_rounded`.
+const IconData kPostViewsIcon = Icons.bar_chart_rounded;
+
+/// A read-only "bars + 1.2K" stat. Not a button: no tap target, so it takes
 /// only the room of its text and the action row around it keeps its layout.
 class PostViewsStat extends StatelessWidget {
-  const PostViewsStat({super.key, required this.count, this.iconSize});
+  const PostViewsStat({
+    super.key,
+    required this.count,
+    this.iconSize,
+    this.icon = kPostViewsIcon,
+  });
+
+  /// The glyph; [kPostViewsIcon] unless a comparison asks for another.
+  final IconData icon;
 
   final int count;
 
@@ -44,12 +57,8 @@ class PostViewsStat extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.visibility_outlined,
-            size: iconSize ?? AppIconSize.action,
-            color: color,
-          ),
-          const SizedBox(width: AppSpacing.xs),
+          Icon(icon, size: iconSize ?? AppIconSize.action, color: color),
+          const SizedBox(width: AppSpacing.actionGap),
           Flexible(
             child: Text(
               formatCompactCount(count),

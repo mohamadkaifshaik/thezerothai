@@ -14,6 +14,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/shared/widgets/post/post_views_stat.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -134,7 +135,7 @@ void main() {
   PostCard card(pb.PostView view, {bool focal = false}) =>
       PostCard(view: view, now: _now, engagementEnabled: true, focal: focal);
 
-  final eye = find.byIcon(Icons.visibility_outlined);
+  final eye = find.byIcon(kPostViewsIcon);
   final on = {'engagement', 'post_views'};
 
   group('list card', () {

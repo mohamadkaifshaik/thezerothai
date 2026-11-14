@@ -486,6 +486,7 @@ class _ThreadList extends StatelessWidget {
                                     focal.post.replyToPostId,
                             connectAfter: tail.isNotEmpty,
                             child: PostCard(
+                              indentBody: true,
                               view: focal,
                               focal: !selfThread,
                               viewerUserId: viewerUserId,
@@ -512,6 +513,7 @@ class _ThreadList extends StatelessWidget {
                             connectBefore: true,
                             connectAfter: i + 1 < tail.length,
                             child: PostCard(
+                              indentBody: true,
                               view: view,
                               viewerUserId: viewerUserId,
                               graphActionsEnabled: graphEnabled,
@@ -557,7 +559,10 @@ class _ThreadList extends StatelessWidget {
                         if (!before &&
                             view.post.replyToPostId != focal.post.postId &&
                             view.post.replyToHandle.isNotEmpty)
-                          _ReplyingTo(handle: view.post.replyToHandle),
+                          _ReplyingTo(
+                            handle: view.post.replyToHandle,
+                            indented: after,
+                          ),
                         InkWell(
                           onTap: () => context.push(
                             AppRouter.postPath(view.post.postId),
@@ -566,6 +571,7 @@ class _ThreadList extends StatelessWidget {
                             connectBefore: before,
                             connectAfter: after,
                             child: PostCard(
+                              indentBody: before || after,
                               view: view,
                               viewerUserId: viewerUserId,
                               graphActionsEnabled: graphEnabled,

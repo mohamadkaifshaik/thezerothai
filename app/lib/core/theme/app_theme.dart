@@ -26,6 +26,13 @@ abstract final class AppSpacing {
   /// Minimum interactive target size for accessibility (48dp rule).
   static const double minTapTarget = 48;
 
+  /// Width of the Bookmark and Share boxes that end a list card's action row
+  /// (their height stays 48): six actions still breathe on a 360 dp card.
+  static const double endActionWidth = 40;
+
+  /// Between a post action's glyph and its count.
+  static const double actionGap = 6;
+
   /// Minimum width of a short filled action button (an app-bar "Save").
   static const double minButtonWidth = 72;
 
@@ -132,6 +139,11 @@ abstract final class AppBreakpoints {
 /// Sizes of the shared chrome (dp), measured on x.com 2026-10-22 and divided
 /// by the verified 1.25 display scale.
 abstract final class AppSize {
+  /// The tallest a list card's media frame grows: now that media spans the
+  /// card's full width, a portrait picture on a wide column stays this tall
+  /// at most (the opened post shows full images).
+  static const double postMediaListMaxHeight = 560;
+
   /// One row of a header: the top bar row, and the tab row below it.
   static const double headerRow = 53;
 
