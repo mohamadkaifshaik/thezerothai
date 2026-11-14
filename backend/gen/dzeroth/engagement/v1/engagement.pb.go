@@ -9,7 +9,8 @@
 // Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and bookmarks at
 // users/{uid}/bookmarks/{postId}, pollVotes/{postId}_{uid}, and postShares/{postId}_{uid} (one marker per account that
 // shared a post, behind Post.share_count; written by RecordPostShare and by messaging's post share through an
-// engagement seam). The counters (likeCount,
+// engagement seam), and users/{uid}/impressions/{postId}_{yyyymmdd} (one per viewer, post and IST day, behind
+// Post.view_count; TTL expireAt 48 h; written by RecordImpressions). The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
 // no extra query; a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
@@ -160,6 +161,97 @@ func (x *RecordPostShareRequest) GetChannel() ShareChannel {
 	return ShareChannel_SHARE_CHANNEL_UNSPECIFIED
 }
 
+type RecordImpressionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; the (caller, post, IST day) impression is the record.
+	IdempotencyKey string `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	// The posts the caller saw, 1 to 50 (duplicates merged); a REPOST id counts its original.
+	PostIds       []string `protobuf:"bytes,2,rep,name=post_ids,json=postIds,proto3" json:"post_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordImpressionsRequest) Reset() {
+	*x = RecordImpressionsRequest{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordImpressionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordImpressionsRequest) ProtoMessage() {}
+
+func (x *RecordImpressionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordImpressionsRequest.ProtoReflect.Descriptor instead.
+func (*RecordImpressionsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *RecordImpressionsRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *RecordImpressionsRequest) GetPostIds() []string {
+	if x != nil {
+		return x.PostIds
+	}
+	return nil
+}
+
+// Empty on purpose: the answer never depends on what each id was (RecordImpressions).
+type RecordImpressionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordImpressionsResponse) Reset() {
+	*x = RecordImpressionsResponse{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordImpressionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordImpressionsResponse) ProtoMessage() {}
+
+func (x *RecordImpressionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordImpressionsResponse.ProtoReflect.Descriptor instead.
+func (*RecordImpressionsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{2}
+}
+
 type RecordPostShareResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The post (the original for a REPOST id) as the caller now sees it, share_count included. counted is true only
@@ -172,7 +264,7 @@ type RecordPostShareResponse struct {
 
 func (x *RecordPostShareResponse) Reset() {
 	*x = RecordPostShareResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[1]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -184,7 +276,7 @@ func (x *RecordPostShareResponse) String() string {
 func (*RecordPostShareResponse) ProtoMessage() {}
 
 func (x *RecordPostShareResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[1]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -197,7 +289,7 @@ func (x *RecordPostShareResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordPostShareResponse.ProtoReflect.Descriptor instead.
 func (*RecordPostShareResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{1}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RecordPostShareResponse) GetEngagement() *PostEngagement {
@@ -233,7 +325,7 @@ type PostEngagement struct {
 
 func (x *PostEngagement) Reset() {
 	*x = PostEngagement{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[2]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -245,7 +337,7 @@ func (x *PostEngagement) String() string {
 func (*PostEngagement) ProtoMessage() {}
 
 func (x *PostEngagement) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[2]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -258,7 +350,7 @@ func (x *PostEngagement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PostEngagement.ProtoReflect.Descriptor instead.
 func (*PostEngagement) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{2}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PostEngagement) GetPostId() string {
@@ -313,7 +405,7 @@ type LikePostRequest struct {
 
 func (x *LikePostRequest) Reset() {
 	*x = LikePostRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[3]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -325,7 +417,7 @@ func (x *LikePostRequest) String() string {
 func (*LikePostRequest) ProtoMessage() {}
 
 func (x *LikePostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[3]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -338,7 +430,7 @@ func (x *LikePostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LikePostRequest.ProtoReflect.Descriptor instead.
 func (*LikePostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{3}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *LikePostRequest) GetIdempotencyKey() string {
@@ -364,7 +456,7 @@ type LikePostResponse struct {
 
 func (x *LikePostResponse) Reset() {
 	*x = LikePostResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[4]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -376,7 +468,7 @@ func (x *LikePostResponse) String() string {
 func (*LikePostResponse) ProtoMessage() {}
 
 func (x *LikePostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[4]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -389,7 +481,7 @@ func (x *LikePostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LikePostResponse.ProtoReflect.Descriptor instead.
 func (*LikePostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{4}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *LikePostResponse) GetEngagement() *PostEngagement {
@@ -409,7 +501,7 @@ type UnlikePostRequest struct {
 
 func (x *UnlikePostRequest) Reset() {
 	*x = UnlikePostRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[5]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -421,7 +513,7 @@ func (x *UnlikePostRequest) String() string {
 func (*UnlikePostRequest) ProtoMessage() {}
 
 func (x *UnlikePostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[5]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -434,7 +526,7 @@ func (x *UnlikePostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnlikePostRequest.ProtoReflect.Descriptor instead.
 func (*UnlikePostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{5}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *UnlikePostRequest) GetIdempotencyKey() string {
@@ -460,7 +552,7 @@ type UnlikePostResponse struct {
 
 func (x *UnlikePostResponse) Reset() {
 	*x = UnlikePostResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[6]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -472,7 +564,7 @@ func (x *UnlikePostResponse) String() string {
 func (*UnlikePostResponse) ProtoMessage() {}
 
 func (x *UnlikePostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[6]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -485,7 +577,7 @@ func (x *UnlikePostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnlikePostResponse.ProtoReflect.Descriptor instead.
 func (*UnlikePostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{6}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UnlikePostResponse) GetEngagement() *PostEngagement {
@@ -505,7 +597,7 @@ type RepostPostRequest struct {
 
 func (x *RepostPostRequest) Reset() {
 	*x = RepostPostRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[7]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -517,7 +609,7 @@ func (x *RepostPostRequest) String() string {
 func (*RepostPostRequest) ProtoMessage() {}
 
 func (x *RepostPostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[7]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -530,7 +622,7 @@ func (x *RepostPostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RepostPostRequest.ProtoReflect.Descriptor instead.
 func (*RepostPostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{7}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RepostPostRequest) GetIdempotencyKey() string {
@@ -559,7 +651,7 @@ type RepostPostResponse struct {
 
 func (x *RepostPostResponse) Reset() {
 	*x = RepostPostResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[8]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -571,7 +663,7 @@ func (x *RepostPostResponse) String() string {
 func (*RepostPostResponse) ProtoMessage() {}
 
 func (x *RepostPostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[8]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -584,7 +676,7 @@ func (x *RepostPostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RepostPostResponse.ProtoReflect.Descriptor instead.
 func (*RepostPostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{8}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RepostPostResponse) GetEngagement() *PostEngagement {
@@ -611,7 +703,7 @@ type UndoRepostRequest struct {
 
 func (x *UndoRepostRequest) Reset() {
 	*x = UndoRepostRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[9]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -623,7 +715,7 @@ func (x *UndoRepostRequest) String() string {
 func (*UndoRepostRequest) ProtoMessage() {}
 
 func (x *UndoRepostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[9]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -636,7 +728,7 @@ func (x *UndoRepostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UndoRepostRequest.ProtoReflect.Descriptor instead.
 func (*UndoRepostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{9}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UndoRepostRequest) GetIdempotencyKey() string {
@@ -662,7 +754,7 @@ type UndoRepostResponse struct {
 
 func (x *UndoRepostResponse) Reset() {
 	*x = UndoRepostResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[10]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -674,7 +766,7 @@ func (x *UndoRepostResponse) String() string {
 func (*UndoRepostResponse) ProtoMessage() {}
 
 func (x *UndoRepostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[10]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -687,7 +779,7 @@ func (x *UndoRepostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UndoRepostResponse.ProtoReflect.Descriptor instead.
 func (*UndoRepostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{10}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UndoRepostResponse) GetEngagement() *PostEngagement {
@@ -710,7 +802,7 @@ type BookmarkState struct {
 
 func (x *BookmarkState) Reset() {
 	*x = BookmarkState{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[11]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -722,7 +814,7 @@ func (x *BookmarkState) String() string {
 func (*BookmarkState) ProtoMessage() {}
 
 func (x *BookmarkState) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[11]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -735,7 +827,7 @@ func (x *BookmarkState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BookmarkState.ProtoReflect.Descriptor instead.
 func (*BookmarkState) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{11}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BookmarkState) GetPostId() string {
@@ -762,7 +854,7 @@ type AddBookmarkRequest struct {
 
 func (x *AddBookmarkRequest) Reset() {
 	*x = AddBookmarkRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[12]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +866,7 @@ func (x *AddBookmarkRequest) String() string {
 func (*AddBookmarkRequest) ProtoMessage() {}
 
 func (x *AddBookmarkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[12]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +879,7 @@ func (x *AddBookmarkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddBookmarkRequest.ProtoReflect.Descriptor instead.
 func (*AddBookmarkRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{12}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AddBookmarkRequest) GetIdempotencyKey() string {
@@ -813,7 +905,7 @@ type AddBookmarkResponse struct {
 
 func (x *AddBookmarkResponse) Reset() {
 	*x = AddBookmarkResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[13]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -825,7 +917,7 @@ func (x *AddBookmarkResponse) String() string {
 func (*AddBookmarkResponse) ProtoMessage() {}
 
 func (x *AddBookmarkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[13]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -838,7 +930,7 @@ func (x *AddBookmarkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddBookmarkResponse.ProtoReflect.Descriptor instead.
 func (*AddBookmarkResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{13}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AddBookmarkResponse) GetState() *BookmarkState {
@@ -859,7 +951,7 @@ type RemoveBookmarkRequest struct {
 
 func (x *RemoveBookmarkRequest) Reset() {
 	*x = RemoveBookmarkRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[14]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +963,7 @@ func (x *RemoveBookmarkRequest) String() string {
 func (*RemoveBookmarkRequest) ProtoMessage() {}
 
 func (x *RemoveBookmarkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[14]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +976,7 @@ func (x *RemoveBookmarkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveBookmarkRequest.ProtoReflect.Descriptor instead.
 func (*RemoveBookmarkRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{14}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RemoveBookmarkRequest) GetIdempotencyKey() string {
@@ -910,7 +1002,7 @@ type RemoveBookmarkResponse struct {
 
 func (x *RemoveBookmarkResponse) Reset() {
 	*x = RemoveBookmarkResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[15]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -922,7 +1014,7 @@ func (x *RemoveBookmarkResponse) String() string {
 func (*RemoveBookmarkResponse) ProtoMessage() {}
 
 func (x *RemoveBookmarkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[15]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -935,7 +1027,7 @@ func (x *RemoveBookmarkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveBookmarkResponse.ProtoReflect.Descriptor instead.
 func (*RemoveBookmarkResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{15}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RemoveBookmarkResponse) GetState() *BookmarkState {
@@ -957,7 +1049,7 @@ type ListBookmarksRequest struct {
 
 func (x *ListBookmarksRequest) Reset() {
 	*x = ListBookmarksRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[16]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -969,7 +1061,7 @@ func (x *ListBookmarksRequest) String() string {
 func (*ListBookmarksRequest) ProtoMessage() {}
 
 func (x *ListBookmarksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[16]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -982,7 +1074,7 @@ func (x *ListBookmarksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBookmarksRequest.ProtoReflect.Descriptor instead.
 func (*ListBookmarksRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{16}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListBookmarksRequest) GetPageSize() int32 {
@@ -1012,7 +1104,7 @@ type Bookmark struct {
 
 func (x *Bookmark) Reset() {
 	*x = Bookmark{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[17]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1024,7 +1116,7 @@ func (x *Bookmark) String() string {
 func (*Bookmark) ProtoMessage() {}
 
 func (x *Bookmark) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[17]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1037,7 +1129,7 @@ func (x *Bookmark) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Bookmark.ProtoReflect.Descriptor instead.
 func (*Bookmark) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{17}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Bookmark) GetPost() *v1.PostView {
@@ -1066,7 +1158,7 @@ type ListBookmarksResponse struct {
 
 func (x *ListBookmarksResponse) Reset() {
 	*x = ListBookmarksResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[18]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1078,7 +1170,7 @@ func (x *ListBookmarksResponse) String() string {
 func (*ListBookmarksResponse) ProtoMessage() {}
 
 func (x *ListBookmarksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[18]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1091,7 +1183,7 @@ func (x *ListBookmarksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBookmarksResponse.ProtoReflect.Descriptor instead.
 func (*ListBookmarksResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{18}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListBookmarksResponse) GetBookmarks() []*Bookmark {
@@ -1120,7 +1212,7 @@ type ListLikedPostsRequest struct {
 
 func (x *ListLikedPostsRequest) Reset() {
 	*x = ListLikedPostsRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[19]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1132,7 +1224,7 @@ func (x *ListLikedPostsRequest) String() string {
 func (*ListLikedPostsRequest) ProtoMessage() {}
 
 func (x *ListLikedPostsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[19]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1145,7 +1237,7 @@ func (x *ListLikedPostsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLikedPostsRequest.ProtoReflect.Descriptor instead.
 func (*ListLikedPostsRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{19}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListLikedPostsRequest) GetPageSize() int32 {
@@ -1175,7 +1267,7 @@ type ListLikedPostsResponse struct {
 
 func (x *ListLikedPostsResponse) Reset() {
 	*x = ListLikedPostsResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[20]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1187,7 +1279,7 @@ func (x *ListLikedPostsResponse) String() string {
 func (*ListLikedPostsResponse) ProtoMessage() {}
 
 func (x *ListLikedPostsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[20]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1200,7 +1292,7 @@ func (x *ListLikedPostsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLikedPostsResponse.ProtoReflect.Descriptor instead.
 func (*ListLikedPostsResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{20}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ListLikedPostsResponse) GetPosts() []*v1.PostView {
@@ -1237,7 +1329,7 @@ type VotePollRequest struct {
 
 func (x *VotePollRequest) Reset() {
 	*x = VotePollRequest{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[21]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1249,7 +1341,7 @@ func (x *VotePollRequest) String() string {
 func (*VotePollRequest) ProtoMessage() {}
 
 func (x *VotePollRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[21]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1262,7 +1354,7 @@ func (x *VotePollRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VotePollRequest.ProtoReflect.Descriptor instead.
 func (*VotePollRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{21}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *VotePollRequest) GetIdempotencyKey() string {
@@ -1304,7 +1396,7 @@ type VotePollResponse struct {
 
 func (x *VotePollResponse) Reset() {
 	*x = VotePollResponse{}
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[22]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1316,7 +1408,7 @@ func (x *VotePollResponse) String() string {
 func (*VotePollResponse) ProtoMessage() {}
 
 func (x *VotePollResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[22]
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1329,7 +1421,7 @@ func (x *VotePollResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VotePollResponse.ProtoReflect.Descriptor instead.
 func (*VotePollResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{22}
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *VotePollResponse) GetPost() *v1.PostView {
@@ -1347,7 +1439,11 @@ const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"\x16RecordPostShareRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
 	"\apost_id\x18\x02 \x01(\tR\x06postId\x12=\n" +
-	"\achannel\x18\x03 \x01(\x0e2#.dzeroth.engagement.v1.ShareChannelR\achannel\"z\n" +
+	"\achannel\x18\x03 \x01(\x0e2#.dzeroth.engagement.v1.ShareChannelR\achannel\"^\n" +
+	"\x18RecordImpressionsRequest\x12'\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x19\n" +
+	"\bpost_ids\x18\x02 \x03(\tR\apostIds\"\x1b\n" +
+	"\x19RecordImpressionsResponse\"z\n" +
 	"\x17RecordPostShareResponse\x12E\n" +
 	"\n" +
 	"engagement\x18\x01 \x01(\v2%.dzeroth.engagement.v1.PostEngagementR\n" +
@@ -1433,7 +1529,7 @@ const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"\fShareChannel\x12\x1d\n" +
 	"\x19SHARE_CHANNEL_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17SHARE_CHANNEL_COPY_LINK\x10\x01\x12\x1d\n" +
-	"\x19SHARE_CHANNEL_SHARE_SHEET\x10\x022\xa2\b\n" +
+	"\x19SHARE_CHANNEL_SHARE_SHEET\x10\x022\x9a\t\n" +
 	"\x11EngagementService\x12[\n" +
 	"\bLikePost\x12&.dzeroth.engagement.v1.LikePostRequest\x1a'.dzeroth.engagement.v1.LikePostResponse\x12a\n" +
 	"\n" +
@@ -1447,7 +1543,8 @@ const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"\rListBookmarks\x12+.dzeroth.engagement.v1.ListBookmarksRequest\x1a,.dzeroth.engagement.v1.ListBookmarksResponse\"\x03\x90\x02\x01\x12r\n" +
 	"\x0eListLikedPosts\x12,.dzeroth.engagement.v1.ListLikedPostsRequest\x1a-.dzeroth.engagement.v1.ListLikedPostsResponse\"\x03\x90\x02\x01\x12[\n" +
 	"\bVotePoll\x12&.dzeroth.engagement.v1.VotePollRequest\x1a'.dzeroth.engagement.v1.VotePollResponse\x12p\n" +
-	"\x0fRecordPostShare\x12-.dzeroth.engagement.v1.RecordPostShareRequest\x1a..dzeroth.engagement.v1.RecordPostShareResponseBKZIgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1;engagementv1b\x06proto3"
+	"\x0fRecordPostShare\x12-.dzeroth.engagement.v1.RecordPostShareRequest\x1a..dzeroth.engagement.v1.RecordPostShareResponse\x12v\n" +
+	"\x11RecordImpressions\x12/.dzeroth.engagement.v1.RecordImpressionsRequest\x1a0.dzeroth.engagement.v1.RecordImpressionsResponseBKZIgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1;engagementv1b\x06proto3"
 
 var (
 	file_dzeroth_engagement_v1_engagement_proto_rawDescOnce sync.Once
@@ -1462,71 +1559,75 @@ func file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_engagement_v1_engagement_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_dzeroth_engagement_v1_engagement_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_dzeroth_engagement_v1_engagement_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_dzeroth_engagement_v1_engagement_proto_goTypes = []any{
-	(ShareChannel)(0),               // 0: dzeroth.engagement.v1.ShareChannel
-	(*RecordPostShareRequest)(nil),  // 1: dzeroth.engagement.v1.RecordPostShareRequest
-	(*RecordPostShareResponse)(nil), // 2: dzeroth.engagement.v1.RecordPostShareResponse
-	(*PostEngagement)(nil),          // 3: dzeroth.engagement.v1.PostEngagement
-	(*LikePostRequest)(nil),         // 4: dzeroth.engagement.v1.LikePostRequest
-	(*LikePostResponse)(nil),        // 5: dzeroth.engagement.v1.LikePostResponse
-	(*UnlikePostRequest)(nil),       // 6: dzeroth.engagement.v1.UnlikePostRequest
-	(*UnlikePostResponse)(nil),      // 7: dzeroth.engagement.v1.UnlikePostResponse
-	(*RepostPostRequest)(nil),       // 8: dzeroth.engagement.v1.RepostPostRequest
-	(*RepostPostResponse)(nil),      // 9: dzeroth.engagement.v1.RepostPostResponse
-	(*UndoRepostRequest)(nil),       // 10: dzeroth.engagement.v1.UndoRepostRequest
-	(*UndoRepostResponse)(nil),      // 11: dzeroth.engagement.v1.UndoRepostResponse
-	(*BookmarkState)(nil),           // 12: dzeroth.engagement.v1.BookmarkState
-	(*AddBookmarkRequest)(nil),      // 13: dzeroth.engagement.v1.AddBookmarkRequest
-	(*AddBookmarkResponse)(nil),     // 14: dzeroth.engagement.v1.AddBookmarkResponse
-	(*RemoveBookmarkRequest)(nil),   // 15: dzeroth.engagement.v1.RemoveBookmarkRequest
-	(*RemoveBookmarkResponse)(nil),  // 16: dzeroth.engagement.v1.RemoveBookmarkResponse
-	(*ListBookmarksRequest)(nil),    // 17: dzeroth.engagement.v1.ListBookmarksRequest
-	(*Bookmark)(nil),                // 18: dzeroth.engagement.v1.Bookmark
-	(*ListBookmarksResponse)(nil),   // 19: dzeroth.engagement.v1.ListBookmarksResponse
-	(*ListLikedPostsRequest)(nil),   // 20: dzeroth.engagement.v1.ListLikedPostsRequest
-	(*ListLikedPostsResponse)(nil),  // 21: dzeroth.engagement.v1.ListLikedPostsResponse
-	(*VotePollRequest)(nil),         // 22: dzeroth.engagement.v1.VotePollRequest
-	(*VotePollResponse)(nil),        // 23: dzeroth.engagement.v1.VotePollResponse
-	(*v1.PostView)(nil),             // 24: dzeroth.posts.v1.PostView
-	(*timestamppb.Timestamp)(nil),   // 25: google.protobuf.Timestamp
+	(ShareChannel)(0),                 // 0: dzeroth.engagement.v1.ShareChannel
+	(*RecordPostShareRequest)(nil),    // 1: dzeroth.engagement.v1.RecordPostShareRequest
+	(*RecordImpressionsRequest)(nil),  // 2: dzeroth.engagement.v1.RecordImpressionsRequest
+	(*RecordImpressionsResponse)(nil), // 3: dzeroth.engagement.v1.RecordImpressionsResponse
+	(*RecordPostShareResponse)(nil),   // 4: dzeroth.engagement.v1.RecordPostShareResponse
+	(*PostEngagement)(nil),            // 5: dzeroth.engagement.v1.PostEngagement
+	(*LikePostRequest)(nil),           // 6: dzeroth.engagement.v1.LikePostRequest
+	(*LikePostResponse)(nil),          // 7: dzeroth.engagement.v1.LikePostResponse
+	(*UnlikePostRequest)(nil),         // 8: dzeroth.engagement.v1.UnlikePostRequest
+	(*UnlikePostResponse)(nil),        // 9: dzeroth.engagement.v1.UnlikePostResponse
+	(*RepostPostRequest)(nil),         // 10: dzeroth.engagement.v1.RepostPostRequest
+	(*RepostPostResponse)(nil),        // 11: dzeroth.engagement.v1.RepostPostResponse
+	(*UndoRepostRequest)(nil),         // 12: dzeroth.engagement.v1.UndoRepostRequest
+	(*UndoRepostResponse)(nil),        // 13: dzeroth.engagement.v1.UndoRepostResponse
+	(*BookmarkState)(nil),             // 14: dzeroth.engagement.v1.BookmarkState
+	(*AddBookmarkRequest)(nil),        // 15: dzeroth.engagement.v1.AddBookmarkRequest
+	(*AddBookmarkResponse)(nil),       // 16: dzeroth.engagement.v1.AddBookmarkResponse
+	(*RemoveBookmarkRequest)(nil),     // 17: dzeroth.engagement.v1.RemoveBookmarkRequest
+	(*RemoveBookmarkResponse)(nil),    // 18: dzeroth.engagement.v1.RemoveBookmarkResponse
+	(*ListBookmarksRequest)(nil),      // 19: dzeroth.engagement.v1.ListBookmarksRequest
+	(*Bookmark)(nil),                  // 20: dzeroth.engagement.v1.Bookmark
+	(*ListBookmarksResponse)(nil),     // 21: dzeroth.engagement.v1.ListBookmarksResponse
+	(*ListLikedPostsRequest)(nil),     // 22: dzeroth.engagement.v1.ListLikedPostsRequest
+	(*ListLikedPostsResponse)(nil),    // 23: dzeroth.engagement.v1.ListLikedPostsResponse
+	(*VotePollRequest)(nil),           // 24: dzeroth.engagement.v1.VotePollRequest
+	(*VotePollResponse)(nil),          // 25: dzeroth.engagement.v1.VotePollResponse
+	(*v1.PostView)(nil),               // 26: dzeroth.posts.v1.PostView
+	(*timestamppb.Timestamp)(nil),     // 27: google.protobuf.Timestamp
 }
 var file_dzeroth_engagement_v1_engagement_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.engagement.v1.RecordPostShareRequest.channel:type_name -> dzeroth.engagement.v1.ShareChannel
-	3,  // 1: dzeroth.engagement.v1.RecordPostShareResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	3,  // 2: dzeroth.engagement.v1.LikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	3,  // 3: dzeroth.engagement.v1.UnlikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	3,  // 4: dzeroth.engagement.v1.RepostPostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	3,  // 5: dzeroth.engagement.v1.UndoRepostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	12, // 6: dzeroth.engagement.v1.AddBookmarkResponse.state:type_name -> dzeroth.engagement.v1.BookmarkState
-	12, // 7: dzeroth.engagement.v1.RemoveBookmarkResponse.state:type_name -> dzeroth.engagement.v1.BookmarkState
-	24, // 8: dzeroth.engagement.v1.Bookmark.post:type_name -> dzeroth.posts.v1.PostView
-	25, // 9: dzeroth.engagement.v1.Bookmark.bookmarked_at:type_name -> google.protobuf.Timestamp
-	18, // 10: dzeroth.engagement.v1.ListBookmarksResponse.bookmarks:type_name -> dzeroth.engagement.v1.Bookmark
-	24, // 11: dzeroth.engagement.v1.ListLikedPostsResponse.posts:type_name -> dzeroth.posts.v1.PostView
-	24, // 12: dzeroth.engagement.v1.VotePollResponse.post:type_name -> dzeroth.posts.v1.PostView
-	4,  // 13: dzeroth.engagement.v1.EngagementService.LikePost:input_type -> dzeroth.engagement.v1.LikePostRequest
-	6,  // 14: dzeroth.engagement.v1.EngagementService.UnlikePost:input_type -> dzeroth.engagement.v1.UnlikePostRequest
-	8,  // 15: dzeroth.engagement.v1.EngagementService.RepostPost:input_type -> dzeroth.engagement.v1.RepostPostRequest
-	10, // 16: dzeroth.engagement.v1.EngagementService.UndoRepost:input_type -> dzeroth.engagement.v1.UndoRepostRequest
-	13, // 17: dzeroth.engagement.v1.EngagementService.AddBookmark:input_type -> dzeroth.engagement.v1.AddBookmarkRequest
-	15, // 18: dzeroth.engagement.v1.EngagementService.RemoveBookmark:input_type -> dzeroth.engagement.v1.RemoveBookmarkRequest
-	17, // 19: dzeroth.engagement.v1.EngagementService.ListBookmarks:input_type -> dzeroth.engagement.v1.ListBookmarksRequest
-	20, // 20: dzeroth.engagement.v1.EngagementService.ListLikedPosts:input_type -> dzeroth.engagement.v1.ListLikedPostsRequest
-	22, // 21: dzeroth.engagement.v1.EngagementService.VotePoll:input_type -> dzeroth.engagement.v1.VotePollRequest
+	5,  // 1: dzeroth.engagement.v1.RecordPostShareResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	5,  // 2: dzeroth.engagement.v1.LikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	5,  // 3: dzeroth.engagement.v1.UnlikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	5,  // 4: dzeroth.engagement.v1.RepostPostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	5,  // 5: dzeroth.engagement.v1.UndoRepostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	14, // 6: dzeroth.engagement.v1.AddBookmarkResponse.state:type_name -> dzeroth.engagement.v1.BookmarkState
+	14, // 7: dzeroth.engagement.v1.RemoveBookmarkResponse.state:type_name -> dzeroth.engagement.v1.BookmarkState
+	26, // 8: dzeroth.engagement.v1.Bookmark.post:type_name -> dzeroth.posts.v1.PostView
+	27, // 9: dzeroth.engagement.v1.Bookmark.bookmarked_at:type_name -> google.protobuf.Timestamp
+	20, // 10: dzeroth.engagement.v1.ListBookmarksResponse.bookmarks:type_name -> dzeroth.engagement.v1.Bookmark
+	26, // 11: dzeroth.engagement.v1.ListLikedPostsResponse.posts:type_name -> dzeroth.posts.v1.PostView
+	26, // 12: dzeroth.engagement.v1.VotePollResponse.post:type_name -> dzeroth.posts.v1.PostView
+	6,  // 13: dzeroth.engagement.v1.EngagementService.LikePost:input_type -> dzeroth.engagement.v1.LikePostRequest
+	8,  // 14: dzeroth.engagement.v1.EngagementService.UnlikePost:input_type -> dzeroth.engagement.v1.UnlikePostRequest
+	10, // 15: dzeroth.engagement.v1.EngagementService.RepostPost:input_type -> dzeroth.engagement.v1.RepostPostRequest
+	12, // 16: dzeroth.engagement.v1.EngagementService.UndoRepost:input_type -> dzeroth.engagement.v1.UndoRepostRequest
+	15, // 17: dzeroth.engagement.v1.EngagementService.AddBookmark:input_type -> dzeroth.engagement.v1.AddBookmarkRequest
+	17, // 18: dzeroth.engagement.v1.EngagementService.RemoveBookmark:input_type -> dzeroth.engagement.v1.RemoveBookmarkRequest
+	19, // 19: dzeroth.engagement.v1.EngagementService.ListBookmarks:input_type -> dzeroth.engagement.v1.ListBookmarksRequest
+	22, // 20: dzeroth.engagement.v1.EngagementService.ListLikedPosts:input_type -> dzeroth.engagement.v1.ListLikedPostsRequest
+	24, // 21: dzeroth.engagement.v1.EngagementService.VotePoll:input_type -> dzeroth.engagement.v1.VotePollRequest
 	1,  // 22: dzeroth.engagement.v1.EngagementService.RecordPostShare:input_type -> dzeroth.engagement.v1.RecordPostShareRequest
-	5,  // 23: dzeroth.engagement.v1.EngagementService.LikePost:output_type -> dzeroth.engagement.v1.LikePostResponse
-	7,  // 24: dzeroth.engagement.v1.EngagementService.UnlikePost:output_type -> dzeroth.engagement.v1.UnlikePostResponse
-	9,  // 25: dzeroth.engagement.v1.EngagementService.RepostPost:output_type -> dzeroth.engagement.v1.RepostPostResponse
-	11, // 26: dzeroth.engagement.v1.EngagementService.UndoRepost:output_type -> dzeroth.engagement.v1.UndoRepostResponse
-	14, // 27: dzeroth.engagement.v1.EngagementService.AddBookmark:output_type -> dzeroth.engagement.v1.AddBookmarkResponse
-	16, // 28: dzeroth.engagement.v1.EngagementService.RemoveBookmark:output_type -> dzeroth.engagement.v1.RemoveBookmarkResponse
-	19, // 29: dzeroth.engagement.v1.EngagementService.ListBookmarks:output_type -> dzeroth.engagement.v1.ListBookmarksResponse
-	21, // 30: dzeroth.engagement.v1.EngagementService.ListLikedPosts:output_type -> dzeroth.engagement.v1.ListLikedPostsResponse
-	23, // 31: dzeroth.engagement.v1.EngagementService.VotePoll:output_type -> dzeroth.engagement.v1.VotePollResponse
-	2,  // 32: dzeroth.engagement.v1.EngagementService.RecordPostShare:output_type -> dzeroth.engagement.v1.RecordPostShareResponse
-	23, // [23:33] is the sub-list for method output_type
-	13, // [13:23] is the sub-list for method input_type
+	2,  // 23: dzeroth.engagement.v1.EngagementService.RecordImpressions:input_type -> dzeroth.engagement.v1.RecordImpressionsRequest
+	7,  // 24: dzeroth.engagement.v1.EngagementService.LikePost:output_type -> dzeroth.engagement.v1.LikePostResponse
+	9,  // 25: dzeroth.engagement.v1.EngagementService.UnlikePost:output_type -> dzeroth.engagement.v1.UnlikePostResponse
+	11, // 26: dzeroth.engagement.v1.EngagementService.RepostPost:output_type -> dzeroth.engagement.v1.RepostPostResponse
+	13, // 27: dzeroth.engagement.v1.EngagementService.UndoRepost:output_type -> dzeroth.engagement.v1.UndoRepostResponse
+	16, // 28: dzeroth.engagement.v1.EngagementService.AddBookmark:output_type -> dzeroth.engagement.v1.AddBookmarkResponse
+	18, // 29: dzeroth.engagement.v1.EngagementService.RemoveBookmark:output_type -> dzeroth.engagement.v1.RemoveBookmarkResponse
+	21, // 30: dzeroth.engagement.v1.EngagementService.ListBookmarks:output_type -> dzeroth.engagement.v1.ListBookmarksResponse
+	23, // 31: dzeroth.engagement.v1.EngagementService.ListLikedPosts:output_type -> dzeroth.engagement.v1.ListLikedPostsResponse
+	25, // 32: dzeroth.engagement.v1.EngagementService.VotePoll:output_type -> dzeroth.engagement.v1.VotePollResponse
+	4,  // 33: dzeroth.engagement.v1.EngagementService.RecordPostShare:output_type -> dzeroth.engagement.v1.RecordPostShareResponse
+	3,  // 34: dzeroth.engagement.v1.EngagementService.RecordImpressions:output_type -> dzeroth.engagement.v1.RecordImpressionsResponse
+	24, // [24:35] is the sub-list for method output_type
+	13, // [13:24] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name
@@ -1543,7 +1644,7 @@ func file_dzeroth_engagement_v1_engagement_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_engagement_v1_engagement_proto_rawDesc), len(file_dzeroth_engagement_v1_engagement_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   23,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

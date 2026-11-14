@@ -904,7 +904,19 @@ type Post struct {
 	// with the per-account marker; an account deletion decrements it, like like_count. 0 on a REPOST row (read the
 	// embed's original), on a withheld row, and on posts that predate the field. Clients show it only when
 	// GetMe.enabled_features lists "share_count".
-	ShareCount    int64 `protobuf:"varint,25,opt,name=share_count,json=shareCount,proto3" json:"share_count,omitempty"`
+	ShareCount int64 `protobuf:"varint,25,opt,name=share_count,json=shareCount,proto3" json:"share_count,omitempty"`
+	// How many times the post was seen (F1 post views, FEATURE_POST_VIEWS): distinct (viewer, IST day) impressions
+	// reported through dzeroth.engagement.v1.EngagementService.RecordImpressions, the author's own views never counted. Presence is
+	// the visibility signal: the field is SET only when this response's viewer may see the count, and unset (has_view_count
+	// false) otherwise; clients render a count only when it is set. The hybrid rule:
+	//   - the author always gets their own count (GetPost: the exact live sum of the counter shards; every other surface: the
+	//     value rolled up into posts/{id}.viewCount by the view rollup, at most about 20 minutes behind);
+	//   - anyone else gets the rolled-up count only once it is at least the server's POST_VIEWS_PUBLIC_THRESHOLD (default
+	//     1000) AND the author is not protected; a protected author's count is the author's only, always.
+	//
+	// Unset on a REPOST row (read the embed's original), on an embed, on a withheld row, on surfaces that do not decide the
+	// author's protected state, and everywhere while FEATURE_POST_VIEWS is globally off. Never says who viewed. Additive.
+	ViewCount     *int64 `protobuf:"varint,26,opt,name=view_count,json=viewCount,proto3,oneof" json:"view_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1110,6 +1122,13 @@ func (x *Post) GetBeacon() *BeaconPreview {
 func (x *Post) GetShareCount() int64 {
 	if x != nil {
 		return x.ShareCount
+	}
+	return 0
+}
+
+func (x *Post) GetViewCount() int64 {
+	if x != nil && x.ViewCount != nil {
+		return *x.ViewCount
 	}
 	return 0
 }
@@ -2747,7 +2766,7 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\freply_policy\x18\t \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\vreplyPolicy\x12*\n" +
 	"\x04poll\x18\n" +
 	" \x01(\v2\x16.dzeroth.posts.v1.PollR\x04poll\x12:\n" +
-	"\aarticle\x18\v \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\"\xe6\b\n" +
+	"\aarticle\x18\v \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\"\x99\t\n" +
 	"\x04Post\x12\x17\n" +
 	"\apost_id\x18\x01 \x01(\tR\x06postId\x129\n" +
 	"\x06author\x18\x02 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x06author\x12.\n" +
@@ -2782,7 +2801,10 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\aarticle\x18\x17 \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\x127\n" +
 	"\x06beacon\x18\x18 \x01(\v2\x1f.dzeroth.posts.v1.BeaconPreviewR\x06beacon\x12\x1f\n" +
 	"\vshare_count\x18\x19 \x01(\x03R\n" +
-	"shareCount\"|\n" +
+	"shareCount\x12\"\n" +
+	"\n" +
+	"view_count\x18\x1a \x01(\x03H\x00R\tviewCount\x88\x01\x01B\r\n" +
+	"\v_view_count\"|\n" +
 	"\x0eArticlePreview\x12\x1d\n" +
 	"\n" +
 	"article_id\x18\x01 \x01(\tR\tarticleId\x12\x14\n" +
@@ -3098,6 +3120,7 @@ func file_dzeroth_posts_v1_posts_proto_init() {
 	if File_dzeroth_posts_v1_posts_proto != nil {
 		return
 	}
+	file_dzeroth_posts_v1_posts_proto_msgTypes[5].OneofWrappers = []any{}
 	file_dzeroth_posts_v1_posts_proto_msgTypes[27].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

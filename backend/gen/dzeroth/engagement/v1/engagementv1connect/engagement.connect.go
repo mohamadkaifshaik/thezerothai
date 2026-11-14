@@ -7,7 +7,8 @@
 // Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and bookmarks at
 // users/{uid}/bookmarks/{postId}, pollVotes/{postId}_{uid}, and postShares/{postId}_{uid} (one marker per account that
 // shared a post, behind Post.share_count; written by RecordPostShare and by messaging's post share through an
-// engagement seam). The counters (likeCount,
+// engagement seam), and users/{uid}/impressions/{postId}_{yyyymmdd} (one per viewer, post and IST day, behind
+// Post.view_count; TTL expireAt 48 h; written by RecordImpressions). The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
 // no extra query; a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
@@ -85,6 +86,9 @@ const (
 	// EngagementServiceRecordPostShareProcedure is the fully-qualified name of the EngagementService's
 	// RecordPostShare RPC.
 	EngagementServiceRecordPostShareProcedure = "/dzeroth.engagement.v1.EngagementService/RecordPostShare"
+	// EngagementServiceRecordImpressionsProcedure is the fully-qualified name of the
+	// EngagementService's RecordImpressions RPC.
+	EngagementServiceRecordImpressionsProcedure = "/dzeroth.engagement.v1.EngagementService/RecordImpressions"
 )
 
 // EngagementServiceClient is a client for the dzeroth.engagement.v1.EngagementService service.
@@ -260,6 +264,34 @@ type EngagementServiceClient interface {
 	// A hot post's counter contention after the bounded retry => UNAVAILABLE with retry_after: the client drops it (the
 	// share itself already happened; never retry in a loop).
 	RecordPostShare(context.Context, *connect.Request[v1.RecordPostShareRequest]) (*connect.Response[v1.RecordPostShareResponse], error)
+	// Report posts the caller saw (F1 post views, feeds Post.view_count). The client collects the ids of posts that were
+	// on screen, removes the ones it already sent today (its own dedupe), and flushes at most 50 per call, every 30 s and
+	// when the app is paused. Client-reported and therefore unverifiable: the server counts at most ONE impression per
+	// (caller, post, IST day) and never the author's own views. Fire and forget: the response is empty and identical
+	// whatever each id turned out to be (counted, already seen today, the caller's own, missing, hidden, or not visible to
+	// the caller), so it is not an existence oracle. Never retry a success; an error may be retried once with the same key.
+	// Order (each refusal writes nothing):
+	//  1. Interceptors: per-uid bucket RATE_LIMIT_IMPRESSIONS_PER_MIN (6/min per instance) and the in-memory daily cap
+	//     IMPRESSIONS_RECORDED_PER_DAY (500 calls per uid per instance, counting every call) => RESOURCE_EXHAUSTED +
+	//     RATE_LIMITED, metadata["limit"] = "impressions_daily" for the cap. DEGRADED_MODE=readonly => UNAVAILABLE +
+	//     DEGRADED_MODE.
+	//  2. Flags, before any lookup: FEATURE_POST_VIEWS (wire name "post_views") on for the caller, else
+	//     FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "post_views". FEATURE_POSTS must be on.
+	//  3. Shape, before any lookup: idempotency_key format, 1 to 50 post_ids, each 19 digits (duplicates are merged);
+	//     else VALIDATION (field "idempotency_key" | "post_ids").
+	//  4. The posts, in one cache-first read: a REPOST id counts its original; ids that are missing, hidden, by an author
+	//     who blocks the caller or whom the caller may not see (a protected author the caller does not follow), and the
+	//     caller's own posts are dropped silently. A viewer the author blocks is counted but never identified.
+	//  5. One GetAll of users/{uid}/impressions/{postId}_{yyyymmdd} (IST day) for what is left; for each absent doc, in
+	//     one batch: Create the impression {postId, day, createdAt, expireAt = createdAt + 48 h} and increment one of 10
+	//     shard docs posts/{id}/viewShards/{n}. The impression doc is the dedupe record (a concurrent duplicate loses its
+	//     Create and commits nothing). A rollup folds the shards into posts/{id}.viewCount.
+	//
+	// Idempotency (the like rule): keyed by (caller, post, IST day); the key is validated but not stored.
+	// Worst case: the post read (cache-first, 0-2 batch reads of up to 50) + 50 reads + 100 writes (plus one small
+	// rollup marker per post and instance every 5 minutes). Hot-post shard contention after the bounded retry =>
+	// UNAVAILABLE with retry_after: the client drops the batch.
+	RecordImpressions(context.Context, *connect.Request[v1.RecordImpressionsRequest]) (*connect.Response[v1.RecordImpressionsResponse], error)
 }
 
 // NewEngagementServiceClient constructs a client for the dzeroth.engagement.v1.EngagementService
@@ -335,21 +367,28 @@ func NewEngagementServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(engagementServiceMethods.ByName("RecordPostShare")),
 			connect.WithClientOptions(opts...),
 		),
+		recordImpressions: connect.NewClient[v1.RecordImpressionsRequest, v1.RecordImpressionsResponse](
+			httpClient,
+			baseURL+EngagementServiceRecordImpressionsProcedure,
+			connect.WithSchema(engagementServiceMethods.ByName("RecordImpressions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // engagementServiceClient implements EngagementServiceClient.
 type engagementServiceClient struct {
-	likePost        *connect.Client[v1.LikePostRequest, v1.LikePostResponse]
-	unlikePost      *connect.Client[v1.UnlikePostRequest, v1.UnlikePostResponse]
-	repostPost      *connect.Client[v1.RepostPostRequest, v1.RepostPostResponse]
-	undoRepost      *connect.Client[v1.UndoRepostRequest, v1.UndoRepostResponse]
-	addBookmark     *connect.Client[v1.AddBookmarkRequest, v1.AddBookmarkResponse]
-	removeBookmark  *connect.Client[v1.RemoveBookmarkRequest, v1.RemoveBookmarkResponse]
-	listBookmarks   *connect.Client[v1.ListBookmarksRequest, v1.ListBookmarksResponse]
-	listLikedPosts  *connect.Client[v1.ListLikedPostsRequest, v1.ListLikedPostsResponse]
-	votePoll        *connect.Client[v1.VotePollRequest, v1.VotePollResponse]
-	recordPostShare *connect.Client[v1.RecordPostShareRequest, v1.RecordPostShareResponse]
+	likePost          *connect.Client[v1.LikePostRequest, v1.LikePostResponse]
+	unlikePost        *connect.Client[v1.UnlikePostRequest, v1.UnlikePostResponse]
+	repostPost        *connect.Client[v1.RepostPostRequest, v1.RepostPostResponse]
+	undoRepost        *connect.Client[v1.UndoRepostRequest, v1.UndoRepostResponse]
+	addBookmark       *connect.Client[v1.AddBookmarkRequest, v1.AddBookmarkResponse]
+	removeBookmark    *connect.Client[v1.RemoveBookmarkRequest, v1.RemoveBookmarkResponse]
+	listBookmarks     *connect.Client[v1.ListBookmarksRequest, v1.ListBookmarksResponse]
+	listLikedPosts    *connect.Client[v1.ListLikedPostsRequest, v1.ListLikedPostsResponse]
+	votePoll          *connect.Client[v1.VotePollRequest, v1.VotePollResponse]
+	recordPostShare   *connect.Client[v1.RecordPostShareRequest, v1.RecordPostShareResponse]
+	recordImpressions *connect.Client[v1.RecordImpressionsRequest, v1.RecordImpressionsResponse]
 }
 
 // LikePost calls dzeroth.engagement.v1.EngagementService.LikePost.
@@ -400,6 +439,11 @@ func (c *engagementServiceClient) VotePoll(ctx context.Context, req *connect.Req
 // RecordPostShare calls dzeroth.engagement.v1.EngagementService.RecordPostShare.
 func (c *engagementServiceClient) RecordPostShare(ctx context.Context, req *connect.Request[v1.RecordPostShareRequest]) (*connect.Response[v1.RecordPostShareResponse], error) {
 	return c.recordPostShare.CallUnary(ctx, req)
+}
+
+// RecordImpressions calls dzeroth.engagement.v1.EngagementService.RecordImpressions.
+func (c *engagementServiceClient) RecordImpressions(ctx context.Context, req *connect.Request[v1.RecordImpressionsRequest]) (*connect.Response[v1.RecordImpressionsResponse], error) {
+	return c.recordImpressions.CallUnary(ctx, req)
 }
 
 // EngagementServiceHandler is an implementation of the dzeroth.engagement.v1.EngagementService
@@ -576,6 +620,34 @@ type EngagementServiceHandler interface {
 	// A hot post's counter contention after the bounded retry => UNAVAILABLE with retry_after: the client drops it (the
 	// share itself already happened; never retry in a loop).
 	RecordPostShare(context.Context, *connect.Request[v1.RecordPostShareRequest]) (*connect.Response[v1.RecordPostShareResponse], error)
+	// Report posts the caller saw (F1 post views, feeds Post.view_count). The client collects the ids of posts that were
+	// on screen, removes the ones it already sent today (its own dedupe), and flushes at most 50 per call, every 30 s and
+	// when the app is paused. Client-reported and therefore unverifiable: the server counts at most ONE impression per
+	// (caller, post, IST day) and never the author's own views. Fire and forget: the response is empty and identical
+	// whatever each id turned out to be (counted, already seen today, the caller's own, missing, hidden, or not visible to
+	// the caller), so it is not an existence oracle. Never retry a success; an error may be retried once with the same key.
+	// Order (each refusal writes nothing):
+	//  1. Interceptors: per-uid bucket RATE_LIMIT_IMPRESSIONS_PER_MIN (6/min per instance) and the in-memory daily cap
+	//     IMPRESSIONS_RECORDED_PER_DAY (500 calls per uid per instance, counting every call) => RESOURCE_EXHAUSTED +
+	//     RATE_LIMITED, metadata["limit"] = "impressions_daily" for the cap. DEGRADED_MODE=readonly => UNAVAILABLE +
+	//     DEGRADED_MODE.
+	//  2. Flags, before any lookup: FEATURE_POST_VIEWS (wire name "post_views") on for the caller, else
+	//     FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "post_views". FEATURE_POSTS must be on.
+	//  3. Shape, before any lookup: idempotency_key format, 1 to 50 post_ids, each 19 digits (duplicates are merged);
+	//     else VALIDATION (field "idempotency_key" | "post_ids").
+	//  4. The posts, in one cache-first read: a REPOST id counts its original; ids that are missing, hidden, by an author
+	//     who blocks the caller or whom the caller may not see (a protected author the caller does not follow), and the
+	//     caller's own posts are dropped silently. A viewer the author blocks is counted but never identified.
+	//  5. One GetAll of users/{uid}/impressions/{postId}_{yyyymmdd} (IST day) for what is left; for each absent doc, in
+	//     one batch: Create the impression {postId, day, createdAt, expireAt = createdAt + 48 h} and increment one of 10
+	//     shard docs posts/{id}/viewShards/{n}. The impression doc is the dedupe record (a concurrent duplicate loses its
+	//     Create and commits nothing). A rollup folds the shards into posts/{id}.viewCount.
+	//
+	// Idempotency (the like rule): keyed by (caller, post, IST day); the key is validated but not stored.
+	// Worst case: the post read (cache-first, 0-2 batch reads of up to 50) + 50 reads + 100 writes (plus one small
+	// rollup marker per post and instance every 5 minutes). Hot-post shard contention after the bounded retry =>
+	// UNAVAILABLE with retry_after: the client drops the batch.
+	RecordImpressions(context.Context, *connect.Request[v1.RecordImpressionsRequest]) (*connect.Response[v1.RecordImpressionsResponse], error)
 }
 
 // NewEngagementServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -647,6 +719,12 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 		connect.WithSchema(engagementServiceMethods.ByName("RecordPostShare")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engagementServiceRecordImpressionsHandler := connect.NewUnaryHandler(
+		EngagementServiceRecordImpressionsProcedure,
+		svc.RecordImpressions,
+		connect.WithSchema(engagementServiceMethods.ByName("RecordImpressions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.engagement.v1.EngagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngagementServiceLikePostProcedure:
@@ -669,6 +747,8 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 			engagementServiceVotePollHandler.ServeHTTP(w, r)
 		case EngagementServiceRecordPostShareProcedure:
 			engagementServiceRecordPostShareHandler.ServeHTTP(w, r)
+		case EngagementServiceRecordImpressionsProcedure:
+			engagementServiceRecordImpressionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -716,4 +796,8 @@ func (UnimplementedEngagementServiceHandler) VotePoll(context.Context, *connect.
 
 func (UnimplementedEngagementServiceHandler) RecordPostShare(context.Context, *connect.Request[v1.RecordPostShareRequest]) (*connect.Response[v1.RecordPostShareResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.RecordPostShare is not implemented"))
+}
+
+func (UnimplementedEngagementServiceHandler) RecordImpressions(context.Context, *connect.Request[v1.RecordImpressionsRequest]) (*connect.Response[v1.RecordImpressionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.RecordImpressions is not implemented"))
 }

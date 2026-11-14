@@ -59,6 +59,30 @@ final $typed_data.Uint8List recordPostShareRequestDescriptor = $convert.base64De
     'BvdGVuY3lLZXkSFwoHcG9zdF9pZBgCIAEoCVIGcG9zdElkEj0KB2NoYW5uZWwYAyABKA4yIy5k'
     'emVyb3RoLmVuZ2FnZW1lbnQudjEuU2hhcmVDaGFubmVsUgdjaGFubmVs');
 
+@$core.Deprecated('Use recordImpressionsRequestDescriptor instead')
+const RecordImpressionsRequest$json = {
+  '1': 'RecordImpressionsRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'post_ids', '3': 2, '4': 3, '5': 9, '10': 'postIds'},
+  ],
+};
+
+/// Descriptor for `RecordImpressionsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List recordImpressionsRequestDescriptor =
+    $convert.base64Decode(
+        'ChhSZWNvcmRJbXByZXNzaW9uc1JlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg5pZG'
+        'VtcG90ZW5jeUtleRIZCghwb3N0X2lkcxgCIAMoCVIHcG9zdElkcw==');
+
+@$core.Deprecated('Use recordImpressionsResponseDescriptor instead')
+const RecordImpressionsResponse$json = {
+  '1': 'RecordImpressionsResponse',
+};
+
+/// Descriptor for `RecordImpressionsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List recordImpressionsResponseDescriptor =
+    $convert.base64Decode('ChlSZWNvcmRJbXByZXNzaW9uc1Jlc3BvbnNl');
+
 @$core.Deprecated('Use recordPostShareResponseDescriptor instead')
 const RecordPostShareResponse$json = {
   '1': 'RecordPostShareResponse',
@@ -522,6 +546,11 @@ const $core.Map<$core.String, $core.dynamic> EngagementServiceBase$json = {
       '2': '.dzeroth.engagement.v1.RecordPostShareRequest',
       '3': '.dzeroth.engagement.v1.RecordPostShareResponse'
     },
+    {
+      '1': 'RecordImpressions',
+      '2': '.dzeroth.engagement.v1.RecordImpressionsRequest',
+      '3': '.dzeroth.engagement.v1.RecordImpressionsResponse'
+    },
   ],
 };
 
@@ -564,6 +593,10 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.engagement.v1.RecordPostShareRequest': RecordPostShareRequest$json,
   '.dzeroth.engagement.v1.RecordPostShareResponse':
       RecordPostShareResponse$json,
+  '.dzeroth.engagement.v1.RecordImpressionsRequest':
+      RecordImpressionsRequest$json,
+  '.dzeroth.engagement.v1.RecordImpressionsResponse':
+      RecordImpressionsResponse$json,
 };
 
 /// Descriptor for `EngagementService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -587,4 +620,6 @@ final $typed_data.Uint8List engagementServiceDescriptor = $convert.base64Decode(
     'Vm90ZVBvbGxSZXF1ZXN0GicuZHplcm90aC5lbmdhZ2VtZW50LnYxLlZvdGVQb2xsUmVzcG9uc2'
     'UScAoPUmVjb3JkUG9zdFNoYXJlEi0uZHplcm90aC5lbmdhZ2VtZW50LnYxLlJlY29yZFBvc3RT'
     'aGFyZVJlcXVlc3QaLi5kemVyb3RoLmVuZ2FnZW1lbnQudjEuUmVjb3JkUG9zdFNoYXJlUmVzcG'
-    '9uc2U=');
+    '9uc2USdgoRUmVjb3JkSW1wcmVzc2lvbnMSLy5kemVyb3RoLmVuZ2FnZW1lbnQudjEuUmVjb3Jk'
+    'SW1wcmVzc2lvbnNSZXF1ZXN0GjAuZHplcm90aC5lbmdhZ2VtZW50LnYxLlJlY29yZEltcHJlc3'
+    'Npb25zUmVzcG9uc2U=');

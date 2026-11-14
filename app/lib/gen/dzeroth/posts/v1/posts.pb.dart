@@ -569,6 +569,7 @@ class Post extends $pb.GeneratedMessage {
     ArticlePreview? article,
     BeaconPreview? beacon,
     $fixnum.Int64? shareCount,
+    $fixnum.Int64? viewCount,
   }) {
     final result = Post._();
     if (postId != null) result.postId = postId;
@@ -596,6 +597,7 @@ class Post extends $pb.GeneratedMessage {
     if (article != null) result.article = article;
     if (beacon != null) result.beacon = beacon;
     if (shareCount != null) result.shareCount = shareCount;
+    if (viewCount != null) result.viewCount = viewCount;
     return result;
   }
 
@@ -650,6 +652,7 @@ class Post extends $pb.GeneratedMessage {
     ..aOM<BeaconPreview>(24, _omitFieldNames ? '' : 'beacon',
         subBuilder: BeaconPreview.$_createMessage)
     ..aInt64(25, _omitFieldNames ? '' : 'shareCount')
+    ..aInt64(26, _omitFieldNames ? '' : 'viewCount')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -918,6 +921,25 @@ class Post extends $pb.GeneratedMessage {
   $core.bool hasShareCount() => $_has(24);
   @$pb.TagNumber(25)
   void clearShareCount() => $_clearField(25);
+
+  /// How many times the post was seen (F1 post views, FEATURE_POST_VIEWS): distinct (viewer, IST day) impressions
+  /// reported through dzeroth.engagement.v1.EngagementService.RecordImpressions, the author's own views never counted. Presence is
+  /// the visibility signal: the field is SET only when this response's viewer may see the count, and unset (has_view_count
+  /// false) otherwise; clients render a count only when it is set. The hybrid rule:
+  /// - the author always gets their own count (GetPost: the exact live sum of the counter shards; every other surface: the
+  ///   value rolled up into posts/{id}.viewCount by the view rollup, at most about 20 minutes behind);
+  /// - anyone else gets the rolled-up count only once it is at least the server's POST_VIEWS_PUBLIC_THRESHOLD (default
+  ///   1000) AND the author is not protected; a protected author's count is the author's only, always.
+  /// Unset on a REPOST row (read the embed's original), on an embed, on a withheld row, on surfaces that do not decide the
+  /// author's protected state, and everywhere while FEATURE_POST_VIEWS is globally off. Never says who viewed. Additive.
+  @$pb.TagNumber(26)
+  $fixnum.Int64 get viewCount => $_getI64(25);
+  @$pb.TagNumber(26)
+  set viewCount($fixnum.Int64 value) => $_setInt64(25, value);
+  @$pb.TagNumber(26)
+  $core.bool hasViewCount() => $_has(25);
+  @$pb.TagNumber(26)
+  void clearViewCount() => $_clearField(26);
 }
 
 /// Bounded summary only. The reader fetches the authorized body separately.

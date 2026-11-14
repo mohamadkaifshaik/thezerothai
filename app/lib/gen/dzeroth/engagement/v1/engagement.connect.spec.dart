@@ -237,4 +237,37 @@ abstract final class EngagementService {
     dzerothengagementv1engagement.RecordPostShareRequest.new,
     dzerothengagementv1engagement.RecordPostShareResponse.new,
   );
+
+  /// Report posts the caller saw (F1 post views, feeds Post.view_count). The client collects the ids of posts that were
+  /// on screen, removes the ones it already sent today (its own dedupe), and flushes at most 50 per call, every 30 s and
+  /// when the app is paused. Client-reported and therefore unverifiable: the server counts at most ONE impression per
+  /// (caller, post, IST day) and never the author's own views. Fire and forget: the response is empty and identical
+  /// whatever each id turned out to be (counted, already seen today, the caller's own, missing, hidden, or not visible to
+  /// the caller), so it is not an existence oracle. Never retry a success; an error may be retried once with the same key.
+  /// Order (each refusal writes nothing):
+  /// 1. Interceptors: per-uid bucket RATE_LIMIT_IMPRESSIONS_PER_MIN (6/min per instance) and the in-memory daily cap
+  ///    IMPRESSIONS_RECORDED_PER_DAY (500 calls per uid per instance, counting every call) => RESOURCE_EXHAUSTED +
+  ///    RATE_LIMITED, metadata["limit"] = "impressions_daily" for the cap. DEGRADED_MODE=readonly => UNAVAILABLE +
+  ///    DEGRADED_MODE.
+  /// 2. Flags, before any lookup: FEATURE_POST_VIEWS (wire name "post_views") on for the caller, else
+  ///    FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "post_views". FEATURE_POSTS must be on.
+  /// 3. Shape, before any lookup: idempotency_key format, 1 to 50 post_ids, each 19 digits (duplicates are merged);
+  ///    else VALIDATION (field "idempotency_key" | "post_ids").
+  /// 4. The posts, in one cache-first read: a REPOST id counts its original; ids that are missing, hidden, by an author
+  ///    who blocks the caller or whom the caller may not see (a protected author the caller does not follow), and the
+  ///    caller's own posts are dropped silently. A viewer the author blocks is counted but never identified.
+  /// 5. One GetAll of users/{uid}/impressions/{postId}_{yyyymmdd} (IST day) for what is left; for each absent doc, in
+  ///    one batch: Create the impression {postId, day, createdAt, expireAt = createdAt + 48 h} and increment one of 10
+  ///    shard docs posts/{id}/viewShards/{n}. The impression doc is the dedupe record (a concurrent duplicate loses its
+  ///    Create and commits nothing). A rollup folds the shards into posts/{id}.viewCount.
+  /// Idempotency (the like rule): keyed by (caller, post, IST day); the key is validated but not stored.
+  /// Worst case: the post read (cache-first, 0-2 batch reads of up to 50) + 50 reads + 100 writes (plus one small
+  /// rollup marker per post and instance every 5 minutes). Hot-post shard contention after the bounded retry =>
+  /// UNAVAILABLE with retry_after: the client drops the batch.
+  static const recordImpressions = connect.Spec(
+    '/$name/RecordImpressions',
+    connect.StreamType.unary,
+    dzerothengagementv1engagement.RecordImpressionsRequest.new,
+    dzerothengagementv1engagement.RecordImpressionsResponse.new,
+  );
 }
