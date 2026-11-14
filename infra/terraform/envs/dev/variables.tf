@@ -1589,3 +1589,87 @@ variable "feature_message_search_percent" {
     error_message = "feature_message_search_percent must be an integer 0-100."
   }
 }
+
+variable "feature_search_lists" {
+  description = "FEATURE_SEARCH_LISTS rollout mode for searching public lists and communities by name: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_search_lists)
+    error_message = "feature_search_lists must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_search_lists_allowlist" {
+  description = "FEATURE_SEARCH_LISTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_search_lists_percent" {
+  description = "FEATURE_SEARCH_LISTS_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_search_lists_percent >= 0 && var.feature_search_lists_percent <= 100 && floor(var.feature_search_lists_percent) == var.feature_search_lists_percent
+    error_message = "feature_search_lists_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_search_filters" {
+  description = "FEATURE_SEARCH_FILTERS rollout mode for the search \"People you follow\" filter on SearchPosts: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_search_filters)
+    error_message = "feature_search_filters must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_search_filters_allowlist" {
+  description = "FEATURE_SEARCH_FILTERS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_search_filters_percent" {
+  description = "FEATURE_SEARCH_FILTERS_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_search_filters_percent >= 0 && var.feature_search_filters_percent <= 100 && floor(var.feature_search_filters_percent) == var.feature_search_filters_percent
+    error_message = "feature_search_filters_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_dm_suggestions" {
+  description = "FEATURE_DM_SUGGESTIONS rollout mode for message recipient suggestions on the new-message screen: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_dm_suggestions)
+    error_message = "feature_dm_suggestions must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_dm_suggestions_allowlist" {
+  description = "FEATURE_DM_SUGGESTIONS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_dm_suggestions_percent" {
+  description = "FEATURE_DM_SUGGESTIONS_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_dm_suggestions_percent >= 0 && var.feature_dm_suggestions_percent <= 100 && floor(var.feature_dm_suggestions_percent) == var.feature_dm_suggestions_percent
+    error_message = "feature_dm_suggestions_percent must be an integer 0-100."
+  }
+}

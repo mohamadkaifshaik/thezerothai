@@ -1,6 +1,6 @@
 {
   "_comment": "Per-env ceiling for server feature flags and Cloud Run shape. A revision may be promoted only if every flag's EFFECTIVE mode is <= the ceiling. Raising a ceiling is a reviewed PR. Allowlist uids are never stored here, only counts. Order: off < allowlist < percent < on.",
-  "flags": ["ACCOUNT_LIFECYCLE", "ANALYTICS", "ARTICLE_IMAGES", "BEACONS", "BEACON_QUICK_JOIN", "BOOKMARKS", "BOOKMARK_HISTORY", "CHAT_SHARED_PLANS", "COMMUNITIES", "COMMUNITY_MEMBER_SEARCH", "CONTENT_DISCLOSURE", "CRASH_REPORTING", "DM_POLICY", "DM_POST_SHARE", "DRAFTS", "ENGAGEMENT", "EXPORT_ZIP", "FOLLOW_SUGGESTIONS", "GIF", "GRAPH", "HANDLE_SUGGESTIONS", "LIKES_LIST", "LISTS", "LIST_FOLLOWS", "LIST_SUGGESTIONS", "MEDIA", "MESSAGE_SEARCH", "MESSAGING", "NOTIFICATIONS", "NOTIFICATION_PREFS", "POLLS", "POSTS", "POST_BEACON_EMBED", "PRIVATE_ACCOUNTS", "PROFILE_EXTRAS", "PROFILE_SNAPSHOT", "PROFILE_TABS", "QUOTES", "READ_RECEIPTS", "REMOVED_IDS", "REPLIES", "REPLY_AUDIENCE", "REPORTS", "SCHEDULED_POSTS", "SEARCH", "SHARE_COUNT", "SHELLS", "TRENDS", "UI_SHELL", "UI_TABLET"],
+  "flags": ["ACCOUNT_LIFECYCLE", "ANALYTICS", "ARTICLE_IMAGES", "BEACONS", "BEACON_QUICK_JOIN", "BOOKMARKS", "BOOKMARK_HISTORY", "CHAT_SHARED_PLANS", "COMMUNITIES", "COMMUNITY_MEMBER_SEARCH", "CONTENT_DISCLOSURE", "CRASH_REPORTING", "DM_POLICY", "DM_POST_SHARE", "DM_SUGGESTIONS", "DRAFTS", "ENGAGEMENT", "EXPORT_ZIP", "FOLLOW_SUGGESTIONS", "GIF", "GRAPH", "HANDLE_SUGGESTIONS", "LIKES_LIST", "LISTS", "LIST_FOLLOWS", "LIST_SUGGESTIONS", "MEDIA", "MESSAGE_SEARCH", "MESSAGING", "NOTIFICATIONS", "NOTIFICATION_PREFS", "POLLS", "POSTS", "POST_BEACON_EMBED", "PRIVATE_ACCOUNTS", "PROFILE_EXTRAS", "PROFILE_SNAPSHOT", "PROFILE_TABS", "QUOTES", "READ_RECEIPTS", "REMOVED_IDS", "REPLIES", "REPLY_AUDIENCE", "REPORTS", "SCHEDULED_POSTS", "SEARCH", "SEARCH_FILTERS", "SEARCH_LISTS", "SHARE_COUNT", "SHELLS", "TRENDS", "UI_SHELL", "UI_TABLET"],
   "rollback_floors": {
     "_comment": "resolve-rollback.sh refuses a last-good image built from a commit that is not at or after the floor commit (git merge-base --is-ancestor <floor> <image commit>) whenever the flag's effective mode on the rollback target is not off. The image commit comes from the 40-hex Artifact Registry tag (the github.sha IMAGE_TAG). Fail closed: no commit tag, an unreadable floor, or a commit missing from the checkout all refuse. Raising a floor is a reviewed PR, and only once the new floor is on last-good.",
     "PRIVATE_ACCOUNTS": {"commit": "e94014c67d6ad8dd376d7606fc74d6aa94150435", "pr": 418, "reason": "W3-36 M-1(b), raised for M-2: W3-39 (#418) on top of the Part B read paths (first floor 061395a0a2ef3202482ffcd34273c032069865bf, #395)"}
@@ -62,6 +62,9 @@
         "ARTICLE_IMAGES": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "EXPORT_ZIP": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "MESSAGE_SEARCH": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
+        "SEARCH_LISTS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
+        "SEARCH_FILTERS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
+        "DM_SUGGESTIONS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "SHELLS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "TRENDS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "UI_SHELL": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
@@ -120,6 +123,9 @@
         "ARTICLE_IMAGES": {"mode": "off"},
         "EXPORT_ZIP": {"mode": "off"},
         "MESSAGE_SEARCH": {"mode": "off"},
+        "SEARCH_LISTS": {"mode": "off"},
+        "SEARCH_FILTERS": {"mode": "off"},
+        "DM_SUGGESTIONS": {"mode": "off"},
         "SHELLS": {"mode": "off"},
         "TRENDS": {"mode": "off"},
         "UI_SHELL": {"mode": "off"},

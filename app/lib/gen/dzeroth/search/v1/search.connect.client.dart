@@ -117,4 +117,61 @@ extension type SearchServiceClient (connect.Transport _transport) {
       onTrailer: onTrailer,
     );
   }
+
+  /// Public lists whose folded name starts with the folded query (F20), in folded-name order, then list id.
+  /// query: NFC, trimmed, lower-cased; 1 to 30 code points after that, no control or bidi formatting character, else
+  /// VALIDATION "query" before any lookup. No sigil is stripped.
+  /// Rows: public lists only (a private list is never read: the query has isPrivate == false). Then the GetList rules for
+  /// the caller drop a list hidden by an operator, a list whose owner is not ACTIVE, a list whose owner blocks the caller
+  /// or that the caller blocks, a protected owner's list the caller does not follow, an owner past the blockedBy cap, and
+  /// the caller's own lists (they are on the Lists tab), exactly as DiscoverLists does. A dropped row is never
+  /// replaced, so a page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+  /// follower_count and followed_by_viewer are set only when FEATURE_LIST_FOLLOWS is on for the caller (as on GetList).
+  /// page_size 0 => 20, max 20 (clamped); negative => VALIDATION "page_size". page_token: opaque, sealed, bound to the
+  /// caller and the folded query, 24 h TTL; expired, foreign, tampered or sent with another query => VALIDATION
+  /// "page_token", before any lookup.
+  /// Staleness: the query reads Firestore on every call; the per-row rules use the 60 s caches GetList uses.
+  /// Flags: "search", "search_lists", "lists". Rate limit: RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN 20/min/uid per instance,
+  /// shared with SearchCommunities; no daily cap. Cost: one query of at most page_size documents, then per row the
+  /// owner's profile and graph (cache-first) and one batched follow-marker read when list_follows is on. Writes nothing.
+  Future<dzerothsearchv1search.SearchListsResponse> searchLists(
+    dzerothsearchv1search.SearchListsRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.SearchService.searchLists,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// ACTIVE communities whose folded name starts with the folded query (F21), in folded-name order, then community id.
+  /// query: the SearchLists rules. A SUSPENDED (taken offline by an operator) or ARCHIVED community is never returned (the
+  /// query has status == ACTIVE, the directory rule). As in ListCommunities there is no block filtering (D7); viewer_role
+  /// is the caller's role (memberships cached 60 s). page_size and page_token: the SearchLists rules (the token is bound
+  /// to this RPC). A page is short only at the end.
+  /// Flags: "search", "search_lists", "communities". Rate limit: the SearchLists bucket. Cost: one query of at most
+  /// page_size documents and the caller's memberships (cached 60 s). Writes nothing.
+  Future<dzerothsearchv1search.SearchCommunitiesResponse> searchCommunities(
+    dzerothsearchv1search.SearchCommunitiesRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.SearchService.searchCommunities,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
 }

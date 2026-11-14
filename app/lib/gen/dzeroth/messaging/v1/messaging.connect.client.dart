@@ -216,4 +216,42 @@ extension type MessagingServiceClient (connect.Transport _transport) {
       onTrailer: onTrailer,
     );
   }
+
+  /// People the caller is likely to message (F30), for the new-message screen. Computed on every call; nothing is stored.
+  /// Sources, in this order (a person appears once, with the first reason that found them):
+  /// 1. RECENT_CONVERSATION: the peers of the caller's newest 8 INBOX entries.
+  /// 2. MET_ON_PLAN: the organiser and ACCEPTED participants of the caller's 2 most recent ended plans (FEATURE_BEACONS on
+  ///    for the caller; the caller was the organiser or ACCEPTED; not hidden; ended within the last 30 days, the
+  ///    beacons TTL), at most 4 rows read per plan. plan_activity is that plan's activity.
+  /// 3. MUTUAL_FOLLOW: among the caller's 10 newest followees, those who follow the caller back.
+  /// 4. COMMUNITY_MEMBER: the 6 newest JOINED members of the community the caller joined most recently (FEATURE_COMMUNITIES
+  ///    on for the caller; an ACTIVE community). community_id and community_name name it.
+  /// Every row is someone SendMessage would not refuse with CANNOT_MESSAGE at the time of the call, by the same rules:
+  /// never the caller; not ACTIVE, messaging off for them, either side blocks the other (the caller's 60 s graph snapshot),
+  /// or their "who can message me" policy is FOLLOWING_ONLY (with FEATURE_DM_POLICY on for them) and they do not follow
+  /// the caller (an existing ACCEPTED conversation is exempt, as on send) => left out. Accounts the caller mutes are left
+  /// out too. A caller past the blockedBy cap gets an empty list (fail closed). The reason chip is computed, never stored.
+  /// limit 0 => 10, max 20 (clamped); negative => VALIDATION "limit". No pagination, by design (the ListSuggestedUsers
+  /// precedent): one bounded call, no page token.
+  /// Flags: "messaging" and "dm_suggestions" on for the caller (file comment). Rate limit: RATE_LIMIT_DM_SUGGESTIONS_PER_MIN
+  /// 10/min/uid per instance; no daily cap. Answers under DEGRADED_MODE=readonly.
+  /// Cost: at most 8 + 2 + 2 + 8 + 1 + 6 = 27 documents from the sources (inbox entries, plan memberships, plans,
+  /// participant rows, community memberships, community members; the community doc is cached 60 s), then cache-first
+  /// profile and follow-edge reads for at most 20 candidates (60 s caches). Writes nothing.
+  Future<dzerothmessagingv1messaging.ListMessageSuggestionsResponse> listMessageSuggestions(
+    dzerothmessagingv1messaging.ListMessageSuggestionsRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.MessagingService.listMessageSuggestions,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
 }

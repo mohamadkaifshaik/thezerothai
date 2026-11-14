@@ -229,6 +229,15 @@ type Config struct {
 	// FeatureMessageSearch is the flag (wire name `message_search`) gating searching the caller's own direct messages: on for the caller.
 	// FEATURE_MESSAGE_SEARCH[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureMessageSearch flags.Spec
+	// FeatureSearchLists is the flag (wire name `search_lists`) gating searching public lists and communities by name: on for the caller.
+	// FEATURE_SEARCH_LISTS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureSearchLists flags.Spec
+	// FeatureSearchFilters is the flag (wire name `search_filters`) gating the search "People you follow" filter on SearchPosts: on for the caller.
+	// FEATURE_SEARCH_FILTERS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureSearchFilters flags.Spec
+	// FeatureDMSuggestions is the flag (wire name `dm_suggestions`) gating message recipient suggestions on the new-message screen: on for the caller.
+	// FEATURE_DM_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureDMSuggestions flags.Spec
 	// FeatureBeaconQuickJoin is the flag (wire name `beacon_quick_join`) gating the follow-gated empty note of
 	// BeaconService.RequestToJoin: with it on for the caller, an empty note is accepted only when the organiser follows the
 	// caller (else FAILED_PRECONDITION "note_required"), and ViewerState.quick_join_allowed is computed by GetBeacon and the
@@ -984,6 +993,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureSearchLists, err := flags.LoadSpec("SEARCH_LISTS", "search_lists", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureSearchFilters, err := flags.LoadSpec("SEARCH_FILTERS", "search_filters", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureDMSuggestions, err := flags.LoadSpec("DM_SUGGESTIONS", "dm_suggestions", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1171,6 +1192,9 @@ func Load() (Config, error) {
 		FeatureArticleImages:         featureArticleImages,
 		FeatureExportZip:             featureExportZip,
 		FeatureMessageSearch:         featureMessageSearch,
+		FeatureSearchLists:           featureSearchLists,
+		FeatureSearchFilters:         featureSearchFilters,
+		FeatureDMSuggestions:         featureDMSuggestions,
 		FeatureBeaconQuickJoin:       featureBeaconQuickJoin,
 		FeatureReadReceipts:          featureReadReceipts,
 		FeatureProfileExtras:         featureProfileExtras,
