@@ -26,6 +26,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
+// ViewsFlagName is the wire name of FEATURE_POST_VIEWS: globally off, no view count is shown anywhere and the rollup
+// does nothing; on for a caller, RecordImpressions accepts their views (engagement).
+const ViewsFlagName = "post_views"
+
 const (
 	// ViewShardsSubcollection is posts/{id}/viewShards (lifecycle tables).
 	ViewShardsSubcollection = "viewShards"
