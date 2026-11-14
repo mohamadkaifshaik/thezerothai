@@ -205,6 +205,48 @@ void main() {
       expect(config.firebaseEnv, FirebaseEnv.dev);
     });
   });
+  group('AppConfig.resolveAuthEmulatorHost', () {
+    String resolve(String defined, {bool emulators = true}) =>
+        AppConfig.resolveAuthEmulatorHost(
+          definedHost: defined,
+          useEmulators: emulators,
+        );
+
+    test('an absent or empty define falls back to the local emulator', () {
+      expect(resolve(''), '127.0.0.1:9099');
+      expect(AppConfig.fromEnvironment().authEmulatorHost, '127.0.0.1:9099');
+    });
+
+    test('a well-formed host:port is kept', () {
+      expect(resolve('localhost:9099'), 'localhost:9099');
+      expect(resolve('10.0.2.2:9199'), '10.0.2.2:9199');
+    });
+
+    test('malformed values fail closed instead of reaching production', () {
+      for (final bad in [
+        ':9099',
+        'localhost',
+        'localhost:',
+        'localhost:0',
+        'localhost:70000',
+        'http://localhost:9099',
+        'localhost:9099/x',
+        ' localhost:9099',
+        'a b:9099',
+      ]) {
+        expect(
+          () => resolve(bad),
+          throwsA(isA<AppConfigError>()),
+          reason: bad,
+        );
+      }
+    });
+
+    test('is not validated when emulators are off', () {
+      expect(resolve('', emulators: false), '');
+    });
+  });
+
   group('AppConfig.resolveShareOrigin', () {
     String resolve(String defined, [FirebaseEnv env = FirebaseEnv.dev]) =>
         AppConfig.resolveShareOrigin(definedOrigin: defined, firebaseEnv: env);
