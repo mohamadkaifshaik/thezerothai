@@ -519,23 +519,23 @@ const UpdateBeaconRequest$json = {
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
     {'1': 'beacon_id', '3': 2, '4': 1, '5': 9, '10': 'beaconId'},
-    {'1': 'title', '3': 3, '4': 1, '5': 9, '9': 0, '10': 'title', '17': true},
+    {'1': 'title', '3': 3, '4': 1, '5': 9, '9': 1, '10': 'title', '17': true},
     {
       '1': 'details',
       '3': 4,
       '4': 1,
       '5': 9,
-      '9': 1,
+      '9': 2,
       '10': 'details',
       '17': true
     },
-    {'1': 'venue', '3': 5, '4': 1, '5': 9, '9': 2, '10': 'venue', '17': true},
+    {'1': 'venue', '3': 5, '4': 1, '5': 9, '9': 3, '10': 'venue', '17': true},
     {
       '1': 'open_spots',
       '3': 6,
       '4': 1,
       '5': 5,
-      '9': 3,
+      '9': 4,
       '10': 'openSpots',
       '17': true
     },
@@ -552,7 +552,7 @@ const UpdateBeaconRequest$json = {
       '3': 8,
       '4': 1,
       '5': 5,
-      '9': 4,
+      '9': 5,
       '10': 'durationMinutes',
       '17': true
     },
@@ -562,12 +562,15 @@ const UpdateBeaconRequest$json = {
       '4': 1,
       '5': 14,
       '6': '.dzeroth.beacons.v1.BeaconCost',
-      '9': 5,
+      '9': 6,
       '10': 'cost',
       '17': true
     },
+    {'1': 'community_id', '3': 10, '4': 1, '5': 9, '9': 0, '10': 'communityId'},
+    {'1': 'public', '3': 11, '4': 1, '5': 8, '9': 0, '10': 'public'},
   ],
   '8': [
+    {'1': 'audience'},
     {'1': '_title'},
     {'1': '_details'},
     {'1': '_venue'},
@@ -580,14 +583,15 @@ const UpdateBeaconRequest$json = {
 /// Descriptor for `UpdateBeaconRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List updateBeaconRequestDescriptor = $convert.base64Decode(
     'ChNVcGRhdGVCZWFjb25SZXF1ZXN0EicKD2lkZW1wb3RlbmN5X2tleRgBIAEoCVIOaWRlbXBvdG'
-    'VuY3lLZXkSGwoJYmVhY29uX2lkGAIgASgJUghiZWFjb25JZBIZCgV0aXRsZRgDIAEoCUgAUgV0'
-    'aXRsZYgBARIdCgdkZXRhaWxzGAQgASgJSAFSB2RldGFpbHOIAQESGQoFdmVudWUYBSABKAlIAl'
-    'IFdmVudWWIAQESIgoKb3Blbl9zcG90cxgGIAEoBUgDUglvcGVuU3BvdHOIAQESNQoIc3RhcnRf'
+    'VuY3lLZXkSGwoJYmVhY29uX2lkGAIgASgJUghiZWFjb25JZBIZCgV0aXRsZRgDIAEoCUgBUgV0'
+    'aXRsZYgBARIdCgdkZXRhaWxzGAQgASgJSAJSB2RldGFpbHOIAQESGQoFdmVudWUYBSABKAlIA1'
+    'IFdmVudWWIAQESIgoKb3Blbl9zcG90cxgGIAEoBUgEUglvcGVuU3BvdHOIAQESNQoIc3RhcnRf'
     'YXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgdzdGFydEF0Ei4KEGR1cmF0aW'
-    '9uX21pbnV0ZXMYCCABKAVIBFIPZHVyYXRpb25NaW51dGVziAEBEjcKBGNvc3QYCSABKA4yHi5k'
-    'emVyb3RoLmJlYWNvbnMudjEuQmVhY29uQ29zdEgFUgRjb3N0iAEBQggKBl90aXRsZUIKCghfZG'
-    'V0YWlsc0IICgZfdmVudWVCDQoLX29wZW5fc3BvdHNCEwoRX2R1cmF0aW9uX21pbnV0ZXNCBwoF'
-    'X2Nvc3Q=');
+    '9uX21pbnV0ZXMYCCABKAVIBVIPZHVyYXRpb25NaW51dGVziAEBEjcKBGNvc3QYCSABKA4yHi5k'
+    'emVyb3RoLmJlYWNvbnMudjEuQmVhY29uQ29zdEgGUgRjb3N0iAEBEiMKDGNvbW11bml0eV9pZB'
+    'gKIAEoCUgAUgtjb21tdW5pdHlJZBIYCgZwdWJsaWMYCyABKAhIAFIGcHVibGljQgoKCGF1ZGll'
+    'bmNlQggKBl90aXRsZUIKCghfZGV0YWlsc0IICgZfdmVudWVCDQoLX29wZW5fc3BvdHNCEwoRX2'
+    'R1cmF0aW9uX21pbnV0ZXNCBwoFX2Nvc3Q=');
 
 @$core.Deprecated('Use updateBeaconResponseDescriptor instead')
 const UpdateBeaconResponse$json = {

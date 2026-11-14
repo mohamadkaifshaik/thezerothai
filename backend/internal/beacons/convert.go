@@ -57,6 +57,12 @@ func updateInputFromProto(m *beaconsv1.UpdateBeaconRequest) (UpdateInput, error)
 		}
 		in.Cost = &c
 	}
+	switch a := m.GetAudience().(type) {
+	case *beaconsv1.UpdateBeaconRequest_CommunityId:
+		in.Audience = &AudienceInput{CommunityID: a.CommunityId}
+	case *beaconsv1.UpdateBeaconRequest_Public:
+		in.Audience = &AudienceInput{Public: a.Public}
+	}
 	return in, nil
 }
 

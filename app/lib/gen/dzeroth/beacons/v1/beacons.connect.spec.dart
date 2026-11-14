@@ -33,8 +33,19 @@ abstract final class BeaconService {
   /// participant row, and start/end of every membership row, in the one transaction (at most 200 participant rows, else
   /// LIMIT_REACHED "beacon_edit_rows"). A change of any of the three keeps every participant as they are (accepted
   /// people stay and may LeaveBeacon) and notifies the ACCEPTED participants once per edit
-  /// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience stays immutable: cancel and create again. A request that changes
-  /// nothing writes only the idempotency doc.
+  /// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience may only be widened (F28b, widen only): the order is community <
+  /// public, so the one move is a community beacon made public (public = true). Every community is PUBLIC to read (F6),
+  /// so this exposes no community content, and everyone who could see the beacon (JOINED members, participants) still
+  /// can. Resending the stored audience is not a change. Moving a public beacon into a community => VALIDATION "audience",
+  /// metadata["reason"] = "audience_narrowing"; into another community => "audience_incompatible"; both against the stored
+  /// audience in the transaction, nothing written. Widening needs the organiser to pass the community write gate of
+  /// RequestToJoin on the stored community (FEATURE_COMMUNITIES not globally off, JOINED, else FORBIDDEN "not_member";
+  /// SUSPENDED => NOT_FOUND; ARCHIVED => COMMUNITY_STATE "community_archived"), so a plan cannot leave a community that
+  /// suspended, archived or banned its organiser (cancelling stays open to the organiser in every case). It is
+  /// allowed while the beacon is OPEN or FULL, also after it started (people may still ask to join), rewrites the
+  /// audience of every membership row in the same transaction (the "beacon_edit_rows" bound) and sends no notification:
+  /// nobody loses access and nothing about the plan itself changes. A request that changes nothing writes only the
+  /// idempotency doc.
   static const updateBeacon = connect.Spec(
     '/$name/UpdateBeacon',
     connect.StreamType.unary,

@@ -113,6 +113,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   bool _sideLoading = false;
   bool _sideRequested = false;
   String? _error;
+
+  /// The draft-limit copy last built by [_message] (it carries the server's
+  /// cap), so the banner can tell that error apart: it only dismisses.
+  String? _draftLimitText;
   // The server copy after a revision conflict whose content differs from the
   // editor's: autosave pauses until the author keeps theirs or reloads.
   ArticleRecord? _conflict;
@@ -270,7 +274,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
 
   String _message(Object error) => isArticleDraftLimit(error)
       // Fixed copy, not the server's text; nothing in the editor is touched.
-      ? articleDraftLimitMessage
+      ? (_draftLimitText = articleDraftLimitMessageFor(error))
       // The flag went off after the dialog offered a narrower audience.
       : error is FeatureDisabledException &&
             error.feature == kFeatureReplyAudience
@@ -730,7 +734,8 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
                 actions: [
                   // Retrying the draft cap cannot succeed (and Retry would
                   // reload the editor): it only dismisses.
-                  if (_error == articleDraftLimitMessage)
+                  if (_error == _draftLimitText ||
+                      _error == articleDraftLimitMessage)
                     TextButton(
                       onPressed: () => setState(() => _error = null),
                       child: const Text('Dismiss'),

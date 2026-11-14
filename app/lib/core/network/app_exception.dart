@@ -94,6 +94,7 @@ final class LimitReachedException extends AppException {
     this.quota,
     this.retryAfter,
     this.choiceIndex,
+    this.max,
   });
 
   /// The server's `metadata["quota"]`, when it names the limit.
@@ -104,6 +105,11 @@ final class LimitReachedException extends AppException {
   /// (`LIMIT_REACHED` with `limit=poll_vote_changes`);
   /// null otherwise.
   final int? choiceIndex;
+
+  /// The cap itself from `metadata["max"]` (article drafts, scheduled posts);
+  /// null from a server that does not send it, so callers keep their own
+  /// fallback number.
+  final int? max;
 }
 
 /// Referenced media is not READY or not owned by the caller.

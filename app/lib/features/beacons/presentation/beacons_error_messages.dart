@@ -2,6 +2,11 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../domain/beacons_feature_flag.dart';
 
+/// F28b: a plan's audience only widens (community to public), never
+/// narrows. The edit form's audience helper, and the copy of the server's
+/// VALIDATION "audience" (audience_narrowing / audience_incompatible).
+const kPlanAudienceWidenNote = 'You can make a plan more open, not less.';
+
 /// Whether [error] is the server asking for a note: a one-tap join (empty
 /// note) the organiser's follow does not cover.
 bool isNoteRequired(AppException error) =>
@@ -59,6 +64,7 @@ String beaconsErrorMessage(AppException error) {
       "Open spots can't go below the people already going.",
     ValidationException(field: 'start_at') =>
       'Pick a time between 5 minutes and 30 days from now.',
+    ValidationException(field: 'audience') => kPlanAudienceWidenNote,
     ValidationException() => 'Check the details of your plan, then try again.',
     EmailNotVerifiedException() =>
       'Please verify your email address to continue.',

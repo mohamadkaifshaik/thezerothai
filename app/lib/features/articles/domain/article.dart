@@ -37,6 +37,16 @@ const articleDraftLimitMessage =
     'You have $articleMaxDrafts drafts. Publish or delete one to start a new '
     'draft.';
 
+/// The draft-limit copy for [error]: the server's `max` when it sent one,
+/// else [articleMaxDrafts] (an older server).
+String articleDraftLimitMessageFor(Object error) {
+  final max = error is LimitReachedException ? error.max : null;
+  if (max == null || max <= 0 || max == articleMaxDrafts) {
+    return articleDraftLimitMessage;
+  }
+  return 'You have $max drafts. Publish or delete one to start a new draft.';
+}
+
 /// Whether [error] is the server refusing a new draft at [articleMaxDrafts].
 bool isArticleDraftLimit(Object error) =>
     error is LimitReachedException && error.quota == kArticleDraftsLimit;

@@ -311,10 +311,12 @@ bool _isLoopBlock(Uint8List bytes, int at) {
   return _kGifLoopIds.contains(String.fromCharCodes(bytes, at + 1, at + 12));
 }
 
-/// Synchronous core of [IsolateGifPreparer], exported for tests: signature,
-/// size, [stripGifBytes], logical screen (<= 1,280 each side) and frame count
-/// (<= 300) are read from the headers; only the first frame is decoded.
-ProcessedImage prepareGifSync(Uint8List picked) {
+/// What the headers of a picked GIF say, after the checks the server repeats.
+typedef GifHeaders = ({Uint8List bytes, int width, int height});
+
+({Uint8List bytes, img.GifDecoder decoder, img.GifInfo info}) _openGif(
+  Uint8List picked,
+) {
   checkGifBytes(picked);
   // Security L-4: drop the non-rendering blocks and trailing bytes
   // byte-level BEFORE anything else reads the file, so the frame count and
@@ -333,6 +335,26 @@ ProcessedImage prepareGifSync(Uint8List picked) {
     throw GifRefusedException.tooLarge;
   }
   if (info.numFrames > kMaxGifFrames) throw GifRefusedException.tooLong;
+  return (bytes: bytes, decoder: decoder, info: info);
+}
+
+/// The checks of [prepareGifSync] without decoding any pixels: signature,
+/// size, [stripGifBytes], logical screen and frame count. The stripped bytes
+/// are what is uploaded. Used by the web worker path, which then has the
+/// browser decode the first frame.
+GifHeaders inspectGif(Uint8List picked) {
+  final open = _openGif(picked);
+  return (bytes: open.bytes, width: open.info.width, height: open.info.height);
+}
+
+/// Synchronous core of [IsolateGifPreparer], exported for tests: signature,
+/// size, [stripGifBytes], logical screen (<= 1,280 each side) and frame count
+/// (<= 300) are read from the headers; only the first frame is decoded.
+ProcessedImage prepareGifSync(Uint8List picked) {
+  final open = _openGif(picked);
+  final bytes = open.bytes;
+  final decoder = open.decoder;
+  final info = open.info;
   final img.Image? frame;
   try {
     frame = decoder.decodeFrame(0);

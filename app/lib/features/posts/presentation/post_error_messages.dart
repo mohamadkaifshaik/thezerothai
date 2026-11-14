@@ -142,10 +142,10 @@ String threadRefreshErrorMessage(AppException error) {
 /// simultaneous duplicate can look like one, review m1).
 String scheduleErrorMessage(AppException error) {
   return switch (error) {
-    LimitReachedException(quota: 'scheduled_pending') =>
-      'You have too many scheduled posts. Cancel one first.',
-    LimitReachedException(quota: 'scheduled_window') =>
-      'Too many posts are scheduled around that time. Pick another time.',
+    LimitReachedException(quota: 'scheduled_pending', :final max) =>
+      _scheduledPendingMessage(max),
+    LimitReachedException(quota: 'scheduled_window', :final max) =>
+      _scheduledWindowMessage(max),
     LimitReachedException() =>
       "You can't schedule more posts right now. Try again later.",
     ValidationException(field: 'publish_at') => kScheduleRejectedMessage,
@@ -222,14 +222,25 @@ String postNowScheduledErrorMessage(AppException error) {
   };
 }
 
+/// The scheduled-posts caps. [max] is the server's `metadata["max"]`; without
+/// it (an older server) the copy names no number.
+String _scheduledPendingMessage(int? max) => max == null || max <= 0
+    ? 'You have too many scheduled posts. Cancel one first.'
+    : 'You can have up to $max scheduled posts. Cancel one first.';
+
+String _scheduledWindowMessage(int? max) => max == null || max <= 0
+    ? 'Too many posts are scheduled around that time. Pick another time.'
+    : 'You can schedule up to $max posts around the same time. Pick another '
+          'time.';
+
 /// Text for a failed Edit of a scheduled post, shown in the edit sheet
 /// (nothing changed). The time and text refusals reuse the composer's words.
 String editScheduledErrorMessage(AppException error) {
   return switch (error) {
     ValidationException(field: 'publish_at') => kScheduleRejectedMessage,
     ValidationException(field: 'text') => createPostErrorMessage(error),
-    LimitReachedException(quota: 'scheduled_window') =>
-      'Too many posts are scheduled around that time. Pick another time.',
+    LimitReachedException(quota: 'scheduled_window', :final max) =>
+      _scheduledWindowMessage(max),
     final RateLimitedException e => rateLimitedMessage(e),
     NetworkException() =>
       "Couldn't confirm your change. Check Scheduled posts and try again.",
