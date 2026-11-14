@@ -1574,3 +1574,31 @@ variable "feature_message_search_percent" {
     error_message = "feature_message_search_percent must be an integer 0-100."
   }
 }
+
+variable "feature_post_views" {
+  description = "FEATURE_POST_VIEWS rollout mode for F1 post view counts (EngagementService.RecordImpressions on for the caller; Post.view_count on every read while not globally off): off | allowlist | percent | on. Default off in every environment. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, prod off. Ramp ahead of FEATURE_CREATOR_INSIGHTS."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_post_views)
+    error_message = "feature_post_views must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_post_views_allowlist" {
+  description = "FEATURE_POST_VIEWS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_post_views_percent" {
+  description = "FEATURE_POST_VIEWS_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_post_views_percent >= 0 && var.feature_post_views_percent <= 100 && floor(var.feature_post_views_percent) == var.feature_post_views_percent
+    error_message = "feature_post_views_percent must be an integer 0-100."
+  }
+}

@@ -47,6 +47,7 @@
 	featureArticleImages, err := flags.LoadSpec("ARTICLE_IMAGES", "article_images", flags.Off)
 	featureExportZip, err := flags.LoadSpec("EXPORT_ZIP", "export_zip", flags.Off)
 	featureMessageSearch, err := flags.LoadSpec("MESSAGE_SEARCH", "message_search", flags.Off)
+	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
 	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
 	featureDMPolicy, err := flags.LoadSpec("DM_POLICY", "dm_policy", flags.Off)
