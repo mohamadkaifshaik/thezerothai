@@ -158,6 +158,21 @@ type fakeDirectory struct {
 	seenAt          time.Time
 	// lookups records every GetProfiles call's uids, in call order.
 	lookups [][]string
+	// anyActive answers every uid outside profiles as an ACTIVE stub (newOpenDirectory), for tests whose subject is
+	// not account status; inactive then lists the uids that are not ACTIVE.
+	anyActive bool
+	inactive  map[string]bool
+}
+
+// newOpenDirectory is a directory where every uid is ACTIVE except inactive (gone, suspended or deleting).
+func newOpenDirectory(inactive ...string) *fakeDirectory {
+	d := newDirectory()
+	d.anyActive = true
+	d.inactive = map[string]bool{}
+	for _, u := range inactive {
+		d.inactive[u] = true
+	}
+	return d
 }
 
 func newDirectory(uids ...string) *fakeDirectory {
@@ -179,7 +194,11 @@ func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[str
 	}
 	out := map[string]identity.Profile{}
 	for _, u := range uids {
-		if p, ok := d.profiles[u]; ok {
+		p, ok := d.profiles[u]
+		if !ok && d.anyActive && !d.inactive[u] {
+			p, ok = identity.Profile{UserID: u, Handle: "h_" + u, Status: identity.AccountStatusActive}, true
+		}
+		if ok {
 			if u == uids[0] && !d.seenAt.IsZero() {
 				p.NotificationsSeenAt = d.seenAt
 			}

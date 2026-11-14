@@ -74,7 +74,7 @@ func TestList_ActorsAfterPruningNewestFirstOneLookup(t *testing.T) {
 		{"newest three of five", []string{"a", "b", "c", "d", "e"}, 7, graph.Snapshot{}, nil, []string{"e", "d", "c"}, 7},
 		{"muted actor is never listed", []string{"a", "b", "c", "d", "e"}, 5, graph.Snapshot{Muted: map[string]bool{"d": true}}, nil, []string{"e", "c", "b"}, 4},
 		{"blocked and blocked-by pruned", []string{"a", "b", "c", "e"}, 4, graph.Snapshot{Blocked: map[string]bool{"c": true}, BlockedBy: map[string]bool{"b": true}}, nil, []string{"e", "a"}, 2},
-		{"gone actor is left out, count untouched", []string{"a", "b", "e"}, 3, graph.Snapshot{}, []string{"b"}, []string{"e", "a"}, 3},
+		{"inactive folded actor is left out and pruned from the count", []string{"a", "b", "e"}, 3, graph.Snapshot{}, []string{"b"}, []string{"e", "a"}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,8 +137,9 @@ func TestList_ActorsFromTheLiveProfile(t *testing.T) {
 	}
 }
 
-// A failing lookup degrades: the page is returned with no faces (clients fall back to `actor`) and no seen_at.
-func TestList_ActorsLookupFailureDegrades(t *testing.T) {
+// A failing lookup fails the page: the actor's account status is unknown, so the row is not shown (it used to degrade
+// to a page without faces, which would show a suspended actor's row).
+func TestList_ActorsLookupFailureFailsPage(t *testing.T) {
 	t.Parallel()
 	repo := newFakeRepo()
 	dir := newDirectory("me", "a")
@@ -146,15 +147,13 @@ func TestList_ActorsLookupFailureDegrades(t *testing.T) {
 	repo.rows["me"] = map[string]Notification{"follow_1": {ID: "follow_1", Type: TypeFollow, Actor: Actor{UserID: "a"}, ActorIDs: []string{"a"}, ActorCount: 1, CreatedAt: t0.Add(-time.Minute)}}
 	svc := newService(repo, dir, &fakeSeen{}, func() time.Time { return t0 })
 	res, err := svc.List(context.Background(), "me", ListInput{})
-	if err != nil || len(res.Notifications) != 1 {
-		t.Fatalf("List = %v, %v", res.Notifications, err)
-	}
-	if len(res.Notifications[0].Actors) != 0 || !res.SeenAt.IsZero() {
-		t.Errorf("actors = %v seen_at = %v, want none", res.Notifications[0].Actors, res.SeenAt)
+	if err == nil || len(res.Notifications) != 0 {
+		t.Fatalf("List = %v, %v; want an error and no rows", res.Notifications, err)
 	}
 }
 
-// A full page of folded rows stays inside one lookup of at most MaxPageProfileLookup ids, caller included.
+// A full page of folded rows with 50 distinct displayed actors needs the caller plus 50 status checks: two lookups,
+// each of at most MaxPageProfileLookup ids, the caller first in the first, and no extra call for the faces.
 func TestList_ActorsLookupBounded(t *testing.T) {
 	t.Parallel()
 	repo := newFakeRepo()
@@ -173,10 +172,15 @@ func TestList_ActorsLookupBounded(t *testing.T) {
 	if err != nil || len(res.Notifications) != MaxPageSize {
 		t.Fatalf("List = %d rows, %v", len(res.Notifications), err)
 	}
-	if len(dir.lookups) != 1 || len(dir.lookups[0]) > MaxPageProfileLookup {
-		t.Fatalf("lookups = %d, first has %d ids; want one of at most %d", len(dir.lookups), len(dir.lookups[0]), MaxPageProfileLookup)
+	if len(dir.lookups) != 2 || dir.lookups[0][0] != "me" {
+		t.Fatalf("lookups = %d (first %v); want two, caller first", len(dir.lookups), dir.lookups)
 	}
-	for i, n := range res.Notifications[:MaxPageProfileLookup-1] {
+	for i, l := range dir.lookups {
+		if len(l) > MaxPageProfileLookup {
+			t.Errorf("lookup %d has %d ids, want at most %d", i, len(l), MaxPageProfileLookup)
+		}
+	}
+	for i, n := range res.Notifications { // every displayed actor was looked up for its status, so every row has its face
 		if len(n.Actors) == 0 || n.Actors[0].UserID != n.ActorIDs[len(n.ActorIDs)-1] {
 			t.Errorf("row %d actors = %v, want its newest actor first", i, actorUIDs(n.Actors))
 		}

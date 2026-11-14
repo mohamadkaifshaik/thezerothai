@@ -133,7 +133,7 @@ func TestGetPost_Integration_Own(t *testing.T) {
 }
 
 // TestPurge_Integration_RestartFromEmptyCheckpoint: the checkpoint is lost after batch 1; PurgeUser restarted from
-// Checkpoint{} still deletes everything, and batch 1 removed the newest 500 (audit item #22).
+// Checkpoint{} still deletes everything, and batch 1 removed the newest purgeOwnPage (250) posts (audit item #22).
 func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
@@ -144,22 +144,22 @@ func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 
 	ctx1 := context.Background()
 	cp, done, err := repo.PurgeUser(ctx1, uid, Checkpoint{})
-	if err != nil || done || cp.Deleted != 500 {
+	if err != nil || done || cp.Deleted != purgeOwnPage {
 		t.Fatalf("batch 1: cp=%+v done=%v err=%v", cp, done, err)
 	}
-	// Newest 500 (pid 704..1203) are gone; the oldest 703 remain.
-	for _, n := range []int{704, 900, 1203} {
+	// Newest 250 (pid 954..1203) are gone; the oldest 953 remain.
+	for _, n := range []int{954, 1100, 1203} {
 		if postExists(t, client, pid(n)) {
-			t.Fatalf("post %d (among the newest 500) survived batch 1", n)
+			t.Fatalf("post %d (among the newest 250) survived batch 1", n)
 		}
 	}
-	for _, n := range []int{1, 350, 703} {
+	for _, n := range []int{1, 500, 953} {
 		if !postExists(t, client, pid(n)) {
-			t.Fatalf("post %d (not among the newest 500) was deleted by batch 1", n)
+			t.Fatalf("post %d (not among the newest 250) was deleted by batch 1", n)
 		}
 	}
-	if got := countByAuthor(t, client, uid); got != 703 {
-		t.Fatalf("%d remain after batch 1, want 703", got)
+	if got := countByAuthor(t, client, uid); got != 953 {
+		t.Fatalf("%d remain after batch 1, want 953", got)
 	}
 
 	// Crash: the saved checkpoint is lost. Restart from zero.
@@ -174,8 +174,8 @@ func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if cp.Deleted != 703 {
-		t.Fatalf("restart deleted %d, want the remaining 703", cp.Deleted)
+	if cp.Deleted != 953 {
+		t.Fatalf("restart deleted %d, want the remaining 953", cp.Deleted)
 	}
 	if got := countByAuthor(t, client, uid); got != 0 {
 		t.Fatalf("%d posts remain", got)
