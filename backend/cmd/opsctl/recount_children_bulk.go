@@ -168,7 +168,7 @@ type bulkCheckpointFile struct {
 	Mode    string `json:"mode"`
 	// After is the last post id decided; the next page starts after it ("" = the start).
 	After string `json:"after"`
-	// State is running, complete, write-cap, post-cap, interrupted or aborted.
+	// State is running, complete, write-cap, post-cap, interrupted, aborted or failed.
 	State   string    `json:"state"`
 	Totals  bulkStats `json:"totals"`
 	SavedAt string    `json:"saved_at"`
@@ -279,6 +279,8 @@ const (
 	stopPostCap     bulkStop = "post-cap"
 	stopInterrupted bulkStop = "interrupted"
 	stopAborted     bulkStop = "aborted"
+	// stopFailed: the page query kept failing (driveLoop gave up after maxConsecutiveErrors).
+	stopFailed bulkStop = "failed"
 )
 
 // fieldLabel is the printed name of a counter.
@@ -337,12 +339,11 @@ func recountChildrenBulk(ctx context.Context, b *backends, a bulkRecountArgs, ou
 		return next, done || st != stopNone || saveErr != nil, nil
 	}, describeBulk, "recount-children")
 	if err != nil {
+		stop = stopFailed
 		if ctx.Err() != nil {
 			stop = stopInterrupted
-			save(last, string(stop))
-		} else {
-			return err
 		}
+		save(last, string(stop))
 	}
 	fmt.Fprintf(out, "recount-children: %s: %s elapsed=%s checkpoint=%s\n",
 		bulkVerdict(stop), last.Run, now().Sub(start).Round(time.Millisecond), checkpointOrDash(last.After))
@@ -357,6 +358,8 @@ func recountChildrenBulk(ctx context.Context, b *backends, a bulkRecountArgs, ou
 		fmt.Fprintf(out, "more posts may be stale: rerun with --resume (or --after %s)\n", checkpointOrDash(last.After))
 	case stopInterrupted:
 		return fmt.Errorf("interrupted: checkpoint saved at %s; rerun with --resume", checkpointOrDash(last.After))
+	case stopFailed:
+		return fmt.Errorf("checkpoint saved at %s; rerun with --resume: %w", checkpointOrDash(last.After), err)
 	case stopAborted:
 		return fmt.Errorf("stopped after %d consecutive post errors; checkpoint saved before them at %s; rerun with --resume", maxConsecutiveErrors, checkpointOrDash(last.After))
 	}
@@ -376,6 +379,8 @@ func bulkVerdict(s bulkStop) string {
 		return "interrupted"
 	case stopAborted:
 		return "aborted"
+	case stopFailed:
+		return "failed"
 	}
 	return "complete"
 }

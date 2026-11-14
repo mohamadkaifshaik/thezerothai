@@ -54,12 +54,16 @@ type fakeBulk struct {
 	// onCount runs before each CountChildParent (tests cancel the run context there).
 	onCount func(id string)
 	scanErr error
+	// scanAlways keeps scanErr for every call (a page query that never recovers).
+	scanAlways bool
 }
 
 func (f *fakeBulk) ScanChildParents(_ context.Context, before time.Time, after string, limit int) ([]posts.ChildParent, error) {
 	if f.scanErr != nil {
 		err := f.scanErr
-		f.scanErr = nil
+		if !f.scanAlways {
+			f.scanErr = nil
+		}
 		return nil, err
 	}
 	bound := snowflake.MinID(before)
@@ -313,7 +317,7 @@ func TestBulkCheckpoint_RoundTripAndAtomic(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("dir holds %d entries, want only the checkpoint (no temp file left)", len(entries))
 	}
-	// A failed save leaves the previous checkpoint intact.
+	// A save that cannot create its temp file returns the error (and leaves no file behind).
 	if err := saveBulkCheckpoint(filepath.Join(dir, "missing-dir", "cp.json"), c); err == nil {
 		t.Fatal("a save into a missing directory succeeded")
 	}
@@ -559,6 +563,27 @@ func TestRecountChildrenBulk_Errors(t *testing.T) {
 	}
 	if cp := r.checkpoint(t); cp.After != first || cp.State != "aborted" || cp.Totals.Errors != 0 {
 		t.Fatalf("abort checkpoint = %+v, want after %s", cp, first)
+	}
+}
+
+// A page query that keeps failing ends the run with the summary and a resumable, non-running checkpoint.
+func TestRecountChildrenBulk_PageQueryFails(t *testing.T) {
+	first, second := bulkID(t, 2*time.Hour, 0), bulkID(t, time.Hour, 0)
+	r := newBulkRig(t, map[string]*bulkPost{first: {kind: posts.KindPost}, second: {kind: posts.KindPost}})
+	b := &backends{childBulk: r.f, sleep: r.clock.sleep, close: func() {}}
+	a := bulkRecountArgs{project: "demo-dev", before: bulkBefore, rate: 50, maxPosts: 100, maxWrites: 10, page: 1, checkpoint: r.cpPath}
+	var out bytes.Buffer
+	// The first page succeeds; every later query fails.
+	r.f.onCount = func(string) { r.f.scanErr, r.f.scanAlways = errors.New("unavailable"), true }
+	err := recountChildrenBulk(context.Background(), b, a, &out, r.clock.now)
+	if err == nil || !strings.Contains(err.Error(), "unavailable") || !strings.Contains(err.Error(), "--resume") {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(out.String(), "recount-children: failed: scanned=1") {
+		t.Fatalf("no summary:\n%s", out.String())
+	}
+	if cp := r.checkpoint(t); cp.State != "failed" || cp.After != first {
+		t.Fatalf("checkpoint = %+v", cp)
 	}
 }
 
