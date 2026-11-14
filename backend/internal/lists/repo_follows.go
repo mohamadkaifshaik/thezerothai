@@ -455,3 +455,37 @@ func (r *FirestoreRepo) RecountFollowers(ctx context.Context, listID string, wri
 	}
 	return out, nil
 }
+
+// MissingFollowerCountPage is one page of the all-lists scan behind `opsctl recount-list-follows --all-missing`: up to limit
+// lists after the document id after (all lists, private ones too: a private list without the field would stay out of
+// Discover once made public), ordered by document id, reading only followerCount. Missing holds the ids that lack the field;
+// Last is the page's last id (the resume checkpoint), empty for an empty page.
+type MissingFollowerCountPage struct {
+	Scanned int
+	Missing []string
+	Last    string
+}
+
+// MissingFollowerCount returns one MissingFollowerCountPage. It writes nothing; RecountFollowers repairs each id.
+func (r *FirestoreRepo) MissingFollowerCount(ctx context.Context, after string, limit int) (MissingFollowerCountPage, error) {
+	if err := r.readable(); err != nil {
+		return MissingFollowerCountPage{}, err
+	}
+	q := r.col().Select("followerCount").OrderBy(firestore.DocumentID, firestore.Asc)
+	if after != "" {
+		q = q.StartAfter(r.ref(after))
+	}
+	docs, err := q.Limit(min(max(limit, 1), 500)).Documents(ctx).GetAll()
+	if err != nil {
+		return MissingFollowerCountPage{}, fmt.Errorf("lists: missing followerCount scan: %w", err)
+	}
+	var p MissingFollowerCountPage
+	for _, d := range docs {
+		p.Scanned++
+		p.Last = d.Ref.ID
+		if !hasFollowerCount(d) {
+			p.Missing = append(p.Missing, d.Ref.ID)
+		}
+	}
+	return p, nil
+}
