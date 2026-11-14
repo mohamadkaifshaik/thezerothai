@@ -156,6 +156,7 @@ func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.
 		if !needRead {
 			res, verr := repo.Vote(wctx, VoteParams{
 				UID: uid, PostID: target.ID, Choice: choice, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose), ClosesAt: target.Poll.ClosesAt,
+				Known: target.Poll.Total, // the total as read (cache first): routes a hot poll's counters to its shards
 			})
 			if verr != nil {
 				return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, verr)
@@ -204,7 +205,7 @@ func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.
 		if !prev.IsZero() && cur.UpdateTime.Equal(prev) {
 			return PollVote{}, notFound() // the precondition failed and the vote doc did not move: the post is gone
 		}
-		res, cerr := repo.ChangeVote(wctx, ChangeParams{UID: uid, PostID: target.ID, From: cur.Choice, To: choice, Version: cur.UpdateTime, ClosesAt: target.Poll.ClosesAt, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose)})
+		res, cerr := repo.ChangeVote(wctx, ChangeParams{UID: uid, PostID: target.ID, From: cur.Choice, To: choice, Version: cur.UpdateTime, ClosesAt: target.Poll.ClosesAt, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose), Known: target.Poll.Total})
 		if cerr != nil {
 			return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, cerr)
 		}
