@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/articles/domain/article.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -324,5 +325,22 @@ void main() {
         contains('caption'),
       );
     });
+  });
+
+  test('the draft-limit message names the server max, else the fallback', () {
+    const quota = kArticleDraftsLimit;
+    expect(
+      articleDraftLimitMessageFor(
+        const LimitReachedException('x', quota: quota, max: 75),
+      ),
+      'You have 75 drafts. Publish or delete one to start a new draft.',
+    );
+    for (final error in [
+      const LimitReachedException('x', quota: quota),
+      const LimitReachedException('x', quota: quota, max: 0),
+      const LimitReachedException('x', quota: quota, max: articleMaxDrafts),
+    ]) {
+      expect(articleDraftLimitMessageFor(error), articleDraftLimitMessage);
+    }
   });
 }

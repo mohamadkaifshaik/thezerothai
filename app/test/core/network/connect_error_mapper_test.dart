@@ -170,6 +170,28 @@ void main() {
       expect(result.choiceIndex, 2);
     });
 
+    test('LIMIT_REACHED reads the cap from metadata max', () {
+      LimitReachedException map(Map<String, String> metadata) =>
+          mapConnectError(
+            _withDetail(
+              connect.Code.failedPrecondition,
+              'fallback',
+              common.ErrorDetail(
+                reason: common.ErrorReason.ERROR_REASON_LIMIT_REACHED,
+                message: 'x',
+                metadata: metadata.entries,
+              ),
+            ),
+          ) as LimitReachedException;
+
+      final withMax = map({'limit': 'article_drafts', 'max': '75'});
+      expect(withMax.quota, 'article_drafts');
+      expect(withMax.max, 75);
+      // An older server sends none; a malformed value is none too.
+      expect(map({'limit': 'article_drafts'}).max, isNull);
+      expect(map({'limit': 'x', 'max': 'lots'}).max, isNull);
+    });
+
     test('LIMIT_REACHED prefers quota over limit when both are present', () {
       final error = _withDetail(
         connect.Code.failedPrecondition,
