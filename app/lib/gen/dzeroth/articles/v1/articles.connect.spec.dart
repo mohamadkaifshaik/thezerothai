@@ -27,6 +27,9 @@ abstract final class ArticleService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
+  /// Creating a new draft id is refused at 50 unpublished drafts per author (a soft cap): FAILED_PRECONDITION +
+  /// LIMIT_REACHED, metadata["limit"] = "article_drafts" and metadata["max"] = the cap as a decimal string. Editing an
+  /// existing draft is never refused by the cap.
   static const saveArticle = connect.Spec(
     '/$name/SaveArticle',
     connect.StreamType.unary,

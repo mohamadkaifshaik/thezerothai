@@ -334,7 +334,7 @@ func TestFirestoreDraftCap(t *testing.T) {
 	// 50 drafts: the 51st is refused and not stored.
 	err = saveNew(prefix + "-new051")
 	var ae *apierr.Error
-	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED || ae.Metadata["limit"] != draftLimitName {
+	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED || ae.Metadata["limit"] != draftLimitName || ae.Metadata["max"] != "50" {
 		t.Fatalf("51st draft: %v", err)
 	}
 	if _, err = client.Collection("articles").Doc(prefix + "-new051").Get(ctx); status.Code(err) != codes.NotFound {

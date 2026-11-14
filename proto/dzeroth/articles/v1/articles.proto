@@ -15,6 +15,9 @@ service ArticleService {
   rpc ListArticles(ListArticlesRequest) returns (ListArticlesResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+  // Creating a new draft id is refused at 50 unpublished drafts per author (a soft cap): FAILED_PRECONDITION +
+  // LIMIT_REACHED, metadata["limit"] = "article_drafts" and metadata["max"] = the cap as a decimal string. Editing an
+  // existing draft is never refused by the cap.
   rpc SaveArticle(SaveArticleRequest) returns (SaveArticleResponse);
   rpc DeleteArticle(DeleteArticleRequest) returns (DeleteArticleResponse);
   rpc PublishArticle(PublishArticleRequest) returns (PublishArticleResponse);
