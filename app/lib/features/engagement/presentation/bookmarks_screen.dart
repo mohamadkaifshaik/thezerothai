@@ -11,9 +11,11 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
+import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/bookmarks_repository.dart';
 import '../data/likes_repository.dart';
+import '../domain/bookmark_history_feature_flag.dart';
 import '../domain/likes_list_feature_flag.dart';
 import 'bloc/bookmarks_list_cubit.dart';
 import 'bloc/bookmarks_list_state.dart';
@@ -21,6 +23,7 @@ import 'bloc/engagement_state.dart' show EngagementAction;
 import 'engagement_error_messages.dart';
 import 'likes_tab.dart';
 import 'widgets/history_post_list.dart';
+import 'opened_posts_tab.dart';
 
 /// Empty list: a heading and one line of guidance (our own wording).
 const kBookmarksEmptyTitle = 'Save posts for later';
@@ -31,15 +34,27 @@ const kBookmarksEmptyBody = 'Tap the bookmark on a post to keep it here.';
 /// again.
 const kBookmarksUnavailableBody = 'Please check back later.';
 
-/// The tabs of the History screen. The URL names the Likes tab with
-/// `?tab=likes`; any other value (or none) is Bookmarks.
+/// The tabs of the History screen, in tab-bar order. The URL names the
+/// History tab with `?tab=history` and the Likes tab with `?tab=likes`; any
+/// other value (or none) is Bookmarks.
 enum HistoryTab {
   bookmarks,
+  history,
   likes;
 
   /// The tab a `/bookmarks?tab=<value>` link opens.
-  static HistoryTab fromQuery(String? value) =>
-      value == 'likes' ? HistoryTab.likes : HistoryTab.bookmarks;
+  static HistoryTab fromQuery(String? value) => switch (value) {
+    'history' => HistoryTab.history,
+    'likes' => HistoryTab.likes,
+    _ => HistoryTab.bookmarks,
+  };
+
+  /// The tab-bar label.
+  String get label => switch (this) {
+    HistoryTab.bookmarks => 'Bookmarks',
+    HistoryTab.history => 'History',
+    HistoryTab.likes => 'Likes',
+  };
 }
 
 /// `/bookmarks`: the caller's saved posts and likes, titled "Bookmarks" over
@@ -123,7 +138,21 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
         isFeatureEnabled(context, kFeatureLikesList) &&
         !_likesGone &&
         context.read<LikesRepository>().available;
-    final current = likesOffered ? _selected : HistoryTab.bookmarks;
+    // The History tab (`bookmark_history`) lists this account's opened posts
+    // from the device; it needs a signed-in uid to read them.
+    final historyOffered = isFeatureEnabled(context, kFeatureBookmarkHistory);
+    final historyUid = historyOffered
+        ? context.select((AuthBloc bloc) => bloc.state.user?.uid)
+        : null;
+    final showHistory = historyOffered && historyUid != null;
+    final offered = [
+      HistoryTab.bookmarks,
+      if (showHistory) HistoryTab.history,
+      if (likesOffered) HistoryTab.likes,
+    ];
+    final current = offered.contains(_selected)
+        ? _selected
+        : HistoryTab.bookmarks;
     _opened.add(current);
     final handle = context.select(
       (OnboardingBloc bloc) => bloc.state.profile?.handle ?? '',
@@ -142,16 +171,13 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                 subtitle: handle.isEmpty ? null : '@$handle',
                 onBack: _back,
               ),
-              if (likesOffered)
+              if (offered.length > 1)
                 AppTabBar(
                   semanticLabel: 'History',
-                  selectedIndex: current.index,
+                  selectedIndex: offered.indexOf(current),
                   onChanged: (index) =>
-                      setState(() => _selected = HistoryTab.values[index]),
-                  tabs: const [
-                    AppTab(label: 'Bookmarks'),
-                    AppTab(label: 'Likes'),
-                  ],
+                      setState(() => _selected = offered[index]),
+                  tabs: [for (final tab in offered) AppTab(label: tab.label)],
                 ),
               Expanded(
                 child: Stack(
@@ -164,6 +190,14 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                         child: _BookmarksTab(
                           active: current == HistoryTab.bookmarks,
                         ),
+                      ),
+                    if (historyUid != null &&
+                        showHistory &&
+                        _opened.contains(HistoryTab.history))
+                      _TabSlot(
+                        key: ValueKey('history-opened-$historyUid'),
+                        visible: current == HistoryTab.history,
+                        child: OpenedPostsTab(uid: historyUid),
                       ),
                     if (likesOffered && _opened.contains(HistoryTab.likes))
                       _TabSlot(

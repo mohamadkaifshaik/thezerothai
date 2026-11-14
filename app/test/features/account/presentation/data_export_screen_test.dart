@@ -11,6 +11,10 @@ import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart'
     show ExportStatus;
 import 'package:flutter/material.dart';
@@ -28,6 +32,9 @@ class _MockAuth extends Mock implements AuthRepository {}
 
 class _FakeAuthBloc extends MockBloc<AuthEvent, AuthState>
     implements AuthBloc {}
+
+class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
+    implements OnboardingBloc {}
 
 class _FakeLauncher extends UrlLauncherPlatform {
   final launched = <String>[];
@@ -60,6 +67,7 @@ void main() {
   late _FakeLauncher launcher;
   late AppDatabase db;
   late _FakeAuthBloc authBloc;
+  late _MockOnboarding onboarding;
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
@@ -92,6 +100,18 @@ void main() {
       () =>
           accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
     ).thenAnswer((_) async => _export(ExportStatus.EXPORT_STATUS_PENDING));
+    when(
+      () => accounts.requestExport(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        zip: any(named: 'zip'),
+      ),
+    ).thenAnswer((_) async => _export(ExportStatus.EXPORT_STATUS_PENDING));
+    onboarding = _MockOnboarding();
+    whenListen(
+      onboarding,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(),
+    );
   });
 
   Widget providers(Widget child) => MultiRepositoryProvider(
@@ -101,7 +121,10 @@ void main() {
       RepositoryProvider<AppDatabase>.value(value: db),
       RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
     ],
-    child: BlocProvider<AuthBloc>.value(value: authBloc, child: child),
+    child: BlocProvider<OnboardingBloc>.value(
+      value: onboarding,
+      child: BlocProvider<AuthBloc>.value(value: authBloc, child: child),
+    ),
   );
 
   Future<void> pump(
@@ -109,13 +132,23 @@ void main() {
     double width = 400,
     double textScale = 1,
     bool use24Hour = false,
+    bool dark = false,
+    Set<String> flags = const {},
   }) async {
+    whenListen(
+      onboarding,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(enabledFeatures: flags),
+    );
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       providers(
         MaterialApp(
+          theme: buildAppTheme(brightness: Brightness.light),
+          darkTheme: buildAppTheme(brightness: Brightness.dark),
+          themeMode: dark ? ThemeMode.dark : ThemeMode.light,
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(context).copyWith(
               textScaler: TextScaler.linear(textScale),
@@ -620,6 +653,68 @@ void main() {
       );
       expect(pill.variant, AppButtonVariant.primary);
       expect(pill.size, AppButtonSize.large);
+    });
+  });
+
+  group('export_zip flag', () {
+    testWidgets('off: no Download as ZIP option', (tester) async {
+      await pump(tester);
+      expect(find.text('Download as ZIP'), findsNothing);
+      expect(find.text('Request export'), findsOneWidget);
+    });
+
+    for (final width in [400.0, 800.0, 1400.0]) {
+      for (final scale in [1.0, 2.0]) {
+        for (final dark in [false, true]) {
+          testWidgets(
+            'on at ${width.toInt()} x$scale ${dark ? 'dark' : 'light'}: '
+            'offers the ZIP option with no overflow',
+            (tester) async {
+              await pump(
+                tester,
+                width: width,
+                textScale: scale,
+                dark: dark,
+                flags: const {'export_zip'},
+              );
+              expect(find.text('Download as ZIP'), findsOneWidget);
+              expect(tester.takeException(), isNull);
+            },
+          );
+        }
+      }
+    }
+
+    testWidgets('on: the ZIP tap asks for the archive format', (tester) async {
+      await pump(tester, flags: const {'export_zip'});
+      await tester.tap(find.text('Download as ZIP'));
+      await tester.pump();
+      await tester.pump();
+      verify(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          zip: true,
+        ),
+      ).called(1);
+      verifyNever(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          zip: false,
+        ),
+      );
+    });
+
+    testWidgets('on: Request export still sends the JSON default', (
+      tester,
+    ) async {
+      await pump(tester, flags: const {'export_zip'});
+      await tapRequest(tester);
+      verify(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          zip: false,
+        ),
+      ).called(1);
     });
   });
 }

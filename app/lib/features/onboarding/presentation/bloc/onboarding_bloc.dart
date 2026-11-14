@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../data/identity_repository.dart';
+import '../../../media/domain/media_feature_flag.dart' show kFeatureMedia;
 import '../../domain/handle_rules.dart';
 import 'onboarding_event.dart';
 import 'onboarding_state.dart';
@@ -36,6 +37,9 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       emit(state.copyWith(displayName: event.displayName));
     });
     on<OnboardingProfileSubmitted>(_onProfileSubmitted);
+    on<OnboardingPhotoStepFinished>((event, emit) {
+      if (state.photoStepPending) emit(state.copyWith(photoStepPending: false));
+    });
     // Edit profile / change handle: the server's updated profile replaces
     // the one in state so every screen that reads it sees the new name.
     on<OnboardingProfileUpdated>((event, emit) {
@@ -180,10 +184,16 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     identity.GetMeResponse response, {
     bool? isSubmitting,
   }) {
+    // The first GetMe after this session's CreateProfile (the create flow or
+    // the Retry after it): the optional photo step, when media is on.
+    final afterCreate = _profileCreated && !_flagsLoaded;
     _flagsLoaded = true;
     emit(
       state.copyWith(
         status: OnboardingStatus.ready,
+        photoStepPending:
+            state.photoStepPending ||
+            (afterCreate && response.enabledFeatures.contains(kFeatureMedia)),
         profile: response.profile,
         enabledFeatures: response.enabledFeatures.toSet(),
         unreadNotificationCount: response.unreadNotificationCount.toInt(),
@@ -209,6 +219,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           handle: handle,
           handleCheckStatus: HandleCheckStatus.idle,
           handleCheckMessage: '',
+          handleSuggestions: const [],
         ),
       );
       return;
@@ -220,6 +231,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           handle: handle,
           handleCheckStatus: HandleCheckStatus.unavailable,
           handleCheckMessage: issue,
+          handleSuggestions: const [],
         ),
       );
       return;
@@ -231,6 +243,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         handle: handle,
         handleCheckStatus: HandleCheckStatus.checking,
         handleCheckMessage: '',
+        handleSuggestions: const [],
       ),
     );
     try {
@@ -245,6 +258,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           handleCheckMessage: check.message,
         ),
       );
+      if (isHandleTakenAnswer(response)) await _suggest(handle, emit, stale);
     } on EmailNotVerifiedException catch (e) {
       // Not "handle unavailable": the account itself must verify first
       // (A2/A10 gate). CreateProfileScreen renders VerifyEmailView.
@@ -269,6 +283,19 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         ),
       );
     }
+  }
+
+  /// Free handles near the taken [handle] (a SuggestHandles call, only after
+  /// a TAKEN answer, never for a format or reserved one). The repository
+  /// answers nothing while the server has the feature off.
+  Future<void> _suggest(
+    String handle,
+    Emitter<OnboardingState> emit,
+    bool Function() stale,
+  ) async {
+    final handles = await _identityRepository.suggestHandles(handle);
+    if (stale() || state.handle != handle || handles.isEmpty) return;
+    emit(state.copyWith(handleSuggestions: handles));
   }
 
   Future<void> _onProfileSubmitted(
@@ -302,6 +329,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           handleCheckMessage: e.message,
         ),
       );
+      await _suggest(state.handle, emit, stale);
     } on EmailNotVerifiedException catch (e) {
       if (stale()) return;
       // The client gated the form on AuthBloc's cached Firebase user, but the

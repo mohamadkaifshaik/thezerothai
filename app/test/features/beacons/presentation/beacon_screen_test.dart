@@ -186,6 +186,7 @@ void main() {
     await tester.tap(find.text('Try again'));
     await tester.pumpAndSettle();
     expect(find.text('Coffee'), findsOneWidget);
-    expect(server.calls, ['get', 'get']);
+    // The organiser's page also reads the first faces going (ACCEPTED, 3).
+    expect(server.calls, ['get', 'get', 'people:accepted']);
   });
 }

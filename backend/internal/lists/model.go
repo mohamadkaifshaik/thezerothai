@@ -26,9 +26,12 @@ type List struct {
 	IsPrivate   bool
 	MemberIDs   []string
 	// Hidden is the platform hide (opsctl): absent in storage means false. The owner still sees a hidden list.
-	Hidden    bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Hidden bool
+	// FollowerCount is lists/{id}.followerCount: the follow markers (listFollows) of this list, kept by the same transaction
+	// that writes or removes a marker. Absent in storage means 0.
+	FollowerCount int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Header is what a mutation's idempotency record keeps of a list, and so what a replay answers with: the fields of
@@ -39,6 +42,9 @@ type Header struct {
 	Description string
 	IsPrivate   bool
 	MemberCount int
+	// FollowerCount is the stored follower count. A caller who may not see the count (FEATURE_LIST_FOLLOWS off) is answered 0 by
+	// the handler, never here.
+	FollowerCount int
 }
 
 // View is one list as the caller may see it: the header, the owner's live profile row (identity.Directory, cache-first)
@@ -47,6 +53,9 @@ type View struct {
 	Header         Header
 	Owner          identity.Profile
 	PinnedByViewer bool
+	// FollowedByViewer is whether the caller has a follow marker on the list. Set only by the reads that compute it
+	// (GetList, ListUserLists, FollowList, ListFollowedLists, DiscoverLists); false otherwise.
+	FollowedByViewer bool
 }
 
 // CreateInput is a CreateList request after the transport layer: Key is the idempotency_key, IsPrivate nil means "not
@@ -95,6 +104,18 @@ type Service interface {
 	ListUserLists(ctx context.Context, viewer string, in UserListsInput) (UserLists, error)
 	// ListListMembers returns a page of the list's members, newest added first.
 	ListListMembers(ctx context.Context, viewer, listID string, pageSize int32, pageToken string) (MembersPage, error)
+	// FollowList follows a public list (FEATURE_LIST_FOLLOWS): NOT_FOUND for every invisible list, LIMIT_REACHED at the cap.
+	FollowList(ctx context.Context, uid, key, listID string) (View, error)
+	// UnfollowList removes the caller's follow; any list, visible or not. A list never followed is success.
+	UnfollowList(ctx context.Context, uid, key, listID string) error
+	// ListFollowedLists is the viewer's followed lists, newest follow first, skipping the ones the viewer can no longer see.
+	ListFollowedLists(ctx context.Context, viewer string, pageSize int32, pageToken string) (FollowedListsPage, error)
+	// DiscoverLists is public lists by follower count, most followed first.
+	DiscoverLists(ctx context.Context, viewer string, pageSize int32, pageToken string) (DiscoverListsPage, error)
+	// ListSuggestedMembers suggests people for a list the caller owns (FEATURE_LIST_SUGGESTIONS); owner only.
+	ListSuggestedMembers(ctx context.Context, uid, listID string, maxResults int32) ([]identity.Profile, error)
+	// FollowedAmong reports which of listIDs the viewer follows (one batched read).
+	FollowedAmong(ctx context.Context, viewer string, listIDs []string) (map[string]bool, error)
 }
 
 // Pins is the consumer-side seam to the owner's pinned Home tabs on users/{uid}.homeTabs. Identity
@@ -191,6 +212,15 @@ type Repo interface {
 	// ListByOwner reads ownerId == owner ordered by list id, after the id `after` ("" = from the start), at most limit docs
 	// (reads = docs returned, minimum 1). Private and hidden lists are returned; filtering is the service's.
 	ListByOwner(ctx context.Context, owner, after string, limit int) ([]List, error)
+	// Follow, Unfollow: one transaction each, see repo_follows.go.
+	Follow(ctx context.Context, p FollowParams) (FollowResult, error)
+	Unfollow(ctx context.Context, p UnfollowParams) (UnfollowResult, error)
+	// FollowedPage reads uid's follow markers newest first, strictly older than before when it is set, at most limit.
+	FollowedPage(ctx context.Context, viewer string, before *FollowAnchor, limit int) ([]FollowRow, error)
+	// DiscoverPage reads public lists by follower count, most followed first, strictly after the anchor when set.
+	DiscoverPage(ctx context.Context, after *DiscoverAnchor, limit int) ([]List, error)
+	// FollowedAmong reads the viewer's markers for listIDs in one batched read.
+	FollowedAmong(ctx context.Context, viewer string, listIDs []string) (map[string]bool, error)
 }
 
 // ErrMemberLimit and ErrProtected are the repository's refusals of AddMember (mapped to LIMIT_REACHED "list_members" and
@@ -257,6 +287,9 @@ type Reader interface {
 	Members(ctx context.Context, viewer, listID string) (ListMembers, error)
 	// OwnedBy returns uid's own lists (private ones included), oldest first, at most LISTS_MAX_PER_USER. One uncached query.
 	OwnedBy(ctx context.Context, uid string) ([]List, error)
+	// FollowedAmong reports which of listIDs the viewer follows (one batched read). The timeline header uses it for
+	// followed_by_viewer; the caller decides whether FEATURE_LIST_FOLLOWS is on.
+	FollowedAmong(ctx context.Context, viewer string, listIDs []string) (map[string]bool, error)
 }
 
 // UserListsInput is a ListUserLists request after the transport layer. OwnerID "" means the caller.

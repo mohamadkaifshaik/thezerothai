@@ -72,6 +72,7 @@
     "userId": "<uid:A>"
   },
   "lists": {
+    "follows": [],
     "lists": [
       {
         "createdAt": "<time>",

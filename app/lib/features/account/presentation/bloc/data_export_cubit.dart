@@ -215,13 +215,17 @@ class DataExportCubit extends Cubit<DataExportState> {
 
   /// Requests an export (call straight from the tap handler: the account
   /// cubit may re-authenticate, and a web popup must stay in the gesture).
-  Future<void> request({required PasswordPrompt promptPassword}) async {
+  Future<void> request({
+    required PasswordPrompt promptPassword,
+    bool zip = false,
+  }) async {
     if (isClosed || state.phase == DataExportPhase.requesting) return;
     _timer?.cancel();
     final epoch = _db.sessionEpoch.value;
     emit(const DataExportState(phase: DataExportPhase.requesting));
     final accepted = await _account.requestExport(
       promptPassword: promptPassword,
+      zip: zip,
     );
     // Save BEFORE any isClosed check: the server has already started the
     // job, so the id must survive the screen having been closed meanwhile

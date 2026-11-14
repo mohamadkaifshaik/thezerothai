@@ -320,6 +320,24 @@ class ComposerDraftEntries extends Table {
   Set<Column> get primaryKey => {uid, draftId};
 }
 
+/// One post the caller opened on this device (the History tab of the
+/// Bookmarks screen, `bookmark_history`). Device-only: never sent to the
+/// server. Keyed `{uid, postId}`; the newest [openedAtMs] first, at most 100
+/// rows per uid (the repository prunes). Every read and write is filtered by
+/// [uid]; [AppDatabase.clearAll] wipes the table on sign-out.
+@DataClassName('PostHistoryRow')
+class PostHistoryEntries extends Table {
+  TextColumn get uid => text()();
+  TextColumn get postId => text()();
+
+  /// Milliseconds since the epoch, UTC. Integer on purpose: two opens in the
+  /// same second keep their order.
+  IntColumn get openedAtMs => integer()();
+
+  @override
+  Set<Column> get primaryKey => {uid, postId};
+}
+
 @DriftDatabase(
   tables: [
     ProfileCacheEntries,
@@ -334,6 +352,7 @@ class ComposerDraftEntries extends Table {
     MessagingStateEntries,
     AppSettingEntries,
     ComposerDraftEntries,
+    PostHistoryEntries,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -364,7 +383,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -450,6 +469,11 @@ class AppDatabase extends _$AppDatabase {
           profileCacheEntries,
           profileCacheEntries.subscriptionVerified,
         );
+      }
+      // v13 -> v14 (bookmark history): the device-only list of posts the
+      // caller opened. Additive table, nothing to migrate.
+      if (from < 14) {
+        await m.createTable(postHistoryEntries);
       }
     },
   );
@@ -636,6 +660,7 @@ class AppDatabase extends _$AppDatabase {
       await delete(conversationEntries).go();
       await delete(messageEntries).go();
       await delete(messagingStateEntries).go();
+      await delete(postHistoryEntries).go();
       await (delete(
         appSettingEntries,
       )..where((t) => t.settingKey.like('$kAccountSettingPrefix%'))).go();

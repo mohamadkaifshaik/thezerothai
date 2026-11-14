@@ -6,6 +6,7 @@
 package identity
 
 import (
+	"archive/zip"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -141,8 +142,11 @@ func (l *Lifecycle) runExport(ctx context.Context, msg JobMessage, res jobResult
 	cw := &countingWriter{}
 	cctx, ccancel := context.WithTimeout(ctx, l.exportBudget)
 	defer ccancel()
-	err = l.objects.Put(cctx, doc.ObjectPath, "application/json", func(w io.Writer) error {
+	err = l.objects.Put(cctx, doc.ObjectPath, doc.Format.contentType(), func(w io.Writer) error {
 		*cw = countingWriter{w: w} // a retried Put restarts the object
+		if doc.Format == ExportFormatZIP {
+			return l.composeZip(cctx, cw, profile, target)
+		}
 		return l.composeExport(cctx, cw, profile, target)
 	})
 	res.sections, res.bytes = cw.sections, cw.n
@@ -237,6 +241,100 @@ func (l *Lifecycle) composeExport(ctx context.Context, w io.Writer, p Profile, t
 	}
 	if err := bw.Flush(); err != nil {
 		return fmt.Errorf("identity: flush export: %w", err)
+	}
+	return nil
+}
+
+// exportManifest is manifest.json, the first entry of a ZIP export: the envelope's version and time and the list of
+// the JSON files that follow (the same areas the single JSON object holds, one file each).
+type exportManifest struct {
+	ExportVersion int       `json:"exportVersion"`
+	GeneratedAt   time.Time `json:"generatedAt"`
+	Format        string    `json:"format"`
+	Files         []string  `json:"files"`
+}
+
+// composeZip streams the export as a ZIP archive: manifest.json, then account.json, profile.json and one <section>.json
+// per registered section, each section streamed straight into its own deflated entry. Memory is bounded the same way
+// as composeExport (one page at a time); the archive's central directory is the only thing held until Close.
+// Media: the export references the profile's avatar by URL only (profile.json), so no media bytes are written.
+func (l *Lifecycle) composeZip(ctx context.Context, w io.Writer, p Profile, t exportTarget) error {
+	_, sections := l.registered()
+	account, err := l.auth.getUserRecord(ctx, t)
+	if err != nil {
+		return err
+	}
+	now := l.now().UTC()
+	names := []string{"account", "profile"}
+	for _, s := range sections {
+		names = append(names, s.Name())
+	}
+	files := make([]string, 0, len(names))
+	for _, n := range names {
+		files = append(files, n+".json")
+	}
+	if cw, ok := w.(*countingWriter); ok {
+		cw.sections = len(names)
+	}
+	zw := zip.NewWriter(w)
+	manifest, err := json.Marshal(exportManifest{ExportVersion: exportVersion, GeneratedAt: now, Format: "zip", Files: files})
+	if err != nil {
+		return fmt.Errorf("%w: encode manifest: %w", errPermanent, err)
+	}
+	if err := zipEntry(zw, "manifest.json", now, func(bw io.Writer) error {
+		_, err := bw.Write(append(manifest, '\n'))
+		return err
+	}); err != nil {
+		return err
+	}
+	if err := zipEntry(zw, "account.json", now, func(bw io.Writer) error {
+		raw, err := json.Marshal(account)
+		if err != nil {
+			return fmt.Errorf("%w: encode account: %w", errPermanent, err)
+		}
+		_, err = bw.Write(append(raw, '\n'))
+		return err
+	}); err != nil {
+		return err
+	}
+	if err := zipEntry(zw, "profile.json", now, func(bw io.Writer) error {
+		raw, err := json.Marshal(profileSection(p))
+		if err != nil {
+			return fmt.Errorf("%w: encode profile: %w", errPermanent, err)
+		}
+		_, err = bw.Write(append(raw, '\n'))
+		return err
+	}); err != nil {
+		return err
+	}
+	for _, s := range sections {
+		if err := zipEntry(zw, s.Name()+".json", now, func(bw io.Writer) error {
+			if err := s.WriteSection(ctx, p.UserID, bw); err != nil {
+				return fmt.Errorf("identity: export section %s: %w", s.Name(), err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return fmt.Errorf("identity: close export archive: %w", err)
+	}
+	return nil
+}
+
+// zipEntry writes one deflated entry, streaming what write produces through a buffer and flushing it at the end.
+func zipEntry(zw *zip.Writer, name string, modified time.Time, write func(io.Writer) error) error {
+	fw, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate, Modified: modified})
+	if err != nil {
+		return fmt.Errorf("identity: export entry %s: %w", name, err)
+	}
+	bw := bufio.NewWriter(fw)
+	if err := write(bw); err != nil {
+		return err
+	}
+	if err := bw.Flush(); err != nil {
+		return fmt.Errorf("identity: export entry %s: %w", name, err)
 	}
 	return nil
 }
