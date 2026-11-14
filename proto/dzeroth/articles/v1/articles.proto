@@ -1,6 +1,7 @@
 syntax = "proto3";
 package dzeroth.articles.v1;
 
+import "dzeroth/common/v1/common.proto";
 import "dzeroth/posts/v1/posts.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -37,6 +38,11 @@ message Article {
   // Plain-text excerpt of the body (whitespace collapsed, at most 280 Unicode code points), computed by the
   // server on read. Set on every response, including ListArticles where body_json is empty. Never HTML.
   string excerpt = 13;
+  // Inline image blocks of body_json, resolved on read (GetArticle and PublishArticle; empty elsewhere). One entry per
+  // image the reader can show: a block whose media was deleted, withheld or is not usable is simply absent, and the
+  // client shows a placeholder for it. Match an entry to its block by media_id. The alt text and caption stay in
+  // body_json. Never sent by SaveArticle; the server ignores it on input.
+  repeated dzeroth.common.v1.MediaRef images = 14;
 }
 message GetArticleRequest { string article_id = 1; }
 message GetArticleResponse { Article article = 1; dzeroth.posts.v1.PostView post = 2; }
