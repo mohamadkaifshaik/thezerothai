@@ -64,18 +64,7 @@ func (r *FirestoreRepo) followHeader(tx *firestore.Transaction, id string) (Head
 
 // countFollows counts uid's markers inside tx, stopping at max (n >= max means the cap is reached).
 func (r *FirestoreRepo) countFollows(ctx context.Context, tx *firestore.Transaction, uid string, limit int) (int64, error) {
-	q := r.followsCol().Where("uid", "==", uid).Limit(limit)
-	res, err := q.NewAggregationQuery().WithCount("n").Transaction(tx).Get(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("lists: count follows: %w", err)
-	}
-	var out struct {
-		N int64 `firestore:"n"`
-	}
-	if err := res.DataTo(&out); err != nil {
-		return 0, fmt.Errorf("lists: count follows decode: %w", err)
-	}
-	return out.N, nil
+	return txCount(ctx, tx, r.followsCol().Where("uid", "==", uid).Limit(limit), "count follows")
 }
 
 // Follow implements Repo: one transaction. Reads, fresh and in this order: the idempotency document (a replay answers from the

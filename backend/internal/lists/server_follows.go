@@ -86,39 +86,50 @@ func (s *Server) UnfollowList(ctx context.Context, req *connect.Request[listsv1.
 }
 
 // ListFollowedLists is gated by FEATURE_LISTS and FEATURE_LIST_FOLLOWS.
+//
+//nolint:dupl // mirrors DiscoverLists over distinct generated proto types; the shared work is followedPage
 func (s *Server) ListFollowedLists(ctx context.Context, req *connect.Request[listsv1.ListFollowedListsRequest]) (*connect.Response[listsv1.ListFollowedListsResponse], error) {
-	ctx, cancel, uid, err := s.followEntry(ctx, "ListFollowedLists", FollowFlagName)
+	lists, next, err := s.followedPage(ctx, "ListFollowedLists", func(ctx context.Context, uid string) ([]View, string, error) {
+		page, err := s.svc.ListFollowedLists(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+		return page.Views, page.NextPageToken, err
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer cancel()
-	page, err := s.svc.ListFollowedLists(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
-	if err != nil {
-		return nil, err
-	}
-	out := &listsv1.ListFollowedListsResponse{NextPageToken: page.NextPageToken}
-	for _, v := range page.Views {
-		out.Lists = append(out.Lists, s.info(uid, v))
-	}
-	return connect.NewResponse(out), nil
+	return connect.NewResponse(&listsv1.ListFollowedListsResponse{Lists: lists, NextPageToken: next}), nil
 }
 
 // DiscoverLists is gated by FEATURE_LISTS and FEATURE_LIST_FOLLOWS.
+//
+//nolint:dupl // mirrors ListFollowedLists over distinct generated proto types; the shared work is followedPage
 func (s *Server) DiscoverLists(ctx context.Context, req *connect.Request[listsv1.DiscoverListsRequest]) (*connect.Response[listsv1.DiscoverListsResponse], error) {
-	ctx, cancel, uid, err := s.followEntry(ctx, "DiscoverLists", FollowFlagName)
+	lists, next, err := s.followedPage(ctx, "DiscoverLists", func(ctx context.Context, uid string) ([]View, string, error) {
+		page, err := s.svc.DiscoverLists(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+		return page.Views, page.NextPageToken, err
+	})
 	if err != nil {
 		return nil, err
+	}
+	return connect.NewResponse(&listsv1.DiscoverListsResponse{Lists: lists, NextPageToken: next}), nil
+}
+
+// followedPage runs one FEATURE_LIST_FOLLOWS page RPC: the shared entry (flags, auth, deadline), the service call, then
+// each view rendered for the caller.
+func (s *Server) followedPage(ctx context.Context, rpc string, fetch func(context.Context, string) ([]View, string, error)) ([]*listsv1.ListInfo, string, error) {
+	ctx, cancel, uid, err := s.followEntry(ctx, rpc, FollowFlagName)
+	if err != nil {
+		return nil, "", err
 	}
 	defer cancel()
-	page, err := s.svc.DiscoverLists(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+	views, next, err := fetch(ctx, uid)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	out := &listsv1.DiscoverListsResponse{NextPageToken: page.NextPageToken}
-	for _, v := range page.Views {
-		out.Lists = append(out.Lists, s.info(uid, v))
+	out := make([]*listsv1.ListInfo, 0, len(views))
+	for _, v := range views {
+		out = append(out, s.info(uid, v))
 	}
-	return connect.NewResponse(out), nil
+	return out, next, nil
 }
 
 // ListSuggestedMembers is gated by FEATURE_LISTS and FEATURE_LIST_SUGGESTIONS; owner only (any other caller: NOT_FOUND).

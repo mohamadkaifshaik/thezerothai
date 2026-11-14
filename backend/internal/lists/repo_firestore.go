@@ -153,16 +153,20 @@ func (r *FirestoreRepo) lookup(ctx context.Context, tx *firestore.Transaction, k
 // countOwned counts uid's lists inside tx, stopping at max (the cap check is exact: n >= max means full). An aggregation
 // is invisible to the store wrappers.
 func (r *FirestoreRepo) countOwned(ctx context.Context, tx *firestore.Transaction, uid string, limit int) (int64, error) {
-	q := r.col().Where("ownerId", "==", uid).Limit(limit)
+	return txCount(ctx, tx, r.col().Where("ownerId", "==", uid).Limit(limit), "count owned")
+}
+
+// txCount runs a count() aggregation of q inside tx; what names it in errors.
+func txCount(ctx context.Context, tx *firestore.Transaction, q firestore.Query, what string) (int64, error) {
 	res, err := q.NewAggregationQuery().WithCount("n").Transaction(tx).Get(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("lists: count owned: %w", err)
+		return 0, fmt.Errorf("lists: %s: %w", what, err)
 	}
 	var out struct {
 		N int64 `firestore:"n"`
 	}
 	if err := res.DataTo(&out); err != nil {
-		return 0, fmt.Errorf("lists: count decode: %w", err)
+		return 0, fmt.Errorf("lists: %s decode: %w", what, err)
 	}
 	return out.N, nil
 }
