@@ -85,7 +85,8 @@ void main() {
     expect(text('Meeting point'), 'Hall');
     expect(find.text('3'), findsOneWidget);
     // F28: the date, time, duration and cost are fields now, with the
-    // designs' helper; activity, chat and audience stay as they were set.
+    // designs' helper; activity and chat stay as they were set. The
+    // audience is a selector now (F28b): a public plan offers Public alone.
     expect(find.byTooltip('Pick a date'), findsOneWidget);
     expect(find.byTooltip('Pick a time'), findsOneWidget);
     expect(find.text(kPlanEditNotifyHelper), findsOneWidget);
@@ -93,7 +94,9 @@ void main() {
     expect(chipSelected(tester, 'Free'), isTrue);
     expect(find.text(kPlanSetAtCreation), findsOneWidget);
     expect(find.text('Coffee · Chat: Quiet'), findsOneWidget);
-    expect(find.text('Who can see it: Public'), findsOneWidget);
+    expect(find.text('Who can see it: Public'), findsNothing);
+    expect(chipSelected(tester, 'Public'), isTrue);
+    expect(find.text(kPlanAudienceWidenNote), findsOneWidget);
     expect(find.textContaining("can't be changed"), findsNothing);
     expect(saveEnabled(tester), isFalse);
 
