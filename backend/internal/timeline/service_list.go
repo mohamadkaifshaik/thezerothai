@@ -102,6 +102,15 @@ func (s *Server) listTimeline(ctx context.Context, uid string, req *timelinev1.G
 	}
 	logger.SetRequestField(ctx, fieldListMembers, len(m.MemberIDs))
 	out := &timelinev1.GetListTimelineResponse{List: lists.MembersInfo(m)}
+	// The header carries the follow fields only when FEATURE_LIST_FOLLOWS is on for the caller (ListInfo's contract).
+	if s.deps.Flags != nil && s.deps.Flags.Enabled(uid, lists.FollowFlagName) {
+		out.List.FollowerCount = int32(m.Header.FollowerCount) //nolint:gosec // bounded by the follower cap in practice
+		followed, err := s.deps.Lists.FollowedAmong(ctx, uid, []string{listID})
+		if err != nil {
+			return nil, logger.RedactErr(fmt.Errorf("timeline: list followed: %w", err), uid, listID)
+		}
+		out.List.FollowedByViewer = followed[listID]
+	}
 	if tok.Reached {
 		return out, nil // a closed gap: nothing older, but the header still rides on every response
 	}

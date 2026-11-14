@@ -149,6 +149,7 @@ var lifecycleCollections = []collectionRow{
 	// residue and needs no allowlist entry. The `lists` section exports the user's own lists with member ids; lists the user is a member
 	// of belong to their owners and are not exported. quotas.listCreates and listAdds are covered by the `quotas` row.
 	{Name: "lists", Disposition: erasedByStep, Step: "lists", Section: "lists", Owner: "lists", Cite: "ADR-0030 D8"},
+	{Name: "listFollows", Disposition: erasedByStep, Step: "lists", Section: "lists", Owner: "lists", Cite: "ADR-0030 D8; follower markers erased with their counts on account delete, removed with the list on list delete, exported in the lists section"},
 	// Communities/{cid} (ownerId, moderatorIds[], modlog[] with actor and target uids), its communityMembers
 	// subcollection (uid, state) and communityMemberships/{uid} (doc id = uid; joined, owned, banned, modlogged). Deleting users/{uid} removes
 	// none of it. The `communities` step (communities.Eraser, BeforeIdentity after poll_votes) reads the memberships doc and, per community

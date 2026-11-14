@@ -145,11 +145,11 @@ func TestAccountLifecycle_ListsEraserIsCrashSafe(t *testing.T) {
 			stepOps = append(stepOps, i)
 		}
 	}
-	if len(stepOps) != 2 {
-		t.Fatalf("the lists step takes exactly 2 invocations (own lists, then membership); the clean run had %d: %v", len(stepOps), clean.ops)
+	if len(stepOps) != 3 {
+		t.Fatalf("the lists step takes exactly 3 invocations (own lists, membership, then follow markers); the clean run had %d: %v", len(stepOps), clean.ops)
 	}
 	// Kill the instance after every side effect from just before the first lists invocation to just after the last.
-	from, to := stepOps[0], min(stepOps[1]+2, len(clean.ops)-1)
+	from, to := stepOps[0], min(stepOps[len(stepOps)-1]+2, len(clean.ops)-1)
 	for k := from; k <= to; k++ {
 		t.Run(fmt.Sprintf("death after side effect %02d (%s)", k+1, clean.ops[k]), func(t *testing.T) {
 			plan := &crashPlan{at: k + 1}
