@@ -17,7 +17,14 @@
 // or the Update of another parent field in the same batch), and whoever deletes the parent deletes its shards too
 // (StageDelete: N blind deletes, no read). A rollup that finds the parent gone should delete the shards it read.
 //
-// Costs: a write is 1 document write. A read is N document reads per parent. A rollup is N reads plus 1 write per parent.
+// Two rollups exist. StageFold is ABSOLUTE: the shards hold the whole count and the parent field is overwritten with
+// their sum (views). StageDeltaFold is a DELTA: the parent field stays the source of truth and other writers may still
+// Increment it directly; the fold, inside a transaction, moves what the shards hold onto the parent (Increment(+sum))
+// and takes exactly the values it read off the shards (Increment(-v)), so a repeated fold moves nothing.
+//
+// Costs: a write is 1 document write. A read is N document reads per parent. An absolute rollup is N reads plus 1 write
+// per parent; a delta rollup that folds one shard per transaction is N reads plus, per non-zero shard, 1 read and 2
+// writes (the shard and the parent).
 package shardcount
 
 import (
@@ -282,4 +289,77 @@ func StageFold(b store.Batch, parent *firestore.DocumentRef, t Totals, folds ...
 		return
 	}
 	b.Update(parent, FoldUpdates(t, folds...))
+}
+
+// Shard is one shard document as read inside the caller's transaction: its ref and its data.
+type Shard struct {
+	Ref  *firestore.DocumentRef
+	Data map[string]any
+}
+
+// ShardsOf keeps the existing shards of snaps (a transaction's GetAll of Refs(parent)), with their data. A missing
+// shard holds nothing to fold, so it is dropped.
+func ShardsOf(snaps []*firestore.DocumentSnapshot) []Shard {
+	out := make([]Shard, 0, len(snaps))
+	for _, s := range snaps {
+		if s != nil && s.Exists() {
+			out = append(out, Shard{Ref: s.Ref, Data: s.Data()})
+		}
+	}
+	return out
+}
+
+// StageDeltaFold appends the DELTA rollup of parent: for every fold, Increment(sum) on the parent's To, where sum adds up
+// the From values of shards, and on every shard Increment(-v) on each From by the value v that was read. It is the
+// fold of a counter whose parent field stays the source of truth (other writers Increment the parent directly), as
+// opposed to StageFold, which overwrites the parent with the absolute shard total.
+//
+// shards must have been read in the same transaction the writes are committed in (ShardsOf of a tx.GetAll, or one
+// tx.Get): the transaction then guarantees that no shard it read moved in between, so the fold moves exactly what it
+// read from those shards to the parent and the sum of parent and shards is unchanged. Any subset of the shards may be
+// folded (down to one shard per transaction, which keeps the read set small under optimistic concurrency); the
+// parent itself need not be read. A redelivered fold reads shards at 0 and stages nothing.
+//
+// Values are moved as they are, negative ones included (a decrementing family nets its shards to 0); nothing is clamped.
+// A field read as 0 is not written; the parent Update is staged only when some sum is non-zero, and then carries the
+// implicit Exists precondition (a parent gone since the read fails the commit). Shard writes are Updates, so a shard is
+// never re-created. It returns the sums by From field and whether anything was staged.
+func StageDeltaFold(b store.Batch, parent *firestore.DocumentRef, shards []Shard, folds ...Fold) (Totals, bool) {
+	from := make([]firestore.FieldPath, 0, len(folds))
+	seen := make(map[string]struct{}, len(folds))
+	for _, f := range folds {
+		if _, dup := seen[Key(f.From)]; !dup {
+			seen[Key(f.From)] = struct{}{}
+			from = append(from, f.From)
+		}
+	}
+	staged := false
+	for _, s := range shards {
+		var ups []firestore.Update
+		for _, fp := range from {
+			if v := intAt(s.Data, fp); v != 0 {
+				ups = append(ups, firestore.Update{FieldPath: fp, Value: firestore.Increment(-v)})
+			}
+		}
+		if len(ups) > 0 {
+			b.Update(s.Ref, ups)
+			staged = true
+		}
+	}
+	docs := make([]map[string]any, len(shards))
+	for i, s := range shards {
+		docs[i] = s.Data
+	}
+	t := Sum(docs, from...)
+	var ups []firestore.Update
+	for _, f := range folds {
+		if n := t.Get(f.From); n != 0 {
+			ups = append(ups, firestore.Update{FieldPath: f.To, Value: firestore.Increment(n)})
+		}
+	}
+	if len(ups) > 0 {
+		b.Update(parent, ups)
+		staged = true
+	}
+	return t, staged
 }

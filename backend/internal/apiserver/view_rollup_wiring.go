@@ -3,8 +3,10 @@
 // The rollup has no Cloud Scheduler job of its own by default (the free tier holds 3 jobs per billing account and prod
 // keeps the third as headroom; dev keeps none). Like the outbox sweep it rides the publish-scheduled cron (every 5 min in
 // prod) as a step after the publish sweep, the outbox sweep and the billing recovery, under the daily-maintenance status
-// rule: the route's status is the publish sweep's alone, and the rollup's outcome is for the logs. Its own 15-minute
-// gate (viewRollup/state) makes every third tick the one that works. /internal/cron/view-rollup runs it alone, for dev,
+// rule: the route's status is the publish sweep's alone, and the rollup's outcome is for the logs. Its views half has its
+// own 15-minute gate (viewRollup/state) that makes every third tick the one that folds views; its counter half (the hot
+// engagement counters, a delta fold) runs on every tick, and Off (post_views globally off) skips only the views half.
+// /internal/cron/view-rollup runs it alone, for dev,
 // operators and an optional dedicated 15-minute Scheduler job (an owner decision); behind that route the gate is 1 minute,
 // only collapsing Scheduler retries, so a job firing every 15 minutes never misses a slot to clock jitter.
 package apiserver

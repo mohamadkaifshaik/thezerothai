@@ -110,3 +110,58 @@ func TestIntegration_FoldOnMissingParentFails(t *testing.T) {
 		t.Fatal("the fold must not have created the parent")
 	}
 }
+
+// TestIntegration_DeltaFold: shard writes (+ and -) plus a direct parent Increment fold into the parent field in a
+// transaction; the shards net to 0, the views field on the same shards is untouched, and a redelivered fold changes
+// nothing.
+func TestIntegration_DeltaFold(t *testing.T) {
+	ctx := context.Background()
+	client := shardTestClient(t)
+	c := MustNew("viewShards", 4)
+	like := firestore.FieldPath{"likeCount"}
+	parent := client.Collection("posts").Doc(fmt.Sprintf("d%d", rand.Int64()))
+	if _, err := parent.Set(ctx, map[string]any{"likeCount": int64(100)}); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int64{1, 1, 1, 1, 1, -1, 1} { // net +5 on the shards
+		b := store.NewFirestoreBatch(client)
+		c.StageIncrement(b, parent, Delta{Field: like, N: n}, Delta{Field: countField, N: 1})
+		if err := b.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := parent.Update(ctx, []firestore.Update{{Path: "likeCount", Value: firestore.Increment(2)}}); err != nil {
+		t.Fatal(err) // a cold write on the same post meanwhile
+	}
+	fold := func() bool {
+		var staged bool
+		if _, err := store.RunTransaction(ctx, client, func(_ context.Context, tx *firestore.Transaction) error {
+			snaps, err := tx.GetAll(c.Refs(parent))
+			if err != nil {
+				return err
+			}
+			b := store.NewFirestoreTxBatch(tx)
+			_, staged = StageDeltaFold(b, parent, ShardsOf(snaps), Fold{From: like, To: like})
+			return b.Err()
+		}); err != nil {
+			t.Fatalf("fold: %v", err)
+		}
+		return staged
+	}
+	for i, wantStaged := range []bool{true, false} { // the second is the redelivery
+		if got := fold(); got != wantStaged {
+			t.Fatalf("fold %d staged = %v, want %v", i, got, wantStaged)
+		}
+		s, err := parent.Get(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v, _ := s.DataAt("likeCount"); v != int64(107) {
+			t.Fatalf("fold %d: likeCount = %v, want 107", i, v)
+		}
+		tot, err := c.Read(ctx, client, []*firestore.DocumentRef{parent}, like, countField)
+		if err != nil || tot[0].Get(like) != 0 || tot[0].Get(countField) != 7 {
+			t.Fatalf("fold %d: shards = %v, %v; want like 0 and views 7 untouched", i, tot, err)
+		}
+	}
+}
