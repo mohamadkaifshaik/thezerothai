@@ -235,7 +235,7 @@ func (s *service) suggestionCandidates(ctx context.Context, uid string, mine gra
 	var sourceErrs []string
 
 	// 1. The newest INBOX entries (accepted conversations and requests the caller sent).
-	entries, err := s.d.Repo.ListEntries(ctx, uid, entryInbox, ListQuery{Limit: suggestInbox})
+	entries, err := s.d.Repo.ListEntries(ctx, uid, dmInboxCollection, ListQuery{Limit: suggestInbox})
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("messaging: suggestions: inbox: %w", err), uid)
 	}
