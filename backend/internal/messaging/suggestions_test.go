@@ -100,7 +100,7 @@ func newSuggestRig(t *testing.T, active []string, specs ...flags.Spec) *suggestR
 
 func (r *suggestRig) inbox(peers ...string) {
 	for i, p := range peers {
-		r.repo.entries[entryKey(me, entryInbox)] = append(r.repo.entries[entryKey(me, entryInbox)], EntryRow{
+		r.repo.entries[entryKey(me, dmInboxCollection)] = append(r.repo.entries[entryKey(me, dmInboxCollection)], EntryRow{
 			ID: "conv-" + p, EntryDoc: EntryDoc{PeerID: p, LastMessageAt: r.now.Add(-time.Duration(i) * time.Minute)},
 		})
 	}
@@ -193,7 +193,7 @@ func TestSuggestions_LeakMatrix(t *testing.T) {
 		r.profs.profiles[u] = p
 	}
 	r.inbox(ok, blocked, blocker, muted, inactive, msgOff, fonlyNew, fonlyAcc, me)
-	rows := r.repo.entries[entryKey(me, entryInbox)]
+	rows := r.repo.entries[entryKey(me, dmInboxCollection)]
 	for i := range rows {
 		rows[i].RequestPending = rows[i].PeerID == fonlyNew
 	}
