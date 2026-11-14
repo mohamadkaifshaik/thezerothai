@@ -758,7 +758,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return articlesv1connect.NewArticleServiceHandler(articles.NewServer(fsClient, postsSvc, featureFlags, func(ctx context.Context, uid, id string) (string, error) {
 			ref, err := mediaMod.library.ResolvePostCover(ctx, uid, id)
 			return ref.URL, err
-		}).WithPublishingAccess(articlePublishingAccess), o...)
+		}).WithPublishingAccess(articlePublishingAccess).WithImages(articleImageResolver{mediaMod.library}, articleImageAttacher{mediaMod.library}), o...)
 	})
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {

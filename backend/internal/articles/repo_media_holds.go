@@ -3,9 +3,11 @@
 // document (the cover is claimed only when the article is published, inside the root post transaction), and drafts never
 // expire, so the orphan sweep must count these images as held.
 //
-// Query: articles WHERE coverMediaId IN [<= 30 ids], projected to authorId, published and coverMediaId. Served by the
-// automatic single-field index on coverMediaId (articles exempts only body, title, caption and pendingKey). No index
-// change. The owner and draft filters run in memory, so another user's draft naming the id never counts.
+// Two queries per chunk of <= 30 ids, both served by automatic single-field indexes (articles exempts only body, title,
+// caption and pendingKey; no index or override change). Cover: articles WHERE coverMediaId IN [ids]. Inline images:
+// articles WHERE imageMediaIds ARRAY_CONTAINS_ANY [ids] (a Firestore query takes one in / array-contains-any, so they cannot
+// share a query). Both project authorId, published and the hold field. The owner and draft filters run in memory, so
+// another user's draft naming the id never counts.
 package articles
 
 import (
@@ -28,37 +30,77 @@ type mediaHolds struct{ client *firestore.Client }
 var _ CoverHolds = (*mediaHolds)(nil)
 
 type coverHoldDoc struct {
-	AuthorID     string `firestore:"authorId"`
-	Published    bool   `firestore:"published"`
-	CoverMediaID string `firestore:"coverMediaId"`
+	AuthorID      string   `firestore:"authorId"`
+	Published     bool     `firestore:"published"`
+	CoverMediaID  string   `firestore:"coverMediaId"`
+	ImageMediaIDs []string `firestore:"imageMediaIds"`
 }
 
 // DraftCoverHolds reports which of ids an unpublished article of uid (a draft, or one whose publication is pending) names
-// as its cover. It reads fresh: one query per 30 ids (at least 1 read each).
+// as its cover or as an inline image. It reads fresh: two queries per 30 ids (at least 2 reads each).
 func (h *mediaHolds) DraftCoverHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error) {
 	out := make(map[string]bool, len(ids))
 	for start := 0; start < len(ids); start += coverHoldChunk {
 		chunk := ids[start:min(start+coverHoldChunk, len(ids))]
-		snaps, err := h.client.Collection("articles").Where("coverMediaId", "in", chunk).
-			Select("authorId", "published", "coverMediaId").Limit(coverHoldLimit).Documents(ctx).GetAll()
-		if err != nil {
-			return nil, fmt.Errorf("articles: cover holds: %w", err)
+		if err := h.coverHolds(ctx, uid, chunk, out); err != nil {
+			return nil, err
 		}
-		if len(snaps) == coverHoldLimit {
-			for _, id := range chunk {
-				out[id] = true
-			}
-			continue
-		}
-		for _, s := range snaps {
-			var d coverHoldDoc
-			if err := s.DataTo(&d); err != nil {
-				return nil, fmt.Errorf("articles: cover holds: decode: %w", err)
-			}
-			if d.AuthorID == uid && !d.Published && d.CoverMediaID != "" {
-				out[d.CoverMediaID] = true
-			}
+		if err := h.imageHolds(ctx, uid, chunk, out); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil
+}
+
+// coverHolds marks the chunk's ids that an unpublished draft of uid names as its cover.
+func (h *mediaHolds) coverHolds(ctx context.Context, uid string, chunk []string, out map[string]bool) error {
+	snaps, err := h.client.Collection("articles").Where("coverMediaId", "in", chunk).
+		Select("authorId", "published", "coverMediaId").Limit(coverHoldLimit).Documents(ctx).GetAll()
+	if err != nil {
+		return fmt.Errorf("articles: cover holds: %w", err)
+	}
+	if len(snaps) == coverHoldLimit {
+		for _, id := range chunk {
+			out[id] = true
+		}
+		return nil
+	}
+	for _, s := range snaps {
+		var d coverHoldDoc
+		if err := s.DataTo(&d); err != nil {
+			return fmt.Errorf("articles: cover holds: decode: %w", err)
+		}
+		if d.AuthorID == uid && !d.Published && d.CoverMediaID != "" {
+			out[d.CoverMediaID] = true
+		}
+	}
+	return nil
+}
+
+// imageHolds marks the chunk's ids that an unpublished draft of uid names as an inline image block.
+func (h *mediaHolds) imageHolds(ctx context.Context, uid string, chunk []string, out map[string]bool) error {
+	snaps, err := h.client.Collection("articles").Where("imageMediaIds", "array-contains-any", chunk).
+		Select("authorId", "published", "imageMediaIds").Limit(coverHoldLimit).Documents(ctx).GetAll()
+	if err != nil {
+		return fmt.Errorf("articles: image holds: %w", err)
+	}
+	if len(snaps) == coverHoldLimit {
+		for _, id := range chunk {
+			out[id] = true
+		}
+		return nil
+	}
+	for _, s := range snaps {
+		var d coverHoldDoc
+		if err := s.DataTo(&d); err != nil {
+			return fmt.Errorf("articles: image holds: decode: %w", err)
+		}
+		if d.AuthorID != uid || d.Published {
+			continue
+		}
+		for _, id := range d.ImageMediaIDs {
+			out[id] = true
+		}
+	}
+	return nil
 }

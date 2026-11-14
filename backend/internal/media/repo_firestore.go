@@ -175,6 +175,9 @@ type Repo interface {
 	ListByOwner(ctx context.Context, uid, after string, limit int) ([]*Doc, error)
 	// DeleteDocs deletes the documents in one batch (<= 500).
 	DeleteDocs(ctx context.Context, ids []string) error
+	// IDsByPost returns the ids of up to limit media documents attached to postID (any owner, any order). The post_delete
+	// job reads it: an article's inline images are attached to its root post but are not in the post's media list.
+	IDsByPost(ctx context.Context, postID string, limit int) ([]string, error)
 }
 
 // Errors of the repo.
@@ -421,4 +424,17 @@ func (r *FirestoreRepo) DeleteDocs(ctx context.Context, ids []string) error {
 		b.Delete(r.ref(id))
 	}
 	return b.Commit(ctx)
+}
+
+// IDsByPost implements Repo: one equality query on postId (automatic single-field index), ids only.
+func (r *FirestoreRepo) IDsByPost(ctx context.Context, postID string, limit int) ([]string, error) {
+	docs, err := r.client.Collection(mediaCollection).Where("postId", "==", postID).Select().Limit(limit).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("media: ids by post: %w", err)
+	}
+	out := make([]string, 0, len(docs))
+	for _, d := range docs {
+		out = append(out, d.Ref.ID)
+	}
+	return out, nil
 }

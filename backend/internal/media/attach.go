@@ -138,3 +138,67 @@ func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpo
 
 // IsNotReady reports whether err is ErrNotReady or ErrInvalidID (both map to MEDIA_NOT_READY).
 func IsNotReady(err error) bool { return errors.Is(err, ErrNotReady) || errors.Is(err, ErrInvalidID) }
+
+// LoadForArticle is LoadForPost for the images of an article body (articles, inside the root post transaction, before
+// any write). The same checks apply, and a GIF is refused: an article shows still images only. Attach claims them for the
+// root post exactly as it claims a post's images.
+func (l *Library) LoadForArticle(ctx context.Context, tx *firestore.Transaction, uid string, ids []string) (*Claim, error) {
+	refs := make([]*firestore.DocumentRef, len(ids))
+	for i, id := range ids {
+		if !mediaIDPattern.MatchString(id) {
+			return nil, ErrInvalidID
+		}
+		refs[i] = l.repo.ref(id)
+	}
+	snaps, err := tx.GetAll(refs)
+	if err != nil {
+		return nil, fmt.Errorf("media: load %d article images: %w", len(ids), err)
+	}
+	c := &Claim{Refs: make([]Ref, 0, len(ids)), refs: refs}
+	for _, s := range snaps {
+		if !s.Exists() {
+			return nil, ErrNotReady
+		}
+		d, err := decode(s)
+		if err != nil {
+			return nil, err
+		}
+		if d.OwnerID != uid || d.Purpose != string(PurposePost) || !d.Published() || d.PostID != "" || d.Orphaned() || d.ContentType == ContentTypeGIF {
+			return nil, ErrNotReady
+		}
+		c.Refs = append(c.Refs, l.ref(d))
+	}
+	return c, nil
+}
+
+// ResolveArticleImages reads the images an article body names, for a reader or its author, without attaching anything.
+// postID "" resolves an unpublished article's images (owned, not yet attached to any post); a published article passes
+// its root post, and its images are the ones attached to that post. An id that is missing, not owned by authorID, not
+// usable, retired, marked by the orphan sweep, a GIF or attached elsewhere is absent from the answer, so the caller
+// shows a placeholder for it. Only infrastructure errors are returned.
+func (l *Library) ResolveArticleImages(ctx context.Context, authorID, postID string, ids []string) (map[string]Ref, error) {
+	out := make(map[string]Ref, len(ids))
+	valid := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if mediaIDPattern.MatchString(id) {
+			valid = append(valid, id)
+		}
+	}
+	if len(valid) == 0 {
+		return out, nil
+	}
+	docs, err := l.repo.GetMany(ctx, valid)
+	if err != nil {
+		return nil, err
+	}
+	for id, d := range docs {
+		if d == nil || d.OwnerID != authorID || d.Purpose != string(PurposePost) || !d.Published() || d.RetiredAt != nil || d.Orphaned() || d.ContentType == ContentTypeGIF {
+			continue
+		}
+		if d.PostID != postID {
+			continue
+		}
+		out[id] = l.ref(d)
+	}
+	return out, nil
+}

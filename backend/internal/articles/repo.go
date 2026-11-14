@@ -17,19 +17,22 @@ import (
 )
 
 type record struct {
-	ID           string    `firestore:"-"`
-	AuthorID     string    `firestore:"authorId"`
-	Revision     int64     `firestore:"revision"`
-	Title        string    `firestore:"title"`
-	Body         string    `firestore:"body"`
-	CoverMediaID string    `firestore:"coverMediaId"`
-	PostID       string    `firestore:"postId"`
-	Published    bool      `firestore:"published"`
-	UpdatedAt    time.Time `firestore:"updatedAt"`
-	PendingKey   string    `firestore:"pendingKey"`
-	PendingAt    time.Time `firestore:"pendingAt"`
-	Caption      string    `firestore:"caption"`
-	ReplyPolicy  int32     `firestore:"replyPolicy"`
+	ID           string `firestore:"-"`
+	AuthorID     string `firestore:"authorId"`
+	Revision     int64  `firestore:"revision"`
+	Title        string `firestore:"title"`
+	Body         string `firestore:"body"`
+	CoverMediaID string `firestore:"coverMediaId"`
+	// ImageMediaIDs are the media ids of the body's inline image blocks, derived from the body on every save (never from
+	// the client). The orphan-sweep hold queries this array (array-contains-any, automatic index).
+	ImageMediaIDs []string  `firestore:"imageMediaIds"`
+	PostID        string    `firestore:"postId"`
+	Published     bool      `firestore:"published"`
+	UpdatedAt     time.Time `firestore:"updatedAt"`
+	PendingKey    string    `firestore:"pendingKey"`
+	PendingAt     time.Time `firestore:"pendingAt"`
+	Caption       string    `firestore:"caption"`
+	ReplyPolicy   int32     `firestore:"replyPolicy"`
 }
 type repository interface {
 	get(context.Context, string) (*record, error)

@@ -528,3 +528,16 @@ func (f *fakeProfileImages) ProfileImageURLs(_ context.Context, uid string) ([]s
 	u, ok := f.urls[uid]
 	return u, ok, nil
 }
+
+// IDsByPost answers the post's attached documents from the fake's docs (the post_delete job's read).
+func (r *fakeRepo) IDsByPost(_ context.Context, postID string, limit int) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for id, d := range r.docs {
+		if d.PostID == postID && len(out) < limit {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
