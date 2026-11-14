@@ -71,6 +71,11 @@ abstract class OnboardingState with _$OnboardingState {
     // keeps the splash instead of drawing the flags-off placeholder and the
     // legacy chrome. Cleared by any GetMe outcome.
     @Default(false) bool flagsPending,
+    // This session's CreateProfile just succeeded and `media` is on: the
+    // optional "Add a profile photo" step shows before Home. In memory only
+    // (never persisted), so a warm start never shows it; cleared by finishing
+    // or skipping the step and by sign-out.
+    @Default(false) bool photoStepPending,
   }) = _OnboardingState;
 
   const OnboardingState._();
