@@ -143,6 +143,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// The other NotificationService RPCs stay on the default bucket.
 	rlNotificationsList := ratelimit.NewLimiter(cfg.RateLimit.NotificationsListPerUserPerMinute, idleBucketTTL)
 
+	// GetMe has its own per-user bucket (RATE_LIMIT_GET_ME_PER_MIN, 60/min per instance, the old shared value); it used to
+	// fall back to the 60/min default (audit follow-up L1). A cache miss costs up to about 100 reads for the unread badge
+	// of a caller with any block or mute, and the notifications fan-out's ForgetUnread forces misses; the bucket bounds
+	// that cost without letting GetMe drain, or be drained by, the shared default. No daily cap (a read).
+	rlGetMe := ratelimit.NewLimiter(cfg.RateLimit.GetMePerUserPerMinute, idleBucketTTL)
+
 	// The six list mutations (CreateList, UpdateList, DeleteList, AddListMember, RemoveListMember and the timeline module's
 	// SetHomeTabs) share one per-user bucket (RATE_LIMIT_LISTS_WRITE_PER_MIN, 30/min per instance). GetList,
 	// ListUserLists and ListListMembers share a read bucket (RATE_LIMIT_LISTS_READ_PER_MIN, 30/min); GetListTimeline has its own
@@ -208,6 +214,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			mediav1connect.MediaServiceFinalizeUploadProcedure:                   rlMediaFinalize,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure:    rlCheckHandle,
 			identityv1connect.IdentityServiceSuggestHandlesProcedure:             rlCheckHandle,
+			identityv1connect.IdentityServiceGetMeProcedure:                      rlGetMe,
 			graphv1connect.GraphServiceFollowProcedure:                           rlGraphFollow,
 			graphv1connect.GraphServiceUnfollowProcedure:                         rlGraphFollow,
 			graphv1connect.GraphServiceBlockProcedure:                            rlGraphBlock,

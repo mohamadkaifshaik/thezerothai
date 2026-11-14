@@ -175,10 +175,13 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 }
 
 // Four requests race with one key. The contract (service.mapErr, the same as messaging's "busy") lets a racer that loses the
-// transaction and exhausts its re-runs answer a retryable UNAVAILABLE; what must never happen is a second list. This used to demand that all four succeed inside the 5 s transaction timeout, but a contended call
-// takes 2 to 3.4 s on the emulator (the SDK's own backoff on the losers), so a slower runner pushed a loser over the
-// timeout and failed the test with a correct product answer. Now: at least one succeeds, every success is the same list,
-// a busy racer's retry with the same key replays that list, and there is exactly one list.
+// transaction and exhausts its re-runs answer a retryable UNAVAILABLE; what must never happen is a second list. #539
+// stopped demanding that all four succeed inside the 5 s transaction timeout, but still demanded that at least one did.
+// That is liveness under contention, which the contract does not promise either: on a slow emulator all four racers can
+// run out of time together (CI 2026-11-09, #744: four "temporarily busy" answers, nothing written), a correct answer.
+// Now: every racer either succeeds or is busy, every success is the same list, each busy racer's retry with the same key
+// (made one at a time, so nothing contends) answers that list (the first retry creates it when no racer won), and
+// there is exactly one list.
 func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	const n = 4
@@ -206,16 +209,19 @@ func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 			t.Errorf("request %d got list %s, want %s", i, views[i].Header.ID, winner)
 		}
 	}
-	if winner == "" {
-		t.Fatalf("no racer succeeded: %v", errs)
-	}
 	for i := range n {
 		if errs[i] == nil {
 			continue
 		}
 		again, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(7), Name: "Racing"})
-		if err != nil || again.Header.ID != winner {
-			t.Errorf("retry of busy request %d: id=%s err=%v, want the replayed list %s", i, again.Header.ID, err, winner)
+		if err != nil {
+			t.Fatalf("uncontended retry of busy request %d: %v", i, err)
+		}
+		if winner == "" {
+			winner = again.Header.ID // every racer was busy: this retry is the first create
+		}
+		if again.Header.ID != winner {
+			t.Errorf("retry of busy request %d: id=%s, want the replayed list %s", i, again.Header.ID, winner)
 		}
 	}
 	docs, err := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(10).Documents(context.Background()).GetAll()

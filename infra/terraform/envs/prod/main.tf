@@ -224,6 +224,8 @@ locals {
     { name = "NOTIFICATIONS_DELIVERY", value = "pubsub" },
     # ListNotifications' own per-user bucket (it used to fall back to the 60/min default). Must match the config.go default.
     { name = "RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", value = "30" },
+    # GetMe's own per-user bucket (it used to share the 60/min default). Must match the config.go default.
+    { name = "RATE_LIMIT_GET_ME_PER_MIN", value = "60" },
   ]
 }
 

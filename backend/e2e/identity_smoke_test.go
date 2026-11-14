@@ -360,7 +360,8 @@ func TestE2E_RateLimitRunsBeforeAccountStatus(t *testing.T) {
 	skipIfNoEmulators(t)
 	client, _ := newTestServerCfg(t, func(cfg *config.Config) {
 		cfg.RateLimit.PerUserPerMinute = 1
-		cfg.RateLimit.PerIPPerMinute = 1000 // avoid the shared-IP bucket masking the per-uid assertion below
+		cfg.RateLimit.GetMePerUserPerMinute = 1 // GetMe has its own bucket (L1)
+		cfg.RateLimit.PerIPPerMinute = 1000     // avoid the shared-IP bucket masking the per-uid assertion below
 	})
 	idToken, _ := newAnonymousIDToken(t)
 
@@ -512,7 +513,7 @@ func captureLogger() (*slog.Logger, *syncBuffer) {
 // the real Build chain and a real emulator-minted unverified password token,
 //   - CheckHandleAvailability answers FAILED_PRECONDITION + EMAIL_NOT_VERIFIED. Only the gate produces that on
 //     this RPC (identity's defence in depth sits on CreateProfile), so it proves the gate is wired;
-//   - with PerUserPerMinute = 1, repeated GetMe always answers PROFILE_REQUIRED and never RESOURCE_EXHAUSTED, so
+//   - with the GetMe bucket at 1/min, repeated GetMe always answers PROFILE_REQUIRED and never RESOURCE_EXHAUSTED, so
 //     the gate runs BEFORE the rate limiter (no limiter key is created);
 //   - every GetMe line logs gate=email_unverified, so the gate is what answered the call.
 func TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus(t *testing.T) {
@@ -520,7 +521,8 @@ func TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus(t *test
 	log, logs := captureLogger()
 	client, _ := newTestServerCfgLog(t, func(cfg *config.Config) {
 		cfg.RateLimit.PerUserPerMinute = 1
-		cfg.RateLimit.PerIPPerMinute = 1000 // keep the shared-IP bucket out of the per-uid assertion
+		cfg.RateLimit.GetMePerUserPerMinute = 1 // GetMe has its own bucket (L1)
+		cfg.RateLimit.PerIPPerMinute = 1000     // keep the shared-IP bucket out of the per-uid assertion
 	}, log)
 	email := fmt.Sprintf("mj2-unverified-%d@example.com", rand.Int63())
 	idToken, _ := newPasswordIDToken(t, email, "correct horse battery staple")
