@@ -26,7 +26,9 @@ type Server struct {
 	likes     LikesList
 	polls     Polls
 	shares    PostShares
-	flags     posts.FlagChecker
+	// impressions is RecordImpressions (F1 post views).
+	impressions Impressions
+	flags       posts.FlagChecker
 }
 
 // ServerOption customises NewServer.
@@ -56,6 +58,9 @@ func NewServer(svc Service, fc posts.FlagChecker, opts ...ServerOption) *Server 
 	}
 	if p, ok := svc.(PostShares); ok {
 		s.shares = p
+	}
+	if p, ok := svc.(Impressions); ok {
+		s.impressions = p
 	}
 	for _, o := range opts {
 		o(s)

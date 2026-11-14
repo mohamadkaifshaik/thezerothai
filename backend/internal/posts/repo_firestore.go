@@ -80,6 +80,8 @@ type FirestoreRepo struct {
 	// Test seams for DeleteOwn's retry loop (store.RetryConfig); nil means real commit and jittered wait.
 	commitBatch func(ctx context.Context, b *store.FirestoreBatch) error
 	backoff     func(ctx context.Context, ceiling time.Duration) error
+	// viewMemo remembers the view rollup markers this instance committed in the current window (repo_views.go).
+	viewMemo viewMemo
 }
 
 // NewFirestoreRepo builds the repo on the process-wide Firestore client.

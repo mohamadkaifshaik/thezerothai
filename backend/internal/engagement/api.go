@@ -449,3 +449,29 @@ type ShareRepo interface {
 	// store.ErrContended.
 	CreateShare(ctx context.Context, uid, postID string) (ShareOutcome, error)
 }
+
+// ImpressionsFlagName is the wire name of FEATURE_POST_VIEWS: RecordImpressions needs it on for the caller.
+const ImpressionsFlagName = "post_views"
+
+// MaxImpressionsPerCall is the most post ids one RecordImpressions call takes.
+const MaxImpressionsPerCall = 50
+
+// Impressions is the RecordImpressions seam of the module: the Connect handler depends on it (NewServer detects it on
+// the Service, like PostShares). It reads posts only through posts.Reader and the Audience, and writes posts' view
+// storage only through posts.ViewWriter.
+type Impressions interface {
+	// RecordImpressions counts uid's views of postIDs (1..MaxImpressionsPerCall; duplicates merged; a REPOST id counts its
+	// original) at most once per (uid, post, IST day), never uid's own posts. The rules and their order are the RPC's
+	// (engagement.proto). A nil error says nothing about any one id: missing, hidden, unseeable, own and already-seen ids
+	// are dropped silently.
+	RecordImpressions(ctx context.Context, uid, idempotencyKey string, postIDs []string) error
+}
+
+// ImpressionRepo is the storage seam of RecordImpressions; repo_impressions.go implements it, tests use a fake.
+type ImpressionRepo interface {
+	// RecordImpressions reads users/{uid}/impressions/{postId}_{day} for postIDs (one GetAll; day = ImpressionDay(now)) and
+	// for the absent ones commits one batch: Create each impression doc (expireAt = now + ImpressionTTL) plus the views
+	// staged through posts.ViewWriter. Contention is retried; a Create lost to a concurrent call of the same viewer re-reads
+	// once. It returns how many views it counted. Exhausted contention is an error wrapping store.ErrContended.
+	RecordImpressions(ctx context.Context, uid string, postIDs []string, now time.Time) (counted int, err error)
+}

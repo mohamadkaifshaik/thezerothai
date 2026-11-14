@@ -85,6 +85,10 @@ type Deps struct {
 	// internal error and makes Record a no-op.
 	ShareRepo ShareRepo
 
+	// ImpressionRepo is the storage of RecordImpressions (FirestoreRepo); nil answers RecordImpressions with an internal
+	// error.
+	ImpressionRepo ImpressionRepo
+
 	CacheTTL     time.Duration
 	CacheEntries int
 	// AllowAnonymous is config.AuthEmulator only.

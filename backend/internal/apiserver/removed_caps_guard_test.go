@@ -47,6 +47,8 @@ var expectedDailyCaps = map[string][]string{
 	"beacons_created_daily": {beaconsv1connect.BeaconServiceCreateBeaconProcedure},
 	// RecordPostShare (shares design §4.7, SHARES_RECORDED_PER_DAY).
 	"shares_daily": {engagementv1connect.EngagementServiceRecordPostShareProcedure},
+	// RecordImpressions (F1 post views, IMPRESSIONS_RECORDED_PER_DAY).
+	"impressions_daily": {engagementv1connect.EngagementServiceRecordImpressionsProcedure},
 }
 
 // requiredPerProcedureBuckets are procedures whose own per-minute bucket must stay: they once had a daily cap and the per-minute

@@ -378,6 +378,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	engagementRepo := engagement.NewFirestoreRepo(fsClient, engagement.WriteDeps{
 		Writer: postsRepo, Counters: identityRepo, IDs: snowflakeNode,
 		Idempotency: idempotency.New(fsClient), // AddBookmark / RemoveBookmark idempotency docs
+		Views:       postsRepo,                 // RecordImpressions: posts' view shards and rollup markers (F1)
 	})
 	audienceSvc := postsSvc
 	if bo.audienceSource != nil {
@@ -406,6 +407,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept, PollVoteChangesMax: cfg.Composer.PollVoteChangesMax,
 		// RecordPostShare and the direct-message share seam: the postShares markers (shares design D4).
 		ShareRepo: engagementRepo,
+		// RecordImpressions: users/{uid}/impressions (F1 post views).
+		ImpressionRepo: engagementRepo,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
@@ -638,6 +641,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	billingBindings := billing.NewFirestoreBindings(fsClient)
 	if e := registerBillingLifecycle(lifecycle, billingBindings); e != nil {
 		return nil, nil, e
+	}
+	// impressions: users/{uid}/impressions (F1 post views); appended last, after billing_bindings.
+	if e := registerImpressionLifecycle(lifecycle, engagementRepo); e != nil {
+		return nil, nil, fmt.Errorf("impressions lifecycle registry: %w", e)
 	}
 	billingServer := billing.NewServer(nil, nil, nil)
 	var articlePublishingAccess func(context.Context, string) error

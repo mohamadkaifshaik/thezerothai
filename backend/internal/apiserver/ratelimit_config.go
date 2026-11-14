@@ -77,6 +77,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlShares := ratelimit.NewLimiter(cfg.RateLimit.SharesPerUserPerMinute, idleBucketTTL)
 	sharesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SharesRecordedPerDay)
 
+	// RecordImpressions has its own per-user bucket (RATE_LIMIT_IMPRESSIONS_PER_MIN, 6/min per instance) and a per-uid
+	// daily call cap (IMPRESSIONS_RECORDED_PER_DAY, 500, limit_name "impressions_daily") counting every call. A call is at
+	// most 50 ids (50 reads and 100 writes at worst); the (viewer, post, IST day) impression doc bounds the counted views.
+	rlImpressions := ratelimit.NewLimiter(cfg.RateLimit.ImpressionsPerUserPerMinute, idleBucketTTL)
+	impressionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ImpressionsRecordedPerDay)
+
 	// AddBookmark and RemoveBookmark share one per-user bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min); ListBookmarks
 	// has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, 10/min). Adds are bounded by the
 	// 1,000 cap and the shared bookmark_mutation_daily cap. DEGRADED_MODE=readonly rejects Add and Remove through
@@ -189,6 +195,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceUndoRepostProcedure:             rlEngagement,
 			engagementv1connect.EngagementServiceVotePollProcedure:               rlPollVote,
 			engagementv1connect.EngagementServiceRecordPostShareProcedure:        rlShares,
+			engagementv1connect.EngagementServiceRecordImpressionsProcedure:      rlImpressions,
 			engagementv1connect.EngagementServiceAddBookmarkProcedure:            rlBookmarks,
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:         rlBookmarks,
 			engagementv1connect.EngagementServiceListBookmarksProcedure:          rlBookmarksList,
@@ -268,9 +275,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceMuteProcedure:     {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 			graphv1connect.GraphServiceUnmuteProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 
-			engagementv1connect.EngagementServiceAddBookmarkProcedure:     {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
-			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:  {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
-			engagementv1connect.EngagementServiceRecordPostShareProcedure: {Name: "shares_daily", Cap: sharesDailyCap},
+			engagementv1connect.EngagementServiceAddBookmarkProcedure:       {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
+			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:    {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
+			engagementv1connect.EngagementServiceRecordPostShareProcedure:   {Name: "shares_daily", Cap: sharesDailyCap},
+			engagementv1connect.EngagementServiceRecordImpressionsProcedure: {Name: "impressions_daily", Cap: impressionsDailyCap},
 
 			messagingv1connect.MessagingServiceSendMessageProcedure:          {Name: "messages_daily", Cap: messagesDailyCap},
 			messagingv1connect.MessagingServiceMarkConversationReadProcedure: {Name: "messages_mark_read_daily", Cap: messagesMarkReadDailyCap},

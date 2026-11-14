@@ -51,7 +51,7 @@ func newRepoEnv(t *testing.T) *repoEnv {
 		t.Fatal(err)
 	}
 	pr := posts.NewFirestoreRepo(client)
-	repo := NewFirestoreRepo(client, WriteDeps{Writer: pr, Counters: countersStub{client}, IDs: node, Idempotency: idempotency.New(client)})
+	repo := NewFirestoreRepo(client, WriteDeps{Writer: pr, Counters: countersStub{client}, IDs: node, Idempotency: idempotency.New(client), Views: pr})
 	return &repoEnv{client: client, repo: repo, posts: pr}
 }
 
