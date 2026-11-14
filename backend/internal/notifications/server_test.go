@@ -19,7 +19,7 @@ func authedCtx(uid string) context.Context {
 
 func newTestServer(fl FlagChecker) (*Server, *fakeRepo, *fakeSeen) {
 	repo, seen := newFakeRepo(), &fakeSeen{}
-	svc := NewService(Deps{Repo: repo, Directory: newDirectory("me"), Social: &fakeSocial{}, Seen: seen, CursorKey: testKey, Now: func() time.Time { return t0 }})
+	svc := NewService(Deps{Repo: repo, Directory: newOpenDirectory(), Social: &fakeSocial{}, Seen: seen, CursorKey: testKey, Now: func() time.Time { return t0 }})
 	return NewServer(svc, fl), repo, seen
 }
 

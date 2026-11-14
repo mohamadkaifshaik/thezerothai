@@ -28,6 +28,14 @@ func bumpCount(b store.Batch, ref *firestore.DocumentRef, field string, delta in
 	b.Update(ref, []firestore.Update{{Path: field, Value: firestore.Increment(delta)}})
 }
 
+// setCount is the one place a recount writes a corrected counter: a plain set of the field to n (never an Increment), for
+// a transaction's or a batch's Update. Callers: RecountChildren and RepairChildCounts (opsctl recount-replies,
+// recount-quotes, recount-children). A sharded-counter migration (pkg/platform/shardcount) must replace this body so a
+// recount resets every shard to the corrected total, not just the field.
+func setCount(field string, n int64) firestore.Update {
+	return firestore.Update{Path: field, Value: n}
+}
+
 // Conversation implements Repo (Q-T).
 func (r *FirestoreRepo) Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error) {
 	q := r.client.Collection(postsCollection).

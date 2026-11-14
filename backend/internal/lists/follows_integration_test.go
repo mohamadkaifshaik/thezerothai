@@ -405,3 +405,46 @@ func isNotFound(err error) bool {
 	var ae *apierr.Error
 	return errors.As(err, &ae) && ae.Code == connect.CodeNotFound
 }
+
+// A list created before followerCount existed has no field, so DiscoverLists (ordered by followerCount) never returns it.
+// With zero markers the decoded count is 0 == 0; the recount must still see the field as missing and write it.
+func TestFollowsIntegration_RecountWritesMissingFollowerCount(t *testing.T) {
+	e := newFollowEnv(t)
+	ctx := context.Background()
+	id := e.publicList(t)
+	if _, err := e.client.Collection(listsCollection).Doc(id).Update(ctx, []firestore.Update{{Path: "followerCount", Value: firestore.Delete}}); err != nil {
+		t.Fatalf("drop followerCount: %v", err)
+	}
+	page, err := e.svc.DiscoverLists(ctx, feViewer, 20, "")
+	if err != nil || len(page.Views) != 0 {
+		t.Fatalf("discover with the field missing: %d views, err %v; want 0", len(page.Views), err)
+	}
+
+	dry, err := e.repo.RecountFollowers(ctx, id, false)
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if !dry.Missing || dry.InStep() || dry.Written {
+		t.Fatalf("dry run %+v, want Missing, not in step, not written", dry)
+	}
+
+	res, err := e.repo.RecountFollowers(ctx, id, true)
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !res.Missing || !res.Written || res.Counted != 0 {
+		t.Fatalf("write %+v, want Missing and Written with Counted 0", res)
+	}
+	page, err = e.svc.DiscoverLists(ctx, feViewer, 20, "")
+	if err != nil || len(page.Views) != 1 {
+		t.Fatalf("discover after recount: %d views, err %v; want 1", len(page.Views), err)
+	}
+
+	again, err := e.repo.RecountFollowers(ctx, id, true)
+	if err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	if again.Missing || !again.InStep() || again.Written {
+		t.Fatalf("second write %+v, want in step and not written", again)
+	}
+}
