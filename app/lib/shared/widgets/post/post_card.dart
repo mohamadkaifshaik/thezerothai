@@ -539,6 +539,9 @@ class PostCard extends StatelessWidget {
           media: media,
           useFullImage: fullContent,
           showPageIndicator: PostMedia.hasNoText(text),
+          // Lists and thread replies: a row of whole pictures; the opened
+          // post keeps its pager.
+          row: !asFocal,
           onOpenImage: (index) => context.push(
             AppRouter.postPhotoPath(
               isRepost ? embedded!.postId : _post.postId,

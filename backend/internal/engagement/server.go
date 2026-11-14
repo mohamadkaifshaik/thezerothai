@@ -29,6 +29,27 @@ type Server struct {
 	// impressions is RecordImpressions (F1 post views).
 	impressions Impressions
 	flags       posts.FlagChecker
+	// plans hydrates Post.beacon on ListBookmarks and ListLikedPosts (posts.HydrateBeacons, set by SetBeaconPlans after
+	// beacons is built); nil renders every plan card unavailable (fail closed).
+	plans posts.BeaconPlans
+}
+
+// SetBeaconPlans wires the plan reader that hydrates Post.beacon on the owner lists. Called once by apiserver, before
+// ListenAndServe (beacons is built after engagement).
+func (s *Server) SetBeaconPlans(p posts.BeaconPlans) { s.plans = p }
+
+// hydrateBeacons is posts.HydrateBeacons for one owner-list page, deciding every plan card for the caller as the
+// timeline does. withheld rows are left out: their placeholder carries no card, so their plans are never read.
+// Cost: at most one batched Previews read (one GetAll of the page's distinct plans) per page, and none when no kept row
+// carries a plan or FEATURE_POST_BEACON_EMBED is globally off.
+func (s *Server) hydrateBeacons(ctx context.Context, vs posts.ViewerSet, uid string, ps []*posts.Post, withheld func(i int) bool) posts.ViewerSet {
+	kept := make([]*posts.Post, 0, len(ps))
+	for i, p := range ps {
+		if !withheld(i) {
+			kept = append(kept, p)
+		}
+	}
+	return posts.HydrateBeacons(ctx, s.flags, s.plans, vs, uid, kept...)
 }
 
 // ServerOption customises NewServer.

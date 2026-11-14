@@ -56,7 +56,7 @@ void main() {
     }
 
     testWidgets('spread (open post): every action across the width, in order '
-        '(Bookmark, then Share last), larger glyphs', (tester) async {
+        '(Share, then Bookmark last), larger glyphs', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -73,20 +73,20 @@ void main() {
         ),
       );
 
-      // The designs' order (R1 restyle): Bookmark before Share.
+      // The owner's order (2026-11-15): Share, then Bookmark last.
       final icons = [
         Icons.chat_bubble_outline,
         Icons.repeat,
         Icons.favorite_border,
-        Icons.bookmark_border,
         Icons.ios_share,
+        Icons.bookmark_border,
       ];
       final xs = [for (final i in icons) tester.getCenter(find.byIcon(i)).dx];
       for (var i = 1; i < xs.length; i++) {
         expect(xs[i], greaterThan(xs[i - 1]));
       }
       // The bar spreads its buttons edge to edge: the first button's box
-      // starts at the left edge and the last one (Share) ends at the right.
+      // starts at the left edge and the last one (Bookmark) ends at the right.
       final bar = tester.getRect(find.byType(PostActionBar));
       Rect box(IconData icon) => tester.getRect(
         find.ancestor(
@@ -95,11 +95,10 @@ void main() {
         ),
       );
       expect(box(Icons.chat_bubble_outline).left, closeTo(bar.left, 0.5));
-      expect(box(Icons.ios_share).right, closeTo(bar.right, 0.5));
-      // Bookmark comes before Share (R1 restyle; was after it).
+      expect(box(Icons.bookmark_border).right, closeTo(bar.right, 0.5));
       expect(
-        box(Icons.bookmark_border).right,
-        lessThanOrEqualTo(box(Icons.ios_share).left),
+        box(Icons.ios_share).right,
+        lessThanOrEqualTo(box(Icons.bookmark_border).left),
       );
       expect(
         tester.getSize(find.byIcon(Icons.repeat)).width,
@@ -125,8 +124,8 @@ void main() {
       expect(find.byIcon(Icons.ios_share), findsNothing);
     });
 
-    testWidgets('shows compact counts; counted actions and Share are evenly '
-        'spaced slots, Share is not pushed to the right edge', (tester) async {
+    testWidgets('shows compact counts; the four actions are equal slots, in '
+        'order Reply, Repost, Like, Share', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -148,17 +147,16 @@ void main() {
         Icons.favorite_border,
         Icons.ios_share,
       ].map((icon) => tester.getTopLeft(find.byIcon(icon)).dx).toList();
-      // The counted actions take equal slots across the width; Share is
-      // grouped at the end in its own 40 dp box, its glyph flush right.
       final bar = tester.getRect(find.byType(PostActionBar));
-      final slot = (bar.width - AppSpacing.endActionWidth) / 3;
-      for (var i = 0; i < 3; i++) {
+      final slot = bar.width / 4;
+      for (var i = 0; i < 4; i++) {
         expect(lefts[i], closeTo(bar.left + i * slot, 1));
       }
-      final share = tester.getRect(find.byIcon(Icons.ios_share));
-      expect(lefts[3], closeTo(bar.right - AppIconSize.action, 1));
       // 18 dp glyphs (dz.css `.acts`, R1 restyle; was 16).
-      expect(share.width, AppIconSize.action);
+      expect(
+        tester.getSize(find.byIcon(Icons.ios_share)).width,
+        AppIconSize.action,
+      );
     });
 
     testWidgets('no press ripple or pressed circle behind the action icons '
@@ -202,10 +200,11 @@ void main() {
           ),
         ),
       );
-      // Like takes the counted slot; Bookmark is grouped at the end.
+      // Like and Bookmark take equal slots (no Share: it needs a callback
+      // or showDisabled).
       final bar = tester.getRect(find.byType(PostActionBar));
       final icon = tester.getRect(find.byIcon(Icons.bookmark_border));
-      expect(icon.left, closeTo(bar.right - AppIconSize.action, 1));
+      expect(icon.left, closeTo(bar.left + bar.width / 2, 1));
       expect(
         tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx,
         closeTo(bar.left, 1),
@@ -214,7 +213,7 @@ void main() {
       final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
       expect(
         off.rect.size.shortestSide,
-        greaterThanOrEqualTo(AppSpacing.endActionWidth),
+        greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
       await tester.tap(find.byIcon(Icons.bookmark_border));
       expect(taps, 1);
@@ -237,8 +236,8 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('Bookmark sits before Share, each in its own slot after the '
-        'counted actions', (tester) async {
+    testWidgets('Share sits before Bookmark, last, each in its own equal '
+        'slot after the counted actions', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -254,18 +253,67 @@ void main() {
       final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
       final share = tester.getRect(find.byIcon(Icons.ios_share));
       final like = tester.getRect(find.byIcon(Icons.favorite_border));
-      // The designs' order (R1 restyle; was Share, then Bookmark).
-      expect(like.right, lessThan(bookmark.left));
-      expect(bookmark.right, lessThan(share.left));
-      // Like at the start; Bookmark and Share grouped at the end, 40 dp each.
+      // The owner's order (2026-11-15): Like, Share, Bookmark.
+      expect(like.right, lessThan(share.left));
+      expect(share.right, lessThan(bookmark.left));
       final bar = tester.getRect(find.byType(PostActionBar));
       expect(like.left, closeTo(bar.left, 1));
-      expect(
-        bookmark.left,
-        closeTo(bar.right - AppSpacing.endActionWidth - AppIconSize.action, 1),
-      );
-      expect(share.left, closeTo(bar.right - AppIconSize.action, 1));
+      expect(share.left, closeTo(bar.left + bar.width / 3, 1));
+      expect(bookmark.left, closeTo(bar.left + 2 * bar.width / 3, 1));
     });
+
+    for (final width in const [320.0, 360.0, 400.0]) {
+      testWidgets('five slots at $width dp with text x1.3: every box is '
+          'at least 40 wide and 48 tall, none overlaps', (tester) async {
+        await tester.pumpWidget(
+          MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
+            child: _host(
+              width: width - 32,
+              PostActionBar(
+                replyCount: 1234,
+                repostCount: 5678,
+                likeCount: 91011,
+                shareCount: 1200,
+                actions: PostActions(
+                  onReply: () {},
+                  onRepost: () {},
+                  onLike: () {},
+                  onShare: () {},
+                  onBookmark: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        expect(tester.takeException(), isNull);
+        final boxes = [
+          for (final icon in const [
+            Icons.chat_bubble_outline,
+            Icons.repeat,
+            Icons.favorite_border,
+            Icons.ios_share,
+            Icons.bookmark_border,
+          ])
+            tester.getRect(
+              find.ancestor(
+                of: find.byIcon(icon),
+                matching: find.byType(InkResponse),
+              ),
+            ),
+        ];
+        for (var i = 0; i < boxes.length; i++) {
+          expect(boxes[i].height, greaterThanOrEqualTo(48));
+          expect(boxes[i].width, greaterThanOrEqualTo(40));
+          if (i > 0) {
+            expect(
+              boxes[i].left,
+              greaterThanOrEqualTo(boxes[i - 1].right - 0.5),
+            );
+          }
+        }
+      });
+    }
 
     testWidgets('liked and reposted use the like / repost colours and are '
         'announced as selected', (tester) async {
@@ -335,8 +383,7 @@ void main() {
       )) {
         final size = tester.getSize(find.byWidget(target));
         expect(size.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
-        // Bookmark / Share at the row's end are 40 dp wide.
-        expect(size.width, greaterThanOrEqualTo(AppSpacing.endActionWidth));
+        expect(size.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
       }
       handle.dispose();
     });

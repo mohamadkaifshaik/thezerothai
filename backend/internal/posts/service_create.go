@@ -277,7 +277,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	post := res.Post
 	s.cache.SetPost(post)
 	if post.Kind == KindQuote {
-		s.cache.AdjustCounts(post.QuoteOfID, 0, 0, 1) // the quoted post's quoteCount moved in the same commit
+		s.cache.AdjustCounts(post.QuoteOfID, 0, 0, 1) // the quoted post's quoteCount moved in the same commit (on its shards when hot: this instance shows it at once)
 	}
 	if post.IsReply {
 		// Replies are not root posts: they stay out of the author-recent entry (the Posts tab and Home feed

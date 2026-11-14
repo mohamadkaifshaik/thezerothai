@@ -3,7 +3,9 @@
 //	Q-T  Conversation, conversationId == X ORDER BY createdAt ASC, __name__ ASC, StartAfter(cursor), LIMIT n
 //	     -> the existing (conversationId ASC, createdAt ASC) index; __name__ follows the last field's direction.
 //
-// and the parent's replyCount counter (FieldValue.Increment, the counter rule).
+// and the parent's replyCount counter (FieldValue.Increment, the counter rule). The create path routes it through
+// stageCounter (repo_engagement.go), so a hot parent's +1 goes to a shard (HOT_COUNTER_THRESHOLD, hot counters plan PR 5);
+// the release paths here and in purge_release.go have no count to decide with and stay plain Increments.
 package posts
 
 import (
@@ -18,7 +20,7 @@ import (
 )
 
 // bumpReplyCount appends the replyCount increment to a batch or transaction. The Update has an implicit Exists
-// precondition, so a deleted parent fails the whole commit with NotFound.
+// precondition, so a deleted parent fails the whole commit with NotFound. Always cold (the purge release).
 func bumpReplyCount(b store.Batch, parent *firestore.DocumentRef, delta int64) {
 	bumpCount(b, parent, "replyCount", delta)
 }
@@ -28,17 +30,10 @@ func bumpCount(b store.Batch, ref *firestore.DocumentRef, field string, delta in
 	b.Update(ref, []firestore.Update{{Path: field, Value: firestore.Increment(delta)}})
 }
 
-// setCount is the one place a recount writes a corrected counter: a plain set of the field to n (never an Increment), for
-// a transaction's or a batch's Update. Callers: RecountChildren and RepairChildCounts (opsctl recount-replies,
-// recount-quotes, recount-children). It only ever writes replyCount and quoteCount, which have no shards today (the hot
-// path, stageCounter, shards likeCount, repostCount and shareCount only; the rollup's counterFolds fold only those), so a
-// plain set is exact. When replies and quotes go hot (hot counters plan, PR 5) the delta fold keeps the plain field as
-// the source of truth, so these callers must then read the field's shards in their transaction and drain them while
-// setting the total (stageSetCounter in repo_counter_repair.go, as SetShareCount does); a plain set would leave the
-// pending deltas to be counted twice by the next fold.
-func setCount(field string, n int64) firestore.Update {
-	return firestore.Update{Path: field, Value: n}
-}
+// The absolute writers of replyCount and quoteCount (RecountChildren and RepairChildCounts: opsctl recount-replies,
+// recount-quotes, recount-children) read the post's shards in their transaction and set the total while draining the
+// pending deltas (stageSetCounter / stageSetCounters in repo_counter_repair.go, as SetShareCount does): a plain set would
+// leave those deltas for the next fold to count twice.
 
 // Conversation implements Repo (Q-T).
 func (r *FirestoreRepo) Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error) {
@@ -64,7 +59,9 @@ func (r *FirestoreRepo) Conversation(ctx context.Context, conversationID string,
 }
 
 // AddReplyCount implements Repo: one Update with FieldValue.Increment on the parent. A parent that no longer
-// exists is not an error (the counter died with it). Nothing is written when the parent is gone.
+// exists is not an error (the counter died with it). Nothing is written when the parent is gone. It stays cold whatever
+// HOT_COUNTER_THRESHOLD says: the caller (DeletePost's release) has no parent count to decide with, and a plain -1 on a
+// hot parent is exact (the delta fold keeps the plain field as the source of truth).
 func (r *FirestoreRepo) AddReplyCount(ctx context.Context, parentID string, delta int64) error {
 	return r.addCount(ctx, parentID, "replyCount", delta)
 }

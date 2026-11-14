@@ -41,10 +41,14 @@ func TestChildRepairStale(t *testing.T) {
 		replies, quotes ChildRecount
 		stale           bool
 	}{
-		{"in step", childRecountOf(2, 2), childRecountOf(0, 0), false},
-		{"reply count too high", childRecountOf(9, 4), childRecountOf(0, 0), true},
-		{"quote count too low", childRecountOf(0, 0), childRecountOf(0, 1), true},
-		{"a capped count is never stale (never written)", childRecountOf(150_000, planCountCap), childRecountOf(1, 1), false},
+		{"in step", childRecountOf(2, 0, 2), childRecountOf(0, 0, 0), false},
+		{"reply count too high", childRecountOf(9, 0, 4), childRecountOf(0, 0, 0), true},
+		{"quote count too low", childRecountOf(0, 0, 0), childRecountOf(0, 0, 1), true},
+		{"a capped count is never stale (never written)", childRecountOf(150_000, 0, planCountCap), childRecountOf(1, 0, 1), false},
+		// A hot post: plain + pending is compared, never the plain field alone.
+		{"hot, plain behind by its pending deltas, in step", childRecountOf(3, 2, 5), childRecountOf(1, -1, 0), false},
+		{"hot, plain equal to the count but pending on top, stale", childRecountOf(5, 2, 5), childRecountOf(0, 0, 0), true},
+		{"hot, capped stays unwritten", childRecountOf(10, 5, planCountCap), childRecountOf(0, 0, 0), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -54,7 +58,10 @@ func TestChildRepairStale(t *testing.T) {
 			}
 		})
 	}
-	if !childRecountOf(0, planCountCap).Capped || childRecountOf(0, planCountCap-1).Capped {
+	if !childRecountOf(0, 0, planCountCap).Capped || childRecountOf(0, 0, planCountCap-1).Capped {
 		t.Fatal("the cap is planCountCap")
+	}
+	if got := childRecountOf(3, 2, 5); got != (ChildRecount{Stored: 5, Pending: 2, Counted: 5}) {
+		t.Fatalf("childRecountOf(3, 2, 5) = %+v, want Stored = plain + pending", got)
 	}
 }

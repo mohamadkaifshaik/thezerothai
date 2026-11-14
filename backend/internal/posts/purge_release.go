@@ -90,7 +90,10 @@ func ownRows(docs []*firestore.DocumentSnapshot) ([]ownRow, map[string]bool) {
 	return rows, inPage
 }
 
-// stageDelta appends one decrement through the counter helpers (a sharded counter later swaps only their body).
+// stageDelta appends one decrement through the counter helpers. It stays cold whatever HOT_COUNTER_THRESHOLD says (a
+// plain Increment on the target, never a shard): the page batch relies on that Update's implicit Exists (a target that is
+// gone fails the fast path, and the per-doc fallback drops its counter), and a cold decrement on a hot post is exact
+// anyway, because the delta fold keeps the plain field as the source of truth and only adds what the shards hold.
 func (r *FirestoreRepo) stageDelta(b store.Batch, d counterDelta) {
 	if d.field == fieldReplyCount {
 		bumpReplyCount(b, r.ref(d.postID), d.delta)

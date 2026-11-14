@@ -164,6 +164,7 @@ func (s *service) quoteTarget(ctx context.Context, uid, id string) (*Post, error
 // top-level embedded author id. q's quoteCount increment rides in the CreatePost transaction.
 func applyQuote(p *CreateParams, q *Post) {
 	p.QuoteID = q.ID
+	p.QuotedQuoteCount = q.QuoteCount // the hot decision of the quoteCount write (q is already read)
 	p.Draft.Kind = KindQuote
 	p.Draft.QuoteOfID = q.ID
 	p.Draft.EmbeddedAuthorID = q.Author.UserID
