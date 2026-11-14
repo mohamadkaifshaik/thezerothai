@@ -127,7 +127,10 @@ type Post struct {
 	QuoteCount       int64
 	// ShareCount is posts/{id}.shareCount: the distinct accounts (other than the author) that shared the post, written by
 	// engagement through EngagementWriter.StageShareCount with the postShares marker; absent on older docs (0).
-	ShareCount      int64
+	ShareCount int64
+	// ViewCount is posts/{id}.viewCount: the views rolled up from posts/{id}/viewShards by the view rollup (F1), written
+	// only by it; absent on older docs and on posts nobody viewed (0). Who may see it is views.go.
+	ViewCount       int64
 	Visibility      Visibility
 	SnapshotVersion int64
 	// Moderation is the moderation state. Readers return hidden posts WITH this field set: every

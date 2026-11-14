@@ -131,6 +131,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// --- feature flags ---
 	featureFlags := featureRegistry(cfg)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
+	// F1 post views: who sees Post.view_count (posts/views.go). Process-wide: the converters are free functions.
+	posts.SetViewCountRule(posts.ViewCountRule{Threshold: cfg.PostViewsPublicThreshold, Off: func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }})
 	// The private-accounts limits, so an operator can see what the revision enforces. Numbers only.
 	log.Info("privacy_limits", "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
 		"protected_set_max_stale", cfg.Privacy.ProtectedSetMaxStale.String(), "respond_per_min", cfg.RateLimit.FollowRequestsRespondPerUserPerMinute)

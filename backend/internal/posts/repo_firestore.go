@@ -121,7 +121,9 @@ type postDoc struct {
 	ReplyCount       int64        `firestore:"replyCount"`
 	QuoteCount       int64        `firestore:"quoteCount"`
 	// ShareCount is written only by FieldValue.Increment (StageShareCount) and opsctl recount-shares; omitted until then.
-	ShareCount      int64  `firestore:"shareCount,omitempty"`
+	ShareCount int64 `firestore:"shareCount,omitempty"`
+	// ViewCount is written only by the view rollup (an absolute Update); omitted until then, never written by a create.
+	ViewCount       int64  `firestore:"viewCount,omitempty"`
 	Visibility      string `firestore:"visibility"`
 	SnapshotVersion int64  `firestore:"snapshotVersion"`
 	// Moderation is absent for a visible post; ModeratedAt is when the state last changed.
@@ -336,7 +338,7 @@ func (d postDoc) toPost(id string) *Post {
 		ReplyToID: d.ReplyToID, ReplyToHandle: d.ReplyToHandle, ConversationID: d.ConversationID,
 		QuoteOfID: d.QuoteOfID, RepostOfID: d.RepostOfID, EmbeddedAuthorID: d.EmbeddedAuthorID,
 		Hashtags:  d.Hashtags,
-		LikeCount: d.LikeCount, RepostCount: d.RepostCount, ReplyCount: d.ReplyCount, QuoteCount: d.QuoteCount, ShareCount: max(d.ShareCount, 0),
+		LikeCount: d.LikeCount, RepostCount: d.RepostCount, ReplyCount: d.ReplyCount, QuoteCount: d.QuoteCount, ShareCount: max(d.ShareCount, 0), ViewCount: max(d.ViewCount, 0),
 		Visibility: Visibility(d.Visibility), SnapshotVersion: d.SnapshotVersion, CreatedAt: d.CreatedAt.UTC(),
 		Moderation:      Moderation(d.Moderation),
 		PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI,

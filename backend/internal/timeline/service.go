@@ -303,7 +303,9 @@ func (s *Server) toViews(ctx context.Context, uid string, following, blocked map
 		if st, ok := embed[p.ID]; ok {
 			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens
 		}
-		posts.ApplyWireVisibility(v, s.aud.ProtectedAuthor(ctx, uid, p.AuthorID, following[p.AuthorID])) // FOLLOWERS while the author is protected (D2)
+		protected := s.aud.ProtectedAuthor(ctx, uid, p.AuthorID, following[p.AuthorID])
+		posts.ApplyWireVisibility(v, protected) // FOLLOWERS while the author is protected (D2)
+		posts.ApplyPublicViews(v, p, protected) // view_count once over the threshold, never for a protected author (F1)
 		out = append(out, v)
 	}
 	return out
