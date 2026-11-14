@@ -321,7 +321,8 @@ type Polls interface {
 	// nothing. A first vote runs the visibility check (post, author users, caller graph) and reads userLikes for
 	// the response's viewer flags; a replay or ALREADY_VOTED reads the vote doc too. A first vote writes in one batch
 	// (vote doc, the post's poll.counts.<i> and poll.total in one Update, userLikes.pollVotes); the vote doc is
-	// removed later by its TTL.
+	// removed later by its TTL. On a hot poll (its total at or above HOT_COUNTER_THRESHOLD) the vote and the change are the
+	// same writes in a transaction that reads the post first, with the counters on the post's shards (repo_polls.go).
 	VotePoll(ctx context.Context, uid, idempotencyKey, postID string, choiceIndex, expectedChoice int32) (PollVote, error)
 }
 
@@ -371,6 +372,9 @@ type ChangeParams struct {
 	// ClosesAt and ExpireAt are the poll's closing time and the vote's TTL time (closesAt + POLL_VOTE_TTL_AFTER_CLOSE): the userLikes entry is
 	// "<postId>:<choice>:<closesAtUnix>" (poll_retention.go), and its expiry day goes into pollVotesDueDays.
 	ClosesAt, ExpireAt time.Time
+	// Known is the poll's total as the service read it (cache first): it routes the counter move to the plain fields or,
+	// on a hot post, to its shards (posts.EngagementWriter.StagePollChange).
+	Known int64
 }
 
 // VoteParams is one vote batch.
@@ -381,19 +385,24 @@ type VoteParams struct {
 	ExpireAt time.Time
 	// ClosesAt is the poll's closing time: it goes into the userLikes entry (poll_retention.go).
 	ClosesAt time.Time
+	// Known is the poll's total as the service read it (cache first): it routes the counter bump to the plain fields or,
+	// on a hot post, to its shards (posts.EngagementWriter.StagePollVote).
+	Known int64
 }
 
 // PollRepo is the storage seam of VotePoll; repo_polls.go implements it, tests use a fake.
 type PollRepo interface {
 	// Vote commits the vote batch (no read). AlreadyExists is VoteExists; a missing post is VotePostGone; exhausted contention is an
-	// error wrapping store.ErrContended.
+	// error wrapping store.ErrContended. On a hot post (p.Known) the same writes run as a transaction that reads the post first
+	// (GuardHot), with the same answers.
 	Vote(ctx context.Context, p VoteParams) (VoteOutcome, error)
 	// GetVote reads pollVotes/{postId}_{uid} found is false for a missing document.
 	GetVote(ctx context.Context, uid, postID string) (state VoteState, found bool, err error)
 	// ChangeVote commits one vote change as a blind batch (no reads): the vote doc is updated under a
 	// LastUpdateTime precondition equal to p.Version, the post counters move by StagePollChange, and userLikes.pollVotes loses the entry of From
 	// and gains the entry of To (two writes to one document in one commit). A failed precondition is ChangeStale; exhausted contention is an
-	// error wrapping store.ErrContended.
+	// error wrapping store.ErrContended. On a hot post (p.Known) the same writes run as a transaction that reads the post first
+	// (GuardHot): a gone post is ChangeStale too.
 	ChangeVote(ctx context.Context, p ChangeParams) (ChangeOutcome, error)
 	// TrimPollVotes removes entries from userLikes.pollVotes (field-level, best effort, no read).
 	TrimPollVotes(ctx context.Context, uid string, drop []string) error
