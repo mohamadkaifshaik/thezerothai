@@ -1,8 +1,8 @@
 // repo_engagement.go holds the storage paths engagement drives through posts' seams. posts owns
 // posts/*, so every write to a post doc made on behalf of a like, a repost, a quote or its clean-up lives here:
 //
-//	batch staging (EngagementWriter): likeCount / repostCount / shareCount increments (plain, or on the post's shards
-//	  once it is hot: HOT_COUNTER_THRESHOLD), the REPOST create, the REPOST delete
+//	batch staging (EngagementWriter): likeCount / repostCount / shareCount and poll.counts.<n> / poll.total increments
+//	  (plain, or on the post's shards once it is hot: HOT_COUNTER_THRESHOLD), the REPOST create, the REPOST delete
 //	opsctl recount-shares (ShareCounter): read and set posts/{id}.shareCount, shard-aware (repo_counter_repair.go)
 //	clean-up (Cleanup): RemoveReposts, TombstoneQuotes
 //	  Q-O  posts where repostOfId == X LIMIT n         -> automatic single-field index
@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -56,15 +55,18 @@ type EngagementWriter interface {
 	GuardHot(tx *firestore.Transaction, postID string, known int64) error
 	// Hot reports whether a counter write with known takes the hot path (HOT_COUNTER_THRESHOLD > 0 and known >= it).
 	Hot(known int64) bool
-	// StagePollVote appends the blind counter bump of one vote: Increment(poll.counts.<choice>) and Increment(poll.total) on
-	// posts/{id} in ONE Update (one write), with the implicit Exists precondition, so a post deleted in between fails the commit
-	// with NotFound. The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric
-	// strings. The one counter helper of polls: sharding replaces its body, not its callers.
-	StagePollVote(b store.Batch, postID string, choice int)
-	// StagePollChange appends the blind counter move of one vote change: Increment(poll.counts.<from>, -1) and
-	// Increment(poll.counts.<to>, +1) on posts/{id} in ONE Update (one write); poll.total is not touched. Same Exists precondition and field-path
-	// rule as StagePollVote. With StagePollVote, the only poll counter writers: sharding replaces both bodies, not their callers.
-	StagePollChange(b store.Batch, postID string, from, to int)
+	// StagePollVote appends the counter bump of one vote. known is the poll's total as the caller read it (0 when it has
+	// none). Cold (HOT_COUNTER_THRESHOLD off, or known below it): Increment(poll.counts.<choice>) and Increment(poll.total)
+	// on posts/{id} in ONE Update (one write), with the implicit Exists precondition, so a post deleted in between fails
+	// the commit with NotFound. Hot: the same two increments in ONE write to a random shard of posts/{id}/viewShards plus
+	// the post's counter marker, with NO precondition on the post (the caller runs GuardHot in its transaction first).
+	// The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric strings. committed
+	// is StageLikeCount's (a no-op when cold).
+	StagePollVote(b store.Batch, postID string, choice int, known int64) (committed func())
+	// StagePollChange appends the counter move of one vote change: Increment(poll.counts.<from>, -1) and
+	// Increment(poll.counts.<to>, +1) in ONE write; poll.total is not touched. Cold: one Update of posts/{id} (Exists).
+	// Hot: one shard write plus the counter marker, as StagePollVote. With StagePollVote, the only poll counter writers.
+	StagePollChange(b store.Batch, postID string, from, to int, known int64) (committed func())
 	// StageRepost appends the Create of a REPOST post doc.
 	StageRepost(b store.Batch, p *Post)
 	// StageDelete appends the delete of posts/{id}; mustExist adds the Exists precondition.
@@ -196,19 +198,29 @@ func (r *FirestoreRepo) SetShareCount(ctx context.Context, postID string, n int6
 }
 
 // StagePollVote implements EngagementWriter.
-func (r *FirestoreRepo) StagePollVote(b store.Batch, postID string, choice int) {
-	b.Update(r.ref(postID), []firestore.Update{
-		{FieldPath: firestore.FieldPath{"poll", "counts", strconv.Itoa(choice)}, Value: firestore.Increment(1)},
-		{FieldPath: firestore.FieldPath{"poll", "total"}, Value: firestore.Increment(1)},
-	})
+func (r *FirestoreRepo) StagePollVote(b store.Batch, postID string, choice int, known int64) func() {
+	if !r.Hot(known) {
+		b.Update(r.ref(postID), []firestore.Update{
+			{FieldPath: pollCountField(choice), Value: firestore.Increment(1)},
+			{FieldPath: pollTotalField, Value: firestore.Increment(1)},
+		})
+		return func() {}
+	}
+	viewShards.StageIncrement(b, r.ref(postID), shardcount.Delta{Field: pollCountField(choice), N: 1}, shardcount.Delta{Field: pollTotalField, N: 1})
+	return r.stageMarkers(b, counterMarkers, []string{postID}, r.clock())
 }
 
 // StagePollChange implements EngagementWriter.
-func (r *FirestoreRepo) StagePollChange(b store.Batch, postID string, from, to int) {
-	b.Update(r.ref(postID), []firestore.Update{
-		{FieldPath: firestore.FieldPath{"poll", "counts", strconv.Itoa(from)}, Value: firestore.Increment(-1)},
-		{FieldPath: firestore.FieldPath{"poll", "counts", strconv.Itoa(to)}, Value: firestore.Increment(1)},
-	})
+func (r *FirestoreRepo) StagePollChange(b store.Batch, postID string, from, to int, known int64) func() {
+	if !r.Hot(known) {
+		b.Update(r.ref(postID), []firestore.Update{
+			{FieldPath: pollCountField(from), Value: firestore.Increment(-1)},
+			{FieldPath: pollCountField(to), Value: firestore.Increment(1)},
+		})
+		return func() {}
+	}
+	viewShards.StageIncrement(b, r.ref(postID), shardcount.Delta{Field: pollCountField(from), N: -1}, shardcount.Delta{Field: pollCountField(to), N: 1})
+	return r.stageMarkers(b, counterMarkers, []string{postID}, r.clock())
 }
 
 // StageRepost implements EngagementWriter.

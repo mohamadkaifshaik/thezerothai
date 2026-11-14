@@ -1,6 +1,6 @@
 // repo_view_rollup.go is the storage side of the view rollup (F1 post views): it folds posts/{id}/viewShards into
 // posts/{id}.viewCount for the posts that have a view marker, and the engagement counter shards of hot posts into
-// posts/{id}.likeCount, repostCount and shareCount for the posts that have a counter marker (repo_views.go), then deletes
+// posts/{id}.likeCount, repostCount, shareCount, poll.total and poll.counts.<n> for the posts that have a counter marker (repo_views.go), then deletes
 // the markers.
 //
 //	Q-V1 viewDirty where window < W ORDER BY window LIMIT n               -> automatic single-field index
@@ -19,6 +19,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -237,15 +239,48 @@ var (
 	likeCountField   = firestore.FieldPath{"likeCount"}
 	repostCountField = firestore.FieldPath{"repostCount"}
 	shareCountField  = firestore.FieldPath{"shareCount"}
-	// counterFolds are the delta folds of the counter rollup: shard field -> the same post field.
+	// pollTotalField is poll.total; pollCountField(n) is poll.counts.<n>. FieldPath values, never dotted strings: the
+	// counts keys are numeric strings.
+	pollTotalField = firestore.FieldPath{"poll", "total"}
+	// counterFolds are the fixed delta folds of the counter rollup: shard field -> the same post field. The per-choice
+	// poll counts are added per shard from the keys the shard actually holds (counterFoldsOf).
 	counterFolds = []shardcount.Fold{
 		{From: likeCountField, To: likeCountField},
 		{From: repostCountField, To: repostCountField},
 		{From: shareCountField, To: shareCountField},
+		{From: pollTotalField, To: pollTotalField},
 	}
 )
 
-// FoldCounters implements ViewRollupRepo. Per post: one plain GetAll of the post and its shards (1 + ViewShardCount
+// pollCountField is poll.counts.<choice>.
+func pollCountField(choice int) firestore.FieldPath {
+	return firestore.FieldPath{"poll", "counts", strconv.Itoa(choice)}
+}
+
+// counterFoldsOf are the delta folds of one shard's data: counterFolds plus one fold per key of the shard's poll.counts
+// map, whatever the key (a hard-coded list of choices could miss one and strand its delta), in key order so the staged
+// writes are deterministic. Poll choices are bounded (MaxPollChoices), so the set stays small.
+func counterFoldsOf(data map[string]any) []shardcount.Fold {
+	poll, _ := data["poll"].(map[string]any)
+	counts, _ := poll["counts"].(map[string]any)
+	if len(counts) == 0 {
+		return counterFolds
+	}
+	keys := make([]string, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]shardcount.Fold, 0, len(counterFolds)+len(keys))
+	out = append(out, counterFolds...)
+	for _, k := range keys {
+		fp := firestore.FieldPath{"poll", "counts", k}
+		out = append(out, shardcount.Fold{From: fp, To: fp})
+	}
+	return out
+}
+
+// FoldCounters implements ViewRollupRepo (likeCount, repostCount, shareCount, poll.total and every poll.counts.<n>). Per post: one plain GetAll of the post and its shards (1 + ViewShardCount
 // reads), then one small transaction per shard that holds an engagement value (1 read, 2 writes: the shard and the
 // post), so a page never nears the 500-write limit of one commit and contention costs only that shard.
 //
@@ -368,18 +403,26 @@ func (r *FirestoreRepo) foldCounterShard(ctx context.Context, post, shard *fires
 		if err != nil {
 			return fmt.Errorf("posts: read counter shard: %w", err)
 		}
+		data := snap.Data()
 		b := store.NewFirestoreTxBatch(tx)
-		shardcount.StageDeltaFold(b, post, []shardcount.Shard{{Ref: shard, Data: snap.Data()}}, counterFolds...)
+		// The folds come from the shard as read in THIS transaction, so a poll.counts key written since the page read is folded too.
+		shardcount.StageDeltaFold(b, post, []shardcount.Shard{{Ref: shard, Data: data}}, counterFoldsOf(data)...)
 		return b.Err()
 	})
 	return err
 }
 
-// holdsCounters reports whether a shard holds a non-zero engagement value.
+// holdsCounters reports whether a shard holds a non-zero engagement value, poll counts included (a shard that holds only
+// poll deltas must be folded, or its marker would be deleted with the deltas still on it).
 func holdsCounters(data map[string]any) bool {
-	t := shardcount.Sum([]map[string]any{data}, likeCountField, repostCountField, shareCountField)
-	for _, f := range counterFolds {
-		if t.Get(f.From) != 0 {
+	folds := counterFoldsOf(data)
+	from := make([]firestore.FieldPath, len(folds))
+	for i, f := range folds {
+		from[i] = f.From
+	}
+	t := shardcount.Sum([]map[string]any{data}, from...)
+	for _, fp := range from {
+		if t.Get(fp) != 0 {
 			return true
 		}
 	}
