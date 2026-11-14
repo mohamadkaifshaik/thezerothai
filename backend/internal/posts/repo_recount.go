@@ -122,7 +122,7 @@ func (r *FirestoreRepo) RecountChildren(ctx context.Context, postID string, whic
 			return nil
 		}
 		out.Written = true
-		return tx.Update(r.ref(postID), []firestore.Update{{Path: counter, Value: got.Counted}})
+		return tx.Update(r.ref(postID), []firestore.Update{setCount(counter, got.Counted)})
 	})
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
