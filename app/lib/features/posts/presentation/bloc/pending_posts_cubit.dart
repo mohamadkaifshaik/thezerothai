@@ -48,6 +48,7 @@ class PendingPost {
     this.holdSeconds = 0,
     this.waitingForConnection = true,
     this.photosNotSaved = false,
+    this.wasQueued = false,
   });
 
   /// Unique per pending post (the optimistic row's id).
@@ -104,6 +105,10 @@ class PendingPost {
   /// the web): closing the app loses them, the text is kept.
   final bool photosNotSaved;
 
+  /// The post has waited at least once (the row announces that once; the
+  /// attempts and waits that follow are not announced again).
+  final bool wasQueued;
+
   /// 0..1 upload progress, or null when it is not a photo upload.
   double? get progress =>
       uploading && photosTotal > 0 ? photosDone / photosTotal : null;
@@ -123,6 +128,7 @@ class PendingPost {
     int? holdSeconds,
     bool? waitingForConnection,
     bool? photosNotSaved,
+    bool? wasQueued,
   }) => PendingPost(
     localId: localId,
     text: text,
@@ -142,6 +148,7 @@ class PendingPost {
     holdSeconds: holdSeconds ?? this.holdSeconds,
     waitingForConnection: waitingForConnection ?? this.waitingForConnection,
     photosNotSaved: photosNotSaved ?? this.photosNotSaved,
+    wasQueued: wasQueued ?? this.wasQueued,
   );
 }
 

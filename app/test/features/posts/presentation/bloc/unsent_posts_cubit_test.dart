@@ -94,14 +94,18 @@ void main() {
       await keep('u2', 'c');
       var discarded = 0;
       final cubit = UnsentPostsCubit(
-        repository: FakeDraftsRepository(),
+        repository: FakeDraftsRepository(drafts: [_draft('d', 'u1')]),
         uid: 'u1',
         photos: store,
-        onDeleted: () => discarded++,
+        deleteStored: (uid) async {
+          discarded++;
+          await store.deleteAll(uid);
+        },
       );
       addTearDown(cubit.close);
       await pumpEventQueue();
-      expect(cubit.state, 2);
+      // One draft, plus two stored posts that have no draft row.
+      expect(cubit.state, 3);
 
       expect(await cubit.deleteAll(), isTrue);
       await pumpEventQueue();

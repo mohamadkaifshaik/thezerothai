@@ -5588,6 +5588,59 @@ class $UnsentPostEntriesTable extends UnsentPostEntries
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _errorTextMeta = const VerificationMeta(
+    'errorText',
+  );
+  @override
+  late final GeneratedColumn<String> errorText = GeneratedColumn<String>(
+    'error_text',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _canRetryMeta = const VerificationMeta(
+    'canRetry',
+  );
+  @override
+  late final GeneratedColumn<bool> canRetry = GeneratedColumn<bool>(
+    'can_retry',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("can_retry" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _needsVerifyMeta = const VerificationMeta(
+    'needsVerify',
+  );
+  @override
+  late final GeneratedColumn<bool> needsVerify = GeneratedColumn<bool>(
+    'needs_verify',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("needs_verify" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _clearFlagsMeta = const VerificationMeta(
+    'clearFlags',
+  );
+  @override
+  late final GeneratedColumn<int> clearFlags = GeneratedColumn<int>(
+    'clear_flags',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _photosKeptMeta = const VerificationMeta(
     'photosKept',
   );
@@ -5645,6 +5698,10 @@ class $UnsentPostEntriesTable extends UnsentPostEntries
     keyUsed,
     keyAmbiguous,
     claimReused,
+    errorText,
+    canRetry,
+    needsVerify,
+    clearFlags,
     photosKept,
     photoCount,
     createdAt,
@@ -5793,6 +5850,33 @@ class $UnsentPostEntriesTable extends UnsentPostEntries
         ),
       );
     }
+    if (data.containsKey('error_text')) {
+      context.handle(
+        _errorTextMeta,
+        errorText.isAcceptableOrUnknown(data['error_text']!, _errorTextMeta),
+      );
+    }
+    if (data.containsKey('can_retry')) {
+      context.handle(
+        _canRetryMeta,
+        canRetry.isAcceptableOrUnknown(data['can_retry']!, _canRetryMeta),
+      );
+    }
+    if (data.containsKey('needs_verify')) {
+      context.handle(
+        _needsVerifyMeta,
+        needsVerify.isAcceptableOrUnknown(
+          data['needs_verify']!,
+          _needsVerifyMeta,
+        ),
+      );
+    }
+    if (data.containsKey('clear_flags')) {
+      context.handle(
+        _clearFlagsMeta,
+        clearFlags.isAcceptableOrUnknown(data['clear_flags']!, _clearFlagsMeta),
+      );
+    }
     if (data.containsKey('photos_kept')) {
       context.handle(
         _photosKeptMeta,
@@ -5890,6 +5974,22 @@ class $UnsentPostEntriesTable extends UnsentPostEntries
         DriftSqlType.bool,
         data['${effectivePrefix}claim_reused'],
       )!,
+      errorText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_text'],
+      ),
+      canRetry: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}can_retry'],
+      )!,
+      needsVerify: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}needs_verify'],
+      )!,
+      clearFlags: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}clear_flags'],
+      )!,
       photosKept: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}photos_kept'],
@@ -5947,6 +6047,15 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
   final bool keyAmbiguous;
   final bool claimReused;
 
+  /// How the send last ended, so a restored row says the same: the error copy
+  /// (null while waiting), whether Retry is offered, whether the server wants
+  /// a verified email, and what the server refused (a bit mask: 1 community,
+  /// 2 plan, 4 poll, 8 audience, 16 photos) that Edit takes out.
+  final String? errorText;
+  final bool canRetry;
+  final bool needsVerify;
+  final int clearFlags;
+
   /// False when the photos were not kept (over the size cap, or the web):
   /// the restored post then has its text only.
   final bool photosKept;
@@ -5970,6 +6079,10 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
     required this.keyUsed,
     required this.keyAmbiguous,
     required this.claimReused,
+    this.errorText,
+    required this.canRetry,
+    required this.needsVerify,
+    required this.clearFlags,
     required this.photosKept,
     required this.photoCount,
     required this.createdAt,
@@ -6002,6 +6115,12 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
     map['key_used'] = Variable<bool>(keyUsed);
     map['key_ambiguous'] = Variable<bool>(keyAmbiguous);
     map['claim_reused'] = Variable<bool>(claimReused);
+    if (!nullToAbsent || errorText != null) {
+      map['error_text'] = Variable<String>(errorText);
+    }
+    map['can_retry'] = Variable<bool>(canRetry);
+    map['needs_verify'] = Variable<bool>(needsVerify);
+    map['clear_flags'] = Variable<int>(clearFlags);
     map['photos_kept'] = Variable<bool>(photosKept);
     map['photo_count'] = Variable<int>(photoCount);
     map['created_at'] = Variable<DateTime>(createdAt);
@@ -6035,6 +6154,12 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
       keyUsed: Value(keyUsed),
       keyAmbiguous: Value(keyAmbiguous),
       claimReused: Value(claimReused),
+      errorText: errorText == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorText),
+      canRetry: Value(canRetry),
+      needsVerify: Value(needsVerify),
+      clearFlags: Value(clearFlags),
       photosKept: Value(photosKept),
       photoCount: Value(photoCount),
       createdAt: Value(createdAt),
@@ -6064,6 +6189,10 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
       keyUsed: serializer.fromJson<bool>(json['keyUsed']),
       keyAmbiguous: serializer.fromJson<bool>(json['keyAmbiguous']),
       claimReused: serializer.fromJson<bool>(json['claimReused']),
+      errorText: serializer.fromJson<String?>(json['errorText']),
+      canRetry: serializer.fromJson<bool>(json['canRetry']),
+      needsVerify: serializer.fromJson<bool>(json['needsVerify']),
+      clearFlags: serializer.fromJson<int>(json['clearFlags']),
       photosKept: serializer.fromJson<bool>(json['photosKept']),
       photoCount: serializer.fromJson<int>(json['photoCount']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
@@ -6090,6 +6219,10 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
       'keyUsed': serializer.toJson<bool>(keyUsed),
       'keyAmbiguous': serializer.toJson<bool>(keyAmbiguous),
       'claimReused': serializer.toJson<bool>(claimReused),
+      'errorText': serializer.toJson<String?>(errorText),
+      'canRetry': serializer.toJson<bool>(canRetry),
+      'needsVerify': serializer.toJson<bool>(needsVerify),
+      'clearFlags': serializer.toJson<int>(clearFlags),
       'photosKept': serializer.toJson<bool>(photosKept),
       'photoCount': serializer.toJson<int>(photoCount),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -6114,6 +6247,10 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
     bool? keyUsed,
     bool? keyAmbiguous,
     bool? claimReused,
+    Value<String?> errorText = const Value.absent(),
+    bool? canRetry,
+    bool? needsVerify,
+    int? clearFlags,
     bool? photosKept,
     int? photoCount,
     DateTime? createdAt,
@@ -6137,6 +6274,10 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
     keyUsed: keyUsed ?? this.keyUsed,
     keyAmbiguous: keyAmbiguous ?? this.keyAmbiguous,
     claimReused: claimReused ?? this.claimReused,
+    errorText: errorText.present ? errorText.value : this.errorText,
+    canRetry: canRetry ?? this.canRetry,
+    needsVerify: needsVerify ?? this.needsVerify,
+    clearFlags: clearFlags ?? this.clearFlags,
     photosKept: photosKept ?? this.photosKept,
     photoCount: photoCount ?? this.photoCount,
     createdAt: createdAt ?? this.createdAt,
@@ -6176,6 +6317,14 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
       claimReused: data.claimReused.present
           ? data.claimReused.value
           : this.claimReused,
+      errorText: data.errorText.present ? data.errorText.value : this.errorText,
+      canRetry: data.canRetry.present ? data.canRetry.value : this.canRetry,
+      needsVerify: data.needsVerify.present
+          ? data.needsVerify.value
+          : this.needsVerify,
+      clearFlags: data.clearFlags.present
+          ? data.clearFlags.value
+          : this.clearFlags,
       photosKept: data.photosKept.present
           ? data.photosKept.value
           : this.photosKept,
@@ -6206,6 +6355,10 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
           ..write('keyUsed: $keyUsed, ')
           ..write('keyAmbiguous: $keyAmbiguous, ')
           ..write('claimReused: $claimReused, ')
+          ..write('errorText: $errorText, ')
+          ..write('canRetry: $canRetry, ')
+          ..write('needsVerify: $needsVerify, ')
+          ..write('clearFlags: $clearFlags, ')
           ..write('photosKept: $photosKept, ')
           ..write('photoCount: $photoCount, ')
           ..write('createdAt: $createdAt')
@@ -6214,7 +6367,7 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     uid,
     postId,
     postText,
@@ -6232,10 +6385,14 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
     keyUsed,
     keyAmbiguous,
     claimReused,
+    errorText,
+    canRetry,
+    needsVerify,
+    clearFlags,
     photosKept,
     photoCount,
     createdAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -6257,6 +6414,10 @@ class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
           other.keyUsed == this.keyUsed &&
           other.keyAmbiguous == this.keyAmbiguous &&
           other.claimReused == this.claimReused &&
+          other.errorText == this.errorText &&
+          other.canRetry == this.canRetry &&
+          other.needsVerify == this.needsVerify &&
+          other.clearFlags == this.clearFlags &&
           other.photosKept == this.photosKept &&
           other.photoCount == this.photoCount &&
           other.createdAt == this.createdAt);
@@ -6280,6 +6441,10 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
   final Value<bool> keyUsed;
   final Value<bool> keyAmbiguous;
   final Value<bool> claimReused;
+  final Value<String?> errorText;
+  final Value<bool> canRetry;
+  final Value<bool> needsVerify;
+  final Value<int> clearFlags;
   final Value<bool> photosKept;
   final Value<int> photoCount;
   final Value<DateTime> createdAt;
@@ -6302,6 +6467,10 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
     this.keyUsed = const Value.absent(),
     this.keyAmbiguous = const Value.absent(),
     this.claimReused = const Value.absent(),
+    this.errorText = const Value.absent(),
+    this.canRetry = const Value.absent(),
+    this.needsVerify = const Value.absent(),
+    this.clearFlags = const Value.absent(),
     this.photosKept = const Value.absent(),
     this.photoCount = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -6325,6 +6494,10 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
     this.keyUsed = const Value.absent(),
     this.keyAmbiguous = const Value.absent(),
     this.claimReused = const Value.absent(),
+    this.errorText = const Value.absent(),
+    this.canRetry = const Value.absent(),
+    this.needsVerify = const Value.absent(),
+    this.clearFlags = const Value.absent(),
     this.photosKept = const Value.absent(),
     this.photoCount = const Value.absent(),
     required DateTime createdAt,
@@ -6351,6 +6524,10 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
     Expression<bool>? keyUsed,
     Expression<bool>? keyAmbiguous,
     Expression<bool>? claimReused,
+    Expression<String>? errorText,
+    Expression<bool>? canRetry,
+    Expression<bool>? needsVerify,
+    Expression<int>? clearFlags,
     Expression<bool>? photosKept,
     Expression<int>? photoCount,
     Expression<DateTime>? createdAt,
@@ -6374,6 +6551,10 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
       if (keyUsed != null) 'key_used': keyUsed,
       if (keyAmbiguous != null) 'key_ambiguous': keyAmbiguous,
       if (claimReused != null) 'claim_reused': claimReused,
+      if (errorText != null) 'error_text': errorText,
+      if (canRetry != null) 'can_retry': canRetry,
+      if (needsVerify != null) 'needs_verify': needsVerify,
+      if (clearFlags != null) 'clear_flags': clearFlags,
       if (photosKept != null) 'photos_kept': photosKept,
       if (photoCount != null) 'photo_count': photoCount,
       if (createdAt != null) 'created_at': createdAt,
@@ -6399,6 +6580,10 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
     Value<bool>? keyUsed,
     Value<bool>? keyAmbiguous,
     Value<bool>? claimReused,
+    Value<String?>? errorText,
+    Value<bool>? canRetry,
+    Value<bool>? needsVerify,
+    Value<int>? clearFlags,
     Value<bool>? photosKept,
     Value<int>? photoCount,
     Value<DateTime>? createdAt,
@@ -6422,6 +6607,10 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
       keyUsed: keyUsed ?? this.keyUsed,
       keyAmbiguous: keyAmbiguous ?? this.keyAmbiguous,
       claimReused: claimReused ?? this.claimReused,
+      errorText: errorText ?? this.errorText,
+      canRetry: canRetry ?? this.canRetry,
+      needsVerify: needsVerify ?? this.needsVerify,
+      clearFlags: clearFlags ?? this.clearFlags,
       photosKept: photosKept ?? this.photosKept,
       photoCount: photoCount ?? this.photoCount,
       createdAt: createdAt ?? this.createdAt,
@@ -6483,6 +6672,18 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
     if (claimReused.present) {
       map['claim_reused'] = Variable<bool>(claimReused.value);
     }
+    if (errorText.present) {
+      map['error_text'] = Variable<String>(errorText.value);
+    }
+    if (canRetry.present) {
+      map['can_retry'] = Variable<bool>(canRetry.value);
+    }
+    if (needsVerify.present) {
+      map['needs_verify'] = Variable<bool>(needsVerify.value);
+    }
+    if (clearFlags.present) {
+      map['clear_flags'] = Variable<int>(clearFlags.value);
+    }
     if (photosKept.present) {
       map['photos_kept'] = Variable<bool>(photosKept.value);
     }
@@ -6518,6 +6719,10 @@ class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
           ..write('keyUsed: $keyUsed, ')
           ..write('keyAmbiguous: $keyAmbiguous, ')
           ..write('claimReused: $claimReused, ')
+          ..write('errorText: $errorText, ')
+          ..write('canRetry: $canRetry, ')
+          ..write('needsVerify: $needsVerify, ')
+          ..write('clearFlags: $clearFlags, ')
           ..write('photosKept: $photosKept, ')
           ..write('photoCount: $photoCount, ')
           ..write('createdAt: $createdAt, ')
@@ -6670,6 +6875,18 @@ class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
+  static const VerificationMeta _mediaIdMeta = const VerificationMeta(
+    'mediaId',
+  );
+  @override
+  late final GeneratedColumn<String> mediaId = GeneratedColumn<String>(
+    'media_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     uid,
@@ -6685,6 +6902,7 @@ class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
     contentType,
     thumbContentType,
     altText,
+    mediaId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6804,6 +7022,12 @@ class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
         altText.isAcceptableOrUnknown(data['alt_text']!, _altTextMeta),
       );
     }
+    if (data.containsKey('media_id')) {
+      context.handle(
+        _mediaIdMeta,
+        mediaId.isAcceptableOrUnknown(data['media_id']!, _mediaIdMeta),
+      );
+    }
     return context;
   }
 
@@ -6865,6 +7089,10 @@ class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
         DriftSqlType.string,
         data['${effectivePrefix}alt_text'],
       )!,
+      mediaId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}media_id'],
+      )!,
     );
   }
 
@@ -6889,6 +7117,9 @@ class UnsentPostPhotoRow extends DataClass
   final String contentType;
   final String thumbContentType;
   final String altText;
+
+  /// The media id of this photo's finished upload, '' while not uploaded.
+  final String mediaId;
   const UnsentPostPhotoRow({
     required this.uid,
     required this.postId,
@@ -6903,6 +7134,7 @@ class UnsentPostPhotoRow extends DataClass
     required this.contentType,
     required this.thumbContentType,
     required this.altText,
+    required this.mediaId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6920,6 +7152,7 @@ class UnsentPostPhotoRow extends DataClass
     map['content_type'] = Variable<String>(contentType);
     map['thumb_content_type'] = Variable<String>(thumbContentType);
     map['alt_text'] = Variable<String>(altText);
+    map['media_id'] = Variable<String>(mediaId);
     return map;
   }
 
@@ -6938,6 +7171,7 @@ class UnsentPostPhotoRow extends DataClass
       contentType: Value(contentType),
       thumbContentType: Value(thumbContentType),
       altText: Value(altText),
+      mediaId: Value(mediaId),
     );
   }
 
@@ -6960,6 +7194,7 @@ class UnsentPostPhotoRow extends DataClass
       contentType: serializer.fromJson<String>(json['contentType']),
       thumbContentType: serializer.fromJson<String>(json['thumbContentType']),
       altText: serializer.fromJson<String>(json['altText']),
+      mediaId: serializer.fromJson<String>(json['mediaId']),
     );
   }
   @override
@@ -6979,6 +7214,7 @@ class UnsentPostPhotoRow extends DataClass
       'contentType': serializer.toJson<String>(contentType),
       'thumbContentType': serializer.toJson<String>(thumbContentType),
       'altText': serializer.toJson<String>(altText),
+      'mediaId': serializer.toJson<String>(mediaId),
     };
   }
 
@@ -6996,6 +7232,7 @@ class UnsentPostPhotoRow extends DataClass
     String? contentType,
     String? thumbContentType,
     String? altText,
+    String? mediaId,
   }) => UnsentPostPhotoRow(
     uid: uid ?? this.uid,
     postId: postId ?? this.postId,
@@ -7010,6 +7247,7 @@ class UnsentPostPhotoRow extends DataClass
     contentType: contentType ?? this.contentType,
     thumbContentType: thumbContentType ?? this.thumbContentType,
     altText: altText ?? this.altText,
+    mediaId: mediaId ?? this.mediaId,
   );
   UnsentPostPhotoRow copyWithCompanion(UnsentPostPhotoEntriesCompanion data) {
     return UnsentPostPhotoRow(
@@ -7032,6 +7270,7 @@ class UnsentPostPhotoRow extends DataClass
           ? data.thumbContentType.value
           : this.thumbContentType,
       altText: data.altText.present ? data.altText.value : this.altText,
+      mediaId: data.mediaId.present ? data.mediaId.value : this.mediaId,
     );
   }
 
@@ -7050,7 +7289,8 @@ class UnsentPostPhotoRow extends DataClass
           ..write('blurhash: $blurhash, ')
           ..write('contentType: $contentType, ')
           ..write('thumbContentType: $thumbContentType, ')
-          ..write('altText: $altText')
+          ..write('altText: $altText, ')
+          ..write('mediaId: $mediaId')
           ..write(')'))
         .toString();
   }
@@ -7070,6 +7310,7 @@ class UnsentPostPhotoRow extends DataClass
     contentType,
     thumbContentType,
     altText,
+    mediaId,
   );
   @override
   bool operator ==(Object other) =>
@@ -7087,7 +7328,8 @@ class UnsentPostPhotoRow extends DataClass
           other.blurhash == this.blurhash &&
           other.contentType == this.contentType &&
           other.thumbContentType == this.thumbContentType &&
-          other.altText == this.altText);
+          other.altText == this.altText &&
+          other.mediaId == this.mediaId);
 }
 
 class UnsentPostPhotoEntriesCompanion
@@ -7105,6 +7347,7 @@ class UnsentPostPhotoEntriesCompanion
   final Value<String> contentType;
   final Value<String> thumbContentType;
   final Value<String> altText;
+  final Value<String> mediaId;
   final Value<int> rowid;
   const UnsentPostPhotoEntriesCompanion({
     this.uid = const Value.absent(),
@@ -7120,6 +7363,7 @@ class UnsentPostPhotoEntriesCompanion
     this.contentType = const Value.absent(),
     this.thumbContentType = const Value.absent(),
     this.altText = const Value.absent(),
+    this.mediaId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   UnsentPostPhotoEntriesCompanion.insert({
@@ -7136,6 +7380,7 @@ class UnsentPostPhotoEntriesCompanion
     required String contentType,
     this.thumbContentType = const Value.absent(),
     this.altText = const Value.absent(),
+    this.mediaId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : uid = Value(uid),
        postId = Value(postId),
@@ -7162,6 +7407,7 @@ class UnsentPostPhotoEntriesCompanion
     Expression<String>? contentType,
     Expression<String>? thumbContentType,
     Expression<String>? altText,
+    Expression<String>? mediaId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7178,6 +7424,7 @@ class UnsentPostPhotoEntriesCompanion
       if (contentType != null) 'content_type': contentType,
       if (thumbContentType != null) 'thumb_content_type': thumbContentType,
       if (altText != null) 'alt_text': altText,
+      if (mediaId != null) 'media_id': mediaId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7196,6 +7443,7 @@ class UnsentPostPhotoEntriesCompanion
     Value<String>? contentType,
     Value<String>? thumbContentType,
     Value<String>? altText,
+    Value<String>? mediaId,
     Value<int>? rowid,
   }) {
     return UnsentPostPhotoEntriesCompanion(
@@ -7212,6 +7460,7 @@ class UnsentPostPhotoEntriesCompanion
       contentType: contentType ?? this.contentType,
       thumbContentType: thumbContentType ?? this.thumbContentType,
       altText: altText ?? this.altText,
+      mediaId: mediaId ?? this.mediaId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7258,6 +7507,9 @@ class UnsentPostPhotoEntriesCompanion
     if (altText.present) {
       map['alt_text'] = Variable<String>(altText.value);
     }
+    if (mediaId.present) {
+      map['media_id'] = Variable<String>(mediaId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7280,6 +7532,7 @@ class UnsentPostPhotoEntriesCompanion
           ..write('contentType: $contentType, ')
           ..write('thumbContentType: $thumbContentType, ')
           ..write('altText: $altText, ')
+          ..write('mediaId: $mediaId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -10486,6 +10739,10 @@ typedef $$UnsentPostEntriesTableCreateCompanionBuilder =
       Value<bool> keyUsed,
       Value<bool> keyAmbiguous,
       Value<bool> claimReused,
+      Value<String?> errorText,
+      Value<bool> canRetry,
+      Value<bool> needsVerify,
+      Value<int> clearFlags,
       Value<bool> photosKept,
       Value<int> photoCount,
       required DateTime createdAt,
@@ -10510,6 +10767,10 @@ typedef $$UnsentPostEntriesTableUpdateCompanionBuilder =
       Value<bool> keyUsed,
       Value<bool> keyAmbiguous,
       Value<bool> claimReused,
+      Value<String?> errorText,
+      Value<bool> canRetry,
+      Value<bool> needsVerify,
+      Value<int> clearFlags,
       Value<bool> photosKept,
       Value<int> photoCount,
       Value<DateTime> createdAt,
@@ -10607,6 +10868,26 @@ class $$UnsentPostEntriesTableFilterComposer
 
   ColumnFilters<bool> get claimReused => $composableBuilder(
     column: $table.claimReused,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorText => $composableBuilder(
+    column: $table.errorText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get canRetry => $composableBuilder(
+    column: $table.canRetry,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get needsVerify => $composableBuilder(
+    column: $table.needsVerify,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get clearFlags => $composableBuilder(
+    column: $table.clearFlags,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10720,6 +11001,26 @@ class $$UnsentPostEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get errorText => $composableBuilder(
+    column: $table.errorText,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get canRetry => $composableBuilder(
+    column: $table.canRetry,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get needsVerify => $composableBuilder(
+    column: $table.needsVerify,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get clearFlags => $composableBuilder(
+    column: $table.clearFlags,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get photosKept => $composableBuilder(
     column: $table.photosKept,
     builder: (column) => ColumnOrderings(column),
@@ -10812,6 +11113,22 @@ class $$UnsentPostEntriesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get errorText =>
+      $composableBuilder(column: $table.errorText, builder: (column) => column);
+
+  GeneratedColumn<bool> get canRetry =>
+      $composableBuilder(column: $table.canRetry, builder: (column) => column);
+
+  GeneratedColumn<bool> get needsVerify => $composableBuilder(
+    column: $table.needsVerify,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get clearFlags => $composableBuilder(
+    column: $table.clearFlags,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get photosKept => $composableBuilder(
     column: $table.photosKept,
     builder: (column) => column,
@@ -10883,6 +11200,10 @@ class $$UnsentPostEntriesTableTableManager
                 Value<bool> keyUsed = const Value.absent(),
                 Value<bool> keyAmbiguous = const Value.absent(),
                 Value<bool> claimReused = const Value.absent(),
+                Value<String?> errorText = const Value.absent(),
+                Value<bool> canRetry = const Value.absent(),
+                Value<bool> needsVerify = const Value.absent(),
+                Value<int> clearFlags = const Value.absent(),
                 Value<bool> photosKept = const Value.absent(),
                 Value<int> photoCount = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -10905,6 +11226,10 @@ class $$UnsentPostEntriesTableTableManager
                 keyUsed: keyUsed,
                 keyAmbiguous: keyAmbiguous,
                 claimReused: claimReused,
+                errorText: errorText,
+                canRetry: canRetry,
+                needsVerify: needsVerify,
+                clearFlags: clearFlags,
                 photosKept: photosKept,
                 photoCount: photoCount,
                 createdAt: createdAt,
@@ -10929,6 +11254,10 @@ class $$UnsentPostEntriesTableTableManager
                 Value<bool> keyUsed = const Value.absent(),
                 Value<bool> keyAmbiguous = const Value.absent(),
                 Value<bool> claimReused = const Value.absent(),
+                Value<String?> errorText = const Value.absent(),
+                Value<bool> canRetry = const Value.absent(),
+                Value<bool> needsVerify = const Value.absent(),
+                Value<int> clearFlags = const Value.absent(),
                 Value<bool> photosKept = const Value.absent(),
                 Value<int> photoCount = const Value.absent(),
                 required DateTime createdAt,
@@ -10951,6 +11280,10 @@ class $$UnsentPostEntriesTableTableManager
                 keyUsed: keyUsed,
                 keyAmbiguous: keyAmbiguous,
                 claimReused: claimReused,
+                errorText: errorText,
+                canRetry: canRetry,
+                needsVerify: needsVerify,
+                clearFlags: clearFlags,
                 photosKept: photosKept,
                 photoCount: photoCount,
                 createdAt: createdAt,
@@ -11005,6 +11338,7 @@ typedef $$UnsentPostPhotoEntriesTableCreateCompanionBuilder =
       required String contentType,
       Value<String> thumbContentType,
       Value<String> altText,
+      Value<String> mediaId,
       Value<int> rowid,
     });
 typedef $$UnsentPostPhotoEntriesTableUpdateCompanionBuilder =
@@ -11022,6 +11356,7 @@ typedef $$UnsentPostPhotoEntriesTableUpdateCompanionBuilder =
       Value<String> contentType,
       Value<String> thumbContentType,
       Value<String> altText,
+      Value<String> mediaId,
       Value<int> rowid,
     });
 
@@ -11096,6 +11431,11 @@ class $$UnsentPostPhotoEntriesTableFilterComposer
 
   ColumnFilters<String> get altText => $composableBuilder(
     column: $table.altText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mediaId => $composableBuilder(
+    column: $table.mediaId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -11173,6 +11513,11 @@ class $$UnsentPostPhotoEntriesTableOrderingComposer
     column: $table.altText,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get mediaId => $composableBuilder(
+    column: $table.mediaId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$UnsentPostPhotoEntriesTableAnnotationComposer
@@ -11228,6 +11573,9 @@ class $$UnsentPostPhotoEntriesTableAnnotationComposer
 
   GeneratedColumn<String> get altText =>
       $composableBuilder(column: $table.altText, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaId =>
+      $composableBuilder(column: $table.mediaId, builder: (column) => column);
 }
 
 class $$UnsentPostPhotoEntriesTableTableManager
@@ -11289,6 +11637,7 @@ class $$UnsentPostPhotoEntriesTableTableManager
                 Value<String> contentType = const Value.absent(),
                 Value<String> thumbContentType = const Value.absent(),
                 Value<String> altText = const Value.absent(),
+                Value<String> mediaId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => UnsentPostPhotoEntriesCompanion(
                 uid: uid,
@@ -11304,6 +11653,7 @@ class $$UnsentPostPhotoEntriesTableTableManager
                 contentType: contentType,
                 thumbContentType: thumbContentType,
                 altText: altText,
+                mediaId: mediaId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -11321,6 +11671,7 @@ class $$UnsentPostPhotoEntriesTableTableManager
                 required String contentType,
                 Value<String> thumbContentType = const Value.absent(),
                 Value<String> altText = const Value.absent(),
+                Value<String> mediaId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => UnsentPostPhotoEntriesCompanion.insert(
                 uid: uid,
@@ -11336,6 +11687,7 @@ class $$UnsentPostPhotoEntriesTableTableManager
                 contentType: contentType,
                 thumbContentType: thumbContentType,
                 altText: altText,
+                mediaId: mediaId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

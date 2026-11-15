@@ -385,6 +385,15 @@ class UnsentPostEntries extends Table {
   BoolColumn get keyAmbiguous => boolean().withDefault(const Constant(false))();
   BoolColumn get claimReused => boolean().withDefault(const Constant(false))();
 
+  /// How the send last ended, so a restored row says the same: the error copy
+  /// (null while waiting), whether Retry is offered, whether the server wants
+  /// a verified email, and what the server refused (a bit mask: 1 community,
+  /// 2 plan, 4 poll, 8 audience, 16 photos) that Edit takes out.
+  TextColumn get errorText => text().nullable()();
+  BoolColumn get canRetry => boolean().withDefault(const Constant(true))();
+  BoolColumn get needsVerify => boolean().withDefault(const Constant(false))();
+  IntColumn get clearFlags => integer().withDefault(const Constant(0))();
+
   /// False when the photos were not kept (over the size cap, or the web):
   /// the restored post then has its text only.
   BoolColumn get photosKept => boolean().withDefault(const Constant(true))();
@@ -413,6 +422,9 @@ class UnsentPostPhotoEntries extends Table {
   TextColumn get contentType => text()();
   TextColumn get thumbContentType => text().withDefault(const Constant(''))();
   TextColumn get altText => text().withDefault(const Constant(''))();
+
+  /// The media id of this photo's finished upload, '' while not uploaded.
+  TextColumn get mediaId => text().withDefault(const Constant(''))();
 
   @override
   Set<Column> get primaryKey => {uid, postId, position};

@@ -20,11 +20,11 @@ class UnsentPostsCubit extends Cubit<int> {
     required DraftsRepository repository,
     required String uid,
     UnsentPostsStore? photos,
-    void Function()? onDeleted,
+    Future<void> Function(String uid)? deleteStored,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _repository = repository,
        _photos = photos,
-       _onDeleted = onDeleted,
+       _deleteStored = deleteStored,
        _uid = uid,
        _onUnexpectedError = onUnexpectedError,
        super(0) {
@@ -46,7 +46,7 @@ class UnsentPostsCubit extends Cubit<int> {
     final store = photos;
     if (store != null) {
       _subs.add(
-        store.watchCount(uid).listen((count) {
+        store.watchCountWithoutDraft(uid).listen((count) {
           _stored = count;
           _publish();
         }, onError: onError),
@@ -55,14 +55,14 @@ class UnsentPostsCubit extends Cubit<int> {
   }
 
   final UnsentPostsStore? _photos;
-  final void Function()? _onDeleted;
+  final Future<void> Function(String uid)? _deleteStored;
   int _drafts = 0;
   int _stored = 0;
 
   void _publish() {
-    // A post kept for a restart may also have its text in a draft: the
-    // larger of the two is what "delete" removes.
-    final total = _drafts > _stored ? _drafts : _stored;
+    // Drafts, plus the posts kept for a restart that have no draft row (a
+    // post with one is counted among the drafts).
+    final total = _drafts + _stored;
     if (!isClosed) emit(total);
   }
 
@@ -77,9 +77,14 @@ class UnsentPostsCubit extends Cubit<int> {
   Future<bool> deleteAll() async {
     try {
       await _repository.deleteAll(_uid);
-      await _photos?.deleteAll(_uid);
-      // The rows still on Home (waiting or not sent) go with them.
-      _onDeleted?.call();
+      // Through the sender when there is one (it also clears the rows on
+      // Home and orders the store writes); else straight from the store.
+      final deleteStored = _deleteStored;
+      if (deleteStored != null) {
+        await deleteStored(_uid);
+      } else {
+        await _photos?.deleteAll(_uid);
+      }
       return true;
     } catch (_, stack) {
       _onUnexpectedError?.call(

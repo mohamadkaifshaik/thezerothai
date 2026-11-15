@@ -116,7 +116,11 @@ void main() {
         expect(r.ambiguous, isTrue);
         expect(r.author.handle, 'hu1');
         expect(r.photos.map((p) => p.altText), ['alt 0', 'alt 1']);
-        expect(r.photos.first.image.fullBytes, hasLength(40));
+        expect(r.photos.first.fullLoaded, isFalse);
+        expect(
+          (await store.loadFull('u1', 'a')).first.image.fullBytes,
+          hasLength(40),
+        );
         expect(r.photos.first.image.thumbBytes, [1, 2, 3]);
         expect(r.photos.first.image.fullMd5, 'full-0');
       },
@@ -256,21 +260,105 @@ void main() {
       expect((await store.load('u1')).single.photosKept, isTrue);
     });
 
-    test('updateKey changes the key and keeps the photos', () async {
-      await store.save(_post('u1', 'a'), epoch: epoch());
-      await store.updateKey(
-        'u1',
-        'a',
-        epoch: epoch(),
-        key: 'other',
-        keyStartedAt: DateTime.now().subtract(const Duration(hours: 1)),
-        keyUsed: false,
-        ambiguous: false,
+    test(
+      'updateSend changes what the send knows and keeps the photos',
+      () async {
+        await store.save(_post('u1', 'a'), epoch: epoch());
+        await store.updateSend(
+          'u1',
+          'a',
+          epoch: epoch(),
+          key: 'other',
+          keyStartedAt: DateTime.now().subtract(const Duration(hours: 1)),
+          keyUsed: false,
+          ambiguous: false,
+          errorText: 'Nope.',
+          canRetry: false,
+          needsVerify: true,
+          clearFlags: kClearPoll | kClearCommunity,
+          mediaIds: ['m1'],
+        );
+        final r = (await store.load('u1')).single;
+        expect(r.key, 'other');
+        expect(r.keyUsed, isFalse);
+        expect(r.errorText, 'Nope.');
+        expect(r.canRetry, isFalse);
+        expect(r.needsVerify, isTrue);
+        expect(r.clearFlags, kClearPoll | kClearCommunity);
+        expect(r.photos, hasLength(1));
+        expect(r.photos.single.mediaId, 'm1');
+        expect((await store.loadFull('u1', 'a')).single.mediaId, 'm1');
+      },
+    );
+
+    test(
+      'load reads thumbnails and metadata only; loadFull brings the bytes',
+      () async {
+        await store.save(_post('u1', 'a', photos: 2), epoch: epoch());
+        final light = (await store.load('u1')).single.photos;
+        expect(light.map((p) => p.fullLoaded), [false, false]);
+        expect(light.first.image.thumbBytes, [1, 2, 3]);
+        expect(light.first.image.fullMd5, 'full-0');
+        expect(light.first.image.width, 800);
+        final full = await store.loadFull('u1', 'a');
+        expect(full.map((p) => p.fullLoaded), [true, true]);
+        expect(full.first.image.fullBytes, hasLength(40));
+        // Another account's id reads nothing.
+        expect(await store.loadFull('u2', 'a'), isEmpty);
+      },
+    );
+
+    test('the photo count stays when the photos were not kept', () async {
+      final web = make(keepsPhotoBytes: false);
+      await web.save(_post('u1', 'a', photos: 3), epoch: epoch());
+      final r = (await web.load('u1')).single;
+      expect(r.photosKept, isFalse);
+      expect(r.photos, isEmpty);
+      expect(r.totalPhotos, 3);
+    });
+
+    test(
+      'a key started long ago sweeps the row, whatever the post age',
+      () async {
+        final old = _post(
+          'u1',
+          'old-key',
+          at: now.subtract(const Duration(hours: 1)),
+        );
+        await store.save(
+          UnsentPostRecord(
+            uid: 'u1',
+            postId: 'old-key',
+            text: old.text,
+            author: old.author,
+            createdAt: old.createdAt,
+            key: 'k',
+            keyStartedAt: now.subtract(kPostSendKeyWindow),
+            keyUsed: true,
+          ),
+          epoch: epoch(),
+        );
+        await store.save(
+          _post('u1', 'fresh', at: now.subtract(const Duration(hours: 1))),
+          epoch: epoch(),
+        );
+        expect((await store.load('u1')).map((r) => r.postId), ['fresh']);
+      },
+    );
+
+    test('only posts without a draft row are counted on their own', () async {
+      UnsentPostRecord withDraft(String id, String? draft) => UnsentPostRecord(
+        uid: 'u1',
+        postId: id,
+        text: 't',
+        author: common.AuthorSnapshot(userId: 'u1'),
+        createdAt: now,
+        draftId: draft,
       );
-      final r = (await store.load('u1')).single;
-      expect(r.key, 'other');
-      expect(r.keyUsed, isFalse);
-      expect(r.photos, hasLength(1));
+      await store.save(withDraft('a', 'd1'), epoch: epoch());
+      await store.save(withDraft('b', null), epoch: epoch());
+      await store.save(withDraft('c', null), epoch: epoch());
+      expect(await store.watchCountWithoutDraft('u1').first, 2);
     });
   });
 }

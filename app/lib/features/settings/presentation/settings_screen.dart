@@ -663,7 +663,7 @@ class _SettingsRowsScope extends StatelessWidget {
         repository: drafts,
         uid: uid,
         photos: context.read<UnsentPostsStore?>(),
-        onDeleted: context.read<PostSender?>()?.discardUnsent,
+        deleteStored: context.read<PostSender?>()?.deleteUnsentPosts,
         onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
       ),
       child: list,

@@ -5,6 +5,11 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../features/posts/presentation/bloc/pending_posts_cubit.dart';
 
+/// What a row says when the photos of a waiting or failed post could not be
+/// saved on this device.
+const kPhotosNotSavedWarning = 'Photos are lost if you close the app.';
+const kPhotosNotSavedWarningSpoken = 'Photos are lost if you close the app';
+
 /// How many characters of the text a label or tooltip quotes.
 const kLabelPreviewLength = 40;
 
@@ -46,14 +51,13 @@ class PendingPostStatusRow extends StatefulWidget {
       case PendingPostStatus.waiting:
         final base = p.waitingForConnection
             ? 'Waiting for connection'
-            : "Couldn't reach the server. Trying again soon...";
-        return p.photosNotSaved
-            ? '$base Photos are lost if you close the app.'
-            : base;
+            : "Couldn't reach the server. Trying again soon";
+        return p.photosNotSaved ? '$base. $kPhotosNotSavedWarning' : base;
       case PendingPostStatus.posted:
         return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
       case PendingPostStatus.failed:
-        return p.error ?? "Couldn't post";
+        final error = p.error ?? "Couldn't post";
+        return p.photosNotSaved ? '$error $kPhotosNotSavedWarning' : error;
       case PendingPostStatus.sending:
         if (p.uploading && p.photosTotal > 0) {
           final n = (p.photosDone + 1).clamp(1, p.photosTotal);
@@ -73,22 +77,32 @@ class PendingPostStatusRow extends StatefulWidget {
         return 'Sending in ${p.holdSeconds} seconds, Undo available';
       // Said when the post starts waiting; it then sends by itself.
       case PendingPostStatus.waiting:
-        return p.waitingForConnection
-            ? 'Waiting for connection. Your post will send when you are back online'
-            : "Couldn't reach the server. Your post will be tried again";
+        return _waitingAnnouncement(p);
       case PendingPostStatus.posted:
         return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
       case PendingPostStatus.failed:
         return "Couldn't post. ${p.error ?? ''}".trim();
       case PendingPostStatus.sending:
-        return 'Posting';
+        // A post that has waited keeps its waiting announcement while it is
+        // tried again, so the live region says nothing new until it is
+        // posted or has failed.
+        return p.wasQueued ? _waitingAnnouncement(p) : 'Posting';
     }
+  }
+
+  static String _waitingAnnouncement(PendingPost p) {
+    final base = p.waitingForConnection
+        ? 'Waiting for connection. Your post will send when you are back '
+              'online'
+        : "Couldn't reach the server. Your post will be tried again";
+    // Said again when the warning appears.
+    return p.photosNotSaved ? '$base. $kPhotosNotSavedWarningSpoken' : base;
   }
 
   static String _preview(PendingPost p) {
     final collapsed = p.text.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (collapsed.isNotEmpty) return collapsed;
-    return p.thumbnails.isEmpty ? '' : 'Photo post';
+    return p.thumbnails.isEmpty && p.photosTotal == 0 ? '' : 'Photo post';
   }
 
   @override
@@ -299,10 +313,12 @@ class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
                     action('Verify email', 'Verify email for $about', onVerify),
                   if (onEdit != null)
                     action(
-                      post.keepsPhotos || post.thumbnails.isEmpty
+                      post.keepsPhotos ||
+                              (post.thumbnails.isEmpty && post.photosTotal == 0)
                           ? 'Edit'
                           : 'Edit text only',
-                      post.keepsPhotos || post.thumbnails.isEmpty
+                      post.keepsPhotos ||
+                              (post.thumbnails.isEmpty && post.photosTotal == 0)
                           ? 'Edit $about'
                           : 'Edit text of $about, photos will be removed',
                       onEdit,

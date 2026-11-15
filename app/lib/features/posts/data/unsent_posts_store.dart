@@ -12,20 +12,40 @@ import '../domain/composer_draft.dart';
 import '../domain/reply_audience.dart';
 import 'drafts_repository.dart' show kPostSendKeyWindow;
 
-/// At most this many posts keep their photo bytes on the device (4 posts of
-/// 4 photos); a further post keeps its text only.
+/// At most this many posts keep their photo bytes on the device (and, in the
+/// sender, in memory): 4 posts of 4 photos. A further post keeps its text
+/// only.
 const kUnsentPostsWithPhotos = 4;
 
 /// The most processed photo bytes (full + thumbnail) kept for one account.
 /// A post that would pass it keeps its text only, and its row says so.
 const kUnsentPhotoBytesCap = 24 * 1024 * 1024;
 
-/// One photo of an unsent post: the processed image and its alt text.
+/// What the server refused, as stored (`clearFlags`): Edit takes it out.
+const kClearCommunity = 1;
+const kClearPlan = 2;
+const kClearPoll = 4;
+const kClearAudience = 8;
+const kClearPhotos = 16;
+
+/// One photo of an unsent post: the processed image, its alt text and the
+/// media id of its finished upload ('' when it was not uploaded).
+///
+/// From [UnsentPostsStore.load] the image has its thumbnail and metadata but
+/// EMPTY full bytes ([fullLoaded] false); [UnsentPostsStore.loadFull] brings
+/// them when the post is retried or edited.
 @immutable
 class StoredPhoto {
-  const StoredPhoto({required this.image, this.altText = ''});
+  const StoredPhoto({
+    required this.image,
+    this.altText = '',
+    this.mediaId = '',
+  });
   final ProcessedImage image;
   final String altText;
+  final String mediaId;
+
+  bool get fullLoaded => image.fullBytes.isNotEmpty;
 
   int get byteCount => image.fullBytes.length + image.thumbBytes.length;
 }
@@ -53,7 +73,12 @@ class UnsentPostRecord {
     this.ambiguous = false,
     this.claimReused = false,
     this.photosKept = true,
+    this.photoCount,
     this.photos = const [],
+    this.errorText,
+    this.canRetry = true,
+    this.needsVerify = false,
+    this.clearFlags = 0,
   });
 
   final String uid;
@@ -79,7 +104,19 @@ class UnsentPostRecord {
 
   /// False when the photos were not kept (cap, web): text only on restore.
   final bool photosKept;
+
+  /// How many photos the post has, also when they were not kept (null: the
+  /// length of [photos]).
+  final int? photoCount;
   final List<StoredPhoto> photos;
+
+  /// How the send last ended (null: it was waiting).
+  final String? errorText;
+  final bool canRetry;
+  final bool needsVerify;
+  final int clearFlags;
+
+  int get totalPhotos => photoCount ?? photos.length;
 }
 
 /// What [UnsentPostsStore.save] did with the photos.
@@ -161,10 +198,20 @@ class UnsentPostsStore {
               keyUsed: Value(record.keyUsed),
               keyAmbiguous: Value(record.ambiguous),
               claimReused: Value(record.claimReused),
+              errorText: Value(record.errorText),
+              canRetry: Value(record.canRetry),
+              needsVerify: Value(record.needsVerify),
+              clearFlags: Value(record.clearFlags),
               // Not kept: the cap or the platform refused them, or the caller
               // already lost them.
               photosKept: Value(kept),
-              photoCount: Value(keep ? photos.length : 0),
+              // The count stays when the photos were not kept: the restored
+              // row still says it was a photo post.
+              photoCount: Value(
+                record.totalPhotos > photos.length
+                    ? record.totalPhotos
+                    : photos.length,
+              ),
               createdAt: record.createdAt,
             ),
           );
@@ -189,6 +236,7 @@ class UnsentPostsStore {
                   contentType: img.contentType,
                   thumbContentType: Value(img.thumbContentType),
                   altText: Value(p.altText),
+                  mediaId: Value(p.mediaId),
                 ),
               );
         }
@@ -197,9 +245,11 @@ class UnsentPostsStore {
     });
   }
 
-  /// Updates what the send knows about its key (and nothing else), keeping the
-  /// stored photos. No-op when the post is not stored.
-  Future<void> updateKey(
+  /// Updates what the send knows (its key, how it ended, the media ids of its
+  /// finished uploads) and keeps everything else, the photo bytes included.
+  /// No-op when the post is not stored. [mediaIds] is parallel to the stored
+  /// photos; null leaves them as they are.
+  Future<void> updateSend(
     String uid,
     String postId, {
     required int epoch,
@@ -207,6 +257,11 @@ class UnsentPostsStore {
     DateTime? keyStartedAt,
     required bool keyUsed,
     required bool ambiguous,
+    String? errorText,
+    bool canRetry = true,
+    bool needsVerify = false,
+    int clearFlags = 0,
+    List<String>? mediaIds,
   }) {
     return _db.transaction(() async {
       if (!_db.sessionEpoch.allows(epoch)) return;
@@ -218,13 +273,31 @@ class UnsentPostsStore {
           keyStartedAt: Value(keyStartedAt),
           keyUsed: Value(keyUsed),
           keyAmbiguous: Value(ambiguous),
+          errorText: Value(errorText),
+          canRetry: Value(canRetry),
+          needsVerify: Value(needsVerify),
+          clearFlags: Value(clearFlags),
         ),
       );
+      if (mediaIds != null) {
+        for (var i = 0; i < mediaIds.length; i++) {
+          await (_db.update(_db.unsentPostPhotoEntries)..where(
+                (t) =>
+                    t.uid.equals(uid) &
+                    t.postId.equals(postId) &
+                    t.position.equals(i),
+              ))
+              .write(
+                UnsentPostPhotoEntriesCompanion(mediaId: Value(mediaIds[i])),
+              );
+        }
+      }
     });
   }
 
-  /// [uid]'s stored posts, oldest first. Rows older than the idempotency
-  /// window are swept first, so a key past its window never comes back.
+  /// [uid]'s stored posts, oldest first, with each photo's thumbnail and
+  /// metadata but NOT its full bytes (see [loadFull]). Rows whose key or
+  /// creation is older than the idempotency window are swept first.
   Future<List<UnsentPostRecord>> load(String uid) async {
     await sweepExpired();
     final rows =
@@ -237,26 +310,78 @@ class UnsentPostsStore {
             .get();
     final out = <UnsentPostRecord>[];
     for (final row in rows) {
-      final photos =
-          await (_db.select(_db.unsentPostPhotoEntries)
-                ..where((t) => t.uid.equals(uid) & t.postId.equals(row.postId))
-                ..orderBy([(t) => OrderingTerm.asc(t.position)]))
-              .get();
-      out.add(_fromRow(row, photos));
+      out.add(
+        _fromRow(row, await _readPhotos(uid, row.postId, withFull: false)),
+      );
     }
     return out;
   }
 
-  /// Deletes every row older than the idempotency window, of any account.
+  /// The photos of one stored post with their full bytes (Retry, Edit).
+  Future<List<StoredPhoto>> loadFull(String uid, String postId) =>
+      _readPhotos(uid, postId, withFull: true);
+
+  Future<List<StoredPhoto>> _readPhotos(
+    String uid,
+    String postId, {
+    required bool withFull,
+  }) async {
+    final t = _db.unsentPostPhotoEntries;
+    final query = _db.selectOnly(t)
+      ..addColumns([
+        t.position,
+        t.thumbBytes,
+        t.width,
+        t.height,
+        t.fullMd5,
+        t.thumbMd5,
+        t.blurhash,
+        t.contentType,
+        t.thumbContentType,
+        t.altText,
+        t.mediaId,
+        if (withFull) t.fullBytes,
+      ])
+      ..where(t.uid.equals(uid) & t.postId.equals(postId))
+      ..orderBy([OrderingTerm.asc(t.position)]);
+    final rows = await query.get();
+    return [
+      for (final r in rows)
+        StoredPhoto(
+          image: ProcessedImage(
+            fullBytes: withFull ? r.read(t.fullBytes)! : Uint8List(0),
+            thumbBytes: r.read(t.thumbBytes)!,
+            width: r.read(t.width)!,
+            height: r.read(t.height)!,
+            fullMd5: r.read(t.fullMd5)!,
+            thumbMd5: r.read(t.thumbMd5)!,
+            blurhash: r.read(t.blurhash)!,
+            contentType: r.read(t.contentType)!,
+            thumbContentType: r.read(t.thumbContentType)!,
+          ),
+          altText: r.read(t.altText)!,
+          mediaId: r.read(t.mediaId)!,
+        ),
+    ];
+  }
+
+  /// Deletes every row whose key or creation is older than the idempotency
+  /// window (the earlier of the two decides: a key can be older than the post
+  /// that carries it), of any account.
   Future<int> sweepExpired() async {
     final cutoff = _now().subtract(kPostSendKeyWindow);
-    final old = await (_db.select(
-      _db.unsentPostEntries,
-    )..where((t) => t.createdAt.isSmallerOrEqualValue(cutoff))).get();
-    for (final row in old) {
+    final rows = await _db.select(_db.unsentPostEntries).get();
+    var swept = 0;
+    for (final row in rows) {
+      final started = row.keyStartedAt;
+      final earliest = started != null && started.isBefore(row.createdAt)
+          ? started
+          : row.createdAt;
+      if (earliest.isAfter(cutoff)) continue;
       await delete(row.uid, row.postId);
+      swept++;
     }
-    return old.length;
+    return swept;
   }
 
   /// The launch purge: deletes every row whose uid is not [uid] (another
@@ -295,13 +420,15 @@ class UnsentPostsStore {
     await _db.delete(_db.unsentPostEntries).go();
   }
 
-  /// How many posts [uid] has stored, again on every change.
-  Stream<int> watchCount(String uid) {
+  /// How many of [uid]'s stored posts have no unsent-post (draft) row, again
+  /// on every change: with the drafts' own count it is the real number of
+  /// unsent posts on the device (a post with a draft row is counted there).
+  Stream<int> watchCountWithoutDraft(String uid) {
     final table = _db.unsentPostEntries;
     final total = table.postId.count();
     return (_db.selectOnly(table)
           ..addColumns([total])
-          ..where(table.uid.equals(uid)))
+          ..where(table.uid.equals(uid) & table.draftId.isNull()))
         .map((row) => row.read(total) ?? 0)
         .watchSingle();
   }
@@ -338,7 +465,7 @@ class UnsentPostsStore {
 
   static UnsentPostRecord _fromRow(
     UnsentPostRow row,
-    List<UnsentPostPhotoRow> photos,
+    List<StoredPhoto> photos,
   ) {
     Object? poll;
     if (row.pollJson.isNotEmpty) {
@@ -373,23 +500,12 @@ class UnsentPostsStore {
       ambiguous: row.keyAmbiguous,
       claimReused: row.claimReused,
       photosKept: row.photosKept,
-      photos: [
-        for (final p in photos)
-          StoredPhoto(
-            image: ProcessedImage(
-              fullBytes: p.fullBytes,
-              thumbBytes: p.thumbBytes,
-              width: p.width,
-              height: p.height,
-              fullMd5: p.fullMd5,
-              thumbMd5: p.thumbMd5,
-              blurhash: p.blurhash,
-              contentType: p.contentType,
-              thumbContentType: p.thumbContentType,
-            ),
-            altText: p.altText,
-          ),
-      ],
+      photoCount: row.photoCount,
+      photos: photos,
+      errorText: row.errorText,
+      canRetry: row.canRetry,
+      needsVerify: row.needsVerify,
+      clearFlags: row.clearFlags,
     );
   }
 }

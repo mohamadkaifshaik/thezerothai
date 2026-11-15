@@ -8,6 +8,8 @@ import 'package:dzeroth/features/media/data/media_uploader.dart';
 import 'package:dzeroth/features/media/presentation/bloc/attachments_cubit.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/data/unsent_posts_store.dart';
+import 'package:dzeroth/features/posts/domain/composer_attachment_rules.dart';
+import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/post_sender.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -52,6 +54,8 @@ void main() {
   late List<String> sent;
   late List<String> keys;
   Object? Function(int call)? failWith;
+  late List<List<String>> mediaSeen;
+  late bool hang;
 
   void stubCreate() {
     when(
@@ -67,6 +71,9 @@ void main() {
       ),
     ).thenAnswer((invocation) async {
       keys.add(invocation.namedArguments[#idempotencyKey] as String);
+      mediaSeen.add(invocation.namedArguments[#mediaIds] as List<String>);
+      // CreatePost that never answers (the app is killed meanwhile).
+      if (hang) await Completer<void>().future;
       final error = failWith?.call(sent.length + keys.length);
       if (error != null) throw error;
       sent.add(invocation.namedArguments[#text] as String);
@@ -82,6 +89,8 @@ void main() {
     sent = [];
     keys = [];
     failWith = null;
+    mediaSeen = [];
+    hang = false;
     when(() => posts.subFeatureEnabled(any())).thenReturn(true);
     stubCreate();
   });
@@ -271,12 +280,49 @@ void main() {
       );
       expect(
         PendingPostStatusRow.statusText(p),
-        "Couldn't reach the server. Trying again soon... "
+        "Couldn't reach the server. Trying again soon. "
         'Photos are lost if you close the app.',
       );
       expect(
         PendingPostStatusRow.announcement(p),
-        "Couldn't reach the server. Your post will be tried again",
+        "Couldn't reach the server. Your post will be tried again. "
+        'Photos are lost if you close the app',
+      );
+      // The warning appearing is announced again.
+      expect(
+        PendingPostStatusRow.announcement(p.copyWith(photosNotSaved: false)),
+        isNot(PendingPostStatusRow.announcement(p)),
+      );
+      // Failed rows carry the warning too.
+      expect(
+        PendingPostStatusRow.statusText(
+          p.copyWith(status: PendingPostStatus.failed, error: 'Nope.'),
+        ),
+        'Nope. Photos are lost if you close the app.',
+      );
+    });
+
+    test('a post that waited keeps one announcement while it is tried '
+        'again', () {
+      final waiting = PendingPost(
+        localId: 'a',
+        text: 't',
+        author: common.AuthorSnapshot(userId: 'u1'),
+        createdAt: DateTime.now(),
+        status: PendingPostStatus.waiting,
+        wasQueued: true,
+      );
+      expect(
+        PendingPostStatusRow.announcement(
+          waiting.copyWith(status: PendingPostStatus.sending),
+        ),
+        PendingPostStatusRow.announcement(waiting),
+      );
+      expect(
+        PendingPostStatusRow.announcement(
+          waiting.copyWith(wasQueued: false, status: PendingPostStatus.sending),
+        ),
+        'Posting',
       );
     });
   });
@@ -465,8 +511,9 @@ void main() {
     test(
       'a used key past its window is not sent again after a restart',
       () async {
-        // The store sweeps rows older than the window; a row inside it whose
-        // key started long ago is refused at Retry (only Edit remains).
+        // The store sweeps a row whose key is older than the window; a row
+        // inside it is refused at Retry once the window has passed (only Edit
+        // remains), before anything is loaded or uploaded.
         await store.save(
           UnsentPostRecord(
             uid: 'u1',
@@ -475,14 +522,35 @@ void main() {
             author: common.AuthorSnapshot(userId: 'u1'),
             createdAt: DateTime.now().subtract(const Duration(hours: 1)),
             key: 'k-old',
-            keyStartedAt: DateTime.now().subtract(const Duration(hours: 24)),
+            keyStartedAt: DateTime.now().subtract(const Duration(hours: 22)),
             keyUsed: true,
+            ambiguous: true,
+            photos: [StoredPhoto(image: fakeProcessed('o'))],
           ),
           epoch: db.sessionEpoch.value,
         );
-        await sender.restore('u1');
-        await sender.retry(pending.state.single.localId);
-        await sender.idle;
+        // Three hours later the key is past its 23 hour window.
+        final later = PostSender(
+          pending: pending,
+          repository: posts,
+          sessionEpoch: db.sessionEpoch,
+          network: net,
+          unsent: store,
+          newAttachments: newCubit,
+          clock: () => DateTime.now().add(const Duration(hours: 3)),
+        );
+        addTearDown(later.dispose);
+        await later.restore('u1');
+        await later.retry(pending.state.single.localId);
+        await later.idle;
+        // Nothing was loaded or uploaded for a post that cannot be sent.
+        verifyNever(
+          () => media.createUpload(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            purpose: any(named: 'purpose'),
+            images: any(named: 'images'),
+          ),
+        );
         expect(keys, isEmpty);
         expect(pending.state.single.status, PendingPostStatus.failed);
         expect(pending.state.single.canRetry, isFalse);
@@ -531,7 +599,7 @@ void main() {
       net.setOnline(false);
       await sender.start(_job(attachments: await photos(1)));
       await sender.idle;
-      sender.discardUnsent();
+      await sender.deleteUnsentPosts('u1');
       await sender.idle;
       expect(pending.state, isEmpty);
       expect(await store.load('u1'), isEmpty);
@@ -610,7 +678,7 @@ void main() {
       expect(two.photosNotSaved, isTrue);
       expect(
         PendingPostStatusRow.statusText(two),
-        'Waiting for connection Photos are lost if you close the app.',
+        'Waiting for connection. Photos are lost if you close the app.',
       );
       final stored = await tiny.load('u1');
       expect(stored.firstWhere((r) => r.postId == two.localId).photos, isEmpty);
@@ -634,7 +702,260 @@ void main() {
       final back = pending2.state.firstWhere((p) => p.text == 'two');
       expect(back.canRetry, isFalse);
       expect(back.thumbnails, isEmpty);
+      expect(back.error, 'Not sent. Its photos could not be kept.');
+      expect(back.photosTotal, 1);
+      expect(back.keepsPhotos, isFalse);
+      // The row still reads as a photo post, and Edit is text only.
+      expect(PendingPostStatusRow.statusText(back), back.error);
     });
+
+    Future<({PendingPostsCubit pending, PostSender sender})> relaunch() async {
+      final pending2 = PendingPostsCubit();
+      addTearDown(pending2.close);
+      final net2 = FakeNetworkTypeService();
+      addTearDown(net2.dispose);
+      final sender2 = make(pending2, net2);
+      addTearDown(sender2.dispose);
+      await sender2.restore('u1');
+      return (pending: pending2, sender: sender2);
+    }
+
+    test('write-ahead: the key is on disk before CreatePost, so a kill '
+        'during the call never loses it', () async {
+      net.setOnline(false);
+      await sender.start(_job(text: 'stuck'));
+      await sender.idle;
+      final waiting = (await store.load('u1')).single;
+      // Pinned at the first save, never null.
+      expect(waiting.key, isNotNull);
+      expect(waiting.keyUsed, isFalse);
+
+      hang = true;
+      net.setOnline(true);
+      for (var i = 0; i < 100 && keys.isEmpty; i++) {
+        await pumpEventQueue();
+      }
+      expect(keys, hasLength(1));
+      final mid = (await store.load('u1')).single;
+      expect(mid.key, keys.single);
+      expect(mid.key, waiting.key);
+      expect(mid.keyUsed, isTrue);
+      expect(mid.ambiguous, isTrue);
+      // The app is killed: CreatePost never answered.
+      await sender.dispose();
+
+      final again = await relaunch();
+      final row = again.pending.state.single;
+      expect(row.error, startsWith('We could not confirm this post was sent'));
+      expect(row.canRetry, isTrue);
+      hang = false;
+      await again.sender.retry(row.localId);
+      await again.sender.idle;
+      expect(sent, ['stuck']);
+      expect(keys, [keys.first, keys.first]);
+    });
+
+    Future<void> uploadedThenOffline() async {
+      var first = true;
+      failWith = (_) {
+        if (!first) return null;
+        first = false;
+        net.setOnline(false);
+        return const NetworkException('down');
+      };
+      await sender.start(_job(attachments: await photos(1)));
+      await sender.idle;
+      expect(pending.state.single.status, PendingPostStatus.waiting);
+      expect((await store.load('u1')).single.photos.single.mediaId, 'm1');
+      await sender.dispose();
+      clearInteractions(media);
+    }
+
+    test('finished uploads are kept: after a restart Retry sends those media '
+        'ids and uploads nothing', () async {
+      await uploadedThenOffline();
+      final again = await relaunch();
+      expect(again.pending.state.single.canRetry, isTrue);
+      await again.sender.retry(again.pending.state.single.localId);
+      await again.sender.idle;
+      expect(sent, ['hello']);
+      expect(mediaSeen.last, ['m1']);
+      verifyNever(
+        () => media.createUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      );
+    });
+
+    test('MEDIA_NOT_READY after a restart stays permanent', () async {
+      await uploadedThenOffline();
+      final again = await relaunch();
+      failWith = (_) => const MediaNotReadyException('gone');
+      await again.sender.retry(again.pending.state.single.localId);
+      await again.sender.idle;
+      expect(again.pending.state.single.status, PendingPostStatus.failed);
+      expect(again.pending.state.single.canRetry, isFalse);
+    });
+
+    test('a restored post whose key was used says it was already sent when '
+        'the server reports the key reused', () async {
+      await uploadedThenOffline();
+      final again = await relaunch();
+      failWith = (_) => const IdempotencyKeyReusedException('same key');
+      await again.sender.retry(again.pending.state.single.localId);
+      await again.sender.idle;
+      expect(again.pending.state.single.error, 'This post was already sent.');
+      expect(again.pending.state.single.canRetry, isFalse);
+    });
+
+    test('the earliest start of the key is what is stored', () async {
+      final started = DateTime.now().subtract(const Duration(hours: 5));
+      net.setOnline(false);
+      await sender.start(
+        PostSendJob(
+          text: 'old key',
+          author: common.AuthorSnapshot(userId: 'u1'),
+          policy: ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+          uid: 'u1',
+          claimKey: 'k5',
+          claimReused: true,
+          claimStartedAt: started,
+        ),
+      );
+      await sender.idle;
+      final stored = (await store.load('u1')).single;
+      expect(stored.key, 'k5');
+      expect(stored.claimReused, isTrue);
+      expect(
+        stored.keyStartedAt!.difference(started).inSeconds.abs(),
+        lessThan(2),
+      );
+    });
+
+    test(
+      'bytes on disk leave memory: a send and an Edit load them again',
+      () async {
+        net.setOnline(false);
+        final a = await photos(2);
+        await sender.start(_job(attachments: a));
+        await sender.idle;
+        // Online again: the photos come from disk and are uploaded.
+        net.setOnline(true);
+        await sender.idle;
+        expect(sent, ['hello']);
+        verify(
+          () => media.createUpload(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            purpose: any(named: 'purpose'),
+            images: any(that: hasLength(2), named: 'images'),
+          ),
+        ).called(1);
+
+        net.setOnline(false);
+        await sender.start(_job(text: 'again', attachments: await photos(2)));
+        await sender.idle;
+        final seed = await sender.edit(
+          pending.state.firstWhere((p) => p.text == 'again').localId,
+        );
+        final items = seed!.attachments!.state.items;
+        expect(items, hasLength(2));
+        expect(items.first.image!.fullBytes, isNotEmpty);
+        expect(items.first.status, AttachmentStatus.ready);
+      },
+    );
+
+    test('waiting posts count in the shed: the oldest lose their photos and '
+        'are never sent without them', () async {
+      final shedding = PostSender(
+        pending: pending,
+        repository: posts,
+        sessionEpoch: db.sessionEpoch,
+        network: net,
+        maxFailedWithPhotos: 1,
+      );
+      addTearDown(shedding.dispose);
+      net.setOnline(false);
+      for (final t in ['a', 'b', 'c']) {
+        await shedding.start(_job(text: t, attachments: await photos(1)));
+      }
+      PendingPost row(String t) => pending.state.firstWhere((p) => p.text == t);
+      expect(row('a').keepsPhotos, isFalse);
+      expect(row('b').keepsPhotos, isFalse);
+      expect(row('c').keepsPhotos, isTrue);
+
+      net.setOnline(true);
+      await shedding.idle;
+      expect(sent, ['c']);
+      expect(row('a').status, PendingPostStatus.failed);
+      expect(row('a').canRetry, isFalse);
+    });
+
+    test(
+      'a restored row keeps how the send ended and what was refused',
+      () async {
+        failWith = (_) => const EmailNotVerifiedException('verify');
+        await sender.start(_job(text: 'verify me'));
+        await sender.idle;
+        final before = pending.state.single;
+        expect(before.needsVerify, isTrue);
+        await sender.dispose();
+
+        final again = await relaunch();
+        final row = again.pending.state.single;
+        expect(row.needsVerify, isTrue);
+        expect(row.error, before.error);
+        // A refusal that proved nothing was created is not "could not confirm".
+        expect(row.error, isNot(startsWith('We could not confirm')));
+      },
+    );
+
+    test('what the server refused is taken out when a restored post is '
+        'edited', () async {
+      failWith = (_) =>
+          const FeatureDisabledException('off', feature: kFeaturePolls);
+      await sender.start(
+        PostSendJob(
+          text: 'with poll',
+          author: common.AuthorSnapshot(userId: 'u1'),
+          policy: ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+          uid: 'u1',
+          poll: const DraftPoll(choices: ['a', 'b'], durationMinutes: 60),
+        ),
+      );
+      await sender.idle;
+      await sender.dispose();
+
+      final again = await relaunch();
+      final seed = await again.sender.edit(again.pending.state.single.localId);
+      expect(seed!.text, 'with poll');
+      expect(seed.poll, isNull);
+    });
+
+    test(
+      'a restored post with lost photos shows a photo post placeholder',
+      () async {
+        await store.save(
+          UnsentPostRecord(
+            uid: 'u1',
+            postId: 'lost',
+            text: '',
+            author: common.AuthorSnapshot(userId: 'u1'),
+            createdAt: DateTime.now(),
+            photosKept: false,
+            photoCount: 2,
+          ),
+          epoch: db.sessionEpoch.value,
+        );
+        final again = await relaunch();
+        final row = again.pending.state.single;
+        expect(row.error, 'Not sent. Its photos could not be kept.');
+        expect(row.photosTotal, 2);
+        expect(row.canRetry, isFalse);
+        expect(row.keepsPhotos, isFalse);
+      },
+    );
 
     test('the web keeps no photo bytes: text only after a restart', () async {
       final web = UnsentPostsStore(db, keepsPhotoBytes: false);
