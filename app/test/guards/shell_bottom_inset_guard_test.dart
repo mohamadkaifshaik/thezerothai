@@ -234,9 +234,23 @@ Map<String, String> _screenFiles() => {
       m.group(1)!: _relative(file),
 };
 
+/// The router's route definitions: `app_router.dart` plus the per-area files in
+/// `lib/core/router/routes/` (the `ShellRoute(` lives in `shell_routes.dart`).
+String _routerSource() {
+  final files = [File('lib/core/router/app_router.dart')];
+  final routes =
+      Directory('lib/core/router/routes')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+  return [...files, ...routes].map((f) => f.readAsStringSync()).join('\n');
+}
+
 /// The source of the `ShellRoute(...)` of the router.
 String _shellRouteSource() {
-  final router = File('lib/core/router/app_router.dart').readAsStringSync();
+  final router = _routerSource();
   final start = router.indexOf('ShellRoute(');
   expect(start, greaterThan(0));
   return router.substring(start, _closing(router, start + 10));
@@ -274,7 +288,7 @@ void main() {
   });
 
   test('every exemption is still a CustomScrollView outside the shell', () {
-    final router = File('lib/core/router/app_router.dart').readAsStringSync();
+    final router = _routerSource();
     final shellStart = router.indexOf('ShellRoute(');
     expect(shellStart, greaterThan(0));
     final shell = router.substring(
@@ -349,7 +363,7 @@ void main() {
     // has no bar, and there the padding is the device's home indicator. So
     // each such route must build it under MediaQuery.removePadding(
     // removeBottom: true).
-    final router = File('lib/core/router/app_router.dart').readAsStringSync();
+    final router = _routerSource();
     final shellStart = router.indexOf('ShellRoute(');
     final shellEnd = _closing(router, shellStart + 10);
     final screen = RegExp(r'\b(\w+Screen)\(');

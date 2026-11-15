@@ -84,12 +84,16 @@ void main() {
       };
       expect(users, {
         'core/router/app_router.dart',
+        'core/router/routes/premium_route.dart',
         'core/router/shell_entries.dart',
       });
     });
 
     test('the router never navigates to it; shell_entries pushes it once', () {
-      final router = _code(File('lib/core/router/app_router.dart'));
+      final router = [
+        _code(File('lib/core/router/app_router.dart')),
+        _code(File('lib/core/router/routes/premium_route.dart')),
+      ].join('\n');
       for (final line in router.split('\n')) {
         if (!line.contains('premiumPath')) continue;
         expect(
@@ -152,7 +156,7 @@ void main() {
         (
           RegExp(r'PremiumDialogPage\('),
           {
-            'core/router/app_router.dart',
+            'core/router/routes/premium_route.dart',
             'features/premium/presentation/premium_dialog.dart',
           },
         ),
