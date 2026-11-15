@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -54,9 +56,14 @@ class PendingPostsSection extends StatelessWidget {
   ) async {
     final router = GoRouter.of(context);
     final seed = await sender.edit(p.localId);
-    if (seed != null) {
-      await router.push<void>(AppRouter.composePath, extra: seed);
+    if (seed == null) return;
+    // The page went away while the row was released (sign-out, navigation):
+    // the photos go with it and nothing opens.
+    if (!context.mounted) {
+      unawaited(seed.attachments?.close());
+      return;
     }
+    await router.push<void>(AppRouter.composePath, extra: seed);
   }
 
   /// The existing verify-email screen, over the page; Retry follows.

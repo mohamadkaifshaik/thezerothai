@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../features/posts/presentation/bloc/pending_posts_cubit.dart';
 
+/// How many characters of the text a label or tooltip quotes.
+const kLabelPreviewLength = 40;
+
 /// The status row above Home for a post being sent in the background: a
 /// small thumbnail (or an icon), what is happening ("Uploading 2 of 3
 /// photos", "Posting...", "Posted", "Couldn't post"), a one-line preview of
@@ -80,7 +83,11 @@ class PendingPostStatusRow extends StatelessWidget {
         : Icons.schedule_send_outlined;
     final tone = failed ? scheme.error : scheme.onSurfaceVariant;
     final preview = _preview(post);
-    final about = preview.isEmpty ? 'your post' : '"$preview"';
+    // Labels and tooltips name the post by its first words only.
+    final short = preview.runes.length > kLabelPreviewLength
+        ? '${String.fromCharCodes(preview.runes.take(kLabelPreviewLength))}…'
+        : preview;
+    final about = preview.isEmpty ? 'your post' : '"$short"';
     final minTap = Size(AppSpacing.minTapTarget, AppSpacing.minTapTarget);
     Widget action(String label, String semantics, VoidCallback onTap) =>
         Semantics(

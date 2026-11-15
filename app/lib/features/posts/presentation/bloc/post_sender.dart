@@ -90,7 +90,16 @@ class PostEditSeed {
     this.beaconId = '',
     this.draftId,
     this.attachments,
+    this.key,
+    this.keyStartedAt,
   });
+
+  /// The idempotency key of a send that may have reached the server, with
+  /// the time it was first used: the composer sends under it again (a reused
+  /// claim), so an unchanged post replays and a changed one gets the normal
+  /// "post this version too" choice instead of a duplicate.
+  final String? key;
+  final DateTime? keyStartedAt;
 
   final String text;
   final DraftPoll? poll;
@@ -136,10 +145,17 @@ class _Entry {
   /// CreatePost was called at least once (never reset).
   bool keyUsed = false;
 
+  /// When the key was first used (every used key ages out of the server's
+  /// idempotency window, stored or not).
+  DateTime? firstUsedAt;
+
   /// An answer that does not prove nothing was created came back (never
   /// reset): the key may exist on the server and must be kept.
   bool ambiguous = false;
-  bool running = false;
+
+  /// The token of the run that owns the send now; only that run clears it.
+  int? activeRun;
+  bool get running => activeRun != null;
 
   /// The photos; null once handed over, dropped or shed.
   AttachmentsCubit? attachments;
@@ -290,6 +306,11 @@ class PostSender {
     _timers.remove(localId)?.cancel();
     _pending.remove(localId);
     await _releaseHeldKey(e);
+    // Signed out while the key was released: nothing goes to the composer.
+    if (_dead(e)) {
+      _dropPhotos(e);
+      return null;
+    }
     final photos = e.attachments;
     e.attachments = null;
     AttachmentsCubit? keep;
@@ -313,6 +334,9 @@ class PostSender {
       beaconId: e.clearPlan ? '' : job.beaconId,
       draftId: job.draftId,
       attachments: keep,
+      // A key that may exist on the server travels with the post.
+      key: e.keyUsed && (e.ambiguous || job.claimReused) ? e.key : null,
+      keyStartedAt: job.claimStartedAt ?? e.firstUsedAt,
     );
   }
 
@@ -353,17 +377,20 @@ class PostSender {
   }
 
   Future<void> _run(_Entry e) {
-    e.running = true;
-    final f = _send(e);
+    final token = ++_runSeq;
+    e.activeRun = token;
+    final f = _send(e, token);
     _running.add(f);
     return f.whenComplete(() => _running.remove(f));
   }
 
-  Future<void> _send(_Entry e) async {
+  int _runSeq = 0;
+
+  Future<void> _send(_Entry e, int token) async {
     try {
       await _attempt(e);
     } finally {
-      e.running = false;
+      if (e.activeRun == token) e.activeRun = null;
     }
   }
 
@@ -410,11 +437,12 @@ class PostSender {
     if (_dead(e)) return;
 
     // A stored key past its window may be forgotten by the server: only Edit.
-    if (e.held != null &&
+    final usedKey = e.key ?? e.held;
+    if (usedKey != null &&
         (job.claimReused || e.keyUsed) &&
         sendKeyExpired(
           kind: SendKind.post,
-          startedAt: job.claimStartedAt,
+          startedAt: job.claimStartedAt ?? e.firstUsedAt,
           publishAt: null,
           now: _clock(),
         )) {
@@ -434,6 +462,7 @@ class PostSender {
     // session as createPost starts.
     if (_dead(e)) return;
     e.keyUsed = true;
+    e.firstUsedAt ??= _clock();
     try {
       final poll = job.poll;
       final created = await _repository.createPost(
@@ -550,6 +579,11 @@ class PostSender {
     // composer with the field taken out, as the composer did itself.
     final feature = error is FeatureDisabledException ? error.feature : null;
     var permanent = proves;
+    // A shed row's uploads are the only copy of its photos: when the server
+    // no longer has them, Retry cannot succeed; Edit (text) remains.
+    if (error is MediaNotReadyException && e.mediaIds != null) {
+      permanent = true;
+    }
     if (feature == kFeaturePostBeaconEmbed ||
         (error is NotFoundException && job.beaconId.isNotEmpty)) {
       e.clearPlan = true;
@@ -591,7 +625,7 @@ class PostSender {
   }) {
     if (_dead(e)) return;
     // Retry works from here on, not only once the send's future completes.
-    e.running = false;
+    e.activeRun = null;
     _pending.update(
       e.localId,
       (p) => p.copyWith(

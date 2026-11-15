@@ -485,4 +485,112 @@ void main() {
       PendingPostStatus.posted,
     );
   });
+
+  group('Edit carries a key that may exist on the server', () {
+    test('ambiguous failure, Edit, Post unchanged: the original key goes '
+        'out again', () async {
+      stubCreate([offline, null]);
+      await sender.start(_job(text: 'same words'));
+      final original = keys.single;
+
+      final seed = await sender.edit(pending.state.single.localId);
+
+      expect(seed!.key, original);
+      expect(seed.keyStartedAt, isNotNull);
+      // What the composer then hands over: a reused claim under that key.
+      await sender.start(
+        _job(
+          text: 'same words',
+          claimKey: seed.key,
+          claimReused: true,
+          claimStartedAt: seed.keyStartedAt,
+        ),
+      );
+      expect(keys, [original, original]);
+    });
+
+    test('a key that provably was not used is not carried', () async {
+      stubCreate([const FeatureDisabledException('off')]);
+      await sender.start(_job());
+
+      final seed = await sender.edit(pending.state.single.localId);
+
+      expect(seed!.key, isNull);
+    });
+
+    test('a pinned in-memory key expires too', () async {
+      stubCreate([offline]);
+      await sender.start(_job());
+      expect(pending.state.single.canRetry, isTrue);
+
+      now = now.add(kPostSendKeyWindow + const Duration(minutes: 1));
+      await sender.retry(pending.state.single.localId);
+
+      expect(keys, hasLength(1), reason: 'no second CreatePost');
+      expect(pending.state.single.canRetry, isFalse);
+    });
+  });
+
+  test(
+    'sign-out while Edit releases the key: no seed, photos released',
+    () async {
+      stubHappyUpload(media);
+      stubCreate([offline]);
+      final a = await photos(1);
+      await sender.start(_job(attachments: a, claimKey: 'k', draftId: 'd1'));
+      await a.close();
+      // A fresh unused key would be cleared; make that wait.
+      final id = pending.state.single.localId;
+
+      final editing = sender.edit(id);
+      epoch.end();
+      final seed = await editing;
+
+      expect(seed, isNull);
+      expect(a.isClosed, isTrue);
+    },
+  );
+
+  test('a shed row whose media the server lost can only be edited', () async {
+    stubHappyUpload(media);
+    stubCreate([
+      for (var i = 0; i < 4; i++) offline,
+      const MediaNotReadyException('gone'),
+    ]);
+    final oldest = await photos(1, tag: 'x');
+    await sender.start(_job(text: 'post 0', attachments: oldest));
+    await oldest.close();
+    for (var i = 1; i < 4; i++) {
+      final a = await photos(1, tag: 'y$i');
+      await sender.start(_job(text: 'post $i', attachments: a));
+      await a.close();
+    }
+    final row = pending.state.firstWhere((p) => p.text == 'post 0');
+    expect(row.keepsPhotos, isFalse);
+
+    await sender.retry(row.localId);
+
+    expect(
+      pending.state.firstWhere((p) => p.text == 'post 0').canRetry,
+      isFalse,
+    );
+  });
+
+  test('a stale run never clears the new run\'s running flag', () async {
+    final gate = Completer<void>();
+    stubCreate([offline]);
+    await sender.start(_job());
+    final id = pending.state.single.localId;
+    stubCreate([], gate: gate);
+
+    final retrying = sender.retry(id);
+    await Future<void>.delayed(Duration.zero);
+    // A second Retry while the first runs does nothing.
+    await sender.retry(id);
+    expect(await sender.edit(id), isNull, reason: 'still running');
+
+    gate.complete();
+    await retrying;
+    expect(pending.state.single.status, PendingPostStatus.posted);
+  });
 }

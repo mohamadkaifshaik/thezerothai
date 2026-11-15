@@ -214,6 +214,16 @@ class ComposerScreen extends StatelessWidget {
         context.read<PostsRepository>().subFeatureEnabled(
           kPostsSubFeatureMedia,
         );
+    // The photos of an edited post come along only while photos are offered
+    // and the cubit is still open; otherwise the composer opens on the text
+    // and the cubit is released.
+    final held = seed?.attachments;
+    final reusable = mediaEnabled && held != null && !held.isClosed
+        ? held
+        : null;
+    if (held != null && reusable == null && !held.isClosed) {
+      unawaited(held.close());
+    }
     // The audience picker: `communities` on and the caller not
     // protected (the server answers PROTECTED_ACCOUNT to a community post).
     final communitiesOn =
@@ -225,7 +235,7 @@ class ComposerScreen extends StatelessWidget {
           BlocProvider<AttachmentsCubit>(
             // Edit on a failed post brings its photos (and their uploads).
             create: (context) =>
-                seed?.attachments ??
+                reusable ??
                 AttachmentsCubit(
                   picker: context.read<ImagePickerService>(),
                   processor: context.read<ImageProcessor>(),
@@ -255,6 +265,12 @@ class ComposerScreen extends StatelessWidget {
             postPolicyChanges: subscriptionPostChanges(context),
             pending: context.read<PendingPostsCubit>(),
             sender: context.read<PostSender?>(),
+            resumeKey: seed?.key == null
+                ? null
+                : (
+                    key: seed!.key!,
+                    startedAt: seed.keyStartedAt ?? DateTime.now(),
+                  ),
             author: viewerAuthorSnapshot(profile),
             quoteOfPostId: quoteOfPostId,
             beaconId: _planAttached(context) ? planId : '',

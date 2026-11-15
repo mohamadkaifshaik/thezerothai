@@ -24,6 +24,7 @@ mixin _ComposerHost on Cubit<ComposerState> {
   UsageReporter get _usage;
   PendingPostsCubit? get _pending;
   PostSender? get _sender;
+  ({String key, DateTime startedAt})? get _resumeKey;
   AttachmentsCubit? get _attachments;
   String get replyToPostId;
   String get quoteOfPostId;

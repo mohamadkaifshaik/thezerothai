@@ -92,4 +92,22 @@ void main() {
     expect(server.receivedKeys, hasLength(1));
     expect(pending.state, hasLength(1));
   });
+
+  test('Post after Edit of an ambiguous send goes out under the original '
+      'key (no draft row)', () async {
+    final c = ComposerCubit(
+      postsRepository: server,
+      pending: pending,
+      sender: sender,
+      author: common.AuthorSnapshot(userId: _uid, handle: 'me'),
+      resumeKey: (key: 'original-key', startedAt: DateTime.now()),
+    );
+    addTearDown(c.close);
+    c.textChanged('unchanged');
+
+    await c.submit();
+    await sender.idle;
+
+    expect(server.receivedKeys, ['original-key']);
+  });
 }

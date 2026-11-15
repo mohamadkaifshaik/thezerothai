@@ -298,11 +298,17 @@ mixin _ComposerSubmit on _ComposerHost {
       for (final a in attachments?.state.items ?? const <Attachment>[])
         if (a.previewBytes != null) a.previewBytes!,
     ];
-    final key = claim.key;
-    final draftId = key == null ? null : _base.id;
-    final startedAt = draftId == null
+    final rowKey = claim.key;
+    final draftId = rowKey == null ? null : _base.id;
+    var startedAt = draftId == null
         ? null
         : _claimedKeys[_claimSlot(draftId, SendKind.post, null)]?.startedAt;
+    // Edit on a post that may have reached the server (no row holds its
+    // key): send under that key again, as a reused claim.
+    final resume = _resumeKey;
+    final key = rowKey ?? resume?.key;
+    final reused = rowKey != null ? claim.reused : resume != null;
+    if (rowKey == null && resume != null) startedAt = resume.startedAt;
     // The last synchronous check before the sender owns the post.
     if (!_mayStillSend()) return;
     unawaited(
@@ -324,7 +330,7 @@ mixin _ComposerSubmit on _ComposerHost {
           // send holds no key on it (an image-only post of a saved draft).
           deleteDraftId: _drafts == null ? null : _base.id,
           claimKey: key,
-          claimReused: claim.reused,
+          claimReused: reused,
           claimStartedAt: startedAt,
         ),
       ),

@@ -75,6 +75,9 @@ class ComposerCubit extends Cubit<ComposerState>
     /// When given, a plain root post is handed to it on Post and the
     /// composer closes at once (uploads and CreatePost run in the background).
     PostSender? sender,
+
+    /// The key of an edited post that may already exist on the server.
+    ({String key, DateTime startedAt})? resumeKey,
     required common.AuthorSnapshot author,
     this.quoteOfPostId = '',
     String beaconId = '',
@@ -107,6 +110,7 @@ class ComposerCubit extends Cubit<ComposerState>
        _repository = postsRepository,
        _pending = pending,
        _sender = sender,
+       _resumeKey = resumeKey,
        _author = author,
        _attachments = attachments,
        _onUnexpectedError = onUnexpectedError,
@@ -165,6 +169,7 @@ class ComposerCubit extends Cubit<ComposerState>
        _repository = postsRepository,
        _pending = null,
        _sender = null,
+       _resumeKey = null,
        _author = null,
        _attachments = null,
        _onUnexpectedError = null,
@@ -385,6 +390,8 @@ class ComposerCubit extends Cubit<ComposerState>
   final PendingPostsCubit? _pending;
   @override
   final PostSender? _sender;
+  @override
+  final ({String key, DateTime startedAt})? _resumeKey;
   @override
   final common.AuthorSnapshot? _author;
   @override

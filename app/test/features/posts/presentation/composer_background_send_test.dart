@@ -1,8 +1,13 @@
 import 'dart:async';
 
+import 'package:dzeroth/features/media/data/media_uploader.dart';
+import 'package:dzeroth/features/media/presentation/bloc/attachments_cubit.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/posts/presentation/bloc/post_sender.dart';
+import 'package:dzeroth/features/media/domain/media_feature_flag.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
-import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
+    show ReplyPolicy;
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
 import 'package:dzeroth/shared/widgets/post/pending_posts_section.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
@@ -110,5 +115,95 @@ void main() {
 
     expect(rig.pending.state.single.status, PendingPostStatus.failed);
     expect(find.text('Retry'), findsOneWidget);
+  });
+
+  group('Edit seed photos', () {
+    Future<AttachmentsCubit> heldPhotos() async {
+      final picker = FakeImagePicker()..next = [imageBytes('a')];
+      final cubit = AttachmentsCubit(
+        picker: picker,
+        processor: FakeImageProcessor(),
+        uploader: MediaUploader(repository: MockMediaRepository()),
+      );
+      await cubit.pick();
+      await Future<void>.delayed(Duration.zero);
+      return cubit;
+    }
+
+    testWidgets('photos off: the seed cubit is released, text only', (
+      tester,
+    ) async {
+      final posts = _MockPostsRepository();
+      when(() => posts.subFeatureEnabled(any())).thenReturn(true);
+      final held = (await tester.runAsync(heldPhotos))!;
+      final rig = await pumpW6Composer(
+        tester,
+        posts: posts,
+        features: const {kFeaturePosts},
+        backgroundSend: true,
+      );
+
+      unawaited(
+        rig.router.push<void>(
+          '/compose',
+          extra: PostEditSeed(text: 'seeded words', attachments: held),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('seeded words'), findsOneWidget);
+      expect(held.isClosed, isTrue);
+    });
+
+    testWidgets('a seed cubit that is already closed is not used: the '
+        'composer opens on the text', (tester) async {
+      final posts = _MockPostsRepository();
+      when(() => posts.subFeatureEnabled(any())).thenReturn(true);
+      final held = (await tester.runAsync(heldPhotos))!;
+      await tester.runAsync(held.close);
+      final rig = await pumpW6Composer(
+        tester,
+        posts: posts,
+        features: const {kFeaturePosts, kFeatureMedia},
+        backgroundSend: true,
+      );
+
+      unawaited(
+        rig.router.push<void>(
+          '/compose',
+          extra: PostEditSeed(text: 'seeded words', attachments: held),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('seeded words'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a live seed cubit comes along with its photos', (
+      tester,
+    ) async {
+      final posts = _MockPostsRepository();
+      when(() => posts.subFeatureEnabled(any())).thenReturn(true);
+      final held = (await tester.runAsync(heldPhotos))!;
+      final rig = await pumpW6Composer(
+        tester,
+        posts: posts,
+        features: const {kFeaturePosts, kFeatureMedia},
+        backgroundSend: true,
+      );
+
+      unawaited(
+        rig.router.push<void>(
+          '/compose',
+          extra: PostEditSeed(text: 'seeded words', attachments: held),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('seeded words'), findsOneWidget);
+      expect(held.isClosed, isFalse);
+      expect(held.state.count, 1);
+    });
   });
 }

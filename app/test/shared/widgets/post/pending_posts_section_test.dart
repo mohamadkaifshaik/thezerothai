@@ -140,6 +140,29 @@ void main() {
       expect(find.bySemanticsLabel('Edit "oops"'), findsOneWidget);
     });
 
+    testWidgets('a long post is quoted by its first words in labels', (
+      tester,
+    ) async {
+      final text = 'word ' * 30;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PendingPostStatusRow(
+              post: _p('a', text).copyWith(
+                status: PendingPostStatus.failed,
+                error: 'No connection.',
+              ),
+              onRetry: () {},
+            ),
+          ),
+        ),
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(r'Retry sending ".{40}…"')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('Verify email shows when the server asks for it', (
       tester,
     ) async {
