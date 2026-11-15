@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -228,13 +229,14 @@ func (s *service) GetSettings(ctx context.Context, uid string) (Settings, error)
 	return s.settings(st), nil
 }
 
-// MyArea implements Reader: 1 read.
+// MyArea implements Reader: 1 read. A stored area whose consent is below the current minimum copy version is not usable
+// (ok false) until the user consents again, the same rule SetArea applies.
 func (s *service) MyArea(ctx context.Context, uid string) (string, bool, error) {
 	a, err := s.d.Repo.Area(ctx, uid)
 	if err != nil {
 		return "", false, logger.RedactErr(fmt.Errorf("location: my area: %w", err), uid)
 	}
-	if a == nil {
+	if a == nil || a.ConsentCopyVersion < s.d.Limits.MinCopyVersion {
 		return "", false, nil
 	}
 	return a.AreaID, true, nil
@@ -310,10 +312,36 @@ func (s *service) ListAreas(_ context.Context, uid string, in ListAreasInput) (A
 	return page, nil
 }
 
+// areaPlaceholder replaces an area id in an error message. Not HashUID: the catalogue is small, so a hash of an area id
+// is reversed by hashing every id.
+const areaPlaceholder = "<area>"
+
+// areaRedactedError is an error whose message has the area ids replaced by areaPlaceholder. Like logger.RedactErr's type it
+// has no Unwrap (the error log walks the Unwrap chain and would re-append the raw text); errors.Is/As still reach the cause.
+type areaRedactedError struct {
+	msg   string
+	cause error
+}
+
+func (e *areaRedactedError) Error() string        { return e.msg }
+func (e *areaRedactedError) Is(target error) bool { return errors.Is(e.cause, target) }
+func (e *areaRedactedError) As(target any) bool   { return errors.As(e.cause, target) }
+
+// redactAreas replaces every occurrence of each area id in err's full cause chain with areaPlaceholder.
+func redactAreas(err error, areaIDs ...string) error {
+	msg := logger.CauseChain(err)
+	for _, id := range areaIDs {
+		if id != "" {
+			msg = strings.ReplaceAll(msg, id, areaPlaceholder)
+		}
+	}
+	return &areaRedactedError{msg: msg, cause: err}
+}
+
 // mapErr turns a repository or rule error into the handler's answer. Known sentinels and shaped apierrs pass through; a
 // client that left is CANCELED / DEADLINE_EXCEEDED; contention is a retryable UNAVAILABLE; anything else is a redacted
-// internal error (the uid and the area id are redacted from the chain).
-func (s *service) mapErr(ctx context.Context, op, uid string, err error, ids ...string) error {
+// internal error: the uid is replaced by its hash and every area id in areaIDs by "<area>".
+func (s *service) mapErr(ctx context.Context, op, uid string, err error, areaIDs ...string) error {
 	var ae *apierr.Error
 	switch {
 	case errors.Is(err, ErrConsentRequired):
@@ -344,5 +372,5 @@ func (s *service) mapErr(ctx context.Context, op, uid string, err error, ids ...
 		return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").
 			WithRetryAfter(time.Second)
 	}
-	return logger.RedactErr(fmt.Errorf("location: %s: %w", op, err), append([]string{uid}, ids...)...)
+	return logger.RedactErr(redactAreas(fmt.Errorf("location: %s: %w", op, err), areaIDs...), uid)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const (
@@ -168,6 +169,10 @@ func TestSetArea_CopyVersionBump(t *testing.T) {
 	if err != nil || st.RequiredCopyVersion != 2 || st.Consent.CopyVersion != 1 {
 		t.Fatalf("settings: %+v, %v", st, err)
 	}
+	// The stored area is below the new minimum: other modules (Nearby) must not use it.
+	if id, ok, err := e.svc.MyArea(ctx, uidA); err != nil || ok || id != "" {
+		t.Fatalf("MyArea below the minimum = %q, %v, %v", id, ok, err)
+	}
 	_, err = e.svc.SetArea(ctx, uidA, SetAreaInput{Key: key("2"), AreaID: areaDoml})
 	_ = apiErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	_, err = e.svc.SetArea(ctx, uidA, SetAreaInput{Key: key("3"), AreaID: areaDoml, Consent: grant}) // copy 1 < 2
@@ -175,6 +180,9 @@ func TestSetArea_CopyVersionBump(t *testing.T) {
 	st, err = e.svc.SetArea(ctx, uidA, SetAreaInput{Key: key("4"), AreaID: areaDoml, Consent: &Grant{CopyVersion: 2, AdultConfirmed: true}})
 	if err != nil || st.Consent.CopyVersion != 2 || len(e.repo.consents[uidA]) != 2 {
 		t.Fatalf("re-grant: %+v, %v", st, err)
+	}
+	if id, ok, err := e.svc.MyArea(ctx, uidA); err != nil || !ok || id != areaDoml {
+		t.Fatalf("MyArea after the re-grant = %q, %v, %v", id, ok, err)
 	}
 }
 
@@ -287,6 +295,24 @@ func TestSetArea_RequestHashIsKeyed(t *testing.T) {
 	other.Key = key("other")
 	if setHash(other) == setHash(in) {
 		t.Fatal("two keys gave the same hash for one body")
+	}
+}
+
+// TestMapErr_AreaPlaceholder: an internal error that names the area id carries "<area>" instead (not a hash, which the
+// small catalogue would let anyone reverse), the uid is hashed, and errors.Is still reaches the cause.
+func TestMapErr_AreaPlaceholder(t *testing.T) {
+	e := newEnv(t, Limits{})
+	cause := errors.New("write users/" + uidA + "/locationArea/current failed for " + areaIndi)
+	e.repo.err = cause
+	_, err := e.svc.SetArea(context.Background(), uidA, SetAreaInput{Key: key("redact"), AreaID: areaIndi, Consent: grant})
+	if err == nil || strings.Contains(err.Error(), areaIndi) || strings.Contains(err.Error(), uidA) || !strings.Contains(err.Error(), "<area>") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(err.Error(), logger.HashUID(areaIndi)) {
+		t.Fatalf("the area id was hashed, not replaced: %v", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("errors.Is lost the cause: %v", err)
 	}
 }
 
