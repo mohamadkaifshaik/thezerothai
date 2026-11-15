@@ -40,6 +40,8 @@ import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../features/beacons/data/beacons_repository.dart';
 import '../features/beacons/domain/beacons_feature_flag.dart';
+import '../features/creator_insights/data/creator_insights_repository.dart';
+import '../features/creator_insights/domain/creator_insights_feature_flag.dart';
 import '../features/communities/data/communities_repository.dart';
 import '../features/communities/domain/communities_feature_flag.dart';
 import '../features/lists/data/home_tabs_repository.dart';
@@ -393,6 +395,16 @@ Future<void> bootstrap() async {
     apiClient: apiClient,
     gate: beaconsGate,
   );
+  // Creator Studio insights: the only `GetCreatorInsights` caller, 0 RPCs
+  // while `creator_insights` is off for the caller.
+  final creatorInsightsRepository = CreatorInsightsRepository(
+    apiClient: apiClient,
+    gate: buildServiceGate(
+      onboardingBloc,
+      kFeatureCreatorInsights,
+      onUnexpectedError: reportUnexpectedError,
+    ),
+  );
   final homeTabsRepository = HomeTabsRepository(
     apiClient: apiClient,
     gate: listsGate,
@@ -517,6 +529,7 @@ Future<void> bootstrap() async {
       homeTabsRepository: homeTabsRepository,
       communitiesRepository: communitiesRepository,
       beaconsRepository: beaconsRepository,
+      creatorInsightsRepository: creatorInsightsRepository,
       pushCubit: pushCubit,
       telemetryConsent: telemetryConsent,
       unreadBadgeCubit: unreadBadgeCubit,

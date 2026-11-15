@@ -208,7 +208,7 @@ func (s *service) releaseEngagement(ctx context.Context, p *Post) {
 			slog.WarnContext(ctx, "posts_repost_release_failed", "error", logger.RedactErr(err, p.AuthorID).Error())
 		}
 	case p.Kind == KindQuote && p.QuoteOfID != "":
-		if err := s.repo.AddQuoteCount(ctx, p.QuoteOfID, -1); err != nil {
+		if err := s.repo.AddQuoteCount(ctx, p.QuoteOfID, -1, p.EmbeddedAuthorID, p.AuthorID); err != nil {
 			slog.WarnContext(ctx, "posts_quote_count_release_failed", "error", logger.RedactErr(err, p.AuthorID).Error())
 		}
 		s.cache.AdjustCounts(p.QuoteOfID, 0, 0, -1)

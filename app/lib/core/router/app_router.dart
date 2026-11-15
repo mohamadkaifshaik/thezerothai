@@ -1,108 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../theme/app_theme.dart';
 import '../../features/account/domain/account_feature_flag.dart';
-import '../../features/account/presentation/account_deleted_screen.dart';
-import '../../features/account/presentation/data_export_screen.dart';
-import '../../features/account/presentation/delete_account_screen.dart';
-import '../../features/articles/presentation/articles_screen.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
-import '../../features/auth/presentation/sign_in_screen.dart';
-import '../../features/auth/presentation/sign_up_screen.dart';
-import '../../features/auth/presentation/welcome_screen.dart';
-import '../../features/auth/presentation/widgets/auth_gate.dart';
-import '../../features/engagement/presentation/bookmarks_screen.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
-import '../../features/communities/presentation/communities_screen.dart';
-import '../../features/communities/presentation/community_members_screen.dart';
-import '../../features/communities/presentation/community_moderation_log_screen.dart';
-import '../../features/communities/presentation/community_screen.dart';
-import '../../features/communities/presentation/create_community_screen.dart';
 import '../../features/beacons/domain/beacons_feature_flag.dart';
-import '../../features/beacons/presentation/beacon_people_screen.dart';
-import '../../features/beacons/presentation/beacon_screen.dart';
-import '../../features/beacons/presentation/beacons_screen.dart';
-import '../../features/beacons/presentation/create_beacon_screen.dart';
-import '../../features/beacons/presentation/edit_beacon_screen.dart';
-import '../../features/beacons/presentation/my_beacons_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
-import '../../features/lists/presentation/discover_lists_screen.dart';
-import '../../features/lists/presentation/list_detail_screen.dart';
-import '../../features/lists/presentation/list_members_screen.dart';
-import '../../features/lists/presentation/manage_pinned_screen.dart';
-import '../../features/lists/presentation/lists_screen.dart';
-import '../../features/lists/presentation/user_lists_screen.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
-import '../../features/graph/domain/graph_list_extra.dart';
-import '../../features/graph/presentation/follow_requests_screen.dart';
-import '../../features/graph/presentation/graph_list_screen.dart';
-import '../../features/graph/presentation/managed_accounts_screen.dart';
-import '../../features/home/presentation/home_screen.dart';
 import '../../features/messages/domain/conversation_id.dart'
     show kConversationIdPattern;
 import '../../features/messages/domain/messaging_feature_flag.dart';
-import '../../features/messages/domain/messages_list_detail.dart';
 import '../../features/messages/domain/messaging_feature_gate.dart';
-import '../../features/messages/presentation/conversations_screen.dart';
-import '../../features/messages/presentation/draft_thread_screen.dart';
-import '../../features/messages/presentation/recipient_picker_screen.dart';
-import '../../features/messages/presentation/report_conversation.dart';
-import '../../features/messages/presentation/thread_route_page.dart';
-import '../../features/messages/presentation/thread_screen.dart';
-import '../../features/messages/presentation/widgets/message_composer.dart';
-import '../../features/messages/presentation/widgets/request_banner.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/media/domain/media_feature_flag.dart';
-import '../../features/search/domain/search_results_tab.dart';
-import '../../features/search/presentation/search_results_screen.dart';
 import '../../features/notifications/domain/notification_prefs.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
-import '../../features/notifications/presentation/notification_settings_screen.dart';
-import '../../features/notifications/presentation/notifications_screen.dart';
-import '../../features/search/presentation/bloc/explore_media_cubit.dart';
-import '../../features/search/presentation/explore_media_screen.dart';
-import '../../features/search/presentation/explore_screen.dart';
-import '../../features/search/presentation/explore_trending_screen.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
-import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
-import '../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
-import '../../features/onboarding/presentation/create_profile_screen.dart';
-import '../../features/onboarding/presentation/profile_photo_step_screen.dart';
-import '../../features/onboarding/presentation/session_error_screen.dart';
-import '../../features/posts/presentation/composer_route.dart';
-import '../../features/posts/presentation/composer_screen.dart';
-import '../../features/posts/presentation/drafts_screen.dart';
 import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
 import '../../features/posts/domain/posts_feature_flag.dart';
-import '../../features/posts/presentation/post_detail_screen.dart';
-import '../../features/posts/presentation/post_photo_screen.dart';
-import '../../features/posts/presentation/reply_composer_screen.dart';
-import '../../features/posts/presentation/scheduled_posts_screen.dart';
 import '../../features/profile/domain/profile_edit_feature_flag.dart';
 import 'shell_entries.dart';
 import '../feature_flags/shells_feature_flag.dart';
-import '../../features/advertise/presentation/advertise_screen.dart';
-import '../../features/calls/presentation/calls_screen.dart';
-import '../../features/creator_studio/presentation/creator_studio_screen.dart';
-import '../../features/premium/presentation/premium_dialog.dart';
-import '../../features/profile/presentation/change_handle_screen.dart';
-import '../../features/profile/presentation/edit_profile_screen.dart';
-import '../../features/profile/presentation/profile_screen.dart';
-import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/data/own_privacy_store.dart';
 import '../../features/settings/domain/message_privacy.dart';
-import '../../features/settings/presentation/message_settings_screen.dart';
-import '../../features/settings/presentation/settings_screen.dart';
-import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
-import '../widgets/splash_screen.dart';
 import 'go_router_refresh_stream.dart';
-import 'main_shell.dart';
+import 'routes/article_routes.dart';
+import 'routes/auth_routes.dart';
+import 'routes/compose_routes.dart';
+import 'routes/messaging_routes.dart';
+import 'routes/premium_route.dart';
+import 'routes/shell_routes.dart';
 
 /// Builds the app's `go_router`. Redirects branch purely on cached
 /// [AuthBloc]/[OnboardingBloc] state — never on a fresh network call — so
@@ -317,505 +249,18 @@ class AppRouter {
     ]),
     redirect: _redirect,
     routes: [
-      for (final suffix in [
-        '',
-        '/edit/:id',
-        '/edit/:id/preview',
-        '/edit/:id/focus',
-        '/edit/:id/preview/focus',
-      ])
-        GoRoute(
-          path: '$articlesPath$suffix',
-          builder: (context, state) => AuthGate(
-            child: ArticlesScreen(
-              articleId: state.pathParameters['id'],
-              preview: suffix.contains('/preview'),
-              focus: suffix.endsWith('/focus'),
-            ),
-          ),
-        ),
-      for (final suffix in ['', '/focus'])
-        GoRoute(
-          path: '/articles/:id$suffix',
-          builder: (context, state) => AuthGate(
-            child: ArticlesScreen(
-              articleId: state.pathParameters['id'],
-              reader: true,
-              focus: suffix.isNotEmpty,
-            ),
-          ),
-        ),
-      GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
-      GoRoute(
-        path: welcomePath,
-        builder: (context, state) => const WelcomeScreen(),
-      ),
-      GoRoute(
-        path: signInPath,
-        builder: (context, state) => const SignInScreen(),
-      ),
-      GoRoute(
-        path: signUpPath,
-        builder: (context, state) => const SignUpScreen(),
-      ),
-      GoRoute(
-        path: onboardingPath,
-        builder: (context, state) =>
-            const AuthGate(child: CreateProfileScreen()),
-      ),
-      GoRoute(
-        path: onboardingPhotoPath,
-        builder: (context, state) =>
-            const AuthGate(child: ProfilePhotoStepScreen()),
-      ),
-      GoRoute(
-        path: sessionErrorPath,
-        builder: (context, state) =>
-            const AuthGate(child: SessionErrorScreen()),
-      ),
-      // No AuthGate: unverified callers must reach it too (the gate would
-      // swap in the verification prompt).
-      GoRoute(
-        path: onboardingDeletePath,
-        // The page adds the bottom inset of the shell's floating bar; out of
-        // the shell there is no bar, so the inset (the home indicator) is
-        // dropped and the page keeps its own padding.
-        builder: (context, state) => MediaQuery.removePadding(
-          context: context,
-          removeBottom: true,
-          child: const DeleteAccountScreen(),
-        ),
-      ),
-      composeReplyRoute(),
-      GoRoute(
-        path: '/post/:id/photo/:index',
-        builder: (context, state) => AuthGate(
-          child: PostPhotoScreen(
-            postId: state.pathParameters['id']!,
-            index: int.tryParse(state.pathParameters['index'] ?? '') ?? 0,
-          ),
-        ),
-      ),
-      composeRoute(),
-      // Full-screen, outside the shell, so it can be pushed over the composer.
-      GoRoute(
-        path: scheduledPostsPath,
-        builder: (context, state) =>
-            const AuthGate(child: ScheduledPostsScreen()),
-      ),
-      GoRoute(
-        path: draftsPath,
-        builder: (context, state) => AuthGate(
-          child: DraftsScreen(
-            scheduledTab: state.uri.queryParameters['tab'] == 'scheduled',
-            pickMode: state.extra == true,
-          ),
-        ),
-      ),
-      GoRoute(
-        path: accountDeletedPath,
-        builder: (context, state) => const AccountDeletedScreen(),
-      ),
-      // A dialog over the current page, so it lives on the root navigator
-      // outside the shell. Only `push` (with `kShellPushExtra`) opens it: a
-      // typed URL, a reload or a cold start lands Home (`_shellsFlagRedirect`).
-      if (kVisibleShells.contains(ShellKind.premium))
-        GoRoute(
-          path: premiumPath,
-          // A push restored from web history skips the redirects (go_router
-          // re-applies it as is) and loses its extra, so the builder checks
-          // again and shows nothing then (security review M-1).
-          pageBuilder: (context, state) => _premiumPushAllowed(state.extra)
-              ? PremiumDialogPage(key: state.pageKey)
-              : NoTransitionPage<void>(
-                  key: state.pageKey,
-                  child: const _PopOnFirstFrame(),
-                ),
-        ),
-      ShellRoute(
-        builder: (context, state, child) => MainShell(
-          location: state.matchedLocation,
-          // The query too: Settings' list pane reads its `?c=`.
-          uri: state.uri,
-          child: child,
-        ),
-        routes: [
-          GoRoute(
-            path: homePath,
-            builder: (context, state) => const AuthGate(child: HomeScreen()),
-          ),
-          GoRoute(
-            path: followRequestsPath,
-            builder: (context, state) =>
-                const AuthGate(child: FollowRequestsScreen()),
-          ),
-          GoRoute(
-            path: explorePath,
-            builder: (context, state) => const AuthGate(child: ExploreScreen()),
-          ),
-          GoRoute(
-            path: exploreTrendingPath,
-            builder: (context, state) =>
-                const AuthGate(child: ExploreTrendingScreen()),
-          ),
-          GoRoute(
-            path: exploreMediaPath,
-            builder: (context, state) => AuthGate(
-              // Explore hands over its cubit, so the grid starts with the
-              // photos it already has; a link or reload makes its own.
-              child: ExploreMediaScreen(
-                cubit: state.extra is ExploreMediaCubit
-                    ? state.extra as ExploreMediaCubit
-                    : null,
-              ),
-            ),
-          ),
-          GoRoute(
-            path: notificationsPath,
-            builder: (context, state) =>
-                const AuthGate(child: NotificationsScreen()),
-          ),
-          GoRoute(
-            path: messagesPath,
-            builder: (context, state) => AuthGate(
-              child: ConversationsScreen(
-                onOpenConversation: (id) => context.push(messagePath(id)),
-                onNewMessage: () => context.push(messageNewPath),
-              ),
-            ),
-          ),
-          GoRoute(
-            path: messageRequestsPath,
-            builder: (context, state) => AuthGate(
-              child: ConversationsScreen(
-                folder: Folder.FOLDER_REQUESTS,
-                // The thread's split page (840-1199dp) keeps the Requests
-                // list beside it; the extra changes nothing elsewhere.
-                onOpenConversation: (id) => context.push(
-                  messagePath(id),
-                  extra: Folder.FOLDER_REQUESTS,
-                ),
-                // The band B placeholder's action.
-                onNewMessage: () => context.push(messageNewPath),
-              ),
-            ),
-          ),
-          GoRoute(
-            path: searchRoute,
-            builder: (context, state) {
-              final query = state.uri.queryParameters['q'] ?? '';
-              return AuthGate(
-                child: SearchResultsScreen(
-                  query: query,
-                  initialTab: SearchResultsTab.fromQuery(
-                    state.uri.queryParameters['tab'],
-                    query: query,
-                  ),
-                ),
-              );
-            },
-          ),
-          GoRoute(
-            path: bookmarksPath,
-            builder: (context, state) => AuthGate(
-              // `?tab=likes` opens the Likes tab; the screen ignores
-              // it while the `likes_list` flag is off.
-              child: BookmarksScreen(
-                initialTab: HistoryTab.fromQuery(
-                  state.uri.queryParameters['tab'],
-                ),
-              ),
-            ),
-          ),
-          GoRoute(
-            path: pinnedPath,
-            builder: (context, state) =>
-                const AuthGate(child: ManagePinnedScreen()),
-          ),
-          GoRoute(
-            path: listsPath,
-            builder: (context, state) => const AuthGate(child: ListsScreen()),
-          ),
-          GoRoute(
-            path: discoverListsPath,
-            builder: (context, state) =>
-                const AuthGate(child: DiscoverListsScreen()),
-          ),
-          GoRoute(
-            path: '/lists/:id',
-            builder: (context, state) => AuthGate(
-              child: ListDetailScreen(listId: state.pathParameters['id']!),
-            ),
-          ),
-          GoRoute(
-            path: communitiesPath,
-            builder: (context, state) =>
-                const AuthGate(child: CommunitiesScreen()),
-          ),
-          GoRoute(
-            path: communityNewPath,
-            builder: (context, state) =>
-                const AuthGate(child: CreateCommunityScreen()),
-          ),
-          GoRoute(
-            path: '/communities/:id',
-            builder: (context, state) => AuthGate(
-              child: CommunityScreen(communityId: state.pathParameters['id']!),
-            ),
-          ),
-          GoRoute(
-            path: '/communities/:id/members',
-            builder: (context, state) => AuthGate(
-              child: CommunityMembersScreen(
-                communityId: state.pathParameters['id']!,
-              ),
-            ),
-          ),
-          GoRoute(
-            path: '/communities/:id/moderation-log',
-            builder: (context, state) => AuthGate(
-              child: CommunityModerationLogScreen(
-                communityId: state.pathParameters['id']!,
-              ),
-            ),
-          ),
-          // Plans (beacons): `/plans/new` before `/plans/:id`.
-          GoRoute(
-            path: plansPath,
-            builder: (context, state) => const AuthGate(child: BeaconsScreen()),
-          ),
-          GoRoute(
-            path: planNewPath,
-            builder: (context, state) =>
-                const AuthGate(child: CreateBeaconScreen()),
-          ),
-          GoRoute(
-            path: plansMinePath,
-            builder: (context, state) =>
-                const AuthGate(child: MyBeaconsScreen()),
-          ),
-          GoRoute(
-            path: '/plans/:id',
-            builder: (context, state) => AuthGate(
-              child: BeaconScreen(beaconId: state.pathParameters['id']!),
-            ),
-          ),
-          GoRoute(
-            path: '/plans/:id/people',
-            builder: (context, state) => AuthGate(
-              child: BeaconPeopleScreen(beaconId: state.pathParameters['id']!),
-            ),
-          ),
-          GoRoute(
-            path: '/plans/:id/edit',
-            builder: (context, state) => AuthGate(
-              child: EditBeaconScreen(beaconId: state.pathParameters['id']!),
-            ),
-          ),
-          GoRoute(
-            path: '/lists/:id/members',
-            builder: (context, state) => AuthGate(
-              child: ListMembersScreen(listId: state.pathParameters['id']!),
-            ),
-          ),
-          if (kVisibleShells.contains(ShellKind.creatorStudio))
-            GoRoute(
-              path: creatorStudioPath,
-              builder: (context, state) =>
-                  const AuthGate(child: CreatorStudioScreen()),
-            ),
-          if (kVisibleShells.contains(ShellKind.advertise))
-            GoRoute(
-              path: advertisePath,
-              builder: (context, state) =>
-                  const AuthGate(child: AdvertiseScreen()),
-            ),
-          if (kVisibleShells.contains(ShellKind.calls))
-            GoRoute(
-              path: callsPath,
-              builder: (context, state) => const AuthGate(child: CallsScreen()),
-            ),
-          GoRoute(
-            path: '/u/:userId',
-            builder: (context, state) => AuthGate(
-              child: ProfileScreen(userId: state.pathParameters['userId']!),
-            ),
-          ),
-          GoRoute(
-            path: '/u/:userId/lists',
-            builder: (context, state) => AuthGate(
-              child: UserListsScreen(
-                userId: state.pathParameters['userId']!,
-                handle: state.extra as String?,
-              ),
-            ),
-          ),
-          GoRoute(
-            path: '/post/:id',
-            builder: (context, state) => AuthGate(
-              child: PostDetailScreen(postId: state.pathParameters['id']!),
-            ),
-          ),
-          GoRoute(
-            path: '/profile/:handle',
-            builder: (context, state) => AuthGate(
-              child: ProfileScreen(handle: state.pathParameters['handle']!),
-            ),
-          ),
-          GoRoute(
-            path: '/profile/:handle/followers',
-            builder: (context, state) {
-              final extra = state.extra;
-              final known = extra is GraphListExtra ? extra : null;
-              return AuthGate(
-                child: GraphListScreen(
-                  handle: state.pathParameters['handle']!,
-                  userId: known?.userId,
-                  displayName: known?.displayName,
-                  initialTab: GraphListTab.followers,
-                  viewerUserId: _onboardingBloc.state.profile?.userId,
-                ),
-              );
-            },
-          ),
-          GoRoute(
-            path: '/profile/:handle/following',
-            builder: (context, state) {
-              final extra = state.extra;
-              final known = extra is GraphListExtra ? extra : null;
-              return AuthGate(
-                child: GraphListScreen(
-                  handle: state.pathParameters['handle']!,
-                  userId: known?.userId,
-                  displayName: known?.displayName,
-                  initialTab: GraphListTab.following,
-                  viewerUserId: _onboardingBloc.state.profile?.userId,
-                ),
-              );
-            },
-          ),
-          GoRoute(
-            path: settingsPath,
-            // `?c=<category>` opens a category on the tablet layout (tablet
-            // plan section 4.3); every other layout ignores it.
-            builder: (context, state) => AuthGate(
-              child: SettingsScreen(
-                categoryId: state.uri.queryParameters[kSettingsCategoryParam],
-              ),
-            ),
-          ),
-          GoRoute(
-            path: blockedAccountsPath,
-            builder: (context, state) =>
-                const AuthGate(child: BlockedAccountsScreen()),
-          ),
-          GoRoute(
-            path: exportDataPath,
-            builder: (context, state) =>
-                const AuthGate(child: DataExportScreen()),
-          ),
-          GoRoute(
-            path: mutedAccountsPath,
-            builder: (context, state) =>
-                const AuthGate(child: MutedAccountsScreen()),
-          ),
-          GoRoute(
-            path: editProfilePath,
-            builder: (context, state) =>
-                const AuthGate(child: EditProfileScreen()),
-          ),
-          GoRoute(
-            path: changeHandlePath,
-            builder: (context, state) =>
-                const AuthGate(child: ChangeHandleScreen()),
-          ),
-          GoRoute(
-            path: deleteAccountPath,
-            builder: (context, state) =>
-                const AuthGate(child: DeleteAccountScreen()),
-          ),
-          GoRoute(
-            path: notificationSettingsPath,
-            builder: (context, state) =>
-                const AuthGate(child: NotificationSettingsScreen()),
-          ),
-          GoRoute(
-            path: messageSettingsPath,
-            builder: (context, state) =>
-                const AuthGate(child: MessageSettingsScreen()),
-          ),
-        ],
-      ),
-      // The people picker (a dialog on the root navigator) and the
-      // draft thread. Before `:id` on purpose, see `messagesPath`.
-      GoRoute(
-        path: messageNewPath,
-        pageBuilder: (context, state) =>
-            RecipientPickerPage(key: state.pageKey),
-      ),
-      // The two thread routes stay root (tablet plan section 5.3): full
-      // screen below 840dp and on desktop, the split page (rail, list,
-      // thread) at 840-1199dp on the tablet layout. `ThreadRoutePage` keeps
-      // the `AuthGate` outermost and the thread's state across 840dp.
-      GoRoute(
-        path: messageDraftPath,
-        // A reload or a typed URL has no person: back to the picker.
-        redirect: (context, state) =>
-            state.extra is common.AuthorSnapshot ? null : messageNewPath,
-        pageBuilder: (context, state) => _threadPage(
-          state,
-          ThreadRoutePage(
-            location: state.matchedLocation,
-            folder: Folder.FOLDER_INBOX,
-            thread: DraftThreadScreen(
-              peer: state.extra! as common.AuthorSnapshot,
-            ),
-          ),
-        ),
-      ),
-      // One conversation, full-screen (no nav chrome under a composer).
-      // After the ShellRoute on purpose, see `messagesPath`.
-      GoRoute(
-        path: '$messagesPath/:id',
-        pageBuilder: (context, state) => _threadPage(
-          state,
-          ThreadRoutePage(
-            location: state.matchedLocation,
-            // Opened from the Requests folder: its list beside the thread.
-            folder: messagesSplitFolderOf(state.extra),
-            thread: ThreadScreen(
-              conversationId: state.pathParameters['id']!,
-              // A message-search result opened this chat at one message.
-              highlightMessageId: state.uri.queryParameters['m'],
-              // The composer under the list (read-only threads and a
-              // caller without `messaging` get none).
-              composerBuilder: (context, conversation) =>
-                  const MessageComposer(),
-              // The request banner (Accept / Delete / Block) in place of
-              // the composer, the sender's waiting note, and the info menu's
-              // Report of the peer's account (the bubbles report messages).
-              bannerBuilder: buildRequestBanner,
-              onReport: reportConversationPeer,
-            ),
-          ),
-        ),
-      ),
+      ...articleRoutes(),
+      ...authRoutes(),
+      buildComposeReplyRoute(),
+      postPhotoRoute(),
+      buildComposeRoute(),
+      ...draftRoutes(),
+      accountDeletedRoute(),
+      ...premiumRoutes(premiumPushAllowed: _premiumPushAllowed),
+      shellRoute(onboardingBloc: _onboardingBloc),
+      ...messagingRootRoutes(),
     ],
   );
-
-  /// The page of a thread route: [ThreadPage] at every width, with the
-  /// name, arguments and restoration id go_router gives its default pages.
-  static Page<void> _threadPage(GoRouterState state, Widget child) =>
-      ThreadPage<void>(
-        key: state.pageKey,
-        name: state.name ?? state.path,
-        arguments: <String, String>{
-          ...state.pathParameters,
-          ...state.uri.queryParameters,
-        },
-        restorationId: state.pageKey.value,
-        child: child,
-      );
 
   // The shared link a visitor cold-opened, kept in memory (never in a
   // visible URL) while the redirects send them through the splash, welcome,
@@ -1007,26 +452,7 @@ class AppRouter {
   /// 600dp on the tablet layout (700 elsewhere), the content-area dialog at
   /// 600-1199dp on it, today's dialog from 700 elsewhere; one editor across
   /// every switch (tablet plan sections 4.1 and 5.2).
-  static GoRoute composeReplyRoute() => GoRoute(
-    path: '/compose/reply/:id',
-    pageBuilder: (context, state) => CustomTransitionPage<pb.PostView>(
-      key: state.pageKey,
-      opaque: false,
-      barrierColor: context.appColors.scrim,
-      transitionsBuilder: (context, animation, secondary, child) =>
-          FadeTransition(opacity: animation, child: child),
-      child: AuthGate(
-        child: ComposerRouteFrame(
-          pageKey: state.pageKey,
-          reply: true,
-          semanticLabel: 'Reply',
-          // The page's barrier is the scrim.
-          drawScrim: false,
-          editor: ReplyComposerScreen(postId: state.pathParameters['id']!),
-        ),
-      ),
-    ),
-  );
+  static GoRoute composeReplyRoute() => buildComposeReplyRoute();
 
   /// `/compose`, the post and quote composer (also mounted by the tablet
   /// composer tests). Outside the shell: no nav chrome while writing. Full
@@ -1034,49 +460,8 @@ class AppRouter {
   /// dialog over the page it was opened from, or full screen on a cold
   /// start (tablet plan 4.1, Composer row). The page is never opaque and is
   /// the same type at every width (`ComposerPage`).
-  static GoRoute composeRoute() => GoRoute(
-    path: composePath,
-    pageBuilder: (context, state) {
-      final quote = state.uri.queryParameters['quote'] ?? '';
-      final draft = state.uri.queryParameters['draft'] ?? '';
-      final community = state.uri.queryParameters['community'] ?? '';
-      final quoteId = _postIdPattern.hasMatch(quote) ? quote : '';
-      return ComposerPage<void>(
-        // What go_router's default `MaterialPage` carried.
-        key: state.pageKey,
-        name: state.name ?? state.path,
-        arguments: <String, String>{
-          ...state.pathParameters,
-          ...state.uri.queryParameters,
-        },
-        restorationId: state.pageKey.value,
-        child: AuthGate(
-          child: ComposerRouteFrame(
-            pageKey: state.pageKey,
-            reply: false,
-            semanticLabel: quoteId.isEmpty ? 'New post' : 'Quote',
-            editor: ComposerScreen(
-              // Only a well-formed community id (19 digits) preselects
-              // one.
-              communityId: _postIdPattern.hasMatch(community) ? community : '',
-              // Only a well-formed post id (19 digits) starts a quote.
-              quoteOfPostId: quoteId,
-              // Only a well-formed draft id (16 lower-case hex) opens a
-              // draft; an unknown one starts a new post (it never adopts
-              // the id).
-              draftId: _draftIdPattern.hasMatch(draft) ? draft : '',
-              quotePreview: state.extra is pb.EmbeddedPost
-                  ? state.extra as pb.EmbeddedPost
-                  : null,
-            ),
-          ),
-        ),
-      );
-    },
-  );
+  static GoRoute composeRoute() => buildComposeRoute();
 
-  static final _postIdPattern = RegExp(r'^\d{19}$');
-  static final _draftIdPattern = RegExp(r'^[0-9a-f]{16}$');
   static final _graphOnlyRoutes = RegExp(r'^/settings/(?:blocked|muted)$');
   static final _accountOnlyRoutes = RegExp(
     r'^/settings/(?:export|delete-account)$',
@@ -1346,27 +731,4 @@ class AppRouter {
     if (match != null) return profilePath(match.group(1)!);
     return null;
   }
-}
-
-/// Pops itself after its first frame: what a `/premium` entry restored from
-/// web history renders instead of the dialog, so Back / Forward never reopens
-/// it without a tap.
-class _PopOnFirstFrame extends StatefulWidget {
-  const _PopOnFirstFrame();
-
-  @override
-  State<_PopOnFirstFrame> createState() => _PopOnFirstFrameState();
-}
-
-class _PopOnFirstFrameState extends State<_PopOnFirstFrame> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) GoRouter.of(context).pop();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
 }

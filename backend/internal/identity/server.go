@@ -47,6 +47,7 @@ type Server struct {
 	allowAnonymous bool
 	flags          FlagChecker
 	lifecycle      AccountLifecycle
+	insights       CreatorInsightsService
 	reauthMaxAge   time.Duration
 	now            func() time.Time
 }

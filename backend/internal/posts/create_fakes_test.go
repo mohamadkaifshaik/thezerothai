@@ -119,7 +119,7 @@ func (r *fakeRepo) Conversation(ctx context.Context, conversationID string, afte
 }
 
 // AddReplyCount implements Repo for unit tests: bumps the parent when it exists.
-func (r *fakeRepo) AddReplyCount(ctx context.Context, parentID string, delta int64) error {
+func (r *fakeRepo) AddReplyCount(ctx context.Context, parentID string, delta int64, _, _ string) error {
 	r.replyCountCalls++
 	if r.replyCountErr != nil {
 		return r.replyCountErr
@@ -131,7 +131,7 @@ func (r *fakeRepo) AddReplyCount(ctx context.Context, parentID string, delta int
 }
 
 // AddQuoteCount implements Repo for unit tests: bumps the quoted post when it exists.
-func (r *fakeRepo) AddQuoteCount(ctx context.Context, id string, delta int64) error {
+func (r *fakeRepo) AddQuoteCount(ctx context.Context, id string, delta int64, _, _ string) error {
 	if p, ok := r.docs[id]; ok {
 		p.QuoteCount += delta
 	}

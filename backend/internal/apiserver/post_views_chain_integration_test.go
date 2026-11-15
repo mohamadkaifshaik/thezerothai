@@ -112,7 +112,8 @@ func TestPostViewsChain_RecordRollupRead(t *testing.T) {
 	}
 
 	e.closeViewWindows(t, pid)
-	for range 2 { // the second call is the redelivery
+	resetViewRollupGate(t, e.fs) // the gate is one doc shared by every chain on the emulator
+	for range 2 {                // the second call is the redelivery
 		if got := postRoute(t, e.url+"/internal/cron/view-rollup", http.MethodPost); got != http.StatusNoContent {
 			t.Fatalf("view-rollup = %d, want 204", got)
 		}

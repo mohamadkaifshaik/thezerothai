@@ -138,6 +138,10 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 		if targetFollowingDelta != 0 || targetFollowersDelta != 0 {
 			r.counters.AddCounts(b, targetUID, targetFollowingDelta, targetFollowersDelta)
 		}
+		// A block removes the follows both ways: each side that lost a follower records it (creator stats, F2), next to
+		// its own AddCounts Update.
+		r.stageFollowers(b, callerUID, targetUID, now, 0, -callerFollowersDelta)
+		r.stageFollowers(b, targetUID, callerUID, now, 0, -targetFollowersDelta)
 		if b.Err() != nil {
 			return b.Err()
 		}
