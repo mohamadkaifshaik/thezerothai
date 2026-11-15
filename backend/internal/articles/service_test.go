@@ -219,6 +219,9 @@ func TestPublishReplayAndAuthorizedBody(t *testing.T) {
 		if post.Article.Title != "Title" || post.Text != "Read my article" {
 			t.Fatal("missing atomic preview or caption")
 		}
+		if post.Article.ReadMinutes != 1 {
+			t.Fatalf("read minutes = %d, want 1 for a two-word body", post.Article.ReadMinutes)
+		}
 	}
 	bob := authn.WithClaims(ctx, authn.Claims{UID: "bob"})
 	if _, err = s.GetArticle(bob, connect.NewRequest(&av.GetArticleRequest{ArticleId: testID})); err != nil {
