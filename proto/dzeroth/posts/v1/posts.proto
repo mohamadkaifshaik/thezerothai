@@ -505,6 +505,10 @@ message ArticlePreview {
   string title = 2;
   string excerpt = 3;
   string cover_url = 4;
+  // Estimated reading time in whole minutes, at least 1. Computed once at publish from the article body's word count
+  // at about 230 words per minute, rounded up, and frozen with the rest of the preview. 0 = unknown: a post published
+  // before this field existed. Additive.
+  int32 read_minutes = 5;
 }
 
 // The community a post was created in. A snapshot taken at post time: a rename does not rewrite old
