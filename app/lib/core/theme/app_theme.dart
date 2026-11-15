@@ -1026,6 +1026,10 @@ abstract final class AppAuthPalette {
 /// Raw redesign colour tokens (ADR-0033). The [ColorScheme]s and [AppColors]
 /// read them; widgets read the theme, not these.
 abstract final class AppPalette {
+  /// The photo viewer's scrim: black at 60 %, and the same black clear (so
+  /// the gradient does not pass through grey).
+  static const Color photoScrim = Color(0x99000000);
+  static const Color photoScrimClear = Color(0x00000000);
   static const Color navy = Color(0xFF0D1528);
   static const Color navy2 = Color(0xFF1B2A44);
   static const Color navyDeep = Color(0xFF08101F);
@@ -1120,6 +1124,19 @@ abstract final class AppGradients {
     colors: [AppPalette.tealElectric, AppPalette.teal],
   );
   static const LinearGradient mineBubble = primaryButton;
+
+  /// The photo viewer's legibility wash behind its top and bottom controls:
+  /// black at 60 % fading to nothing towards the picture.
+  static const LinearGradient photoScrimTop = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [AppPalette.photoScrim, AppPalette.photoScrimClear],
+  );
+  static const LinearGradient photoScrimBottom = LinearGradient(
+    begin: Alignment.bottomCenter,
+    end: Alignment.topCenter,
+    colors: [AppPalette.photoScrim, AppPalette.photoScrimClear],
+  );
   static const LinearGradient card = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
@@ -1217,6 +1234,9 @@ class AppMotion {
   static const Duration expoOutShort = Duration(milliseconds: 300);
   static const Duration expoOutLong = Duration(milliseconds: 450);
   static const Duration backOutDuration = Duration(milliseconds: 350);
+
+  /// The photo viewer's controls fading out and back on a tap.
+  static const Duration chromeFade = Duration(milliseconds: 180);
 
   /// A page push: a short fade and a slight slide, ease-out (see
   /// `AppPageTransitionsBuilder`). Not used under reduced motion.
@@ -1467,6 +1487,8 @@ abstract final class AppPostsLayout {
 
   /// The pearl wash behind them, over the black stage.
   static const double photoButtonTint = 0.12;
+  static const double photoScrimTopHeight = 120;
+  static const double photoScrimBottomHeight = 220;
 
   /// A page dot and the selected page's elongated dot (phone viewer).
   static const double photoDot = 6;
