@@ -50,13 +50,22 @@ class _PostMenuHandle extends ChangeNotifier {
   final MenuController controller = MenuController();
   final GlobalKey anchorKey = GlobalKey();
   bool _available = false;
+  bool _disposed = false;
 
   bool get available => _available;
 
+  /// A no-op once disposed: the menu reports from a post-frame callback, and
+  /// a card scrolled out of a lazy list can dispose the handle before it runs.
   void setAvailable(bool value) {
-    if (_available == value) return;
+    if (_disposed || _available == value) return;
     _available = value;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }
 
@@ -237,9 +246,9 @@ class _PostMenuState extends State<_PostMenu> {
     final hasRows = canDelete || canGraph || canReport || showPin || showHide;
     if (scope != null) {
       // Not while building: the card's wrapper listens to this flag.
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => scope.setAvailable(hasRows),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) scope.setAvailable(hasRows);
+      });
     }
     if (!hasRows) return const SizedBox.shrink();
 
