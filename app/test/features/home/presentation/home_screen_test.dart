@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/home_retap_signal.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
@@ -134,6 +135,7 @@ void main() {
     Stream<OnboardingState> states = const Stream<OnboardingState>.empty(),
     double textScale = 1,
     SuggestionsCubit? suggestions,
+    HomeRetapSignal? retap,
   }) async {
     whenListen(
       onboardingBloc,
@@ -152,6 +154,8 @@ void main() {
         providers: [
           RepositoryProvider<TimelineRepository>.value(value: timeline),
           RepositoryProvider<PostsRepository>.value(value: posts),
+          if (retap != null)
+            RepositoryProvider<HomeRetapSignal>.value(value: retap),
           if (suggestions != null)
             RepositoryProvider<GraphRepository>.value(
               value: MockGraphRepository(),
@@ -435,6 +439,79 @@ void main() {
     verify(() => timeline.refresh(feed)).called(2);
     expect(find.text('post 3'), findsOneWidget);
     expect(find.textContaining('new post'), findsNothing);
+  });
+
+  group('Home tapped again (HomeRetapSignal)', () {
+    List<int> ids() => [for (var i = 30; i >= 1; i--) i];
+
+    double offset(WidgetTester tester) => tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .pixels;
+
+    testWidgets('scrolled down: animates to the top, no refresh', (
+      tester,
+    ) async {
+      final retap = HomeRetapSignal();
+      addTearDown(retap.dispose);
+      stubCached(snapshotOf(ids()));
+      stubRefresh(snapshotOf(ids()));
+      since = const Duration(seconds: 1);
+      await open(tester, retap: retap);
+      verifyNever(() => timeline.refresh(feed));
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -1500));
+      await tester.pumpAndSettle();
+      expect(offset(tester), greaterThan(500));
+
+      retap.retap();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      // Animating, not jumped.
+      expect(offset(tester), greaterThan(0));
+      await tester.pumpAndSettle();
+      expect(offset(tester), 0);
+      verifyNever(() => timeline.refresh(feed));
+    });
+
+    testWidgets('reduced motion: jumps to the top at once', (tester) async {
+      final retap = HomeRetapSignal();
+      addTearDown(retap.dispose);
+      stubCached(snapshotOf(ids()));
+      since = const Duration(seconds: 1);
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await open(tester, retap: retap);
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -1500));
+      await tester.pumpAndSettle();
+      expect(offset(tester), greaterThan(500));
+
+      retap.retap();
+      await tester.pump();
+      expect(offset(tester), 0);
+    });
+
+    testWidgets('already at the top: refreshes and shows the new posts', (
+      tester,
+    ) async {
+      final retap = HomeRetapSignal();
+      addTearDown(retap.dispose);
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(snapshotOf([2, 1]));
+      await open(tester, retap: retap);
+      verify(() => timeline.refresh(feed)).called(1);
+
+      stubRefresh(snapshotOf([3, 2, 1], since: 's2'));
+      retap.retap();
+      await tester.pumpAndSettle();
+
+      verify(() => timeline.refresh(feed)).called(1);
+      expect(find.text('post 3'), findsOneWidget);
+    });
   });
 
   testWidgets('a refresh that removed a post makes its card disappear', (
