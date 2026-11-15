@@ -165,7 +165,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// Beacons: CreateBeacon, UpdateBeacon and CancelBeacon share one per-user bucket (RATE_LIMIT_BEACONS_WRITE_PER_MIN,
 	// 10/min per instance); the five participation RPCs share another (RATE_LIMIT_BEACONS_ACTION_PER_MIN, 20/min); the
-	// five reads (Get, ListBeacons, ListMyBeacons, ListParticipants, ListSharedBeacons) a third (RATE_LIMIT_BEACONS_READ_PER_MIN, 30/min). CreateBeacon alone carries the in-memory daily cap
+	// six reads (Get, ListBeacons, ListMyBeacons, ListParticipants, ListSharedBeacons, ListNearbyBeacons) a third (RATE_LIMIT_BEACONS_READ_PER_MIN, 30/min). CreateBeacon alone carries the in-memory daily cap
 	// BEACONS_CREATED_PER_DAY (limit_name "beacons_created_daily"). All twelve are mapped now so PR 3 touches no rate limits.
 	rlBeaconsWrite := ratelimit.NewLimiter(cfg.RateLimit.BeaconsWritePerUserPerMinute, idleBucketTTL)
 	rlBeaconsAction := ratelimit.NewLimiter(cfg.RateLimit.BeaconsActionPerUserPerMinute, idleBucketTTL)
@@ -295,6 +295,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			beaconsv1connect.BeaconServiceListMyBeaconsProcedure:                 rlBeaconsRead,
 			beaconsv1connect.BeaconServiceListParticipantsProcedure:              rlBeaconsRead,
 			beaconsv1connect.BeaconServiceListSharedBeaconsProcedure:             rlBeaconsRead,
+			beaconsv1connect.BeaconServiceListNearbyBeaconsProcedure:             rlBeaconsRead,
 			locationv1connect.LocationServiceGetLocationSettingsProcedure:        rlLocationRead,
 			locationv1connect.LocationServiceListAreasProcedure:                  rlLocationRead,
 			locationv1connect.LocationServiceSetAreaProcedure:                    rlLocationWrite,
