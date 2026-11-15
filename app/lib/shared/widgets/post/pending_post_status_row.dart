@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -16,7 +18,7 @@ const kLabelPreviewLength = 40;
 /// so each action says which post it acts on. The status line is a live
 /// region that announces only the state changes (sending, posted, failed),
 /// never the upload counter.
-class PendingPostStatusRow extends StatelessWidget {
+class PendingPostStatusRow extends StatefulWidget {
   const PendingPostStatusRow({
     super.key,
     required this.post,
@@ -24,6 +26,7 @@ class PendingPostStatusRow extends StatelessWidget {
     this.onEdit,
     this.onDismiss,
     this.onVerify,
+    this.onUndo,
   });
 
   final PendingPost post;
@@ -32,9 +35,14 @@ class PendingPostStatusRow extends StatelessWidget {
   final VoidCallback? onDismiss;
   final VoidCallback? onVerify;
 
+  /// Undo while the send waits out its undo window.
+  final VoidCallback? onUndo;
+
   /// The words for the status line.
-  static String statusText(PendingPost p) {
+  static String statusText(PendingPost p, {int? seconds}) {
     switch (p.status) {
+      case PendingPostStatus.holding:
+        return 'Sending in ${seconds ?? p.holdSeconds}s';
       case PendingPostStatus.posted:
         return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
       case PendingPostStatus.failed:
@@ -53,6 +61,9 @@ class PendingPostStatusRow extends StatelessWidget {
   /// What a screen reader announces when the status changes: the state only.
   static String announcement(PendingPost p) {
     switch (p.status) {
+      // Said once, when the row appears: the ticking numbers are not.
+      case PendingPostStatus.holding:
+        return 'Sending in ${p.holdSeconds} seconds, Undo available';
       case PendingPostStatus.posted:
         return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
       case PendingPostStatus.failed:
@@ -69,12 +80,63 @@ class PendingPostStatusRow extends StatelessWidget {
   }
 
   @override
+  State<PendingPostStatusRow> createState() => _PendingPostStatusRowState();
+}
+
+class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
+  Timer? _tick;
+  late int _seconds = widget.post.holdSeconds;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(PendingPostStatusRow old) {
+    super.didUpdateWidget(old);
+    if (old.post.status != widget.post.status) {
+      _seconds = widget.post.holdSeconds;
+    }
+    _syncTimer();
+  }
+
+  /// The countdown only runs while the undo window is open.
+  void _syncTimer() {
+    final holding = widget.post.status == PendingPostStatus.holding;
+    if (holding && _tick == null) {
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (_seconds > 1) setState(() => _seconds--);
+      });
+    } else if (!holding) {
+      _tick?.cancel();
+      _tick = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final post = widget.post;
+    final onRetry = widget.onRetry;
+    final onEdit = widget.onEdit;
+    final onDismiss = widget.onDismiss;
+    final onVerify = widget.onVerify;
+    final onUndo = widget.onUndo;
+    final holding = post.status == PendingPostStatus.holding;
+    // Reduced motion: no shrinking bar, only the numbers.
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final failed = post.status == PendingPostStatus.failed;
     final posted = post.status == PendingPostStatus.posted;
-    final status = statusText(post);
+    final status = PendingPostStatusRow.statusText(post, seconds: _seconds);
     final thumb = post.thumbnails.isEmpty ? null : post.thumbnails.first;
     final icon = failed
         ? Icons.error_outline
@@ -82,7 +144,7 @@ class PendingPostStatusRow extends StatelessWidget {
         ? Icons.check_circle_outline
         : Icons.schedule_send_outlined;
     final tone = failed ? scheme.error : scheme.onSurfaceVariant;
-    final preview = _preview(post);
+    final preview = PendingPostStatusRow._preview(post);
     // Labels and tooltips name the post by its first words only.
     final short = preview.runes.length > kLabelPreviewLength
         ? '${String.fromCharCodes(preview.runes.take(kLabelPreviewLength))}…'
@@ -153,7 +215,7 @@ class PendingPostStatusRow extends StatelessWidget {
                       Semantics(
                         liveRegion: true,
                         container: true,
-                        label: announcement(post),
+                        label: PendingPostStatusRow.announcement(post),
                         excludeSemantics: true,
                         child: Text(
                           status,
@@ -180,6 +242,8 @@ class PendingPostStatusRow extends StatelessWidget {
                   ExcludeSemantics(
                     child: Icon(Icons.check_circle, color: scheme.primary),
                   )
+                else if (holding && onUndo != null)
+                  action('Undo', 'Undo sending $about', onUndo)
                 else if (failed && onDismiss != null)
                   IconButton(
                     tooltip: 'Dismiss $about',
@@ -192,6 +256,19 @@ class PendingPostStatusRow extends StatelessWidget {
                   ),
               ],
             ),
+            if (holding && !reduceMotion) ...[
+              const SizedBox(height: AppSpacing.sm),
+              ExcludeSemantics(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: LinearProgressIndicator(
+                    value: post.holdSeconds == 0
+                        ? 0
+                        : _seconds / post.holdSeconds,
+                  ),
+                ),
+              ),
+            ],
             if (post.status == PendingPostStatus.sending) ...[
               const SizedBox(height: AppSpacing.sm),
               ExcludeSemantics(
@@ -206,11 +283,7 @@ class PendingPostStatusRow extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   if (post.needsVerify && onVerify != null)
-                    action(
-                      'Verify email',
-                      'Verify email for $about',
-                      onVerify!,
-                    ),
+                    action('Verify email', 'Verify email for $about', onVerify),
                   if (onEdit != null)
                     action(
                       post.keepsPhotos || post.thumbnails.isEmpty
@@ -219,10 +292,10 @@ class PendingPostStatusRow extends StatelessWidget {
                       post.keepsPhotos || post.thumbnails.isEmpty
                           ? 'Edit $about'
                           : 'Edit text of $about, photos will be removed',
-                      onEdit!,
+                      onEdit,
                     ),
                   if (post.canRetry && onRetry != null)
-                    action('Retry', 'Retry sending $about', onRetry!),
+                    action('Retry', 'Retry sending $about', onRetry),
                 ],
               ),
           ],

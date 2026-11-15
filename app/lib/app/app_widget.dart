@@ -56,6 +56,7 @@ import '../features/media/data/image_processor_factory.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
 import '../features/media/domain/quality_aware_image_processor.dart';
+import '../features/settings/presentation/bloc/undo_send_cubit.dart';
 import '../features/settings/presentation/bloc/data_usage_cubit.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
@@ -268,6 +269,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     sessionEpoch: widget.database.sessionEpoch,
     usage: widget.usage,
     onUnexpectedError: reportUnexpectedError,
+    // The Undo send window (Settings); none while the setting is off.
+    undoDelay: () => _undoSend.window,
   );
   // The session's like/repost overlay; sign-out forgets it.
   late final EngagementCubit _engagement = EngagementCubit(
@@ -371,6 +374,10 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   // size), with the connection type.
   late final NetworkTypeService _networkType =
       widget.networkTypeService ?? ConnectivityNetworkTypeService();
+  // Undo send (device level, on by default).
+  late final UndoSendCubit _undoSend = UndoSendCubit(
+    DatabaseDataUsageStore(widget.database),
+  );
   late final DataUsageCubit _dataUsage = DataUsageCubit(
     DatabaseDataUsageStore(widget.database),
     _networkType,
@@ -465,6 +472,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     unawaited(_themeMode.load());
     unawaited(_textSize.load());
     unawaited(_dataUsage.load());
+    unawaited(_undoSend.load());
     if (widget.ownPrivacyStore == null) {
       feedOwnPrivacyStore(
         _ownPrivacy,
@@ -641,6 +649,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _themeMode.close();
     _textSize.close();
     _dataUsage.close();
+    _undoSend.close();
     if (widget.networkTypeService == null) _networkType.dispose();
     if (widget.ownPrivacyStore == null) _ownPrivacy.dispose();
     _pushOptIn.close();
@@ -751,6 +760,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
           BlocProvider.value(value: _themeMode),
           BlocProvider.value(value: _textSize),
           BlocProvider.value(value: _dataUsage),
+          BlocProvider.value(value: _undoSend),
           BlocProvider.value(value: _servicePaused),
         ],
         child: ShareLinksScope(

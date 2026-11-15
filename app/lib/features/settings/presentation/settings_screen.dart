@@ -44,6 +44,8 @@ import '../domain/private_accounts_feature_flag.dart';
 import '../domain/message_privacy.dart';
 import '../domain/settings_categories.dart';
 import 'bloc/data_usage_cubit.dart';
+import 'bloc/undo_send_cubit.dart';
+import 'undo_send_messages.dart';
 import 'bloc/message_privacy_cubit.dart';
 import 'data_usage_messages.dart';
 import 'bloc/protect_posts_cubit.dart';
@@ -708,6 +710,7 @@ class _SettingsRows {
     required this.appearance,
     required this.textSize,
     required this.dataUsage,
+    required this.undoSend,
     required this.protect,
     required this.telemetry,
     required this.blocked,
@@ -733,6 +736,7 @@ class _SettingsRows {
   final Widget appearance;
   final Widget? textSize;
   final Widget? dataUsage;
+  final Widget? undoSend;
   final Widget? protect;
   final List<Widget> telemetry;
   final Widget? blocked;
@@ -774,7 +778,7 @@ class _SettingsRows {
     // Only decides whether the category shows: its page is the push
     // switches themselves (`NotificationSettingsBody`).
     SettingsCategory.notifications => [?notifications],
-    SettingsCategory.display => [appearance, ?textSize, ?dataUsage],
+    SettingsCategory.display => [appearance, ?textSize, ?dataUsage, ?undoSend],
     SettingsCategory.about => [communityRules, privacyPolicy],
   };
 
@@ -808,7 +812,17 @@ class _SettingsRows {
         ?messages,
       ],
     ),
-    ('App', [appearance, ?textSize, ?dataUsage, ?notifications, ?scheduled]),
+    (
+      'App',
+      [
+        appearance,
+        ?textSize,
+        ?dataUsage,
+        ?undoSend,
+        ?notifications,
+        ?scheduled,
+      ],
+    ),
     ('Data', [?export, ?unsent, privacyPolicy, communityRules, ?deleteAccount]),
     ('Session', [signOut]),
   ];
@@ -841,6 +855,7 @@ class _SettingsRows {
         'appearance',
         if (textSize != null) 'text size',
         if (dataUsage != null) 'data usage',
+        if (undoSend != null) 'undo send',
       ],
       SettingsCategory.about => ['Privacy Policy', 'Community rules'],
     };
@@ -906,6 +921,10 @@ _SettingsRows _rowsFor(
   // Device level, no flag. Absent without the cubit (a test harness).
   final dataUsageReady = context.select<DataUsageCubit?, bool>(
     (cubit) => cubit != null,
+  );
+  // Undo send: device level, no flag; absent without the cubit.
+  final undoSendOn = context.select<UndoSendCubit?, bool?>(
+    (cubit) => cubit?.state,
   );
 
   // The legacy chrome (no `ui_shell`) has no Messages tab, so Settings
@@ -1010,6 +1029,16 @@ _SettingsRows _rowsFor(
             onTap: () => open(AppRouter.dataUsagePath),
           )
         : null,
+    undoSend: undoSendOn == null
+        ? null
+        : SettingsRow(
+            icon: Icons.undo,
+            title: kUndoSendTitle,
+            subtitle: kUndoSendSubtitle,
+            subtitleMaxLines: 3,
+            toggled: undoSendOn,
+            onTap: () => context.read<UndoSendCubit>().set(!undoSendOn),
+          ),
     protect: showProtect ? const ProtectPostsRow() : null,
     // Only on Android, only while the kind's flag is on.
     telemetry: [
