@@ -6,6 +6,7 @@ import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../../shared/widgets/primitives/app_chip.dart';
 import '../../domain/beacon_labels.dart';
 import '../beacon_icons.dart';
+import 'area_label.dart';
 
 /// What a plan says about itself, as the plan page (`/plans/:id`) draws it
 /// (R12, the designs' PlanDetail): a navy hero with the activity eyebrow and
@@ -134,6 +135,11 @@ class PlanSummary extends StatelessWidget {
                   placeholder: noVenue,
                   note: kMeetingPointNote,
                 ),
+                if (b.hasArea() && showsAreaLabel(context, b.area))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: AreaLabel(area: b.area, onDark: true),
+                  ),
                 PlanFactLine(
                   icon: Icons.people_outline,
                   text: beaconSeatsText(b),

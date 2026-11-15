@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
+import 'package:dzeroth/features/location/domain/location_models.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:flutter_test/flutter_test.dart';
@@ -150,6 +151,38 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
               if (v.beacon.activity == activity) v,
           ];
     return _page(source, limit, pageToken);
+  }
+
+  /// Explore Nearby: the rows ListNearbyBeacons answers (paged by [pageSize]),
+  /// the resolved [nearbyArea], the first page's [nearbyCount], and one
+  /// refusal per call from [nearbyRefusals].
+  final List<pb.NearbyBeacon> nearby = [];
+  AreaRef? nearbyArea;
+  pb.NearbyCount? nearbyCount;
+  final List<AppException> nearbyRefusals = [];
+
+  /// The scope of every ListNearbyBeacons, in order.
+  final List<pb.NearbyScope> nearbyScopes = [];
+
+  @override
+  Future<NearbyPage> listNearby({
+    String areaId = '',
+    pb.NearbyScope scope = pb.NearbyScope.NEARBY_SCOPE_UNSPECIFIED,
+    int limit = 0,
+    String pageToken = '',
+  }) async {
+    calls.add('nearby');
+    nearbyScopes.add(scope);
+    if (nearbyRefusals.isNotEmpty) throw nearbyRefusals.removeAt(0);
+    final start = pageToken.isEmpty ? 0 : int.parse(pageToken);
+    final size = limit <= 0 ? pageSize : limit;
+    final end = (start + size).clamp(0, nearby.length);
+    return NearbyPage(
+      items: nearby.sublist(start, end),
+      nextPageToken: end < nearby.length ? '$end' : '',
+      area: nearbyArea,
+      count: start == 0 ? nearbyCount : null,
+    );
   }
 
   @override

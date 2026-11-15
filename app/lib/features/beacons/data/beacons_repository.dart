@@ -3,7 +3,11 @@ import 'package:connectrpc/connect.dart' as connect;
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
+import '../../../core/network/connect_error_mapper.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import '../../../gen/dzeroth/location/v1/location.pbenum.dart' show AreaKind;
+import '../../location/domain/location_feature_flag.dart';
+import '../../location/domain/location_models.dart';
 import '../domain/beacons_feature_flag.dart';
 
 /// One page of [BeaconsRepository.listBeacons].
@@ -12,6 +16,24 @@ class BeaconsPage {
 
   final List<pb.BeaconView> views;
   final String nextPageToken;
+  bool get hasMore => nextPageToken.isNotEmpty;
+}
+
+/// One page of [BeaconsRepository.listNearby]: the plans with where each sits
+/// relative to the area, the resolved [area] and, on the first page only, the
+/// K-anonymous [count].
+class NearbyPage {
+  const NearbyPage({
+    required this.items,
+    this.nextPageToken = '',
+    this.area,
+    this.count,
+  });
+
+  final List<pb.NearbyBeacon> items;
+  final String nextPageToken;
+  final AreaRef? area;
+  final pb.NearbyCount? count;
   bool get hasMore => nextPageToken.isNotEmpty;
 }
 
@@ -81,6 +103,46 @@ class BeaconsRepository {
     }
     final r = await _call(() => _apiClient.beacons.listBeacons(request));
     return BeaconsPage(views: r.views.toList(), nextPageToken: r.nextPageToken);
+  }
+
+  /// Public plans in one area (Explore Nearby): [areaId] empty is the
+  /// caller's stored area (FAILED_PRECONDITION `area_not_set` when none, as a
+  /// [StateConflictException]); [scope] UNSPECIFIED sends none (the server
+  /// reads it as AREA). Needs `location` for the caller on the server (a
+  /// [FeatureDisabledException] otherwise).
+  Future<NearbyPage> listNearby({
+    String areaId = '',
+    pb.NearbyScope scope = pb.NearbyScope.NEARBY_SCOPE_UNSPECIFIED,
+    int limit = 0,
+    String pageToken = '',
+  }) async {
+    final r = await _call(
+      () => _apiClient.beacons.listNearbyBeacons(
+        pb.ListNearbyBeaconsRequest(
+          areaId: areaId,
+          scope: scope,
+          limit: limit,
+          pageToken: pageToken,
+        ),
+      ),
+    );
+    final area = r.hasArea() && r.area.areaId.isNotEmpty
+        ? AreaRef(
+            id: r.area.areaId,
+            name: r.area.name,
+            type: r.area.kind == AreaKind.AREA_KIND_CITY
+                ? AreaType.city
+                : AreaType.area,
+            cityId: r.area.cityId,
+            cityName: r.area.cityName,
+          )
+        : null;
+    return NearbyPage(
+      items: r.items.toList(),
+      nextPageToken: r.nextPageToken,
+      area: area,
+      count: r.hasCount() ? r.count : null,
+    );
   }
 
   Future<pb.BeaconView> getBeacon(String beaconId) async {
@@ -287,9 +349,18 @@ class BeaconsRepository {
         return _Out<T>(await call());
       } on connect.ConnectException catch (error) {
         if (error.code == connect.Code.unimplemented) return _Out<T>.notYet();
+        // The `location` flag of the area RPCs is not the plans service's:
+        // it must not switch Plans off for the session.
+        final mapped = mapConnectError(error);
+        if (mapped is FeatureDisabledException &&
+            mapped.feature == kFeatureLocation) {
+          return _Out<T>.locationOff(mapped);
+        }
         rethrow;
       }
     });
+    final off = out.locationOff;
+    if (off != null) throw off;
     if (out.notYet) {
       throw const FeatureDisabledException(
         "Plans aren't available yet.",
@@ -302,9 +373,11 @@ class BeaconsRepository {
 
 /// A call's answer, or "the server does not have this RPC yet".
 class _Out<T> {
-  _Out(this.value) : notYet = false;
-  _Out.notYet() : value = null, notYet = true;
+  _Out(this.value) : notYet = false, locationOff = null;
+  _Out.notYet() : value = null, notYet = true, locationOff = null;
+  _Out.locationOff(this.locationOff) : value = null, notYet = false;
 
   final T? value;
   final bool notYet;
+  final FeatureDisabledException? locationOff;
 }

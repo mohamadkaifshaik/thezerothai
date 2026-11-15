@@ -13,6 +13,7 @@ import '../../../shared/widgets/primitives/app_labeled_field.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
+import '../../location/domain/location_models.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
 import '../domain/beacon_text_rules.dart';
@@ -22,6 +23,7 @@ import 'beacons_error_messages.dart';
 import 'bloc/edit_beacon_cubit.dart';
 import 'create_beacon_screen.dart'
     show platformPickPlanDate, platformPickPlanTime;
+import 'widgets/area_label.dart';
 import 'widgets/discard_plan_dialog.dart';
 import 'widgets/plan_form_fields.dart';
 import 'widgets/plan_preview.dart';
@@ -307,6 +309,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
       normalizeListText(_venue.text) != b.venue ||
       _openSpots != b.openSpots ||
       _makePublic ||
+      _areaChanged(b) ||
       (_scheduleEditable(b) &&
           (_startChanged(b) ||
               _duration != b.durationMinutes ||
@@ -332,7 +335,34 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
       durationMinutes: schedule ? _duration : null,
       cost: schedule ? _cost : null,
       makePublic: _makePublic,
+      areaId: _areaTouched && areaLabelsEnabled(context, listen: false)
+          ? (_pickedArea?.id ?? '')
+          : null,
     );
+  }
+
+  /// The area was picked or cleared on this form.
+  bool _areaTouched = false;
+  AreaRef? _pickedArea;
+
+  bool _areaChanged(pb.Beacon b) =>
+      _areaTouched &&
+      (_pickedArea?.id ?? '') != (b.hasArea() ? b.area.areaId : '');
+
+  /// The area the form shows: the picked one, else the plan's own.
+  String? _areaLabel(pb.Beacon? b) {
+    if (_areaTouched) return _pickedArea?.label;
+    if (b == null || !b.hasArea() || b.area.areaId.isEmpty) return null;
+    return areaLabelText(b.area);
+  }
+
+  Future<void> _pickArea() async {
+    final picked = await pickPlanArea(context);
+    if (picked == null || !mounted) return;
+    _update(() {
+      _areaTouched = true;
+      _pickedArea = picked;
+    });
   }
 
   int _left(TextEditingController c, int max) => max - beaconTextLength(c.text);
@@ -494,6 +524,16 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                       max: kBeaconVenueMaxLength,
                                     ),
                                   ),
+                                  if (areaLabelsEnabled(context))
+                                    PlanAreaField(
+                                      label: _areaLabel(b),
+                                      enabled: !busy,
+                                      onPick: _pickArea,
+                                      onClear: () => _update(() {
+                                        _areaTouched = true;
+                                        _pickedArea = null;
+                                      }),
+                                    ),
                                   if (b != null && _scheduleEditable(b))
                                     PlanPair(
                                       first: PlanFormSection(

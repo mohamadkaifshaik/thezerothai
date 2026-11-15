@@ -108,7 +108,11 @@ void main() {
       expect(tabs(false, false), [ExploreTab.trending]);
       expect(showsExploreTabBar(tabs(false, false)), isFalse);
       expect(showsExploreTabBar(tabs(true, false)), isTrue);
-      expect(tabs(true, true), ExploreTab.values);
+      expect(tabs(true, true), [
+        ExploreTab.trending,
+        ExploreTab.plans,
+        ExploreTab.people,
+      ]);
       expect(
         resolveExploreTab(ExploreTab.plans, [ExploreTab.trending]),
         ExploreTab.trending,

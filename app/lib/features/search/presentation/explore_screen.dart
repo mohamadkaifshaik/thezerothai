@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -11,10 +13,13 @@ import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../beacons/data/beacons_repository.dart';
 import '../../beacons/domain/beacons_feature_flag.dart';
 import '../../beacons/presentation/bloc/beacons_cubit.dart';
+import '../../beacons/presentation/bloc/nearby_plans_cubit.dart';
+
 import '../../graph/presentation/graph_feature_flags.dart';
 import '../../location/domain/location_feature_flag.dart';
 import '../domain/explore_tab.dart';
 import 'widgets/explore_people_section.dart';
+import 'widgets/explore_nearby_section.dart';
 import 'widgets/explore_plans_section.dart';
 import '../../../shared/widgets/primitives/app_icon_button.dart';
 import '../../../core/feature_flags/feature_flags.dart';
@@ -61,7 +66,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// The Plans tab's public list, made when the tab is first opened (opening
   /// Explore sends no ListBeacons) and kept for the session of the screen.
   BeaconsCubit? _plans;
+
+  /// The Nearby tab's list, made when the tab is first opened. When the
+  /// server says Nearby is off (FEATURE_DISABLED) the tab is hidden.
+  NearbyPlansCubit? _nearby;
+  StreamSubscription<NearbyPlansState>? _nearbySub;
+  bool _nearbyOff = false;
   ExploreTab _tab = ExploreTab.trending;
+
+  NearbyPlansCubit _makeNearby() {
+    final cubit = NearbyPlansCubit(repository: context.read<BeaconsRepository>())
+      ..load();
+    _nearbySub = cubit.stream.listen((s) {
+      if (s.load == NearbyLoad.disabled && mounted && !_nearbyOff) {
+        setState(() => _nearbyOff = true);
+      }
+    });
+    return cubit;
+  }
 
   bool _mediaAllowed(BuildContext context) =>
       isFeatureEnabled(context, kFeatureSearch) &&
@@ -72,6 +94,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
   void dispose() {
     _media?.close();
     _plans?.close();
+    _nearbySub?.cancel();
+    _nearby?.close();
     super.dispose();
   }
 
@@ -89,6 +113,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
           )
         : null;
     final tabs = exploreTabsFor(
+      nearby:
+          !_nearbyOff &&
+          isFeatureEnabled(context, kFeatureLocation) &&
+          isFeatureEnabled(context, kFeatureBeacons),
       plans: isFeatureEnabled(context, kFeatureBeacons),
       people: isFollowSuggestionsEnabled(context),
     );
@@ -100,6 +128,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
       plans = _plans ??= BeaconsCubit(
         repository: context.read<BeaconsRepository>(),
       )..load();
+    }
+    NearbyPlansCubit? nearby;
+    if (tab == ExploreTab.nearby) {
+      nearby = _nearby ??= _makeNearby();
     }
     final header = SliverPersistentHeader(
       pinned: true,
@@ -114,18 +146,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
         locationOn: isFeatureEnabled(context, kFeatureLocation),
       ),
     );
-    if (tab == ExploreTab.plans || tab == ExploreTab.people) {
+    if (tab == ExploreTab.plans ||
+        tab == ExploreTab.people ||
+        tab == ExploreTab.nearby) {
       return Scaffold(
         body: RefreshIndicator(
-          onRefresh: () => tab == ExploreTab.plans
-              ? plans!.load()
-              : ExplorePeopleSection.reload(context),
+          onRefresh: () => switch (tab) {
+            ExploreTab.plans => plans!.load(),
+            ExploreTab.nearby => nearby!.load(),
+            _ => ExplorePeopleSection.reload(context),
+          },
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               header,
               if (tab == ExploreTab.plans)
                 ExplorePlansSection(cubit: plans!)
+              else if (tab == ExploreTab.nearby)
+                ExploreNearbySection(cubit: nearby!)
               else
                 const ExplorePeopleSection(),
               const ShellBottomInsetSliver(),

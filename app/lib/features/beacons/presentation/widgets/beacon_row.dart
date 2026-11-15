@@ -7,6 +7,7 @@ import '../../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../../shared/widgets/primitives/app_tile_icon.dart';
 import '../../domain/beacon_labels.dart';
 import '../beacon_icons.dart';
+import 'area_label.dart';
 import 'beacon_status_pill.dart';
 import 'quick_join.dart';
 
@@ -45,6 +46,7 @@ class BeaconRow extends StatelessWidget {
     this.selected = false,
     this.dense = false,
     this.compact = false,
+    this.proximity,
   });
 
   final pb.BeaconView view;
@@ -52,6 +54,11 @@ class BeaconRow extends StatelessWidget {
   final bool selected;
   final bool dense;
   final bool compact;
+
+  /// Where the plan's area sits relative to the area asked for (Explore
+  /// Nearby rows): the area line reads "In your area", "Nearby: AREA" or
+  /// "In CITY" instead of the area name.
+  final pb.AreaProximity? proximity;
 
   @override
   Widget build(BuildContext context) {
@@ -61,11 +68,15 @@ class BeaconRow extends StatelessWidget {
         ? null
         : statusLabel(b.status);
     final badge = planViewerBadge(view.viewer);
+    final area = b.hasArea() && showsAreaLabel(context, b.area)
+        ? areaLabelText(b.area, proximity)
+        : null;
     final spoken = [
       activityLabel(b.activity),
       b.title,
       when,
       b.venue,
+      ?area,
       beaconSeatsText(b),
       ?status,
       ?badge,
@@ -250,6 +261,10 @@ class BeaconRow extends StatelessWidget {
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
+        if (b.hasArea() && showsAreaLabel(context, b.area)) ...[
+          const SizedBox(height: AppSpacing.xs),
+          AreaLabel(area: b.area, proximity: proximity),
+        ],
         const SizedBox(height: AppSpacing.smd),
         Wrap(
           spacing: AppSpacing.sm,

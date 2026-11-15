@@ -97,6 +97,8 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
   /// only when given and different from the loaded plan; the screen gives
   /// none once the plan has started (the server refuses them then).
   /// [makePublic] (F28b) sends `public = true` for a community plan only.
+  /// [areaId] (null = leave it) is sent only when it differs from the plan's
+  /// area; "" clears it.
   Future<void> save({
     required String title,
     required String details,
@@ -106,6 +108,7 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
     int? durationMinutes,
     pb.BeaconCost? cost,
     bool makePublic = false,
+    String? areaId,
   }) async {
     final view = state.view;
     if (state.busy || view == null) return;
@@ -123,12 +126,16 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
     }
     if (cost != null && cost != b.cost) request.cost = cost;
     if (makePublic && b.communityId.isNotEmpty) request.public = true;
+    // Unset is unchanged; "" removes the area.
+    final storedArea = b.hasArea() ? b.area.areaId : '';
+    if (areaId != null && areaId != storedArea) request.areaId = areaId;
     if (!request.hasTitle() &&
         !request.hasDetails() &&
         !request.hasVenue() &&
         !request.hasOpenSpots() &&
         !_movesSchedule(request) &&
-        !request.hasPublic()) {
+        !request.hasPublic() &&
+        !request.hasAreaId()) {
       emit(state.copyWith(saved: view, clearSaveError: true));
       return;
     }

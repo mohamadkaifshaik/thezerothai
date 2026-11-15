@@ -1,8 +1,8 @@
-/// The tabs of Explore. Trending is always there; Plans and People show only
-/// while the flag of the RPC behind each is on. Nearby (F18) stays out until
-/// the location project.
+/// The tabs of Explore. Trending is always there; Nearby shows with `location`
+/// and `beacons`, Plans and People while the flag of the RPC behind each is on.
 enum ExploreTab {
   trending('Trending'),
+  nearby('Nearby'),
   plans('Plans'),
   people('People');
 
@@ -14,9 +14,14 @@ enum ExploreTab {
 /// The tabs Explore shows, in order. Trending is always the first (with
 /// `trends` off it holds only what its flags allow, as before). One tab means
 /// no tab bar ([showsExploreTabBar] false): Explore's page as it was.
-List<ExploreTab> exploreTabsFor({required bool plans, required bool people}) =>
+List<ExploreTab> exploreTabsFor({
+  required bool plans,
+  required bool people,
+  bool nearby = false,
+}) =>
     [
       ExploreTab.trending,
+      if (nearby) ExploreTab.nearby,
       if (plans) ExploreTab.plans,
       if (people) ExploreTab.people,
     ];
