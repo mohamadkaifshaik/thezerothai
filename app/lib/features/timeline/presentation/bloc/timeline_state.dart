@@ -14,6 +14,23 @@ enum TimelineStatus {
   error,
 }
 
+/// How many author avatars the "new posts" pill shows at most.
+const kNewPostAvatarCount = 3;
+
+/// An author of a post held behind the pill: just what an avatar needs.
+@immutable
+class NewPostAuthor {
+  const NewPostAuthor({
+    required this.userId,
+    this.name = '',
+    this.avatarUrl = '',
+  });
+
+  final String userId;
+  final String name;
+  final String avatarUrl;
+}
+
 /// What a feed screen renders. Plain immutable class (no codegen).
 @immutable
 class TimelineState {
@@ -26,6 +43,7 @@ class TimelineState {
     this.loadMoreFailed = false,
     this.loadingGapKey,
     this.newPosts = 0,
+    this.newPostAuthors = const [],
     this.error,
     this.notice,
     this.authorProtected = false,
@@ -59,6 +77,10 @@ class TimelineState {
   /// Posts a refresh found that are not inserted yet (the pill).
   final int newPosts;
 
+  /// Up to [kNewPostAvatarCount] distinct authors of the held posts, newest
+  /// first (the pill's avatars). Empty when nothing is held.
+  final List<NewPostAuthor> newPostAuthors;
+
   /// Blocking error: only with [TimelineStatus.error] (nothing to show).
   final AppException? error;
 
@@ -77,6 +99,7 @@ class TimelineState {
     String? loadingGapKey,
     bool clearLoadingGap = false,
     int? newPosts,
+    List<NewPostAuthor>? newPostAuthors,
     AppException? error,
     bool clearError = false,
     AppException? notice,
@@ -94,6 +117,7 @@ class TimelineState {
         ? null
         : (loadingGapKey ?? this.loadingGapKey),
     newPosts: newPosts ?? this.newPosts,
+    newPostAuthors: newPostAuthors ?? this.newPostAuthors,
     error: clearError ? null : (error ?? this.error),
     notice: clearNotice ? null : (notice ?? this.notice),
     authorProtected: authorProtected ?? this.authorProtected,
