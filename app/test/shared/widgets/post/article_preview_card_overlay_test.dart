@@ -8,12 +8,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-ArticlePreview _article({String cover = ''}) => ArticlePreview(
-  articleId: 'a' * 32,
-  title: 'A long article title',
-  excerpt: 'The first lines of the article',
-  coverUrl: cover,
-);
+ArticlePreview _article({String cover = '', int readMinutes = 0}) =>
+    ArticlePreview(
+      articleId: 'a' * 32,
+      title: 'A long article title',
+      excerpt: 'The first lines of the article',
+      coverUrl: cover,
+      readMinutes: readMinutes,
+    );
 
 double _contrastWithWhite(Color c) => 1.05 / (c.computeLuminance() + 0.05);
 
@@ -24,6 +26,7 @@ void main() {
     ArticleTintLoader? loader,
     Brightness brightness = Brightness.light,
     double width = 390,
+    int readMinutes = 0,
   }) async {
     final router = GoRouter(
       routes: [
@@ -34,7 +37,7 @@ void main() {
               child: SizedBox(
                 width: width,
                 child: ArticlePreviewCard(
-                  article: _article(cover: cover),
+                  article: _article(cover: cover, readMinutes: readMinutes),
                   tintLoader: loader ?? (_) async => null,
                 ),
               ),
@@ -219,6 +222,33 @@ void main() {
         articleOverlayTint(const Color(0xFF102040)),
         const Color(0xFF102040),
       );
+    });
+  });
+
+  group('read time label', () {
+    test('bare label when the read time is unknown (0)', () {
+      expect(articleCardLabel(0), 'ARTICLE');
+    });
+
+    test('adds the minutes when known', () {
+      expect(articleCardLabel(1), 'ARTICLE · 1 MIN READ');
+      expect(articleCardLabel(12), 'ARTICLE · 12 MIN READ');
+    });
+
+    testWidgets('the card shows and speaks the read time', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pump(tester, readMinutes: 5);
+
+      expect(find.text('ARTICLE · 5 MIN READ'), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp('5 minute read')), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('an old post (0) shows the bare label', (tester) async {
+      await pump(tester);
+
+      expect(find.text('ARTICLE'), findsOneWidget);
+      expect(find.textContaining('MIN READ'), findsNothing);
     });
   });
 }

@@ -153,6 +153,12 @@ class _ArticlePreviewCardState extends State<ArticlePreviewCard> {
   }
 }
 
+/// The card's small caps label: "ARTICLE", with the read time when the
+/// preview carries one ("ARTICLE · 5 MIN READ"). Older posts have 0 (unknown)
+/// and show the bare label.
+String articleCardLabel(int readMinutes) =>
+    readMinutes > 0 ? 'ARTICLE · $readMinutes MIN READ' : 'ARTICLE';
+
 /// The text block: label, title, excerpt, bottom-left in white, on a gradient
 /// from transparent to [tint] (null: no gradient, the surface is behind it).
 class _Overlay extends StatelessWidget {
@@ -183,7 +189,10 @@ class _Overlay extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'ARTICLE',
+            articleCardLabel(article.readMinutes),
+            semanticsLabel: article.readMinutes > 0
+                ? 'Article, ${article.readMinutes} minute read'
+                : 'Article',
             style: theme.textTheme.labelSmall?.copyWith(
               color: AppPalette.white.withValues(alpha: 0.7),
               fontWeight: FontWeight.w700,
