@@ -140,8 +140,8 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 		}
 		// A block removes the follows both ways: each side that lost a follower records it (creator stats, F2), next to
 		// its own AddCounts Update.
-		r.stageFollowers(b, callerUID, 0, -callerFollowersDelta)
-		r.stageFollowers(b, targetUID, 0, -targetFollowersDelta)
+		r.stageFollowers(b, callerUID, targetUID, now, 0, -callerFollowersDelta)
+		r.stageFollowers(b, targetUID, callerUID, now, 0, -targetFollowersDelta)
 		if b.Err() != nil {
 			return b.Err()
 		}

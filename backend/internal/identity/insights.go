@@ -2,7 +2,8 @@
 // (users/{uid}/dailyStats, daily_stats.go) over a window of IST days and the window before it, and up to five of the
 // caller's posts by lifetime view count (posts owns them: TopPostsReader, the consumer-side seam wired in apiserver).
 //
-// Reads per call: one GetAll of 2 x window docs (56 at the default 28) and one top-posts query (Limit 5). Writes none.
+// Reads per call: one range query over 2 x window days (56 at the default 28; one read per stored shard doc, at most
+// DailyStatsShards a day) and one top-posts query (Limit 5). Writes none.
 // Caller only: the service takes the uid from the token, there is no target. The flag is checked before any read.
 package identity
 

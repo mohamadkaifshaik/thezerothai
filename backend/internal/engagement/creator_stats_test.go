@@ -11,15 +11,17 @@ import (
 )
 
 type stagedStat struct {
-	uid, day string
-	d        identity.DailyDelta
+	uid, day, shardKey string
+	d                  identity.DailyDelta
 }
 
 type recStats struct{ calls []stagedStat }
 
-func (r *recStats) StageDaily(_ store.Batch, uid, day string, d identity.DailyDelta) {
-	r.calls = append(r.calls, stagedStat{uid, day, d})
+func (r *recStats) StageDaily(_ store.Batch, uid, day, shardKey string, d identity.DailyDelta) {
+	r.calls = append(r.calls, stagedStat{uid, day, shardKey, d})
 }
+
+func (r *recStats) Off() bool { return false }
 
 // hotAt is a posts.EngagementWriter whose Hot answers known >= threshold (only Hot is called here).
 type hotAt struct {
@@ -42,8 +44,8 @@ func TestStageEngagementStat(t *testing.T) {
 	r.stageEngagementStat(nil, "author", "author", 1, 0)  // own like
 	r.stageEngagementStat(nil, "", "liker", 1, 0)         // post not found
 	want := []stagedStat{
-		{"author", "20261116", identity.DailyDelta{Engagements: 1}},
-		{"author", "20261116", identity.DailyDelta{Engagements: -1}},
+		{"author", "20261116", "liker", identity.DailyDelta{Engagements: 1}},
+		{"author", "20261116", "liker", identity.DailyDelta{Engagements: -1}},
 	}
 	if !reflect.DeepEqual(st.calls, want) {
 		t.Fatalf("calls = %+v, want %+v", st.calls, want)

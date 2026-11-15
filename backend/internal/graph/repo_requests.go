@@ -183,7 +183,7 @@ func (r *FirestoreRepo) RespondToRequest(ctx context.Context, a RespondArgs) (Re
 		}
 		if kind == acceptEdge {
 			r.counters.AddFollowersCount(b, a.TargetUID, 1)
-			r.stageFollowers(b, a.TargetUID, 1, 0)
+			r.stageFollowers(b, a.TargetUID, a.RequesterUID, a.Now, 1, 0)
 		}
 		return b.Err()
 	})

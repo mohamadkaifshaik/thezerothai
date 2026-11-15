@@ -617,7 +617,7 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", 30, &rl.NotificationsListPerUserPerMinute},
 		// GetMe 30/min per instance (90 with 3); it used to fall back to the 60/min default (L1: the badge's read cost).
 		{"RATE_LIMIT_GET_ME_PER_MIN", 60, &rl.GetMePerUserPerMinute},
-		// GetCreatorInsights 10/min per instance (30 with 3): one call reads up to 56 daily docs plus a 5-post query.
+		// GetCreatorInsights 10/min per instance (30 with 3): one call reads up to 56 days (4 shard docs each) plus a 5-post query.
 		{"RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN", 10, &rl.CreatorInsightsPerUserPerMinute},
 		// The six list mutations 30/min, GetList / ListUserLists / ListListMembers 30/min, GetListTimeline 12/min (all per
 		// instance, x3 with 3 instances).
