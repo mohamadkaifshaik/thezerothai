@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/home_retap_signal.dart';
 import '../../../lists/domain/home_tab_entry.dart';
 import '../../../lists/presentation/bloc/home_tabs_cubit.dart';
 import '../../../lists/presentation/bloc/home_tabs_state.dart';
@@ -68,6 +69,7 @@ class _HomeListTabState extends State<HomeListTab> {
       child: TimelineFeedView(
         viewerUserId: viewerUserId,
         active: widget.active,
+        retapSignal: context.read<HomeRetapSignal?>(),
         emptyTitle: 'No posts yet',
         emptySubtitle: 'Posts from people on this List will show up here.',
         fillViewport: true,

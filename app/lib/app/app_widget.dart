@@ -24,6 +24,7 @@ import '../core/theme/text_size_cubit.dart';
 import '../core/theme/theme_mode_cubit.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/usage_reporter.dart';
+import '../core/widgets/home_retap_signal.dart';
 import '../core/widgets/service_paused_view.dart';
 import '../core/widgets/tablet_modal.dart';
 import '../features/account/data/account_repository.dart';
@@ -295,6 +296,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   // band B list pane and the Messages split page (tablet plan sections 5.2
   // and 5.3). Created on first read only, while Messages is available; the
   // account reset and access turning `hidden` drop them.
+  final HomeRetapSignal _homeRetap = HomeRetapSignal();
+
   late final ConversationsSession _conversations = ConversationsSession(
     repository: widget.messagingRepository,
     onUnexpectedError: reportUnexpectedError,
@@ -601,6 +604,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _plans?.dispose();
     widget.messagingRepository.gate.removeListener(_onMessagingAccess);
     _conversations.dispose();
+    _homeRetap.dispose();
     _themeMode.close();
     _textSize.close();
     if (widget.ownPrivacyStore == null) _ownPrivacy.dispose();
@@ -688,6 +692,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         if (_plans case final plans?)
           RepositoryProvider<PlansSession>.value(value: plans),
         RepositoryProvider<ConversationsSession>.value(value: _conversations),
+        RepositoryProvider<HomeRetapSignal>.value(value: _homeRetap),
       ],
       child: MultiBlocProvider(
         providers: [

@@ -6,6 +6,7 @@ import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/home_retap_signal.dart';
 import '../../../core/widgets/telemetry_consent_card.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
@@ -142,6 +143,7 @@ class _FollowingFeed extends StatelessWidget {
         child: TimelineFeedView(
           viewerUserId: viewerUserId,
           active: active,
+          retapSignal: context.read<HomeRetapSignal?>(),
           // Under the two header rows (top bar + tab bar).
           newPostsPillTop: AppSize.headerRow * 2 + AppSpacing.sm,
           headerSlivers: [

@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/home_retap_signal.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -65,7 +66,13 @@ class TimelineFeedView extends StatefulWidget {
     this.hideEmptyState = false,
     this.unavailableView,
     this.active = true,
+    this.retapSignal,
   });
+
+  /// Fires when the viewer taps Home while Home is open (`HomeRetapSignal`).
+  /// The active feed answers: scrolled down, it animates to the top (a jump
+  /// with reduced motion); already at the top, it refreshes for new posts.
+  final HomeRetapSignal? retapSignal;
 
   /// Whether this feed is the one on screen. A feed kept alive behind another
   /// (the Home tabs) passes false: its 30 s tick and resume refresh
@@ -152,6 +159,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_onScroll);
+    widget.retapSignal?.addListener(_onRetap);
     _startTicker();
     // A lazily mounted profile page may receive an already-loaded cubit.
     // Follow its remaining cursor after the first layout as well as after
@@ -165,6 +173,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
+    widget.retapSignal?.removeListener(_onRetap);
     _controller
       ..removeListener(_onScroll)
       ..dispose();
@@ -179,10 +188,36 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
   @override
   void didUpdateWidget(TimelineFeedView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.retapSignal != widget.retapSignal) {
+      oldWidget.retapSignal?.removeListener(_onRetap);
+      widget.retapSignal?.addListener(_onRetap);
+    }
     if (!oldWidget.active && widget.active) {
       // Not during the build: the refresh emits at once.
       WidgetsBinding.instance.addPostFrameCallback((_) => _tick());
     }
+  }
+
+  /// Home tapped again: to the top, or (already there) a refresh that shows
+  /// the new posts directly, as a pull does.
+  void _onRetap() {
+    if (!mounted || !widget.active) return;
+    final position = _scrollPosition;
+    if (position != null && position.pixels > 1) {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        position.jumpTo(0);
+      } else {
+        unawaited(
+          position.animateTo(
+            0,
+            duration: AppMotion.expoOutShort,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      }
+      return;
+    }
+    unawaited(context.read<TimelineCubit>().refresh());
   }
 
   void _tick() {
