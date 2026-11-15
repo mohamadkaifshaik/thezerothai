@@ -202,7 +202,7 @@ var lifecycleCollections = []collectionRow{
 	// Location (design 2026-11-15). users/{uid}/locationArea/current {areaId, purposes, consentCopyVersion, adultConfirmedAt,
 	// consentedAt, updatedAt} (no TTL: a deliberate choice lives until ClearArea) and users/{uid}/locationConsents/{snowflake}
 	// {purpose, action, copyVersion, adultConfirmed, at} (append-only, no area id). Deleting users/{uid} removes neither; the
-	// `location` step (BeforeIdentity, appended last after impressions) deletes the area doc, then the consent log in pages,
+	// `location` step (BeforeIdentity, appended last, after daily_stats) deletes the area doc, then the consent log in pages,
 	// and the `location` section exports both (DPDP: erased and exported with the account).
 	{Name: "locationArea", Sub: true, Disposition: erasedByStep, Step: "location", Section: "location", Owner: "location", Cite: "erasure and export follow the ADR-0011 Q1 pattern; location design 2026-11-15 section 4.2 (owner DPDP line: erased and exported with the account), ADR pending"},
 	{Name: "locationConsents", Sub: true, Disposition: erasedByStep, Step: "location", Section: "location", Owner: "location", Cite: "erasure and export follow the ADR-0011 Q1 pattern; location design 2026-11-15 section 4.2 (owner DPDP line: erased and exported with the account), ADR pending"},
@@ -419,13 +419,13 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerBillingLifecycle(l, billing.NewFirestoreBindings(nil)); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerLocationLifecycle(l, location.NewFirestoreRepo(nil, nil), nil); err != nil {
-		t.Fatal(err)
-	}
 	if err := registerImpressionLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
 		t.Fatal(err)
 	}
 	if err := registerDailyStatsLifecycle(l, identity.NewDailyStatsRepo(nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerLocationLifecycle(l, location.NewFirestoreRepo(nil, nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()

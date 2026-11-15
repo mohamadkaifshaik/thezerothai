@@ -253,14 +253,17 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerImpressionLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerDailyStatsLifecycle(l, identity.NewDailyStatsRepo(nil, nil)); err != nil {
+		t.Fatal(err)
+	}
 	if err := registerLocationLifecycle(l, location.NewFirestoreRepo(nil, nil), nil); err != nil {
 		t.Fatal(err)
 	}
-	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "communities", "beacons", "outbox", "billing_bindings", "impressions", "location", "identity", "auth_delete", "users_doc"}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "communities", "beacons", "outbox", "billing_bindings", "impressions", "daily_stats", "location", "identity", "auth_delete", "users_doc"}
 	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
 		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
 	}
-	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists", "poll_votes", "communities", "beacons", "billing_bindings", "location"}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists", "poll_votes", "communities", "beacons", "billing_bindings", "daily_stats", "location"}
 	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
 		t.Errorf("export sections = %v, want %v", got, wantSections)
 	}

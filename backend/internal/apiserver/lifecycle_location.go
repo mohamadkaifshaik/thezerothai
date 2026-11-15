@@ -1,7 +1,7 @@
 // lifecycle_location.go joins location to the account-lifecycle registry: the `location` Eraser step (users/{uid}/
 // locationArea and users/{uid}/locationConsents are subcollections, which deleting users/{uid} does not remove) and the
 // `location` export section (the chosen area and the full consent log). Both are registered whether or not
-// FEATURE_LOCATION is on, because documents outlive the flag. The step is appended last (after impressions): its name is
+// FEATURE_LOCATION is on, because documents outlive the flag. The step is appended last (after daily_stats): its name is
 // persisted in deletionJob.step, so it never joins another module's checkpoint.
 package apiserver
 
@@ -13,7 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/location"
 )
 
-// locationEraserStep is the location step (step "location"): BeforeIdentity, last.
+// locationEraserStep is the location step (step "location"): BeforeIdentity, last (after daily_stats).
 func locationEraserStep(e *location.Eraser) identity.StepEraser {
 	return eraserStep[location.Checkpoint]{name: "location", purge: e.PurgeUser}
 }
@@ -28,7 +28,7 @@ func (s locationSection) WriteSection(ctx context.Context, uid string, w io.Writ
 }
 
 // registerLocationLifecycle registers the location step and export section on l. Call it after
-// registerImpressionLifecycle (Lifecycle always runs the identity step last).
+// registerDailyStatsLifecycle (Lifecycle always runs the identity step last).
 func registerLocationLifecycle(l *identity.Lifecycle, repo *location.FirestoreRepo, catalog location.Catalog) error {
 	if err := l.RegisterEraser(identity.BeforeIdentity, locationEraserStep(location.NewEraser(repo))); err != nil {
 		return err

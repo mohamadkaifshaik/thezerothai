@@ -914,7 +914,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// Location: the module is built here (the catalogue is parsed: a bad areas.json fails boot) and its lifecycle step and
 	// export section are registered after every other module's (users/{uid}/locationArea and users/{uid}/locationConsents;
-	// the step runs after impressions). All four LocationService routes are mounted so the interceptor chain covers them; the
+	// the step runs after daily_stats). All four LocationService routes are mounted so the interceptor chain covers them; the
 	// handler runs the FEATURE_LOCATION class per RPC (SetArea on for the caller, ListAreas not globally off,
 	// GetLocationSettings and ClearArea in every mode).
 	locationMod, err := newLocationModule(fsClient, cfg, featureFlags, snowflakeNode)
