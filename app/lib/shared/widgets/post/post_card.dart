@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 
 import 'article_preview_card.dart';
 
@@ -666,12 +670,15 @@ class PostCard extends StatelessWidget {
               children: [contextLabel, row],
             ),
     );
+    // A long press anywhere on the card opens the overflow menu (post text is
+    // not selectable, so nothing competes for the gesture).
+    final pressable = _PostLongPressMenu(child: padded);
     final countedId = impressionTargetId(view);
-    if (countedId == null) return padded;
+    if (countedId == null) return pressable;
     return ImpressionDetector(
       postId: countedId,
       immediate: asFocal,
-      child: padded,
+      child: pressable,
     );
   }
 }
