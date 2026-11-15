@@ -138,6 +138,7 @@ class AppRouter {
   /// flags are off for the caller, unless one of the two is set (the undo
   /// rule: it can always be turned back).
   static const messageSettingsPath = '/settings/messages';
+  static const dataUsagePath = '/settings/data-usage';
 
   /// Settings > Location (the chosen area). Reachable in every flag mode so a
   /// stored area can always be cleared; its consent leaf and the picker need

@@ -20,6 +20,7 @@ import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_consent_cubit.dart';
 import '../core/telemetry/telemetry_consent_store.dart';
 import '../core/theme/app_theme.dart';
+import '../core/network/network_type_service.dart';
 import '../core/theme/text_size_cubit.dart';
 import '../core/theme/theme_mode_cubit.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
@@ -54,6 +55,8 @@ import '../features/media/data/image_picker_service.dart';
 import '../features/media/data/image_processor_factory.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
+import '../features/media/domain/quality_aware_image_processor.dart';
+import '../features/settings/presentation/bloc/data_usage_cubit.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
 import '../features/messages/presentation/bloc/conversations_session.dart';
@@ -103,6 +106,7 @@ class AppWidget extends StatefulWidget {
     required this.mediaRepository,
     this.imagePicker,
     this.imageProcessor,
+    this.networkTypeService,
     this.gifSource,
     this.gifPreparer,
     required this.notificationsRepository,
@@ -232,6 +236,9 @@ class AppWidget extends StatefulWidget {
   /// a Web Worker, so the UI keeps running while photos are prepared).
   final ImageProcessor? imageProcessor;
 
+  /// The connection type for Data usage; defaults to the connectivity plugin.
+  final NetworkTypeService? networkTypeService;
+
   /// Where the composer's GIF comes from; defaults to the device
   /// gallery. [gifPreparer] checks it and makes its still thumbnail.
   final GifSource? gifSource;
@@ -349,14 +356,26 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   late final TextSizeCubit _textSize = TextSizeCubit(
     DatabaseTextSizeStore(widget.database),
   );
+  // Data saver and the image quality choices (device level, like the text
+  // size), with the connection type.
+  late final NetworkTypeService _networkType =
+      widget.networkTypeService ?? ConnectivityNetworkTypeService();
+  late final DataUsageCubit _dataUsage = DataUsageCubit(
+    DatabaseDataUsageStore(widget.database),
+    _networkType,
+  );
   // The caller's read receipts and DM policy as the server last answered
   // (F3, F9): fed by every GetMe, reset with the account session.
   late final OwnPrivacyStore _ownPrivacy =
       widget.ownPrivacyStore ?? OwnPrivacyStore();
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
-  late final ImageProcessor _imageProcessor =
-      widget.imageProcessor ?? createPlatformImageProcessor();
+  // Post photos are sized when processed: standard when high-quality uploads
+  // are not allowed on the current connection (Settings > Data usage).
+  late final ImageProcessor _imageProcessor = QualityAwareImageProcessor(
+    widget.imageProcessor ?? createPlatformImageProcessor(),
+    () => _dataUsage.state.uploadQuality,
+  );
   late final GifSource _gifSource = widget.gifSource ?? DeviceGifSource();
   late final GifPreparer _gifPreparer =
       widget.gifPreparer ?? createPlatformGifPreparer();
@@ -433,6 +452,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _registerAccountState();
     unawaited(_themeMode.load());
     unawaited(_textSize.load());
+    unawaited(_dataUsage.load());
     if (widget.ownPrivacyStore == null) {
       feedOwnPrivacyStore(
         _ownPrivacy,
@@ -607,6 +627,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _homeRetap.dispose();
     _themeMode.close();
     _textSize.close();
+    _dataUsage.close();
+    if (widget.networkTypeService == null) _networkType.dispose();
     if (widget.ownPrivacyStore == null) _ownPrivacy.dispose();
     _pushOptIn.close();
     _telemetryConsentCubit?.close();
@@ -714,6 +736,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
           BlocProvider.value(value: _messagesBadge),
           BlocProvider.value(value: _themeMode),
           BlocProvider.value(value: _textSize),
+          BlocProvider.value(value: _dataUsage),
           BlocProvider.value(value: _servicePaused),
         ],
         child: ShareLinksScope(

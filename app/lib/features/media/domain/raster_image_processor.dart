@@ -92,11 +92,17 @@ class RasterImageProcessor implements ImageProcessor {
     Uint8List bytes,
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
+    ImageQuality? quality,
   }) async {
     preflightImage(bytes);
     final cancel = cancellation ?? ProcessingCancellation();
     try {
-      return await _process(bytes, purpose, cancel);
+      return await _process(
+        bytes,
+        purpose,
+        cancel,
+        quality ?? ImageQuality.high,
+      );
     } on RasterUnavailableException {
       // Cancelling closes the worker, which fails its pending step: that is
       // the cancellation, not a broken codec.
@@ -127,6 +133,7 @@ class RasterImageProcessor implements ImageProcessor {
     Uint8List bytes,
     ImagePurpose purpose,
     ProcessingCancellation cancel,
+    ImageQuality quality,
   ) async {
     cancel.throwIfCancelled();
     final opening = _codec.open();
@@ -143,7 +150,7 @@ class RasterImageProcessor implements ImageProcessor {
     try {
       final source = await _step(session, cancel, session.decode(bytes));
       checkSourceDims(source.width, source.height);
-      final spec = PurposeSpec.of(purpose);
+      final spec = PurposeSpec.of(purpose, quality: quality);
       final crop = cropFor(purpose, source.width, source.height);
 
       final full = await _encodeWithin(
@@ -294,6 +301,7 @@ class FallbackImageProcessor implements ImageProcessor {
     Uint8List bytes,
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
+    ImageQuality? quality,
   }) async {
     if (!_primaryBroken) {
       try {
@@ -301,6 +309,7 @@ class FallbackImageProcessor implements ImageProcessor {
           bytes,
           purpose,
           cancellation: cancellation,
+          quality: quality,
         );
       } on RasterUnavailableException catch (reason) {
         // A cancel closes the worker; never fall back for a cancelled job.
@@ -314,6 +323,11 @@ class FallbackImageProcessor implements ImageProcessor {
         _onFallback?.call(reason);
       }
     }
-    return _fallback.process(bytes, purpose, cancellation: cancellation);
+    return _fallback.process(
+      bytes,
+      purpose,
+      cancellation: cancellation,
+      quality: quality,
+    );
   }
 }

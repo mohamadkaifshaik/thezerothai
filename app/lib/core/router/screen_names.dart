@@ -75,6 +75,7 @@ const Map<String, String> kScreenNames = {
   '/settings/delete-account': 'delete_account',
   '/settings/notifications': 'notification_settings',
   '/settings/messages': 'message_settings',
+  '/settings/data-usage': 'data_usage',
   '/settings/location': 'location_settings',
   '/settings/location/consent': 'location_consent',
   '/area-picker': 'area_picker',

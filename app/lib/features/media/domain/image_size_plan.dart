@@ -14,6 +14,16 @@ typedef CropRect = ({int x, int y, int width, int height});
 /// One encode attempt: draw the crop into [width] x [height], JPEG [quality].
 typedef EncodeAttempt = ({int width, int height, int quality});
 
+/// How sharp a post photo is encoded. [high] is the default (2048 px at
+/// quality 88); [standard] is the earlier, lighter size (1600 px at 80) that
+/// Settings > Data usage picks when high-quality uploads are not allowed on
+/// the current connection. Avatars ignore it.
+enum ImageQuality { high, standard }
+
+/// Standard post photo: full 1600 px at q80 (the thumbnail is as for [high]).
+const kPostStandardFullEdge = 1600;
+const kPostStandardFullQuality = 80;
+
 /// Per-purpose output rules.
 class PurposeSpec {
   const PurposeSpec._({
@@ -34,7 +44,19 @@ class PurposeSpec {
   final int fullQuality;
   final int thumbQuality;
 
-  static PurposeSpec of(ImagePurpose purpose) => switch (purpose) {
+  static PurposeSpec of(
+    ImagePurpose purpose, {
+    ImageQuality quality = ImageQuality.high,
+  }) => switch (purpose) {
+    ImagePurpose.post when quality == ImageQuality.standard =>
+      const PurposeSpec._(
+        fullEdge: kPostStandardFullEdge,
+        thumbEdge: kPostThumbEdge,
+        maxFullBytes: kMaxFullBytes,
+        maxThumbBytes: kMaxThumbBytes,
+        fullQuality: kPostStandardFullQuality,
+        thumbQuality: kPostThumbQuality,
+      ),
     ImagePurpose.post => const PurposeSpec._(
       fullEdge: kPostFullEdge,
       thumbEdge: kPostThumbEdge,
