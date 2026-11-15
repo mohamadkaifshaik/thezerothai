@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 
+	locationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -46,6 +47,18 @@ type Area struct {
 	// Neighbours are curated neighbouring AREA ids (at most 8, symmetric; empty for a CITY).
 	Neighbours []string
 	Retired    bool
+}
+
+// ValidIDFormat reports whether id matches the city or neighbourhood id grammar (no lookup). Checked before any catalogue
+// lookup so a malformed value is refused without being echoed (SetArea here; plan areas and ListNearbyBeacons in beacons).
+func ValidIDFormat(id string) bool {
+	return cityIDRe.MatchString(id) || areaIDRe.MatchString(id)
+}
+
+// ToSummary is the wire form other packages embed for an area (location.v1.AreaSummary: Beacon.area and
+// ListNearbyBeaconsResponse.area in beacons).
+func ToSummary(a Area) *locationv1.AreaSummary {
+	return &locationv1.AreaSummary{AreaId: a.ID, Name: a.Name, Kind: toKind(a.Kind), CityId: a.CityID, CityName: a.CityName}
 }
 
 // Catalog is the in-memory area catalogue: no I/O.
