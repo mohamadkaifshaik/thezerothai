@@ -41,6 +41,8 @@ abstract class IdentityServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $2.RequestAccountExportRequest request);
   $async.Future<$2.GetAccountExportResponse> getAccountExport(
       $pb.ServerContext ctx, $2.GetAccountExportRequest request);
+  $async.Future<$2.GetCreatorInsightsResponse> getCreatorInsights(
+      $pb.ServerContext ctx, $2.GetCreatorInsightsRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -64,6 +66,8 @@ abstract class IdentityServiceBase extends $pb.GeneratedService {
         return $2.RequestAccountExportRequest();
       case 'GetAccountExport':
         return $2.GetAccountExportRequest();
+      case 'GetCreatorInsights':
+        return $2.GetCreatorInsightsRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -94,6 +98,8 @@ abstract class IdentityServiceBase extends $pb.GeneratedService {
             ctx, request as $2.RequestAccountExportRequest);
       case 'GetAccountExport':
         return getAccountExport(ctx, request as $2.GetAccountExportRequest);
+      case 'GetCreatorInsights':
+        return getCreatorInsights(ctx, request as $2.GetCreatorInsightsRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

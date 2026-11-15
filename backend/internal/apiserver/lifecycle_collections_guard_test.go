@@ -186,6 +186,10 @@ var lifecycleCollections = []collectionRow{
 	// viewDirty/c{window}_{postId} {postId, counterWindow} likewise hold a post id and a window only (hot counters
 	// design 2026-11-14): no new collection, no new delete path.
 	{Name: "impressions", Sub: true, Disposition: erasedByStep, Step: "impressions", ExportNote: "short-lived view dedupe records (post id and IST day, 48 h TTL), not user content; not exported", Owner: "engagement", Cite: "erasure follows the ADR-0011 Q1 pattern; F1 post views brief 2026-11-09 and owner decisions 2026-11-14, ADR pending"},
+	// F2 creator insights. users/{uid}/dailyStats/{yyyymmdd} {date, impressions, engagements, followersGained,
+	// followersLost, expireAt}: the creator's own daily numbers (no other user named), 400-day TTL, deleted by the
+	// `daily_stats` step and exported in the `daily_stats` section (owner decision 2026-11-15).
+	{Name: "dailyStats", Sub: true, Disposition: erasedByStep, Step: "daily_stats", Section: "daily_stats", Owner: "identity", Cite: "erasure and export follow the ADR-0011 Q1 pattern; F2 creator insights design 2026-11-15 (owner-approved right-to-delete path), ADR pending"},
 	{Name: "viewShards", Sub: true, Disposition: notPersonal, ExportNote: "view counter shards under posts/{id}: counts only, no viewer; the post's viewCount is in the posts section", Owner: "posts", Cite: "ADR-0011 Q10: no user data (F1 post views brief 2026-11-09: no per-viewer list, ever), ADR pending"},
 	{Name: "viewRollup", Disposition: notPersonal, ExportNote: "one state doc (lastRunAt) of the view rollup gate, no user data", Owner: "posts", Cite: "ADR-0011 Q10: no user data (F1 post views brief 2026-11-09), ADR pending"},
 	{Name: "viewDirty", Disposition: notPersonal, ExportNote: "rollup markers: a post id and a 5-minute window, no user data, deleted by the rollup", Owner: "posts", Cite: "ADR-0011 Q10: no user data (F1 post views brief 2026-11-09), ADR pending"},
@@ -419,6 +423,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerImpressionLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerDailyStatsLifecycle(l, identity.NewDailyStatsRepo(nil, nil)); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()

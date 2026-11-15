@@ -71,6 +71,9 @@ const (
 	// IdentityServiceGetAccountExportProcedure is the fully-qualified name of the IdentityService's
 	// GetAccountExport RPC.
 	IdentityServiceGetAccountExportProcedure = "/dzeroth.identity.v1.IdentityService/GetAccountExport"
+	// IdentityServiceGetCreatorInsightsProcedure is the fully-qualified name of the IdentityService's
+	// GetCreatorInsights RPC.
+	IdentityServiceGetCreatorInsightsProcedure = "/dzeroth.identity.v1.IdentityService/GetCreatorInsights"
 )
 
 // IdentityServiceClient is a client for the dzeroth.identity.v1.IdentityService service.
@@ -194,6 +197,20 @@ type IdentityServiceClient interface {
 	// expires_at (even if the TTL or bucket lifecycle has not deleted it yet).
 	// Only the per-minute default bucket limits it (no daily cap).
 	GetAccountExport(context.Context, *connect.Request[v1.GetAccountExportRequest]) (*connect.Response[v1.GetAccountExportResponse], error)
+	// F2 Creator Studio insights: the caller's own daily stats over the last window_days IST days (today included) and
+	// the window before it, plus up to 5 of the caller's posts by lifetime view count. Caller only: there is no target
+	// field, so nobody can read another account's insights. Not affected by whether view counts are shown publicly.
+	// Gated by FEATURE_CREATOR_INSIGHTS on for the caller: off is FAILED_PRECONDITION + FEATURE_DISABLED with metadata
+	// feature=creator_insights, before any Firestore read.
+	// Data: users/{uid}/dailyStats/{yyyymmdd IST}_{shard} {impressions, engagements, followersGained, followersLost}, written by
+	// the view rollup (impressions, about every 15 minutes), likes, reposts, replies and quotes received from other
+	// accounts (engagements; an undo subtracts on the day of the undo) and follows (gained and lost). Docs expire 400
+	// days after their day. Stats are only collected while the flag is not globally off.
+	// Reads: one range query over the 2 x window_days days, one read per stored shard doc (each day is up to 4 docs; at
+	// most 224 at the default, usually far fewer), plus one top-posts query (Limit 5). When the
+	// top-posts index is missing, top_posts is empty and the rest still answers.
+	// Rate limit: its own per-user bucket, RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN (default 10/min per instance); no daily cap.
+	GetCreatorInsights(context.Context, *connect.Request[v1.GetCreatorInsightsRequest]) (*connect.Response[v1.GetCreatorInsightsResponse], error)
 }
 
 // NewIdentityServiceClient constructs a client for the dzeroth.identity.v1.IdentityService service.
@@ -272,6 +289,13 @@ func NewIdentityServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		getCreatorInsights: connect.NewClient[v1.GetCreatorInsightsRequest, v1.GetCreatorInsightsResponse](
+			httpClient,
+			baseURL+IdentityServiceGetCreatorInsightsProcedure,
+			connect.WithSchema(identityServiceMethods.ByName("GetCreatorInsights")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -287,6 +311,7 @@ type identityServiceClient struct {
 	deleteAccount           *connect.Client[v1.DeleteAccountRequest, v1.DeleteAccountResponse]
 	requestAccountExport    *connect.Client[v1.RequestAccountExportRequest, v1.RequestAccountExportResponse]
 	getAccountExport        *connect.Client[v1.GetAccountExportRequest, v1.GetAccountExportResponse]
+	getCreatorInsights      *connect.Client[v1.GetCreatorInsightsRequest, v1.GetCreatorInsightsResponse]
 }
 
 // CreateProfile calls dzeroth.identity.v1.IdentityService.CreateProfile.
@@ -337,6 +362,11 @@ func (c *identityServiceClient) RequestAccountExport(ctx context.Context, req *c
 // GetAccountExport calls dzeroth.identity.v1.IdentityService.GetAccountExport.
 func (c *identityServiceClient) GetAccountExport(ctx context.Context, req *connect.Request[v1.GetAccountExportRequest]) (*connect.Response[v1.GetAccountExportResponse], error) {
 	return c.getAccountExport.CallUnary(ctx, req)
+}
+
+// GetCreatorInsights calls dzeroth.identity.v1.IdentityService.GetCreatorInsights.
+func (c *identityServiceClient) GetCreatorInsights(ctx context.Context, req *connect.Request[v1.GetCreatorInsightsRequest]) (*connect.Response[v1.GetCreatorInsightsResponse], error) {
+	return c.getCreatorInsights.CallUnary(ctx, req)
 }
 
 // IdentityServiceHandler is an implementation of the dzeroth.identity.v1.IdentityService service.
@@ -460,6 +490,20 @@ type IdentityServiceHandler interface {
 	// expires_at (even if the TTL or bucket lifecycle has not deleted it yet).
 	// Only the per-minute default bucket limits it (no daily cap).
 	GetAccountExport(context.Context, *connect.Request[v1.GetAccountExportRequest]) (*connect.Response[v1.GetAccountExportResponse], error)
+	// F2 Creator Studio insights: the caller's own daily stats over the last window_days IST days (today included) and
+	// the window before it, plus up to 5 of the caller's posts by lifetime view count. Caller only: there is no target
+	// field, so nobody can read another account's insights. Not affected by whether view counts are shown publicly.
+	// Gated by FEATURE_CREATOR_INSIGHTS on for the caller: off is FAILED_PRECONDITION + FEATURE_DISABLED with metadata
+	// feature=creator_insights, before any Firestore read.
+	// Data: users/{uid}/dailyStats/{yyyymmdd IST}_{shard} {impressions, engagements, followersGained, followersLost}, written by
+	// the view rollup (impressions, about every 15 minutes), likes, reposts, replies and quotes received from other
+	// accounts (engagements; an undo subtracts on the day of the undo) and follows (gained and lost). Docs expire 400
+	// days after their day. Stats are only collected while the flag is not globally off.
+	// Reads: one range query over the 2 x window_days days, one read per stored shard doc (each day is up to 4 docs; at
+	// most 224 at the default, usually far fewer), plus one top-posts query (Limit 5). When the
+	// top-posts index is missing, top_posts is empty and the rest still answers.
+	// Rate limit: its own per-user bucket, RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN (default 10/min per instance); no daily cap.
+	GetCreatorInsights(context.Context, *connect.Request[v1.GetCreatorInsightsRequest]) (*connect.Response[v1.GetCreatorInsightsResponse], error)
 }
 
 // NewIdentityServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -534,6 +578,13 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	identityServiceGetCreatorInsightsHandler := connect.NewUnaryHandler(
+		IdentityServiceGetCreatorInsightsProcedure,
+		svc.GetCreatorInsights,
+		connect.WithSchema(identityServiceMethods.ByName("GetCreatorInsights")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.identity.v1.IdentityService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case IdentityServiceCreateProfileProcedure:
@@ -556,6 +607,8 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 			identityServiceRequestAccountExportHandler.ServeHTTP(w, r)
 		case IdentityServiceGetAccountExportProcedure:
 			identityServiceGetAccountExportHandler.ServeHTTP(w, r)
+		case IdentityServiceGetCreatorInsightsProcedure:
+			identityServiceGetCreatorInsightsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -603,4 +656,8 @@ func (UnimplementedIdentityServiceHandler) RequestAccountExport(context.Context,
 
 func (UnimplementedIdentityServiceHandler) GetAccountExport(context.Context, *connect.Request[v1.GetAccountExportRequest]) (*connect.Response[v1.GetAccountExportResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.identity.v1.IdentityService.GetAccountExport is not implemented"))
+}
+
+func (UnimplementedIdentityServiceHandler) GetCreatorInsights(context.Context, *connect.Request[v1.GetCreatorInsightsRequest]) (*connect.Response[v1.GetCreatorInsightsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.identity.v1.IdentityService.GetCreatorInsights is not implemented"))
 }

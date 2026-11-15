@@ -364,7 +364,7 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	// wrote nothing, gives up on its own context.
 	ch, leader := s.likeFlight.do(uid+"/"+target.ID, func() (any, error) {
 		fctx := context.WithoutCancel(ctx) // runTx bounds the transaction with txTimeout
-		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID, Known: target.LikeCount})
+		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID, Known: target.LikeCount, AuthorID: target.AuthorID})
 		if err != nil {
 			return nil, err
 		}
@@ -500,10 +500,11 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 		return Result{}, logger.RedactErr(fmt.Errorf("engagement: unlike: load post: %w", err), uid)
 	}
 	var known int64 // the likeCount as read routes the counter write (hot posts: their shards); 0 = cold when not found
+	author := ""    // the creator stats undo (F2); none when the post is gone
 	if found {
-		known = target.LikeCount
+		known, author = target.LikeCount, target.AuthorID
 	}
-	removed, err := s.d.Repo.Unlike(ctx, uid, id, known)
+	removed, err := s.d.Repo.Unlike(ctx, uid, id, known, author)
 	if err != nil {
 		return Result{}, logger.RedactErrPosts(fmt.Errorf("engagement: unlike: %w", err), []string{postID, id}, uid)
 	}
@@ -616,7 +617,11 @@ func (s *service) undoRepost(ctx context.Context, uid, key, postID string) (_ Re
 	if err != nil {
 		return Result{}, logger.RedactErr(fmt.Errorf("engagement: undo repost: load post: %w", err), uid)
 	}
-	res, err := s.d.Repo.UndoRepost(ctx, uid, id)
+	author := "" // the creator stats undo (F2); none when the original is gone
+	if found {
+		author = orig.AuthorID
+	}
+	res, err := s.d.Repo.UndoRepost(ctx, uid, id, author)
 	if err != nil {
 		return Result{}, logger.RedactErrPosts(fmt.Errorf("engagement: undo repost: %w", err), []string{postID, id}, uid)
 	}

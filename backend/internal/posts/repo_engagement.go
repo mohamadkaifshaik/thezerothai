@@ -161,6 +161,17 @@ func (r *FirestoreRepo) stageCounter(b store.Batch, postID string, field firesto
 	return r.stageMarkers(b, counterMarkers, []string{postID}, r.clock())
 }
 
+// stageChildCounter is stageCounter(+1) for a reply's replyCount or a quote's quoteCount. When the write is hot and self
+// (the parent's own author), the same shard write also adds 1 to the self field (selfFieldOf), which the counter fold
+// drains without moving it onto the post and subtracts from the creator stat (repo_view_rollup.go engagementOfShard).
+func (r *FirestoreRepo) stageChildCounter(b store.Batch, postID string, field firestore.FieldPath, known int64, self bool) func() {
+	if !self || !r.Hot(known) {
+		return r.stageCounter(b, postID, field, 1, known)
+	}
+	viewShards.StageIncrement(b, r.ref(postID), shardcount.Delta{Field: field, N: 1}, shardcount.Delta{Field: selfFieldOf(field), N: 1})
+	return r.stageMarkers(b, counterMarkers, []string{postID}, r.clock())
+}
+
 // clock is the hot path's time: the marker window is taken when the write is staged (the rollup's foldBefore grace
 // covers a commit that lands after that window closed).
 func (r *FirestoreRepo) clock() time.Time {

@@ -92,6 +92,13 @@ variable "ttl_fields" {
       collection = "impressions"
       field      = "expireAt"
     }
+    # A creator's daily stats (users/{uid}/dailyStats/{yyyymmdd IST}, F2 Creator Studio insights); expireAt = the IST
+    # day's start + 400 days. Collection-group key. The account erasure deletes them outright; the TTL bounds retention.
+    # Edited only, not applied: apply it before FEATURE_CREATOR_INSIGHTS leaves off in a project.
+    daily_stats_expire_at = {
+      collection = "dailyStats"
+      field      = "expireAt"
+    }
   }
 }
 

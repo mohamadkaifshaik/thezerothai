@@ -150,6 +150,11 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// that cost without letting GetMe drain, or be drained by, the shared default. No daily cap (a read).
 	rlGetMe := ratelimit.NewLimiter(cfg.RateLimit.GetMePerUserPerMinute, idleBucketTTL)
 
+	// GetCreatorInsights (F2) has its own per-user bucket (RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN, 10/min per instance): one
+	// call reads 56 days of dailyStats shards (up to 224 docs) and runs a 5-post query; the Creator Studio screen calls it on open and on
+	// refresh. No daily cap (a read).
+	rlCreatorInsights := ratelimit.NewLimiter(cfg.RateLimit.CreatorInsightsPerUserPerMinute, idleBucketTTL)
+
 	// The six list mutations (CreateList, UpdateList, DeleteList, AddListMember, RemoveListMember and the timeline module's
 	// SetHomeTabs) share one per-user bucket (RATE_LIMIT_LISTS_WRITE_PER_MIN, 30/min per instance). GetList,
 	// ListUserLists and ListListMembers share a read bucket (RATE_LIMIT_LISTS_READ_PER_MIN, 30/min); GetListTimeline has its own
@@ -222,6 +227,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure:    rlCheckHandle,
 			identityv1connect.IdentityServiceSuggestHandlesProcedure:             rlCheckHandle,
 			identityv1connect.IdentityServiceGetMeProcedure:                      rlGetMe,
+			identityv1connect.IdentityServiceGetCreatorInsightsProcedure:         rlCreatorInsights,
 			graphv1connect.GraphServiceFollowProcedure:                           rlGraphFollow,
 			graphv1connect.GraphServiceUnfollowProcedure:                         rlGraphFollow,
 			graphv1connect.GraphServiceBlockProcedure:                            rlGraphBlock,

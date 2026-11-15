@@ -251,6 +251,11 @@ type Config struct {
 	// no count on any surface, the author's own included). FEATURE_POST_VIEWS[_ALLOWLIST|_PERCENT], default off in every
 	// environment.
 	FeaturePostViews flags.Spec
+	// FeatureCreatorInsights is the flag (wire name `creator_insights`) gating F2 Creator Studio insights:
+	// IdentityService.GetCreatorInsights on for the caller, and the users/{uid}/dailyStats writes while it is not globally
+	// off (globally off, no writer stages a stats increment). FEATURE_CREATOR_INSIGHTS[_ALLOWLIST|_PERCENT], default off in
+	// every environment.
+	FeatureCreatorInsights flags.Spec
 	// PostViewsPublicThreshold is POST_VIEWS_PUBLIC_THRESHOLD (default 1000, at least 1): the rolled-up view count a post
 	// needs before anyone but its author sees Post.view_count (owner decision 2026-11-14, the hybrid rule). A protected
 	// author's count is never shown to anyone else, whatever the count.
@@ -620,6 +625,8 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", 30, &rl.NotificationsListPerUserPerMinute},
 		// GetMe 30/min per instance (90 with 3); it used to fall back to the 60/min default (L1: the badge's read cost).
 		{"RATE_LIMIT_GET_ME_PER_MIN", 60, &rl.GetMePerUserPerMinute},
+		// GetCreatorInsights 10/min per instance (30 with 3): one call reads up to 56 days (4 shard docs each) plus a 5-post query.
+		{"RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN", 10, &rl.CreatorInsightsPerUserPerMinute},
 		// The six list mutations 30/min, GetList / ListUserLists / ListListMembers 30/min, GetListTimeline 12/min (all per
 		// instance, x3 with 3 instances).
 		{"RATE_LIMIT_LISTS_WRITE_PER_MIN", 30, &rl.ListsWritePerUserPerMinute},
@@ -1061,6 +1068,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureCreatorInsights, err := flags.LoadSpec("CREATOR_INSIGHTS", "creator_insights", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	postViewsPublicThreshold, err := getInt("POST_VIEWS_PUBLIC_THRESHOLD", 1000)
 	if err != nil {
 		return Config{}, err
@@ -1268,6 +1279,7 @@ func Load() (Config, error) {
 		FeatureLocation:              featureLocation,
 		FeatureDMSuggestions:         featureDMSuggestions,
 		FeaturePostViews:             featurePostViews,
+		FeatureCreatorInsights:       featureCreatorInsights,
 		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),
 		HotCounterThreshold:          int64(hotCounterThreshold),
 		FeatureBeaconQuickJoin:       featureBeaconQuickJoin,

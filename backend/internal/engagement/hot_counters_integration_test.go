@@ -69,10 +69,10 @@ func TestHotCounters_LikeRepostShareThenRollup(t *testing.T) {
 	if replay, err := e.repo.Like(ctx, LikeParams{UID: "h1", PostID: pid, Known: hotThreshold}); err != nil || !replay {
 		t.Fatalf("hot Like replay: replay=%v err=%v", replay, err)
 	}
-	if removed, err := e.repo.Unlike(ctx, "h2", pid, hotThreshold); err != nil || !removed {
+	if removed, err := e.repo.Unlike(ctx, "h2", pid, hotThreshold, ""); err != nil || !removed {
 		t.Fatalf("hot Unlike: removed=%v err=%v", removed, err)
 	}
-	if removed, err := e.repo.Unlike(ctx, "never", pid, hotThreshold); err != nil || removed {
+	if removed, err := e.repo.Unlike(ctx, "never", pid, hotThreshold, ""); err != nil || removed {
 		t.Fatalf("hot Unlike of nothing: removed=%v err=%v", removed, err)
 	}
 	if replay, err := e.repo.Like(ctx, LikeParams{UID: "c1", PostID: pid, Known: hotThreshold - 1}); err != nil || replay {

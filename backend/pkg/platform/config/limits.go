@@ -61,6 +61,11 @@ type RateLimitConfig struct {
 	// FEATURE_DISABLED answer.
 	GetMePerUserPerMinute int
 
+	// CreatorInsightsPerUserPerMinute is the GetCreatorInsights bucket (F2), env RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN,
+	// default 10 per instance (30 with 3). One call reads 56 days of users/{uid}/dailyStats (up to 4 shard docs a day) in one range query plus one
+	// top-posts query (Limit 5); the Creator Studio screen calls it once per open and on pull-to-refresh. No daily cap.
+	CreatorInsightsPerUserPerMinute int
+
 	// MessagesSendsPerDay is the in-memory daily cap on SendMessage calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env MESSAGES_SENDS_PER_DAY, default 300, logged as limit_name "messages_daily".
 	// Worst case per account: 300 x 3 instances = 900 messages a day. The new-account value is Messaging.NewAccountSendsPerDay.
