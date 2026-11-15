@@ -7,7 +7,8 @@
 // organiser acceptance (docs/beacons-plan.md). Owner module: backend/internal/beacons.
 // Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt, endAt,
 // durationMin, openSpots, acceptedCount, cost, chatPref, eligibility, status, hidden, createdAt, updatedAt,
-// expireAt), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
+// expireAt, and the optional plan area: areaId, cityId, nearAreaIds = the area and its catalogue neighbours, denormalised
+// from the location catalogue on every area write), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
 // users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pendingUntil, communityId, startAt, endAt; never another
 // user's uid, so a row may outlive an erased organiser's beacon and is dropped on read). Only beacons.Service reads or
 // writes them; firestore.rules stay deny-all to clients.
@@ -48,10 +49,11 @@
 // Errors (clients branch on ErrorDetail.reason):
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in beacon_id | user_id | community_id | audience | activity |
 //     title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | response |
-//     page_token | idempotency_key | peer_user_id; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
+//     page_token | idempotency_key | peer_user_id | area_id | scope; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
 //     50 = 50), the lists precedent.
 //   - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
-//     audience while that flag is off for the caller).
+//     audience while that flag is off for the caller, or "location" for a plan area and ListNearbyBeacons while
+//     FEATURE_LOCATION is off for the caller; see each RPC).
 //   - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon (including a community audience whose
 //     community is missing or SUSPENDED; the community owner still reads a SUSPENDED community's beacons).
 //   - FAILED_PRECONDITION + COMMUNITY_STATE, metadata["reason"] = "community_archived": CreateBeacon, RequestToJoin or
@@ -61,7 +63,8 @@
 //     else). A block in either direction is never FORBIDDEN: it is the one NOT_FOUND above.
 //   - FAILED_PRECONDITION, metadata["reason"] = "full" | "ended" | "cancelled" | "already_requested" |
 //     "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon) | "started"
-//     (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started).
+//     (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started) | "area_not_set"
+//     (ListNearbyBeacons with no area_id while the caller has no stored area).
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "audience", metadata["reason"] = "audience_narrowing"
 //     (UpdateBeacon moving a public beacon into a community) | "audience_incompatible" (UpdateBeacon moving a community
 //     beacon into another community); checked against the stored audience, nothing is written. An audience is only ever
@@ -73,7 +76,7 @@
 //     that rewrites them); nothing is written.
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_BEACONS_WRITE_PER_MIN (10: Create, Update, Cancel),
 //     RATE_LIMIT_BEACONS_ACTION_PER_MIN (20: Request, Withdraw, Respond, Leave, Remove), RATE_LIMIT_BEACONS_READ_PER_MIN
-//     (30: Get, List*, ListSharedBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
+//     (30: Get, List*, ListSharedBeacons, ListNearbyBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
 //     "beacons_created_daily"); honour retry_after.
 //   - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 package beaconsv1connect
@@ -145,6 +148,9 @@ const (
 	// BeaconServiceListSharedBeaconsProcedure is the fully-qualified name of the BeaconService's
 	// ListSharedBeacons RPC.
 	BeaconServiceListSharedBeaconsProcedure = "/dzeroth.beacons.v1.BeaconService/ListSharedBeacons"
+	// BeaconServiceListNearbyBeaconsProcedure is the fully-qualified name of the BeaconService's
+	// ListNearbyBeacons RPC.
+	BeaconServiceListNearbyBeaconsProcedure = "/dzeroth.beacons.v1.BeaconService/ListNearbyBeacons"
 )
 
 // BeaconServiceClient is a client for the dzeroth.beacons.v1.BeaconService service.
@@ -250,6 +256,25 @@ type BeaconServiceClient interface {
 	// opaque signed cursor bound to the caller and the peer, VALIDATION "page_token" when invalid or expired. Shares the
 	// RATE_LIMIT_BEACONS_READ_PER_MIN bucket.
 	ListSharedBeacons(context.Context, *connect.Request[v1.ListSharedBeaconsRequest]) (*connect.Response[v1.ListSharedBeaconsResponse], error)
+	// Public OPEN and FULL beacons whose start_at >= now in one area, soonest first (Explore Nearby; place-based: the
+	// match is on the plan's organiser-chosen area, never on a person).
+	//   - NEARBY_SCOPE_AREA (the default): the area's beacons plus those of its catalogue neighbours.
+	//   - NEARBY_SCOPE_CITY: every beacon in the area's city. A CITY-kind area always uses this scope, whatever was sent.
+	//
+	// A plan tagged with a city (not a neighbourhood) is in that city's results only, so a neighbourhood sees it under
+	// NEARBY_SCOPE_CITY. Community beacons are never listed (a widened one, F28b, is public and is).
+	// area_id: empty means the caller's stored area (LocationService; FAILED_PRECONDITION "area_not_set" when none);
+	// otherwise a catalogue id, retired included (malformed or unknown => VALIDATION "area_id", the value never echoed), so
+	// a user may browse an area without storing it. A scope outside the enum => VALIDATION "scope".
+	// Blocks and hidden apply as in ListBeacons (dropped rows; a page may be short while next_page_token is set).
+	// Needs FEATURE_BEACONS not globally off and FEATURE_LOCATION on for the caller (FEATURE_DISABLED names the flag),
+	// before any lookup. limit is clamped (0 = 20, above 50 = 50). page_token is signed and bound to the caller, the
+	// resolved area and the scope (VALIDATION "page_token" otherwise). The first page carries count (K-anonymity: a number
+	// only at >= LOCATION_NEARBY_K_MIN, 5; "few" below). Read budget: about 46 reads at limit 20 (the stored area, the
+	// page, one count aggregation on a first page that does not hold the whole result, the viewer states and the cached
+	// graph). If the backing Firestore index is not ready the answer is an empty first page with no count, never an
+	// error. Rate limit: RATE_LIMIT_BEACONS_READ_PER_MIN.
+	ListNearbyBeacons(context.Context, *connect.Request[v1.ListNearbyBeaconsRequest]) (*connect.Response[v1.ListNearbyBeaconsResponse], error)
 }
 
 // NewBeaconServiceClient constructs a client for the dzeroth.beacons.v1.BeaconService service. By
@@ -346,6 +371,13 @@ func NewBeaconServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		listNearbyBeacons: connect.NewClient[v1.ListNearbyBeaconsRequest, v1.ListNearbyBeaconsResponse](
+			httpClient,
+			baseURL+BeaconServiceListNearbyBeaconsProcedure,
+			connect.WithSchema(beaconServiceMethods.ByName("ListNearbyBeacons")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -364,6 +396,7 @@ type beaconServiceClient struct {
 	removeParticipant    *connect.Client[v1.RemoveParticipantRequest, v1.RemoveParticipantResponse]
 	listParticipants     *connect.Client[v1.ListParticipantsRequest, v1.ListParticipantsResponse]
 	listSharedBeacons    *connect.Client[v1.ListSharedBeaconsRequest, v1.ListSharedBeaconsResponse]
+	listNearbyBeacons    *connect.Client[v1.ListNearbyBeaconsRequest, v1.ListNearbyBeaconsResponse]
 }
 
 // CreateBeacon calls dzeroth.beacons.v1.BeaconService.CreateBeacon.
@@ -429,6 +462,11 @@ func (c *beaconServiceClient) ListParticipants(ctx context.Context, req *connect
 // ListSharedBeacons calls dzeroth.beacons.v1.BeaconService.ListSharedBeacons.
 func (c *beaconServiceClient) ListSharedBeacons(ctx context.Context, req *connect.Request[v1.ListSharedBeaconsRequest]) (*connect.Response[v1.ListSharedBeaconsResponse], error) {
 	return c.listSharedBeacons.CallUnary(ctx, req)
+}
+
+// ListNearbyBeacons calls dzeroth.beacons.v1.BeaconService.ListNearbyBeacons.
+func (c *beaconServiceClient) ListNearbyBeacons(ctx context.Context, req *connect.Request[v1.ListNearbyBeaconsRequest]) (*connect.Response[v1.ListNearbyBeaconsResponse], error) {
+	return c.listNearbyBeacons.CallUnary(ctx, req)
 }
 
 // BeaconServiceHandler is an implementation of the dzeroth.beacons.v1.BeaconService service.
@@ -534,6 +572,25 @@ type BeaconServiceHandler interface {
 	// opaque signed cursor bound to the caller and the peer, VALIDATION "page_token" when invalid or expired. Shares the
 	// RATE_LIMIT_BEACONS_READ_PER_MIN bucket.
 	ListSharedBeacons(context.Context, *connect.Request[v1.ListSharedBeaconsRequest]) (*connect.Response[v1.ListSharedBeaconsResponse], error)
+	// Public OPEN and FULL beacons whose start_at >= now in one area, soonest first (Explore Nearby; place-based: the
+	// match is on the plan's organiser-chosen area, never on a person).
+	//   - NEARBY_SCOPE_AREA (the default): the area's beacons plus those of its catalogue neighbours.
+	//   - NEARBY_SCOPE_CITY: every beacon in the area's city. A CITY-kind area always uses this scope, whatever was sent.
+	//
+	// A plan tagged with a city (not a neighbourhood) is in that city's results only, so a neighbourhood sees it under
+	// NEARBY_SCOPE_CITY. Community beacons are never listed (a widened one, F28b, is public and is).
+	// area_id: empty means the caller's stored area (LocationService; FAILED_PRECONDITION "area_not_set" when none);
+	// otherwise a catalogue id, retired included (malformed or unknown => VALIDATION "area_id", the value never echoed), so
+	// a user may browse an area without storing it. A scope outside the enum => VALIDATION "scope".
+	// Blocks and hidden apply as in ListBeacons (dropped rows; a page may be short while next_page_token is set).
+	// Needs FEATURE_BEACONS not globally off and FEATURE_LOCATION on for the caller (FEATURE_DISABLED names the flag),
+	// before any lookup. limit is clamped (0 = 20, above 50 = 50). page_token is signed and bound to the caller, the
+	// resolved area and the scope (VALIDATION "page_token" otherwise). The first page carries count (K-anonymity: a number
+	// only at >= LOCATION_NEARBY_K_MIN, 5; "few" below). Read budget: about 46 reads at limit 20 (the stored area, the
+	// page, one count aggregation on a first page that does not hold the whole result, the viewer states and the cached
+	// graph). If the backing Firestore index is not ready the answer is an empty first page with no count, never an
+	// error. Rate limit: RATE_LIMIT_BEACONS_READ_PER_MIN.
+	ListNearbyBeacons(context.Context, *connect.Request[v1.ListNearbyBeaconsRequest]) (*connect.Response[v1.ListNearbyBeaconsResponse], error)
 }
 
 // NewBeaconServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -626,6 +683,13 @@ func NewBeaconServiceHandler(svc BeaconServiceHandler, opts ...connect.HandlerOp
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	beaconServiceListNearbyBeaconsHandler := connect.NewUnaryHandler(
+		BeaconServiceListNearbyBeaconsProcedure,
+		svc.ListNearbyBeacons,
+		connect.WithSchema(beaconServiceMethods.ByName("ListNearbyBeacons")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.beacons.v1.BeaconService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case BeaconServiceCreateBeaconProcedure:
@@ -654,6 +718,8 @@ func NewBeaconServiceHandler(svc BeaconServiceHandler, opts ...connect.HandlerOp
 			beaconServiceListParticipantsHandler.ServeHTTP(w, r)
 		case BeaconServiceListSharedBeaconsProcedure:
 			beaconServiceListSharedBeaconsHandler.ServeHTTP(w, r)
+		case BeaconServiceListNearbyBeaconsProcedure:
+			beaconServiceListNearbyBeaconsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -713,4 +779,8 @@ func (UnimplementedBeaconServiceHandler) ListParticipants(context.Context, *conn
 
 func (UnimplementedBeaconServiceHandler) ListSharedBeacons(context.Context, *connect.Request[v1.ListSharedBeaconsRequest]) (*connect.Response[v1.ListSharedBeaconsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.beacons.v1.BeaconService.ListSharedBeacons is not implemented"))
+}
+
+func (UnimplementedBeaconServiceHandler) ListNearbyBeacons(context.Context, *connect.Request[v1.ListNearbyBeaconsRequest]) (*connect.Response[v1.ListNearbyBeaconsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.beacons.v1.BeaconService.ListNearbyBeacons is not implemented"))
 }

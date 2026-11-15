@@ -15,67 +15,71 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'beacons.pb.dart' as $2;
+import 'beacons.pb.dart' as $3;
 import 'beacons.pbjson.dart';
 
 export 'beacons.pb.dart';
 
 abstract class BeaconServiceBase extends $pb.GeneratedService {
-  $async.Future<$2.CreateBeaconResponse> createBeacon(
-      $pb.ServerContext ctx, $2.CreateBeaconRequest request);
-  $async.Future<$2.UpdateBeaconResponse> updateBeacon(
-      $pb.ServerContext ctx, $2.UpdateBeaconRequest request);
-  $async.Future<$2.CancelBeaconResponse> cancelBeacon(
-      $pb.ServerContext ctx, $2.CancelBeaconRequest request);
-  $async.Future<$2.GetBeaconResponse> getBeacon(
-      $pb.ServerContext ctx, $2.GetBeaconRequest request);
-  $async.Future<$2.ListBeaconsResponse> listBeacons(
-      $pb.ServerContext ctx, $2.ListBeaconsRequest request);
-  $async.Future<$2.ListMyBeaconsResponse> listMyBeacons(
-      $pb.ServerContext ctx, $2.ListMyBeaconsRequest request);
-  $async.Future<$2.RequestToJoinResponse> requestToJoin(
-      $pb.ServerContext ctx, $2.RequestToJoinRequest request);
-  $async.Future<$2.WithdrawJoinRequestResponse> withdrawJoinRequest(
-      $pb.ServerContext ctx, $2.WithdrawJoinRequestRequest request);
-  $async.Future<$2.RespondToJoinRequestResponse> respondToJoinRequest(
-      $pb.ServerContext ctx, $2.RespondToJoinRequestRequest request);
-  $async.Future<$2.LeaveBeaconResponse> leaveBeacon(
-      $pb.ServerContext ctx, $2.LeaveBeaconRequest request);
-  $async.Future<$2.RemoveParticipantResponse> removeParticipant(
-      $pb.ServerContext ctx, $2.RemoveParticipantRequest request);
-  $async.Future<$2.ListParticipantsResponse> listParticipants(
-      $pb.ServerContext ctx, $2.ListParticipantsRequest request);
-  $async.Future<$2.ListSharedBeaconsResponse> listSharedBeacons(
-      $pb.ServerContext ctx, $2.ListSharedBeaconsRequest request);
+  $async.Future<$3.CreateBeaconResponse> createBeacon(
+      $pb.ServerContext ctx, $3.CreateBeaconRequest request);
+  $async.Future<$3.UpdateBeaconResponse> updateBeacon(
+      $pb.ServerContext ctx, $3.UpdateBeaconRequest request);
+  $async.Future<$3.CancelBeaconResponse> cancelBeacon(
+      $pb.ServerContext ctx, $3.CancelBeaconRequest request);
+  $async.Future<$3.GetBeaconResponse> getBeacon(
+      $pb.ServerContext ctx, $3.GetBeaconRequest request);
+  $async.Future<$3.ListBeaconsResponse> listBeacons(
+      $pb.ServerContext ctx, $3.ListBeaconsRequest request);
+  $async.Future<$3.ListMyBeaconsResponse> listMyBeacons(
+      $pb.ServerContext ctx, $3.ListMyBeaconsRequest request);
+  $async.Future<$3.RequestToJoinResponse> requestToJoin(
+      $pb.ServerContext ctx, $3.RequestToJoinRequest request);
+  $async.Future<$3.WithdrawJoinRequestResponse> withdrawJoinRequest(
+      $pb.ServerContext ctx, $3.WithdrawJoinRequestRequest request);
+  $async.Future<$3.RespondToJoinRequestResponse> respondToJoinRequest(
+      $pb.ServerContext ctx, $3.RespondToJoinRequestRequest request);
+  $async.Future<$3.LeaveBeaconResponse> leaveBeacon(
+      $pb.ServerContext ctx, $3.LeaveBeaconRequest request);
+  $async.Future<$3.RemoveParticipantResponse> removeParticipant(
+      $pb.ServerContext ctx, $3.RemoveParticipantRequest request);
+  $async.Future<$3.ListParticipantsResponse> listParticipants(
+      $pb.ServerContext ctx, $3.ListParticipantsRequest request);
+  $async.Future<$3.ListSharedBeaconsResponse> listSharedBeacons(
+      $pb.ServerContext ctx, $3.ListSharedBeaconsRequest request);
+  $async.Future<$3.ListNearbyBeaconsResponse> listNearbyBeacons(
+      $pb.ServerContext ctx, $3.ListNearbyBeaconsRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
       case 'CreateBeacon':
-        return $2.CreateBeaconRequest();
+        return $3.CreateBeaconRequest();
       case 'UpdateBeacon':
-        return $2.UpdateBeaconRequest();
+        return $3.UpdateBeaconRequest();
       case 'CancelBeacon':
-        return $2.CancelBeaconRequest();
+        return $3.CancelBeaconRequest();
       case 'GetBeacon':
-        return $2.GetBeaconRequest();
+        return $3.GetBeaconRequest();
       case 'ListBeacons':
-        return $2.ListBeaconsRequest();
+        return $3.ListBeaconsRequest();
       case 'ListMyBeacons':
-        return $2.ListMyBeaconsRequest();
+        return $3.ListMyBeaconsRequest();
       case 'RequestToJoin':
-        return $2.RequestToJoinRequest();
+        return $3.RequestToJoinRequest();
       case 'WithdrawJoinRequest':
-        return $2.WithdrawJoinRequestRequest();
+        return $3.WithdrawJoinRequestRequest();
       case 'RespondToJoinRequest':
-        return $2.RespondToJoinRequestRequest();
+        return $3.RespondToJoinRequestRequest();
       case 'LeaveBeacon':
-        return $2.LeaveBeaconRequest();
+        return $3.LeaveBeaconRequest();
       case 'RemoveParticipant':
-        return $2.RemoveParticipantRequest();
+        return $3.RemoveParticipantRequest();
       case 'ListParticipants':
-        return $2.ListParticipantsRequest();
+        return $3.ListParticipantsRequest();
       case 'ListSharedBeacons':
-        return $2.ListSharedBeaconsRequest();
+        return $3.ListSharedBeaconsRequest();
+      case 'ListNearbyBeacons':
+        return $3.ListNearbyBeaconsRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -85,33 +89,35 @@ abstract class BeaconServiceBase extends $pb.GeneratedService {
       $core.String methodName, $pb.GeneratedMessage request) {
     switch (methodName) {
       case 'CreateBeacon':
-        return createBeacon(ctx, request as $2.CreateBeaconRequest);
+        return createBeacon(ctx, request as $3.CreateBeaconRequest);
       case 'UpdateBeacon':
-        return updateBeacon(ctx, request as $2.UpdateBeaconRequest);
+        return updateBeacon(ctx, request as $3.UpdateBeaconRequest);
       case 'CancelBeacon':
-        return cancelBeacon(ctx, request as $2.CancelBeaconRequest);
+        return cancelBeacon(ctx, request as $3.CancelBeaconRequest);
       case 'GetBeacon':
-        return getBeacon(ctx, request as $2.GetBeaconRequest);
+        return getBeacon(ctx, request as $3.GetBeaconRequest);
       case 'ListBeacons':
-        return listBeacons(ctx, request as $2.ListBeaconsRequest);
+        return listBeacons(ctx, request as $3.ListBeaconsRequest);
       case 'ListMyBeacons':
-        return listMyBeacons(ctx, request as $2.ListMyBeaconsRequest);
+        return listMyBeacons(ctx, request as $3.ListMyBeaconsRequest);
       case 'RequestToJoin':
-        return requestToJoin(ctx, request as $2.RequestToJoinRequest);
+        return requestToJoin(ctx, request as $3.RequestToJoinRequest);
       case 'WithdrawJoinRequest':
         return withdrawJoinRequest(
-            ctx, request as $2.WithdrawJoinRequestRequest);
+            ctx, request as $3.WithdrawJoinRequestRequest);
       case 'RespondToJoinRequest':
         return respondToJoinRequest(
-            ctx, request as $2.RespondToJoinRequestRequest);
+            ctx, request as $3.RespondToJoinRequestRequest);
       case 'LeaveBeacon':
-        return leaveBeacon(ctx, request as $2.LeaveBeaconRequest);
+        return leaveBeacon(ctx, request as $3.LeaveBeaconRequest);
       case 'RemoveParticipant':
-        return removeParticipant(ctx, request as $2.RemoveParticipantRequest);
+        return removeParticipant(ctx, request as $3.RemoveParticipantRequest);
       case 'ListParticipants':
-        return listParticipants(ctx, request as $2.ListParticipantsRequest);
+        return listParticipants(ctx, request as $3.ListParticipantsRequest);
       case 'ListSharedBeacons':
-        return listSharedBeacons(ctx, request as $2.ListSharedBeaconsRequest);
+        return listSharedBeacons(ctx, request as $3.ListSharedBeaconsRequest);
+      case 'ListNearbyBeacons':
+        return listNearbyBeacons(ctx, request as $3.ListNearbyBeaconsRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

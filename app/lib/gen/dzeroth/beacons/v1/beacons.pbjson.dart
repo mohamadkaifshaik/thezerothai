@@ -19,6 +19,7 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
     as $1;
 
 import '../../common/v1/common.pbjson.dart' as $0;
+import '../../location/v1/location.pbjson.dart' as $2;
 
 @$core.Deprecated('Use beaconActivityDescriptor instead')
 const BeaconActivity$json = {
@@ -196,6 +197,38 @@ final $typed_data.Uint8List myBeaconsWindowDescriptor = $convert.base64Decode(
     'pNWV9CRUFDT05TX1dJTkRPV19VUENPTUlORxABEhoKFk1ZX0JFQUNPTlNfV0lORE9XX1BBU1QQ'
     'Ag==');
 
+@$core.Deprecated('Use nearbyScopeDescriptor instead')
+const NearbyScope$json = {
+  '1': 'NearbyScope',
+  '2': [
+    {'1': 'NEARBY_SCOPE_UNSPECIFIED', '2': 0},
+    {'1': 'NEARBY_SCOPE_AREA', '2': 1},
+    {'1': 'NEARBY_SCOPE_CITY', '2': 2},
+  ],
+};
+
+/// Descriptor for `NearbyScope`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List nearbyScopeDescriptor = $convert.base64Decode(
+    'CgtOZWFyYnlTY29wZRIcChhORUFSQllfU0NPUEVfVU5TUEVDSUZJRUQQABIVChFORUFSQllfU0'
+    'NPUEVfQVJFQRABEhUKEU5FQVJCWV9TQ09QRV9DSVRZEAI=');
+
+@$core.Deprecated('Use areaProximityDescriptor instead')
+const AreaProximity$json = {
+  '1': 'AreaProximity',
+  '2': [
+    {'1': 'AREA_PROXIMITY_UNSPECIFIED', '2': 0},
+    {'1': 'AREA_PROXIMITY_SAME_AREA', '2': 1},
+    {'1': 'AREA_PROXIMITY_NEIGHBOURING', '2': 2},
+    {'1': 'AREA_PROXIMITY_SAME_CITY', '2': 3},
+  ],
+};
+
+/// Descriptor for `AreaProximity`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List areaProximityDescriptor = $convert.base64Decode(
+    'Cg1BcmVhUHJveGltaXR5Eh4KGkFSRUFfUFJPWElNSVRZX1VOU1BFQ0lGSUVEEAASHAoYQVJFQV'
+    '9QUk9YSU1JVFlfU0FNRV9BUkVBEAESHwobQVJFQV9QUk9YSU1JVFlfTkVJR0hCT1VSSU5HEAIS'
+    'HAoYQVJFQV9QUk9YSU1JVFlfU0FNRV9DSVRZEAM=');
+
 @$core.Deprecated('Use participantFilterDescriptor instead')
 const ParticipantFilter$json = {
   '1': 'ParticipantFilter',
@@ -297,6 +330,14 @@ const Beacon$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'updatedAt'
     },
+    {
+      '1': 'area',
+      '3': 19,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.location.v1.AreaSummary',
+      '10': 'area'
+    },
   ],
 };
 
@@ -317,7 +358,8 @@ final $typed_data.Uint8List beaconDescriptor = $convert.base64Decode(
     'aC5iZWFjb25zLnYxLkJlYWNvblN0YXR1c1IGc3RhdHVzEhYKBmhpZGRlbhgQIAEoCFIGaGlkZG'
     'VuEjkKCmNyZWF0ZWRfYXQYESABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgljcmVh'
     'dGVkQXQSOQoKdXBkYXRlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCX'
-    'VwZGF0ZWRBdA==');
+    'VwZGF0ZWRBdBI0CgRhcmVhGBMgASgLMiAuZHplcm90aC5sb2NhdGlvbi52MS5BcmVhU3VtbWFy'
+    'eVIEYXJlYQ==');
 
 @$core.Deprecated('Use viewerStateDescriptor instead')
 const ViewerState$json = {
@@ -474,6 +516,7 @@ const CreateBeaconRequest$json = {
       '6': '.dzeroth.beacons.v1.ChatPreference',
       '10': 'chatPreference'
     },
+    {'1': 'area_id', '3': 13, '4': 1, '5': 9, '10': 'areaId'},
   ],
   '8': [
     {'1': 'audience'},
@@ -491,7 +534,7 @@ final $typed_data.Uint8List createBeaconRequestDescriptor = $convert.base64Decod
     'cxgJIAEoBVIPZHVyYXRpb25NaW51dGVzEh0KCm9wZW5fc3BvdHMYCiABKAVSCW9wZW5TcG90cx'
     'IyCgRjb3N0GAsgASgOMh4uZHplcm90aC5iZWFjb25zLnYxLkJlYWNvbkNvc3RSBGNvc3QSSwoP'
     'Y2hhdF9wcmVmZXJlbmNlGAwgASgOMiIuZHplcm90aC5iZWFjb25zLnYxLkNoYXRQcmVmZXJlbm'
-    'NlUg5jaGF0UHJlZmVyZW5jZUIKCghhdWRpZW5jZQ==');
+    'NlUg5jaGF0UHJlZmVyZW5jZRIXCgdhcmVhX2lkGA0gASgJUgZhcmVhSWRCCgoIYXVkaWVuY2U=');
 
 @$core.Deprecated('Use createBeaconResponseDescriptor instead')
 const CreateBeaconResponse$json = {
@@ -568,6 +611,15 @@ const UpdateBeaconRequest$json = {
     },
     {'1': 'community_id', '3': 10, '4': 1, '5': 9, '9': 0, '10': 'communityId'},
     {'1': 'public', '3': 11, '4': 1, '5': 8, '9': 0, '10': 'public'},
+    {
+      '1': 'area_id',
+      '3': 12,
+      '4': 1,
+      '5': 9,
+      '9': 7,
+      '10': 'areaId',
+      '17': true
+    },
   ],
   '8': [
     {'1': 'audience'},
@@ -577,6 +629,7 @@ const UpdateBeaconRequest$json = {
     {'1': '_open_spots'},
     {'1': '_duration_minutes'},
     {'1': '_cost'},
+    {'1': '_area_id'},
   ],
 };
 
@@ -589,9 +642,10 @@ final $typed_data.Uint8List updateBeaconRequestDescriptor = $convert.base64Decod
     'YXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgdzdGFydEF0Ei4KEGR1cmF0aW'
     '9uX21pbnV0ZXMYCCABKAVIBVIPZHVyYXRpb25NaW51dGVziAEBEjcKBGNvc3QYCSABKA4yHi5k'
     'emVyb3RoLmJlYWNvbnMudjEuQmVhY29uQ29zdEgGUgRjb3N0iAEBEiMKDGNvbW11bml0eV9pZB'
-    'gKIAEoCUgAUgtjb21tdW5pdHlJZBIYCgZwdWJsaWMYCyABKAhIAFIGcHVibGljQgoKCGF1ZGll'
-    'bmNlQggKBl90aXRsZUIKCghfZGV0YWlsc0IICgZfdmVudWVCDQoLX29wZW5fc3BvdHNCEwoRX2'
-    'R1cmF0aW9uX21pbnV0ZXNCBwoFX2Nvc3Q=');
+    'gKIAEoCUgAUgtjb21tdW5pdHlJZBIYCgZwdWJsaWMYCyABKAhIAFIGcHVibGljEhwKB2FyZWFf'
+    'aWQYDCABKAlIB1IGYXJlYUlkiAEBQgoKCGF1ZGllbmNlQggKBl90aXRsZUIKCghfZGV0YWlsc0'
+    'IICgZfdmVudWVCDQoLX29wZW5fc3BvdHNCEwoRX2R1cmF0aW9uX21pbnV0ZXNCBwoFX2Nvc3RC'
+    'CgoIX2FyZWFfaWQ=');
 
 @$core.Deprecated('Use updateBeaconResponseDescriptor instead')
 const UpdateBeaconResponse$json = {
@@ -1033,6 +1087,112 @@ final $typed_data.Uint8List listSharedBeaconsResponseDescriptor = $convert.base6
     'Fjb25zLnYxLkJlYWNvblZpZXdSBXZpZXdzEiYKD25leHRfcGFnZV90b2tlbhgCIAEoCVINbmV4'
     'dFBhZ2VUb2tlbg==');
 
+@$core.Deprecated('Use nearbyCountDescriptor instead')
+const NearbyCount$json = {
+  '1': 'NearbyCount',
+  '2': [
+    {'1': 'few', '3': 1, '4': 1, '5': 8, '10': 'few'},
+    {'1': 'plans', '3': 2, '4': 1, '5': 5, '10': 'plans'},
+  ],
+};
+
+/// Descriptor for `NearbyCount`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List nearbyCountDescriptor = $convert.base64Decode(
+    'CgtOZWFyYnlDb3VudBIQCgNmZXcYASABKAhSA2ZldxIUCgVwbGFucxgCIAEoBVIFcGxhbnM=');
+
+@$core.Deprecated('Use nearbyBeaconDescriptor instead')
+const NearbyBeacon$json = {
+  '1': 'NearbyBeacon',
+  '2': [
+    {
+      '1': 'view',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.beacons.v1.BeaconView',
+      '10': 'view'
+    },
+    {
+      '1': 'proximity',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.beacons.v1.AreaProximity',
+      '10': 'proximity'
+    },
+  ],
+};
+
+/// Descriptor for `NearbyBeacon`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List nearbyBeaconDescriptor = $convert.base64Decode(
+    'CgxOZWFyYnlCZWFjb24SMgoEdmlldxgBIAEoCzIeLmR6ZXJvdGguYmVhY29ucy52MS5CZWFjb2'
+    '5WaWV3UgR2aWV3Ej8KCXByb3hpbWl0eRgCIAEoDjIhLmR6ZXJvdGguYmVhY29ucy52MS5BcmVh'
+    'UHJveGltaXR5Uglwcm94aW1pdHk=');
+
+@$core.Deprecated('Use listNearbyBeaconsRequestDescriptor instead')
+const ListNearbyBeaconsRequest$json = {
+  '1': 'ListNearbyBeaconsRequest',
+  '2': [
+    {'1': 'area_id', '3': 1, '4': 1, '5': 9, '10': 'areaId'},
+    {
+      '1': 'scope',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.beacons.v1.NearbyScope',
+      '10': 'scope'
+    },
+    {'1': 'limit', '3': 3, '4': 1, '5': 5, '10': 'limit'},
+    {'1': 'page_token', '3': 4, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `ListNearbyBeaconsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listNearbyBeaconsRequestDescriptor = $convert.base64Decode(
+    'ChhMaXN0TmVhcmJ5QmVhY29uc1JlcXVlc3QSFwoHYXJlYV9pZBgBIAEoCVIGYXJlYUlkEjUKBX'
+    'Njb3BlGAIgASgOMh8uZHplcm90aC5iZWFjb25zLnYxLk5lYXJieVNjb3BlUgVzY29wZRIUCgVs'
+    'aW1pdBgDIAEoBVIFbGltaXQSHQoKcGFnZV90b2tlbhgEIAEoCVIJcGFnZVRva2Vu');
+
+@$core.Deprecated('Use listNearbyBeaconsResponseDescriptor instead')
+const ListNearbyBeaconsResponse$json = {
+  '1': 'ListNearbyBeaconsResponse',
+  '2': [
+    {
+      '1': 'items',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.beacons.v1.NearbyBeacon',
+      '10': 'items'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+    {
+      '1': 'area',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.location.v1.AreaSummary',
+      '10': 'area'
+    },
+    {
+      '1': 'count',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.beacons.v1.NearbyCount',
+      '10': 'count'
+    },
+  ],
+};
+
+/// Descriptor for `ListNearbyBeaconsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listNearbyBeaconsResponseDescriptor = $convert.base64Decode(
+    'ChlMaXN0TmVhcmJ5QmVhY29uc1Jlc3BvbnNlEjYKBWl0ZW1zGAEgAygLMiAuZHplcm90aC5iZW'
+    'Fjb25zLnYxLk5lYXJieUJlYWNvblIFaXRlbXMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJUg1u'
+    'ZXh0UGFnZVRva2VuEjQKBGFyZWEYAyABKAsyIC5kemVyb3RoLmxvY2F0aW9uLnYxLkFyZWFTdW'
+    '1tYXJ5UgRhcmVhEjUKBWNvdW50GAQgASgLMh8uZHplcm90aC5iZWFjb25zLnYxLk5lYXJieUNv'
+    'dW50UgVjb3VudA==');
+
 const $core.Map<$core.String, $core.dynamic> BeaconServiceBase$json = {
   '1': 'BeaconService',
   '2': [
@@ -1106,6 +1266,12 @@ const $core.Map<$core.String, $core.dynamic> BeaconServiceBase$json = {
       '3': '.dzeroth.beacons.v1.ListSharedBeaconsResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'ListNearbyBeacons',
+      '2': '.dzeroth.beacons.v1.ListNearbyBeaconsRequest',
+      '3': '.dzeroth.beacons.v1.ListNearbyBeaconsResponse',
+      '4': {'34': 1},
+    },
   ],
 };
 
@@ -1118,6 +1284,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.beacons.v1.BeaconView': BeaconView$json,
   '.dzeroth.beacons.v1.Beacon': Beacon$json,
   '.dzeroth.common.v1.AuthorSnapshot': $0.AuthorSnapshot$json,
+  '.dzeroth.location.v1.AreaSummary': $2.AreaSummary$json,
   '.dzeroth.beacons.v1.ViewerState': ViewerState$json,
   '.dzeroth.beacons.v1.UpdateBeaconRequest': UpdateBeaconRequest$json,
   '.dzeroth.beacons.v1.UpdateBeaconResponse': UpdateBeaconResponse$json,
@@ -1150,6 +1317,11 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.beacons.v1.ListSharedBeaconsRequest': ListSharedBeaconsRequest$json,
   '.dzeroth.beacons.v1.ListSharedBeaconsResponse':
       ListSharedBeaconsResponse$json,
+  '.dzeroth.beacons.v1.ListNearbyBeaconsRequest': ListNearbyBeaconsRequest$json,
+  '.dzeroth.beacons.v1.ListNearbyBeaconsResponse':
+      ListNearbyBeaconsResponse$json,
+  '.dzeroth.beacons.v1.NearbyBeacon': NearbyBeacon$json,
+  '.dzeroth.beacons.v1.NearbyCount': NearbyCount$json,
 };
 
 /// Descriptor for `BeaconService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -1179,4 +1351,6 @@ final $typed_data.Uint8List beaconServiceDescriptor = $convert.base64Decode(
     'Y2lwYW50c1JlcXVlc3QaLC5kemVyb3RoLmJlYWNvbnMudjEuTGlzdFBhcnRpY2lwYW50c1Jlc3'
     'BvbnNlIgOQAgESdQoRTGlzdFNoYXJlZEJlYWNvbnMSLC5kemVyb3RoLmJlYWNvbnMudjEuTGlz'
     'dFNoYXJlZEJlYWNvbnNSZXF1ZXN0Gi0uZHplcm90aC5iZWFjb25zLnYxLkxpc3RTaGFyZWRCZW'
-    'Fjb25zUmVzcG9uc2UiA5ACAQ==');
+    'Fjb25zUmVzcG9uc2UiA5ACARJ1ChFMaXN0TmVhcmJ5QmVhY29ucxIsLmR6ZXJvdGguYmVhY29u'
+    'cy52MS5MaXN0TmVhcmJ5QmVhY29uc1JlcXVlc3QaLS5kemVyb3RoLmJlYWNvbnMudjEuTGlzdE'
+    '5lYXJieUJlYWNvbnNSZXNwb25zZSIDkAIB');
