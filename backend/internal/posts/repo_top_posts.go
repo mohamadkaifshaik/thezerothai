@@ -2,9 +2,9 @@
 // consumer-side identity.TopPostsReader wired in apiserver):
 //
 //	Q-TP posts where authorId == uid ORDER BY viewCount DESC LIMIT n
-//	     -> composite index (authorId ASC, viewCount DESC), NOT in firebase/firestore.indexes.json yet (a gate file):
-//	        until it is deployed Firestore answers FAILED_PRECONDITION, which is ErrTopPostsIndexMissing, and the RPC
-//	        answers with no top posts.
+//	     -> composite index (authorId ASC, viewCount DESC) in firebase/firestore.indexes.json: until it is READY
+//	        Firestore answers FAILED_PRECONDITION, which is ErrTopPostsIndexMissing, and the RPC answers with no top
+//	        posts.
 //
 // Lifetime viewCount, not views gained in a window (that needs per-post daily deltas; v1 design 2026-11-15). Posts
 // without a viewCount field (never rolled up) are not returned by the ordering at all.
