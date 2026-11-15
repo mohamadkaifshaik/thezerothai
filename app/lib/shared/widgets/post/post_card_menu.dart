@@ -82,6 +82,7 @@ class _PostMenu extends StatefulWidget {
 
 class _PostMenuState extends State<_PostMenu> {
   RelationshipCubit? _cubit;
+  final MenuController _menu = MenuController();
 
   RelationshipCubit _cubitFor(BuildContext context) {
     final existing = _cubit;
@@ -133,84 +134,113 @@ class _PostMenuState extends State<_PostMenu> {
       return const SizedBox.shrink();
     }
 
-    return PopupMenuButton<_MenuAction>(
-      tooltip: 'More options',
-      icon: Icon(
-        Icons.more_horiz,
-        size: AppIconSize.lg,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
+    // A MenuAnchor, not a PopupMenuButton: the popup is a modal route whose
+    // barrier swallows drags, so an open menu froze the feed under it. This
+    // one is an overlay entry with no barrier: a drag on the feed scrolls it,
+    // and the anchor closes the menu on that scroll (and on an outside tap).
+    return MenuAnchor(
+      controller: _menu,
+      crossAxisUnconstrained: false,
+      // Never wider than the screen: long labels wrap (large text) instead of
+      // running off its edge, as the popup's own width cap did.
+      style: MenuStyle(
+        maximumSize: WidgetStatePropertyAll(
+          Size(
+            MediaQuery.sizeOf(context).width - AppSpacing.md * 2,
+            double.infinity,
+          ),
+        ),
       ),
-      padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
-      onSelected: (action) => _onSelected(context, action),
-      itemBuilder: (context) {
-        final relationship = canGraph
-            ? _cubitFor(context).state.relationship
-            : null;
-        return [
-          if (canDelete)
-            const PopupMenuItem(
-              value: _MenuAction.delete,
-              child: AppMenuItemRow(
-                icon: Icons.delete_outline,
-                label: 'Delete',
-                destructive: true,
-              ),
-            ),
-          if (showPin)
-            PopupMenuItem(
-              value: _MenuAction.pin,
-              child: AppMenuItemRow(
-                icon: Icons.push_pin_outlined,
-                label: pin.isPinned(widget.post.postId)
-                    ? 'Unpin from profile'
-                    : 'Pin to your profile',
-              ),
-            ),
-          if (showHide)
-            const PopupMenuItem(
-              value: _MenuAction.hide,
-              child: AppMenuItemRow(
-                icon: Icons.visibility_off_outlined,
-                label: 'Remove from community',
-                destructive: true,
-              ),
-            ),
-          if (canReport)
-            PopupMenuItem(
-              value: _MenuAction.report,
-              child: AppMenuItemRow(
-                icon: Icons.flag_outlined,
-                label: target.reportLabel,
-              ),
-            ),
-          if (relationship != null) ...[
-            PopupMenuItem(
-              value: _MenuAction.block,
-              child: AppMenuItemRow(
-                icon: relationship.blocking
-                    ? Icons.lock_open_outlined
-                    : Icons.block,
-                label: relationship.blocking
-                    ? 'Unblock @$handle'
-                    : 'Block @$handle',
-              ),
-            ),
-            PopupMenuItem(
-              value: _MenuAction.mute,
-              child: AppMenuItemRow(
-                icon: relationship.muting
-                    ? Icons.volume_up_outlined
-                    : Icons.volume_off_outlined,
-                label: relationship.muting
-                    ? 'Unmute @$handle'
-                    : 'Mute @$handle',
-              ),
-            ),
-          ],
-        ];
-      },
+      menuChildren: [
+        if (canDelete)
+          _item(
+            context,
+            _MenuAction.delete,
+            Icons.delete_outline,
+            'Delete',
+            destructive: true,
+          ),
+        if (showPin)
+          _item(
+            context,
+            _MenuAction.pin,
+            Icons.push_pin_outlined,
+            pin.isPinned(widget.post.postId)
+                ? 'Unpin from profile'
+                : 'Pin to your profile',
+          ),
+        if (showHide)
+          _item(
+            context,
+            _MenuAction.hide,
+            Icons.visibility_off_outlined,
+            'Remove from community',
+            destructive: true,
+          ),
+        if (canReport)
+          _item(
+            context,
+            _MenuAction.report,
+            Icons.flag_outlined,
+            target.reportLabel,
+          ),
+        // Built when the menu opens (the overlay builds lazily), so the
+        // relationship cubit is still only created on first open.
+        if (canGraph)
+          Builder(
+            builder: (menuContext) {
+              final relationship = _cubitFor(context).state.relationship;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _item(
+                    context,
+                    _MenuAction.block,
+                    relationship.blocking
+                        ? Icons.lock_open_outlined
+                        : Icons.block,
+                    relationship.blocking
+                        ? 'Unblock @$handle'
+                        : 'Block @$handle',
+                  ),
+                  _item(
+                    context,
+                    _MenuAction.mute,
+                    relationship.muting
+                        ? Icons.volume_up_outlined
+                        : Icons.volume_off_outlined,
+                    relationship.muting ? 'Unmute @$handle' : 'Mute @$handle',
+                  ),
+                ],
+              );
+            },
+          ),
+      ],
+      builder: (context, controller, _) => IconButton(
+        tooltip: 'More options',
+        icon: Icon(
+          Icons.more_horiz,
+          size: AppIconSize.lg,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+      ),
     );
   }
+
+  MenuItemButton _item(
+    BuildContext context,
+    _MenuAction action,
+    IconData icon,
+    String label, {
+    bool destructive = false,
+  }) => MenuItemButton(
+    onPressed: () => unawaited(_onSelected(context, action)),
+    child: AppMenuItemRow(icon: icon, label: label, destructive: destructive),
+  );
 
   Future<void> _onSelected(BuildContext context, _MenuAction action) async {
     switch (action) {
