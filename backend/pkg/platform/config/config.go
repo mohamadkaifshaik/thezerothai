@@ -235,6 +235,11 @@ type Config struct {
 	// FeatureSearchFilters is the flag (wire name `search_filters`) gating the search "People you follow" filter on SearchPosts: on for the caller.
 	// FEATURE_SEARCH_FILTERS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureSearchFilters flags.Spec
+	// FeatureLocation is the flag (wire name `location`) gating the caller's chosen area (LocationService, location
+	// design 2026-11-15): SetArea on for the caller, ListAreas not globally off; GetLocationSettings and ClearArea work in
+	// every flag mode so a user can always see and withdraw. FEATURE_LOCATION[_ALLOWLIST|_PERCENT], default off in every
+	// environment.
+	FeatureLocation flags.Spec
 	// FeatureDMSuggestions is the flag (wire name `dm_suggestions`) gating message recipient suggestions on the new-message screen: on for the caller.
 	// FEATURE_DM_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureDMSuggestions flags.Spec
@@ -1034,6 +1039,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureLocation, err := flags.LoadSpec("LOCATION", "location", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureDMSuggestions, err := flags.LoadSpec("DM_SUGGESTIONS", "dm_suggestions", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1245,6 +1254,7 @@ func Load() (Config, error) {
 		FeatureMessageSearch:         featureMessageSearch,
 		FeatureSearchLists:           featureSearchLists,
 		FeatureSearchFilters:         featureSearchFilters,
+		FeatureLocation:              featureLocation,
 		FeatureDMSuggestions:         featureDMSuggestions,
 		FeaturePostViews:             featurePostViews,
 		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),
