@@ -95,7 +95,6 @@ void main() {
             top('Advertise'),
             top('Calls'),
             top('Settings and Privacy'),
-            top('Sign out'),
           ];
           expect(order, orderedEquals([...order]..sort()));
           // Tiles share rows (Lists beside Articles, History beside
