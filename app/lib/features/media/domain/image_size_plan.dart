@@ -21,6 +21,8 @@ class PurposeSpec {
     required this.thumbEdge,
     required this.maxFullBytes,
     required this.maxThumbBytes,
+    required this.fullQuality,
+    required this.thumbQuality,
   });
 
   final int fullEdge;
@@ -28,8 +30,9 @@ class PurposeSpec {
   final int maxFullBytes;
   final int maxThumbBytes;
 
-  static const fullQuality = 80;
-  static const thumbQuality = 70;
+  /// The first JPEG quality tried; the ladder steps down from here.
+  final int fullQuality;
+  final int thumbQuality;
 
   static PurposeSpec of(ImagePurpose purpose) => switch (purpose) {
     ImagePurpose.post => const PurposeSpec._(
@@ -37,12 +40,16 @@ class PurposeSpec {
       thumbEdge: kPostThumbEdge,
       maxFullBytes: kMaxFullBytes,
       maxThumbBytes: kMaxThumbBytes,
+      fullQuality: kPostFullQuality,
+      thumbQuality: kPostThumbQuality,
     ),
     ImagePurpose.avatar => const PurposeSpec._(
       fullEdge: kAvatarFullEdge,
       thumbEdge: kAvatarThumbEdge,
       maxFullBytes: kMaxFullBytes,
       maxThumbBytes: kMaxThumbBytes,
+      fullQuality: 80,
+      thumbQuality: 70,
     ),
   };
 }
@@ -84,7 +91,7 @@ CropRect cropFor(ImagePurpose purpose, int width, int height) {
 }
 
 /// Every attempt `_encodeWithin` makes, in order: fit into [edge], then
-/// quality [quality] down to 40 in steps of 10, then shrink by 75 % (six
+/// quality [quality] down to 40 in steps of 10 (88, 78, 68, 58, 48 for a post), then shrink by 75 % (six
 /// sizes in total). The first attempt whose JPEG fits the cap wins.
 Iterable<EncodeAttempt> encodeAttempts(
   int width,

@@ -28,7 +28,7 @@ void main() {
         expect((out.width, out.height), (32, 24));
         expect(jpegDims(out.thumbBytes), (width: 32, height: 24));
         expect(out.blurhash, isNotEmpty);
-        expect(codec.encodes.single.quality, 70);
+        expect(codec.encodes.single.quality, 75);
         expect(codec.encodes.single.crop, (x: 0, y: 0, width: 32, height: 24));
         expect(codec.closed, 1);
       },
