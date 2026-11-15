@@ -160,6 +160,21 @@ void main() {
     handle.dispose();
   });
 
+  testWidgets('descendant semantics stay separate nodes (not merged)', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await open(tester);
+
+    // The card's own button and body keep their own nodes (a gesture
+    // detector's long-press semantics would merge them into one label).
+    expect(find.bySemanticsLabel('Open profile of @hme'), findsOneWidget);
+    final body = tester.getSemantics(find.text('hello card body'));
+    expect(body.label, contains('hello card body'));
+    expect(body.label, isNot(contains('Open profile')));
+    handle.dispose();
+  });
+
   testWidgets('a card with nothing to offer ignores long press and has no '
       'custom action', (tester) async {
     final handle = tester.ensureSemantics();

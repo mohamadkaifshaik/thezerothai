@@ -128,8 +128,18 @@ class _PostLongPressMenuState extends State<_PostLongPressMenu> {
             : null,
         child: child,
       ),
-      child: GestureDetector(
-        onLongPressStart: _onLongPress,
+      // A RawGestureDetector with no semantics delegate: GestureDetector
+      // adds a long-press semantics node that merges the card's
+      // descendant labels into one.
+      child: RawGestureDetector(
+        excludeFromSemantics: true,
+        gestures: <Type, GestureRecognizerFactory>{
+          LongPressGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+                LongPressGestureRecognizer.new,
+                (instance) => instance.onLongPressStart = _onLongPress,
+              ),
+        },
         child: _PostMenuScope(handle: _handle, child: widget.child),
       ),
     );
