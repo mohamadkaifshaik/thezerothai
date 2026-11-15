@@ -33,12 +33,6 @@ var (
 //go:embed areas/areas.json
 var embeddedAreas []byte
 
-// ValidIDFormat reports whether id matches the city or neighbourhood id grammar (no lookup). Checked before any catalogue
-// lookup so a malformed value is refused without being echoed.
-func ValidIDFormat(id string) bool {
-	return cityIDRe.MatchString(id) || areaIDRe.MatchString(id)
-}
-
 // catalogFile is the areas.json shape.
 type catalogFile struct {
 	Version int64       `json:"version"`

@@ -96,15 +96,22 @@ func optInt(n *int) string {
 	return strconv.Itoa(*n)
 }
 
+// createHash is the CreateBeacon request hash. Without an area it is the pre-P2 string byte for byte, so a retry in flight
+// across a deploy still matches its stored idempotency record.
 func createHash(b Beacon) string {
-	return idempotency.HashRequest(fmt.Sprintf("community=%s|activity=%s|title=%q|details=%q|venue=%q|start=%d|duration=%d|spots=%d|cost=%s|chat=%s",
-		b.CommunityID, b.Activity, b.Title, b.Details, b.Venue, b.StartAt.UnixMicro(), b.DurationMin, b.OpenSpots, b.Cost, b.ChatPref))
+	s := fmt.Sprintf("community=%s|activity=%s|title=%q|details=%q|venue=%q|start=%d|duration=%d|spots=%d|cost=%s|chat=%s",
+		b.CommunityID, b.Activity, b.Title, b.Details, b.Venue, b.StartAt.UnixMicro(), b.DurationMin, b.OpenSpots, b.Cost, b.ChatPref)
+	if b.Area.AreaID != "" {
+		s += "|area=" + b.Area.AreaID
+	}
+	return idempotency.HashRequest(s)
 }
 
 // updateHash is the UpdateBeacon request hash. Without start_at, duration and cost it is the pre-F28 string byte for
-// byte, and without an audience the pre-F28b one, so a retry in flight across a deploy still matches its stored
-// idempotency record. audience is the requested communityId ("" = public), nil when unset.
-func updateHash(beaconID string, title, details, venue *string, spots *int, sched schedule, audience *string) string {
+// byte, without an audience the pre-F28b one and without an area the pre-P2 one, so a retry in flight across a deploy
+// still matches its stored idempotency record. audience is the requested communityId ("" = public), nil when unset; area
+// is the requested area id ("" = remove), nil when unset.
+func updateHash(beaconID string, title, details, venue *string, spots *int, sched schedule, audience, area *string) string {
 	s := fmt.Sprintf("beacon_id=%s|title=%s|details=%s|venue=%s|open_spots=%s", beaconID, optString(title), optString(details), optString(venue), optInt(spots))
 	if sched.set() {
 		start := "unset"
@@ -123,6 +130,9 @@ func updateHash(beaconID string, title, details, venue *string, spots *int, sche
 			a = "c:" + *audience
 		}
 		s += "|audience=" + a
+	}
+	if area != nil {
+		s += "|area=" + strconv.Quote(*area)
 	}
 	return idempotency.HashRequest(s)
 }
@@ -432,7 +442,7 @@ func (s *service) view(b Beacon, organiser identity.Profile, viewer string) View
 func (s *service) viewWith(b Beacon, organiser identity.Profile, viewer, pstate string) View {
 	now := s.now()
 	b.Status = b.EffectiveStatus(now)
-	return View{Beacon: b, Organiser: organiser, Viewer: viewerState(b, viewer, pstate, now)}
+	return View{Beacon: b, Organiser: organiser, Viewer: viewerState(b, viewer, pstate, now), Area: s.areaLabel(b)}
 }
 
 // normalizeCreate applies every field rule of CreateBeacon in order (0 reads) and returns the beacon to store.
@@ -487,6 +497,9 @@ func (s *service) CreateBeacon(ctx context.Context, uid string, in CreateInput) 
 	begin(ctx, "create")
 	b, err := s.normalizeCreate(uid, in, s.now())
 	if err != nil {
+		return View{}, mapErr(ctx, "create", uid, "", err)
+	}
+	if b.Area, err = s.createArea(ctx, uid, in.AreaID); err != nil {
 		return View{}, mapErr(ctx, "create", uid, "", err)
 	}
 	if b.CommunityID != "" {
@@ -569,6 +582,10 @@ func (s *service) UpdateBeacon(ctx context.Context, uid string, in UpdateInput) 
 		}
 		audience = &in.Audience.CommunityID
 	}
+	area, err := s.updateArea(ctx, uid, in.AreaID)
+	if err != nil {
+		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
+	}
 	a, err := s.organised(ctx, uid, in.BeaconID)
 	if err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
@@ -578,9 +595,9 @@ func (s *service) UpdateBeacon(ctx context.Context, uid string, in UpdateInput) 
 	}
 	res, err := s.d.Repo.Update(ctx, UpdateParams{
 		UID: uid, BeaconID: in.BeaconID, IdemKey: idempotency.Key(uid, rpcUpdateBeacon, in.Key),
-		RequestHash: updateHash(in.BeaconID, title, details, venue, in.OpenSpots, sched, audience),
+		RequestHash: updateHash(in.BeaconID, title, details, venue, in.OpenSpots, sched, audience, in.AreaID),
 		Title:       title, Details: details, Venue: venue, OpenSpots: in.OpenSpots,
-		StartAt: sched.start, DurationMin: sched.duration, Cost: sched.cost, AudienceCommunityID: audience,
+		StartAt: sched.start, DurationMin: sched.duration, Cost: sched.cost, AudienceCommunityID: audience, Area: area,
 		MaxEditRows: MaxEditRows, Now: now,
 	})
 	if err != nil {

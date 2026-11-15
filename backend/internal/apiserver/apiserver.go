@@ -877,6 +877,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// interceptor chain covers them. CreateBeacon, UpdateBeacon, CancelBeacon, GetBeacon and ListBeacons reach the service;
 	// the participation RPCs answer Unimplemented until PR 3. Community-audience beacons read membership through
 	// communities.Reader and gate on FEATURE_COMMUNITIES with the same registry.
+	// Location is built before beacons (plan areas and ListNearbyBeacons read its catalogue and Reader; location imports
+	// no other module); its lifecycle step and routes are registered after beacons, below.
+	locationMod, err := newLocationModule(fsClient, cfg, featureFlags, snowflakeNode)
+	if err != nil {
+		return nil, nil, err
+	}
 	var beaconEvents beacons.Events = beaconNotifier{slot: notifSlot} // request, accept and cancel → notifications (PR 5)
 	if bo.inlineBeaconEvents != nil {
 		beaconEvents = bo.inlineBeaconEvents(beaconEvents)
@@ -886,7 +892,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		CommunityFlags: featureFlags, Flags: featureFlags, Follows: graphSvc, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
 		Events: beaconEvents,
 		Outbox: ob, // the cancellation notices: staged in the cancel transaction, re-run by the outbox sweep (B07)
-		Limits: beacons.Limits{MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots},
+		Limits: beacons.Limits{
+			MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots,
+			NearbyKMin: cfg.Location.NearbyKMin,
+		},
+		Areas: locationMod.catalog, MyArea: locationMod.svc, // plan areas and ListNearbyBeacons (Location P2)
 	})
 	beaconReporter, ok := beaconsSvc.(beacons.BeaconReporter)
 	if !ok {
@@ -912,15 +922,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
 	})
 
-	// Location: the module is built here (the catalogue is parsed: a bad areas.json fails boot) and its lifecycle step and
-	// export section are registered after every other module's (users/{uid}/locationArea and users/{uid}/locationConsents;
-	// the step runs after daily_stats). All four LocationService routes are mounted so the interceptor chain covers them; the
-	// handler runs the FEATURE_LOCATION class per RPC (SetArea on for the caller, ListAreas not globally off,
-	// GetLocationSettings and ClearArea in every mode).
-	locationMod, err := newLocationModule(fsClient, cfg, featureFlags, snowflakeNode)
-	if err != nil {
-		return nil, nil, err
-	}
+	// Location: the module was built before beacons (the catalogue is parsed there: a bad areas.json fails boot); its
+	// lifecycle step and export section are registered after every other module's (users/{uid}/locationArea and
+	// users/{uid}/locationConsents; the step runs after daily_stats). All four LocationService routes are mounted so the
+	// interceptor chain covers them; the handler runs the FEATURE_LOCATION class per RPC (SetArea on for the caller,
+	// ListAreas not globally off, GetLocationSettings and ClearArea in every mode).
 	if err := registerLocationLifecycle(lifecycle, locationMod.repo, locationMod.catalog); err != nil {
 		return nil, nil, fmt.Errorf("location lifecycle registry: %w", err)
 	}

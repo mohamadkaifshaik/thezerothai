@@ -289,6 +289,66 @@ class MyBeaconsWindow extends $pb.ProtobufEnum {
   const MyBeaconsWindow._(super.value, super.name);
 }
 
+/// The reach of ListNearbyBeacons.
+class NearbyScope extends $pb.ProtobufEnum {
+  /// Treated as AREA.
+  static const NearbyScope NEARBY_SCOPE_UNSPECIFIED =
+      NearbyScope._(0, _omitEnumNames ? '' : 'NEARBY_SCOPE_UNSPECIFIED');
+
+  /// The area and its catalogue neighbours.
+  static const NearbyScope NEARBY_SCOPE_AREA =
+      NearbyScope._(1, _omitEnumNames ? '' : 'NEARBY_SCOPE_AREA');
+
+  /// The whole city of the area.
+  static const NearbyScope NEARBY_SCOPE_CITY =
+      NearbyScope._(2, _omitEnumNames ? '' : 'NEARBY_SCOPE_CITY');
+
+  static const $core.List<NearbyScope> values = <NearbyScope>[
+    NEARBY_SCOPE_UNSPECIFIED,
+    NEARBY_SCOPE_AREA,
+    NEARBY_SCOPE_CITY,
+  ];
+
+  static final $core.List<NearbyScope?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static NearbyScope? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const NearbyScope._(super.value, super.name);
+}
+
+/// Where a listed plan's area sits relative to the requested area. Derived from the plan's area, never from a person.
+class AreaProximity extends $pb.ProtobufEnum {
+  static const AreaProximity AREA_PROXIMITY_UNSPECIFIED =
+      AreaProximity._(0, _omitEnumNames ? '' : 'AREA_PROXIMITY_UNSPECIFIED');
+
+  /// The plan's area is the requested one (for a CITY area: the plan is tagged with the city itself).
+  static const AreaProximity AREA_PROXIMITY_SAME_AREA =
+      AreaProximity._(1, _omitEnumNames ? '' : 'AREA_PROXIMITY_SAME_AREA');
+
+  /// The plan's area is a catalogue neighbour of the requested one.
+  static const AreaProximity AREA_PROXIMITY_NEIGHBOURING =
+      AreaProximity._(2, _omitEnumNames ? '' : 'AREA_PROXIMITY_NEIGHBOURING');
+
+  /// Elsewhere in the same city (NEARBY_SCOPE_CITY only).
+  static const AreaProximity AREA_PROXIMITY_SAME_CITY =
+      AreaProximity._(3, _omitEnumNames ? '' : 'AREA_PROXIMITY_SAME_CITY');
+
+  static const $core.List<AreaProximity> values = <AreaProximity>[
+    AREA_PROXIMITY_UNSPECIFIED,
+    AREA_PROXIMITY_SAME_AREA,
+    AREA_PROXIMITY_NEIGHBOURING,
+    AREA_PROXIMITY_SAME_CITY,
+  ];
+
+  static final $core.List<AreaProximity?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
+  static AreaProximity? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const AreaProximity._(super.value, super.name);
+}
+
 class ParticipantFilter extends $pb.ProtobufEnum {
   /// Same as ACCEPTED.
   static const ParticipantFilter PARTICIPANT_FILTER_UNSPECIFIED =

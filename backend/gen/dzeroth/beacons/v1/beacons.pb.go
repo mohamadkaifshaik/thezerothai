@@ -9,7 +9,8 @@
 // organiser acceptance (docs/beacons-plan.md). Owner module: backend/internal/beacons.
 // Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt, endAt,
 // durationMin, openSpots, acceptedCount, cost, chatPref, eligibility, status, hidden, createdAt, updatedAt,
-// expireAt), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
+// expireAt, and the optional plan area: areaId, cityId, nearAreaIds = the area and its catalogue neighbours, denormalised
+// from the location catalogue on every area write), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
 // users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pendingUntil, communityId, startAt, endAt; never another
 // user's uid, so a row may outlive an erased organiser's beacon and is dropped on read). Only beacons.Service reads or
 // writes them; firestore.rules stay deny-all to clients.
@@ -50,10 +51,11 @@
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in beacon_id | user_id | community_id | audience | activity |
 //   title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | response |
-//   page_token | idempotency_key | peer_user_id; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
+//   page_token | idempotency_key | peer_user_id | area_id | scope; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
 //   50 = 50), the lists precedent.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
-//   audience while that flag is off for the caller).
+//   audience while that flag is off for the caller, or "location" for a plan area and ListNearbyBeacons while
+//   FEATURE_LOCATION is off for the caller; see each RPC).
 // - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon (including a community audience whose
 //   community is missing or SUSPENDED; the community owner still reads a SUSPENDED community's beacons).
 // - FAILED_PRECONDITION + COMMUNITY_STATE, metadata["reason"] = "community_archived": CreateBeacon, RequestToJoin or
@@ -63,7 +65,8 @@
 //   else). A block in either direction is never FORBIDDEN: it is the one NOT_FOUND above.
 // - FAILED_PRECONDITION, metadata["reason"] = "full" | "ended" | "cancelled" | "already_requested" |
 //   "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon) | "started"
-//   (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started).
+//   (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started) | "area_not_set"
+//   (ListNearbyBeacons with no area_id while the caller has no stored area).
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "audience", metadata["reason"] = "audience_narrowing"
 //   (UpdateBeacon moving a public beacon into a community) | "audience_incompatible" (UpdateBeacon moving a community
 //   beacon into another community); checked against the stored audience, nothing is written. An audience is only ever
@@ -75,7 +78,7 @@
 //   that rewrites them); nothing is written.
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_BEACONS_WRITE_PER_MIN (10: Create, Update, Cancel),
 //   RATE_LIMIT_BEACONS_ACTION_PER_MIN (20: Request, Withdraw, Respond, Leave, Remove), RATE_LIMIT_BEACONS_READ_PER_MIN
-//   (30: Get, List*, ListSharedBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
+//   (30: Get, List*, ListSharedBeacons, ListNearbyBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
 //   "beacons_created_daily"); honour retry_after.
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 
@@ -83,6 +86,7 @@ package beaconsv1
 
 import (
 	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	v11 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -636,6 +640,115 @@ func (MyBeaconsWindow) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{9}
 }
 
+// The reach of ListNearbyBeacons.
+type NearbyScope int32
+
+const (
+	// Treated as AREA.
+	NearbyScope_NEARBY_SCOPE_UNSPECIFIED NearbyScope = 0
+	// The area and its catalogue neighbours.
+	NearbyScope_NEARBY_SCOPE_AREA NearbyScope = 1
+	// The whole city of the area.
+	NearbyScope_NEARBY_SCOPE_CITY NearbyScope = 2
+)
+
+// Enum value maps for NearbyScope.
+var (
+	NearbyScope_name = map[int32]string{
+		0: "NEARBY_SCOPE_UNSPECIFIED",
+		1: "NEARBY_SCOPE_AREA",
+		2: "NEARBY_SCOPE_CITY",
+	}
+	NearbyScope_value = map[string]int32{
+		"NEARBY_SCOPE_UNSPECIFIED": 0,
+		"NEARBY_SCOPE_AREA":        1,
+		"NEARBY_SCOPE_CITY":        2,
+	}
+)
+
+func (x NearbyScope) Enum() *NearbyScope {
+	p := new(NearbyScope)
+	*p = x
+	return p
+}
+
+func (x NearbyScope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NearbyScope) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_beacons_v1_beacons_proto_enumTypes[10].Descriptor()
+}
+
+func (NearbyScope) Type() protoreflect.EnumType {
+	return &file_dzeroth_beacons_v1_beacons_proto_enumTypes[10]
+}
+
+func (x NearbyScope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NearbyScope.Descriptor instead.
+func (NearbyScope) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{10}
+}
+
+// Where a listed plan's area sits relative to the requested area. Derived from the plan's area, never from a person.
+type AreaProximity int32
+
+const (
+	AreaProximity_AREA_PROXIMITY_UNSPECIFIED AreaProximity = 0
+	// The plan's area is the requested one (for a CITY area: the plan is tagged with the city itself).
+	AreaProximity_AREA_PROXIMITY_SAME_AREA AreaProximity = 1
+	// The plan's area is a catalogue neighbour of the requested one.
+	AreaProximity_AREA_PROXIMITY_NEIGHBOURING AreaProximity = 2
+	// Elsewhere in the same city (NEARBY_SCOPE_CITY only).
+	AreaProximity_AREA_PROXIMITY_SAME_CITY AreaProximity = 3
+)
+
+// Enum value maps for AreaProximity.
+var (
+	AreaProximity_name = map[int32]string{
+		0: "AREA_PROXIMITY_UNSPECIFIED",
+		1: "AREA_PROXIMITY_SAME_AREA",
+		2: "AREA_PROXIMITY_NEIGHBOURING",
+		3: "AREA_PROXIMITY_SAME_CITY",
+	}
+	AreaProximity_value = map[string]int32{
+		"AREA_PROXIMITY_UNSPECIFIED":  0,
+		"AREA_PROXIMITY_SAME_AREA":    1,
+		"AREA_PROXIMITY_NEIGHBOURING": 2,
+		"AREA_PROXIMITY_SAME_CITY":    3,
+	}
+)
+
+func (x AreaProximity) Enum() *AreaProximity {
+	p := new(AreaProximity)
+	*p = x
+	return p
+}
+
+func (x AreaProximity) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AreaProximity) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_beacons_v1_beacons_proto_enumTypes[11].Descriptor()
+}
+
+func (AreaProximity) Type() protoreflect.EnumType {
+	return &file_dzeroth_beacons_v1_beacons_proto_enumTypes[11]
+}
+
+func (x AreaProximity) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AreaProximity.Descriptor instead.
+func (AreaProximity) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{11}
+}
+
 type ParticipantFilter int32
 
 const (
@@ -671,11 +784,11 @@ func (x ParticipantFilter) String() string {
 }
 
 func (ParticipantFilter) Descriptor() protoreflect.EnumDescriptor {
-	return file_dzeroth_beacons_v1_beacons_proto_enumTypes[10].Descriptor()
+	return file_dzeroth_beacons_v1_beacons_proto_enumTypes[12].Descriptor()
 }
 
 func (ParticipantFilter) Type() protoreflect.EnumType {
-	return &file_dzeroth_beacons_v1_beacons_proto_enumTypes[10]
+	return &file_dzeroth_beacons_v1_beacons_proto_enumTypes[12]
 }
 
 func (x ParticipantFilter) Number() protoreflect.EnumNumber {
@@ -684,7 +797,7 @@ func (x ParticipantFilter) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ParticipantFilter.Descriptor instead.
 func (ParticipantFilter) EnumDescriptor() ([]byte, []int) {
-	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{10}
+	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{12}
 }
 
 type Beacon struct {
@@ -713,9 +826,12 @@ type Beacon struct {
 	Eligibility    BeaconEligibility `protobuf:"varint,14,opt,name=eligibility,proto3,enum=dzeroth.beacons.v1.BeaconEligibility" json:"eligibility,omitempty"`
 	Status         BeaconStatus      `protobuf:"varint,15,opt,name=status,proto3,enum=dzeroth.beacons.v1.BeaconStatus" json:"status,omitempty"`
 	// Platform hide (opsctl). Only ever true in the organiser's own view.
-	Hidden        bool                   `protobuf:"varint,16,opt,name=hidden,proto3" json:"hidden,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Hidden    bool                   `protobuf:"varint,16,opt,name=hidden,proto3" json:"hidden,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// The plan's area (organiser-chosen, a catalogue entry: the area of the meeting point). Unset when the plan has none or
+	// FEATURE_LOCATION is globally off. A retired area still resolves.
+	Area          *v11.AreaSummary `protobuf:"bytes,19,opt,name=area,proto3" json:"area,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -872,6 +988,13 @@ func (x *Beacon) GetCreatedAt() *timestamppb.Timestamp {
 func (x *Beacon) GetUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.UpdatedAt
+	}
+	return nil
+}
+
+func (x *Beacon) GetArea() *v11.AreaSummary {
+	if x != nil {
+		return x.Area
 	}
 	return nil
 }
@@ -1119,8 +1242,12 @@ type CreateBeaconRequest struct {
 	OpenSpots       int32                          `protobuf:"varint,10,opt,name=open_spots,json=openSpots,proto3" json:"open_spots,omitempty"`
 	Cost            BeaconCost                     `protobuf:"varint,11,opt,name=cost,proto3,enum=dzeroth.beacons.v1.BeaconCost" json:"cost,omitempty"`
 	ChatPreference  ChatPreference                 `protobuf:"varint,12,opt,name=chat_preference,json=chatPreference,proto3,enum=dzeroth.beacons.v1.ChatPreference" json:"chat_preference,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Optional catalogue area_id of the meeting point; "" = none. Non-empty needs FEATURE_LOCATION on for the caller
+	// (FEATURE_DISABLED "location") and a well-formed, non-retired catalogue id (VALIDATION "area_id"), checked before any
+	// lookup. Allowed for either audience; only public plans are listed by ListNearbyBeacons.
+	AreaId        string `protobuf:"bytes,13,opt,name=area_id,json=areaId,proto3" json:"area_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateBeaconRequest) Reset() {
@@ -1248,6 +1375,13 @@ func (x *CreateBeaconRequest) GetChatPreference() ChatPreference {
 	return ChatPreference_CHAT_PREFERENCE_UNSPECIFIED
 }
 
+func (x *CreateBeaconRequest) GetAreaId() string {
+	if x != nil {
+		return x.AreaId
+	}
+	return ""
+}
+
 type isCreateBeaconRequest_Audience interface {
 	isCreateBeaconRequest_Audience()
 }
@@ -1332,7 +1466,12 @@ type UpdateBeaconRequest struct {
 	//
 	//	*UpdateBeaconRequest_CommunityId
 	//	*UpdateBeaconRequest_Public
-	Audience      isUpdateBeaconRequest_Audience `protobuf_oneof:"audience"`
+	Audience isUpdateBeaconRequest_Audience `protobuf_oneof:"audience"`
+	// Unset = unchanged; "" = remove the area; else a well-formed, non-retired catalogue id (VALIDATION "area_id", before
+	// any lookup). Setting an area needs FEATURE_LOCATION on for the caller; removing it only needs the flag not globally
+	// off (FEATURE_DISABLED "location"). Allowed while the beacon is OPEN or FULL (also after it started); no notification.
+	// Resending the stored id is not a change.
+	AreaId        *string `protobuf:"bytes,12,opt,name=area_id,json=areaId,proto3,oneof" json:"area_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1453,6 +1592,13 @@ func (x *UpdateBeaconRequest) GetPublic() bool {
 		}
 	}
 	return false
+}
+
+func (x *UpdateBeaconRequest) GetAreaId() string {
+	if x != nil && x.AreaId != nil {
+		return *x.AreaId
+	}
+	return ""
 }
 
 type isUpdateBeaconRequest_Audience interface {
@@ -2717,11 +2863,261 @@ func (x *ListSharedBeaconsResponse) GetNextPageToken() string {
 	return ""
 }
 
+// The K-anonymous size of a Nearby result.
+type NearbyCount struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 1..K_MIN-1 live plans: "a few", no number.
+	Few bool `protobuf:"varint,1,opt,name=few,proto3" json:"few,omitempty"`
+	// A number when >= K_MIN; 0 when few or none. The first page probes max(limit, K_MIN) + 1 plans: when the result fits
+	// in fewer, the count is exact, from the rows that pass the filters (blocks and hidden applied), also when a small
+	// limit set next_page_token. Otherwise it is an aggregation over the query before filtering, at most 1000 (render as
+	// "about"); it is then always above both limit and K_MIN.
+	Plans         int32 `protobuf:"varint,2,opt,name=plans,proto3" json:"plans,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NearbyCount) Reset() {
+	*x = NearbyCount{}
+	mi := &file_dzeroth_beacons_v1_beacons_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NearbyCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NearbyCount) ProtoMessage() {}
+
+func (x *NearbyCount) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_beacons_v1_beacons_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NearbyCount.ProtoReflect.Descriptor instead.
+func (*NearbyCount) Descriptor() ([]byte, []int) {
+	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *NearbyCount) GetFew() bool {
+	if x != nil {
+		return x.Few
+	}
+	return false
+}
+
+func (x *NearbyCount) GetPlans() int32 {
+	if x != nil {
+		return x.Plans
+	}
+	return 0
+}
+
+type NearbyBeacon struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	View          *BeaconView            `protobuf:"bytes,1,opt,name=view,proto3" json:"view,omitempty"`
+	Proximity     AreaProximity          `protobuf:"varint,2,opt,name=proximity,proto3,enum=dzeroth.beacons.v1.AreaProximity" json:"proximity,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NearbyBeacon) Reset() {
+	*x = NearbyBeacon{}
+	mi := &file_dzeroth_beacons_v1_beacons_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NearbyBeacon) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NearbyBeacon) ProtoMessage() {}
+
+func (x *NearbyBeacon) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_beacons_v1_beacons_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NearbyBeacon.ProtoReflect.Descriptor instead.
+func (*NearbyBeacon) Descriptor() ([]byte, []int) {
+	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *NearbyBeacon) GetView() *BeaconView {
+	if x != nil {
+		return x.View
+	}
+	return nil
+}
+
+func (x *NearbyBeacon) GetProximity() AreaProximity {
+	if x != nil {
+		return x.Proximity
+	}
+	return AreaProximity_AREA_PROXIMITY_UNSPECIFIED
+}
+
+type ListNearbyBeaconsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty = the caller's stored area.
+	AreaId string      `protobuf:"bytes,1,opt,name=area_id,json=areaId,proto3" json:"area_id,omitempty"`
+	Scope  NearbyScope `protobuf:"varint,2,opt,name=scope,proto3,enum=dzeroth.beacons.v1.NearbyScope" json:"scope,omitempty"`
+	// Clamped: 0 = 20, above 50 = 50.
+	Limit         int32  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	PageToken     string `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNearbyBeaconsRequest) Reset() {
+	*x = ListNearbyBeaconsRequest{}
+	mi := &file_dzeroth_beacons_v1_beacons_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNearbyBeaconsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNearbyBeaconsRequest) ProtoMessage() {}
+
+func (x *ListNearbyBeaconsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_beacons_v1_beacons_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNearbyBeaconsRequest.ProtoReflect.Descriptor instead.
+func (*ListNearbyBeaconsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ListNearbyBeaconsRequest) GetAreaId() string {
+	if x != nil {
+		return x.AreaId
+	}
+	return ""
+}
+
+func (x *ListNearbyBeaconsRequest) GetScope() NearbyScope {
+	if x != nil {
+		return x.Scope
+	}
+	return NearbyScope_NEARBY_SCOPE_UNSPECIFIED
+}
+
+func (x *ListNearbyBeaconsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListNearbyBeaconsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListNearbyBeaconsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*NearbyBeacon        `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	// The resolved area (the stored one when area_id was empty).
+	Area *v11.AreaSummary `protobuf:"bytes,3,opt,name=area,proto3" json:"area,omitempty"`
+	// First page only; unset on later pages.
+	Count         *NearbyCount `protobuf:"bytes,4,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNearbyBeaconsResponse) Reset() {
+	*x = ListNearbyBeaconsResponse{}
+	mi := &file_dzeroth_beacons_v1_beacons_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNearbyBeaconsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNearbyBeaconsResponse) ProtoMessage() {}
+
+func (x *ListNearbyBeaconsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_beacons_v1_beacons_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNearbyBeaconsResponse.ProtoReflect.Descriptor instead.
+func (*ListNearbyBeaconsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ListNearbyBeaconsResponse) GetItems() []*NearbyBeacon {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *ListNearbyBeaconsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+func (x *ListNearbyBeaconsResponse) GetArea() *v11.AreaSummary {
+	if x != nil {
+		return x.Area
+	}
+	return nil
+}
+
+func (x *ListNearbyBeaconsResponse) GetCount() *NearbyCount {
+	if x != nil {
+		return x.Count
+	}
+	return nil
+}
+
 var File_dzeroth_beacons_v1_beacons_proto protoreflect.FileDescriptor
 
 const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\n" +
-	" dzeroth/beacons/v1/beacons.proto\x12\x12dzeroth.beacons.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc9\x06\n" +
+	" dzeroth/beacons/v1/beacons.proto\x12\x12dzeroth.beacons.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\"dzeroth/location/v1/location.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xff\x06\n" +
 	"\x06Beacon\x12\x1b\n" +
 	"\tbeacon_id\x18\x01 \x01(\tR\bbeaconId\x12?\n" +
 	"\torganiser\x18\x02 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\torganiser\x12!\n" +
@@ -2744,7 +3140,8 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xc2\x02\n" +
+	"updated_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x124\n" +
+	"\x04area\x18\x13 \x01(\v2 .dzeroth.location.v1.AreaSummaryR\x04area\"\xc2\x02\n" +
 	"\vViewerState\x122\n" +
 	"\x04role\x18\x01 \x01(\x0e2\x1e.dzeroth.beacons.v1.ViewerRoleR\x04role\x12Q\n" +
 	"\x11participant_state\x18\x02 \x01(\x0e2$.dzeroth.beacons.v1.ParticipantStateR\x10participantState\x12\x1f\n" +
@@ -2763,7 +3160,7 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\x04user\x18\x01 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x04user\x12:\n" +
 	"\x05state\x18\x02 \x01(\x0e2$.dzeroth.beacons.v1.ParticipantStateR\x05state\x12\x12\n" +
 	"\x04note\x18\x03 \x01(\tR\x04note\x120\n" +
-	"\x05since\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\"\x91\x04\n" +
+	"\x05since\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\"\xaa\x04\n" +
 	"\x13CreateBeaconRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12#\n" +
 	"\fcommunity_id\x18\x02 \x01(\tH\x00R\vcommunityId\x12\x18\n" +
@@ -2778,11 +3175,12 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"open_spots\x18\n" +
 	" \x01(\x05R\topenSpots\x122\n" +
 	"\x04cost\x18\v \x01(\x0e2\x1e.dzeroth.beacons.v1.BeaconCostR\x04cost\x12K\n" +
-	"\x0fchat_preference\x18\f \x01(\x0e2\".dzeroth.beacons.v1.ChatPreferenceR\x0echatPreferenceB\n" +
+	"\x0fchat_preference\x18\f \x01(\x0e2\".dzeroth.beacons.v1.ChatPreferenceR\x0echatPreference\x12\x17\n" +
+	"\aarea_id\x18\r \x01(\tR\x06areaIdB\n" +
 	"\n" +
 	"\baudience\"J\n" +
 	"\x14CreateBeaconResponse\x122\n" +
-	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"\x8c\x04\n" +
+	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"\xb6\x04\n" +
 	"\x13UpdateBeaconRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tbeacon_id\x18\x02 \x01(\tR\bbeaconId\x12\x19\n" +
@@ -2796,7 +3194,8 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\x04cost\x18\t \x01(\x0e2\x1e.dzeroth.beacons.v1.BeaconCostH\x06R\x04cost\x88\x01\x01\x12#\n" +
 	"\fcommunity_id\x18\n" +
 	" \x01(\tH\x00R\vcommunityId\x12\x18\n" +
-	"\x06public\x18\v \x01(\bH\x00R\x06publicB\n" +
+	"\x06public\x18\v \x01(\bH\x00R\x06public\x12\x1c\n" +
+	"\aarea_id\x18\f \x01(\tH\aR\x06areaId\x88\x01\x01B\n" +
 	"\n" +
 	"\baudienceB\b\n" +
 	"\x06_titleB\n" +
@@ -2805,7 +3204,9 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\x06_venueB\r\n" +
 	"\v_open_spotsB\x13\n" +
 	"\x11_duration_minutesB\a\n" +
-	"\x05_cost\"J\n" +
+	"\x05_costB\n" +
+	"\n" +
+	"\b_area_id\"J\n" +
 	"\x14UpdateBeaconResponse\x122\n" +
 	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"[\n" +
 	"\x13CancelBeaconRequest\x12'\n" +
@@ -2882,7 +3283,24 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"page_token\x18\x03 \x01(\tR\tpageToken\"y\n" +
 	"\x19ListSharedBeaconsResponse\x124\n" +
 	"\x05views\x18\x01 \x03(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x05views\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*\xf1\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"5\n" +
+	"\vNearbyCount\x12\x10\n" +
+	"\x03few\x18\x01 \x01(\bR\x03few\x12\x14\n" +
+	"\x05plans\x18\x02 \x01(\x05R\x05plans\"\x83\x01\n" +
+	"\fNearbyBeacon\x122\n" +
+	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\x12?\n" +
+	"\tproximity\x18\x02 \x01(\x0e2!.dzeroth.beacons.v1.AreaProximityR\tproximity\"\x9f\x01\n" +
+	"\x18ListNearbyBeaconsRequest\x12\x17\n" +
+	"\aarea_id\x18\x01 \x01(\tR\x06areaId\x125\n" +
+	"\x05scope\x18\x02 \x01(\x0e2\x1f.dzeroth.beacons.v1.NearbyScopeR\x05scope\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\"\xe8\x01\n" +
+	"\x19ListNearbyBeaconsResponse\x126\n" +
+	"\x05items\x18\x01 \x03(\v2 .dzeroth.beacons.v1.NearbyBeaconR\x05items\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x124\n" +
+	"\x04area\x18\x03 \x01(\v2 .dzeroth.location.v1.AreaSummaryR\x04area\x125\n" +
+	"\x05count\x18\x04 \x01(\v2\x1f.dzeroth.beacons.v1.NearbyCountR\x05count*\xf1\x01\n" +
 	"\x0eBeaconActivity\x12\x1f\n" +
 	"\x1bBEACON_ACTIVITY_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16BEACON_ACTIVITY_COFFEE\x10\x01\x12\x18\n" +
@@ -2938,12 +3356,20 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\x0fMyBeaconsWindow\x12!\n" +
 	"\x1dMY_BEACONS_WINDOW_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aMY_BEACONS_WINDOW_UPCOMING\x10\x01\x12\x1a\n" +
-	"\x16MY_BEACONS_WINDOW_PAST\x10\x02*z\n" +
+	"\x16MY_BEACONS_WINDOW_PAST\x10\x02*Y\n" +
+	"\vNearbyScope\x12\x1c\n" +
+	"\x18NEARBY_SCOPE_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11NEARBY_SCOPE_AREA\x10\x01\x12\x15\n" +
+	"\x11NEARBY_SCOPE_CITY\x10\x02*\x8c\x01\n" +
+	"\rAreaProximity\x12\x1e\n" +
+	"\x1aAREA_PROXIMITY_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18AREA_PROXIMITY_SAME_AREA\x10\x01\x12\x1f\n" +
+	"\x1bAREA_PROXIMITY_NEIGHBOURING\x10\x02\x12\x1c\n" +
+	"\x18AREA_PROXIMITY_SAME_CITY\x10\x03*z\n" +
 	"\x11ParticipantFilter\x12\"\n" +
 	"\x1ePARTICIPANT_FILTER_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bPARTICIPANT_FILTER_ACCEPTED\x10\x01\x12 \n" +
-	"\x1cPARTICIPANT_FILTER_REQUESTED\x10\x022\xfd\n" +
-	"\n" +
+	"\x1cPARTICIPANT_FILTER_REQUESTED\x10\x022\xf4\v\n" +
 	"\rBeaconService\x12a\n" +
 	"\fCreateBeacon\x12'.dzeroth.beacons.v1.CreateBeaconRequest\x1a(.dzeroth.beacons.v1.CreateBeaconResponse\x12a\n" +
 	"\fUpdateBeacon\x12'.dzeroth.beacons.v1.UpdateBeaconRequest\x1a(.dzeroth.beacons.v1.UpdateBeaconResponse\x12a\n" +
@@ -2957,7 +3383,8 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\vLeaveBeacon\x12&.dzeroth.beacons.v1.LeaveBeaconRequest\x1a'.dzeroth.beacons.v1.LeaveBeaconResponse\x12p\n" +
 	"\x11RemoveParticipant\x12,.dzeroth.beacons.v1.RemoveParticipantRequest\x1a-.dzeroth.beacons.v1.RemoveParticipantResponse\x12r\n" +
 	"\x10ListParticipants\x12+.dzeroth.beacons.v1.ListParticipantsRequest\x1a,.dzeroth.beacons.v1.ListParticipantsResponse\"\x03\x90\x02\x01\x12u\n" +
-	"\x11ListSharedBeacons\x12,.dzeroth.beacons.v1.ListSharedBeaconsRequest\x1a-.dzeroth.beacons.v1.ListSharedBeaconsResponse\"\x03\x90\x02\x01BEZCgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1;beaconsv1b\x06proto3"
+	"\x11ListSharedBeacons\x12,.dzeroth.beacons.v1.ListSharedBeaconsRequest\x1a-.dzeroth.beacons.v1.ListSharedBeaconsResponse\"\x03\x90\x02\x01\x12u\n" +
+	"\x11ListNearbyBeacons\x12,.dzeroth.beacons.v1.ListNearbyBeaconsRequest\x1a-.dzeroth.beacons.v1.ListNearbyBeaconsResponse\"\x03\x90\x02\x01BEZCgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1;beaconsv1b\x06proto3"
 
 var (
 	file_dzeroth_beacons_v1_beacons_proto_rawDescOnce sync.Once
@@ -2971,8 +3398,8 @@ func file_dzeroth_beacons_v1_beacons_proto_rawDescGZIP() []byte {
 	return file_dzeroth_beacons_v1_beacons_proto_rawDescData
 }
 
-var file_dzeroth_beacons_v1_beacons_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
-var file_dzeroth_beacons_v1_beacons_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_dzeroth_beacons_v1_beacons_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
+var file_dzeroth_beacons_v1_beacons_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_dzeroth_beacons_v1_beacons_proto_goTypes = []any{
 	(BeaconActivity)(0),                  // 0: dzeroth.beacons.v1.BeaconActivity
 	(BeaconStatus)(0),                    // 1: dzeroth.beacons.v1.BeaconStatus
@@ -2984,110 +3411,126 @@ var file_dzeroth_beacons_v1_beacons_proto_goTypes = []any{
 	(JoinResponse)(0),                    // 7: dzeroth.beacons.v1.JoinResponse
 	(MyBeaconsRole)(0),                   // 8: dzeroth.beacons.v1.MyBeaconsRole
 	(MyBeaconsWindow)(0),                 // 9: dzeroth.beacons.v1.MyBeaconsWindow
-	(ParticipantFilter)(0),               // 10: dzeroth.beacons.v1.ParticipantFilter
-	(*Beacon)(nil),                       // 11: dzeroth.beacons.v1.Beacon
-	(*ViewerState)(nil),                  // 12: dzeroth.beacons.v1.ViewerState
-	(*BeaconView)(nil),                   // 13: dzeroth.beacons.v1.BeaconView
-	(*Participant)(nil),                  // 14: dzeroth.beacons.v1.Participant
-	(*CreateBeaconRequest)(nil),          // 15: dzeroth.beacons.v1.CreateBeaconRequest
-	(*CreateBeaconResponse)(nil),         // 16: dzeroth.beacons.v1.CreateBeaconResponse
-	(*UpdateBeaconRequest)(nil),          // 17: dzeroth.beacons.v1.UpdateBeaconRequest
-	(*UpdateBeaconResponse)(nil),         // 18: dzeroth.beacons.v1.UpdateBeaconResponse
-	(*CancelBeaconRequest)(nil),          // 19: dzeroth.beacons.v1.CancelBeaconRequest
-	(*CancelBeaconResponse)(nil),         // 20: dzeroth.beacons.v1.CancelBeaconResponse
-	(*GetBeaconRequest)(nil),             // 21: dzeroth.beacons.v1.GetBeaconRequest
-	(*GetBeaconResponse)(nil),            // 22: dzeroth.beacons.v1.GetBeaconResponse
-	(*ListBeaconsRequest)(nil),           // 23: dzeroth.beacons.v1.ListBeaconsRequest
-	(*ListBeaconsResponse)(nil),          // 24: dzeroth.beacons.v1.ListBeaconsResponse
-	(*ListMyBeaconsRequest)(nil),         // 25: dzeroth.beacons.v1.ListMyBeaconsRequest
-	(*ListMyBeaconsResponse)(nil),        // 26: dzeroth.beacons.v1.ListMyBeaconsResponse
-	(*RequestToJoinRequest)(nil),         // 27: dzeroth.beacons.v1.RequestToJoinRequest
-	(*RequestToJoinResponse)(nil),        // 28: dzeroth.beacons.v1.RequestToJoinResponse
-	(*WithdrawJoinRequestRequest)(nil),   // 29: dzeroth.beacons.v1.WithdrawJoinRequestRequest
-	(*WithdrawJoinRequestResponse)(nil),  // 30: dzeroth.beacons.v1.WithdrawJoinRequestResponse
-	(*RespondToJoinRequestRequest)(nil),  // 31: dzeroth.beacons.v1.RespondToJoinRequestRequest
-	(*RespondToJoinRequestResponse)(nil), // 32: dzeroth.beacons.v1.RespondToJoinRequestResponse
-	(*LeaveBeaconRequest)(nil),           // 33: dzeroth.beacons.v1.LeaveBeaconRequest
-	(*LeaveBeaconResponse)(nil),          // 34: dzeroth.beacons.v1.LeaveBeaconResponse
-	(*RemoveParticipantRequest)(nil),     // 35: dzeroth.beacons.v1.RemoveParticipantRequest
-	(*RemoveParticipantResponse)(nil),    // 36: dzeroth.beacons.v1.RemoveParticipantResponse
-	(*ListParticipantsRequest)(nil),      // 37: dzeroth.beacons.v1.ListParticipantsRequest
-	(*ListParticipantsResponse)(nil),     // 38: dzeroth.beacons.v1.ListParticipantsResponse
-	(*ListSharedBeaconsRequest)(nil),     // 39: dzeroth.beacons.v1.ListSharedBeaconsRequest
-	(*ListSharedBeaconsResponse)(nil),    // 40: dzeroth.beacons.v1.ListSharedBeaconsResponse
-	(*v1.AuthorSnapshot)(nil),            // 41: dzeroth.common.v1.AuthorSnapshot
-	(*timestamppb.Timestamp)(nil),        // 42: google.protobuf.Timestamp
+	(NearbyScope)(0),                     // 10: dzeroth.beacons.v1.NearbyScope
+	(AreaProximity)(0),                   // 11: dzeroth.beacons.v1.AreaProximity
+	(ParticipantFilter)(0),               // 12: dzeroth.beacons.v1.ParticipantFilter
+	(*Beacon)(nil),                       // 13: dzeroth.beacons.v1.Beacon
+	(*ViewerState)(nil),                  // 14: dzeroth.beacons.v1.ViewerState
+	(*BeaconView)(nil),                   // 15: dzeroth.beacons.v1.BeaconView
+	(*Participant)(nil),                  // 16: dzeroth.beacons.v1.Participant
+	(*CreateBeaconRequest)(nil),          // 17: dzeroth.beacons.v1.CreateBeaconRequest
+	(*CreateBeaconResponse)(nil),         // 18: dzeroth.beacons.v1.CreateBeaconResponse
+	(*UpdateBeaconRequest)(nil),          // 19: dzeroth.beacons.v1.UpdateBeaconRequest
+	(*UpdateBeaconResponse)(nil),         // 20: dzeroth.beacons.v1.UpdateBeaconResponse
+	(*CancelBeaconRequest)(nil),          // 21: dzeroth.beacons.v1.CancelBeaconRequest
+	(*CancelBeaconResponse)(nil),         // 22: dzeroth.beacons.v1.CancelBeaconResponse
+	(*GetBeaconRequest)(nil),             // 23: dzeroth.beacons.v1.GetBeaconRequest
+	(*GetBeaconResponse)(nil),            // 24: dzeroth.beacons.v1.GetBeaconResponse
+	(*ListBeaconsRequest)(nil),           // 25: dzeroth.beacons.v1.ListBeaconsRequest
+	(*ListBeaconsResponse)(nil),          // 26: dzeroth.beacons.v1.ListBeaconsResponse
+	(*ListMyBeaconsRequest)(nil),         // 27: dzeroth.beacons.v1.ListMyBeaconsRequest
+	(*ListMyBeaconsResponse)(nil),        // 28: dzeroth.beacons.v1.ListMyBeaconsResponse
+	(*RequestToJoinRequest)(nil),         // 29: dzeroth.beacons.v1.RequestToJoinRequest
+	(*RequestToJoinResponse)(nil),        // 30: dzeroth.beacons.v1.RequestToJoinResponse
+	(*WithdrawJoinRequestRequest)(nil),   // 31: dzeroth.beacons.v1.WithdrawJoinRequestRequest
+	(*WithdrawJoinRequestResponse)(nil),  // 32: dzeroth.beacons.v1.WithdrawJoinRequestResponse
+	(*RespondToJoinRequestRequest)(nil),  // 33: dzeroth.beacons.v1.RespondToJoinRequestRequest
+	(*RespondToJoinRequestResponse)(nil), // 34: dzeroth.beacons.v1.RespondToJoinRequestResponse
+	(*LeaveBeaconRequest)(nil),           // 35: dzeroth.beacons.v1.LeaveBeaconRequest
+	(*LeaveBeaconResponse)(nil),          // 36: dzeroth.beacons.v1.LeaveBeaconResponse
+	(*RemoveParticipantRequest)(nil),     // 37: dzeroth.beacons.v1.RemoveParticipantRequest
+	(*RemoveParticipantResponse)(nil),    // 38: dzeroth.beacons.v1.RemoveParticipantResponse
+	(*ListParticipantsRequest)(nil),      // 39: dzeroth.beacons.v1.ListParticipantsRequest
+	(*ListParticipantsResponse)(nil),     // 40: dzeroth.beacons.v1.ListParticipantsResponse
+	(*ListSharedBeaconsRequest)(nil),     // 41: dzeroth.beacons.v1.ListSharedBeaconsRequest
+	(*ListSharedBeaconsResponse)(nil),    // 42: dzeroth.beacons.v1.ListSharedBeaconsResponse
+	(*NearbyCount)(nil),                  // 43: dzeroth.beacons.v1.NearbyCount
+	(*NearbyBeacon)(nil),                 // 44: dzeroth.beacons.v1.NearbyBeacon
+	(*ListNearbyBeaconsRequest)(nil),     // 45: dzeroth.beacons.v1.ListNearbyBeaconsRequest
+	(*ListNearbyBeaconsResponse)(nil),    // 46: dzeroth.beacons.v1.ListNearbyBeaconsResponse
+	(*v1.AuthorSnapshot)(nil),            // 47: dzeroth.common.v1.AuthorSnapshot
+	(*timestamppb.Timestamp)(nil),        // 48: google.protobuf.Timestamp
+	(*v11.AreaSummary)(nil),              // 49: dzeroth.location.v1.AreaSummary
 }
 var file_dzeroth_beacons_v1_beacons_proto_depIdxs = []int32{
-	41, // 0: dzeroth.beacons.v1.Beacon.organiser:type_name -> dzeroth.common.v1.AuthorSnapshot
+	47, // 0: dzeroth.beacons.v1.Beacon.organiser:type_name -> dzeroth.common.v1.AuthorSnapshot
 	0,  // 1: dzeroth.beacons.v1.Beacon.activity:type_name -> dzeroth.beacons.v1.BeaconActivity
-	42, // 2: dzeroth.beacons.v1.Beacon.start_at:type_name -> google.protobuf.Timestamp
+	48, // 2: dzeroth.beacons.v1.Beacon.start_at:type_name -> google.protobuf.Timestamp
 	2,  // 3: dzeroth.beacons.v1.Beacon.cost:type_name -> dzeroth.beacons.v1.BeaconCost
 	3,  // 4: dzeroth.beacons.v1.Beacon.chat_preference:type_name -> dzeroth.beacons.v1.ChatPreference
 	4,  // 5: dzeroth.beacons.v1.Beacon.eligibility:type_name -> dzeroth.beacons.v1.BeaconEligibility
 	1,  // 6: dzeroth.beacons.v1.Beacon.status:type_name -> dzeroth.beacons.v1.BeaconStatus
-	42, // 7: dzeroth.beacons.v1.Beacon.created_at:type_name -> google.protobuf.Timestamp
-	42, // 8: dzeroth.beacons.v1.Beacon.updated_at:type_name -> google.protobuf.Timestamp
-	6,  // 9: dzeroth.beacons.v1.ViewerState.role:type_name -> dzeroth.beacons.v1.ViewerRole
-	5,  // 10: dzeroth.beacons.v1.ViewerState.participant_state:type_name -> dzeroth.beacons.v1.ParticipantState
-	11, // 11: dzeroth.beacons.v1.BeaconView.beacon:type_name -> dzeroth.beacons.v1.Beacon
-	12, // 12: dzeroth.beacons.v1.BeaconView.viewer:type_name -> dzeroth.beacons.v1.ViewerState
-	41, // 13: dzeroth.beacons.v1.Participant.user:type_name -> dzeroth.common.v1.AuthorSnapshot
-	5,  // 14: dzeroth.beacons.v1.Participant.state:type_name -> dzeroth.beacons.v1.ParticipantState
-	42, // 15: dzeroth.beacons.v1.Participant.since:type_name -> google.protobuf.Timestamp
-	0,  // 16: dzeroth.beacons.v1.CreateBeaconRequest.activity:type_name -> dzeroth.beacons.v1.BeaconActivity
-	42, // 17: dzeroth.beacons.v1.CreateBeaconRequest.start_at:type_name -> google.protobuf.Timestamp
-	2,  // 18: dzeroth.beacons.v1.CreateBeaconRequest.cost:type_name -> dzeroth.beacons.v1.BeaconCost
-	3,  // 19: dzeroth.beacons.v1.CreateBeaconRequest.chat_preference:type_name -> dzeroth.beacons.v1.ChatPreference
-	13, // 20: dzeroth.beacons.v1.CreateBeaconResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
-	42, // 21: dzeroth.beacons.v1.UpdateBeaconRequest.start_at:type_name -> google.protobuf.Timestamp
-	2,  // 22: dzeroth.beacons.v1.UpdateBeaconRequest.cost:type_name -> dzeroth.beacons.v1.BeaconCost
-	13, // 23: dzeroth.beacons.v1.UpdateBeaconResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
-	13, // 24: dzeroth.beacons.v1.GetBeaconResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
-	42, // 25: dzeroth.beacons.v1.ListBeaconsRequest.from:type_name -> google.protobuf.Timestamp
-	0,  // 26: dzeroth.beacons.v1.ListBeaconsRequest.activity:type_name -> dzeroth.beacons.v1.BeaconActivity
-	13, // 27: dzeroth.beacons.v1.ListBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
-	8,  // 28: dzeroth.beacons.v1.ListMyBeaconsRequest.role:type_name -> dzeroth.beacons.v1.MyBeaconsRole
-	9,  // 29: dzeroth.beacons.v1.ListMyBeaconsRequest.window:type_name -> dzeroth.beacons.v1.MyBeaconsWindow
-	13, // 30: dzeroth.beacons.v1.ListMyBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
-	12, // 31: dzeroth.beacons.v1.RequestToJoinResponse.viewer:type_name -> dzeroth.beacons.v1.ViewerState
-	7,  // 32: dzeroth.beacons.v1.RespondToJoinRequestRequest.response:type_name -> dzeroth.beacons.v1.JoinResponse
-	13, // 33: dzeroth.beacons.v1.RespondToJoinRequestResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
-	13, // 34: dzeroth.beacons.v1.RemoveParticipantResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
-	10, // 35: dzeroth.beacons.v1.ListParticipantsRequest.filter:type_name -> dzeroth.beacons.v1.ParticipantFilter
-	14, // 36: dzeroth.beacons.v1.ListParticipantsResponse.participants:type_name -> dzeroth.beacons.v1.Participant
-	13, // 37: dzeroth.beacons.v1.ListSharedBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
-	15, // 38: dzeroth.beacons.v1.BeaconService.CreateBeacon:input_type -> dzeroth.beacons.v1.CreateBeaconRequest
-	17, // 39: dzeroth.beacons.v1.BeaconService.UpdateBeacon:input_type -> dzeroth.beacons.v1.UpdateBeaconRequest
-	19, // 40: dzeroth.beacons.v1.BeaconService.CancelBeacon:input_type -> dzeroth.beacons.v1.CancelBeaconRequest
-	21, // 41: dzeroth.beacons.v1.BeaconService.GetBeacon:input_type -> dzeroth.beacons.v1.GetBeaconRequest
-	23, // 42: dzeroth.beacons.v1.BeaconService.ListBeacons:input_type -> dzeroth.beacons.v1.ListBeaconsRequest
-	25, // 43: dzeroth.beacons.v1.BeaconService.ListMyBeacons:input_type -> dzeroth.beacons.v1.ListMyBeaconsRequest
-	27, // 44: dzeroth.beacons.v1.BeaconService.RequestToJoin:input_type -> dzeroth.beacons.v1.RequestToJoinRequest
-	29, // 45: dzeroth.beacons.v1.BeaconService.WithdrawJoinRequest:input_type -> dzeroth.beacons.v1.WithdrawJoinRequestRequest
-	31, // 46: dzeroth.beacons.v1.BeaconService.RespondToJoinRequest:input_type -> dzeroth.beacons.v1.RespondToJoinRequestRequest
-	33, // 47: dzeroth.beacons.v1.BeaconService.LeaveBeacon:input_type -> dzeroth.beacons.v1.LeaveBeaconRequest
-	35, // 48: dzeroth.beacons.v1.BeaconService.RemoveParticipant:input_type -> dzeroth.beacons.v1.RemoveParticipantRequest
-	37, // 49: dzeroth.beacons.v1.BeaconService.ListParticipants:input_type -> dzeroth.beacons.v1.ListParticipantsRequest
-	39, // 50: dzeroth.beacons.v1.BeaconService.ListSharedBeacons:input_type -> dzeroth.beacons.v1.ListSharedBeaconsRequest
-	16, // 51: dzeroth.beacons.v1.BeaconService.CreateBeacon:output_type -> dzeroth.beacons.v1.CreateBeaconResponse
-	18, // 52: dzeroth.beacons.v1.BeaconService.UpdateBeacon:output_type -> dzeroth.beacons.v1.UpdateBeaconResponse
-	20, // 53: dzeroth.beacons.v1.BeaconService.CancelBeacon:output_type -> dzeroth.beacons.v1.CancelBeaconResponse
-	22, // 54: dzeroth.beacons.v1.BeaconService.GetBeacon:output_type -> dzeroth.beacons.v1.GetBeaconResponse
-	24, // 55: dzeroth.beacons.v1.BeaconService.ListBeacons:output_type -> dzeroth.beacons.v1.ListBeaconsResponse
-	26, // 56: dzeroth.beacons.v1.BeaconService.ListMyBeacons:output_type -> dzeroth.beacons.v1.ListMyBeaconsResponse
-	28, // 57: dzeroth.beacons.v1.BeaconService.RequestToJoin:output_type -> dzeroth.beacons.v1.RequestToJoinResponse
-	30, // 58: dzeroth.beacons.v1.BeaconService.WithdrawJoinRequest:output_type -> dzeroth.beacons.v1.WithdrawJoinRequestResponse
-	32, // 59: dzeroth.beacons.v1.BeaconService.RespondToJoinRequest:output_type -> dzeroth.beacons.v1.RespondToJoinRequestResponse
-	34, // 60: dzeroth.beacons.v1.BeaconService.LeaveBeacon:output_type -> dzeroth.beacons.v1.LeaveBeaconResponse
-	36, // 61: dzeroth.beacons.v1.BeaconService.RemoveParticipant:output_type -> dzeroth.beacons.v1.RemoveParticipantResponse
-	38, // 62: dzeroth.beacons.v1.BeaconService.ListParticipants:output_type -> dzeroth.beacons.v1.ListParticipantsResponse
-	40, // 63: dzeroth.beacons.v1.BeaconService.ListSharedBeacons:output_type -> dzeroth.beacons.v1.ListSharedBeaconsResponse
-	51, // [51:64] is the sub-list for method output_type
-	38, // [38:51] is the sub-list for method input_type
-	38, // [38:38] is the sub-list for extension type_name
-	38, // [38:38] is the sub-list for extension extendee
-	0,  // [0:38] is the sub-list for field type_name
+	48, // 7: dzeroth.beacons.v1.Beacon.created_at:type_name -> google.protobuf.Timestamp
+	48, // 8: dzeroth.beacons.v1.Beacon.updated_at:type_name -> google.protobuf.Timestamp
+	49, // 9: dzeroth.beacons.v1.Beacon.area:type_name -> dzeroth.location.v1.AreaSummary
+	6,  // 10: dzeroth.beacons.v1.ViewerState.role:type_name -> dzeroth.beacons.v1.ViewerRole
+	5,  // 11: dzeroth.beacons.v1.ViewerState.participant_state:type_name -> dzeroth.beacons.v1.ParticipantState
+	13, // 12: dzeroth.beacons.v1.BeaconView.beacon:type_name -> dzeroth.beacons.v1.Beacon
+	14, // 13: dzeroth.beacons.v1.BeaconView.viewer:type_name -> dzeroth.beacons.v1.ViewerState
+	47, // 14: dzeroth.beacons.v1.Participant.user:type_name -> dzeroth.common.v1.AuthorSnapshot
+	5,  // 15: dzeroth.beacons.v1.Participant.state:type_name -> dzeroth.beacons.v1.ParticipantState
+	48, // 16: dzeroth.beacons.v1.Participant.since:type_name -> google.protobuf.Timestamp
+	0,  // 17: dzeroth.beacons.v1.CreateBeaconRequest.activity:type_name -> dzeroth.beacons.v1.BeaconActivity
+	48, // 18: dzeroth.beacons.v1.CreateBeaconRequest.start_at:type_name -> google.protobuf.Timestamp
+	2,  // 19: dzeroth.beacons.v1.CreateBeaconRequest.cost:type_name -> dzeroth.beacons.v1.BeaconCost
+	3,  // 20: dzeroth.beacons.v1.CreateBeaconRequest.chat_preference:type_name -> dzeroth.beacons.v1.ChatPreference
+	15, // 21: dzeroth.beacons.v1.CreateBeaconResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
+	48, // 22: dzeroth.beacons.v1.UpdateBeaconRequest.start_at:type_name -> google.protobuf.Timestamp
+	2,  // 23: dzeroth.beacons.v1.UpdateBeaconRequest.cost:type_name -> dzeroth.beacons.v1.BeaconCost
+	15, // 24: dzeroth.beacons.v1.UpdateBeaconResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
+	15, // 25: dzeroth.beacons.v1.GetBeaconResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
+	48, // 26: dzeroth.beacons.v1.ListBeaconsRequest.from:type_name -> google.protobuf.Timestamp
+	0,  // 27: dzeroth.beacons.v1.ListBeaconsRequest.activity:type_name -> dzeroth.beacons.v1.BeaconActivity
+	15, // 28: dzeroth.beacons.v1.ListBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
+	8,  // 29: dzeroth.beacons.v1.ListMyBeaconsRequest.role:type_name -> dzeroth.beacons.v1.MyBeaconsRole
+	9,  // 30: dzeroth.beacons.v1.ListMyBeaconsRequest.window:type_name -> dzeroth.beacons.v1.MyBeaconsWindow
+	15, // 31: dzeroth.beacons.v1.ListMyBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
+	14, // 32: dzeroth.beacons.v1.RequestToJoinResponse.viewer:type_name -> dzeroth.beacons.v1.ViewerState
+	7,  // 33: dzeroth.beacons.v1.RespondToJoinRequestRequest.response:type_name -> dzeroth.beacons.v1.JoinResponse
+	15, // 34: dzeroth.beacons.v1.RespondToJoinRequestResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
+	15, // 35: dzeroth.beacons.v1.RemoveParticipantResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
+	12, // 36: dzeroth.beacons.v1.ListParticipantsRequest.filter:type_name -> dzeroth.beacons.v1.ParticipantFilter
+	16, // 37: dzeroth.beacons.v1.ListParticipantsResponse.participants:type_name -> dzeroth.beacons.v1.Participant
+	15, // 38: dzeroth.beacons.v1.ListSharedBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
+	15, // 39: dzeroth.beacons.v1.NearbyBeacon.view:type_name -> dzeroth.beacons.v1.BeaconView
+	11, // 40: dzeroth.beacons.v1.NearbyBeacon.proximity:type_name -> dzeroth.beacons.v1.AreaProximity
+	10, // 41: dzeroth.beacons.v1.ListNearbyBeaconsRequest.scope:type_name -> dzeroth.beacons.v1.NearbyScope
+	44, // 42: dzeroth.beacons.v1.ListNearbyBeaconsResponse.items:type_name -> dzeroth.beacons.v1.NearbyBeacon
+	49, // 43: dzeroth.beacons.v1.ListNearbyBeaconsResponse.area:type_name -> dzeroth.location.v1.AreaSummary
+	43, // 44: dzeroth.beacons.v1.ListNearbyBeaconsResponse.count:type_name -> dzeroth.beacons.v1.NearbyCount
+	17, // 45: dzeroth.beacons.v1.BeaconService.CreateBeacon:input_type -> dzeroth.beacons.v1.CreateBeaconRequest
+	19, // 46: dzeroth.beacons.v1.BeaconService.UpdateBeacon:input_type -> dzeroth.beacons.v1.UpdateBeaconRequest
+	21, // 47: dzeroth.beacons.v1.BeaconService.CancelBeacon:input_type -> dzeroth.beacons.v1.CancelBeaconRequest
+	23, // 48: dzeroth.beacons.v1.BeaconService.GetBeacon:input_type -> dzeroth.beacons.v1.GetBeaconRequest
+	25, // 49: dzeroth.beacons.v1.BeaconService.ListBeacons:input_type -> dzeroth.beacons.v1.ListBeaconsRequest
+	27, // 50: dzeroth.beacons.v1.BeaconService.ListMyBeacons:input_type -> dzeroth.beacons.v1.ListMyBeaconsRequest
+	29, // 51: dzeroth.beacons.v1.BeaconService.RequestToJoin:input_type -> dzeroth.beacons.v1.RequestToJoinRequest
+	31, // 52: dzeroth.beacons.v1.BeaconService.WithdrawJoinRequest:input_type -> dzeroth.beacons.v1.WithdrawJoinRequestRequest
+	33, // 53: dzeroth.beacons.v1.BeaconService.RespondToJoinRequest:input_type -> dzeroth.beacons.v1.RespondToJoinRequestRequest
+	35, // 54: dzeroth.beacons.v1.BeaconService.LeaveBeacon:input_type -> dzeroth.beacons.v1.LeaveBeaconRequest
+	37, // 55: dzeroth.beacons.v1.BeaconService.RemoveParticipant:input_type -> dzeroth.beacons.v1.RemoveParticipantRequest
+	39, // 56: dzeroth.beacons.v1.BeaconService.ListParticipants:input_type -> dzeroth.beacons.v1.ListParticipantsRequest
+	41, // 57: dzeroth.beacons.v1.BeaconService.ListSharedBeacons:input_type -> dzeroth.beacons.v1.ListSharedBeaconsRequest
+	45, // 58: dzeroth.beacons.v1.BeaconService.ListNearbyBeacons:input_type -> dzeroth.beacons.v1.ListNearbyBeaconsRequest
+	18, // 59: dzeroth.beacons.v1.BeaconService.CreateBeacon:output_type -> dzeroth.beacons.v1.CreateBeaconResponse
+	20, // 60: dzeroth.beacons.v1.BeaconService.UpdateBeacon:output_type -> dzeroth.beacons.v1.UpdateBeaconResponse
+	22, // 61: dzeroth.beacons.v1.BeaconService.CancelBeacon:output_type -> dzeroth.beacons.v1.CancelBeaconResponse
+	24, // 62: dzeroth.beacons.v1.BeaconService.GetBeacon:output_type -> dzeroth.beacons.v1.GetBeaconResponse
+	26, // 63: dzeroth.beacons.v1.BeaconService.ListBeacons:output_type -> dzeroth.beacons.v1.ListBeaconsResponse
+	28, // 64: dzeroth.beacons.v1.BeaconService.ListMyBeacons:output_type -> dzeroth.beacons.v1.ListMyBeaconsResponse
+	30, // 65: dzeroth.beacons.v1.BeaconService.RequestToJoin:output_type -> dzeroth.beacons.v1.RequestToJoinResponse
+	32, // 66: dzeroth.beacons.v1.BeaconService.WithdrawJoinRequest:output_type -> dzeroth.beacons.v1.WithdrawJoinRequestResponse
+	34, // 67: dzeroth.beacons.v1.BeaconService.RespondToJoinRequest:output_type -> dzeroth.beacons.v1.RespondToJoinRequestResponse
+	36, // 68: dzeroth.beacons.v1.BeaconService.LeaveBeacon:output_type -> dzeroth.beacons.v1.LeaveBeaconResponse
+	38, // 69: dzeroth.beacons.v1.BeaconService.RemoveParticipant:output_type -> dzeroth.beacons.v1.RemoveParticipantResponse
+	40, // 70: dzeroth.beacons.v1.BeaconService.ListParticipants:output_type -> dzeroth.beacons.v1.ListParticipantsResponse
+	42, // 71: dzeroth.beacons.v1.BeaconService.ListSharedBeacons:output_type -> dzeroth.beacons.v1.ListSharedBeaconsResponse
+	46, // 72: dzeroth.beacons.v1.BeaconService.ListNearbyBeacons:output_type -> dzeroth.beacons.v1.ListNearbyBeaconsResponse
+	59, // [59:73] is the sub-list for method output_type
+	45, // [45:59] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_beacons_v1_beacons_proto_init() }
@@ -3112,8 +3555,8 @@ func file_dzeroth_beacons_v1_beacons_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_beacons_v1_beacons_proto_rawDesc), len(file_dzeroth_beacons_v1_beacons_proto_rawDesc)),
-			NumEnums:      11,
-			NumMessages:   30,
+			NumEnums:      13,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
