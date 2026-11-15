@@ -128,7 +128,7 @@ void main() {
       });
     }
 
-    testWidgets('Delete is spoken once, as a button with a 48dp target', (
+    testWidgets('Delete is spoken once, as a menu item with a 48dp target', (
       tester,
     ) async {
       final handle = tester.ensureSemantics();
@@ -136,8 +136,14 @@ void main() {
 
       expect(find.bySemanticsLabel('Delete'), findsOneWidget);
       expect(
-        tester.getSemantics(find.text('Delete')),
-        isSemantics(label: 'Delete', isButton: true),
+        tester.getSemantics(find.widgetWithText(MenuItemButton, 'Delete')),
+        isSemantics(
+          label: 'Delete',
+          hasTapAction: true,
+          isEnabled: true,
+          hasEnabledState: true,
+          isFocusable: true,
+        ),
       );
       expect(
         tester.getSize(find.byType(AppMenuItemRow)).height,

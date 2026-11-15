@@ -209,7 +209,7 @@ void main() {
       await openDrawer(tester);
 
       expectSize(tester, find.byType(Drawer), width: 320);
-      for (final label in ['Profile', 'Settings and Privacy', 'Sign out']) {
+      for (final label in ['Profile', 'Settings and Privacy']) {
         final row = find.ancestor(
           of: find.text(label),
           matching: find.byType(ConstrainedBox),
@@ -551,7 +551,6 @@ void main() {
           'Plans',
           'History',
           'Settings and Privacy',
-          'Sign out',
         ];
         final found = <MapEntry<double, String>>[];
         for (final label in known) {
@@ -576,11 +575,11 @@ void main() {
       final cases = <String, ({Set<String> flags, List<String> rows})>{
         'no flags': (
           flags: {},
-          rows: ['Profile', 'Settings and Privacy', 'Sign out'],
+          rows: ['Profile', 'Settings and Privacy'],
         ),
         'posts only': (
           flags: {'posts'},
-          rows: ['Articles', 'Profile', 'Settings and Privacy', 'Sign out'],
+          rows: ['Articles', 'Profile', 'Settings and Privacy'],
         ),
         'lists and communities': (
           flags: {'lists', 'communities'},
@@ -589,12 +588,11 @@ void main() {
             'Communities',
             'Profile',
             'Settings and Privacy',
-            'Sign out',
           ],
         ),
         'beacons only (Plans is in the bar, not here)': (
           flags: {'beacons'},
-          rows: ['Profile', 'Settings and Privacy', 'Sign out'],
+          rows: ['Profile', 'Settings and Privacy'],
         ),
         'everything': (
           flags: {
@@ -612,7 +610,6 @@ void main() {
             'History',
             'Profile',
             'Settings and Privacy',
-            'Sign out',
           ],
         ),
       };
@@ -848,7 +845,7 @@ void main() {
         handle.dispose();
       });
 
-      testWidgets('rows have chevrons, Sign out has none', (tester) async {
+      testWidgets('every row has a chevron', (tester) async {
         await pump(
           tester,
           profile: _alice,
@@ -871,7 +868,6 @@ void main() {
         ]) {
           expect(chevronIn(label), findsOneWidget, reason: label);
         }
-        expect(chevronIn('Sign out'), findsNothing);
       });
 
       testWidgets('the badge sits before the chevron on Follow requests', (
@@ -905,7 +901,7 @@ void main() {
         );
       });
 
-      testWidgets('header: avatar left of the name, counts below, bold name', (
+      testWidgets('header: avatar left of the name, counts below, semibold name', (
         tester,
       ) async {
         await pump(tester, profile: _alice);
@@ -924,7 +920,7 @@ void main() {
         expect(counts.top, greaterThan(avatar.bottom - 1));
         expect(
           tester.widget<Text>(find.text('Alice A')).style!.fontWeight,
-          FontWeight.w700,
+          FontWeight.w600,
         );
       });
 
@@ -950,11 +946,11 @@ void main() {
           await openDrawer(tester);
           expectNoOverflow(tester);
           await tester.dragUntilVisible(
-            find.text('Sign out'),
+            find.text('Settings and Privacy'),
             find.byType(ListView),
             const Offset(0, -200),
           );
-          expect(find.text('Sign out'), findsOneWidget);
+          expect(find.text('Settings and Privacy'), findsOneWidget);
           expectNoOverflow(tester);
         });
       }
@@ -971,16 +967,20 @@ void main() {
       expectSize(tester, find.byType(Drawer), width: 306);
     });
 
-    testWidgets('labels are titleLarge 20dp and the icons are 24dp', (
+    testWidgets('row labels are plain (17dp w400 onSurface), tile labels w500, '
+        'the icons are 24dp', (
       tester,
     ) async {
       await pump(tester, profile: _alice);
       await openDrawer(tester);
 
       final style = tester.widget<Text>(find.text('Profile')).style!;
-      // titleLarge: Inter 20 sp w800 (ADR-0033); restyled in PR 3.4.
-      expect(style.fontSize, 20);
-      expect(style.fontWeight, FontWeight.w800);
+      expect(style.fontSize, 17);
+      expect(style.fontWeight, FontWeight.w400);
+      expect(
+        style.color,
+        Theme.of(tester.element(find.byType(AppDrawer))).colorScheme.onSurface,
+      );
       // (person_outline is also the avatar fallback; settings_outlined is
       // unique to a row.)
       expect(
@@ -1015,18 +1015,6 @@ void main() {
       expect(find.byType(AppDrawer), findsNothing);
     });
 
-    testWidgets('Sign out closes the drawer and dispatches the sign-out '
-        'event', (tester) async {
-      await pump(tester, profile: _alice);
-      await openDrawer(tester);
-
-      await tester.tap(find.text('Sign out'));
-      await tester.pumpAndSettle();
-
-      verify(() => auth.add(const AuthSignOutRequested())).called(1);
-      expect(find.byType(AppDrawer), findsNothing);
-    });
-
     testWidgets('the counts open the lists of the profile with its user id and '
         'name', (tester) async {
       await pump(tester, profile: _alice);
@@ -1046,14 +1034,14 @@ void main() {
     });
 
     testWidgets('without a profile there is no account block and no Profile '
-        'row, only Settings and Sign out', (tester) async {
+        'row, only Settings', (tester) async {
       await pump(tester);
       await openDrawer(tester);
 
       expect(find.text('Profile'), findsNothing);
       expect(find.text('Following', findRichText: true), findsNothing);
       expect(find.text('Settings and Privacy'), findsOneWidget);
-      expect(find.text('Sign out'), findsOneWidget);
+      expect(find.text('Sign out'), findsNothing);
     });
 
     testWidgets('a profile without a display name shows the handle as the '

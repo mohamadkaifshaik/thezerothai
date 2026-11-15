@@ -22,39 +22,40 @@ void main() {
       final out = await RasterImageProcessor(codec)
           .process(input, ImagePurpose.post);
 
-      expect((out.width, out.height), (1600, 1200));
-      expect(jpegDims(out.fullBytes), (width: 1600, height: 1200));
-      expect(jpegDims(out.thumbBytes), (width: 400, height: 300));
+      expect((out.width, out.height), (2048, 1536));
+      expect(jpegDims(out.fullBytes), (width: 2048, height: 1536));
+      expect(jpegDims(out.thumbBytes), (width: 1080, height: 810));
       expect(out.fullMd5, base64.encode(md5.convert(out.fullBytes).bytes));
       expect(out.thumbMd5, base64.encode(md5.convert(out.thumbBytes).bytes));
       expect(out.blurhash, isNotEmpty);
       expect(out.contentType, 'image/jpeg');
-      // Full at quality 80, thumb at 70, both from the whole photo.
-      expect([for (final e in codec.encodes) e.quality], [80, 70]);
+      // Full at quality 88, thumb at 75, both from the whole photo.
+      expect([for (final e in codec.encodes) e.quality], [88, 75]);
       expect(codec.encodes.first.crop, (x: 0, y: 0, width: 4000, height: 3000));
       expect(codec.rgbaCalls.single, (width: 32, height: 24));
       expect(codec.closed, 1);
     });
 
     test('steps quality down, then shrinks, until under the cap', () async {
-      // Over the cap at 1600 px whatever the quality; fits at 1200 x 900 / 60.
+      // Over the cap at 2048 px whatever the quality; fits at 1152 x 864 / 58.
       final codec = FakeRasterCodec(
         sizeOf: (w, h, q) =>
             w <=
                 kPostThumbEdge // the thumbnail always fits
             ? 100
-            : (w > 1200 || q > 60 ? kMaxFullBytes + 1 : kMaxFullBytes),
+            : (w > 1152 || q > 58 ? kMaxFullBytes + 1 : kMaxFullBytes),
       );
       final out = await RasterImageProcessor(codec)
           .process(input, ImagePurpose.post);
-      expect((out.width, out.height), (1200, 900));
+      expect((out.width, out.height), (1152, 864));
       expect(out.fullBytes.length, kMaxFullBytes);
-      final full = codec.encodes.takeWhile((e) => e.width >= 1200).toList();
+      final full = codec.encodes.takeWhile((e) => e.width >= 1152).toList();
       expect(
         [for (final e in full) (e.width, e.quality)],
         [
-          (1600, 80), (1600, 70), (1600, 60), (1600, 50), (1600, 40), //
-          (1200, 80), (1200, 70), (1200, 60),
+          (2048, 88), (2048, 78), (2048, 68), (2048, 58), (2048, 48), //
+          (1536, 88), (1536, 78), (1536, 68), (1536, 58), (1536, 48), //
+          (1152, 88), (1152, 78), (1152, 68), (1152, 58),
         ],
       );
     });

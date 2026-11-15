@@ -19,6 +19,10 @@ Future<bool> launchPostLink(Uri uri) async {
 /// detail view shows all of it).
 const kPostTextClampLines = 6;
 
+/// The same for a post with media (images or a GIF): two lines, with
+/// "... Show more" inline at the end of the second.
+const kPostMediaTextClampLines = 2;
+
 /// The card's side gutter for a window [windowWidth] wide: 20 dp on phones
 /// (the mobile `.post`, `padding: 14px 20px`), 16 dp from the tablet width
 /// up (dz.css `.post`, `14px 16px`). Rows drawn in line with the cards (the

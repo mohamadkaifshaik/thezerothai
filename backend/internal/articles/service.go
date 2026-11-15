@@ -447,13 +447,13 @@ func (s *Server) PublishArticle(ctx context.Context, req *connect.Request[av.Pub
 		s.withImages(ctx, article, a, a.PostID)
 		return connect.NewResponse(&av.PublishArticleResponse{Article: article, Post: postWire(p, uid)}), nil
 	}
-	excerpt, _ := validateContent(a.Title, a.Body, true)
+	info, _ := inspectContent(a.Title, a.Body, true)
 	text := a.Caption
 	if text == "" {
 		text = a.Title
 	}
 	sum := sha256.Sum256([]byte(fmt.Sprintf("article:%s:%s:%d:%s", uid, id, a.Revision, a.PendingKey)))
-	in := posts.CreateInput{IdempotencyKey: hex.EncodeToString(sum[:]), Text: text, ReplyPolicy: a.ReplyPolicy, ReplyAudienceEnabled: s.flags != nil && s.flags.Enabled(uid, "reply_audience"), Article: &posts.ArticlePreview{ArticleID: id, Title: a.Title, Excerpt: excerpt}}
+	in := posts.CreateInput{IdempotencyKey: hex.EncodeToString(sum[:]), Text: text, ReplyPolicy: a.ReplyPolicy, ReplyAudienceEnabled: s.flags != nil && s.flags.Enabled(uid, "reply_audience"), Article: &posts.ArticlePreview{ArticleID: id, Title: a.Title, Excerpt: info.Excerpt, ReadMinutes: readMinutes(info.Words)}}
 	in.ArticlePublication = &publicationIntent{repo: s.repo, expected: a, now: s.now().UTC(), uid: uid, images: s.attacher}
 	if a.CoverMediaID != "" {
 		in.MediaIDs = []string{a.CoverMediaID}

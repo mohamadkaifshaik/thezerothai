@@ -94,7 +94,7 @@ class RasterGifPreparer implements GifPreparer {
       crop.width,
       crop.height,
       kPostThumbEdge,
-      quality: 70,
+      quality: kPostThumbQuality,
     )) {
       final out = await _step(
         session,

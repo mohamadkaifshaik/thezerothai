@@ -163,6 +163,19 @@ abstract final class AppSize {
   /// The gap between tiles in the media row.
   static const double postMediaRowGap = 8;
 
+  /// The article card in a feed: the cover fills the card at 4:5
+  /// ([postMediaPortraitAspect]) up to [postMediaMaxSingleHeight]; the text
+  /// overlay covers at least this fraction of the card, and the tint of its
+  /// gradient is this opaque at the bottom.
+  static const double articleCardOverlayFraction = 0.55;
+  static const double articleCardOverlayOpacity = 0.9;
+
+  /// A card without a cover is never shorter than this.
+  static const double articleCardMinHeight = 200;
+
+  /// The transparent lead-in of the overlay gradient, above its text.
+  static const double articleCardFadeHeight = 56;
+
   /// One row of a header: the top bar row, and the tab row below it.
   static const double headerRow = 53;
 
@@ -1026,6 +1039,10 @@ abstract final class AppAuthPalette {
 /// Raw redesign colour tokens (ADR-0033). The [ColorScheme]s and [AppColors]
 /// read them; widgets read the theme, not these.
 abstract final class AppPalette {
+  /// The photo viewer's scrim: black at 60 %, and the same black clear (so
+  /// the gradient does not pass through grey).
+  static const Color photoScrim = Color(0x99000000);
+  static const Color photoScrimClear = Color(0x00000000);
   static const Color navy = Color(0xFF0D1528);
   static const Color navy2 = Color(0xFF1B2A44);
   static const Color navyDeep = Color(0xFF08101F);
@@ -1120,6 +1137,19 @@ abstract final class AppGradients {
     colors: [AppPalette.tealElectric, AppPalette.teal],
   );
   static const LinearGradient mineBubble = primaryButton;
+
+  /// The photo viewer's legibility wash behind its top and bottom controls:
+  /// black at 60 % fading to nothing towards the picture.
+  static const LinearGradient photoScrimTop = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [AppPalette.photoScrim, AppPalette.photoScrimClear],
+  );
+  static const LinearGradient photoScrimBottom = LinearGradient(
+    begin: Alignment.bottomCenter,
+    end: Alignment.topCenter,
+    colors: [AppPalette.photoScrim, AppPalette.photoScrimClear],
+  );
   static const LinearGradient card = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
@@ -1134,6 +1164,20 @@ abstract final class AppGradients {
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [AppPalette.navy2, AppPalette.navy],
+  );
+
+  /// The article card's text overlay: transparent at the top to [tint] at
+  /// [AppSize.articleCardOverlayOpacity] from 45 % down (the tint is the
+  /// cover's average colour, darkened so white text passes AA).
+  static LinearGradient articleOverlay(Color tint) => LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      tint.withValues(alpha: 0),
+      tint.withValues(alpha: AppSize.articleCardOverlayOpacity),
+      tint.withValues(alpha: AppSize.articleCardOverlayOpacity),
+    ],
+    stops: const [0, 0.45, 1],
   );
 
   /// The community cover band (Community.dc.html `.cover`): a diagonal
@@ -1217,6 +1261,9 @@ class AppMotion {
   static const Duration expoOutShort = Duration(milliseconds: 300);
   static const Duration expoOutLong = Duration(milliseconds: 450);
   static const Duration backOutDuration = Duration(milliseconds: 350);
+
+  /// The photo viewer's controls fading out and back on a tap.
+  static const Duration chromeFade = Duration(milliseconds: 180);
 
   /// A page push: a short fade and a slight slide, ease-out (see
   /// `AppPageTransitionsBuilder`). Not used under reduced motion.
@@ -1467,6 +1514,8 @@ abstract final class AppPostsLayout {
 
   /// The pearl wash behind them, over the black stage.
   static const double photoButtonTint = 0.12;
+  static const double photoScrimTopHeight = 120;
+  static const double photoScrimBottomHeight = 220;
 
   /// A page dot and the selected page's elongated dot (phone viewer).
   static const double photoDot = 6;
