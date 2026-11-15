@@ -2,6 +2,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostFailure;
+import '../../beacons/domain/beacons_feature_flag.dart'
+    show kFeaturePostBeaconEmbed;
 import '../domain/composer_attachment_rules.dart' show kFeaturePolls;
 import '../domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/posts_feature_flag.dart';
@@ -48,6 +50,9 @@ String createPostErrorMessage(AppException error) {
     FeatureDisabledException(feature: kFeatureGif) =>
       "GIFs can't be added to posts right now. Remove the GIF and post "
           'again, or try later.',
+    FeatureDisabledException(feature: kFeaturePostBeaconEmbed) =>
+      "Plans can't be shared in posts right now. The plan was removed; post "
+          'the text alone or try later.',
     FeatureDisabledException() => "Posting isn't available right now.",
     NetworkException() =>
       'No connection. Your post was not sent; check your network and try '
@@ -56,6 +61,9 @@ String createPostErrorMessage(AppException error) {
       "This poll can't be sent. Check the choices and the length, then try "
           'again.',
     ValidationException(field: 'media_ids') => kMediaCombinationMessage,
+    ValidationException(field: 'beacon_id') =>
+      "This plan can't be shared in this post. Remove the plan or start a "
+          'new post.',
     ValidationException() =>
       "This post can't be sent. Check the text and try again.",
     MediaNotReadyException() =>
@@ -99,6 +107,21 @@ String replyErrorMessage(AppException error, {String communityName = ''}) {
     ValidationException() =>
       "This reply can't be sent. Check the text and try again.",
     UnknownApiException() => "Couldn't send your reply. Please try again.",
+    _ => createPostErrorMessage(error),
+  };
+}
+
+/// Friendly messages for a failed post that shares a plan (CreatePost with
+/// `beacon_id`): the plan is gone, hidden or not the caller's (one NOT_FOUND
+/// for every cause), or it has ended or been cancelled. Everything else is the
+/// shared [createPostErrorMessage].
+String planPostErrorMessage(AppException error) {
+  return switch (error) {
+    NotFoundException() => "This plan isn't available any more.",
+    StateConflictException(reason: 'ended') =>
+      'This plan has already ended, so it cannot be shared.',
+    StateConflictException(reason: 'cancelled') =>
+      'This plan was cancelled, so it cannot be shared.',
     _ => createPostErrorMessage(error),
   };
 }

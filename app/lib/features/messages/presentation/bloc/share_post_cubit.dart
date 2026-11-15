@@ -203,7 +203,9 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// post link, so a client that predates the card still shows a link.
   String get text {
     final caption = state.caption.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
-    return caption.isEmpty ? url : caption;
+    if (caption.isEmpty) return url;
+    // A link-only share has no card to carry the link: it stays in the text.
+    return postId.isEmpty ? '$caption $url' : caption;
   }
 
   /// Sends to every row that is not sent yet, in order. Pressed again after a
@@ -222,9 +224,9 @@ class SharePostCubit extends Cubit<SharePostState> {
       if (!_isEnabled()) {
         _endShare(
           ids.sublist(i),
-          const FeatureDisabledException(
+          FeatureDisabledException(
             'This feature is not available.',
-            feature: kFeatureDmPostShare,
+            feature: postId.isEmpty ? kFeatureMessaging : kFeatureDmPostShare,
           ),
         );
         return;
@@ -235,7 +237,8 @@ class SharePostCubit extends Cubit<SharePostState> {
           idempotencyKey: _row(id).key,
           text: body,
           recipientUserId: id,
-          sharedPostId: postId,
+          // A link-only share (a plan) names no post.
+          sharedPostId: postId.isEmpty ? null : postId,
         );
         _setRow(id, ShareRowStatus.sent);
       } on AppException catch (error) {

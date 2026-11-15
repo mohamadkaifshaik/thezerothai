@@ -11,6 +11,8 @@ import '../../timeline/data/timeline_store.dart';
 import '../../timeline/domain/feed_key.dart';
 import '../../communities/domain/communities_feature_flag.dart'
     show kFeatureCommunities;
+import '../../beacons/domain/beacons_feature_flag.dart'
+    show kFeaturePostBeaconEmbed;
 import '../domain/composer_attachment_rules.dart' show kFeaturePolls;
 import '../domain/composer_draft.dart' show DraftPoll;
 import '../domain/posts_feature_flag.dart';
@@ -74,6 +76,7 @@ class PostsRepository {
     ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
     DraftPoll? poll,
     String communityId = '',
+    String beaconId = '',
   }) async {
     final session = _store.session;
     final response = await _gate.run(
@@ -95,6 +98,9 @@ class PostsRepository {
           // Set only for a post into a community (root or quote; never with
           // a reply policy): the field stays unset otherwise.
           communityId: communityId.isEmpty ? null : communityId,
+          // Set only for a post that shares one of the caller's plans
+          // (`post_beacon_embed`): never with a reply, quote or poll.
+          beaconId: beaconId.isEmpty ? null : beaconId,
         ),
       ),
       requires: [
@@ -103,6 +109,7 @@ class PostsRepository {
         if (mediaIds.isNotEmpty) kPostsSubFeatureMedia,
         if (poll != null) kFeaturePolls,
         if (communityId.isNotEmpty) kFeatureCommunities,
+        if (beaconId.isNotEmpty) kFeaturePostBeaconEmbed,
         // Only a chosen audience needs the flag; UNSPECIFIED never does.
         if (replyPolicy != ReplyPolicy.REPLY_POLICY_UNSPECIFIED)
           kFeatureReplyAudience,

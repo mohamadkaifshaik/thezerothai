@@ -33,6 +33,7 @@ import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
 import 'widgets/join_note_sheet.dart';
 import 'widgets/quick_join.dart';
+import 'widgets/plan_share.dart';
 import 'widgets/plan_skeletons.dart';
 import 'widgets/plan_summary.dart';
 import '../../../shared/widgets/primitives/app_card.dart';
@@ -290,9 +291,29 @@ class _BeaconScreenState extends State<BeaconScreen> {
     );
   }
 
-  /// Back and the menu over the hero (the designs' PlanDetail).
+  /// Share (the plan's link, a post or a message about it) beside the menu;
+  /// null when there is nothing to offer ([planShareOptions]).
+  Widget? _share(BeaconDetailState state) {
+    final view = state.view;
+    if (view == null || planShareOptions(context, view) == null) return null;
+    return _HeroButton(child: PlanShareButton(view: view));
+  }
+
+  /// Back, Share and the menu over the hero (the designs' PlanDetail).
   Widget _heroBar(BeaconDetailState state) {
+    final share = _share(state);
     final menu = _menu(state);
+    final trailing = share == null && menu == null
+        ? null
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ?share,
+              if (share != null && menu != null)
+                const SizedBox(width: AppSpacing.sm),
+              ?menu,
+            ],
+          );
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -310,7 +331,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
               onPressed: _back,
             ),
           ),
-        ?menu,
+        ?trailing,
       ],
     );
   }

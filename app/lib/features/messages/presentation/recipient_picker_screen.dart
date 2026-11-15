@@ -193,7 +193,9 @@ class RecipientPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = share == null ? 'New message' : 'Send in a message';
     if (!isFeatureEnabled(context, kFeatureMessaging) ||
-        (share != null && !isFeatureEnabled(context, kFeatureDmPostShare))) {
+        (share != null &&
+            !share!.linkOnly &&
+            !isFeatureEnabled(context, kFeatureDmPostShare))) {
       return Column(
         children: [
           AppBackHeader(

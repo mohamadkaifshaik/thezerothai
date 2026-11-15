@@ -23,6 +23,8 @@ import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
 import '../../../shared/widgets/post/embedded_post_card.dart';
+import '../../beacons/domain/beacons_feature_flag.dart';
+import '../../beacons/presentation/widgets/post_beacon_embed.dart';
 import '../../../shared/widgets/post/post_card.dart' show kPostAvatarGap;
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
@@ -94,12 +96,24 @@ class ComposerScreen extends StatelessWidget {
     super.key,
     this.quoteOfPostId = '',
     this.quotePreview,
+    this.planId = '',
+    this.planPreview,
     this.draftId = '',
     this.communityId = '',
     @visibleForTesting this.scheduleClock,
   });
 
   final String quoteOfPostId;
+
+  /// The plan the post shares (`/compose?plan=<id>`, `CreatePost.beacon_id`),
+  /// or empty. Honoured only for a new root post (never with a quote) while
+  /// `beacons` and `post_beacon_embed` are on for the caller; otherwise the
+  /// composer opens as a plain post.
+  final String planId;
+
+  /// The plan card shown under the text ([planId]'s snapshot, passed by the
+  /// router; null after a page reload: a plain line then).
+  final pb.BeaconPreview? planPreview;
 
   /// The community to preselect as the audience (`/compose?community=<id>`),
   /// or empty. Used only while `communities` is on and the caller is
@@ -146,6 +160,7 @@ class ComposerScreen extends StatelessWidget {
     // act as off there.
     final uid =
         quoteOfPostId.isEmpty &&
+            !_planAttached(context) &&
             featureEnabledSnapshot(context, kFeatureDrafts) &&
             !(context.read<AppDatabase?>()?.keepsNothing ?? false)
         ? (context.read<AuthBloc>().state.user?.uid ?? '')
@@ -160,6 +175,13 @@ class ComposerScreen extends StatelessWidget {
     }
     return _composer(context, uid: uid);
   }
+
+  /// A plan is attached: asked for, no quote, and both flags on.
+  bool _planAttached(BuildContext context) =>
+      planId.isNotEmpty &&
+      quoteOfPostId.isEmpty &&
+      featureEnabledSnapshot(context, kFeatureBeacons) &&
+      featureEnabledSnapshot(context, kFeaturePostBeaconEmbed);
 
   Widget _composer(
     BuildContext context, {
@@ -215,6 +237,7 @@ class ComposerScreen extends StatelessWidget {
             pending: context.read<PendingPostsCubit>(),
             author: viewerAuthorSnapshot(profile),
             quoteOfPostId: quoteOfPostId,
+            beaconId: _planAttached(context) ? planId : '',
             attachments: mediaEnabled ? context.read<AttachmentsCubit>() : null,
             // Setting an audience needs the flag; a quote is a root post, so
             // it may (a reply never uses this screen).
@@ -269,6 +292,7 @@ class ComposerScreen extends StatelessWidget {
               child: _ComposerView(
                 mediaEnabled: mediaEnabled,
                 quotePreview: quotePreview,
+                planPreview: planPreview,
                 avatarUrl: viewerAuthorSnapshot(profile).avatarUrl,
                 scheduleClock: scheduleClock,
                 initialText: initial?.text ?? '',
@@ -277,6 +301,7 @@ class ComposerScreen extends StatelessWidget {
           : _ComposerView(
               mediaEnabled: mediaEnabled,
               quotePreview: quotePreview,
+              planPreview: planPreview,
               avatarUrl: viewerAuthorSnapshot(profile).avatarUrl,
               scheduleClock: scheduleClock,
               initialText: initial?.text ?? '',
@@ -334,6 +359,7 @@ class _ComposerView extends StatefulWidget {
     required this.mediaEnabled,
     required this.avatarUrl,
     this.quotePreview,
+    this.planPreview,
     this.scheduleClock,
     this.initialText = '',
   });
@@ -343,6 +369,7 @@ class _ComposerView extends StatefulWidget {
 
   final bool mediaEnabled;
   final pb.EmbeddedPost? quotePreview;
+  final pb.BeaconPreview? planPreview;
 
   /// The viewer's avatar (empty: the person icon).
   final String avatarUrl;
@@ -670,6 +697,8 @@ class _ComposerViewState extends State<_ComposerView> {
                   ? scheduleErrorMessage(error)
                   : context.read<ComposerCubit>().quoteOfPostId.isNotEmpty
                   ? quoteErrorMessage(error)
+                  : state.hasPlan
+                  ? planPostErrorMessage(error)
                   : createPostErrorMessage(error),
             ),
           ),
@@ -1024,6 +1053,13 @@ class _ComposerViewState extends State<_ComposerView> {
                               ),
                       ),
                       if (isQuote) _QuotePreview(preview: widget.quotePreview),
+                      if (state.hasPlan)
+                        _PlanPreview(
+                          preview: widget.planPreview,
+                          onRemove: state.isSubmitting
+                              ? null
+                              : cubit.removePlan,
+                        ),
                       if (widget.mediaEnabled)
                         AttachmentGrid(enabled: !state.isSubmitting),
                       // A community post takes no reply policy:
@@ -1322,6 +1358,57 @@ class _ReplyAudienceLink extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The plan the post shares, under the text field: the compact plan card
+/// ([PostBeaconEmbed] in preview mode: no tap, no Join) with a remove button,
+/// or a plain line after a page reload (the plan is still sent by id).
+class _PlanPreview extends StatelessWidget {
+  const _PlanPreview({required this.preview, required this.onRemove});
+
+  final pb.BeaconPreview? preview;
+
+  /// Null while the post is being sent.
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final plan = preview;
+    return Padding(
+      key: const ValueKey('composer-plan-preview'),
+      padding: const EdgeInsetsDirectional.fromSTEB(
+        AppSpacing.md,
+        0,
+        AppSpacing.xs,
+        AppSpacing.sm,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: plan == null
+                ? Text(
+                    'Sharing a plan',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  )
+                : PostBeaconEmbed(
+                    beacon: plan,
+                    authorIsViewer: true,
+                    preview: true,
+                  ),
+          ),
+          IconButton(
+            tooltip: 'Remove plan',
+            icon: const Icon(Icons.close),
+            onPressed: onRemove,
+          ),
+        ],
       ),
     );
   }

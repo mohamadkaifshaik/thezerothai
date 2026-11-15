@@ -19,6 +19,7 @@ mixin _ComposerForm on _ComposerHost {
         communityChoices: state.communityChoices,
         audienceNotice: state.audienceNotice,
         sessionEnded: state.sessionEnded,
+        beaconId: state.beaconId,
       ),
     );
   }

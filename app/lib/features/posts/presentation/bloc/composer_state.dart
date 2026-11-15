@@ -76,6 +76,7 @@ class ComposerState {
     this.audienceNotice,
     this.communityNotApplied = false,
     this.sessionEnded = false,
+    this.beaconId = '',
   });
 
   final PostDraft draft;
@@ -161,6 +162,12 @@ class ComposerState {
   /// leaves.
   final bool sessionEnded;
 
+  /// The plan attached to the post (`CreatePost.beacon_id`), empty for none.
+  /// The user may remove it ([ComposerCubit.removePlan]); the server drops it
+  /// (FEATURE_DISABLED `post_beacon_embed`) the same way.
+  final String beaconId;
+
+  bool get hasPlan => beaconId.isNotEmpty;
   bool get hasPoll => poll != null;
   bool get isScheduling => scheduledAt != null;
   bool get isSubmitting => status == ComposerStatus.submitting;
@@ -200,6 +207,8 @@ class ComposerState {
     bool clearAudienceNotice = false,
     bool? communityNotApplied,
     bool? sessionEnded,
+    String? beaconId,
+    bool clearPlan = false,
     bool clearSendConflict = false,
     bool clearPoll = false,
     bool clearError = false,
@@ -233,5 +242,6 @@ class ComposerState {
         : (audienceNotice ?? this.audienceNotice),
     communityNotApplied: communityNotApplied ?? this.communityNotApplied,
     sessionEnded: sessionEnded ?? this.sessionEnded,
+    beaconId: clearPlan ? '' : (beaconId ?? this.beaconId),
   );
 }

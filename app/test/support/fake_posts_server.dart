@@ -67,6 +67,10 @@ class FakePostsServer extends Fake implements PostsRepository {
   /// none), in order.
   final List<String> receivedCommunityIds = [];
 
+  /// The `beacon_id` of every CreatePost that reached the server (empty:
+  /// none), in order.
+  final List<String> receivedBeaconIds = [];
+
   /// Distinct items accepted (a replay adds none).
   final List<Accepted> accepted = [];
 
@@ -93,13 +97,16 @@ class FakePostsServer extends Fake implements PostsRepository {
     ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
     DraftPoll? poll,
     String communityId = '',
+    String beaconId = '',
   }) async {
     receivedKeys.add(idempotencyKey);
     if (refusals.isNotEmpty) throw refusals.removeAt(0);
     receivedCommunityIds.add(communityId);
+    receivedBeaconIds.add(beaconId);
     final body =
         'post|$text|${mediaIds.join(',')}|${mediaAltTexts.join(',')}'
-        '|${replyPolicy.value}|${poll?.choices.join(',')}|$communityId';
+        '|${replyPolicy.value}|${poll?.choices.join(',')}|$communityId'
+        '|$beaconId';
     final seen = _byKey['post:$idempotencyKey'];
     if (seen != null) {
       if (seen.body != body) {

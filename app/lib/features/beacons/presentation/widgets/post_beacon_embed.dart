@@ -60,12 +60,17 @@ class PostBeaconEmbed extends StatefulWidget {
     super.key,
     required this.beacon,
     required this.authorIsViewer,
+    this.preview = false,
   });
 
   final pb.BeaconPreview beacon;
 
   /// The post is the viewer's own: their own plan, so no Join.
   final bool authorIsViewer;
+
+  /// The card as the composer shows it before the post exists: no tap to the
+  /// plan page and no Join, whatever the flags.
+  final bool preview;
 
   @override
   State<PostBeaconEmbed> createState() => _PostBeaconEmbedState();
@@ -186,6 +191,7 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
     final status = _beacon.status;
     final open = status == beacons.BeaconStatus.BEACON_STATUS_OPEN;
     final canJoin =
+        !widget.preview &&
         beaconsOn &&
         open &&
         !widget.authorIsViewer &&
@@ -293,10 +299,10 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
     return Semantics(
       key: ValueKey('post-plan-${_beacon.beaconId}'),
       container: true,
-      button: beaconsOn,
+      button: beaconsOn && !widget.preview,
       label: label,
       child: AppPlanStrip(
-        onTap: beaconsOn ? _openPlan : null,
+        onTap: beaconsOn && !widget.preview ? _openPlan : null,
         child: trailing == null
             ? summary
             : LayoutBuilder(
