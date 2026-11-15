@@ -36,6 +36,7 @@ import '../features/engagement/domain/impression_tracker.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/beacons/data/beacons_repository.dart';
 import '../features/beacons/presentation/bloc/plans_session.dart';
+import '../features/creator_insights/data/creator_insights_repository.dart';
 import '../features/communities/data/communities_repository.dart';
 import '../features/lists/data/home_tabs_repository.dart';
 import '../features/lists/data/lists_repository.dart';
@@ -115,6 +116,7 @@ class AppWidget extends StatefulWidget {
     this.homeTabsRepository,
     this.communitiesRepository,
     this.beaconsRepository,
+    this.creatorInsightsRepository,
     required this.pushCubit,
     this.telemetryConsent,
     required this.unreadBadgeCubit,
@@ -182,6 +184,7 @@ class AppWidget extends StatefulWidget {
   /// Plans (beacons): the only `BeaconService` caller. Null in tests that do
   /// not need it.
   final BeaconsRepository? beaconsRepository;
+  final CreatorInsightsRepository? creatorInsightsRepository;
 
   /// Push registration and tap handling; built in bootstrap so the
   /// sign-out hook can unregister the device before the token is dropped.
@@ -675,6 +678,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
           RepositoryProvider.value(value: widget.communitiesRepository!),
         if (widget.beaconsRepository != null)
           RepositoryProvider.value(value: widget.beaconsRepository!),
+        if (widget.creatorInsightsRepository != null)
+          RepositoryProvider.value(value: widget.creatorInsightsRepository!),
         if (_plans case final plans?)
           RepositoryProvider<PlansSession>.value(value: plans),
         RepositoryProvider<ConversationsSession>.value(value: _conversations),
