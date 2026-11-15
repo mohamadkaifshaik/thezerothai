@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -258,6 +259,9 @@ class PostCard extends StatelessWidget {
     final author = isRepost ? embedded!.author : _post.author;
     final text = isRepost ? embedded!.text : _post.text;
     final media = isRepost ? embedded!.media : _post.media;
+    final showsMedia =
+        media.isNotEmpty &&
+        !(isRepost ? embedded!.hasArticle() : _post.hasArticle());
     final mentions = isRepost ? const <pb.Mention>[] : _post.mentions;
     final createdAt = isRepost
         ? (embedded!.hasCreatedAt() ? embedded.createdAt : null)
@@ -385,7 +389,16 @@ class PostCard extends StatelessWidget {
               ? embedded!.hasArticle() && text == embedded.article.title
               : _post.hasArticle() && text == _post.article.title))
         PostRichText(
-          maxLines: fullContent ? null : kPostTextClampLines,
+          // A post with pictures keeps its text to two lines with the
+          // "Show more" inline at the end of the second; link, poll, plan and
+          // article embeds do not count as media. The test is the one that
+          // decides whether the pictures are drawn below.
+          maxLines: fullContent
+              ? null
+              : showsMedia
+              ? kPostMediaTextClampLines
+              : kPostTextClampLines,
+          inlineShowMore: showsMedia,
           text: text,
           mentions: mentions,
           style: wideFocal
@@ -426,8 +439,7 @@ class PostCard extends StatelessWidget {
             article: isRepost ? embedded!.article : _post.article,
           ),
         ),
-      if (media.isNotEmpty &&
-          !(isRepost ? embedded!.hasArticle() : _post.hasArticle())) ...[
+      if (showsMedia) ...[
         const SizedBox(height: AppSpacing.sm),
         PostMedia(
           media: media,

@@ -10,7 +10,7 @@ const kMaxSourceBytes = 40 * 1024 * 1024;
 /// The most pixels a picked image may have, read from its header before any
 /// decode: 50 MP covers a 48 MP phone camera, and keeps a decoded bitmap
 /// (4 bytes per pixel) at or under 200 MB. The web worker never draws into a
-/// canvas larger than the output (at most 1600 x 1600), so the iOS canvas-area
+/// canvas larger than the output (at most 2048 x 2048), so the iOS canvas-area
 /// cap (about 16.7 MP) does not apply to the source.
 const kMaxSourcePixels = 50 * 1000 * 1000;
 

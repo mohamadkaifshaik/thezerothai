@@ -140,7 +140,7 @@ void main() {
         expect(frame.width / frame.height, closeTo(0.8, 0.001));
         expect(frame.height, closeTo(wide ? cap : column * 1.25, 0.01));
         final image = tester.widget<CachedNetworkImage>(
-          find.byType(CachedNetworkImage),
+          find.byType(CachedNetworkImage).first,
         );
         expect(image.fit, BoxFit.cover);
         expect(image.alignment, Alignment.center);

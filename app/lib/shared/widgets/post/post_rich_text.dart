@@ -14,11 +14,17 @@ class PostRichText extends StatefulWidget {
     this.hashtagSearch = false,
     this.style,
     this.maxLines,
+    this.inlineShowMore = false,
   });
 
   /// Clamp the text to this many lines with a "Show more" control when it is
   /// longer; null shows all of it (the post detail view).
   final int? maxLines;
+
+  /// Put "... Show more" at the end of the last allowed line (the text is cut
+  /// so the two fit) instead of on a row of its own below. Used for a post
+  /// with media, where the text stays at two lines and the picture follows.
+  final bool inlineShowMore;
 
   final String text;
   final List<pb.Mention> mentions;
@@ -147,6 +153,15 @@ class _PostRichTextState extends State<PostRichText> {
         final overflows = painter.didExceedMaxLines;
         painter.dispose();
         if (!overflows) return Text.rich(span);
+        if (widget.inlineShowMore) {
+          return _inline(
+            context,
+            constraints.maxWidth,
+            limit,
+            children,
+            tappableStyle,
+          );
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -176,6 +191,160 @@ class _PostRichTextState extends State<PostRichText> {
           ],
         );
       },
+    );
+  }
+
+  void _expand() => setState(() => _expanded = true);
+
+  /// [children] cut to their first [count] characters (the last span may be
+  /// partial; it loses its screen-reader label, which described all of it).
+  List<InlineSpan> _take(List<InlineSpan> children, int count) {
+    final out = <InlineSpan>[];
+    var left = count;
+    for (final child in children) {
+      if (left <= 0) break;
+      final span = child as TextSpan;
+      final text = span.text ?? '';
+      if (text.length <= left) {
+        out.add(span);
+        left -= text.length;
+        continue;
+      }
+      var end = left;
+      // Never split a surrogate pair.
+      if (end > 0 && (text.codeUnitAt(end - 1) & 0xFC00) == 0xD800) end--;
+      out.add(
+        TextSpan(
+          text: text.substring(0, end),
+          style: span.style,
+          recognizer: span.recognizer,
+        ),
+      );
+      break;
+    }
+    // Trailing blanks and newlines would push the ellipsis off the line.
+    while (out.isNotEmpty) {
+      final last = out.last as TextSpan;
+      final trimmed = (last.text ?? '').trimRight();
+      if (trimmed.isEmpty) {
+        out.removeLast();
+      } else {
+        if (trimmed.length != last.text!.length) {
+          out[out.length - 1] = TextSpan(
+            text: trimmed,
+            style: last.style,
+            recognizer: last.recognizer,
+            semanticsLabel: last.semanticsLabel,
+          );
+        }
+        break;
+      }
+    }
+    return out;
+  }
+
+  /// The text cut to the longest prefix that still fits [limit] lines with
+  /// "... Show more" after it (found by bisection on the character count),
+  /// the control tappable through a 48 dp target laid over it. At one-line
+  /// heights the target reaches a few dp below the second line, so the block
+  /// is that much taller (the target must be inside its parent to be hit).
+  Widget _inline(
+    BuildContext context,
+    double maxWidth,
+    int limit,
+    List<InlineSpan> children,
+    TextStyle tappableStyle,
+  ) {
+    final base = DefaultTextStyle.of(context).style.merge(widget.style);
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final more = TextSpan(
+      text: 'Show more',
+      style: tappableStyle,
+      // The 48 dp overlay below takes the tap and is the screen-reader
+      // button; the span itself stays out of the semantics tree.
+      semanticsLabel: '',
+    );
+    TextSpan build(int count) => TextSpan(
+      style: base,
+      children: [
+        ..._take(children, count),
+        const TextSpan(text: '\u2026 '),
+        more,
+      ],
+    );
+
+    TextPainter paint(TextSpan s) =>
+        TextPainter(text: s, textDirection: direction, textScaler: scaler)
+          ..layout(maxWidth: maxWidth);
+
+    var total = 0;
+    for (final child in children) {
+      total += ((child as TextSpan).text ?? '').length;
+    }
+    var lo = 0;
+    var hi = total;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) ~/ 2;
+      final p = paint(build(mid));
+      final fits = p.computeLineMetrics().length <= limit;
+      p.dispose();
+      if (fits) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    final cut = build(lo);
+    final painter = paint(cut);
+    final cutLength = cut.toPlainText(includeSemanticsLabels: false).length;
+    final boxes = painter.getBoxesForSelection(
+      TextSelection(
+        baseOffset: cutLength - 'Show more'.length,
+        extentOffset: cutLength,
+      ),
+    );
+    final size = painter.size;
+    painter.dispose();
+    var target = Rect.zero;
+    var extra = 0.0;
+    if (boxes.isNotEmpty) {
+      final box = boxes
+          .map((b) => b.toRect())
+          .reduce((a, b) => a.expandToInclude(b));
+      final width = math.max(box.width, AppSpacing.minTapTarget);
+      final height = math.max(box.height, AppSpacing.minTapTarget);
+      final left = (box.center.dx - width / 2)
+          .clamp(0.0, math.max(0.0, maxWidth - width))
+          .toDouble();
+      // Ends at the bottom of the line, growing upwards over the line above;
+      // only what still does not fit sticks out below.
+      final top = math.max(0.0, box.bottom - height);
+      target = Rect.fromLTWH(left, top, width, height);
+      extra = math.max(0.0, target.bottom - size.height);
+    }
+    return SizedBox(
+      height: size.height + extra,
+      child: Stack(
+        children: [
+          Positioned(top: 0, left: 0, right: 0, child: Text.rich(cut)),
+          if (!target.isEmpty)
+            Positioned.fromRect(
+              rect: target,
+              child: Semantics(
+                key: const ValueKey('post-text-show-more'),
+                button: true,
+                label: 'Show more',
+                excludeSemantics: true,
+                onTap: _expand,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _expand,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

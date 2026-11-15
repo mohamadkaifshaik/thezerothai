@@ -35,18 +35,18 @@ bool _contains(Uint8List bytes, String needle) {
 }
 
 void main() {
-  test('a large post photo is resized to 1600/400 JPEGs under the caps', () {
+  test('a large post photo is resized to 2048/1080 JPEGs under the caps', () {
     final source = Uint8List.fromList(img.encodeJpg(_photo(3000, 2000)));
 
     final out = processImageSync(source, ImagePurpose.post);
 
     expect(out.contentType, 'image/jpeg');
-    expect(out.width, 1600);
-    expect(out.height, 1067);
+    expect(out.width, 2048);
+    expect(out.height, 1365);
     expect(out.fullBytes.length, lessThanOrEqualTo(kMaxFullBytes));
     expect(out.thumbBytes.length, lessThanOrEqualTo(kMaxThumbBytes));
     final thumb = img.decodeJpg(out.thumbBytes)!;
-    expect(thumb.width, 400);
+    expect(thumb.width, 1080);
     expect(out.fullBytes.take(2), [0xFF, 0xD8]);
     expect(out.blurhash.length, inInclusiveRange(6, 64));
   });

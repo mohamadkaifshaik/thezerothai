@@ -17,10 +17,17 @@ import 'processing_cancellation.dart';
 const kMaxFullBytes = 2 * 1024 * 1024;
 const kMaxThumbBytes = 256 * 1024;
 
-/// Edge lengths per purpose (post 1600/400, avatar
-/// 400/96 center-cropped square).
-const kPostFullEdge = 1600;
-const kPostThumbEdge = 400;
+/// Edge lengths per purpose (post 2048/1080, avatar 400/96 center-cropped
+/// square). The post thumbnail is what the feed shows, so it is sized for a
+/// full-width frame on a high-density phone (1080 physical px) rather than a
+/// 400 px icon. The server accepts up to 4096 px, so these need no backend
+/// change; the size ladder still steps down to fit the byte caps.
+const kPostFullEdge = 2048;
+const kPostThumbEdge = 1080;
+
+/// The JPEG quality a post starts at (the ladder steps down 10 at a time).
+const kPostFullQuality = 88;
+const kPostThumbQuality = 75;
 const kAvatarFullEdge = 400;
 const kAvatarThumbEdge = 96;
 
@@ -107,12 +114,18 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
   final fullEdge = avatar ? kAvatarFullEdge : kPostFullEdge;
   final thumbEdge = avatar ? kAvatarThumbEdge : kPostThumbEdge;
 
-  final full = _encodeWithin(source, fullEdge, kMaxFullBytes, quality: 80);
+  final spec = PurposeSpec.of(purpose);
+  final full = _encodeWithin(
+    source,
+    fullEdge,
+    kMaxFullBytes,
+    quality: spec.fullQuality,
+  );
   final thumb = _encodeWithin(
     full.image,
     thumbEdge,
     kMaxThumbBytes,
-    quality: 70,
+    quality: spec.thumbQuality,
   );
 
   return ProcessedImage(
@@ -368,7 +381,7 @@ ProcessedImage prepareGifSync(Uint8List picked) {
     still,
     kPostThumbEdge,
     kMaxThumbBytes,
-    quality: 70,
+    quality: kPostThumbQuality,
   );
   return ProcessedImage(
     fullBytes: bytes,

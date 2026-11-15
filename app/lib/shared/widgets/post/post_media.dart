@@ -1,7 +1,12 @@
 import 'package:cached_network_image/cached_network_image.dart';
+
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../features/media/domain/image_processor.dart'
+    show kPostThumbEdge;
 import '../../../features/media/domain/processed_image.dart'
     show kGifContentType;
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -25,11 +30,16 @@ import 'gif_badge.dart';
 /// opens the full-screen viewer through [onOpenImage], which shows the image
 /// whole.
 ///
-/// Lists use `thumbUrl` only and decode it at display size. A ref with no
+/// Lists show `thumbUrl` (1080 px on its longest side for posts made since
+/// the clarity change, 400 px before) and decode it at the size it is drawn
+/// at, never smaller than the physical pixels the frame needs. A ref with no
 /// `thumbUrl` shows a placeholder and never falls back to the full image:
-/// that would pull 1600 px originals into a feed (GCS egress and Class B
-/// operations, review #110 M2). The detail view passes [useFullImage] to show
-/// `url` instead.
+/// that would pull originals into a feed (GCS egress and Class B operations,
+/// review #110 M2). The one exception is [thumbSuffices] saying the thumbnail
+/// is too small for the frame (a 400 px legacy thumb stretched over a
+/// high-density column, or a frame wider than the 1080 px thumb): then the
+/// full `url` loads with the thumbnail as its placeholder. The detail view
+/// passes [useFullImage] to show `url` instead.
 ///
 /// A GIF (`MediaRef.content_type == image/gif`) fills the same frame: its
 /// still `thumbUrl` with a "GIF" badge and a play control, and the full file
@@ -71,6 +81,35 @@ class PostMedia extends StatelessWidget {
             )
             .toDouble()
       : AppSize.postMediaPortraitAspect;
+
+  /// The thumbnail's longest edge for a ref whose stored (full) longest edge
+  /// is [longest]. The ref does not carry the thumb's size, so it is inferred
+  /// from the full one: uploads made since the clarity change are capped at
+  /// 2048 px (thumb 1080), earlier ones at 1600 px (thumb 400). A longest edge
+  /// of 1600 or less is therefore treated as a legacy 400 px thumb (a new
+  /// small photo then loads its full file, which is no larger than 1600 px);
+  /// a photo of 400 px or less has a thumb the same size as the full image.
+  static int thumbEdgeFor(int longest) {
+    if (longest <= 400) return longest;
+    return longest > 1600 ? kPostThumbEdge : 400;
+  }
+
+  /// Physical pixels needed across the image's width to fill a [frame] with
+  /// `BoxFit.cover` at [dpr]: a panorama cropped at the sides is drawn wider
+  /// than the frame, so the frame's width alone would under-size the decode.
+  static int neededPixels(Size frame, double imageAspect, double dpr) =>
+      (math.max(frame.width, frame.height * imageAspect) * dpr).ceil();
+
+  /// Whether `thumbUrl` has enough pixels for a frame that needs [needed]
+  /// across the image's width, else the feed loads `url`. Unknown stored sizes
+  /// are not trusted (treated as legacy).
+  static bool thumbSuffices(common.MediaRef ref, int needed) {
+    if (ref.width <= 0 || ref.height <= 0) return false;
+    final longest = math.max(ref.width, ref.height);
+    final edge = thumbEdgeFor(longest);
+    if (edge >= longest) return true; // thumb is the full image
+    return needed <= ref.width * edge / longest;
+  }
 
   /// A single frame's size in a [column] wide body, for a [wide] (tablet or
   /// desktop) or phone window. The width is the column's; wide windows cap
@@ -217,6 +256,7 @@ class _MediaStripState extends State<_MediaStrip> {
     );
   }
 }
+
 /// One semantics node ("Image 2 of 4") announced as it changes; the dots are
 /// decoration for sighted users and stay out of the tree.
 class _PageDots extends StatelessWidget {
@@ -281,12 +321,22 @@ class _MediaTile extends StatelessWidget {
       return _GifTile(media: media);
     }
     final colors = Theme.of(context).colorScheme;
-    // Lists never fall back to the full image (M2); the detail view prefers it
-    // and may use the thumbnail while `url` is missing.
-    final url = useFullImage
-        ? (media.url.isNotEmpty ? media.url : media.thumbUrl)
-        : media.thumbUrl;
+    // Lists use the thumbnail and load `url` only when it is too small for
+    // the frame (see [PostMedia.thumbSuffices]); a ref with no thumbnail
+    // never falls back to the full image (M2). The detail view prefers `url`
+    // and may use the thumbnail while it is missing.
     final placeholder = ColoredBox(color: colors.surfaceContainerHigh);
+    final Widget picture;
+    if (useFullImage) {
+      final url = media.url.isNotEmpty ? media.url : media.thumbUrl;
+      picture = url.isEmpty
+          ? placeholder
+          : _networkImage(url, colors, media: media);
+    } else if (media.thumbUrl.isEmpty) {
+      picture = placeholder;
+    } else {
+      picture = _feedImage(media, colors);
+    }
     // Its own node: inside a PageView the image and its ALT chip would merge
     // into one, and a screen reader would lose the description.
     final image = Semantics(
@@ -294,7 +344,7 @@ class _MediaTile extends StatelessWidget {
       image: true,
       label: media.altText.isEmpty ? 'Image' : media.altText,
       excludeSemantics: true,
-      child: url.isEmpty ? placeholder : _networkImage(url, colors),
+      child: picture,
     );
     final open = onOpen;
     return _withAltChip(
@@ -339,35 +389,88 @@ Widget _withAltChip(Widget image, String alt) {
   );
 }
 
-/// A cached network image decoded at its display size; [placeholder] shows
-/// while it loads.
-Widget _networkImage(String url, ColorScheme colors, {Widget? placeholder}) {
+/// Width / height of the stored picture; 4:5 (the frame's default) when the
+/// size is unknown.
+double _aspectOf(common.MediaRef media) => media.width > 0 && media.height > 0
+    ? media.width / media.height
+    : AppSize.postMediaPortraitAspect;
+
+/// The feed picture: the thumbnail, or the full file when the thumbnail has
+/// too few pixels for the frame ([PostMedia.thumbSuffices]), the thumbnail
+/// showing while it loads.
+Widget _feedImage(common.MediaRef media, ColorScheme colors) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final dpr = MediaQuery.devicePixelRatioOf(context);
+      final needed = PostMedia.neededPixels(
+        constraints.biggest,
+        _aspectOf(media),
+        dpr,
+      );
+      final useFull =
+          media.url.isNotEmpty && !PostMedia.thumbSuffices(media, needed);
+      if (!useFull) {
+        return _cached(media.thumbUrl, colors, needed);
+      }
+      return _cached(
+        media.url,
+        colors,
+        needed,
+        placeholder: _cached(media.thumbUrl, colors, needed),
+      );
+    },
+  );
+}
+
+/// A cached network image decoded at [width] physical pixels across (never
+/// upscaled); [placeholder] shows while it loads.
+Widget _cached(
+  String url,
+  ColorScheme colors,
+  int width, {
+  Widget? placeholder,
+}) {
   final blank = ColoredBox(color: colors.surfaceContainerHigh);
   return ColoredBox(
     color: colors.surfaceContainerHigh,
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final px =
-            (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
-                .ceil();
-        return CachedNetworkImage(
-          imageUrl: url,
-          fit: BoxFit.cover,
-          alignment: Alignment.center,
-          width: double.infinity,
-          height: double.infinity,
-          memCacheWidth: px > 0 ? px : null,
-          placeholder: (_, _) => placeholder ?? blank,
-          errorWidget: (_, _, _) => ColoredBox(
-            color: colors.surfaceContainerHigh,
-            child: Icon(
-              Icons.broken_image_outlined,
-              color: colors.onSurfaceVariant,
-            ),
-          ),
-        );
-      },
+    child: CachedNetworkImage(
+      imageUrl: url,
+      fit: BoxFit.cover,
+      alignment: Alignment.center,
+      width: double.infinity,
+      height: double.infinity,
+      memCacheWidth: width > 0 ? width : null,
+      placeholder: (_, _) => placeholder ?? blank,
+      errorWidget: (_, _, _) => ColoredBox(
+        color: colors.surfaceContainerHigh,
+        child: Icon(
+          Icons.broken_image_outlined,
+          color: colors.onSurfaceVariant,
+        ),
+      ),
     ),
+  );
+}
+
+/// A cached network image decoded at the width it is drawn at (a GIF still
+/// or the detail view's full image); [placeholder] shows while it loads.
+Widget _networkImage(
+  String url,
+  ColorScheme colors, {
+  required common.MediaRef media,
+  Widget? placeholder,
+}) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      // A picture cropped at the sides (a panorama in a 2:1 frame) is drawn
+      // wider than the frame; decoding at the frame's width would upscale it.
+      final px = PostMedia.neededPixels(
+        constraints.biggest,
+        _aspectOf(media),
+        MediaQuery.devicePixelRatioOf(context),
+      );
+      return _cached(url, colors, px, placeholder: placeholder);
+    },
   );
 }
 
@@ -401,7 +504,7 @@ class _GifTileState extends State<_GifTile> {
     final blank = ColoredBox(color: colors.surfaceContainerHigh);
     final still = media.thumbUrl.isEmpty
         ? blank
-        : _networkImage(media.thumbUrl, colors);
+        : _networkImage(media.thumbUrl, colors, media: media);
     final alt = media.altText;
     final canPlay = media.url.isNotEmpty;
     final label = [
@@ -425,7 +528,12 @@ class _GifTileState extends State<_GifTile> {
           children: [
             // Only now is the full URL requested; the still shows meanwhile.
             _playing
-                ? _networkImage(media.url, colors, placeholder: still)
+                ? _networkImage(
+                    media.url,
+                    colors,
+                    media: media,
+                    placeholder: still,
+                  )
                 : still,
             if (!_playing && canPlay)
               Center(

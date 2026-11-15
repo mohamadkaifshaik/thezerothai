@@ -154,7 +154,7 @@ class RasterImageProcessor implements ImageProcessor {
         crop.height,
         spec.fullEdge,
         spec.maxFullBytes,
-        PurposeSpec.fullQuality,
+        spec.fullQuality,
       );
       final thumb = await _encodeWithin(
         session,
@@ -164,7 +164,7 @@ class RasterImageProcessor implements ImageProcessor {
         full.height,
         spec.thumbEdge,
         spec.maxThumbBytes,
-        PurposeSpec.thumbQuality,
+        spec.thumbQuality,
       );
 
       final hashSize = blurhashSize(thumb.width, thumb.height);

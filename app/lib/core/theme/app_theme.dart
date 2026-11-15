@@ -163,6 +163,19 @@ abstract final class AppSize {
   /// The gap between tiles in the media row.
   static const double postMediaRowGap = 8;
 
+  /// The article card in a feed: the cover fills the card at 4:5
+  /// ([postMediaPortraitAspect]) up to [postMediaMaxSingleHeight]; the text
+  /// overlay covers at least this fraction of the card, and the tint of its
+  /// gradient is this opaque at the bottom.
+  static const double articleCardOverlayFraction = 0.55;
+  static const double articleCardOverlayOpacity = 0.9;
+
+  /// A card without a cover is never shorter than this.
+  static const double articleCardMinHeight = 200;
+
+  /// The transparent lead-in of the overlay gradient, above its text.
+  static const double articleCardFadeHeight = 56;
+
   /// One row of a header: the top bar row, and the tab row below it.
   static const double headerRow = 53;
 
@@ -1151,6 +1164,20 @@ abstract final class AppGradients {
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [AppPalette.navy2, AppPalette.navy],
+  );
+
+  /// The article card's text overlay: transparent at the top to [tint] at
+  /// [AppSize.articleCardOverlayOpacity] from 45 % down (the tint is the
+  /// cover's average colour, darkened so white text passes AA).
+  static LinearGradient articleOverlay(Color tint) => LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      tint.withValues(alpha: 0),
+      tint.withValues(alpha: AppSize.articleCardOverlayOpacity),
+      tint.withValues(alpha: AppSize.articleCardOverlayOpacity),
+    ],
+    stops: const [0, 0.45, 1],
   );
 
   /// The community cover band (Community.dc.html `.cover`): a diagonal

@@ -1134,11 +1134,15 @@ func (x *Post) GetViewCount() int64 {
 
 // Bounded summary only. The reader fetches the authorized body separately.
 type ArticlePreview struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ArticleId     string                 `protobuf:"bytes,1,opt,name=article_id,json=articleId,proto3" json:"article_id,omitempty"`
-	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
-	Excerpt       string                 `protobuf:"bytes,3,opt,name=excerpt,proto3" json:"excerpt,omitempty"`
-	CoverUrl      string                 `protobuf:"bytes,4,opt,name=cover_url,json=coverUrl,proto3" json:"cover_url,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ArticleId string                 `protobuf:"bytes,1,opt,name=article_id,json=articleId,proto3" json:"article_id,omitempty"`
+	Title     string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Excerpt   string                 `protobuf:"bytes,3,opt,name=excerpt,proto3" json:"excerpt,omitempty"`
+	CoverUrl  string                 `protobuf:"bytes,4,opt,name=cover_url,json=coverUrl,proto3" json:"cover_url,omitempty"`
+	// Estimated reading time in whole minutes, at least 1. Computed once at publish from the article body's word count
+	// at about 230 words per minute, rounded up, and frozen with the rest of the preview. 0 = unknown: a post published
+	// before this field existed. Additive.
+	ReadMinutes   int32 `protobuf:"varint,5,opt,name=read_minutes,json=readMinutes,proto3" json:"read_minutes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1199,6 +1203,13 @@ func (x *ArticlePreview) GetCoverUrl() string {
 		return x.CoverUrl
 	}
 	return ""
+}
+
+func (x *ArticlePreview) GetReadMinutes() int32 {
+	if x != nil {
+		return x.ReadMinutes
+	}
+	return 0
 }
 
 // The community a post was created in. A snapshot taken at post time: a rename does not rewrite old
@@ -2803,13 +2814,14 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"shareCount\x12\"\n" +
 	"\n" +
 	"view_count\x18\x1a \x01(\x03H\x00R\tviewCount\x88\x01\x01B\r\n" +
-	"\v_view_count\"|\n" +
+	"\v_view_count\"\x9f\x01\n" +
 	"\x0eArticlePreview\x12\x1d\n" +
 	"\n" +
 	"article_id\x18\x01 \x01(\tR\tarticleId\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
 	"\aexcerpt\x18\x03 \x01(\tR\aexcerpt\x12\x1b\n" +
-	"\tcover_url\x18\x04 \x01(\tR\bcoverUrl\"2\n" +
+	"\tcover_url\x18\x04 \x01(\tR\bcoverUrl\x12!\n" +
+	"\fread_minutes\x18\x05 \x01(\x05R\vreadMinutes\"2\n" +
 	"\fCommunityRef\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"\xb8\x02\n" +
