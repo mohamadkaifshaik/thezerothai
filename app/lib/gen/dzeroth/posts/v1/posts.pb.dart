@@ -949,12 +949,14 @@ class ArticlePreview extends $pb.GeneratedMessage {
     $core.String? title,
     $core.String? excerpt,
     $core.String? coverUrl,
+    $core.int? readMinutes,
   }) {
     final result = ArticlePreview._();
     if (articleId != null) result.articleId = articleId;
     if (title != null) result.title = title;
     if (excerpt != null) result.excerpt = excerpt;
     if (coverUrl != null) result.coverUrl = coverUrl;
+    if (readMinutes != null) result.readMinutes = readMinutes;
     return result;
   }
 
@@ -976,6 +978,7 @@ class ArticlePreview extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'title')
     ..aOS(3, _omitFieldNames ? '' : 'excerpt')
     ..aOS(4, _omitFieldNames ? '' : 'coverUrl')
+    ..aI(5, _omitFieldNames ? '' : 'readMinutes')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1035,6 +1038,18 @@ class ArticlePreview extends $pb.GeneratedMessage {
   $core.bool hasCoverUrl() => $_has(3);
   @$pb.TagNumber(4)
   void clearCoverUrl() => $_clearField(4);
+
+  /// Estimated reading time in whole minutes, at least 1. Computed once at publish from the article body's word count
+  /// at about 230 words per minute, rounded up, and frozen with the rest of the preview. 0 = unknown: a post published
+  /// before this field existed. Additive.
+  @$pb.TagNumber(5)
+  $core.int get readMinutes => $_getIZ(4);
+  @$pb.TagNumber(5)
+  set readMinutes($core.int value) => $_setSignedInt32(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasReadMinutes() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearReadMinutes() => $_clearField(5);
 }
 
 /// The community a post was created in. A snapshot taken at post time: a rename does not rewrite old
