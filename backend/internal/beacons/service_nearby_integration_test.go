@@ -14,6 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/location"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
 // Location P2 on the emulator, over the real catalogue (internal/location/areas/areas.json): Indiranagar's curated
@@ -324,4 +325,41 @@ func TestIntegrationNearby_MultiPageCountAggregates(t *testing.T) {
 	if err != nil || n != 3 {
 		t.Errorf("capped city count = %d, %v, want 3", n, err)
 	}
+}
+
+// TestIntegrationNearby_RealLocationReaderStaleConsent wires the real location service as the Reader: an area stored
+// under consent copy 1 lists Nearby; once the server's minimum copy version is raised to 2 the same stored area is not
+// usable (MyArea ok false) and ListNearbyBeacons without an area_id answers area_not_set.
+func TestIntegrationNearby_RealLocationReaderStaleConsent(t *testing.T) {
+	const org, viewer = "it-nb-org", "it-nb-viewer"
+	e := newNearbyEnv(t, org, viewer)
+	ctx := context.Background()
+	locRepo := location.NewFirestoreRepo(e.client, idempotency.New(e.client))
+	locSvc := func(minCopy int) location.Service {
+		return location.New(location.Deps{
+			Repo: locRepo, Catalog: e.cat, IDs: e.node, CursorKey: []byte("0123456789abcdef0123456789abcdef"),
+			Limits: location.Limits{MinCopyVersion: minCopy, CurrentCopyVersion: 2, ConsentChangesPerDay: 10},
+			Now:    func() time.Time { return e.now },
+		})
+	}
+	if _, err := locSvc(1).SetArea(ctx, viewer, location.SetAreaInput{
+		Key: "integration-key-setarea", AreaID: itDomlur, Consent: &location.Grant{CopyVersion: 1, AdultConfirmed: true},
+	}); err != nil {
+		t.Fatalf("SetArea: %v", err)
+	}
+	plan := e.plan(t, org, "", itIndiranagar, 1)
+	withReader := func(r location.Reader) Service {
+		d := e.svc.(*service).d
+		d.MyArea = r
+		return New(d)
+	}
+	p, err := withReader(locSvc(1)).ListNearby(ctx, viewer, NearbyInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Area.ID != itDomlur || fmt.Sprint(nearbyIDs(p)) != fmt.Sprint([]string{plan.ID}) {
+		t.Fatalf("current consent: area %s rows %v", p.Area.ID, nearbyIDs(p))
+	}
+	_, err = withReader(locSvc(2)).ListNearby(ctx, viewer, NearbyInput{})
+	assertPrecondition(t, err, "area_not_set")
 }

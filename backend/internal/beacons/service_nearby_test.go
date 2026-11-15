@@ -346,6 +346,14 @@ func TestListNearby_Gates(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	t.Run("FEATURE_LOCATION off wins over a bad scope (handler)", func(t *testing.T) {
+		t.Parallel()
+		e, _ := newAreaEnv(t)
+		e.flags.on[location.FlagName] = false
+		srv := NewServer(e.flags, e.svc)
+		_, err := srv.ListNearbyBeacons(authn.WithClaims(ctx, authn.Claims{UID: testViewer}), connect.NewRequest(&beaconsv1.ListNearbyBeaconsRequest{AreaId: areaAlpha, Scope: beaconsv1.NearbyScope(9)}))
+		assertDisabled(t, err, location.FlagName)
+	})
 	t.Run("an unknown scope is VALIDATION scope (handler)", func(t *testing.T) {
 		t.Parallel()
 		e, _ := newAreaEnv(t)
@@ -555,8 +563,8 @@ func TestListNearby_CountAndPaging(t *testing.T) {
 	})
 }
 
+// TestListNearby_IndexNotReadyDegrades is not parallel: its subtests swap the global slog logger (captureLogs).
 func TestListNearby_IndexNotReadyDegrades(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	t.Run("the list", func(t *testing.T) {
 		e, _ := newAreaEnv(t)
@@ -587,7 +595,6 @@ func TestListNearby_IndexNotReadyDegrades(t *testing.T) {
 		}
 	})
 	t.Run("any other error fails the call", func(t *testing.T) {
-		t.Parallel()
 		e, _ := newAreaEnv(t)
 		e.repo.nearbyErr = errors.New("boom")
 		if _, err := e.svc.ListNearby(ctx, testViewer, NearbyInput{AreaID: areaAlpha}); err == nil {
@@ -632,7 +639,8 @@ func TestNearbyAndAreas_LogNoAreaID(t *testing.T) {
 		_, err := e.svc.ListNearby(ctx, testViewer, NearbyInput{AreaID: areaAlpha})
 		return err
 	})
-	e.repo.nearbyErr, my.err = nil, errors.New("my area read failed")
+	// A failed stored-area read whose text names the stored id (and its city): it must still not reach the error or a log.
+	e.repo.nearbyErr, my.err = nil, fmt.Errorf("my area read failed for %s (city %s)", areaBeta, areaCity)
 	run(func(ctx context.Context) error {
 		_, err := e.svc.ListNearby(ctx, testViewer, NearbyInput{})
 		return err
