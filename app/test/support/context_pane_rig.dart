@@ -46,7 +46,7 @@ class _MemoryThemeStore implements ThemeModeStore {
 }
 
 /// Every flag a side-column section reads, plus the tablet shell's two:
-/// the search pill (`search`), What's happening (`search` + `trends`), Who
+/// the search pill (`search`), Talked about today (`search` + `trends`), Who
 /// to follow (`graph` + `follow_suggestions`), with `posts` and
 /// `notifications` for the rail.
 const kContextPaneFlags = <String>{

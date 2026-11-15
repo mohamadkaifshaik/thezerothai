@@ -107,8 +107,7 @@ void main() {
   });
 
   group('PostCard applies the rule', () {
-    // The opened post keeps the pager (and its dots); list cards use the
-    // media row, which has neither.
+    // The opened post and list cards share the media row and its dots.
     Future<void> pumpCard(
       WidgetTester tester,
       int n,
@@ -142,12 +141,14 @@ void main() {
       expect(mediaPageCount(tester), 3);
     });
 
-    testWidgets('a list card has a media row: no pager, no dots', (
+    testWidgets('a list card has the same row and the same rule', (
       tester,
     ) async {
       await pumpCard(tester, 3, '', focal: false);
+      expect(_current, findsOneWidget);
+      expect(mediaPageCount(tester), 3);
+      await pumpCard(tester, 3, 'caption', focal: false);
       expect(_current, findsNothing);
-      expect(mediaPageCount(tester), isNull);
       expect(find.byType(ListView), findsOneWidget);
     });
 
@@ -209,9 +210,9 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       expect(_current, findsOneWidget);
-      // The viewport stays 16:9.
-      final size = tester.getSize(find.byType(PageView));
-      expect(size.width / size.height, closeTo(16 / 9, 0.05));
+      // The tiles stay 4:5.
+      final size = tester.getSize(find.byType(ListView));
+      expect(size.height, closeTo(size.width * 0.72 * 1.25, 0.5));
     },
     widths: const [320, 360],
     textScales: kMatrixTextScalesLarge,

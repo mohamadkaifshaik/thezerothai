@@ -58,7 +58,7 @@ void main() {
       tester.getRect(
         find.descendant(
           of: find.byType(PostMedia),
-          matching: find.byType(AspectRatio),
+          matching: find.byType(ClipRRect),
         ),
       ),
     );

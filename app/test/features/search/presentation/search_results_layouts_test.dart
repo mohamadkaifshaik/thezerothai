@@ -173,7 +173,7 @@ void main() {
             expect(fields, hasLength(1));
             expect(fields.single.raised, phone);
             if (desktop) {
-              expect(find.text("What's happening"), findsOneWidget);
+              expect(find.text("Talked about today"), findsOneWidget);
             }
             await _capture(
               tester,

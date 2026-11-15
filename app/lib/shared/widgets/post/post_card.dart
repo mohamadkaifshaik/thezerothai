@@ -433,9 +433,6 @@ class PostCard extends StatelessWidget {
           media: media,
           useFullImage: fullContent,
           showPageIndicator: PostMedia.hasNoText(text),
-          // Lists and thread replies: a row of whole pictures; the opened
-          // post keeps its pager.
-          row: !asFocal,
           onOpenImage: (index) => context.push(
             AppRouter.postPhotoPath(
               isRepost ? embedded!.postId : _post.postId,
@@ -490,7 +487,6 @@ class PostCard extends StatelessWidget {
             liked: view.likedByViewer,
             reposted: view.repostedByViewer,
             actions: actions!,
-            spread: asFocal,
             iconSize: asFocal
                 ? (wideFocal
                       ? AppFocalPost.actionIcon
@@ -503,7 +499,7 @@ class PostCard extends StatelessWidget {
             showReply: showReply,
             bookmarkEnabled: bookmarkEnabled,
             onReply: onReply,
-            spread: asFocal,
+            focal: asFocal,
             iconSize: asFocal
                 ? (wideFocal
                       ? AppFocalPost.actionIcon

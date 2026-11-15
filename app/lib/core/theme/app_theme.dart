@@ -29,6 +29,9 @@ abstract final class AppSpacing {
   /// Between a post action's glyph and its count.
   static const double actionGap = 6;
 
+  /// Between two post actions (icon plus count) in the packed row.
+  static const double actionItemGap = 20;
+
   /// Minimum width of a short filled action button (an app-bar "Save").
   static const double minButtonWidth = 72;
 
@@ -91,6 +94,9 @@ abstract final class AppLayout {
 }
 
 abstract final class AppRadius {
+  /// A post media frame or tile (single or in the row).
+  static const double postMedia = 12;
+
   /// Legacy, migrate in sections.
   static const double sm = 8;
 
@@ -135,27 +141,26 @@ abstract final class AppBreakpoints {
 /// Sizes of the shared chrome (dp), measured on x.com 2026-10-22 and divided
 /// by the verified 1.25 display scale.
 abstract final class AppSize {
-  /// The tallest a media pager frame grows (an embedded quote's images; list
-  /// cards and thread replies use the media row instead, the opened post shows
-  /// full images).
-  static const double postMediaListMaxHeight = 560;
+  /// Post media (Substack style): a frame is as wide as the body column and
+  /// never a fixed height. A single image keeps its own aspect ratio between
+  /// [postMediaLandscapeAspect] (2:1: wider is center-cropped) and
+  /// [postMediaPortraitAspect] (4:5: taller is center-cropped); several
+  /// images are a swipeable row of equal 4:5 tiles.
+  static const double postMediaLandscapeAspect = 2;
+  static const double postMediaPortraitAspect = 4 / 5;
 
-  /// The height of a list card's (and thread reply's) media row, by window
-  /// width: phones (< 600), tablets (600-1199) and desktop (>= 1200). Each
-  /// picture is as tall as the row and as wide as its aspect ratio makes it.
-  static const double postMediaRowHeightPhone = 220;
-  static const double postMediaRowHeightTablet = 260;
-  static const double postMediaRowHeightDesktop = 280;
+  /// Phone tile width as a fraction of the column, so the next tile peeks in.
+  static const double postMediaTileWidthFraction = 0.72;
 
-  /// The media row's height for a window [windowWidth] wide.
-  static double postMediaRowHeight(double windowWidth) =>
-      windowWidth < AppBreakpoints.mobile
-      ? postMediaRowHeightPhone
-      : windowWidth < AppBreakpoints.tablet
-      ? postMediaRowHeightTablet
-      : postMediaRowHeightDesktop;
+  /// Tablet and desktop tile size (4:5).
+  static const double postMediaTileWidthWide = 240;
+  static const double postMediaTileHeightWide = 300;
 
-  /// The gap between pictures in the media row.
+  /// The tallest a single frame grows on tablet and desktop (its width
+  /// shrinks to keep the ratio). Phones have no cap beyond 4:5.
+  static const double postMediaMaxSingleHeight = 520;
+
+  /// The gap between tiles in the media row.
   static const double postMediaRowGap = 8;
 
   /// One row of a header: the top bar row, and the tab row below it.
@@ -1382,7 +1387,7 @@ abstract final class AppTextStyles {
     tracking: AppTypeTokens.eyebrowTracking,
   ).copyWith(color: theme.colorScheme.onSurfaceVariant);
 
-  /// The title of a side-column card ("What's happening", "You might like",
+  /// The title of a side-column card ("Talked about today", "You might like",
   /// "Follow requests"; dz.css `.box h3`): Inter Display 19 sp w800.
   static TextStyle cardTitle(ThemeData theme) => _type(
     AppFonts.display,

@@ -35,25 +35,21 @@ class PostActions {
   final ValueChanged<Rect>? onShareAt;
 }
 
-/// The widest the opened post's action row grows (dz.css `.acts`
-/// `max-width: 440px`). A list card's row spans the card's full width.
-const kPostActionsMaxWidth = 440.0;
-
-/// Reply / Repost / Like / Share / Bookmark (the owner's order, 2026-11-15):
-/// [iconSize] outline glyphs (18 dp, dz.css `.acts`) in 48dp tap boxes with
-/// compact 13 sp counts. A list card's row spans the card's full width in
-/// equal slots, each button at its slot's start (so the first glyph lines up
-/// with the text above it); a slot narrower than 48 dp squeezes its button
-/// rather than overflowing. A hidden action (a flag off, no callback) leaves
-/// the others to share the width. Bookmark is filled and accent-coloured when
-/// bookmarked. The liked / reposted state uses the like / repost colours and is
-/// announced as `selected`. A last, read-only slot (views, F1) is added when
-/// [viewCount] is given (hidden by [kShowPostViews] for now). Rendered by
-/// `PostCard` only when it is given [PostActions] (the engagement bar).
-///
-/// [spread] is the opened post's row: the same order spaced edge to edge
-/// (`justify-content: space-between`, within the 440 dp cap), with [iconSize]
-/// glyphs.
+/// Reply / Repost / Like / Share / Bookmark (the owner's order, 2026-11-15),
+/// compact and left-aligned, Substack style: [iconSize] outline glyphs (18 dp,
+/// dz.css `.acts`) with compact 13 sp counts, packed from the start with
+/// [AppSpacing.actionItemGap] between items (the same on phone, tablet and
+/// desktop; never spread across the width). Each item's tap target is at
+/// least 48 dp: the target extends invisibly (an icon-only item is 48 dp wide,
+/// so its visual gap to the next is a little larger), and the first glyph
+/// lines up with the text above. A row too narrow for its items squeezes
+/// them (a count fades) rather than overflowing. A hidden action (a flag off,
+/// no callback) leaves the others packed. Bookmark is filled and
+/// accent-coloured when bookmarked. The liked / reposted state uses the like /
+/// repost colours and is announced as `selected`. A last, read-only slot
+/// (views, F1) is added when [viewCount] is given (hidden by [kShowPostViews]
+/// for now). Rendered by `PostCard` only when it is given [PostActions] (the
+/// engagement bar).
 class PostActionBar extends StatelessWidget {
   const PostActionBar({
     super.key,
@@ -69,7 +65,6 @@ class PostActionBar extends StatelessWidget {
     this.bookmarked = false,
     this.showDisabled = true,
     this.replyDisabledHint,
-    this.spread = false,
     this.iconSize = AppIconSize.action,
   });
 
@@ -104,9 +99,6 @@ class PostActionBar extends StatelessWidget {
   /// announced and tooltipped with this text (the viewer may not reply to
   /// this post). It is advisory: it never says why.
   final String? replyDisabledHint;
-
-  /// Space every action evenly across the row (the opened post).
-  final bool spread;
 
   /// Glyph size; the 48dp tap box stays.
   final double iconSize;
@@ -179,8 +171,8 @@ class PostActionBar extends StatelessWidget {
     final views = viewCount == null
         ? null
         : Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: spread ? AppSpacing.xs : 0,
+            padding: const EdgeInsetsDirectional.only(
+              end: AppSpacing.actionItemGap,
             ),
             child: PostViewsStat(
               count: viewCount!,
@@ -189,38 +181,16 @@ class PostActionBar extends StatelessWidget {
             ),
           );
     final items = <Widget>[...counted, ?share, ?saved, ?views];
-    final Widget row = spread
-        // The opened post: every action spaced edge to edge, `space-between`.
-        // Loose flex: each button gets a bounded width (its count can fade at
-        // large text) and the space left over spreads them out.
-        ? Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [for (final item in items) Flexible(child: item)],
-          )
-        // A list card: equal slots across the full width, each button at its
-        // slot's start. A count that does not fit its slot fades; it never
-        // overlaps the next slot.
-        : Row(children: [for (final item in items) _ActionSlot(child: item)]);
-    final bar = spread
-        ? ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: kPostActionsMaxWidth),
-            child: row,
-          )
-        : row;
-    return Align(alignment: AlignmentDirectional.centerStart, child: bar);
+    // Packed from the start; loose flex so a row too narrow for its items
+    // squeezes them (a count fades) instead of overflowing.
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [for (final item in items) Flexible(child: item)],
+      ),
+    );
   }
-}
-
-/// One equal-width slot of the bar, its button at the start.
-class _ActionSlot extends StatelessWidget {
-  const _ActionSlot({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Align(alignment: AlignmentDirectional.centerStart, child: child),
-  );
 }
 
 class _ActionButton extends StatelessWidget {
@@ -275,8 +245,7 @@ class _ActionButton extends StatelessWidget {
         highlightColor: Colors.transparent,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            // In a slot narrower than 48 dp (six slots on a 320 dp card) the
-            // box gives way to the slot.
+            // The 48 dp target; the trailing gap below is part of it.
             minWidth: AppSpacing.minTapTarget,
             minHeight: AppSpacing.minTapTarget,
           ),
@@ -300,6 +269,7 @@ class _ActionButton extends StatelessWidget {
                   ),
                 ),
               ],
+              const SizedBox(width: AppSpacing.actionItemGap),
             ],
           ),
         ),

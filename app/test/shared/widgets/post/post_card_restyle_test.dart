@@ -177,8 +177,8 @@ void main() {
     });
 
     for (final width in const [360.0, 600.0, 1440.0]) {
-      testWidgets('at $width all five actions spread edge to edge across '
-          'the card', (tester) async {
+      testWidgets('at $width all five actions are packed from the left, '
+          'never spread', (tester) async {
         await _pump(
           tester,
           PostCard(
@@ -196,14 +196,6 @@ void main() {
             matching: find.byType(InkResponse),
           ),
         );
-        // A list card's row spans the card's full width (no 440 dp cap): the
-        // first box starts it; the five slots are equal (the last, Bookmark,
-        // starts at four fifths of the width).
-        expect(box(Icons.chat_bubble_outline).left, closeTo(bar.left, 1));
-        expect(
-          box(Icons.bookmark_border).left,
-          closeTo(bar.left + bar.width * 4 / 5, 1),
-        );
         final icons = [
           Icons.chat_bubble_outline,
           Icons.repeat,
@@ -211,13 +203,12 @@ void main() {
           Icons.ios_share,
           Icons.bookmark_border,
         ];
-        final gaps = [
-          for (var i = 1; i < icons.length; i++)
-            box(icons[i]).left - box(icons[i - 1]).right,
-        ];
-        for (final gap in gaps) {
-          expect(gap, greaterThanOrEqualTo(0));
+        expect(box(icons.first).left, closeTo(bar.left, 1));
+        for (var i = 1; i < icons.length; i++) {
+          // The tap boxes meet edge to edge, whatever the card's width.
+          expect(box(icons[i]).left, closeTo(box(icons[i - 1]).right, 1));
         }
+        expect(box(icons.last).right, lessThan(bar.left + 400));
       });
 
       testWidgets('at $width in RTL the row starts at the right', (
@@ -352,7 +343,7 @@ void main() {
   }
 
   group('media and quote', () {
-    testWidgets('the media frame has the 20 dp radius', (tester) async {
+    testWidgets('the media frame has the 12 dp radius', (tester) async {
       await _pump(
         tester,
         PostMedia(
@@ -373,7 +364,7 @@ void main() {
           matching: find.byType(ClipRRect),
         ),
       );
-      expect(clip.borderRadius, BorderRadius.circular(AppRadius.cardSmall));
+      expect(clip.borderRadius, BorderRadius.circular(AppRadius.postMedia));
     });
 
     testWidgets('the quote embed has the 20 dp radius and a hairline', (

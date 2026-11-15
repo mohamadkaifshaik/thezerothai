@@ -215,7 +215,7 @@ void main() {
       expect(post(tester).busy, isFalse);
       expect(cancel(tester).onPressed, isNotNull);
       expect(find.text('280'), findsOneWidget);
-      expect(find.text("What's happening?"), findsOneWidget);
+      expect(find.text("Start a thought…"), findsOneWidget);
     });
 
     testWidgets('typed text enables Post and updates the counter', (

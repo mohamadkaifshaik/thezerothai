@@ -281,7 +281,7 @@ void main() {
     ) async {
       await open(tester, size: const Size(1200, 900), location: '/home');
 
-      expect(find.text("What's happening"), findsOneWidget);
+      expect(find.text("Talked about today"), findsOneWidget);
       expect(
         find.byType(AppSearchField),
         findsOneWidget,
@@ -289,12 +289,12 @@ void main() {
       );
       await submit(tester, '#launch');
       expect(path(), startsWith('/search?q=%23launch'));
-      expect(find.text("What's happening"), findsOneWidget);
+      expect(find.text("Talked about today"), findsOneWidget);
 
       appRouter.router.go('/explore');
       await tester.pumpAndSettle();
       expect(find.text('Trending'), findsOneWidget);
-      expect(find.text("What's happening"), findsNothing);
+      expect(find.text("Talked about today"), findsNothing);
       expect(
         find.byType(AppSearchField),
         findsOneWidget,
@@ -340,7 +340,7 @@ void main() {
                 reason: 'side pill',
               );
               expect(
-                find.text("What's happening"),
+                find.text("Talked about today"),
                 reachable && t ? findsOneWidget : findsNothing,
                 reason: 'trends card',
               );
