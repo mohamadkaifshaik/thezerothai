@@ -412,6 +412,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                     child: Center(
                       child: NewPostsPill(
                         count: state.newPosts,
+                        authors: state.newPostAuthors,
                         onTap: () => _showNewPosts(cubit),
                       ),
                     ),
