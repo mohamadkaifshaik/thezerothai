@@ -18,6 +18,7 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as $1;
 
 import '../../common/v1/common.pb.dart' as $0;
+import '../../location/v1/location.pb.dart' as $2;
 import 'beacons.pbenum.dart';
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
@@ -44,6 +45,7 @@ class Beacon extends $pb.GeneratedMessage {
     $core.bool? hidden,
     $1.Timestamp? createdAt,
     $1.Timestamp? updatedAt,
+    $2.AreaSummary? area,
   }) {
     final result = Beacon._();
     if (beaconId != null) result.beaconId = beaconId;
@@ -64,6 +66,7 @@ class Beacon extends $pb.GeneratedMessage {
     if (hidden != null) result.hidden = hidden;
     if (createdAt != null) result.createdAt = createdAt;
     if (updatedAt != null) result.updatedAt = updatedAt;
+    if (area != null) result.area = area;
     return result;
   }
 
@@ -108,6 +111,8 @@ class Beacon extends $pb.GeneratedMessage {
         subBuilder: $1.Timestamp.$_createMessage)
     ..aOM<$1.Timestamp>(18, _omitFieldNames ? '' : 'updatedAt',
         subBuilder: $1.Timestamp.$_createMessage)
+    ..aOM<$2.AreaSummary>(19, _omitFieldNames ? '' : 'area',
+        subBuilder: $2.AreaSummary.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -308,6 +313,19 @@ class Beacon extends $pb.GeneratedMessage {
   void clearUpdatedAt() => $_clearField(18);
   @$pb.TagNumber(18)
   $1.Timestamp ensureUpdatedAt() => $_ensure(17);
+
+  /// The plan's area (organiser-chosen, a catalogue entry: the area of the meeting point). Unset when the plan has none or
+  /// FEATURE_LOCATION is globally off. A retired area still resolves.
+  @$pb.TagNumber(19)
+  $2.AreaSummary get area => $_getN(18);
+  @$pb.TagNumber(19)
+  set area($2.AreaSummary value) => $_setField(19, value);
+  @$pb.TagNumber(19)
+  $core.bool hasArea() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearArea() => $_clearField(19);
+  @$pb.TagNumber(19)
+  $2.AreaSummary ensureArea() => $_ensure(18);
 }
 
 /// The caller's relationship with a beacon, so the client renders the right action without a second call.
@@ -647,6 +665,7 @@ class CreateBeaconRequest extends $pb.GeneratedMessage {
     $core.int? openSpots,
     BeaconCost? cost,
     ChatPreference? chatPreference,
+    $core.String? areaId,
   }) {
     final result = CreateBeaconRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -661,6 +680,7 @@ class CreateBeaconRequest extends $pb.GeneratedMessage {
     if (openSpots != null) result.openSpots = openSpots;
     if (cost != null) result.cost = cost;
     if (chatPreference != null) result.chatPreference = chatPreference;
+    if (areaId != null) result.areaId = areaId;
     return result;
   }
 
@@ -701,6 +721,7 @@ class CreateBeaconRequest extends $pb.GeneratedMessage {
         enumValues: BeaconCost.values)
     ..aE<ChatPreference>(12, _omitFieldNames ? '' : 'chatPreference',
         enumValues: ChatPreference.values)
+    ..aOS(13, _omitFieldNames ? '' : 'areaId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -843,6 +864,18 @@ class CreateBeaconRequest extends $pb.GeneratedMessage {
   $core.bool hasChatPreference() => $_has(11);
   @$pb.TagNumber(12)
   void clearChatPreference() => $_clearField(12);
+
+  /// Optional catalogue area_id of the meeting point; "" = none. Non-empty needs FEATURE_LOCATION on for the caller
+  /// (FEATURE_DISABLED "location") and a well-formed, non-retired catalogue id (VALIDATION "area_id"), checked before any
+  /// lookup. Allowed for either audience; only public plans are listed by ListNearbyBeacons.
+  @$pb.TagNumber(13)
+  $core.String get areaId => $_getSZ(12);
+  @$pb.TagNumber(13)
+  set areaId($core.String value) => $_setString(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasAreaId() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearAreaId() => $_clearField(13);
 }
 
 class CreateBeaconResponse extends $pb.GeneratedMessage {
@@ -922,6 +955,7 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
     BeaconCost? cost,
     $core.String? communityId,
     $core.bool? public,
+    $core.String? areaId,
   }) {
     final result = UpdateBeaconRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -935,6 +969,7 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
     if (cost != null) result.cost = cost;
     if (communityId != null) result.communityId = communityId;
     if (public != null) result.public = public;
+    if (areaId != null) result.areaId = areaId;
     return result;
   }
 
@@ -972,6 +1007,7 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
         enumValues: BeaconCost.values)
     ..aOS(10, _omitFieldNames ? '' : 'communityId')
     ..aOB(11, _omitFieldNames ? '' : 'public')
+    ..aOS(12, _omitFieldNames ? '' : 'areaId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1109,6 +1145,19 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
   $core.bool hasPublic() => $_has(10);
   @$pb.TagNumber(11)
   void clearPublic() => $_clearField(11);
+
+  /// Unset = unchanged; "" = remove the area; else a well-formed, non-retired catalogue id (VALIDATION "area_id", before
+  /// any lookup). Setting an area needs FEATURE_LOCATION on for the caller; removing it only needs the flag not globally
+  /// off (FEATURE_DISABLED "location"). Allowed while the beacon is OPEN or FULL (also after it started); no notification.
+  /// Resending the stored id is not a change.
+  @$pb.TagNumber(12)
+  $core.String get areaId => $_getSZ(11);
+  @$pb.TagNumber(12)
+  set areaId($core.String value) => $_setString(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasAreaId() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearAreaId() => $_clearField(12);
 }
 
 class UpdateBeaconResponse extends $pb.GeneratedMessage {
@@ -2806,6 +2855,357 @@ class ListSharedBeaconsResponse extends $pb.GeneratedMessage {
   void clearNextPageToken() => $_clearField(2);
 }
 
+/// The K-anonymous size of a Nearby result.
+class NearbyCount extends $pb.GeneratedMessage {
+  factory NearbyCount({
+    $core.bool? few,
+    $core.int? plans,
+  }) {
+    final result = NearbyCount._();
+    if (few != null) result.few = few;
+    if (plans != null) result.plans = plans;
+    return result;
+  }
+
+  NearbyCount._();
+
+  factory NearbyCount.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NearbyCount()..mergeFromBuffer(data, registry);
+  factory NearbyCount.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NearbyCount()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'NearbyCount',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.beacons.v1'),
+      createEmptyInstance: NearbyCount.$_createMessage)
+    ..aOB(1, _omitFieldNames ? '' : 'few')
+    ..aI(2, _omitFieldNames ? '' : 'plans')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NearbyCount clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NearbyCount copyWith(void Function(NearbyCount) updates) =>
+      super.copyWith((message) => updates(message as NearbyCount))
+          as NearbyCount;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use NearbyCount() / NearbyCount.new instead')
+  static NearbyCount create() => NearbyCount._();
+  static $pb.GeneratedMessage $_createMessage() => NearbyCount._();
+  @$core.override
+  NearbyCount createEmptyInstance() => NearbyCount._();
+  @$core.pragma('dart2js:noInline')
+  static NearbyCount getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<NearbyCount>(
+          NearbyCount.$_createMessage);
+  static NearbyCount? _defaultInstance;
+
+  /// 1..K_MIN-1 live plans: "a few", no number.
+  @$pb.TagNumber(1)
+  $core.bool get few => $_getBF(0);
+  @$pb.TagNumber(1)
+  set few($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasFew() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearFew() => $_clearField(1);
+
+  /// A number when >= K_MIN; 0 when few or none. The first page probes max(limit, K_MIN) + 1 plans: when the result fits
+  /// in fewer, the count is exact, from the rows that pass the filters (blocks and hidden applied), also when a small
+  /// limit set next_page_token. Otherwise it is an aggregation over the query before filtering, at most 1000 (render as
+  /// "about"); it is then always above both limit and K_MIN.
+  @$pb.TagNumber(2)
+  $core.int get plans => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set plans($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPlans() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPlans() => $_clearField(2);
+}
+
+class NearbyBeacon extends $pb.GeneratedMessage {
+  factory NearbyBeacon({
+    BeaconView? view,
+    AreaProximity? proximity,
+  }) {
+    final result = NearbyBeacon._();
+    if (view != null) result.view = view;
+    if (proximity != null) result.proximity = proximity;
+    return result;
+  }
+
+  NearbyBeacon._();
+
+  factory NearbyBeacon.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NearbyBeacon()..mergeFromBuffer(data, registry);
+  factory NearbyBeacon.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NearbyBeacon()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'NearbyBeacon',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.beacons.v1'),
+      createEmptyInstance: NearbyBeacon.$_createMessage)
+    ..aOM<BeaconView>(1, _omitFieldNames ? '' : 'view',
+        subBuilder: BeaconView.$_createMessage)
+    ..aE<AreaProximity>(2, _omitFieldNames ? '' : 'proximity',
+        enumValues: AreaProximity.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NearbyBeacon clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NearbyBeacon copyWith(void Function(NearbyBeacon) updates) =>
+      super.copyWith((message) => updates(message as NearbyBeacon))
+          as NearbyBeacon;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use NearbyBeacon() / NearbyBeacon.new instead')
+  static NearbyBeacon create() => NearbyBeacon._();
+  static $pb.GeneratedMessage $_createMessage() => NearbyBeacon._();
+  @$core.override
+  NearbyBeacon createEmptyInstance() => NearbyBeacon._();
+  @$core.pragma('dart2js:noInline')
+  static NearbyBeacon getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<NearbyBeacon>(
+          NearbyBeacon.$_createMessage);
+  static NearbyBeacon? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  BeaconView get view => $_getN(0);
+  @$pb.TagNumber(1)
+  set view(BeaconView value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasView() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearView() => $_clearField(1);
+  @$pb.TagNumber(1)
+  BeaconView ensureView() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  AreaProximity get proximity => $_getN(1);
+  @$pb.TagNumber(2)
+  set proximity(AreaProximity value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasProximity() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearProximity() => $_clearField(2);
+}
+
+class ListNearbyBeaconsRequest extends $pb.GeneratedMessage {
+  factory ListNearbyBeaconsRequest({
+    $core.String? areaId,
+    NearbyScope? scope,
+    $core.int? limit,
+    $core.String? pageToken,
+  }) {
+    final result = ListNearbyBeaconsRequest._();
+    if (areaId != null) result.areaId = areaId;
+    if (scope != null) result.scope = scope;
+    if (limit != null) result.limit = limit;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ListNearbyBeaconsRequest._();
+
+  factory ListNearbyBeaconsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListNearbyBeaconsRequest()..mergeFromBuffer(data, registry);
+  factory ListNearbyBeaconsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListNearbyBeaconsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListNearbyBeaconsRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.beacons.v1'),
+      createEmptyInstance: ListNearbyBeaconsRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'areaId')
+    ..aE<NearbyScope>(2, _omitFieldNames ? '' : 'scope',
+        enumValues: NearbyScope.values)
+    ..aI(3, _omitFieldNames ? '' : 'limit')
+    ..aOS(4, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListNearbyBeaconsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListNearbyBeaconsRequest copyWith(
+          void Function(ListNearbyBeaconsRequest) updates) =>
+      super.copyWith((message) => updates(message as ListNearbyBeaconsRequest))
+          as ListNearbyBeaconsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListNearbyBeaconsRequest() / ListNearbyBeaconsRequest.new instead')
+  static ListNearbyBeaconsRequest create() => ListNearbyBeaconsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ListNearbyBeaconsRequest._();
+  @$core.override
+  ListNearbyBeaconsRequest createEmptyInstance() =>
+      ListNearbyBeaconsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListNearbyBeaconsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListNearbyBeaconsRequest>(
+          ListNearbyBeaconsRequest.$_createMessage);
+  static ListNearbyBeaconsRequest? _defaultInstance;
+
+  /// Empty = the caller's stored area.
+  @$pb.TagNumber(1)
+  $core.String get areaId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set areaId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasAreaId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAreaId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  NearbyScope get scope => $_getN(1);
+  @$pb.TagNumber(2)
+  set scope(NearbyScope value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasScope() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearScope() => $_clearField(2);
+
+  /// Clamped: 0 = 20, above 50 = 50.
+  @$pb.TagNumber(3)
+  $core.int get limit => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set limit($core.int value) => $_setSignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasLimit() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearLimit() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get pageToken => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set pageToken($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasPageToken() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPageToken() => $_clearField(4);
+}
+
+class ListNearbyBeaconsResponse extends $pb.GeneratedMessage {
+  factory ListNearbyBeaconsResponse({
+    $core.Iterable<NearbyBeacon>? items,
+    $core.String? nextPageToken,
+    $2.AreaSummary? area,
+    NearbyCount? count,
+  }) {
+    final result = ListNearbyBeaconsResponse._();
+    if (items != null) result.items.addAll(items);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    if (area != null) result.area = area;
+    if (count != null) result.count = count;
+    return result;
+  }
+
+  ListNearbyBeaconsResponse._();
+
+  factory ListNearbyBeaconsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListNearbyBeaconsResponse()..mergeFromBuffer(data, registry);
+  factory ListNearbyBeaconsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListNearbyBeaconsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListNearbyBeaconsResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.beacons.v1'),
+      createEmptyInstance: ListNearbyBeaconsResponse.$_createMessage)
+    ..pPM<NearbyBeacon>(1, _omitFieldNames ? '' : 'items',
+        subBuilder: NearbyBeacon.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..aOM<$2.AreaSummary>(3, _omitFieldNames ? '' : 'area',
+        subBuilder: $2.AreaSummary.$_createMessage)
+    ..aOM<NearbyCount>(4, _omitFieldNames ? '' : 'count',
+        subBuilder: NearbyCount.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListNearbyBeaconsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListNearbyBeaconsResponse copyWith(
+          void Function(ListNearbyBeaconsResponse) updates) =>
+      super.copyWith((message) => updates(message as ListNearbyBeaconsResponse))
+          as ListNearbyBeaconsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListNearbyBeaconsResponse() / ListNearbyBeaconsResponse.new instead')
+  static ListNearbyBeaconsResponse create() => ListNearbyBeaconsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListNearbyBeaconsResponse._();
+  @$core.override
+  ListNearbyBeaconsResponse createEmptyInstance() =>
+      ListNearbyBeaconsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListNearbyBeaconsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListNearbyBeaconsResponse>(
+          ListNearbyBeaconsResponse.$_createMessage);
+  static ListNearbyBeaconsResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<NearbyBeacon> get items => $_getList(0);
+
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+
+  /// The resolved area (the stored one when area_id was empty).
+  @$pb.TagNumber(3)
+  $2.AreaSummary get area => $_getN(2);
+  @$pb.TagNumber(3)
+  set area($2.AreaSummary value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasArea() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearArea() => $_clearField(3);
+  @$pb.TagNumber(3)
+  $2.AreaSummary ensureArea() => $_ensure(2);
+
+  /// First page only; unset on later pages.
+  @$pb.TagNumber(4)
+  NearbyCount get count => $_getN(3);
+  @$pb.TagNumber(4)
+  set count(NearbyCount value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasCount() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCount() => $_clearField(4);
+  @$pb.TagNumber(4)
+  NearbyCount ensureCount() => $_ensure(3);
+}
+
 class BeaconServiceApi {
   final $pb.RpcClient _client;
 
@@ -2963,6 +3363,28 @@ class BeaconServiceApi {
           $pb.ClientContext? ctx, ListSharedBeaconsRequest request) =>
       _client.invoke<ListSharedBeaconsResponse>(ctx, 'BeaconService',
           'ListSharedBeacons', request, ListSharedBeaconsResponse());
+
+  /// Public OPEN and FULL beacons whose start_at >= now in one area, soonest first (Explore Nearby; place-based: the
+  /// match is on the plan's organiser-chosen area, never on a person).
+  ///   - NEARBY_SCOPE_AREA (the default): the area's beacons plus those of its catalogue neighbours.
+  ///   - NEARBY_SCOPE_CITY: every beacon in the area's city. A CITY-kind area always uses this scope, whatever was sent.
+  /// A plan tagged with a city (not a neighbourhood) is in that city's results only, so a neighbourhood sees it under
+  /// NEARBY_SCOPE_CITY. Community beacons are never listed (a widened one, F28b, is public and is).
+  /// area_id: empty means the caller's stored area (LocationService; FAILED_PRECONDITION "area_not_set" when none);
+  /// otherwise a catalogue id, retired included (malformed or unknown => VALIDATION "area_id", the value never echoed), so
+  /// a user may browse an area without storing it. A scope outside the enum => VALIDATION "scope".
+  /// Blocks and hidden apply as in ListBeacons (dropped rows; a page may be short while next_page_token is set).
+  /// Needs FEATURE_BEACONS not globally off and FEATURE_LOCATION on for the caller (FEATURE_DISABLED names the flag),
+  /// before any lookup. limit is clamped (0 = 20, above 50 = 50). page_token is signed and bound to the caller, the
+  /// resolved area and the scope (VALIDATION "page_token" otherwise). The first page carries count (K-anonymity: a number
+  /// only at >= LOCATION_NEARBY_K_MIN, 5; "few" below). Read budget: about 46 reads at limit 20 (the stored area, the
+  /// page, one count aggregation on a first page that does not hold the whole result, the viewer states and the cached
+  /// graph). If the backing Firestore index is not ready the answer is an empty first page with no count, never an
+  /// error. Rate limit: RATE_LIMIT_BEACONS_READ_PER_MIN.
+  $async.Future<ListNearbyBeaconsResponse> listNearbyBeacons(
+          $pb.ClientContext? ctx, ListNearbyBeaconsRequest request) =>
+      _client.invoke<ListNearbyBeaconsResponse>(ctx, 'BeaconService',
+          'ListNearbyBeacons', request, ListNearbyBeaconsResponse());
 }
 
 const $core.bool _omitFieldNames =
