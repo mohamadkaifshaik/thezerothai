@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -54,13 +55,13 @@ func TestStatsDay(t *testing.T) {
 // TestDailyStatsIncrement: date, expireAt = the IST day's start + 400 days (the same on every write of the day), and an
 // Increment only for the non-zero fields; a malformed day stages nothing.
 func TestDailyStatsIncrement(t *testing.T) {
-	data, ok := dailyStatsIncrement("20261115", DailyDelta{Engagements: -1, FollowersGained: 2})
+	data, ok := dailyStatsIncrement("20261115", 2, DailyDelta{Engagements: -1, FollowersGained: 2})
 	if !ok {
 		t.Fatal("a valid day was refused")
 	}
 	start := time.Date(2026, 11, 15, 0, 0, 0, 0, ist)
 	want := map[string]any{
-		"date": "20261115", "expireAt": start.Add(DailyStatsTTL).UTC(),
+		"date": "20261115", "shard": int64(2), "expireAt": start.Add(DailyStatsTTL).UTC(),
 		"engagements": firestore.Increment(int64(-1)), "followersGained": firestore.Increment(int64(2)),
 	}
 	if !reflect.DeepEqual(data, want) {
@@ -70,24 +71,40 @@ func TestDailyStatsIncrement(t *testing.T) {
 		t.Fatalf("expireAt = %v", got)
 	}
 	for _, bad := range []string{"", "2026-11-15", "20261332", "2026111", "202611150"} {
-		if _, ok := dailyStatsIncrement(bad, DailyDelta{Impressions: 1}); ok {
+		if _, ok := dailyStatsIncrement(bad, 0, DailyDelta{Impressions: 1}); ok {
 			t.Errorf("day %q accepted", bad)
 		}
 	}
 }
 
-// TestStageDaily: one MergeAll Set on users/{uid}/dailyStats/{day}; nothing for an empty uid, a zero delta, a
-// malformed day, or while the flag is globally off.
+// TestStatsShard: deterministic, in range, and the keys spread over every shard.
+func TestStatsShard(t *testing.T) {
+	seen := map[int]bool{}
+	for i := 0; i < 200; i++ {
+		k := "uid-" + strconv.Itoa(i)
+		s := StatsShard(k)
+		if s < 0 || s >= DailyStatsShards || s != StatsShard(k) {
+			t.Fatalf("StatsShard(%q) = %d", k, s)
+		}
+		seen[s] = true
+	}
+	if len(seen) != DailyStatsShards {
+		t.Fatalf("200 keys hit shards %v, want all %d", seen, DailyStatsShards)
+	}
+}
+
+// TestStageDaily: one MergeAll Set on users/{uid}/dailyStats/{day}_{shard of the key}; nothing for an empty uid, a zero
+// delta, a malformed day, or while the flag is globally off (Off).
 func TestStageDaily(t *testing.T) {
 	client := &firestore.Client{}
 	off := false
 	r := NewDailyStatsRepo(client, func() bool { return off })
 	b := &statsBatch{}
-	r.StageDaily(b, "author1", "20261115", DailyDelta{Impressions: 3})
+	r.StageDaily(b, "author1", "20261115", "liker", DailyDelta{Impressions: 3})
 	if len(b.sets) != 1 {
 		t.Fatalf("sets = %d, want 1", len(b.sets))
 	}
-	want := client.Collection("users").Doc("author1").Collection("dailyStats").Doc("20261115").Path
+	want := client.Collection("users").Doc("author1").Collection("dailyStats").Doc("20261115_" + strconv.Itoa(StatsShard("liker"))).Path
 	if s := b.sets[0]; s.path != want || len(s.opts) != 1 || !reflect.DeepEqual(s.data["impressions"], firestore.Increment(int64(3))) {
 		t.Fatalf("set = %+v, want a MergeAll Increment at %s", s, want)
 	}
@@ -104,13 +121,19 @@ func TestStageDaily(t *testing.T) {
 	} {
 		off = tc.off
 		b := &statsBatch{}
-		r.StageDaily(b, tc.uid, tc.day, tc.d)
+		r.StageDaily(b, tc.uid, tc.day, "k", tc.d)
 		if len(b.sets) != 0 {
 			t.Errorf("%s: staged %+v", tc.name, b.sets)
 		}
+		if r.Off() != tc.off {
+			t.Errorf("%s: Off = %v", tc.name, r.Off())
+		}
 	}
 	var nilRepo *DailyStatsRepo
-	nilRepo.StageDaily(&statsBatch{}, "a", "20261115", DailyDelta{Impressions: 1}) // no panic
+	nilRepo.StageDaily(&statsBatch{}, "a", "20261115", "k", DailyDelta{Impressions: 1}) // no panic
+	if !nilRepo.Off() {
+		t.Error("a nil repo must be off")
+	}
 }
 
 type fakeStatsPurger struct {

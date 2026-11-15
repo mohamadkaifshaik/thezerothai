@@ -127,14 +127,23 @@ type WriteDeps struct {
 	Stats identity.StatsWriter
 }
 
-// stageStats stages d on uid's dailyStats doc for today (IST, the repo clock) when Stats is wired. Call it only in a
-// unit of work that also carries an Exists-preconditioned write on the post (identity.StatsWriter).
-func (r *FirestoreRepo) stageStats(b store.Batch, uid string, d identity.DailyDelta) {
+// stageStats stages d on uid's dailyStats for today (IST, the repo clock) when Stats is wired; shardKey picks the day's
+// shard (the actor's uid, or the post id when there is no actor). Call it only in a unit of work that also carries an
+// Exists-preconditioned write on the post (identity.StatsWriter).
+func (r *FirestoreRepo) stageStats(b store.Batch, uid, shardKey string, d identity.DailyDelta) {
 	if r.w.Stats == nil || uid == "" {
 		return
 	}
-	r.w.Stats.StageDaily(b, uid, identity.StatsDay(r.clock()), d)
+	r.w.Stats.StageDaily(b, uid, identity.StatsDay(r.clock()), shardKey, d)
 }
+
+// statsOn reports whether a stat staged now would be written (Stats wired and FEATURE_CREATOR_INSIGHTS not globally
+// off): the writers skip the reads they would only do for a stat.
+func (r *FirestoreRepo) statsOn() bool { return r.w.Stats != nil && !r.w.Stats.Off() }
+
+// StatsOff reports that no creator stat is staged (Stats not wired, or the flag globally off). The service asks it
+// before the parent read of a reply delete (releaseParent), which only feeds the stat.
+func (r *FirestoreRepo) StatsOff() bool { return !r.statsOn() }
 
 // engagementStat is the stat of one engagement (+1) or its undo (-1) received by author from actor: nothing for
 // the author's own engagement (a self-reply thread is not reach).
@@ -142,7 +151,7 @@ func (r *FirestoreRepo) stageEngagementStat(b store.Batch, author, actor string,
 	if author == actor {
 		return
 	}
-	r.stageStats(b, author, identity.DailyDelta{Engagements: delta})
+	r.stageStats(b, author, actor, identity.DailyDelta{Engagements: delta})
 }
 
 // SetWriters supplies the CreatePost collaborators (a setter, like graph.FirestoreRepo.SetCounters, so the read
@@ -301,14 +310,16 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	committed := func() {}
 	// The creator stat rides the cold counter Update (its Exists fails a gone parent, stat included); a hot parent's
 	// engagement is staged by the counter rollup when it folds the shard (repo_view_rollup.go), never here too.
+	// The author's own reply or quote on a hot parent also marks the shard (selfReplyCount / selfQuoteCount), so the
+	// fold counts it in replyCount / quoteCount but leaves it out of the stat.
 	if p.ParentID != "" {
-		committed = r.stageCounter(b, p.ParentID, replyCountField, 1, p.ParentReplyCount)
+		committed = r.stageChildCounter(b, p.ParentID, replyCountField, p.ParentReplyCount, p.Draft.ReplyToAuthorID == p.AuthorID)
 		if !r.Hot(p.ParentReplyCount) {
 			r.stageEngagementStat(b, p.Draft.ReplyToAuthorID, p.AuthorID, 1)
 		}
 	}
 	if p.QuoteID != "" {
-		committed = r.stageCounter(b, p.QuoteID, quoteCountField, 1, p.QuotedQuoteCount)
+		committed = r.stageChildCounter(b, p.QuoteID, quoteCountField, p.QuotedQuoteCount, p.Draft.EmbeddedAuthorID == p.AuthorID)
 		if !r.Hot(p.QuotedQuoteCount) {
 			r.stageEngagementStat(b, p.Draft.EmbeddedAuthorID, p.AuthorID, 1)
 		}

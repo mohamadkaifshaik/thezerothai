@@ -65,7 +65,8 @@ func (r *FirestoreRepo) stageEngagementStat(b store.Batch, author, actor string,
 	if r.w.Stats == nil || author == "" || author == actor || r.w.Writer.Hot(known) {
 		return
 	}
-	r.w.Stats.StageDaily(b, author, identity.StatsDay(r.now()), identity.DailyDelta{Engagements: delta})
+	// The actor's uid picks the author day's shard, so a like and its unlike land on the same doc.
+	r.w.Stats.StageDaily(b, author, identity.StatsDay(r.now()), actor, identity.DailyDelta{Engagements: delta})
 }
 
 // FirestoreRepo implements Repo (and Eraser, Exporter, the job's queries) against the shared client.

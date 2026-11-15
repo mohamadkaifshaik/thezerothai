@@ -156,13 +156,14 @@ func (r *FirestoreRepo) SetCounters(c identity.Counters) {
 // nothing, so opsctl and tests that do not ask write no stats.
 func (r *FirestoreRepo) SetStats(s identity.StatsWriter) { r.stats = s }
 
-// stageFollowers stages a follower change of uid for today (IST) next to the followersCount Update of the same uid,
-// whose Exists precondition keeps a gone account out (identity.StatsWriter). Zero deltas stage nothing.
-func (r *FirestoreRepo) stageFollowers(b store.Batch, uid string, gained, lost int64) {
+// stageFollowers stages a follower change of uid on now's IST day next to the followersCount Update of the same uid,
+// whose Exists precondition keeps a gone account out (identity.StatsWriter). actor (the follower, or the other side of a
+// block) picks the day's shard. Zero deltas stage nothing.
+func (r *FirestoreRepo) stageFollowers(b store.Batch, uid, actor string, now time.Time, gained, lost int64) {
 	if r.stats == nil || (gained == 0 && lost == 0) {
 		return
 	}
-	r.stats.StageDaily(b, uid, identity.StatsDay(time.Now()), identity.DailyDelta{FollowersGained: gained, FollowersLost: lost})
+	r.stats.StageDaily(b, uid, identity.StatsDay(now), actor, identity.DailyDelta{FollowersGained: gained, FollowersLost: lost})
 }
 
 // SetTxProfiles wires the transaction-scoped target read Follow needs. apiserver and opsctl call it
@@ -467,7 +468,7 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 		b.Update(r.graphRef(callerUID), callerUpdates)
 		r.counters.AddFollowingCount(b, callerUID, 1)
 		r.counters.AddFollowersCount(b, targetUID, 1)
-		r.stageFollowers(b, targetUID, 1, 0)
+		r.stageFollowers(b, targetUID, callerUID, now, 1, 0)
 		if b.Err() != nil {
 			return b.Err()
 		}
@@ -514,7 +515,7 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 			})
 			r.counters.AddFollowingCount(b, callerUID, -1)
 			r.counters.AddFollowersCount(b, targetUID, -1)
-			r.stageFollowers(b, targetUID, 0, 1)
+			r.stageFollowers(b, targetUID, callerUID, now, 0, 1)
 		})
 	noteTxnAttempts(ctx, res.Attempts)
 	switch {

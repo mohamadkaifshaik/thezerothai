@@ -62,7 +62,7 @@ type RateLimitConfig struct {
 	GetMePerUserPerMinute int
 
 	// CreatorInsightsPerUserPerMinute is the GetCreatorInsights bucket (F2), env RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN,
-	// default 10 per instance (30 with 3). One call reads up to 56 users/{uid}/dailyStats docs in one GetAll plus one
+	// default 10 per instance (30 with 3). One call reads 56 days of users/{uid}/dailyStats (up to 4 shard docs a day) in one range query plus one
 	// top-posts query (Limit 5); the Creator Studio screen calls it once per open and on pull-to-refresh. No daily cap.
 	CreatorInsightsPerUserPerMinute int
 

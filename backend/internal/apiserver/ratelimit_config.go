@@ -150,7 +150,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlGetMe := ratelimit.NewLimiter(cfg.RateLimit.GetMePerUserPerMinute, idleBucketTTL)
 
 	// GetCreatorInsights (F2) has its own per-user bucket (RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN, 10/min per instance): one
-	// call reads up to 56 dailyStats docs and runs a 5-post query; the Creator Studio screen calls it on open and on
+	// call reads 56 days of dailyStats shards (up to 224 docs) and runs a 5-post query; the Creator Studio screen calls it on open and on
 	// refresh. No daily cap (a read).
 	rlCreatorInsights := ratelimit.NewLimiter(cfg.RateLimit.CreatorInsightsPerUserPerMinute, idleBucketTTL)
 

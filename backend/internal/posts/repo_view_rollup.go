@@ -19,6 +19,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -28,6 +30,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/shardcount"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -164,7 +167,7 @@ func (r *FirestoreRepo) FoldViews(ctx context.Context, postIDs []string) (int, i
 	// The creator stats (F2) need each post's author and old viewCount: one more GetAll of the posts, read BEFORE the
 	// shards, so a view landing in between is in the new total and the delta stays exact.
 	var before []viewBefore
-	if r.w.Stats != nil {
+	if r.statsOn() { // no read while the stats are off
 		var err error
 		if before, err = r.readViewsBefore(ctx, refs); err != nil {
 			return 0, 0, err
@@ -178,7 +181,7 @@ func (r *FirestoreRepo) FoldViews(ctx context.Context, postIDs []string) (int, i
 	for i, ref := range refs {
 		shardcount.StageFold(b, ref, totals[i], viewFold)
 	}
-	r.stageImpressions(b, before, totals, -1)
+	r.stageImpressions(b, before, totals, postIDs, -1)
 	err = b.Commit(ctx)
 	switch {
 	case err == nil:
@@ -191,7 +194,7 @@ func (r *FirestoreRepo) FoldViews(ctx context.Context, postIDs []string) (int, i
 	for i, ref := range refs {
 		sb := store.NewFirestoreBatch(r.client)
 		shardcount.StageFold(sb, ref, totals[i], viewFold)
-		r.stageImpressions(sb, before, totals, i)
+		r.stageImpressions(sb, before, totals, postIDs, i)
 		switch err := sb.Commit(ctx); {
 		case err == nil:
 			folded++
@@ -216,7 +219,8 @@ type viewBefore struct {
 }
 
 // readViewsBefore reads the posts of a view fold (one GetAll, len(refs) reads) for their author and viewCount; a gone
-// post has no author (its fold fails anyway and stages nothing).
+// post has no author (its fold fails anyway and stages nothing), and so has a post that does not decode (a warning with
+// its id hashed; its views still fold, only its stat is skipped).
 func (r *FirestoreRepo) readViewsBefore(ctx context.Context, refs []*firestore.DocumentRef) ([]viewBefore, error) {
 	snaps, err := r.client.GetAll(ctx, refs)
 	if err != nil {
@@ -235,44 +239,56 @@ func (r *FirestoreRepo) readViewsBefore(ctx context.Context, refs []*firestore.D
 			ViewCount int64  `firestore:"viewCount"`
 		}
 		if err := s.DataTo(&d); err != nil {
-			return nil, fmt.Errorf("posts: fold views: decode post %s: %w", s.Ref.ID, err)
+			slog.WarnContext(ctx, "posts_fold_views_stats_decode_failed", "post_hash", logger.HashUID(s.Ref.ID), "error", err.Error())
+			continue
 		}
 		out[i] = viewBefore{author: d.AuthorID, views: d.ViewCount}
 	}
 	return out, nil
 }
 
-// impressionDeltas are the creator impressions of one view fold, summed per author in first-seen order: each post's
-// new shard total minus the viewCount it had, never below 0 (a total only grows; a lowered count must not subtract).
-// only >= 0 keeps that one post (the per-post fallback); -1 keeps all. Pure.
+// impressionDeltas are the creator impressions of one view fold, summed per author and dailyStats shard (the post id's,
+// identity.StatsShard) in first-seen order: each post's new shard total minus the viewCount it had, never below 0 (a
+// total only grows; a lowered count must not subtract). only >= 0 keeps that one post (the per-post fallback); -1 keeps
+// all. Each group carries the first post id of the group as its shard key. Pure.
 //
 // The delta reads viewCount outside the fold's write: it is exact because views runs never overlap (the
 // AcquireViewRollup gate admits one per MinInterval, and nothing else writes viewCount), so no other fold can move it
 // between this read and the commit. A redelivered fold reads the folded value and adds 0.
-func impressionDeltas(before []viewBefore, totals []shardcount.Totals, only int) (authors []string, sums map[string]int64) {
-	sums = map[string]int64{}
+func impressionDeltas(before []viewBefore, totals []shardcount.Totals, postIDs []string, only int) []impressionGroup {
+	var out []impressionGroup
+	at := map[string]int{}
 	for i, b := range before {
-		if (only >= 0 && i != only) || b.author == "" || i >= len(totals) {
+		if (only >= 0 && i != only) || b.author == "" || i >= len(totals) || i >= len(postIDs) {
 			continue
 		}
 		d := totals[i].Get(viewShardField) - b.views
 		if d <= 0 {
 			continue
 		}
-		if _, ok := sums[b.author]; !ok {
-			authors = append(authors, b.author)
+		k := b.author + "\x00" + strconv.Itoa(identity.StatsShard(postIDs[i]))
+		j, ok := at[k]
+		if !ok {
+			j = len(out)
+			at[k] = j
+			out = append(out, impressionGroup{author: b.author, shardKey: postIDs[i]})
 		}
-		sums[b.author] += d
+		out[j].n += d
 	}
-	return authors, sums
+	return out
 }
 
-// stageImpressions stages one impressions Increment per author of the fold (at most one write per author per batch),
-// on today's doc. It rides the batch of the viewCount Updates, whose Exists keeps a gone post's author out.
-func (r *FirestoreRepo) stageImpressions(b store.Batch, before []viewBefore, totals []shardcount.Totals, only int) {
-	authors, sums := impressionDeltas(before, totals, only)
-	for _, a := range authors {
-		r.stageStats(b, a, identity.DailyDelta{Impressions: sums[a]})
+// impressionGroup is one impressions stage: an author's views on one dailyStats shard.
+type impressionGroup struct {
+	author, shardKey string
+	n                int64
+}
+
+// stageImpressions stages one impressions Increment per author and shard of the fold (so a batch never writes one doc
+// twice), on today's day. It rides the batch of the viewCount Updates, whose Exists keeps a gone post's author out.
+func (r *FirestoreRepo) stageImpressions(b store.Batch, before []viewBefore, totals []shardcount.Totals, postIDs []string, only int) {
+	for _, g := range impressionDeltas(before, totals, postIDs, only) {
+		r.stageStats(b, g.author, g.shardKey, identity.DailyDelta{Impressions: g.n})
 	}
 }
 
@@ -485,7 +501,11 @@ func (r *FirestoreRepo) postExists(ctx context.Context, post *firestore.Document
 // The creator stats (F2): the folded like, repost, reply and quote deltas of THIS shard, as read in this transaction,
 // go to the post author's engagements for the fold day in the same transaction (one write per shard fold that moves
 // any of them; shares and poll votes do not count). They are exactly what the cold path would have staged, so a hot
-// post is never counted twice: its writers staged nothing. The hot path cannot tell the author's own likes apart.
+// post is never counted twice: its writers staged nothing. The author's own hot replies and quotes are marked on the
+// shard (selfReplyCount, selfQuoteCount): drained here with the rest, never moved onto the post, and subtracted from the
+// stat. The author's own hot likes and reposts are not marked (the engagement seam does not say who the author is), so
+// they are counted: a known gap, as small as a creator liking their own post while it is hot. The stat's shard key is
+// the post id (a fold has no actor).
 func (r *FirestoreRepo) foldCounterShard(ctx context.Context, post, shard *firestore.DocumentRef, author string) error {
 	_, err := store.RunTransaction(ctx, r.client, func(_ context.Context, tx *firestore.Transaction) error {
 		snap, err := tx.Get(shard)
@@ -498,9 +518,10 @@ func (r *FirestoreRepo) foldCounterShard(ctx context.Context, post, shard *fires
 		data := snap.Data()
 		b := store.NewFirestoreTxBatch(tx)
 		// The folds come from the shard as read in THIS transaction, so a poll.counts key written since the page read is folded too.
-		shardcount.StageDeltaFold(b, post, []shardcount.Shard{{Ref: shard, Data: data}}, counterFoldsOf(data)...)
+		folds := slices.Concat(counterFoldsOf(data), selfFolds)
+		shardcount.StageDeltaFold(dropOnParent{Batch: b, parent: post.Path}, post, []shardcount.Shard{{Ref: shard, Data: data}}, folds...)
 		if n := engagementOfShard(data); n != 0 {
-			r.stageStats(b, author, identity.DailyDelta{Engagements: n})
+			r.stageStats(b, author, post.ID, identity.DailyDelta{Engagements: n})
 		}
 		return b.Err()
 	})
@@ -510,14 +531,58 @@ func (r *FirestoreRepo) foldCounterShard(ctx context.Context, post, shard *fires
 // engagementFields are the counters that count as creator engagements (F2): shares and poll votes do not.
 var engagementFields = []firestore.FieldPath{likeCountField, repostCountField, replyCountField, quoteCountField}
 
-// engagementOfShard is the sum of one shard's engagement deltas (may be negative after undos). Pure.
+// Self fields: a hot reply or quote by the parent's own author adds 1 here too (stageChildCounter). They are drained by
+// the fold like any shard field (selfFolds) but never written onto the post (dropOnParent), and engagementOfShard
+// subtracts them.
+var (
+	selfReplyCountField = firestore.FieldPath{"selfReplyCount"}
+	selfQuoteCountField = firestore.FieldPath{"selfQuoteCount"}
+	selfFolds           = []shardcount.Fold{
+		{From: selfReplyCountField, To: selfReplyCountField},
+		{From: selfQuoteCountField, To: selfQuoteCountField},
+	}
+)
+
+// selfFieldOf is the self field of replyCount or quoteCount.
+func selfFieldOf(field firestore.FieldPath) firestore.FieldPath {
+	if shardcount.Key(field) == shardcount.Key(quoteCountField) {
+		return selfQuoteCountField
+	}
+	return selfReplyCountField
+}
+
+// dropOnParent is a store.Batch that drops the self fields from Updates of the parent post (an Update left empty is not
+// staged): StageDeltaFold drains them off the shard, and they must not appear on the post.
+type dropOnParent struct {
+	store.Batch
+	parent string
+}
+
+func (d dropOnParent) Update(ref *firestore.DocumentRef, ups []firestore.Update, pre ...firestore.Precondition) store.Batch {
+	if ref.Path != d.parent {
+		return d.Batch.Update(ref, ups, pre...)
+	}
+	kept := make([]firestore.Update, 0, len(ups))
+	for _, u := range ups {
+		if k := shardcount.Key(u.FieldPath); k != shardcount.Key(selfReplyCountField) && k != shardcount.Key(selfQuoteCountField) {
+			kept = append(kept, u)
+		}
+	}
+	if len(kept) == 0 {
+		return d
+	}
+	return d.Batch.Update(ref, kept, pre...)
+}
+
+// engagementOfShard is the sum of one shard's engagement deltas (may be negative after undos), minus the author's own
+// hot replies and quotes (the self fields). Pure.
 func engagementOfShard(data map[string]any) int64 {
-	t := shardcount.Sum([]map[string]any{data}, engagementFields...)
+	t := shardcount.Sum([]map[string]any{data}, slices.Concat(engagementFields, []firestore.FieldPath{selfReplyCountField, selfQuoteCountField})...)
 	var n int64
 	for _, fp := range engagementFields {
 		n += t.Get(fp)
 	}
-	return n
+	return n - t.Get(selfReplyCountField) - t.Get(selfQuoteCountField)
 }
 
 // holdsCounters reports whether a shard holds a non-zero engagement value, poll counts included (a shard that holds only
