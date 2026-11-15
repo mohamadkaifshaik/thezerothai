@@ -376,7 +376,7 @@ void main() {
         final row = tester.getSize(
           find.ancestor(
             of: find.text('Pin to your profile'),
-            matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
+            matching: find.byWidgetPredicate((w) => w is MenuItemButton),
           ),
         );
         expect(row.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
