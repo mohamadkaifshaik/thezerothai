@@ -23,6 +23,8 @@ mixin _ComposerHost on Cubit<ComposerState> {
   DateTime Function() get _clock;
   UsageReporter get _usage;
   PendingPostsCubit? get _pending;
+  PostSender? get _sender;
+  ({String key, DateTime startedAt})? get _resumeKey;
   AttachmentsCubit? get _attachments;
   String get replyToPostId;
   String get quoteOfPostId;
@@ -41,6 +43,7 @@ mixin _ComposerHost on Cubit<ComposerState> {
   // Implemented by the drafts part.
   ComposerDraft get currentDraft;
   Future<void> discardDraft();
+  Future<DraftSaveResult> saveDraft();
   void _draftScheduled();
   void _reportDraftStorage(StackTrace stack);
 
@@ -50,6 +53,8 @@ mixin _ComposerHost on Cubit<ComposerState> {
   ReplyPolicy get _policyToSend;
 
   // Implemented by the claims part.
+  Map<String, ({String key, DateTime startedAt})> get _claimedKeys;
+  String _claimSlot(String draftId, SendKind kind, DateTime? publishAt);
   ({String key, bool reused})? get _claimed;
   set _claimed(({String key, bool reused})? value);
   bool get _forceNewKey;

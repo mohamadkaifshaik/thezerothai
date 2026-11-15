@@ -122,6 +122,7 @@ mixin _ComposerDrafts on _ComposerHost {
 
   /// Keeps the content as a draft now ("Save"). Never throws: a storage
   /// failure is reported without the text and answers `skipped`.
+  @override
   Future<DraftSaveResult> saveDraft() async {
     final repo = _drafts;
     // Never written once the session ended: the store would take it under the

@@ -27,7 +27,9 @@ import '../../domain/posts_feature_flag.dart';
 import '../../domain/post_text_rules.dart';
 import '../../domain/reply_audience.dart';
 import '../../domain/schedule_rules.dart';
+import '../../domain/post_intent.dart';
 import 'pending_posts_cubit.dart';
+import 'post_sender.dart';
 
 part 'composer_claims.dart';
 part 'composer_drafts.dart';
@@ -69,6 +71,13 @@ class ComposerCubit extends Cubit<ComposerState>
     int Function()? postTextLimit,
     Stream<Object?>? postPolicyChanges,
     required PendingPostsCubit pending,
+
+    /// When given, a plain root post is handed to it on Post and the
+    /// composer closes at once (uploads and CreatePost run in the background).
+    PostSender? sender,
+
+    /// The key of an edited post that may already exist on the server.
+    ({String key, DateTime startedAt})? resumeKey,
     required common.AuthorSnapshot author,
     this.quoteOfPostId = '',
     String beaconId = '',
@@ -100,6 +109,8 @@ class ComposerCubit extends Cubit<ComposerState>
        _usage = usage,
        _repository = postsRepository,
        _pending = pending,
+       _sender = sender,
+       _resumeKey = resumeKey,
        _author = author,
        _attachments = attachments,
        _onUnexpectedError = onUnexpectedError,
@@ -157,6 +168,8 @@ class ComposerCubit extends Cubit<ComposerState>
        _usage = usage,
        _repository = postsRepository,
        _pending = null,
+       _sender = null,
+       _resumeKey = null,
        _author = null,
        _attachments = null,
        _onUnexpectedError = null,
@@ -376,6 +389,10 @@ class ComposerCubit extends Cubit<ComposerState>
   @override
   final PendingPostsCubit? _pending;
   @override
+  final PostSender? _sender;
+  @override
+  final ({String key, DateTime startedAt})? _resumeKey;
+  @override
   final common.AuthorSnapshot? _author;
   @override
   final AttachmentsCubit? _attachments;
@@ -416,6 +433,16 @@ class ComposerCubit extends Cubit<ComposerState>
   void _watchAttachments() {
     final attachments = _attachments;
     if (attachments == null) return;
+    // Photos that come with the composer (Edit on a failed post).
+    final held = attachments.state;
+    if (!held.isEmpty) {
+      emit(
+        state.copyWith(
+          hasAttachments: true,
+          attachmentsReady: held.isSendable && !held.isBusy,
+        ),
+      );
+    }
     _attachmentsSub = attachments.stream.listen((a) {
       if (isClosed) return;
       final hasAttachments = !a.isEmpty;

@@ -78,6 +78,36 @@ void main() {
       expect(cubit.state.newPosts, 0);
     });
 
+    test(
+      'the pill carries up to 3 distinct authors of the held posts',
+      () async {
+        stubCached(snapshotOf([1]));
+        stubRefresh(
+          TimelineSnapshot(
+            sinceToken: 's2',
+            entries: [
+              postEntry(6, authorId: 'a'),
+              postEntry(5, authorId: 'a'),
+              postEntry(4, authorId: 'b'),
+              postEntry(3, authorId: 'c'),
+              postEntry(2, authorId: 'd'),
+              postEntry(1),
+            ],
+          ),
+        );
+
+        await cubit.load();
+
+        expect(cubit.state.newPosts, 5);
+        expect(
+          [for (final a in cubit.state.newPostAuthors) a.userId],
+          ['a', 'b', 'c'],
+        );
+        cubit.showNewPosts();
+        expect(cubit.state.newPostAuthors, isEmpty);
+      },
+    );
+
     test('an empty cache inserts the first page directly', () async {
       stubCached(const TimelineSnapshot());
       stubRefresh(snapshotOf([3, 2, 1]));

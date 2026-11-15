@@ -107,6 +107,10 @@ void main() {
     ThemeData? theme,
     double textScale = 1,
     bool keepSize = false,
+
+    /// False while a sending row is on screen: its progress bar animates
+    /// forever, so pumpAndSettle would time out.
+    bool settle = true,
   }) async {
     // The 3:1 band and the taller header need a taller screen to
     // build the first posts of the lazy list.
@@ -142,7 +146,12 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+      await tester.pump();
+    }
   }
 
   testWidgets('another profile: header, Posts tab and its posts', (
@@ -281,7 +290,7 @@ void main() {
       ),
     );
 
-    await open(tester);
+    await open(tester, settle: false);
 
     expect(find.text('my pending post'), findsOneWidget);
     expect(find.text('Posting...'), findsOneWidget);

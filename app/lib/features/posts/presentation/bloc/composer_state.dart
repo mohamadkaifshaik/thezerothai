@@ -1,6 +1,14 @@
 part of 'composer_cubit.dart';
 
-enum ComposerStatus { editing, submitting, posted }
+enum ComposerStatus {
+  editing,
+  submitting,
+  posted,
+
+  /// The post was handed to the session's `PostSender`: the composer is done
+  /// (the screen closes) and the status row on Home carries it from here.
+  handedOff,
+}
 
 /// The answer of [ComposerCubit.loadSavedDraft].
 enum DraftLoadResult {

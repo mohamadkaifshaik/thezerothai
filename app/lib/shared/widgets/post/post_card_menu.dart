@@ -43,6 +43,118 @@ class _MenuTarget {
   final String subject;
 }
 
+/// What the card's long press needs from the [_PostMenu] inside it: its
+/// controller, the anchor's key (to place the menu at the press) and whether
+/// the menu has any row to offer (it renders nothing otherwise).
+class _PostMenuHandle extends ChangeNotifier {
+  final MenuController controller = MenuController();
+  final GlobalKey anchorKey = GlobalKey();
+  bool _available = false;
+  bool _disposed = false;
+
+  bool get available => _available;
+
+  /// A no-op once disposed: the menu reports from a post-frame callback, and
+  /// a card scrolled out of a lazy list can dispose the handle before it runs.
+  void setAvailable(bool value) {
+    if (_disposed || _available == value) return;
+    _available = value;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+}
+
+class _PostMenuScope extends InheritedWidget {
+  const _PostMenuScope({required this.handle, required super.child});
+
+  final _PostMenuHandle handle;
+
+  static _PostMenuHandle? maybeOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<_PostMenuScope>()?.handle;
+
+  @override
+  bool updateShouldNotify(_PostMenuScope oldWidget) =>
+      handle != oldWidget.handle;
+}
+
+/// Long press on the card opens the same overflow menu as the "..." button,
+/// anchored at the press, with a medium haptic tap on mobile. It also exposes
+/// the menu as a "More options" custom action for screen readers.
+class _PostLongPressMenu extends StatefulWidget {
+  const _PostLongPressMenu({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_PostLongPressMenu> createState() => _PostLongPressMenuState();
+}
+
+class _PostLongPressMenuState extends State<_PostLongPressMenu> {
+  final _PostMenuHandle _handle = _PostMenuHandle();
+
+  @override
+  void dispose() {
+    _handle.dispose();
+    super.dispose();
+  }
+
+  void _openAtButton() {
+    if (_handle.available) _handle.controller.open();
+  }
+
+  void _onLongPress(LongPressStartDetails details) {
+    if (!_handle.available) return;
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
+      unawaited(HapticFeedback.mediumImpact().catchError((_) {}));
+    }
+    final anchor = _handle.anchorKey.currentContext?.findRenderObject();
+    if (anchor is RenderBox && anchor.attached) {
+      _handle.controller.open(
+        position: anchor.globalToLocal(details.globalPosition),
+      );
+    } else {
+      _handle.controller.open();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _handle,
+      builder: (context, child) => Semantics(
+        customSemanticsActions: _handle.available
+            ? {
+                const CustomSemanticsAction(label: 'More options'):
+                    _openAtButton,
+              }
+            : null,
+        child: child,
+      ),
+      // A RawGestureDetector with no semantics delegate: GestureDetector
+      // adds a long-press semantics node that merges the card's
+      // descendant labels into one.
+      child: RawGestureDetector(
+        excludeFromSemantics: true,
+        gestures: <Type, GestureRecognizerFactory>{
+          LongPressGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+                LongPressGestureRecognizer.new,
+                (instance) => instance.onLongPressStart = _onLongPress,
+              ),
+        },
+        child: _PostMenuScope(handle: _handle, child: widget.child),
+      ),
+    );
+  }
+}
+
 /// The overflow menu. For another author it holds ONE [RelationshipCubit]
 /// for the card's lifetime (created on first open), so a retry after a
 /// failed Block/Mute reuses the same idempotency key (the idempotency rule).
@@ -112,6 +224,7 @@ class _PostMenuState extends State<_PostMenu> {
   Widget build(BuildContext context) {
     final target = widget.target;
     final handle = target.handle;
+    final scope = _PostMenuScope.maybeOf(context);
     final canDelete = widget.isOwn && widget.onDelete != null;
     final canGraph =
         !target.isOwn && widget.graphActionsEnabled && target.userId.isNotEmpty;
@@ -130,16 +243,21 @@ class _PostMenuState extends State<_PostMenu> {
         pin.offersRowFor(widget.post.postId);
     final mod = widget.moderationControl;
     final showHide = mod != null && mod.offersRowFor(widget.post);
-    if (!canDelete && !canGraph && !canReport && !showPin && !showHide) {
-      return const SizedBox.shrink();
+    final hasRows = canDelete || canGraph || canReport || showPin || showHide;
+    if (scope != null) {
+      // Not while building: the card's wrapper listens to this flag.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) scope.setAvailable(hasRows);
+      });
     }
+    if (!hasRows) return const SizedBox.shrink();
 
     // A MenuAnchor, not a PopupMenuButton: the popup is a modal route whose
     // barrier swallows drags, so an open menu froze the feed under it. This
     // one is an overlay entry with no barrier: a drag on the feed scrolls it,
     // and the anchor closes the menu on that scroll (and on an outside tap).
-    return MenuAnchor(
-      controller: _menu,
+    final anchor = MenuAnchor(
+      controller: scope?.controller ?? _menu,
       crossAxisUnconstrained: false,
       // Never wider than the screen: long labels wrap (large text) instead of
       // running off its edge, as the popup's own width cap did.
@@ -229,6 +347,10 @@ class _PostMenuState extends State<_PostMenu> {
             controller.isOpen ? controller.close() : controller.open(),
       ),
     );
+    // Keyed so the card's long press can place the menu at the press.
+    return scope == null
+        ? anchor
+        : KeyedSubtree(key: scope.anchorKey, child: anchor);
   }
 
   MenuItemButton _item(

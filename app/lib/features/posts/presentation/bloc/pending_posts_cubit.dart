@@ -3,10 +3,23 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 
-/// A post the user just sent that the server has not confirmed yet
-/// (optimistic insert). Lives in memory only: when `CreatePost` succeeds the
-/// repository has already put the real post into the cached feeds and the
-/// pending entry is dropped; on failure it is dropped too (rollback).
+/// Where a [PendingPost] is in its life.
+enum PendingPostStatus {
+  /// Uploading photos or waiting for CreatePost.
+  sending,
+
+  /// Stopped with [PendingPost.error]; the user may retry or edit.
+  failed,
+
+  /// The server accepted it; the row shows "Posted" for a moment.
+  posted,
+}
+
+/// A post the user just sent that the server has not confirmed yet. Lives in
+/// memory only: the status row on Home shows it while it sends, says
+/// "Posted" briefly once `CreatePost` succeeds (the repository has already
+/// put the real post into the cached feeds) and then drops it. A failed one
+/// stays until the user retries, edits or dismisses it.
 @immutable
 class PendingPost {
   const PendingPost({
@@ -15,21 +28,93 @@ class PendingPost {
     required this.author,
     required this.createdAt,
     this.thumbnails = const [],
+    this.status = PendingPostStatus.sending,
+    this.photosDone = 0,
+    this.photosTotal = 0,
+    this.uploading = false,
+    this.error,
+    this.canRetry = true,
+    this.draftId,
+    this.notice,
+    this.keepsPhotos = true,
+    this.needsVerify = false,
   });
 
-  /// The intent's idempotency key; unique per pending post.
+  /// Unique per pending post (the optimistic row's id).
   final String localId;
 
   /// The normalised text the server will store.
   final String text;
 
-  /// The viewer's own snapshot, so the card renders like a real post.
+  /// The viewer's own snapshot, so the row can show the avatar.
   final common.AuthorSnapshot author;
   final DateTime createdAt;
 
   /// On-device previews of the attached photos (already in memory, so the
   /// row shows them with no download).
   final List<Uint8List> thumbnails;
+
+  final PendingPostStatus status;
+
+  /// Photos finished / attached while [uploading].
+  final int photosDone;
+  final int photosTotal;
+
+  /// Photos are being uploaded (as opposed to the CreatePost call).
+  final bool uploading;
+
+  /// Why it failed (user-facing copy), when [status] is failed.
+  final String? error;
+
+  /// Retrying is safe and useful; false when only Edit makes sense.
+  final bool canRetry;
+
+  /// The unsent-post row that keeps the text on this device; Edit reopens
+  /// the composer on it. Null when unsent posts are off.
+  final String? draftId;
+
+  /// A warning on the "Posted" row (the server dropped a field).
+  final String? notice;
+
+  /// Edit brings the photos back into the composer (false: only the text).
+  final bool keepsPhotos;
+
+  /// The server wants a verified email: the row offers "Verify email".
+  final bool needsVerify;
+
+  /// 0..1 upload progress, or null when it is not a photo upload.
+  double? get progress =>
+      uploading && photosTotal > 0 ? photosDone / photosTotal : null;
+
+  PendingPost copyWith({
+    PendingPostStatus? status,
+    int? photosDone,
+    int? photosTotal,
+    bool? uploading,
+    String? error,
+    bool clearError = false,
+    bool? canRetry,
+    String? notice,
+    List<Uint8List>? thumbnails,
+    bool? keepsPhotos,
+    bool? needsVerify,
+  }) => PendingPost(
+    localId: localId,
+    text: text,
+    author: author,
+    createdAt: createdAt,
+    thumbnails: thumbnails ?? this.thumbnails,
+    status: status ?? this.status,
+    photosDone: photosDone ?? this.photosDone,
+    photosTotal: photosTotal ?? this.photosTotal,
+    uploading: uploading ?? this.uploading,
+    error: clearError ? null : (error ?? this.error),
+    canRetry: canRetry ?? this.canRetry,
+    draftId: draftId,
+    notice: notice ?? this.notice,
+    keepsPhotos: keepsPhotos ?? this.keepsPhotos,
+    needsVerify: needsVerify ?? this.needsVerify,
+  );
 }
 
 /// Session-wide list of [PendingPost]s, newest first. Home and the own
@@ -40,6 +125,12 @@ class PendingPostsCubit extends Cubit<List<PendingPost>> {
 
   void add(PendingPost post) {
     emit([post, ...state.where((p) => p.localId != post.localId)]);
+  }
+
+  /// Replaces the entry [localId] with [change] of it (no-op when gone).
+  void update(String localId, PendingPost Function(PendingPost) change) {
+    if (isClosed || state.every((p) => p.localId != localId)) return;
+    emit([for (final p in state) p.localId == localId ? change(p) : p]);
   }
 
   void remove(String localId) {

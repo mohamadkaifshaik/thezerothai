@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../theme/app_theme.dart';
 import '../../../features/auth/presentation/widgets/auth_gate.dart';
+import '../../../features/posts/presentation/bloc/post_sender.dart'
+    show PostEditSeed;
 import '../../../features/posts/presentation/composer_route.dart';
 import '../../../features/posts/presentation/composer_screen.dart';
 import '../../../features/posts/presentation/drafts_screen.dart';
@@ -53,7 +55,11 @@ GoRoute buildComposeRoute() => GoRoute(
     final draft = state.uri.queryParameters['draft'] ?? '';
     final community = state.uri.queryParameters['community'] ?? '';
     final quoteId = _postIdPattern.hasMatch(quote) ? quote : '';
-    final plan = state.uri.queryParameters['plan'] ?? '';
+    // A failed background post being edited (the status row's Edit).
+    final seed = state.extra is PostEditSeed
+        ? state.extra as PostEditSeed
+        : null;
+    final plan = seed?.beaconId ?? state.uri.queryParameters['plan'] ?? '';
     // Only a well-formed plan id (19 digits) attaches a plan, and never to a
     // quote (the server refuses the pair).
     final planId = quoteId.isEmpty && _postIdPattern.hasMatch(plan) ? plan : '';
@@ -85,6 +91,7 @@ GoRoute buildComposeRoute() => GoRoute(
                 ? state.extra as pb.EmbeddedPost
                 : null,
             planId: planId,
+            edit: seed,
             planPreview: planId.isNotEmpty && state.extra is pb.BeaconPreview
                 ? state.extra as pb.BeaconPreview
                 : null,
