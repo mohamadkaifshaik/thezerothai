@@ -164,6 +164,9 @@ Future<W6ComposerRig> pumpW6Composer(
         path: '/compose',
         builder: (context, state) => ComposerScreen(
           draftId: state.uri.queryParameters['draft'] ?? '',
+          edit: state.extra is PostEditSeed
+              ? state.extra as PostEditSeed
+              : null,
           scheduleClock: () => scheduleNow,
         ),
       ),

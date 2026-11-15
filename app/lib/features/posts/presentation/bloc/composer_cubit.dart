@@ -426,6 +426,16 @@ class ComposerCubit extends Cubit<ComposerState>
   void _watchAttachments() {
     final attachments = _attachments;
     if (attachments == null) return;
+    // Photos that come with the composer (Edit on a failed post).
+    final held = attachments.state;
+    if (!held.isEmpty) {
+      emit(
+        state.copyWith(
+          hasAttachments: true,
+          attachmentsReady: held.isSendable && !held.isBusy,
+        ),
+      );
+    }
     _attachmentsSub = attachments.stream.listen((a) {
       if (isClosed) return;
       final hasAttachments = !a.isEmpty;

@@ -644,6 +644,13 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// until [release].
   void retain() => _retained = true;
 
+  /// The sender hands the photos back to a composer (Edit): no longer
+  /// retained and no close is pending, the new screen owns the cubit.
+  void reclaim() {
+    _retained = false;
+    _closeRequested = false;
+  }
+
   /// The sender is done with the photos; closes the cubit when its screen
   /// already asked to.
   Future<void> release() {

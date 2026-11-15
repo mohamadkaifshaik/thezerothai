@@ -10,13 +10,16 @@ import '../../../../core/telemetry/usage_reporter.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
+import '../../../beacons/domain/beacons_feature_flag.dart';
+import '../../../communities/domain/communities_feature_flag.dart';
 import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../../media/presentation/media_error_messages.dart';
 import '../../data/drafts_repository.dart';
 import '../../data/posts_repository.dart';
+import '../../domain/composer_attachment_rules.dart';
 import '../../domain/composer_draft.dart';
 import '../../domain/poll_rules.dart';
-import '../../domain/post_intent.dart';
+import '../../domain/posts_feature_flag.dart';
 import '../../domain/reply_audience.dart';
 import '../post_error_messages.dart';
 import 'pending_posts_cubit.dart';
@@ -29,6 +32,7 @@ class PostSendJob {
     required this.text,
     required this.author,
     required this.policy,
+    this.replyAudience = ReplyAudience.everyone,
     this.poll,
     this.communityId = '',
     this.beaconId = '',
@@ -37,6 +41,7 @@ class PostSendJob {
     this.gif = false,
     this.uid = '',
     this.draftId,
+    this.deleteDraftId,
     this.claimKey,
     this.claimReused = false,
     this.claimStartedAt,
@@ -45,6 +50,9 @@ class PostSendJob {
   final String text;
   final common.AuthorSnapshot author;
   final ReplyPolicy policy;
+
+  /// The audience as the composer chose it (what Edit puts back).
+  final ReplyAudience replyAudience;
   final DraftPoll? poll;
   final String communityId;
   final String beaconId;
@@ -54,39 +62,110 @@ class PostSendJob {
   final List<Uint8List> thumbnails;
   final bool gif;
 
-  /// The unsent-post row holding the text and the claimed key, if any.
+  /// The account that owns the unsent-post row.
   final String uid;
+
+  /// The unsent-post row that holds the text and the claimed key; null when
+  /// there is none (Edit then reopens the composer from memory).
   final String? draftId;
+
+  /// The row to delete once the post exists (the composer's draft id, also
+  /// when the send holds no key on it).
+  final String? deleteDraftId;
   final String? claimKey;
   final bool claimReused;
   final DateTime? claimStartedAt;
 }
 
+/// What Edit hands to the composer: the post as it was, with whatever the
+/// server refused already taken out (the community, the poll, the plan, the
+/// audience, the photos), so it can be sent again.
+@immutable
+class PostEditSeed {
+  const PostEditSeed({
+    required this.text,
+    this.poll,
+    this.replyAudience = ReplyAudience.everyone,
+    this.communityId = '',
+    this.beaconId = '',
+    this.draftId,
+    this.attachments,
+  });
+
+  final String text;
+  final DraftPoll? poll;
+  final ReplyAudience replyAudience;
+  final String communityId;
+  final String beaconId;
+
+  /// The unsent-post row to continue (same id), when there is one.
+  final String? draftId;
+
+  /// The photos, still holding their uploads; the composer takes them over.
+  final AttachmentsCubit? attachments;
+
+  /// The seed as a draft for the composer.
+  ComposerDraft toDraft(String uid, DateTime now) => ComposerDraft(
+    id: draftId ?? DraftsRepository.newId(),
+    uid: uid,
+    text: text,
+    poll: poll,
+    replyAudience: replyAudience,
+    communityId: communityId,
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
 class _Entry {
   _Entry(this.localId, this.job, this.generation, this.openedSession)
-    : claimKey = job.claimKey;
+    : held = job.claimKey,
+      attachments = job.attachments;
   final String localId;
   final PostSendJob job;
   final int generation;
   final int openedSession;
 
-  /// The key claimed on the draft row; dropped when a refusal proved it unused.
-  String? claimKey;
+  /// The key the draft row holds for this send; null once released.
+  String? held;
 
-  /// CreatePost may have reached the server (so its key must be kept).
-  bool createAttempted = false;
+  /// The key of this send, pinned at its first CreatePost so every retry
+  /// (and never the bounded key memory) decides it.
+  String? key;
+
+  /// CreatePost was called at least once (never reset).
+  bool keyUsed = false;
+
+  /// An answer that does not prove nothing was created came back (never
+  /// reset): the key may exist on the server and must be kept.
+  bool ambiguous = false;
   bool running = false;
+
+  /// The photos; null once handed over, dropped or shed.
+  AttachmentsCubit? attachments;
+
+  /// Finished uploads kept after the bytes were shed.
+  List<String>? mediaIds;
+  List<String> altTexts = const [];
+  bool photosLost = false;
+
+  // What the server refused: Edit takes it out.
+  bool clearCommunity = false;
+  bool clearPlan = false;
+  bool clearPoll = false;
+  bool clearAudience = false;
+  bool dropPhotos = false;
 }
 
 /// Sends posts for the whole session after the composer closed: uploads the
 /// photos, then CreatePost, while `PendingPostsCubit` shows the status row.
 ///
 /// Retries never double-post: a send keeps ONE idempotency key (the key
-/// claimed on its draft row, else one remembered per request body), the
-/// uploader reuses finished uploads, and a refusal that proves nothing was
-/// created is the only thing that releases a stored key. Nothing starts after
-/// the session ended ([reset] / the epoch), and nothing of the previous
-/// session lingers.
+/// claimed on its draft row, else one pinned on the send at its first
+/// CreatePost), the uploader reuses finished uploads, and only an answer that
+/// proves nothing was created lets a stored key go. Nothing starts after the
+/// session ended ([reset] / the epoch), and nothing of the previous session
+/// lingers.
 class PostSender {
   PostSender({
     required PendingPostsCubit pending,
@@ -98,6 +177,7 @@ class PostSender {
     Uuid? uuid,
     DateTime Function()? clock,
     this.postedFor = const Duration(seconds: 4),
+    this.maxFailedWithPhotos = 3,
   }) : _pending = pending,
        _repository = repository,
        _drafts = drafts,
@@ -121,14 +201,14 @@ class PostSender {
   /// How long the "Posted" confirmation stays.
   final Duration postedFor;
 
+  /// Failed rows beyond this many drop their photo bytes (they keep any
+  /// finished upload, so Retry still works when every photo was uploaded).
+  final int maxFailedWithPhotos;
+
   StreamSubscription<int>? _sub;
   int _generation = 0;
   final Map<String, _Entry> _entries = {};
   final Map<String, Timer> _timers = {};
-
-  /// Idempotency key per request body for sends without a stored key.
-  final Map<String, String> _keys = {};
-  static const _maxKeys = 8;
 
   /// Sends currently running (tests wait for [idle]).
   final List<Future<void>> _running = [];
@@ -176,29 +256,64 @@ class PostSender {
       (x) => x.copyWith(
         status: PendingPostStatus.sending,
         clearError: true,
+        needsVerify: false,
         photosDone: 0,
-        uploading: (e.job.attachments?.state.count ?? 0) > 0,
+        uploading: (e.attachments?.state.count ?? 0) > 0,
       ),
     );
     return _run(e);
   }
 
-  /// The row leaves to be edited (Edit) or dropped (Dismiss). The text stays
-  /// in its unsent-post row; photos are not kept. A key that CreatePost never
-  /// used is released so the edited post is not seen as "an earlier version".
-  /// Returns the draft id to reopen, or null.
+  /// Dismiss: the row leaves, its photos are released. The text stays in its
+  /// unsent-post row. A stored key CreatePost never (or only provably
+  /// unsuccessfully) used is released, so a later send of that row is not seen
+  /// as "an earlier version". Returns the draft id, or null (also while the
+  /// send is still running: it cannot be dismissed then).
   Future<String?> release(String localId) async {
-    final e = _entries.remove(localId);
+    final e = _entries[localId];
+    if (e == null || e.running) return null;
+    _entries.remove(localId);
     _timers.remove(localId)?.cancel();
     _pending.remove(localId);
-    if (e == null) return null;
-    final key = e.claimKey;
-    final draftId = e.job.draftId;
-    if (key != null && draftId != null && !e.createAttempted) {
-      await _clearClaim(e.job.uid, draftId, key);
+    await _releaseHeldKey(e);
+    _dropPhotos(e);
+    return e.job.draftId;
+  }
+
+  /// Edit: the row leaves and the composer reopens from what is returned,
+  /// with whatever the server refused taken out. With photos still held they
+  /// go to the composer with their uploads. Null while the send is running.
+  Future<PostEditSeed?> edit(String localId) async {
+    final e = _entries[localId];
+    if (e == null || e.running) return null;
+    _entries.remove(localId);
+    _timers.remove(localId)?.cancel();
+    _pending.remove(localId);
+    await _releaseHeldKey(e);
+    final photos = e.attachments;
+    e.attachments = null;
+    AttachmentsCubit? keep;
+    if (photos != null) {
+      if (e.dropPhotos) {
+        unawaited(photos.release());
+      } else {
+        // Ownership moves to the composer: not retained, not closing.
+        photos.reclaim();
+        keep = photos;
+      }
     }
-    unawaited(e.job.attachments?.release());
-    return draftId;
+    final job = e.job;
+    return PostEditSeed(
+      text: job.text,
+      poll: e.clearPoll ? null : job.poll,
+      replyAudience: e.clearAudience
+          ? ReplyAudience.everyone
+          : job.replyAudience,
+      communityId: e.clearCommunity ? '' : job.communityId,
+      beaconId: e.clearPlan ? '' : job.beaconId,
+      draftId: job.draftId,
+      attachments: keep,
+    );
   }
 
   /// Sign-out or account switch: stop everything, forget everything.
@@ -210,10 +325,9 @@ class PostSender {
     _timers.clear();
     final entries = _entries.values.toList();
     _entries.clear();
-    _keys.clear();
     _pending.clear();
     for (final e in entries) {
-      unawaited(e.job.attachments?.release());
+      _dropPhotos(e);
     }
   }
 
@@ -222,18 +336,42 @@ class PostSender {
     await _sub?.cancel();
   }
 
+  /// Releases the entry's photos, once.
+  void _dropPhotos(_Entry e) {
+    final a = e.attachments;
+    e.attachments = null;
+    if (a != null) unawaited(a.release());
+  }
+
+  Future<void> _releaseHeldKey(_Entry e) async {
+    final key = e.held;
+    final draftId = e.job.draftId;
+    if (key == null || draftId == null) return;
+    if (e.job.claimReused || e.ambiguous) return;
+    e.held = null;
+    await _clearClaim(e.job.uid, draftId, key);
+  }
+
   Future<void> _run(_Entry e) {
     e.running = true;
-    final f = _send(e).whenComplete(() => e.running = false);
+    final f = _send(e);
     _running.add(f);
     return f.whenComplete(() => _running.remove(f));
   }
 
   Future<void> _send(_Entry e) async {
+    try {
+      await _attempt(e);
+    } finally {
+      e.running = false;
+    }
+  }
+
+  Future<void> _attempt(_Entry e) async {
     final job = e.job;
-    final attachments = job.attachments;
-    var mediaIds = const <String>[];
-    var altTexts = const <String>[];
+    final attachments = e.attachments;
+    var mediaIds = e.mediaIds ?? const <String>[];
+    var altTexts = e.altTexts;
     if (attachments != null && !attachments.state.isEmpty) {
       var lastDone = -1;
       final sub = attachments.stream.listen((s) {
@@ -271,18 +409,9 @@ class PostSender {
     }
     if (_dead(e)) return;
 
-    final intent = postIntentKey(
-      text: job.text,
-      mediaIds: mediaIds,
-      altTexts: altTexts,
-      policy: job.policy,
-      poll: job.poll,
-      communityId: job.communityId,
-      beaconId: job.beaconId,
-    );
-    final stored = e.claimKey;
-    if (stored != null &&
-        job.claimReused &&
+    // A stored key past its window may be forgotten by the server: only Edit.
+    if (e.held != null &&
+        (job.claimReused || e.keyUsed) &&
         sendKeyExpired(
           kind: SendKind.post,
           startedAt: job.claimStartedAt,
@@ -295,7 +424,8 @@ class PostSender {
         canRetry: false,
       );
     }
-    final key = stored ?? _keyFor(intent);
+    // The key is decided once and then reused by every retry.
+    final key = e.key ??= e.held ?? _uuid.v4();
     _pending.update(
       e.localId,
       (p) => p.copyWith(uploading: false, photosDone: p.photosTotal),
@@ -303,7 +433,7 @@ class PostSender {
     // No await between this check and the call: the repository reads the
     // session as createPost starts.
     if (_dead(e)) return;
-    e.createAttempted = true;
+    e.keyUsed = true;
     try {
       final poll = job.poll;
       final created = await _repository.createPost(
@@ -333,14 +463,13 @@ class PostSender {
           scheduled: false,
         ),
       );
-      _keys.remove(intent);
       // The post exists even if the session ended meanwhile; only the row
       // bookkeeping stops then.
-      final draftId = job.draftId;
-      if (draftId != null && _drafts != null) {
+      final deleteId = job.deleteDraftId ?? job.draftId;
+      if (deleteId != null && _drafts != null) {
         unawaited(
           _drafts
-              .delete(job.uid, [draftId])
+              .delete(job.uid, [deleteId])
               .then(
                 (_) {},
                 onError: (Object _, StackTrace stack) => _onUnexpectedError
@@ -348,7 +477,7 @@ class PostSender {
               ),
         );
       }
-      unawaited(job.attachments?.release());
+      _dropPhotos(e);
       if (_dead(e)) return;
       _entries.remove(e.localId);
       final notice = _notice(
@@ -371,11 +500,11 @@ class PostSender {
       });
     } on AppException catch (error) {
       if (_dead(e)) return;
-      await _failCreate(e, error);
+      _failCreate(e, error);
     } catch (error, stack) {
       _onUnexpectedError?.call(error, stack);
       if (_dead(e)) return;
-      await _failCreate(e, const UnknownApiException('Something went wrong.'));
+      _failCreate(e, const UnknownApiException('Something went wrong.'));
     }
   }
 
@@ -396,7 +525,16 @@ class PostSender {
     return null;
   }
 
-  Future<void> _failCreate(_Entry e, AppException error) async {
+  void _failCreate(_Entry e, AppException error) {
+    final job = e.job;
+    // Only these answers prove nothing was created; every other one (quota,
+    // network, MEDIA_NOT_READY, a community refusal, ...) may hide a post that
+    // landed, so the key stays for good.
+    final proves =
+        error is ValidationException ||
+        error is FeatureDisabledException ||
+        error is EmailNotVerifiedException;
+    if (!proves) e.ambiguous = true;
     if (error is IdempotencyKeyReusedException) {
       return _fail(
         e,
@@ -405,44 +543,112 @@ class PostSender {
         canRetry: false,
       );
     }
-    // Only a FRESH key whose first use was refused proves nothing was created
-    // (a reused key may have landed earlier; quota answers and
-    // MEDIA_NOT_READY are ambiguous).
-    final proves =
-        error is ValidationException ||
-        error is FeatureDisabledException ||
-        error is EmailNotVerifiedException;
-    final key = e.claimKey;
-    if (key != null && !e.job.claimReused && proves) {
-      e.claimKey = null;
-      e.createAttempted = false;
-      final draftId = e.job.draftId;
-      if (draftId != null) await _clearClaim(e.job.uid, draftId, key);
+    if (error is EmailNotVerifiedException) {
+      return _fail(e, createPostErrorMessage(error), needsVerify: true);
     }
-    if (_dead(e)) return;
-    _fail(e, createPostErrorMessage(error), canRetry: !proves);
+    // Permanent refusals: Retry would only repeat them. Edit reopens the
+    // composer with the field taken out, as the composer did itself.
+    final feature = error is FeatureDisabledException ? error.feature : null;
+    var permanent = proves;
+    if (feature == kFeaturePostBeaconEmbed ||
+        (error is NotFoundException && job.beaconId.isNotEmpty)) {
+      e.clearPlan = true;
+      permanent = true;
+    }
+    if (feature == kFeaturePolls && job.poll != null) e.clearPoll = true;
+    if (feature == kFeatureReplyAudience) e.clearAudience = true;
+    if (feature == kFeatureGif || feature == kPostsSubFeatureMedia) {
+      e.dropPhotos = true;
+    }
+    if (job.communityId.isNotEmpty) {
+      final gone =
+          (error is CommunityForbiddenException &&
+              (error.reason == CommunityForbiddenReason.notMember ||
+                  error.reason == CommunityForbiddenReason.banned)) ||
+          error is CommunityStateException ||
+          (error is NotFoundException && job.beaconId.isEmpty);
+      final refused =
+          feature == kFeatureCommunities || error is ProtectedAccountException;
+      if (gone || refused) {
+        e.clearCommunity = true;
+        permanent = true;
+      }
+    }
+    _fail(
+      e,
+      createPostErrorMessage(error),
+      canRetry: !permanent,
+      keepsPhotos: !e.dropPhotos,
+    );
   }
 
-  void _fail(_Entry e, String message, {bool canRetry = true}) {
+  void _fail(
+    _Entry e,
+    String message, {
+    bool canRetry = true,
+    bool needsVerify = false,
+    bool keepsPhotos = true,
+  }) {
     if (_dead(e)) return;
+    // Retry works from here on, not only once the send's future completes.
+    e.running = false;
     _pending.update(
       e.localId,
       (p) => p.copyWith(
         status: PendingPostStatus.failed,
         error: message,
-        canRetry: canRetry,
+        canRetry: canRetry && !e.photosLost,
+        needsVerify: needsVerify,
+        keepsPhotos: keepsPhotos && !e.photosLost,
         uploading: false,
       ),
     );
+    _shedOldFailed();
   }
 
-  String _keyFor(String intent) {
-    final key = _keys.remove(intent) ?? _uuid.v4();
-    _keys[intent] = key;
-    while (_keys.length > _maxKeys) {
-      _keys.remove(_keys.keys.first);
+  /// At most [maxFailedWithPhotos] failed rows keep their photo bytes: older
+  /// ones keep only their finished uploads (Retry still works when every photo
+  /// had been uploaded; otherwise Edit has the text only).
+  void _shedOldFailed() {
+    final failed = [
+      for (final e in _entries.values)
+        if (!e.running &&
+            e.attachments != null &&
+            _pending.state.any(
+              (p) =>
+                  p.localId == e.localId &&
+                  p.status == PendingPostStatus.failed,
+            ))
+          e,
+    ];
+    final over = failed.length - maxFailedWithPhotos;
+    for (var i = 0; i < over; i++) {
+      final e = failed[i];
+      final photos = e.attachments!;
+      final items = photos.state.items;
+      final uploaded =
+          items.isNotEmpty &&
+          items.every(
+            (a) =>
+                a.status == AttachmentStatus.uploaded && a.mediaId.isNotEmpty,
+          );
+      if (uploaded) {
+        e.mediaIds = [for (final a in items) a.mediaId];
+        final alts = [for (final a in items) a.altText];
+        e.altTexts = alts.every((t) => t.isEmpty) ? const [] : alts;
+      } else {
+        e.photosLost = true;
+      }
+      _dropPhotos(e);
+      _pending.update(
+        e.localId,
+        (p) => p.copyWith(
+          thumbnails: const [],
+          keepsPhotos: false,
+          canRetry: uploaded && p.canRetry,
+        ),
+      );
     }
-    return key;
   }
 
   Future<void> _clearClaim(String uid, String draftId, String key) async {

@@ -36,6 +36,8 @@ class PendingPost {
     this.canRetry = true,
     this.draftId,
     this.notice,
+    this.keepsPhotos = true,
+    this.needsVerify = false,
   });
 
   /// Unique per pending post (the optimistic row's id).
@@ -74,6 +76,12 @@ class PendingPost {
   /// A warning on the "Posted" row (the server dropped a field).
   final String? notice;
 
+  /// Edit brings the photos back into the composer (false: only the text).
+  final bool keepsPhotos;
+
+  /// The server wants a verified email: the row offers "Verify email".
+  final bool needsVerify;
+
   /// 0..1 upload progress, or null when it is not a photo upload.
   double? get progress =>
       uploading && photosTotal > 0 ? photosDone / photosTotal : null;
@@ -87,12 +95,15 @@ class PendingPost {
     bool clearError = false,
     bool? canRetry,
     String? notice,
+    List<Uint8List>? thumbnails,
+    bool? keepsPhotos,
+    bool? needsVerify,
   }) => PendingPost(
     localId: localId,
     text: text,
     author: author,
     createdAt: createdAt,
-    thumbnails: thumbnails,
+    thumbnails: thumbnails ?? this.thumbnails,
     status: status ?? this.status,
     photosDone: photosDone ?? this.photosDone,
     photosTotal: photosTotal ?? this.photosTotal,
@@ -101,6 +112,8 @@ class PendingPost {
     canRetry: canRetry ?? this.canRetry,
     draftId: draftId,
     notice: notice ?? this.notice,
+    keepsPhotos: keepsPhotos ?? this.keepsPhotos,
+    needsVerify: needsVerify ?? this.needsVerify,
   );
 }
 

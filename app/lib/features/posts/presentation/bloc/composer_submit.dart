@@ -311,6 +311,7 @@ mixin _ComposerSubmit on _ComposerHost {
           text: text,
           author: _author!,
           policy: _policyToSend,
+          replyAudience: state.replyAudience,
           poll: poll,
           communityId: _communityToSend,
           beaconId: state.beaconId,
@@ -319,6 +320,9 @@ mixin _ComposerSubmit on _ComposerHost {
           gif: attachments?.state.hasGif ?? false,
           uid: _draftUid,
           draftId: draftId,
+          // The composer's row goes when the post exists, also when this
+          // send holds no key on it (an image-only post of a saved draft).
+          deleteDraftId: _drafts == null ? null : _base.id,
           claimKey: key,
           claimReused: claim.reused,
           claimStartedAt: startedAt,

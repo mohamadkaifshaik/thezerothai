@@ -6,10 +6,13 @@ import '../../../features/posts/presentation/bloc/pending_posts_cubit.dart';
 /// The status row above Home for a post being sent in the background: a
 /// small thumbnail (or an icon), what is happening ("Uploading 2 of 3
 /// photos", "Posting...", "Posted", "Couldn't post"), a one-line preview of
-/// the text and a progress bar. A failed post offers Retry, Edit and Dismiss.
+/// the text and a progress bar. A failed post offers Retry, Edit and Dismiss
+/// (and "Verify email" when the server asks for it).
 ///
-/// The status line is a live region, so a screen reader announces each
-/// change (sending, failed, posted) without the user moving focus.
+/// Accessibility: the row is one container labelled with the post's preview,
+/// so each action says which post it acts on. The status line is a live
+/// region that announces only the state changes (sending, posted, failed),
+/// never the upload counter.
 class PendingPostStatusRow extends StatelessWidget {
   const PendingPostStatusRow({
     super.key,
@@ -17,12 +20,14 @@ class PendingPostStatusRow extends StatelessWidget {
     this.onRetry,
     this.onEdit,
     this.onDismiss,
+    this.onVerify,
   });
 
   final PendingPost post;
   final VoidCallback? onRetry;
   final VoidCallback? onEdit;
   final VoidCallback? onDismiss;
+  final VoidCallback? onVerify;
 
   /// The words for the status line.
   static String statusText(PendingPost p) {
@@ -42,6 +47,24 @@ class PendingPostStatusRow extends StatelessWidget {
     }
   }
 
+  /// What a screen reader announces when the status changes: the state only.
+  static String announcement(PendingPost p) {
+    switch (p.status) {
+      case PendingPostStatus.posted:
+        return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
+      case PendingPostStatus.failed:
+        return "Couldn't post. ${p.error ?? ''}".trim();
+      case PendingPostStatus.sending:
+        return 'Posting';
+    }
+  }
+
+  static String _preview(PendingPost p) {
+    final collapsed = p.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (collapsed.isNotEmpty) return collapsed;
+    return p.thumbnails.isEmpty ? '' : 'Photo post';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -56,126 +79,147 @@ class PendingPostStatusRow extends StatelessWidget {
         ? Icons.check_circle_outline
         : Icons.schedule_send_outlined;
     final tone = failed ? scheme.error : scheme.onSurfaceVariant;
-    final preview = post.text.trim().isEmpty
-        ? (post.thumbnails.isEmpty ? '' : 'Photo post')
-        : post.text.replaceAll(RegExp(r'\s+'), ' ');
-    return Container(
-      margin: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      padding: const EdgeInsets.all(AppSpacing.smd),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(
-          color: failed ? scheme.error : scheme.outlineVariant,
+    final preview = _preview(post);
+    final about = preview.isEmpty ? 'your post' : '"$preview"';
+    final minTap = Size(AppSpacing.minTapTarget, AppSpacing.minTapTarget);
+    Widget action(String label, String semantics, VoidCallback onTap) =>
+        Semantics(
+          button: true,
+          label: semantics,
+          excludeSemantics: true,
+          onTap: onTap,
+          child: TextButton(
+            style: TextButton.styleFrom(minimumSize: minTap),
+            onPressed: onTap,
+            child: Text(label),
+          ),
+        );
+    return Semantics(
+      container: true,
+      label: 'Post: $about',
+      child: Container(
+        margin: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                child: SizedBox.square(
-                  dimension: AppSpacing.xl,
-                  child: thumb == null
-                      ? ColoredBox(
-                          color: scheme.surfaceContainer,
-                          child: Icon(icon, color: tone),
-                        )
-                      : ExcludeSemantics(
-                          child: Image.memory(
-                            thumb,
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
-                            errorBuilder: (_, _, _) => Icon(icon, color: tone),
+        padding: const EdgeInsets.all(AppSpacing.smd),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(
+            color: failed ? scheme.error : scheme.outlineVariant,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: SizedBox.square(
+                    dimension: AppSpacing.xl,
+                    child: thumb == null
+                        ? ColoredBox(
+                            color: scheme.surfaceContainer,
+                            child: Icon(icon, color: tone),
+                          )
+                        : ExcludeSemantics(
+                            child: Image.memory(
+                              thumb,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                              errorBuilder: (_, _, _) =>
+                                  Icon(icon, color: tone),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.smd),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Announced on change; the visible text (with the photo
+                      // counter) is not read out a second time.
+                      Semantics(
+                        liveRegion: true,
+                        container: true,
+                        label: announcement(post),
+                        excludeSemantics: true,
+                        child: Text(
+                          status,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: failed ? scheme.error : scheme.onSurface,
                           ),
                         ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.smd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Semantics(
-                      liveRegion: true,
-                      container: true,
-                      child: Text(
-                        status,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: failed ? scheme.error : scheme.onSurface,
+                      ),
+                      if (preview.isNotEmpty)
+                        ExcludeSemantics(
+                          child: Text(
+                            preview,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    if (preview.isNotEmpty)
-                      Text(
-                        preview,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              if (posted)
-                Icon(Icons.check_circle, color: scheme.primary)
-              else if (failed && onDismiss != null)
-                IconButton(
-                  tooltip: 'Dismiss',
-                  constraints: const BoxConstraints(
-                    minWidth: AppSpacing.minTapTarget,
-                    minHeight: AppSpacing.minTapTarget,
+                    ],
                   ),
-                  onPressed: onDismiss,
-                  icon: const Icon(Icons.close),
                 ),
-            ],
-          ),
-          if (post.status == PendingPostStatus.sending) ...[
-            const SizedBox(height: AppSpacing.sm),
-            ExcludeSemantics(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                child: LinearProgressIndicator(value: post.progress),
-              ),
-            ),
-          ],
-          if (failed)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (onEdit != null)
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(
-                        AppSpacing.minTapTarget,
-                        AppSpacing.minTapTarget,
-                      ),
+                if (posted)
+                  ExcludeSemantics(
+                    child: Icon(Icons.check_circle, color: scheme.primary),
+                  )
+                else if (failed && onDismiss != null)
+                  IconButton(
+                    tooltip: 'Dismiss $about',
+                    constraints: BoxConstraints(
+                      minWidth: minTap.width,
+                      minHeight: minTap.height,
                     ),
-                    onPressed: onEdit,
-                    child: Text(post.thumbnails.isEmpty ? 'Edit' : 'Edit text'),
-                  ),
-                if (post.canRetry && onRetry != null)
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(
-                        AppSpacing.minTapTarget,
-                        AppSpacing.minTapTarget,
-                      ),
-                    ),
-                    onPressed: onRetry,
-                    child: const Text('Retry'),
+                    onPressed: onDismiss,
+                    icon: const Icon(Icons.close),
                   ),
               ],
             ),
-        ],
+            if (post.status == PendingPostStatus.sending) ...[
+              const SizedBox(height: AppSpacing.sm),
+              ExcludeSemantics(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: LinearProgressIndicator(value: post.progress),
+                ),
+              ),
+            ],
+            if (failed)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (post.needsVerify && onVerify != null)
+                    action(
+                      'Verify email',
+                      'Verify email for $about',
+                      onVerify!,
+                    ),
+                  if (onEdit != null)
+                    action(
+                      post.keepsPhotos || post.thumbnails.isEmpty
+                          ? 'Edit'
+                          : 'Edit text only',
+                      post.keepsPhotos || post.thumbnails.isEmpty
+                          ? 'Edit $about'
+                          : 'Edit text of $about, photos will be removed',
+                      onEdit!,
+                    ),
+                  if (post.canRetry && onRetry != null)
+                    action('Retry', 'Retry sending $about', onRetry!),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }

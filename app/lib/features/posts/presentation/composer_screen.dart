@@ -100,8 +100,14 @@ class ComposerScreen extends StatelessWidget {
     this.planPreview,
     this.draftId = '',
     this.communityId = '',
+    this.edit,
     @visibleForTesting this.scheduleClock,
   });
+
+  /// A failed background post being edited (the status row's Edit): the
+  /// composer opens on its text, audience, poll and community, and on its
+  /// photos when they are still held. Wins over [draftId].
+  final PostEditSeed? edit;
 
   final String quoteOfPostId;
 
@@ -165,6 +171,15 @@ class ComposerScreen extends StatelessWidget {
             !(context.read<AppDatabase?>()?.keepsNothing ?? false)
         ? (context.read<AuthBloc>().state.user?.uid ?? '')
         : '';
+    final seed = edit;
+    if (seed != null && quoteOfPostId.isEmpty) {
+      return _composer(
+        context,
+        uid: uid,
+        initial: seed.toDraft(uid, DateTime.now()),
+        seed: seed,
+      );
+    }
     if (uid.isNotEmpty && draftId.isNotEmpty) {
       return _DraftLoader(
         uid: uid,
@@ -187,6 +202,7 @@ class ComposerScreen extends StatelessWidget {
     BuildContext context, {
     required String uid,
     ComposerDraft? initial,
+    PostEditSeed? seed,
   }) {
     final profile = context.read<OnboardingBloc>().state.profile;
     // The photo button exists only with FEATURE_MEDIA on (plan D3); with
@@ -207,22 +223,25 @@ class ComposerScreen extends StatelessWidget {
       providers: [
         if (mediaEnabled)
           BlocProvider<AttachmentsCubit>(
-            create: (context) => AttachmentsCubit(
-              picker: context.read<ImagePickerService>(),
-              processor: context.read<ImageProcessor>(),
-              uploader: MediaUploader(
-                repository: context.read<MediaRepository>(),
-                onUnexpectedError: context.read<UnexpectedErrorReporter>(),
-              ),
-              // Only a composer that offers GIFs needs the GIF pieces.
-              gifSource: featureEnabledSnapshot(context, kFeatureGif)
-                  ? context.read<GifSource>()
-                  : null,
-              gifPreparer: featureEnabledSnapshot(context, kFeatureGif)
-                  ? context.read<GifPreparer>()
-                  : null,
-              gifEnabled: featureEnabledSnapshot(context, kFeatureGif),
-            ),
+            // Edit on a failed post brings its photos (and their uploads).
+            create: (context) =>
+                seed?.attachments ??
+                AttachmentsCubit(
+                  picker: context.read<ImagePickerService>(),
+                  processor: context.read<ImageProcessor>(),
+                  uploader: MediaUploader(
+                    repository: context.read<MediaRepository>(),
+                    onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+                  ),
+                  // Only a composer that offers GIFs needs the GIF pieces.
+                  gifSource: featureEnabledSnapshot(context, kFeatureGif)
+                      ? context.read<GifSource>()
+                      : null,
+                  gifPreparer: featureEnabledSnapshot(context, kFeatureGif)
+                      ? context.read<GifPreparer>()
+                      : null,
+                  gifEnabled: featureEnabledSnapshot(context, kFeatureGif),
+                ),
           ),
         BlocProvider<ComposerCubit>(
           create: (context) => ComposerCubit(

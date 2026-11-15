@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
+import '../../../features/auth/presentation/widgets/verify_email_view.dart';
 import '../../../features/posts/presentation/bloc/pending_posts_cubit.dart';
 import '../../../features/posts/presentation/bloc/post_sender.dart';
 import 'pending_post_status_row.dart';
@@ -36,13 +37,11 @@ class PendingPostsSection extends StatelessWidget {
             key: ValueKey('pending-${p.localId}'),
             post: p,
             onRetry: sender == null ? null : () => sender.retry(p.localId),
-            // Edit reopens the composer on the saved text; without an
-            // unsent-post row there is nothing to reopen.
-            onEdit:
-                sender == null || p.draftId == null
-                ? null
-                : () => _edit(context, sender, p),
+            // Edit is always there: the composer reopens from the post
+            // itself (its unsent-post row when it has one).
+            onEdit: sender == null ? null : () => _edit(context, sender, p),
             onDismiss: sender == null ? null : () => sender.release(p.localId),
+            onVerify: sender == null ? null : () => _verify(context, p),
           ),
       ],
     );
@@ -54,7 +53,20 @@ class PendingPostsSection extends StatelessWidget {
     PendingPost p,
   ) async {
     final router = GoRouter.of(context);
-    final id = await sender.release(p.localId);
-    if (id != null) router.push(AppRouter.composeDraftPath(id));
+    final seed = await sender.edit(p.localId);
+    if (seed != null) {
+      await router.push<void>(AppRouter.composePath, extra: seed);
+    }
+  }
+
+  /// The existing verify-email screen, over the page; Retry follows.
+  void _verify(BuildContext context, PendingPost p) {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    navigator.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            VerifyEmailView(banner: p.error, onBack: () => navigator.pop()),
+      ),
+    );
   }
 }
