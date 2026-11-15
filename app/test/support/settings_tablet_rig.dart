@@ -35,6 +35,8 @@ import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart';
 import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
 import 'package:dzeroth/features/settings/domain/settings_categories.dart';
+import 'package:dzeroth/features/settings/presentation/bloc/data_usage_cubit.dart';
+import 'package:dzeroth/features/settings/presentation/data_usage_screen.dart';
 import 'package:dzeroth/features/settings/presentation/message_settings_screen.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/features/settings/presentation/settings_up.dart';
@@ -169,6 +171,7 @@ class SettingsTabletRig {
     FakeDraftsRepository? drafts,
     OwnPrivacyStore? ownPrivacy,
     TextSizeCubit? textSize,
+    DataUsageCubit? dataUsage,
     NotificationsRepository? notifications,
     PostsRepository? posts,
     LocationRepository? locationRepo,
@@ -308,6 +311,10 @@ class SettingsTabletRig {
               builder: (context, state) => const MessageSettingsScreen(),
             ),
             GoRoute(
+              path: AppRouter.dataUsagePath,
+              builder: (context, state) => const DataUsageScreen(),
+            ),
+            GoRoute(
               path: AppRouter.locationSettingsPath,
               builder: (context, state) => const LocationSettingsScreen(),
             ),
@@ -339,6 +346,8 @@ class SettingsTabletRig {
         ),
         if (textSize != null)
           BlocProvider<TextSizeCubit>.value(value: textSize),
+        if (dataUsage != null)
+          BlocProvider<DataUsageCubit>.value(value: dataUsage),
       ],
       child: MultiRepositoryProvider(
         providers: [

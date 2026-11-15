@@ -43,7 +43,9 @@ import '../../profile/domain/profile_edit_feature_flag.dart';
 import '../domain/private_accounts_feature_flag.dart';
 import '../domain/message_privacy.dart';
 import '../domain/settings_categories.dart';
+import 'bloc/data_usage_cubit.dart';
 import 'bloc/message_privacy_cubit.dart';
+import 'data_usage_messages.dart';
 import 'bloc/protect_posts_cubit.dart';
 import 'message_settings_messages.dart';
 import 'protect_posts_messages.dart';
@@ -705,6 +707,7 @@ class _SettingsRows {
     required this.scheduled,
     required this.appearance,
     required this.textSize,
+    required this.dataUsage,
     required this.protect,
     required this.telemetry,
     required this.blocked,
@@ -729,6 +732,7 @@ class _SettingsRows {
   final Widget? scheduled;
   final Widget appearance;
   final Widget? textSize;
+  final Widget? dataUsage;
   final Widget? protect;
   final List<Widget> telemetry;
   final Widget? blocked;
@@ -770,7 +774,7 @@ class _SettingsRows {
     // Only decides whether the category shows: its page is the push
     // switches themselves (`NotificationSettingsBody`).
     SettingsCategory.notifications => [?notifications],
-    SettingsCategory.display => [appearance, ?textSize],
+    SettingsCategory.display => [appearance, ?textSize, ?dataUsage],
     SettingsCategory.about => [communityRules, privacyPolicy],
   };
 
@@ -804,7 +808,7 @@ class _SettingsRows {
         ?messages,
       ],
     ),
-    ('App', [appearance, ?textSize, ?notifications, ?scheduled]),
+    ('App', [appearance, ?textSize, ?dataUsage, ?notifications, ?scheduled]),
     ('Data', [?export, ?unsent, privacyPolicy, communityRules, ?deleteAccount]),
     ('Session', [signOut]),
   ];
@@ -836,6 +840,7 @@ class _SettingsRows {
       SettingsCategory.display => [
         'appearance',
         if (textSize != null) 'text size',
+        if (dataUsage != null) 'data usage',
       ],
       SettingsCategory.about => ['Privacy Policy', 'Community rules'],
     };
@@ -897,6 +902,10 @@ _SettingsRows _rowsFor(
   );
   final textSize = context.select<TextSizeCubit?, AppTextSize?>(
     (cubit) => cubit?.state,
+  );
+  // Device level, no flag. Absent without the cubit (a test harness).
+  final dataUsageReady = context.select<DataUsageCubit?, bool>(
+    (cubit) => cubit != null,
   );
 
   // The legacy chrome (no `ui_shell`) has no Messages tab, so Settings
@@ -992,6 +1001,15 @@ _SettingsRows _rowsFor(
                 ? 'Your device text size is already large.'
                 : null,
           ),
+    dataUsage: dataUsageReady
+        ? SettingsRow(
+            icon: Icons.data_usage_outlined,
+            title: kDataUsageTitle,
+            subtitle: kDataUsageRowSubtitle,
+            selected: isSelected(AppRouter.dataUsagePath),
+            onTap: () => open(AppRouter.dataUsagePath),
+          )
+        : null,
     protect: showProtect ? const ProtectPostsRow() : null,
     // Only on Android, only while the kind's flag is on.
     telemetry: [

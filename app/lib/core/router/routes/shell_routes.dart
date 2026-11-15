@@ -50,6 +50,7 @@ import '../../../features/profile/presentation/change_handle_screen.dart';
 import '../../../features/profile/presentation/edit_profile_screen.dart';
 import '../../../features/profile/presentation/profile_screen.dart';
 import '../../../features/settings/domain/settings_categories.dart';
+import '../../../features/settings/presentation/data_usage_screen.dart';
 import '../../../features/settings/presentation/message_settings_screen.dart';
 import '../../../features/settings/presentation/settings_screen.dart';
 import '../main_shell.dart';
@@ -355,6 +356,10 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
       path: AppRouter.messageSettingsPath,
       builder: (context, state) =>
           const AuthGate(child: MessageSettingsScreen()),
+    ),
+    GoRoute(
+      path: AppRouter.dataUsagePath,
+      builder: (context, state) => const AuthGate(child: DataUsageScreen()),
     ),
     GoRoute(
       path: AppRouter.locationSettingsPath,

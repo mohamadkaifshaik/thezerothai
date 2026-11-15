@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../support/fake_network_type_service.dart';
+
 import 'package:dzeroth/features/premium/domain/subscription_repository.dart';
 import 'package:dzeroth/features/premium/domain/subscription_models.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart'
@@ -194,6 +196,7 @@ void main() {
     );
     await tester.pumpWidget(
       AppWidget(
+        networkTypeService: FakeNetworkTypeService(),
         authBloc: authBloc,
         onboardingBloc: onboardingBloc,
         identityRepository: MockIdentityRepository(),

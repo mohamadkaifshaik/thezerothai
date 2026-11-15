@@ -44,6 +44,7 @@ abstract interface class ImageProcessor {
     Uint8List bytes,
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
+    ImageQuality? quality,
   });
 }
 
@@ -66,17 +67,18 @@ class IsolateImageProcessor implements ImageProcessor {
     Uint8List bytes,
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
+    ImageQuality? quality,
   }) async {
     // Cheap header checks first: an oversized file never reaches a decoder.
     preflightImage(bytes);
     cancellation?.throwIfCancelled();
-    final work = compute(_run, (bytes, purpose));
+    final work = compute(_run, (bytes, purpose, quality ?? ImageQuality.high));
     return cancellation == null ? work : cancellation.guard(work);
   }
 }
 
-ProcessedImage _run((Uint8List, ImagePurpose) args) =>
-    processImageSync(args.$1, args.$2);
+ProcessedImage _run((Uint8List, ImagePurpose, ImageQuality) args) =>
+    processImageSync(args.$1, args.$2, quality: args.$3);
 
 /// Synchronous core, exported for tests and for [IsolateImageProcessor].
 ///
@@ -86,7 +88,11 @@ ProcessedImage _run((Uint8List, ImagePurpose) args) =>
 /// - Downscales to the purpose's full edge (never upscales), encodes JPEG
 ///   stepping quality (then size) down until it fits the signed-URL cap.
 /// - Avatars are center-cropped to a square first.
-ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
+ProcessedImage processImageSync(
+  Uint8List bytes,
+  ImagePurpose purpose, {
+  ImageQuality quality = ImageQuality.high,
+}) {
   img.Image? decoded;
   try {
     decoded = img.decodeImage(bytes);
@@ -111,10 +117,9 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
       height: crop.height,
     );
   }
-  final fullEdge = avatar ? kAvatarFullEdge : kPostFullEdge;
-  final thumbEdge = avatar ? kAvatarThumbEdge : kPostThumbEdge;
-
-  final spec = PurposeSpec.of(purpose);
+  final spec = PurposeSpec.of(purpose, quality: quality);
+  final fullEdge = spec.fullEdge;
+  final thumbEdge = spec.thumbEdge;
   final full = _encodeWithin(
     source,
     fullEdge,

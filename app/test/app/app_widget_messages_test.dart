@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../support/fake_network_type_service.dart';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/app_widget.dart';
@@ -188,6 +190,7 @@ void main() {
         .thenAnswer((_) => const Stream<BookmarkEvent>.empty());
     await tester.pumpWidget(
       AppWidget(
+        networkTypeService: FakeNetworkTypeService(),
         authBloc: authBloc,
         onboardingBloc: onboardingBloc,
         identityRepository: _MockIdentity(),

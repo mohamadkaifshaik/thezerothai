@@ -3,12 +3,14 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../features/media/domain/image_processor.dart'
     show kPostThumbEdge;
 import '../../../features/media/domain/processed_image.dart'
     show kGifContentType;
+import '../../../features/settings/presentation/bloc/data_usage_cubit.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'alt_text_chip.dart';
 import 'gif_badge.dart';
@@ -39,7 +41,10 @@ import 'gif_badge.dart';
 /// is too small for the frame (a 400 px legacy thumb stretched over a
 /// high-density column, or a frame wider than the 1080 px thumb): then the
 /// full `url` loads with the thumbnail as its placeholder. The detail view
-/// passes [useFullImage] to show `url` instead.
+/// passes [useFullImage] to show `url` instead. Data saver, or High-quality
+/// images set to Never (or Wi-Fi only on mobile data), turns that exception
+/// off in the feed: the thumbnail only (Settings > Data usage); the detail
+/// view and the photo viewer still load the full image.
 ///
 /// A GIF (`MediaRef.content_type == image/gif`) fills the same frame: its
 /// still `thumbUrl` with a "GIF" badge and a play control, and the full file
@@ -407,8 +412,15 @@ Widget _feedImage(common.MediaRef media, ColorScheme colors) {
         _aspectOf(media),
         dpr,
       );
+      // Settings > Data usage: Data saver, "Never", or "Wi-Fi only" on mobile
+      // data keep the feed on the thumbnail (true without the cubit).
+      final allowFull = context.select<DataUsageCubit?, bool>(
+        (cubit) => cubit?.state.feedMayLoadFull ?? true,
+      );
       final useFull =
-          media.url.isNotEmpty && !PostMedia.thumbSuffices(media, needed);
+          allowFull &&
+          media.url.isNotEmpty &&
+          !PostMedia.thumbSuffices(media, needed);
       if (!useFull) {
         return _cached(media.thumbUrl, colors, needed);
       }

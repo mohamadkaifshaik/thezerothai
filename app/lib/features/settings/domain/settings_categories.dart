@@ -59,6 +59,7 @@ SettingsCategory? settingsCategoryOfLeaf(String path) => switch (path) {
   '/settings/location' ||
   '/settings/location/consent' => SettingsCategory.privacy,
   '/settings/notifications' => SettingsCategory.notifications,
+  '/settings/data-usage' => SettingsCategory.display,
   _ => null,
 };
 
