@@ -1,0 +1,114 @@
+import 'dart:async';
+
+import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
+import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
+import 'package:dzeroth/shared/widgets/post/pending_posts_section.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+import '../../../support/composer_rig.dart';
+import '../../../support/media_fixtures.dart';
+import '../../../support/posts_fixtures.dart';
+
+class _MockPostsRepository extends Mock implements PostsRepository {}
+
+/// Fix #1: Post validates, then the composer closes at once and the post goes
+/// out from the session's sender while Home shows its status row.
+void main() {
+  setUpAll(() {
+    registerMediaFallbacks();
+    registerFallbackValue(ReplyPolicy.REPLY_POLICY_UNSPECIFIED);
+  });
+
+  testWidgets('Post closes the composer at once; Home shows the post '
+      'sending, then Posted', (tester) async {
+    final posts = _MockPostsRepository();
+    when(() => posts.subFeatureEnabled(any())).thenReturn(true);
+    final gate = Completer<void>();
+    when(
+      () => posts.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        replyPolicy: any(named: 'replyPolicy'),
+        poll: any(named: 'poll'),
+        communityId: any(named: 'communityId'),
+        beaconId: any(named: 'beaconId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
+      ),
+    ).thenAnswer((_) async {
+      await gate.future;
+      return postView(1);
+    });
+
+    await pumpW6Composer(
+      tester,
+      posts: posts,
+      features: const {kFeaturePosts},
+      backgroundSend: true,
+      home: (_) => const Scaffold(
+        body: SingleChildScrollView(child: PendingPostsSection()),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), 'hello world');
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
+    // The request is still in flight, yet the composer is gone.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Posting...'), findsOneWidget);
+    expect(find.text('hello world'), findsOneWidget);
+
+    gate.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Posted'), findsOneWidget);
+    // Let the "Posted" row's timer end inside the test.
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.text('Posted'), findsNothing);
+  });
+
+  testWidgets('a failed send leaves the row with its error', (tester) async {
+    final posts = _MockPostsRepository();
+    when(() => posts.subFeatureEnabled(any())).thenReturn(true);
+    when(
+      () => posts.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        replyPolicy: any(named: 'replyPolicy'),
+        poll: any(named: 'poll'),
+        communityId: any(named: 'communityId'),
+        beaconId: any(named: 'beaconId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
+      ),
+    ).thenAnswer((_) async => throw StateError('boom'));
+
+    final rig = await pumpW6Composer(
+      tester,
+      posts: posts,
+      features: const {kFeaturePosts},
+      backgroundSend: true,
+      home: (_) => const Scaffold(
+        body: SingleChildScrollView(child: PendingPostsSection()),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), 'will fail');
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(rig.pending.state.single.status, PendingPostStatus.failed);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+}

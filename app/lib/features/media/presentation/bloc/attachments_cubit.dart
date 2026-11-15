@@ -636,9 +636,28 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     emit(const AttachmentsState());
   }
 
+  bool _retained = false;
+  bool _closeRequested = false;
+
+  /// Keeps this cubit open past its screen: the post sender uploads the
+  /// photos after the composer closed. A [close] while retained is deferred
+  /// until [release].
+  void retain() => _retained = true;
+
+  /// The sender is done with the photos; closes the cubit when its screen
+  /// already asked to.
+  Future<void> release() {
+    _retained = false;
+    return _closeRequested ? close() : Future.value();
+  }
+
   /// Leaving the composer stops any photo still being prepared.
   @override
   Future<void> close() {
+    if (_retained) {
+      _closeRequested = true;
+      return Future.value();
+    }
     _cancelProcessing();
     return super.close();
   }

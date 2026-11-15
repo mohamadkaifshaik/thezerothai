@@ -27,7 +27,9 @@ import '../../domain/posts_feature_flag.dart';
 import '../../domain/post_text_rules.dart';
 import '../../domain/reply_audience.dart';
 import '../../domain/schedule_rules.dart';
+import '../../domain/post_intent.dart';
 import 'pending_posts_cubit.dart';
+import 'post_sender.dart';
 
 part 'composer_claims.dart';
 part 'composer_drafts.dart';
@@ -69,6 +71,10 @@ class ComposerCubit extends Cubit<ComposerState>
     int Function()? postTextLimit,
     Stream<Object?>? postPolicyChanges,
     required PendingPostsCubit pending,
+
+    /// When given, a plain root post is handed to it on Post and the
+    /// composer closes at once (uploads and CreatePost run in the background).
+    PostSender? sender,
     required common.AuthorSnapshot author,
     this.quoteOfPostId = '',
     String beaconId = '',
@@ -100,6 +106,7 @@ class ComposerCubit extends Cubit<ComposerState>
        _usage = usage,
        _repository = postsRepository,
        _pending = pending,
+       _sender = sender,
        _author = author,
        _attachments = attachments,
        _onUnexpectedError = onUnexpectedError,
@@ -157,6 +164,7 @@ class ComposerCubit extends Cubit<ComposerState>
        _usage = usage,
        _repository = postsRepository,
        _pending = null,
+       _sender = null,
        _author = null,
        _attachments = null,
        _onUnexpectedError = null,
@@ -375,6 +383,8 @@ class ComposerCubit extends Cubit<ComposerState>
   final UsageReporter _usage;
   @override
   final PendingPostsCubit? _pending;
+  @override
+  final PostSender? _sender;
   @override
   final common.AuthorSnapshot? _author;
   @override

@@ -22,6 +22,7 @@ import 'package:dzeroth/features/posts/domain/composer_attachment_rules.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
+import 'package:dzeroth/features/posts/presentation/bloc/post_sender.dart';
 import 'package:dzeroth/features/posts/presentation/composer_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter/material.dart';
@@ -46,6 +47,7 @@ class W6ComposerRig {
     required this.gifSource,
     required this.pending,
     this.drafts,
+    this.sender,
   });
 
   final PostsRepository posts;
@@ -56,6 +58,9 @@ class W6ComposerRig {
 
   /// Null when the rig was opened with `drafts` off.
   final DraftsRepository? drafts;
+
+  /// The session sender, when the rig was opened with `backgroundSend`.
+  final PostSender? sender;
   late GoRouter router;
 }
 
@@ -84,6 +89,9 @@ Future<W6ComposerRig> pumpW6Composer(
   Brightness brightness = Brightness.light,
   double textScale = 1,
   FakeGifPreparer? gifPreparer,
+
+  /// Provides a `PostSender`: Post then hands off and closes the composer.
+  bool backgroundSend = false,
 
   /// The page under the composer (default: the text "home page").
   WidgetBuilder? home,
@@ -118,15 +126,24 @@ Future<W6ComposerRig> pumpW6Composer(
       enabledFeatures: features,
     ),
   );
+  final pendingPosts = PendingPostsCubit();
   final rig = W6ComposerRig(
     posts: posts,
     media: MockMediaRepository(),
     picker: FakeImagePicker(),
     gifSource: FakeGifSource(),
-    pending: PendingPostsCubit(),
+    pending: pendingPosts,
     drafts: features.contains(kFeatureDrafts) ? drafts : null,
+    sender: backgroundSend
+        ? PostSender(
+            pending: pendingPosts,
+            repository: posts,
+            drafts: features.contains(kFeatureDrafts) ? drafts : null,
+          )
+        : null,
   );
   addTearDown(rig.pending.close);
+  if (rig.sender != null) addTearDown(rig.sender!.dispose);
   // A frozen schedule clock: the dialog's Confirm re-checks against it, so a
   // moving clock fails whenever a test crosses a minute boundary.
   final scheduleNow = DateTime.now().add(const Duration(hours: 1));
@@ -134,6 +151,12 @@ Future<W6ComposerRig> pumpW6Composer(
     routes: [
       GoRoute(
         path: '/',
+        builder: (context, state) =>
+            home?.call(context) ?? const Scaffold(body: Text('home page')),
+      ),
+      // Where a handed-off post goes (`AppRouter.homePath`).
+      GoRoute(
+        path: '/home',
         builder: (context, state) =>
             home?.call(context) ?? const Scaffold(body: Text('home page')),
       ),
@@ -169,6 +192,8 @@ Future<W6ComposerRig> pumpW6Composer(
       RepositoryProvider<PostsRepository>.value(value: posts),
       if (rig.drafts != null)
         RepositoryProvider<DraftsRepository>.value(value: rig.drafts!),
+      if (rig.sender != null)
+        RepositoryProvider<PostSender>.value(value: rig.sender!),
       RepositoryProvider<MediaRepository>.value(value: rig.media),
       RepositoryProvider<ImagePickerService>.value(value: rig.picker),
       RepositoryProvider<ImageProcessor>.value(value: FakeImageProcessor()),

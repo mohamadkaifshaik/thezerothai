@@ -125,7 +125,15 @@ class _FollowingFeed extends StatelessWidget {
           BlocListener<PendingPostsCubit, List<PendingPost>>(
             // A pending post left the list: it was stored (or rolled back), so
             // re-read the cache, with no RPC.
-            listenWhen: (before, after) => after.length < before.length,
+            // (A post that turned "Posted" is stored too: show it at once.)
+            listenWhen: (before, after) =>
+                after.length < before.length ||
+                after
+                        .where((p) => p.status == PendingPostStatus.posted)
+                        .length >
+                    before
+                        .where((p) => p.status == PendingPostStatus.posted)
+                        .length,
             listener: (context, _) =>
                 context.read<TimelineCubit>().reloadFromCache(),
           ),

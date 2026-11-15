@@ -19,8 +19,10 @@ mixin _ComposerClaims on _ComposerHost {
   /// or its post exists. Each key keeps the time it was first minted (the
   /// row's, never refreshed by a reuse), so it expires with the row's window
   /// ([sendKeyExpired]): past it the server may have forgotten the key.
+  @override
   final Map<String, ({String key, DateTime startedAt})> _claimedKeys = {};
 
+  @override
   String _claimSlot(String draftId, SendKind kind, DateTime? publishAt) =>
       '$draftId\u0001${kind.name}\u0001'
       '${publishAt?.toUtc().millisecondsSinceEpoch ?? ''}';

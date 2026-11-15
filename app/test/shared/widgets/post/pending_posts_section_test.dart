@@ -1,5 +1,6 @@
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/shared/widgets/post/pending_post_status_row.dart';
 import 'package:dzeroth/shared/widgets/post/pending_posts_section.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -63,14 +64,72 @@ void main() {
       await pump(tester);
       expect(find.text('hello there'), findsOneWidget);
       expect(find.text('Posting...'), findsOneWidget);
+      // The status line is a live region (announced when it changes).
       expect(
-        find.bySemanticsLabel(RegExp('Sending your post')),
-        findsOneWidget,
+        tester.getSemantics(find.text('Posting...')),
+        matchesSemantics(
+          label: 'Posting...',
+          isLiveRegion: true,
+          hasEnabledState: false,
+        ),
       );
 
       cubit.remove('a');
       await tester.pump();
       expect(find.text('hello there'), findsNothing);
+    });
+
+    testWidgets('a failed row offers Retry, Edit and Dismiss', (tester) async {
+      var retried = 0, edited = 0, dismissed = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PendingPostStatusRow(
+              post: _p('a', 'oops').copyWith(
+                status: PendingPostStatus.failed,
+                error: 'No connection.',
+              ),
+              onRetry: () => retried++,
+              onEdit: () => edited++,
+              onDismiss: () => dismissed++,
+            ),
+          ),
+        ),
+      );
+      expect(find.text('No connection.'), findsOneWidget);
+      await tester.tap(find.text('Retry'));
+      await tester.tap(find.text('Edit'));
+      await tester.tap(find.byTooltip('Dismiss'));
+      expect([retried, edited, dismissed], [1, 1, 1]);
+    });
+
+    testWidgets('Retry is hidden when only Edit makes sense', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PendingPostStatusRow(
+              post: _p('a', 'oops').copyWith(
+                status: PendingPostStatus.failed,
+                error: 'Refused.',
+                canRetry: false,
+              ),
+              onRetry: () {},
+              onEdit: () {},
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('Edit'), findsOneWidget);
+    });
+
+    testWidgets('a posted row says Posted with no progress bar', (
+      tester,
+    ) async {
+      cubit.add(_p('a', 'done').copyWith(status: PendingPostStatus.posted));
+      await pump(tester);
+      expect(find.text('Posted'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
     });
 
     testWidgets('authorId filters to the own profile', (tester) async {

@@ -19,37 +19,8 @@ mixin _ComposerSubmit on _ComposerHost {
   /// screen went away: the failure is then already in the state, and the
   /// caller just stops. Shared by Post and Schedule.
   Future<UploadedAttachments?> _uploadAttached() async {
+    if (!_mediaGatesOpen()) return null;
     final attachments = _attachments!;
-    // A CreatePost with media is refused while the media sub-feature is
-    // off: do not spend upload quota first.
-    if (!_repository.subFeatureEnabled(kPostsSubFeatureMedia)) {
-      emit(
-        state.copyWith(
-          status: ComposerStatus.editing,
-          error: const FeatureDisabledException(
-            'Photos are not available.',
-            feature: kPostsSubFeatureMedia,
-          ),
-        ),
-      );
-      return null;
-    }
-    // Likewise for a GIF once a CreatePost answered FEATURE_DISABLED `gif`
-    // (the gate remembers it): do not upload what cannot be posted.
-    if (attachments.state.hasGif &&
-        !_repository.subFeatureEnabled(kFeatureGif)) {
-      emit(
-        state.copyWith(
-          status: ComposerStatus.editing,
-          error: const FeatureDisabledException(
-            'GIFs are not available.',
-            feature: kFeatureGif,
-          ),
-          uploadFailed: true,
-        ),
-      );
-      return null;
-    }
     try {
       // No upload request starts once the session ended: A's photos must not
       // become media of the next account.
@@ -91,32 +62,51 @@ mixin _ComposerSubmit on _ComposerHost {
     }
   }
 
-  /// What makes two requests the same for the server: text, media ids, alt
-  /// texts and the audience. Keys are remembered per such body.
+  /// The sub-feature checks before any photo leaves: false (with the error in
+  /// the state) when the post could not carry its photos anyway.
+  bool _mediaGatesOpen() {
+    final attachments = _attachments!;
+    // A CreatePost with media is refused while the media sub-feature is
+    // off: do not spend upload quota first.
+    if (!_repository.subFeatureEnabled(kPostsSubFeatureMedia)) {
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: const FeatureDisabledException(
+            'Photos are not available.',
+            feature: kPostsSubFeatureMedia,
+          ),
+        ),
+      );
+      return false;
+    }
+    // Likewise for a GIF once a CreatePost answered FEATURE_DISABLED `gif`
+    // (the gate remembers it): do not upload what cannot be posted.
+    if (attachments.state.hasGif &&
+        !_repository.subFeatureEnabled(kFeatureGif)) {
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: const FeatureDisabledException(
+            'GIFs are not available.',
+            feature: kFeatureGif,
+          ),
+          uploadFailed: true,
+        ),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /// What makes two requests the same for the server (see [postBodyKey]).
   String _bodyKey(
     String text,
     List<String> mediaIds,
     List<String> altTexts,
     ReplyPolicy policy, [
     DraftPoll? poll,
-  ]) {
-    var body = mediaIds.isEmpty
-        ? text
-        : '$text\u0001${mediaIds.join(',')}\u0001${altTexts.join('\u0002')}';
-    // The poll is part of the request. Keyed on the NORMALISED
-    // labels and the length, like the server's hash: an edit that changes
-    // only spacing is the same request and reuses its key; any real change
-    // gets its own.
-    if (poll != null) {
-      body =
-          '$body\u0001poll=${analyzePoll(poll).stored.join('\u001f')}'
-          '\u0001dur=${poll.durationMinutes}';
-    }
-    // A different audience is a different request body for the server.
-    return policy == ReplyPolicy.REPLY_POLICY_UNSPECIFIED
-        ? body
-        : 'p:${policy.value}\u0001$body';
-  }
+  ]) => postBodyKey(text, mediaIds, altTexts, policy, poll);
 
   /// The idempotency key of [intent], created on first use and reused by
   /// every retry of the same request. Least recently used: a reused intent
@@ -159,12 +149,25 @@ mixin _ComposerSubmit on _ComposerHost {
     );
     // A draft-backed send claims its stored key before anything leaves (and
     // before any upload, so a refusal costs no Vision units).
+    final sender = _sender;
+    final background =
+        sender != null &&
+        _pending != null &&
+        _author != null &&
+        quoteOfPostId.isEmpty &&
+        replyToPostId.isEmpty;
+    // Handed off: the stored row must hold the text as it is NOW (the
+    // autosave is debounced), so a kill mid-send leaves the real content.
+    if (background && _claims) await saveDraft();
     final claim = _claims
         ? await _claim(SendKind.post, force: force)
         : _noClaim;
     if (claim.refused) return;
     // Closed or signed out while claiming: no upload starts either.
     if (!_mayStillSend()) return;
+    if (sender != null && background) {
+      return _handOff(sender, claim: claim, text: text, poll: poll);
+    }
 
     // On-device previews for the optimistic row (taken before upload).
     final thumbnails = [
@@ -276,6 +279,59 @@ mixin _ComposerSubmit on _ComposerHost {
     } catch (_) {
       _fail(key, const UnknownApiException('Something went wrong.'));
     }
+  }
+
+  /// Post validated and its key claimed: the session's [PostSender] takes
+  /// the uploads and CreatePost, and this composer is done (the screen
+  /// closes; the status row on Home carries the post). The unsent-post row,
+  /// when there is one, stays until the post succeeded, so a kill mid-send
+  /// loses nothing; autosave stops without deleting it.
+  Future<void> _handOff(
+    PostSender sender, {
+    required ({String? key, bool reused, bool refused}) claim,
+    required String text,
+    required DraftPoll? poll,
+  }) async {
+    final attachments = _hasAttached ? _attachments : null;
+    if (attachments != null && !_mediaGatesOpen()) return _releaseClaim();
+    final thumbnails = [
+      for (final a in attachments?.state.items ?? const <Attachment>[])
+        if (a.previewBytes != null) a.previewBytes!,
+    ];
+    final key = claim.key;
+    final draftId = key == null ? null : _base.id;
+    final startedAt = draftId == null
+        ? null
+        : _claimedKeys[_claimSlot(draftId, SendKind.post, null)]?.startedAt;
+    // The last synchronous check before the sender owns the post.
+    if (!_mayStillSend()) return;
+    unawaited(
+      sender.start(
+        PostSendJob(
+          text: text,
+          author: _author!,
+          policy: _policyToSend,
+          poll: poll,
+          communityId: _communityToSend,
+          beaconId: state.beaconId,
+          attachments: attachments,
+          thumbnails: thumbnails,
+          gif: attachments?.state.hasGif ?? false,
+          uid: _draftUid,
+          draftId: draftId,
+          claimKey: key,
+          claimReused: claim.reused,
+          claimStartedAt: startedAt,
+        ),
+      ),
+    );
+    // The key now belongs to the sender (it releases or keeps it).
+    _claimed = null;
+    if (key != null) _forgetClaimedKey(key);
+    // Stops the autosave without deleting the row the sender keeps.
+    _draftDone = true;
+    if (isClosed) return;
+    emit(state.copyWith(status: ComposerStatus.handedOff, clearError: true));
   }
 
   /// Schedules the post for [publishAt]: the same uploads as Post,
