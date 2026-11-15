@@ -83,7 +83,7 @@ func normalizeEOL(b []byte) []byte { return bytes.ReplaceAll(b, []byte("\r\n"), 
 
 // ParseCatalog decodes and validates a catalogue: the version, the id grammar, sorted unique ids, kinds, names and aliases,
 // the CITY/AREA structure and the neighbour rules (symmetric, no self-reference, existing AREA ids of the same city, at
-// most MaxNeighbours; a CITY has none), and the size caps.
+// most MaxNeighbours; a CITY has none), and the size caps. A CITY with no neighbourhoods (a city-only entry) is valid.
 func ParseCatalog(data []byte) (*StaticCatalog, error) {
 	data = normalizeEOL(data)
 	if len(data) > MaxCatalogBytes {
@@ -188,6 +188,8 @@ func validateEntry(e areaEntry, all []areaEntry, byID map[string]int) error {
 			return fmt.Errorf("location: area %q: neighbour %q does not exist", e.ID, n)
 		case all[ni].Kind != KindArea:
 			return fmt.Errorf("location: area %q: neighbour %q is not an AREA", e.ID, n)
+		case all[ni].City != e.City:
+			return fmt.Errorf("location: area %q: neighbour %q is in another city (neighbours stay within one city)", e.ID, n)
 		case !contains(all[ni].Neighbours, e.ID):
 			return fmt.Errorf("location: area %q: neighbour %q does not list it back (the relation is symmetric)", e.ID, n)
 		}

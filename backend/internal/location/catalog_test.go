@@ -24,7 +24,7 @@ func mustCatalog(t *testing.T) *StaticCatalog {
 }
 
 // TestCatalog_EmbeddedIsValid: the shipped areas.json parses and validates (every structural rule lives in ParseCatalog),
-// is within the caps, and every CITY has at least one neighbourhood.
+// is within the caps, and every AREA resolves its city name. City-only entries (a CITY with no AREA) are allowed.
 func TestCatalog_EmbeddedIsValid(t *testing.T) {
 	c := mustCatalog(t)
 	if c.Len() == 0 || c.Len() > MaxAreas {
@@ -33,17 +33,8 @@ func TestCatalog_EmbeddedIsValid(t *testing.T) {
 	if n := len(normalizeEOL(embeddedAreas)); n > MaxCatalogBytes {
 		t.Fatalf("areas.json is %d bytes, above %d", n, MaxCatalogBytes)
 	}
-	hoods := map[string]int{}
 	all, _ := c.Page("", MaxAreas)
 	for _, a := range all {
-		if a.Kind == KindArea {
-			hoods[a.CityID]++
-		}
-	}
-	for _, a := range all {
-		if a.Kind == KindCity && hoods[a.ID] == 0 {
-			t.Errorf("city %s has no neighbourhoods", a.ID)
-		}
 		if a.Kind == KindArea && (a.CityName == "" || a.CityName == a.Name && a.CityID != a.ID) {
 			t.Errorf("area %s: city name %q not resolved", a.ID, a.CityName)
 		}
@@ -170,6 +161,8 @@ func TestParseCatalog_Rejects(t *testing.T) {
 		{"area without city", doc("1", a("in.blr.aa", "")), "not a CITY"},
 		{"self neighbour", doc("1", city, a("in.blr.aa", `"in.blr.aa"`)), "itself"},
 		{"missing neighbour", doc("1", city, a("in.blr.aa", `"in.blr.zz"`)), "does not exist"},
+		{"cross-city neighbour", doc("1", city, a("in.blr.aa", `"in.mum.bb"`), strings.Replace(city, "in.blr", "in.mum", 2),
+			strings.Replace(a("in.mum.bb", `"in.blr.aa"`), `"city": "in.blr"`, `"city": "in.mum"`, 1)), "another city"},
 		{"city as neighbour", doc("1", city, a("in.blr.aa", `"in.blr"`)), "not an AREA"},
 		{"asymmetric", doc("1", city, a("in.blr.aa", `"in.blr.bb"`), a("in.blr.bb", "")), "symmetric"},
 		{"duplicate neighbour", doc("1", city, a("in.blr.aa", `"in.blr.bb", "in.blr.bb"`), a("in.blr.bb", `"in.blr.aa"`)), "twice"},
@@ -192,6 +185,17 @@ func TestParseCatalog_Rejects(t *testing.T) {
 	}
 	if _, err := ParseCatalog(doc("1", city, a("in.blr.aa", strings.Join(nine, ",")))); err == nil || !strings.Contains(err.Error(), "at most 8") {
 		t.Errorf("nine neighbours: %v", err)
+	}
+}
+
+// TestParseCatalog_CityOnly: a CITY with no neighbourhoods (a city-only entry) is valid and pickable.
+func TestParseCatalog_CityOnly(t *testing.T) {
+	c, err := ParseCatalog([]byte(`{"version": 1, "areas": [
+		{"id": "in.blr", "name": "Bengaluru", "kind": "CITY", "city": "in.blr", "aliases": [], "neighbours": [], "retired": false},
+		{"id": "in.blr.aa", "name": "Aa", "kind": "AREA", "city": "in.blr", "aliases": [], "neighbours": [], "retired": false},
+		{"id": "in.mys", "name": "Mysuru", "kind": "CITY", "city": "in.mys", "aliases": [], "neighbours": [], "retired": false}]}`))
+	if err != nil || !c.Pickable("in.mys") {
+		t.Fatalf("city-only catalogue: %v", err)
 	}
 }
 
