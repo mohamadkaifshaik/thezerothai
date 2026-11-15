@@ -181,16 +181,21 @@ class ScheduledPostRow extends StatelessWidget {
             ],
     );
     final more = !_failed && (onEdit != null || onPostNow != null)
-        ? PopupMenuButton<VoidCallback>(
-            tooltip: 'More options',
-            icon: const Icon(Icons.more_horiz, size: AppIconSize.md),
-            onSelected: (action) => action(),
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                value: onRemove,
+        // A MenuAnchor (no modal barrier), so the list still scrolls while it
+        // is open; the anchor closes it on that scroll.
+        ? MenuAnchor(
+            menuChildren: [
+              MenuItemButton(
+                onPressed: onRemove,
                 child: const Text('Cancel scheduled post'),
               ),
             ],
+            builder: (context, controller, _) => IconButton(
+              tooltip: 'More options',
+              icon: const Icon(Icons.more_horiz, size: AppIconSize.md),
+              onPressed: () =>
+                  controller.isOpen ? controller.close() : controller.open(),
+            ),
           )
         : null;
 
