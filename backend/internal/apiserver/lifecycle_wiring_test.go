@@ -12,16 +12,20 @@ import (
 	"time"
 
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
+	"github.com/dzeroth/dzeroth/backend/internal/billing"
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
+	"github.com/dzeroth/dzeroth/backend/internal/location"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 )
 
 // TestRestrictedAllowedProcedures_IsExactlyDeleteAccount is the guard: the interceptor exemption
@@ -237,11 +241,26 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerCommunitiesLifecycle(l, communitiesRepo, nil); err != nil {
 		t.Fatal(err)
 	}
-	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "communities", "identity", "auth_delete", "users_doc"}
+	if err := registerBeaconsLifecycle(l, beacons.NewFirestoreRepo(nil, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerOutboxLifecycle(l, outbox.New(nil, outbox.Config{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerBillingLifecycle(l, billing.NewFirestoreBindings(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerImpressionLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerLocationLifecycle(l, location.NewFirestoreRepo(nil, nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "communities", "beacons", "outbox", "billing_bindings", "impressions", "location", "identity", "auth_delete", "users_doc"}
 	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
 		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
 	}
-	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists", "poll_votes", "communities"}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists", "poll_votes", "communities", "beacons", "billing_bindings", "location"}
 	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
 		t.Errorf("export sections = %v, want %v", got, wantSections)
 	}

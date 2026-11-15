@@ -98,6 +98,10 @@
       "redactedCount": 2
     }
   },
+  "location": {
+    "area": null,
+    "consents": []
+  },
   "media": {
     "media": []
   },

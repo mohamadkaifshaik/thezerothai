@@ -10,6 +10,7 @@ import (
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	listsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
+	locationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1/locationv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
@@ -166,6 +167,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlBeaconsRead := ratelimit.NewLimiter(cfg.RateLimit.BeaconsReadPerUserPerMinute, idleBucketTTL)
 	beaconsCreatedDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.BeaconsCreatedPerDay)
 
+	// Location: GetLocationSettings and ListAreas share a read bucket (RATE_LIMIT_LOCATION_READ_PER_MIN, 30/min per
+	// instance), SetArea and ClearArea a write bucket (RATE_LIMIT_LOCATION_WRITE_PER_MIN, 6/min). No in-memory daily cap:
+	// the consent cap (LOCATION_CONSENT_CHANGES_PER_DAY) is persisted and checked inside the SetArea transaction.
+	rlLocationRead := ratelimit.NewLimiter(cfg.RateLimit.LocationReadPerUserPerMinute, idleBucketTTL)
+	rlLocationWrite := ratelimit.NewLimiter(cfg.RateLimit.LocationWritePerUserPerMinute, idleBucketTTL)
+
 	// The seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
 	// HideCommunityPost, RestoreCommunityPost, SetMemberRole) share one per-user bucket (RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, 20/min per
 	// instance). HideCommunityPost and SetMemberRole (bans go through it) also share one per-uid daily cap, limit_name
@@ -280,6 +287,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			beaconsv1connect.BeaconServiceListMyBeaconsProcedure:                 rlBeaconsRead,
 			beaconsv1connect.BeaconServiceListParticipantsProcedure:              rlBeaconsRead,
 			beaconsv1connect.BeaconServiceListSharedBeaconsProcedure:             rlBeaconsRead,
+			locationv1connect.LocationServiceGetLocationSettingsProcedure:        rlLocationRead,
+			locationv1connect.LocationServiceListAreasProcedure:                  rlLocationRead,
+			locationv1connect.LocationServiceSetAreaProcedure:                    rlLocationWrite,
+			locationv1connect.LocationServiceClearAreaProcedure:                  rlLocationWrite,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceFollowProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},

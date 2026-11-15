@@ -32,6 +32,7 @@ import (
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	listsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
+	locationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1/locationv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
@@ -894,6 +895,22 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
+	})
+
+	// Location: the module is built here (the catalogue is parsed: a bad areas.json fails boot) and its lifecycle step and
+	// export section are registered after every other module's (users/{uid}/locationArea and users/{uid}/locationConsents;
+	// the step runs after impressions). All four LocationService routes are mounted so the interceptor chain covers them; the
+	// handler runs the FEATURE_LOCATION class per RPC (SetArea on for the caller, ListAreas not globally off,
+	// GetLocationSettings and ClearArea in every mode).
+	locationMod, err := newLocationModule(fsClient, cfg, featureFlags, snowflakeNode)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := registerLocationLifecycle(lifecycle, locationMod.repo, locationMod.catalog); err != nil {
+		return nil, nil, fmt.Errorf("location lifecycle registry: %w", err)
+	}
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return locationv1connect.NewLocationServiceHandler(locationMod.server, o...)
 	})
 
 	// Search and trends: FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,

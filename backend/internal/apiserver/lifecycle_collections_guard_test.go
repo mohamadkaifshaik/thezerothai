@@ -29,6 +29,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
+	"github.com/dzeroth/dzeroth/backend/internal/location"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
@@ -194,6 +195,13 @@ var lifecycleCollections = []collectionRow{
 	// persisted), and trends/hidden holds the operator hide list as folded tag keys: no uid, no actor. So there is
 	// no uid to erase and nothing to export.
 	{Name: "trends", Disposition: notPersonal, ExportNote: "tags and counts only (trends/current), folded tag keys (trends/hidden); no uid; not exported", Owner: "search", Cite: "ADR-0028 D6, note 2026-10-31"},
+	// Location (design 2026-11-15). users/{uid}/locationArea/current {areaId, purposes, consentCopyVersion, adultConfirmedAt,
+	// consentedAt, updatedAt} (no TTL: a deliberate choice lives until ClearArea) and users/{uid}/locationConsents/{snowflake}
+	// {purpose, action, copyVersion, adultConfirmed, at} (append-only, no area id). Deleting users/{uid} removes neither; the
+	// `location` step (BeforeIdentity, appended last after impressions) deletes the area doc, then the consent log in pages,
+	// and the `location` section exports both (DPDP: erased and exported with the account).
+	{Name: "locationArea", Sub: true, Disposition: erasedByStep, Step: "location", Section: "location", Owner: "location", Cite: "erasure and export follow the ADR-0011 Q1 pattern; location design 2026-11-15 section 4.2 (owner DPDP line: erased and exported with the account), ADR pending"},
+	{Name: "locationConsents", Sub: true, Disposition: erasedByStep, Step: "location", Section: "location", Owner: "location", Cite: "erasure and export follow the ADR-0011 Q1 pattern; location design 2026-11-15 section 4.2 (owner DPDP line: erased and exported with the account), ADR pending"},
 }
 
 // gcsPrefixRow is one GCS object namespace.
@@ -405,6 +413,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerBillingLifecycle(l, billing.NewFirestoreBindings(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerLocationLifecycle(l, location.NewFirestoreRepo(nil, nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := registerImpressionLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {

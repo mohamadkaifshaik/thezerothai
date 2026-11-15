@@ -109,6 +109,12 @@ type RateLimitConfig struct {
 	BeaconsActionPerUserPerMinute int
 	BeaconsReadPerUserPerMinute   int
 
+	// LocationReadPerUserPerMinute is the bucket shared by GetLocationSettings and ListAreas, env
+	// RATE_LIMIT_LOCATION_READ_PER_MIN, default 30; LocationWritePerUserPerMinute is shared by SetArea and ClearArea, env
+	// RATE_LIMIT_LOCATION_WRITE_PER_MIN, default 6. Per instance (x3 with 3 instances); location design 2026-11-15 5.4.
+	LocationReadPerUserPerMinute  int
+	LocationWritePerUserPerMinute int
+
 	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket, env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
 	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
 	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60. All are per instance, so the
