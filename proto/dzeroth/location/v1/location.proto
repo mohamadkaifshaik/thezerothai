@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+// Location: the caller's CHOSEN area (a named neighbourhood or city from a curated catalogue) and the consent behind it.
+// Place-based: no request or response carries coordinates or a device reading, and no user's area is ever returned to
+// anyone but that user. Owner module: backend/internal/location.
+// Collections owned: users/{uid}/locationArea/current (areaId, purposes, consentCopyVersion, adultConfirmedAt,
+// consentedAt, updatedAt) and users/{uid}/locationConsents/{snowflake} (append-only: purpose, action, copyVersion,
+// adultConfirmed, at). No TTL: the area lives until ClearArea or account erasure; both collections are erased and
+// exported with the account (`location` step and section).
+//
+// Flag FEATURE_LOCATION (wire name "location", default off). SetArea needs it on for the caller. ListAreas needs it not
+// globally off. GetLocationSettings and ClearArea work in every flag mode, the kill switch included, so a user can
+// always see and withdraw (DPDP). Else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "location",
+// before any lookup.
+//
+// Idempotency: SetArea and ClearArea take idempotency_key (the beacons rules: 16-64 of [A-Za-z0-9_-], 24 h TTL'd
+// idempotency doc in the same transaction; same key with a different body => IDEMPOTENCY_KEY_REUSED).
+//
+// Errors:
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] in area_id | idempotency_key | consent | page_token, before any
+//   lookup. The value is never echoed. limit is clamped (0 = 200, above 500 = 500), never a validation error.
+// - FAILED_PRECONDITION, metadata["reason"] = "consent_required": SetArea with no current consent at copy version >=
+//   the server minimum, and no valid consent in the request.
+// - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "location_consent_changes" (LOCATION_CONSENT_CHANGES_PER_DAY,
+//   10 consent records per user per IST day); ClearArea is never limited by it.
+// - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_LOCATION_READ_PER_MIN (30: GetLocationSettings, ListAreas),
+//   RATE_LIMIT_LOCATION_WRITE_PER_MIN (6: SetArea, ClearArea), per uid per instance.
+package dzeroth.location.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1;locationv1";
+
+service LocationService {
+  // The caller's area (unset when none) and latest consent state. 1 read (+1 for the latest consent record when no
+  // area is set). Works in every flag mode.
+  rpc GetLocationSettings(GetLocationSettingsRequest) returns (GetLocationSettingsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Set or change the caller's area. area_id must be a non-retired catalogue id (VALIDATION "area_id").
+  // When the caller has no current consent at copy version >= the server minimum, the request must carry consent with
+  // adult_confirmed = true and copy_version >= the minimum (else VALIDATION "consent" when present but invalid, or
+  // FAILED_PRECONDITION "consent_required" when absent); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the
+  // same transaction. A change of area under an existing consent appends nothing (no location history). Setting the
+  // stored area again writes only the idempotency doc.
+  rpc SetArea(SetAreaRequest) returns (SetAreaResponse);
+  // Withdraw: delete the area doc and append a LOCATION_CONSENT_ACTION_WITHDRAWN record in one transaction. No area set
+  // => success, writing only the idempotency doc. Works in every flag mode.
+  rpc ClearArea(ClearAreaRequest) returns (ClearAreaResponse);
+  // The area catalogue, sorted by area_id, paged. known_version equal to the server's => not_modified = true and no
+  // areas. page_token is signed and bound to the caller and the catalogue version; a version change mid-paging =>
+  // VALIDATION "page_token" (restart). Retired areas are included (retired = true) so old plans keep their label.
+  rpc ListAreas(ListAreasRequest) returns (ListAreasResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+enum AreaKind {
+  AREA_KIND_UNSPECIFIED = 0;
+  // A neighbourhood inside a city.
+  AREA_KIND_AREA = 1;
+  // A whole city.
+  AREA_KIND_CITY = 2;
+}
+
+enum LocationPurpose {
+  LOCATION_PURPOSE_UNSPECIFIED = 0;
+  // See public plans in my chosen area (Explore Nearby).
+  LOCATION_PURPOSE_PLANS_NEARBY = 1;
+}
+
+enum LocationConsentAction {
+  LOCATION_CONSENT_ACTION_UNSPECIFIED = 0;
+  LOCATION_CONSENT_ACTION_GRANTED = 1;
+  LOCATION_CONSENT_ACTION_WITHDRAWN = 2;
+}
+
+// One catalogue entry. Names are display text (1-40 code points); ids are permanent.
+message Area {
+  // e.g. "in.blr.indiranagar" or "in.blr".
+  string area_id = 1;
+  string name = 2;
+  AreaKind kind = 3;
+  // The city's area_id; equals area_id for a CITY.
+  string city_id = 4;
+  string city_name = 5;
+  // Extra search terms (other spellings, old names). Search runs on the device.
+  repeated string aliases = 6;
+  // Curated neighbouring AREA ids (at most 8, symmetric). Empty for a CITY.
+  repeated string neighbour_ids = 7;
+  // Not pickable any more; still resolves labels.
+  bool retired = 8;
+}
+
+// The small form other packages embed (beacons). Unset message = no area.
+message AreaSummary {
+  string area_id = 1;
+  string name = 2;
+  AreaKind kind = 3;
+  string city_id = 4;
+  string city_name = 5;
+}
+
+message ConsentState {
+  // Latest record's action; UNSPECIFIED when the user never consented.
+  LocationConsentAction action = 1;
+  LocationPurpose purpose = 2;
+  int32 copy_version = 3;
+  google.protobuf.Timestamp at = 4;
+  // When "18+ confirmed" was recorded with the grant (C4 interim self-declared gate). Unset if never.
+  google.protobuf.Timestamp adult_confirmed_at = 5;
+}
+
+// What the client sends with the first SetArea (and again after a copy version bump).
+message ConsentGrant {
+  // The rationale copy the user saw; >= the server minimum (LOCATION_CONSENT_MIN_COPY_VERSION, 1).
+  int32 copy_version = 1;
+  // The user ticked "I am 18 or older". Must be true.
+  bool adult_confirmed = 2;
+}
+
+message LocationSettings {
+  // Unset when no area is set.
+  AreaSummary area = 1;
+  ConsentState consent = 2;
+  // The minimum copy version the server accepts; the client re-shows the rationale when consent.copy_version is lower.
+  int32 required_copy_version = 3;
+}
+
+message GetLocationSettingsRequest {}
+
+message GetLocationSettingsResponse {
+  LocationSettings settings = 1;
+}
+
+message SetAreaRequest {
+  string idempotency_key = 1;
+  string area_id = 2;
+  // Required when the caller has no valid consent (see SetArea); ignored otherwise.
+  ConsentGrant consent = 3;
+}
+
+message SetAreaResponse {
+  LocationSettings settings = 1;
+}
+
+message ClearAreaRequest {
+  string idempotency_key = 1;
+}
+
+message ClearAreaResponse {
+  LocationSettings settings = 1;
+}
+
+message ListAreasRequest {
+  // Clamped: 0 = 200, above 500 = 500.
+  int32 limit = 1;
+  string page_token = 2;
+  // The version the client holds; 0 = none.
+  int64 known_version = 3;
+}
+
+message ListAreasResponse {
+  repeated Area areas = 1;
+  string next_page_token = 2;
+  int64 version = 3;
+  // True when known_version == version; areas is then empty.
+  bool not_modified = 4;
+}

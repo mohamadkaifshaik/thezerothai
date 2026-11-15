@@ -1659,6 +1659,34 @@ variable "feature_dm_suggestions_percent" {
   }
 }
 
+variable "feature_location" {
+  description = "FEATURE_LOCATION rollout mode for the chosen area (LocationService: SetArea on for the caller, ListAreas not globally off; GetLocationSettings and ClearArea work in every mode so a user can always withdraw): off | allowlist | percent | on. Default off in every environment. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, prod off."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_location)
+    error_message = "feature_location must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_location_allowlist" {
+  description = "FEATURE_LOCATION_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_location_percent" {
+  description = "FEATURE_LOCATION_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_location_percent >= 0 && var.feature_location_percent <= 100 && floor(var.feature_location_percent) == var.feature_location_percent
+    error_message = "feature_location_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_post_views" {
   description = "FEATURE_POST_VIEWS rollout mode for F1 post view counts (EngagementService.RecordImpressions on for the caller; Post.view_count on every read while not globally off): off | allowlist | percent | on. Default off in every environment. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, prod off. Ramp ahead of FEATURE_CREATOR_INSIGHTS."
   type        = string

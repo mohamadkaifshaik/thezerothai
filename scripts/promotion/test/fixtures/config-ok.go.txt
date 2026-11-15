@@ -49,6 +49,7 @@
 	featureMessageSearch, err := flags.LoadSpec("MESSAGE_SEARCH", "message_search", flags.Off)
 	featureSearchLists, err := flags.LoadSpec("SEARCH_LISTS", "search_lists", flags.Off)
 	featureSearchFilters, err := flags.LoadSpec("SEARCH_FILTERS", "search_filters", flags.Off)
+	featureLocation, err := flags.LoadSpec("LOCATION", "location", flags.Off)
 	featureDMSuggestions, err := flags.LoadSpec("DM_SUGGESTIONS", "dm_suggestions", flags.Off)
 	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	featureCreatorInsights, err := flags.LoadSpec("CREATOR_INSIGHTS", "creator_insights", flags.Off)

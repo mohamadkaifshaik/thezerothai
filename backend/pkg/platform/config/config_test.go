@@ -82,6 +82,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_MESSAGE_SEARCH", "FEATURE_MESSAGE_SEARCH_ALLOWLIST", "FEATURE_MESSAGE_SEARCH_PERCENT",
 		"FEATURE_SEARCH_LISTS", "FEATURE_SEARCH_LISTS_ALLOWLIST", "FEATURE_SEARCH_LISTS_PERCENT",
 		"FEATURE_SEARCH_FILTERS", "FEATURE_SEARCH_FILTERS_ALLOWLIST", "FEATURE_SEARCH_FILTERS_PERCENT",
+		"FEATURE_LOCATION", "FEATURE_LOCATION_ALLOWLIST", "FEATURE_LOCATION_PERCENT",
 		"FEATURE_DM_SUGGESTIONS", "FEATURE_DM_SUGGESTIONS_ALLOWLIST", "FEATURE_DM_SUGGESTIONS_PERCENT",
 		"RATE_LIMIT_SHARES_PER_MIN", "SHARES_RECORDED_PER_DAY",
 		"FEATURE_POST_VIEWS", "FEATURE_POST_VIEWS_ALLOWLIST", "FEATURE_POST_VIEWS_PERCENT", "POST_VIEWS_PUBLIC_THRESHOLD",
@@ -872,6 +873,45 @@ func TestLoad_HotCounterThreshold(t *testing.T) {
 				t.Fatalf("Load() = %d, %v; want %d", cfg.HotCounterThreshold, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoad_Location(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.FeatureLocation.Mode != flags.Off || cfg.FeatureLocation.Name != "location" {
+		t.Errorf("FeatureLocation = %+v, want off with wire name location", cfg.FeatureLocation)
+	}
+	for _, tc := range []struct {
+		mode, list, percent string
+		want                flags.Mode
+	}{
+		{"off", "", "", flags.Off},
+		{"allowlist", "uid-a,uid-b", "", flags.Allowlist},
+		{"percent", "", "10", flags.Percent},
+		{"on", "", "", flags.On},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("FEATURE_LOCATION", tc.mode)
+			t.Setenv("FEATURE_LOCATION_ALLOWLIST", tc.list)
+			t.Setenv("FEATURE_LOCATION_PERCENT", tc.percent)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.FeatureLocation.Mode != tc.want {
+				t.Errorf("FeatureLocation.Mode = %q, want %q", cfg.FeatureLocation.Mode, tc.want)
+			}
+		})
+	}
+	clearEnv(t)
+	t.Setenv("FEATURE_LOCATION", "sometimes")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() with FEATURE_LOCATION=sometimes: want error")
 	}
 }
 

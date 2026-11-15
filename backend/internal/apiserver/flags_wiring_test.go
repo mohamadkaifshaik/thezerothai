@@ -150,6 +150,7 @@ func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
 		{"FEATURE_MESSAGE_SEARCH", "message_search"},
 		{"FEATURE_SEARCH_LISTS", "search_lists"},
 		{"FEATURE_SEARCH_FILTERS", "search_filters"},
+		{"FEATURE_LOCATION", "location"},
 		{"FEATURE_DM_SUGGESTIONS", "dm_suggestions"},
 		{"FEATURE_POST_VIEWS", "post_views"},
 		{"FEATURE_CREATOR_INSIGHTS", "creator_insights"},
