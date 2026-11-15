@@ -7,6 +7,7 @@ import 'package:dzeroth/features/media/domain/processed_image.dart';
 import 'package:dzeroth/features/media/domain/processing_cancellation.dart';
 import 'package:dzeroth/features/media/domain/quality_aware_image_processor.dart';
 import 'package:dzeroth/features/media/domain/raster_image_processor.dart';
+import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
@@ -33,12 +34,12 @@ class _Recording implements ImageProcessor {
 }
 
 void main() {
-  test('standard post spec: 1600 full at q80, thumb 1080 at q75', () {
+  test('standard post spec: 1800 full at q80, thumb 1080 at q75', () {
     final standard = PurposeSpec.of(
       ImagePurpose.post,
       quality: ImageQuality.standard,
     );
-    expect((standard.fullEdge, standard.thumbEdge), (1600, 1080));
+    expect((standard.fullEdge, standard.thumbEdge), (1800, 1080));
     expect((standard.fullQuality, standard.thumbQuality), (80, 75));
     final high = PurposeSpec.of(ImagePurpose.post);
     expect((high.fullEdge, high.fullQuality), (2048, 88));
@@ -68,17 +69,17 @@ void main() {
       quality: ImageQuality.standard,
     );
     expect((high.width, high.height), (2048, 1365));
-    expect((standard.width, standard.height), (1600, 1067));
-    expect(jpegDims(standard.fullBytes), (width: 1600, height: 1067));
+    expect((standard.width, standard.height), (1800, 1200));
+    expect(jpegDims(standard.fullBytes), (width: 1800, height: 1200));
     expect(jpegDims(standard.thumbBytes), (width: 1080, height: 720));
   });
 
-  test('RasterImageProcessor (web worker path) encodes 1600 at q80', () async {
+  test('RasterImageProcessor (web worker path) encodes 1800 at q80', () async {
     final codec = FakeRasterCodec();
     final out = await RasterImageProcessor(
       codec,
     ).process(_jpg(40, 30), ImagePurpose.post, quality: ImageQuality.standard);
-    expect((out.width, out.height), (1600, 1200));
+    expect((out.width, out.height), (1800, 1350));
     expect([for (final e in codec.encodes) e.quality], [80, 75]);
   });
 
@@ -98,5 +99,12 @@ void main() {
       ImageQuality.standard,
       ImageQuality.high,
     ]);
+  });
+
+  test('a standard upload is read by the feed as having a 1080 px thumb', () {
+    // The feed infers the thumbnail from the full size: 1600 px or less is a
+    // legacy 400 px thumb, which would make it load the full file.
+    expect(kPostStandardFullEdge, greaterThan(1600));
+    expect(PostMedia.thumbEdgeFor(kPostStandardFullEdge), kPostThumbEdge);
   });
 }

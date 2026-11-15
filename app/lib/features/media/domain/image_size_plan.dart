@@ -15,13 +15,17 @@ typedef CropRect = ({int x, int y, int width, int height});
 typedef EncodeAttempt = ({int width, int height, int quality});
 
 /// How sharp a post photo is encoded. [high] is the default (2048 px at
-/// quality 88); [standard] is the earlier, lighter size (1600 px at 80) that
-/// Settings > Data usage picks when high-quality uploads are not allowed on
-/// the current connection. Avatars ignore it.
+/// quality 88); [standard] is a lighter size (1800 px at 80) that Settings >
+/// Data usage picks when high-quality uploads are not allowed on the current
+/// connection. Avatars ignore it.
 enum ImageQuality { high, standard }
 
-/// Standard post photo: full 1600 px at q80 (the thumbnail is as for [high]).
-const kPostStandardFullEdge = 1600;
+/// Standard post photo: full 1800 px at q80 (the thumbnail is as for [high]).
+/// Deliberately above 1600: the feed reads a full size of 1600 px or less as a
+/// legacy upload with a 400 px thumbnail (`PostMedia.thumbEdgeFor`) and would
+/// load the full file, so a standard upload must stay recognisable as one
+/// with a 1080 px thumbnail.
+const kPostStandardFullEdge = 1800;
 const kPostStandardFullQuality = 80;
 
 /// Per-purpose output rules.
