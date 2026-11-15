@@ -1,4 +1,8 @@
+import 'package:drift/native.dart';
+import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/features/posts/data/unsent_posts_store.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/features/posts/presentation/bloc/unsent_posts_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -68,4 +72,43 @@ void main() {
     await pumpEventQueue();
     expect(cubit.state, 0);
   });
+
+  test(
+    'posts kept for a restart count and are deleted with the drafts',
+    () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final store = UnsentPostsStore(db, keepsPhotoBytes: true);
+      Future<void> keep(String uid, String id) => store.save(
+        UnsentPostRecord(
+          uid: uid,
+          postId: id,
+          text: 't',
+          author: common.AuthorSnapshot(userId: uid),
+          createdAt: DateTime.now(),
+        ),
+        epoch: db.sessionEpoch.value,
+      );
+      await keep('u1', 'a');
+      await keep('u1', 'b');
+      await keep('u2', 'c');
+      var discarded = 0;
+      final cubit = UnsentPostsCubit(
+        repository: FakeDraftsRepository(),
+        uid: 'u1',
+        photos: store,
+        onDeleted: () => discarded++,
+      );
+      addTearDown(cubit.close);
+      await pumpEventQueue();
+      expect(cubit.state, 2);
+
+      expect(await cubit.deleteAll(), isTrue);
+      await pumpEventQueue();
+      expect(cubit.state, 0);
+      expect(discarded, 1);
+      expect(await store.load('u1'), isEmpty);
+      expect(await store.load('u2'), hasLength(1));
+    },
+  );
 }

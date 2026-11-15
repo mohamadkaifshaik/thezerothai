@@ -630,6 +630,30 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     }
   }
 
+  /// Puts already processed photos back (an unsent post restored after the
+  /// app restarted): each is ready to upload, nothing is re-processed and no
+  /// original file is needed. A GIF keeps its GIF kind.
+  void restore(
+    List<({ProcessedImage image, String altText})> photos, {
+    bool gif = false,
+  }) {
+    if (isClosed) return;
+    emit(
+      AttachmentsState(
+        items: [
+          for (final p in photos)
+            Attachment(
+              id: _uuid.v4(),
+              kind: gif ? AttachmentKind.gif : AttachmentKind.photo,
+              status: AttachmentStatus.ready,
+              image: p.image,
+              altText: p.altText,
+            ),
+        ],
+      ),
+    );
+  }
+
   /// Drops everything (after a post succeeded).
   void clear() {
     _cancelProcessing();

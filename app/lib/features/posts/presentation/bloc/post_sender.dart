@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/network/network_type_service.dart';
 import '../../../../core/storage/session_epoch.dart';
 import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/telemetry/usage_reporter.dart';
@@ -16,6 +17,7 @@ import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../../media/presentation/media_error_messages.dart';
 import '../../data/drafts_repository.dart';
 import '../../data/posts_repository.dart';
+import '../../data/unsent_posts_store.dart';
 import '../../domain/composer_attachment_rules.dart';
 import '../../domain/composer_draft.dart';
 import '../../domain/poll_rules.dart';
@@ -127,13 +129,35 @@ class PostEditSeed {
 }
 
 class _Entry {
-  _Entry(this.localId, this.job, this.generation, this.openedSession)
-    : held = job.claimKey,
+  _Entry(
+    this.localId,
+    this.job,
+    this.generation,
+    this.openedSession,
+    this.order,
+  ) : held = job.claimKey,
       attachments = job.attachments;
   final String localId;
   final PostSendJob job;
   final int generation;
   final int openedSession;
+
+  /// Send order: the queue sends oldest first.
+  final int order;
+
+  /// In the queue: waiting for a connection or for the next retry.
+  bool waiting = false;
+
+  /// Waiting for its backoff timer (the queue holds behind it).
+  bool backingOff = false;
+  Timer? backoffTimer;
+
+  /// Network errors in a row since the last manual Retry (indexes the
+  /// backoff).
+  int netAttempts = 0;
+
+  /// The post has a record in the unsent-posts store.
+  bool saved = false;
 
   /// The key the draft row holds for this send; null once released.
   String? held;
@@ -200,7 +224,13 @@ class PostSender {
     this.postedFor = const Duration(seconds: 4),
     this.maxFailedWithPhotos = 3,
     Duration Function()? undoDelay,
+    NetworkTypeService? network,
+    UnsentPostsStore? unsent,
+    AttachmentsCubit Function()? newAttachments,
   }) : _undoDelay = undoDelay ?? _noDelay,
+       _network = network,
+       _unsent = unsent,
+       _newAttachments = newAttachments,
        _pending = pending,
        _repository = repository,
        _drafts = drafts,
@@ -210,7 +240,35 @@ class PostSender {
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now {
     _sub = _session.ended.listen((_) => reset());
+    _netSub = network?.onlineChanges.listen((online) {
+      if (!online) return;
+      // A connection came back: the queue starts over, in order.
+      for (final e in _entries.values) {
+        if (e.waiting && !e.backingOff) e.netAttempts = 0;
+      }
+      _drain();
+    });
   }
+
+  /// Without a network service a network error fails the send at once (no
+  /// queue, no backoff).
+  final NetworkTypeService? _network;
+
+  /// Where unsent posts and their processed photos survive a restart; null:
+  /// nothing is kept.
+  final UnsentPostsStore? _unsent;
+
+  /// A new photo holder for a restored post.
+  final AttachmentsCubit Function()? _newAttachments;
+
+  /// Waits after the 1st, 2nd, 3rd and 4th network error; then Retry is
+  /// manual.
+  static const List<Duration> backoff = [
+    Duration(seconds: 2),
+    Duration(seconds: 5),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+  ];
 
   final PendingPostsCubit _pending;
   final PostsRepository _repository;
@@ -234,6 +292,10 @@ class PostSender {
   final int maxFailedWithPhotos;
 
   StreamSubscription<int>? _sub;
+  StreamSubscription<bool>? _netSub;
+  int _seq = 0;
+  bool _draining = false;
+  Future<void> _storeOps = Future.value();
   int _generation = 0;
   final Map<String, _Entry> _entries = {};
   final Map<String, Timer> _timers = {};
@@ -246,6 +308,7 @@ class PostSender {
     while (_running.isNotEmpty) {
       await Future.wait(List.of(_running));
     }
+    await _storeOps;
   }
 
   bool _dead(_Entry e) =>
@@ -253,7 +316,7 @@ class PostSender {
 
   /// Adds the status row and runs the send. Returns when the send stops.
   Future<void> start(PostSendJob job) {
-    final entry = _Entry(_uuid.v4(), job, _generation, _session.value);
+    final entry = _Entry(_uuid.v4(), job, _generation, _session.value, _seq++);
     final delay = _undoDelay();
     _entries[entry.localId] = entry;
     job.attachments?.retain();
@@ -273,7 +336,7 @@ class PostSender {
         holdSeconds: (delay.inMilliseconds / 1000).ceil(),
       ),
     );
-    if (delay <= Duration.zero) return _run(entry);
+    if (delay <= Duration.zero) return _launch(entry);
     // The undo window: nothing is uploaded or sent until it closes.
     final done = Completer<void>();
     entry.hold = done;
@@ -288,7 +351,7 @@ class PostSender {
         entry.localId,
         (p) => p.copyWith(status: PendingPostStatus.sending, holdSeconds: 0),
       );
-      done.complete(_run(entry));
+      done.complete(_launch(entry));
     });
     _running.add(done.future);
     return done.future.whenComplete(() => _running.remove(done.future));
@@ -317,6 +380,13 @@ class PostSender {
     if (p == null || p.status != PendingPostStatus.failed || !p.canRetry) {
       return Future.value();
     }
+    e.netAttempts = 0;
+    final net = _network;
+    if (net != null && (!net.online || _queueBusy())) {
+      // Offline (or older posts first): it joins the queue.
+      _wait(e, connection: !net.online);
+      return Future.value();
+    }
     _pending.update(
       localId,
       (x) => x.copyWith(
@@ -341,6 +411,7 @@ class PostSender {
     _entries.remove(localId);
     _timers.remove(localId)?.cancel();
     _pending.remove(localId);
+    _forget(e);
     await _releaseHeldKey(e);
     _dropPhotos(e);
     return e.job.draftId;
@@ -355,6 +426,7 @@ class PostSender {
     _entries.remove(localId);
     _timers.remove(localId)?.cancel();
     _pending.remove(localId);
+    _forget(e);
     await _releaseHeldKey(e);
     // Signed out while the key was released: nothing goes to the composer.
     if (_dead(e)) {
@@ -390,8 +462,124 @@ class PostSender {
     );
   }
 
-  /// Sign-out or account switch: stop everything, forget everything.
+  /// Sign-out or account switch: stop everything, forget everything, and
+  /// delete every unsent post and photo this device kept (of any account).
   void reset() {
+    _stop();
+    final store = _unsent;
+    if (store != null) _storeOp(store.deleteEverything);
+  }
+
+  /// Rows that were waiting or not sent when the app last closed, back as
+  /// "Not sent" rows with Retry / Edit. Nothing is sent: the user taps Retry.
+  /// Anything stored for another account is deleted first, and rows past the
+  /// idempotency window are swept (see [UnsentPostsStore]).
+  Future<void> restore(String uid) async {
+    final store = _unsent;
+    if (store == null || uid.isEmpty) return;
+    final session = _session.value;
+    final generation = _generation;
+    final List<UnsentPostRecord> records;
+    try {
+      await _storeOps;
+      await store.purgeOthers(uid);
+      records = await store.load(uid);
+    } catch (_, stack) {
+      _onUnexpectedError?.call(
+        StateError('Unsent posts could not be read.'),
+        stack,
+      );
+      return;
+    }
+    // Signed out (or switched) while reading: nothing of it comes back.
+    if (session != _session.value || generation != _generation) return;
+    for (final record in records) {
+      if (record.uid != uid || _entries.containsKey(record.postId)) continue;
+      _restoreOne(record);
+    }
+  }
+
+  void _restoreOne(UnsentPostRecord record) {
+    final make = _newAttachments;
+    final withPhotos = record.photosKept && record.photos.isNotEmpty;
+    AttachmentsCubit? cubit;
+    if (withPhotos && make != null) {
+      cubit = make()
+        ..restore([
+          for (final p in record.photos) (image: p.image, altText: p.altText),
+        ], gif: record.gif)
+        ..retain();
+    }
+    final lost = !record.photosKept || (withPhotos && cubit == null);
+    final job = PostSendJob(
+      text: record.text,
+      author: record.author,
+      policy: record.policy,
+      replyAudience: record.replyAudience,
+      poll: record.poll,
+      communityId: record.communityId,
+      beaconId: record.beaconId,
+      attachments: cubit,
+      thumbnails: [
+        if (cubit != null)
+          for (final p in record.photos) p.image.thumbBytes,
+      ],
+      gif: record.gif,
+      uid: record.uid,
+      draftId: record.draftId,
+      deleteDraftId: record.deleteDraftId,
+      claimKey: record.key,
+      // A key that was used may exist on the server: it is reused, never
+      // replaced, and its 23 hour window keeps running.
+      claimReused: record.claimReused || record.keyUsed,
+      claimStartedAt: record.keyStartedAt,
+    );
+    final entry =
+        _Entry(record.postId, job, _generation, _session.value, _seq++)
+          ..key = record.keyUsed ? record.key : null
+          ..keyUsed = record.keyUsed
+          ..firstUsedAt = record.keyStartedAt
+          ..ambiguous = record.ambiguous || record.keyUsed
+          ..photosLost = lost
+          ..saved = true;
+    _entries[entry.localId] = entry;
+    _pending.add(
+      PendingPost(
+        localId: entry.localId,
+        text: record.text,
+        author: record.author,
+        createdAt: record.createdAt,
+        thumbnails: job.thumbnails,
+        photosTotal: cubit?.state.count ?? 0,
+        draftId: record.draftId,
+        status: PendingPostStatus.failed,
+        error: 'Not sent. It was still waiting when the app closed.',
+        canRetry: !lost,
+        keepsPhotos: !lost,
+        photosNotSaved: lost,
+      ),
+    );
+  }
+
+  /// Settings' "Delete unsent posts": the rows that are waiting or failed go
+  /// (their photos are released). A send in progress is not touched.
+  void discardUnsent() {
+    for (final e in _entries.values.toList()) {
+      if (e.running || e.hold != null) continue;
+      final p = _pending.state.where((x) => x.localId == e.localId).firstOrNull;
+      if (p == null ||
+          (p.status != PendingPostStatus.failed &&
+              p.status != PendingPostStatus.waiting)) {
+        continue;
+      }
+      _entries.remove(e.localId);
+      _pending.remove(e.localId);
+      _forget(e);
+      _dropPhotos(e);
+    }
+  }
+
+  void _stop() {
     _generation++;
     for (final t in _timers.values) {
       t.cancel();
@@ -401,6 +589,8 @@ class PostSender {
     _entries.clear();
     _pending.clear();
     for (final e in entries) {
+      e.backoffTimer?.cancel();
+      e.backoffTimer = null;
       e.holdTimer?.cancel();
       e.holdTimer = null;
       final waiting = e.hold;
@@ -411,8 +601,10 @@ class PostSender {
   }
 
   Future<void> dispose() async {
-    reset();
+    // Closing the app is not a sign-out: what is stored stays.
+    _stop();
     await _sub?.cancel();
+    await _netSub?.cancel();
   }
 
   /// Releases the entry's photos, once.
@@ -476,6 +668,11 @@ class PostSender {
         altTexts = uploaded.altTexts;
       } on AppException catch (error) {
         if (_dead(e)) return;
+        if ((error is NetworkException ||
+                error is UploadInterruptedException) &&
+            _waitForNetwork(e)) {
+          return;
+        }
         return _fail(
           e,
           uploadErrorMessage(error, gif: job.gif),
@@ -561,6 +758,7 @@ class PostSender {
               ),
         );
       }
+      _unpersist(e);
       _dropPhotos(e);
       if (_dead(e)) return;
       _entries.remove(e.localId);
@@ -619,6 +817,9 @@ class PostSender {
         error is FeatureDisabledException ||
         error is EmailNotVerifiedException;
     if (!proves) e.ambiguous = true;
+    // No connection, or the server could not be reached: the post waits and
+    // goes again under the same key (the backoff; after it, Retry is manual).
+    if (error is NetworkException && !_dead(e) && _waitForNetwork(e)) return;
     if (error is IdempotencyKeyReusedException) {
       return _fail(
         e,
@@ -692,6 +893,7 @@ class PostSender {
         uploading: false,
       ),
     );
+    _persist(e);
     _shedOldFailed();
   }
 
@@ -738,6 +940,212 @@ class PostSender {
         ),
       );
     }
+  }
+
+  bool _queueBusy() => _draining || _entries.values.any((x) => x.waiting);
+
+  /// Starts the send, or queues it: offline, or behind an older post that
+  /// waits (posts go out in order).
+  Future<void> _launch(_Entry e) {
+    final net = _network;
+    if (net != null && (!net.online || _queueBusy())) {
+      _wait(e, connection: !net.online);
+      return Future.value();
+    }
+    return _run(e);
+  }
+
+  /// Puts the post in the queue. With a [delay] (backoff) it goes again when
+  /// the timer fires; without one, as soon as there is a connection.
+  void _wait(_Entry e, {required bool connection, Duration? delay}) {
+    e.activeRun = null;
+    e.waiting = true;
+    e.backoffTimer?.cancel();
+    e.backoffTimer = null;
+    e.backingOff = delay != null;
+    _pending.update(
+      e.localId,
+      (p) => p.copyWith(
+        status: PendingPostStatus.waiting,
+        waitingForConnection: connection,
+        uploading: false,
+        photosDone: 0,
+        clearError: true,
+        needsVerify: false,
+      ),
+    );
+    _persist(e);
+    if (delay == null) {
+      _drain();
+    } else {
+      e.backoffTimer = Timer(delay, () {
+        e.backoffTimer = null;
+        e.backingOff = false;
+        _drain();
+      });
+    }
+  }
+
+  /// A network error: wait for the connection, or for the next backoff step.
+  /// False when the backoff is used up (the caller fails the post; Retry is
+  /// manual) or there is no network service.
+  bool _waitForNetwork(_Entry e) {
+    final net = _network;
+    if (net == null) return false;
+    if (!net.online) {
+      _wait(e, connection: true);
+      return true;
+    }
+    if (e.netAttempts < backoff.length) {
+      _wait(e, connection: false, delay: backoff[e.netAttempts++]);
+      return true;
+    }
+    e.netAttempts = 0;
+    return false;
+  }
+
+  _Entry? _head() {
+    _Entry? best;
+    for (final e in _entries.values) {
+      if (!e.waiting || _dead(e)) continue;
+      if (best == null || e.order < best.order) best = e;
+    }
+    return best;
+  }
+
+  /// Sends the queued posts one after the other, oldest first, while there
+  /// is a connection. Stops at a post that waits for its backoff, so the
+  /// order holds.
+  void _drain() {
+    if (_draining) return;
+    final net = _network;
+    if (net != null && !net.online) return;
+    if (_head() == null) return;
+    final f = _drainLoop();
+    _running.add(f);
+    unawaited(f.whenComplete(() => _running.remove(f)));
+  }
+
+  Future<void> _drainLoop() async {
+    _draining = true;
+    try {
+      while (true) {
+        final net = _network;
+        if (net != null && !net.online) return;
+        final head = _head();
+        if (head == null || head.backingOff) return;
+        head.waiting = false;
+        _pending.update(
+          head.localId,
+          (p) => p.copyWith(
+            status: PendingPostStatus.sending,
+            clearError: true,
+            photosDone: 0,
+            uploading: (head.attachments?.state.count ?? 0) > 0,
+          ),
+        );
+        await _run(head);
+      }
+    } finally {
+      _draining = false;
+    }
+  }
+
+  /// Serialises the store writes, so a delete never overtakes the save it
+  /// follows.
+  void _storeOp(Future<void> Function() op) {
+    _storeOps = _storeOps.then((_) => op()).catchError((
+      Object _,
+      StackTrace stack,
+    ) {
+      // Without details: a storage error can carry the post's text.
+      _onUnexpectedError?.call(
+        StateError('Unsent posts storage failed.'),
+        stack,
+      );
+    });
+  }
+
+  /// Keeps the post (text, key and processed photos) on the device while it
+  /// waits or has failed; later calls only refresh what the key knows.
+  void _persist(_Entry e) {
+    final store = _unsent;
+    final job = e.job;
+    if (store == null || job.uid.isEmpty || _dead(e)) return;
+    final epoch = e.openedSession;
+    final key = e.key ?? e.held ?? job.claimKey;
+    final startedAt = e.firstUsedAt ?? job.claimStartedAt;
+    if (e.saved) {
+      _storeOp(
+        () => store.updateKey(
+          job.uid,
+          e.localId,
+          epoch: epoch,
+          key: key,
+          keyStartedAt: startedAt,
+          keyUsed: e.keyUsed,
+          ambiguous: e.ambiguous,
+        ),
+      );
+      return;
+    }
+    e.saved = true;
+    final hadPhotos = job.attachments != null;
+    final photos = [
+      for (final a in e.attachments?.state.items ?? const <Attachment>[])
+        if (a.image != null) StoredPhoto(image: a.image!, altText: a.altText),
+    ];
+    final record = UnsentPostRecord(
+      uid: job.uid,
+      postId: e.localId,
+      text: job.text,
+      author: job.author,
+      createdAt:
+          _pending.state
+              .where((p) => p.localId == e.localId)
+              .firstOrNull
+              ?.createdAt ??
+          _clock(),
+      poll: job.poll,
+      replyAudience: job.replyAudience,
+      policy: job.policy,
+      communityId: job.communityId,
+      beaconId: job.beaconId,
+      gif: job.gif,
+      draftId: job.draftId,
+      deleteDraftId: job.deleteDraftId,
+      key: key,
+      keyStartedAt: startedAt,
+      keyUsed: e.keyUsed,
+      ambiguous: e.ambiguous,
+      claimReused: job.claimReused,
+      photosKept: !e.photosLost && (e.attachments != null || !hadPhotos),
+      photos: photos,
+    );
+    _storeOp(() async {
+      final result = await store.save(record, epoch: epoch);
+      if (result == UnsentSave.textOnly && hadPhotos && !_dead(e)) {
+        _pending.update(e.localId, (p) => p.copyWith(photosNotSaved: true));
+      }
+    });
+  }
+
+  /// The post left the queue for good (sent, dismissed, edited): its stored
+  /// copy and photo bytes go.
+  void _unpersist(_Entry e) {
+    final store = _unsent;
+    if (store == null || !e.saved) return;
+    e.saved = false;
+    _storeOp(() => store.delete(e.job.uid, e.localId));
+  }
+
+  /// The post leaves the queue (Dismiss, Edit, discard).
+  void _forget(_Entry e) {
+    e.backoffTimer?.cancel();
+    e.backoffTimer = null;
+    e.waiting = false;
+    e.backingOff = false;
+    _unpersist(e);
   }
 
   Future<void> _clearClaim(String uid, String draftId, String key) async {

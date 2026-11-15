@@ -43,6 +43,13 @@ class PendingPostStatusRow extends StatefulWidget {
     switch (p.status) {
       case PendingPostStatus.holding:
         return 'Sending in ${seconds ?? p.holdSeconds}s';
+      case PendingPostStatus.waiting:
+        final base = p.waitingForConnection
+            ? 'Waiting for connection'
+            : "Couldn't reach the server. Trying again soon...";
+        return p.photosNotSaved
+            ? '$base Photos are lost if you close the app.'
+            : base;
       case PendingPostStatus.posted:
         return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
       case PendingPostStatus.failed:
@@ -64,6 +71,11 @@ class PendingPostStatusRow extends StatefulWidget {
       // Said once, when the row appears: the ticking numbers are not.
       case PendingPostStatus.holding:
         return 'Sending in ${p.holdSeconds} seconds, Undo available';
+      // Said when the post starts waiting; it then sends by itself.
+      case PendingPostStatus.waiting:
+        return p.waitingForConnection
+            ? 'Waiting for connection. Your post will send when you are back online'
+            : "Couldn't reach the server. Your post will be tried again";
       case PendingPostStatus.posted:
         return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
       case PendingPostStatus.failed:
@@ -135,6 +147,7 @@ class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final failed = post.status == PendingPostStatus.failed;
+    final waiting = post.status == PendingPostStatus.waiting;
     final posted = post.status == PendingPostStatus.posted;
     final status = PendingPostStatusRow.statusText(post, seconds: _seconds);
     final thumb = post.thumbnails.isEmpty ? null : post.thumbnails.first;
@@ -244,7 +257,7 @@ class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
                   )
                 else if (holding && onUndo != null)
                   action('Undo', 'Undo sending $about', onUndo)
-                else if (failed && onDismiss != null)
+                else if ((failed || waiting) && onDismiss != null)
                   IconButton(
                     tooltip: 'Dismiss $about',
                     constraints: BoxConstraints(
@@ -278,11 +291,11 @@ class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
                 ),
               ),
             ],
-            if (failed)
+            if (failed || waiting)
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  if (post.needsVerify && onVerify != null)
+                  if (failed && post.needsVerify && onVerify != null)
                     action('Verify email', 'Verify email for $about', onVerify),
                   if (onEdit != null)
                     action(
@@ -294,7 +307,7 @@ class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
                           : 'Edit text of $about, photos will be removed',
                       onEdit,
                     ),
-                  if (post.canRetry && onRetry != null)
+                  if (failed && post.canRetry && onRetry != null)
                     action('Retry', 'Retry sending $about', onRetry),
                 ],
               ),

@@ -114,4 +114,65 @@ void main() {
       expect(service.metered, isTrue);
     });
   });
+
+  group('online / offline', () {
+    test('only no result at all counts as offline', () {
+      expect(isOfflineConnection(const []), isTrue);
+      expect(isOfflineConnection([ConnectivityResult.none]), isTrue);
+      expect(isOfflineConnection([ConnectivityResult.wifi]), isFalse);
+      expect(isOfflineConnection([ConnectivityResult.mobile]), isFalse);
+      expect(isOfflineConnection([ConnectivityResult.vpn]), isFalse);
+      expect(
+        isOfflineConnection([ConnectivityResult.none, ConnectivityResult.wifi]),
+        isFalse,
+      );
+    });
+
+    test(
+      'online until a check says otherwise; emits each change once',
+      () async {
+        final plugin = _Connectivity([ConnectivityResult.wifi]);
+        final service = ConnectivityNetworkTypeService(
+          connectivity: plugin,
+          web: false,
+        );
+        addTearDown(service.dispose);
+        final seen = <bool>[];
+        service.onlineChanges.listen(seen.add);
+        expect(service.online, isTrue);
+        await Future<void>.delayed(Duration.zero);
+        expect(seen, isEmpty);
+
+        plugin.controller.add([ConnectivityResult.none]);
+        plugin.controller.add([ConnectivityResult.none]);
+        expect(service.online, isFalse);
+        plugin.controller.add([ConnectivityResult.mobile]);
+        expect(service.online, isTrue);
+        await Future<void>.delayed(Duration.zero);
+        expect(seen, [false, true]);
+      },
+    );
+
+    test('a phone that starts offline says so after the first check', () async {
+      final plugin = _Connectivity([ConnectivityResult.none]);
+      final service = ConnectivityNetworkTypeService(
+        connectivity: plugin,
+        web: false,
+      );
+      addTearDown(service.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(service.online, isFalse);
+    });
+
+    test('a failing plugin leaves the device online', () async {
+      final plugin = _Connectivity(const [])..failCheck = true;
+      final service = ConnectivityNetworkTypeService(
+        connectivity: plugin,
+        web: false,
+      );
+      addTearDown(service.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(service.online, isTrue);
+    });
+  });
 }

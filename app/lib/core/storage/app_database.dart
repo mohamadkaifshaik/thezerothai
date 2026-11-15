@@ -338,6 +338,86 @@ class PostHistoryEntries extends Table {
   Set<Column> get primaryKey => {uid, postId};
 }
 
+/// A post that could not be sent yet (waiting for a connection, or failed)
+/// kept on the device so it can come back as "Not sent" after the app
+/// restarts (schema v15). Device-only, never sent to the server. Keyed
+/// `{uid, postId}` and filtered by uid on every read and write, so another
+/// account never sees it; sign-out ([AppDatabase.clearAll]), Dismiss, a
+/// successful send and Settings' "Delete unsent posts" remove it, and the
+/// launch purge removes every row whose uid is not the signed-in user or that
+/// is older than the 23 hour idempotency window. Only `UnsentPostsStore`
+/// reads and writes it. The photos live in [UnsentPostPhotoEntries].
+@DataClassName('UnsentPostRow')
+class UnsentPostEntries extends Table {
+  TextColumn get uid => text()();
+
+  /// Opaque id of the post (the sender's id for it), unique per account.
+  TextColumn get postId => text()();
+
+  /// The post text.
+  TextColumn get postText => text().withDefault(const Constant(''))();
+
+  /// JSON `{"c": [choices], "d": minutes}`; '' = no poll.
+  TextColumn get pollJson => text().withDefault(const Constant(''))();
+
+  /// `ReplyAudience.name`.
+  TextColumn get replyAudience =>
+      text().withDefault(const Constant('everyone'))();
+
+  /// The wire value of the reply policy the send uses.
+  IntColumn get policyValue => integer().withDefault(const Constant(0))();
+  TextColumn get communityId => text().withDefault(const Constant(''))();
+  TextColumn get beaconId => text().withDefault(const Constant(''))();
+  BoolColumn get isGif => boolean().withDefault(const Constant(false))();
+
+  /// The unsent-post (draft) row this send belongs to, when it has one.
+  TextColumn get draftId => text().nullable()();
+  TextColumn get deleteDraftId => text().nullable()();
+
+  /// The viewer's own author snapshot (serialized), for the row's avatar.
+  BlobColumn get authorBytes => blob()();
+
+  /// The idempotency key of the send, with its first use and flags, so a
+  /// restored post sends under the same key (never twice).
+  TextColumn get sendKey => text().nullable()();
+  DateTimeColumn get keyStartedAt => dateTime().nullable()();
+  BoolColumn get keyUsed => boolean().withDefault(const Constant(false))();
+  BoolColumn get keyAmbiguous => boolean().withDefault(const Constant(false))();
+  BoolColumn get claimReused => boolean().withDefault(const Constant(false))();
+
+  /// False when the photos were not kept (over the size cap, or the web):
+  /// the restored post then has its text only.
+  BoolColumn get photosKept => boolean().withDefault(const Constant(true))();
+  IntColumn get photoCount => integer().withDefault(const Constant(0))();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {uid, postId};
+}
+
+/// The processed bytes of one photo of an [UnsentPostEntries] row: the
+/// re-encoded full image, its thumbnail and the values upload needs; never the
+/// original file. Keyed `{uid, postId, position}`.
+@DataClassName('UnsentPostPhotoRow')
+class UnsentPostPhotoEntries extends Table {
+  TextColumn get uid => text()();
+  TextColumn get postId => text()();
+  IntColumn get position => integer()();
+  BlobColumn get fullBytes => blob()();
+  BlobColumn get thumbBytes => blob()();
+  IntColumn get width => integer()();
+  IntColumn get height => integer()();
+  TextColumn get fullMd5 => text()();
+  TextColumn get thumbMd5 => text()();
+  TextColumn get blurhash => text()();
+  TextColumn get contentType => text()();
+  TextColumn get thumbContentType => text().withDefault(const Constant(''))();
+  TextColumn get altText => text().withDefault(const Constant(''))();
+
+  @override
+  Set<Column> get primaryKey => {uid, postId, position};
+}
+
 @DriftDatabase(
   tables: [
     ProfileCacheEntries,
@@ -353,6 +433,8 @@ class PostHistoryEntries extends Table {
     AppSettingEntries,
     ComposerDraftEntries,
     PostHistoryEntries,
+    UnsentPostEntries,
+    UnsentPostPhotoEntries,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -383,7 +465,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -474,6 +556,12 @@ class AppDatabase extends _$AppDatabase {
       // caller opened. Additive table, nothing to migrate.
       if (from < 14) {
         await m.createTable(postHistoryEntries);
+      }
+      // v14 -> v15 (offline send queue): the device-only unsent posts and
+      // their processed photo bytes. Additive tables, nothing to migrate.
+      if (from < 15) {
+        await m.createTable(unsentPostEntries);
+        await m.createTable(unsentPostPhotoEntries);
       }
     },
   );
@@ -661,6 +749,9 @@ class AppDatabase extends _$AppDatabase {
       await delete(messageEntries).go();
       await delete(messagingStateEntries).go();
       await delete(postHistoryEntries).go();
+      // Unsent photos belong to the signed-in account: nothing stays.
+      await delete(unsentPostPhotoEntries).go();
+      await delete(unsentPostEntries).go();
       await (delete(
         appSettingEntries,
       )..where((t) => t.settingKey.like('$kAccountSettingPrefix%'))).go();
