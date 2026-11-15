@@ -7,6 +7,7 @@ package beacons
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -119,7 +120,7 @@ func (s *service) resolveNearbyArea(ctx context.Context, viewer, id string) (loc
 	}
 	stored, ok, err := s.d.MyArea.MyArea(ctx, viewer)
 	if err != nil {
-		return location.Area{}, err
+		return location.Area{}, redactAreaIDs(fmt.Errorf("beacons: my area: %w", err))
 	}
 	if !ok {
 		return location.Area{}, errAreaNotSet()
@@ -163,12 +164,8 @@ func (s *service) ListNearby(ctx context.Context, viewer string, in NearbyInput)
 	default:
 		return NearbyPage{}, mapErr(ctx, "nearby", viewer, "", apierr.Validation("scope", "scope is not a known value"))
 	}
-	area, err := s.resolveNearbyArea(ctx, viewer, in.AreaID)
+	area, err := s.resolveNearbyArea(ctx, viewer, in.AreaID) // its only raw error (the stored-area read) is redacted there
 	if err != nil {
-		var ae *apierr.Error
-		if !errors.As(err, &ae) {
-			err = logger.RedactErr(err, in.AreaID) // a shaped answer never names the id; a raw failure might
-		}
 		return NearbyPage{}, mapErr(ctx, "nearby", viewer, "", err)
 	}
 	if area.Kind == location.KindCity {
@@ -210,7 +207,7 @@ func (s *service) ListNearby(ctx context.Context, viewer string, in NearbyInput)
 	if whole {
 		filtered = raw // count every probed row the viewer may see; render only this page's
 	}
-	shown, profs, err := s.visibleRows(ctx, viewer, filtered)
+	shown, profs, err := s.visibleRows(ctx, viewer, filtered, len(page)) // page is a prefix of filtered
 	if err != nil {
 		return NearbyPage{}, mapErr(ctx, "nearby", viewer, "", err)
 	}

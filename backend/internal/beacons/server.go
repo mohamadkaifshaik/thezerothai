@@ -305,11 +305,7 @@ func (s *Server) ListNearbyBeacons(ctx context.Context, req *connect.Request[bea
 	}
 	defer cancel()
 	m := req.Msg
-	scope, err := nearbyScopeFromProto(m.GetScope())
-	if err != nil {
-		return nil, err
-	}
-	page, err := s.svc.ListNearby(ctx, uid, NearbyInput{AreaID: m.GetAreaId(), Scope: scope, Limit: m.GetLimit(), PageToken: m.GetPageToken()})
+	page, err := s.svc.ListNearby(ctx, uid, NearbyInput{AreaID: m.GetAreaId(), Scope: nearbyScopeFromProto(m.GetScope()), Limit: m.GetLimit(), PageToken: m.GetPageToken()})
 	if err != nil {
 		return nil, err
 	}

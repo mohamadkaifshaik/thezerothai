@@ -6,13 +6,35 @@ package beacons
 
 import (
 	"context"
+	"regexp"
+	"sort"
 
 	"github.com/dzeroth/dzeroth/backend/internal/location"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // fieldAreaID is the VALIDATION field of a bad area id; the value is never echoed.
 const fieldAreaID = "area_id"
+
+// areaIDText finds catalogue-shaped ids inside free text (location.ValidIDFormat's grammar, unanchored). It may also
+// hit an innocent substring; over-redacting an error message is harmless.
+var areaIDText = regexp.MustCompile(`in\.[a-z0-9]{2,12}(?:\.[a-z0-9-]{2,40})?`)
+
+// redactAreaIDs hashes every catalogue-shaped id in err's message (logger.RedactErr; errors.Is/As still reach err). It is
+// for an error raised outside this module whose text beacons cannot list the ids of (the caller's stored area, read
+// through location.Reader). Longest first, so a city id inside a neighbourhood id cannot split it.
+func redactAreaIDs(err error) error {
+	if err == nil {
+		return nil
+	}
+	ids := areaIDText.FindAllString(err.Error(), -1)
+	if len(ids) == 0 {
+		return err
+	}
+	sort.Slice(ids, func(i, j int) bool { return len(ids[i]) > len(ids[j]) })
+	return logger.RedactErr(err, ids...)
+}
 
 // errAreaID is the one answer for an area id that is malformed, unknown or (for a plan) retired.
 func errAreaID() error { return apierr.Validation(fieldAreaID, "area_id is not a known area") }

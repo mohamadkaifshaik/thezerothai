@@ -1,6 +1,8 @@
 package beacons
 
 import (
+	"strconv"
+
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	beaconsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1"
@@ -8,7 +10,6 @@ import (
 	locationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/location"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
 // createInputFromProto converts a CreateBeaconRequest; the enum checks answer VALIDATION naming the field before the
@@ -173,15 +174,19 @@ func PreviewActivityProto(a Activity) beaconsv1.BeaconActivity { return activity
 // PreviewStatusProto is PreviewActivityProto for the effective status.
 func PreviewStatusProto(s Status) beaconsv1.BeaconStatus { return statusToProto(s) }
 
-// nearbyScopeFromProto maps NearbyScope (UNSPECIFIED = AREA); a value outside the enum is VALIDATION "scope".
-func nearbyScopeFromProto(sc beaconsv1.NearbyScope) (NearbyScope, error) {
+// nearbyScopeFromProto maps NearbyScope without judging it (UNSPECIFIED = ""; the service treats it as AREA). A value
+// outside the enum passes through as an unknown scope, so ListNearby refuses it with VALIDATION "scope" only after the
+// FEATURE_LOCATION gate (a caller with the flag off learns FEATURE_DISABLED first, whatever they sent).
+func nearbyScopeFromProto(sc beaconsv1.NearbyScope) NearbyScope {
 	switch sc {
-	case beaconsv1.NearbyScope_NEARBY_SCOPE_UNSPECIFIED, beaconsv1.NearbyScope_NEARBY_SCOPE_AREA:
-		return NearbyScopeArea, nil
+	case beaconsv1.NearbyScope_NEARBY_SCOPE_UNSPECIFIED:
+		return ""
+	case beaconsv1.NearbyScope_NEARBY_SCOPE_AREA:
+		return NearbyScopeArea
 	case beaconsv1.NearbyScope_NEARBY_SCOPE_CITY:
-		return NearbyScopeCity, nil
+		return NearbyScopeCity
 	}
-	return "", apierr.Validation("scope", "scope is not a known value")
+	return NearbyScope("unknown:" + strconv.Itoa(int(sc)))
 }
 
 func proximityToProto(p Proximity) beaconsv1.AreaProximity {

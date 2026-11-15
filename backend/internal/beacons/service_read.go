@@ -250,7 +250,7 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 		rows = rows[:size]
 		out.NextPageToken = s.encodeAfter(binding, rows[size-1])
 	}
-	shown, profs, err := s.visibleRows(ctx, viewer, rows)
+	shown, profs, err := s.visibleRows(ctx, viewer, rows, len(rows))
 	if err != nil {
 		return Page{}, mapErr(ctx, "list", viewer, "", err)
 	}
@@ -262,9 +262,10 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 
 // visibleRows is the row filter of ListBeacons and ListNearby, in order: visibleRow (hidden unless the viewer organises
 // it; a block either way, the viewer's graph cached, overflow-aware), then one batched profile read of the organisers (a
-// missing or non-ACTIVE organiser drops the row). It records the drop counts on the request line and answers the rows
-// kept, in input order, with the organiser profiles. 0 reads for an empty input.
-func (s *service) visibleRows(ctx context.Context, viewer string, rows []Beacon) ([]Beacon, map[string]identity.Profile, error) {
+// missing or non-ACTIVE organiser drops the row). It records the drop counts of the first countable rows (the ones the
+// page shows; ListNearby may filter a longer probe for its count) on the request line and answers the rows kept, in input
+// order, with the organiser profiles. 0 reads for an empty input.
+func (s *service) visibleRows(ctx context.Context, viewer string, rows []Beacon, countable int) ([]Beacon, map[string]identity.Profile, error) {
 	if len(rows) == 0 {
 		return nil, nil, nil
 	}
@@ -273,23 +274,26 @@ func (s *service) visibleRows(ctx context.Context, viewer string, rows []Beacon)
 		return nil, nil, err
 	}
 	kept := make([]Beacon, 0, len(rows))
+	keptAt := make([]int, 0, len(rows)) // each kept row's index in rows
 	organisers := make([]string, 0, len(rows))
 	seen := map[string]bool{}
 	droppedHidden, droppedBlocked := 0, 0
-	for _, b := range rows {
+	for i, b := range rows {
 		cause, err := visibleRow(ctx, bc, viewer, b)
 		if err != nil {
 			return nil, nil, err
 		}
-		switch cause {
-		case "hidden":
+		switch {
+		case cause == "hidden" && i < countable:
 			droppedHidden++
-			continue
-		case "blocked":
+		case cause == "blocked" && i < countable:
 			droppedBlocked++
+		}
+		if cause != "" {
 			continue
 		}
 		kept = append(kept, b)
+		keptAt = append(keptAt, i)
 		if !seen[b.OrganiserID] {
 			seen[b.OrganiserID] = true
 			organisers = append(organisers, b.OrganiserID)
@@ -306,10 +310,12 @@ func (s *service) visibleRows(ctx context.Context, viewer string, rows []Beacon)
 	}
 	droppedGone := 0
 	shown := make([]Beacon, 0, len(kept))
-	for _, b := range kept {
+	for k, b := range kept {
 		p, ok := profs[b.OrganiserID]
 		if !ok || p.Status != identity.AccountStatusActive {
-			droppedGone++
+			if keptAt[k] < countable {
+				droppedGone++
+			}
 			continue
 		}
 		shown = append(shown, b)
