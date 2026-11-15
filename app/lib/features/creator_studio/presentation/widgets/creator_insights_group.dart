@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../../shared/widgets/primitives/settings_group.dart';
+import '../../../creator_insights/domain/creator_insights_feature_flag.dart';
+import '../../../creator_insights/presentation/widgets/insights_panel.dart';
 
-/// The "Insights" group of Creator Studio: four static rows, each with the
-/// "Coming soon" pill and no number (not even 0 or a dash). Insights v1
-/// replaces this widget and nothing else on the page.
+/// The "Insights" group of Creator Studio. With `creator_insights` on it is
+/// the live [InsightsPanel] (tiles, sparklines, top posts). With it off it is
+/// the static rows, each with the "Coming soon" pill and no number (not even
+/// 0 or a dash), and no repository is read.
 class CreatorInsightsGroup extends StatelessWidget {
   const CreatorInsightsGroup({super.key, required this.style});
 
@@ -23,6 +27,9 @@ class CreatorInsightsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (isFeatureEnabled(context, kFeatureCreatorInsights)) {
+      return InsightsPanel(style: style);
+    }
     return SettingsGroup(
       title: title,
       style: style,

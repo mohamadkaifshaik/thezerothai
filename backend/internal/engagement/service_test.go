@@ -61,7 +61,7 @@ func (f *fakeRepo) Like(_ context.Context, p LikeParams) (bool, error) {
 	return f.replayed, f.likeErr
 }
 
-func (f *fakeRepo) Unlike(_ context.Context, _, postID string, known int64) (bool, error) {
+func (f *fakeRepo) Unlike(_ context.Context, _, postID string, known int64, _ string) (bool, error) {
 	f.mu.Lock()
 	f.unlikeIDs = append(f.unlikeIDs, postID)
 	f.unlikeKnown = append(f.unlikeKnown, known)
@@ -76,7 +76,7 @@ func (f *fakeRepo) Repost(_ context.Context, p RepostParams) (RepostResult, erro
 	return f.repostRes, f.repostErr
 }
 
-func (f *fakeRepo) UndoRepost(_ context.Context, _, postID string) (UndoResult, error) {
+func (f *fakeRepo) UndoRepost(_ context.Context, _, postID, _ string) (UndoResult, error) {
 	f.mu.Lock()
 	f.undoIDs = append(f.undoIDs, postID)
 	f.mu.Unlock()

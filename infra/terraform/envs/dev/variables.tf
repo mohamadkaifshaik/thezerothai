@@ -1701,3 +1701,31 @@ variable "feature_post_views_percent" {
     error_message = "feature_post_views_percent must be an integer 0-100."
   }
 }
+
+variable "feature_creator_insights" {
+  description = "FEATURE_CREATOR_INSIGHTS rollout mode for F2 Creator Studio insights (IdentityService.GetCreatorInsights on for the caller; the users/{uid}/dailyStats writes while not globally off): off | allowlist | percent | on. Default off in every environment. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, prod off. Needs FEATURE_POST_VIEWS on for impressions, and the dailyStats TTL policy (modules/firestore) applied first."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_creator_insights)
+    error_message = "feature_creator_insights must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_creator_insights_allowlist" {
+  description = "FEATURE_CREATOR_INSIGHTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_creator_insights_percent" {
+  description = "FEATURE_CREATOR_INSIGHTS_PERCENT: integer 0-100, the share of users enabled in percent mode."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_creator_insights_percent >= 0 && var.feature_creator_insights_percent <= 100 && floor(var.feature_creator_insights_percent) == var.feature_creator_insights_percent
+    error_message = "feature_creator_insights_percent must be an integer 0-100."
+  }
+}
