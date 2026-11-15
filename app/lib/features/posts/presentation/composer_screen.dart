@@ -51,6 +51,7 @@ import '../domain/reply_audience.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
+import 'bloc/post_sender.dart';
 import 'composer_route.dart';
 import 'post_error_messages.dart';
 import 'quote_gate.dart';
@@ -74,8 +75,7 @@ const kDraftNeedsNoMediaMessage =
 
 /// The server posted without the community (an older revision
 /// dropped the field), so the post is open to everyone.
-const kCommunityNotAddedMessage =
-    'Your post was sent without its community, so everyone can see it.';
+const kCommunityNotAddedMessage = kCommunityNotAddedText;
 
 /// Absolute paid text bound. The current verified tier controls the counter
 /// and submit rules; a huge paste never makes every keystroke expensive.
@@ -100,8 +100,14 @@ class ComposerScreen extends StatelessWidget {
     this.planPreview,
     this.draftId = '',
     this.communityId = '',
+    this.edit,
     @visibleForTesting this.scheduleClock,
   });
+
+  /// A failed background post being edited (the status row's Edit): the
+  /// composer opens on its text, audience, poll and community, and on its
+  /// photos when they are still held. Wins over [draftId].
+  final PostEditSeed? edit;
 
   final String quoteOfPostId;
 
@@ -165,6 +171,15 @@ class ComposerScreen extends StatelessWidget {
             !(context.read<AppDatabase?>()?.keepsNothing ?? false)
         ? (context.read<AuthBloc>().state.user?.uid ?? '')
         : '';
+    final seed = edit;
+    if (seed != null && quoteOfPostId.isEmpty) {
+      return _composer(
+        context,
+        uid: uid,
+        initial: seed.toDraft(uid, DateTime.now()),
+        seed: seed,
+      );
+    }
     if (uid.isNotEmpty && draftId.isNotEmpty) {
       return _DraftLoader(
         uid: uid,
@@ -187,6 +202,7 @@ class ComposerScreen extends StatelessWidget {
     BuildContext context, {
     required String uid,
     ComposerDraft? initial,
+    PostEditSeed? seed,
   }) {
     final profile = context.read<OnboardingBloc>().state.profile;
     // The photo button exists only with FEATURE_MEDIA on (plan D3); with
@@ -198,6 +214,16 @@ class ComposerScreen extends StatelessWidget {
         context.read<PostsRepository>().subFeatureEnabled(
           kPostsSubFeatureMedia,
         );
+    // The photos of an edited post come along only while photos are offered
+    // and the cubit is still open; otherwise the composer opens on the text
+    // and the cubit is released.
+    final held = seed?.attachments;
+    final reusable = mediaEnabled && held != null && !held.isClosed
+        ? held
+        : null;
+    if (held != null && reusable == null && !held.isClosed) {
+      unawaited(held.close());
+    }
     // The audience picker: `communities` on and the caller not
     // protected (the server answers PROTECTED_ACCOUNT to a community post).
     final communitiesOn =
@@ -207,22 +233,25 @@ class ComposerScreen extends StatelessWidget {
       providers: [
         if (mediaEnabled)
           BlocProvider<AttachmentsCubit>(
-            create: (context) => AttachmentsCubit(
-              picker: context.read<ImagePickerService>(),
-              processor: context.read<ImageProcessor>(),
-              uploader: MediaUploader(
-                repository: context.read<MediaRepository>(),
-                onUnexpectedError: context.read<UnexpectedErrorReporter>(),
-              ),
-              // Only a composer that offers GIFs needs the GIF pieces.
-              gifSource: featureEnabledSnapshot(context, kFeatureGif)
-                  ? context.read<GifSource>()
-                  : null,
-              gifPreparer: featureEnabledSnapshot(context, kFeatureGif)
-                  ? context.read<GifPreparer>()
-                  : null,
-              gifEnabled: featureEnabledSnapshot(context, kFeatureGif),
-            ),
+            // Edit on a failed post brings its photos (and their uploads).
+            create: (context) =>
+                reusable ??
+                AttachmentsCubit(
+                  picker: context.read<ImagePickerService>(),
+                  processor: context.read<ImageProcessor>(),
+                  uploader: MediaUploader(
+                    repository: context.read<MediaRepository>(),
+                    onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+                  ),
+                  // Only a composer that offers GIFs needs the GIF pieces.
+                  gifSource: featureEnabledSnapshot(context, kFeatureGif)
+                      ? context.read<GifSource>()
+                      : null,
+                  gifPreparer: featureEnabledSnapshot(context, kFeatureGif)
+                      ? context.read<GifPreparer>()
+                      : null,
+                  gifEnabled: featureEnabledSnapshot(context, kFeatureGif),
+                ),
           ),
         BlocProvider<ComposerCubit>(
           create: (context) => ComposerCubit(
@@ -235,6 +264,13 @@ class ComposerScreen extends StatelessWidget {
             postTextLimit: () => subscriptionPostLimit(context),
             postPolicyChanges: subscriptionPostChanges(context),
             pending: context.read<PendingPostsCubit>(),
+            sender: context.read<PostSender?>(),
+            resumeKey: seed?.key == null
+                ? null
+                : (
+                    key: seed!.key!,
+                    startedAt: seed.keyStartedAt ?? DateTime.now(),
+                  ),
             author: viewerAuthorSnapshot(profile),
             quoteOfPostId: quoteOfPostId,
             beaconId: _planAttached(context) ? planId : '',
@@ -652,6 +688,11 @@ class _ComposerViewState extends State<_ComposerView> {
       _onScheduled(context, scheduled);
       return;
     }
+    // Handed to the session's sender: back to Home, where the status row
+    // shows the post going out (uploads and CreatePost run there).
+    if (state.status == ComposerStatus.handedOff) {
+      return _leave(context, home: true);
+    }
     if (state.status == ComposerStatus.posted) {
       if (state.pollNotAdded) _warnPollNotAdded(context, state.created!);
       if (state.communityNotApplied && !state.pollNotAdded) {
@@ -896,13 +937,15 @@ class _ComposerViewState extends State<_ComposerView> {
 
   /// Back to where the composer was opened from (Home when it was the first
   /// page), closing first whatever is open over it. Once only.
-  void _leave(BuildContext context) {
+  void _leave(BuildContext context, {bool home = false}) {
     if (_left) return;
     _left = true;
     // Already off the stack (a sign-out redirect replaced it): popping or
     // going Home now would take the new stack's page.
     if (!closeRoutesAbove(context)) return;
-    if (context.canPop()) {
+    if (home) {
+      context.go(AppRouter.homePath);
+    } else if (context.canPop()) {
       context.pop();
     } else {
       context.go(AppRouter.homePath);
@@ -958,6 +1001,7 @@ class _ComposerViewState extends State<_ComposerView> {
         // replaces the composer, but the attachments are still held.
         final canLeaveFreely =
             state.status == ComposerStatus.posted ||
+            state.status == ComposerStatus.handedOff ||
             state.sessionEnded ||
             (!state.isSubmitting && cubit.leaveAction == LeaveAction.none);
         if (state.error is EmailNotVerifiedException) {

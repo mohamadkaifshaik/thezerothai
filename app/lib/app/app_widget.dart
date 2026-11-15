@@ -77,6 +77,7 @@ import '../features/engagement/data/post_history_repository.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
+import '../features/posts/presentation/bloc/post_sender.dart';
 import '../features/timeline/data/timeline_repository.dart';
 import '../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
@@ -251,6 +252,16 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         );
   // Optimistic posts live for the session only; sign-out drops them.
   final PendingPostsCubit _pendingPosts = PendingPostsCubit();
+  // Sends posts after the composer closed (uploads + CreatePost); sign-out
+  // stops and forgets them.
+  late final PostSender _postSender = PostSender(
+    pending: _pendingPosts,
+    repository: widget.postsRepository,
+    drafts: _drafts,
+    sessionEpoch: widget.database.sessionEpoch,
+    usage: widget.usage,
+    onUnexpectedError: reportUnexpectedError,
+  );
   // The session's like/repost overlay; sign-out forgets it.
   late final EngagementCubit _engagement = EngagementCubit(
     repository: widget.engagementRepository,
@@ -391,6 +402,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         'snackbars',
         () => _messengerKey.currentState?.clearSnackBars(),
       )
+      ..register('post sender', _postSender.reset)
       ..register('pending posts', _pendingPosts.clear)
       ..register('engagement', () {
         _engagement.reset();
@@ -595,6 +607,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _screenViews.dispose();
     _authSub.cancel();
     _onboardingSub.cancel();
+    unawaited(_postSender.dispose());
     _pendingPosts.close();
     _engagement.close();
     _polls?.close();
@@ -646,6 +659,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         RepositoryProvider.value(value: widget.database),
         RepositoryProvider<PushOptInStore>.value(value: _pushOptInStore),
         RepositoryProvider<DraftsRepository>.value(value: _drafts),
+        RepositoryProvider<PostSender>.value(value: _postSender),
         RepositoryProvider<PostHistoryRepository>.value(value: _postHistory),
         RepositoryProvider<UnexpectedErrorReporter>.value(
           value: reportUnexpectedError,

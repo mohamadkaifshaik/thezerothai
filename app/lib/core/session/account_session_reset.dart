@@ -11,7 +11,8 @@
 /// Inventory of per-account state and how each is handled (keep in step with
 /// the PR that introduced this class):
 ///
-/// - Registered (in-memory, reset by [run]): `PendingPostsCubit`,
+/// - Registered (in-memory, reset by [run]): `PostSender` (stops background
+///   sends, releases their photos) and `PendingPostsCubit`,
 ///   `EngagementCubit`, `PollCubit` (+ `PollRepository` voting memory),
 ///   `BookmarksCubit` (+ repository overlay), `SuggestionsCubit` (+
 ///   repository), `TrendsCubit`, `LikesRepository`, `HomeTabsRepository`,

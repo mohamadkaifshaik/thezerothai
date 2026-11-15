@@ -298,3 +298,8 @@ String scheduledListNoticeMessage(AppException error) {
 /// (an older server revision drops the field and posts the question alone).
 /// The snackbar offers Delete and Keep.
 const kPollNotAddedMessage = 'Your poll was not added';
+
+/// The server posted without the community (an older revision dropped the
+/// field), so the post is open to everyone.
+const kCommunityNotAddedText =
+    'Your post was sent without its community, so everyone can see it.';

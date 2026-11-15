@@ -582,22 +582,70 @@ void main() {
     });
   });
 
+  PendingPost pendingPost(
+    String text, {
+    PendingPostStatus status = PendingPostStatus.sending,
+    String? error,
+    int photosTotal = 0,
+    int photosDone = 0,
+    bool uploading = false,
+  }) => PendingPost(
+    localId: 'k1',
+    text: text,
+    author: common.AuthorSnapshot(userId: 'me', handle: 'me'),
+    createdAt: DateTime.now(),
+    status: status,
+    error: error,
+    photosTotal: photosTotal,
+    photosDone: photosDone,
+    uploading: uploading,
+    draftId: 'd1',
+  );
+
+  // The sending row's progress bar animates forever, so these open without
+  // settling (two pumps) instead of pumpAndSettle.
   testWidgets('shows the optimistic post above the feed', (tester) async {
     stubCached(snapshotOf([2, 1]));
     since = const Duration(seconds: 1);
+    pending.add(pendingPost('on its way'));
+
+    await open(tester, settle: false);
+
+    expect(find.text('on its way'), findsOneWidget);
+    expect(find.text('Posting...'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('a failed post shows its error (no actions without a sender)', (
+    tester,
+  ) async {
+    stubCached(snapshotOf([2, 1]));
+    since = const Duration(seconds: 1);
     pending.add(
-      PendingPost(
-        localId: 'k1',
-        text: 'on its way',
-        author: common.AuthorSnapshot(userId: 'me', handle: 'me'),
-        createdAt: DateTime.now(),
+      pendingPost(
+        'lost',
+        status: PendingPostStatus.failed,
+        error: 'No connection.',
       ),
     );
 
     await open(tester);
 
-    expect(find.text('on its way'), findsOneWidget);
-    expect(find.text('Posting...'), findsOneWidget);
+    expect(find.text('No connection.'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('an upload shows which photo it is on', (tester) async {
+    stubCached(snapshotOf([2, 1]));
+    since = const Duration(seconds: 1);
+    pending.add(
+      pendingPost('pics', photosTotal: 3, photosDone: 1, uploading: true),
+    );
+
+    await open(tester, settle: false);
+
+    expect(find.text('Uploading 2 of 3 photos...'), findsOneWidget);
   });
 
   testWidgets('deleting an own post removes it from the list at once', (
