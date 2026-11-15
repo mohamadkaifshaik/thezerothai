@@ -149,7 +149,7 @@ func TestFirestoreRootAndArticleCommitAtomically(t *testing.T) {
 			_, _ = ref.Delete(context.Background())
 		}
 	}()
-	in := posts.CreateParams{AuthorID: uid, IdemKey: key, RequestHash: "article-hash", ArticlePublication: &publicationIntent{repo: r, expected: a, now: time.Now()}, Draft: posts.Post{AuthorID: uid, Kind: posts.KindPost, Text: "Title", Article: &posts.ArticlePreview{ArticleID: id, Title: a.Title}}}
+	in := posts.CreateParams{AuthorID: uid, IdemKey: key, RequestHash: "article-hash", ArticlePublication: &publicationIntent{repo: r, expected: a, now: time.Now()}, Draft: posts.Post{AuthorID: uid, Kind: posts.KindPost, Text: "Title", Article: &posts.ArticlePreview{ArticleID: id, Title: a.Title, ReadMinutes: 3}}}
 	// A media id that does not exist fails the transaction after the article claim was read, so nothing may be finalized.
 	in.MediaIDs = []string{node.Generate()}
 	if _, err = pr.Create(ctx, in); err == nil {
@@ -186,6 +186,9 @@ func TestFirestoreRootAndArticleCommitAtomically(t *testing.T) {
 	stored, err := pr.GetAll(ctx, []string{result.Post.ID})
 	if err != nil || stored[result.Post.ID].Article.CoverURL != result.Post.Article.CoverURL {
 		t.Fatalf("persisted cover mismatch: %v", err)
+	}
+	if got := stored[result.Post.ID].Article.ReadMinutes; got != 3 || result.Post.Article.ReadMinutes != 3 {
+		t.Fatalf("persisted read minutes = %d, want 3", got)
 	}
 	if _, err = lib.ResolvePostCover(ctx, uid, coverID); !media.IsNotReady(err) {
 		t.Fatalf("claimed cover still available to drafts: %v", err)

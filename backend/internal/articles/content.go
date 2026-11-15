@@ -50,10 +50,25 @@ const (
 var controls = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x{202a}-\x{202e}\x{2066}-\x{2069}]`)
 var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{16,64}$`)
 
-// contentInfo is what a valid body yields: its excerpt and the media ids of its inline image blocks, in body order.
+// contentInfo is what a valid body yields: its excerpt, the media ids of its inline image blocks (in body order) and
+// the word count of its text runs (image alt text and captions are not counted).
 type contentInfo struct {
 	Excerpt  string
 	ImageIDs []string
+	Words    int
+}
+
+// wordsPerMinute is the reading speed behind ArticlePreview.read_minutes.
+const wordsPerMinute = 230
+
+// readMinutes is the estimated reading time of words words: whole minutes at wordsPerMinute, rounded up, at least 1
+// (an image-only or empty article still reads as "1 min"). Words are whitespace-separated, so text without spaces
+// between words (CJK) undercounts.
+func readMinutes(words int) int32 {
+	if words <= 0 {
+		return 1
+	}
+	return int32((words + wordsPerMinute - 1) / wordsPerMinute) // #nosec G115 -- a body is at most 100000 characters
 }
 
 func validateContent(title, body string, publishing bool) (string, error) {
@@ -139,11 +154,12 @@ func inspectContent(title, body string, publishing bool) (contentInfo, error) {
 	if utf8.RuneCountInString(plain) > 100000 || (publishing && plain == "" && len(imageIDs) == 0) {
 		return contentInfo{}, apierr.Validation("body", "article needs a body of at most 100000 characters")
 	}
-	excerpt := []rune(strings.Join(strings.Fields(plain), " "))
+	words := strings.Fields(plain)
+	excerpt := []rune(strings.Join(words, " "))
 	if len(excerpt) > maxPreviewExcerptRunes {
 		excerpt = excerpt[:maxPreviewExcerptRunes]
 	}
-	return contentInfo{Excerpt: string(excerpt), ImageIDs: imageIDs}, nil
+	return contentInfo{Excerpt: string(excerpt), ImageIDs: imageIDs, Words: len(words)}, nil
 }
 
 // imageIDsOf is the lenient reading of a stored body's image block ids, in body order (a row written under older rules
