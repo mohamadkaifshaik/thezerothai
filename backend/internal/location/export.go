@@ -17,12 +17,17 @@ import (
 // exportPage is the consent page of the export (memory stays bounded).
 const exportPage = 100
 
-// ExportedArea is the section's area: null when none is set.
+// ExportedArea is the section's area: null when none is set. It carries the whole area doc: the purposes and the consent
+// the area was set under (copy version, consent and 18+ confirmation times).
 type ExportedArea struct {
-	AreaID   string    `json:"areaId"`
-	Name     string    `json:"name"`
-	CityName string    `json:"cityName"`
-	SetAt    time.Time `json:"setAt"`
+	AreaID             string    `json:"areaId"`
+	Name               string    `json:"name"`
+	CityName           string    `json:"cityName"`
+	Purposes           []string  `json:"purposes"`
+	ConsentCopyVersion int       `json:"consentCopyVersion"`
+	ConsentedAt        time.Time `json:"consentedAt"`
+	AdultConfirmedAt   time.Time `json:"adultConfirmedAt"`
+	SetAt              time.Time `json:"setAt"`
 }
 
 // ExportedConsent is one consent record.
@@ -85,7 +90,10 @@ func (e *Exporter) ExportUser(ctx context.Context, uid string, w io.Writer) erro
 	}
 	var area *ExportedArea
 	if a != nil {
-		area = &ExportedArea{AreaID: a.AreaID, SetAt: a.UpdatedAt.UTC()}
+		area = &ExportedArea{
+			AreaID: a.AreaID, Purposes: nonNil(a.Purposes), ConsentCopyVersion: a.ConsentCopyVersion,
+			ConsentedAt: a.ConsentedAt.UTC(), AdultConfirmedAt: a.AdultConfirmedAt.UTC(), SetAt: a.UpdatedAt.UTC(),
+		}
 		if e.catalog != nil {
 			if c, ok := e.catalog.Lookup(a.AreaID); ok {
 				area.Name, area.CityName = c.Name, c.CityName

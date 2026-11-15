@@ -102,7 +102,7 @@ func TestEraser_PhasesAndCheckpoint(t *testing.T) {
 func TestExporter_Golden(t *testing.T) {
 	at := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
 	src := &fakeStore{
-		area: &StoredArea{AreaID: areaIndi, Purposes: []string{PurposePlansNearby}, ConsentCopyVersion: 1, ConsentedAt: at, UpdatedAt: at.Add(time.Hour)},
+		area: &StoredArea{AreaID: areaIndi, Purposes: []string{PurposePlansNearby}, ConsentCopyVersion: 1, ConsentedAt: at, AdultConfirmedAt: at, UpdatedAt: at.Add(time.Hour)},
 		consents: []ConsentRecord{
 			{ID: "0000000000000000101", Purpose: PurposePlansNearby, Action: ActionGranted, CopyVersion: 1, AdultConfirmed: true, At: at.Add(-24 * time.Hour)},
 			{ID: "0000000000000000102", Purpose: PurposePlansNearby, Action: ActionWithdrawn, CopyVersion: 1, At: at.Add(-time.Hour)},
