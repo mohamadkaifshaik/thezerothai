@@ -15,6 +15,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"connectrpc.com/connect"
+
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
@@ -73,8 +76,9 @@ func TestRepo_SetChangeClear(t *testing.T) {
 	e := newRepoEnv(t, 10)
 	ctx := context.Background()
 	uid := uniqueUID(t)
-	if _, err := e.svc.SetArea(ctx, uid, SetAreaInput{Key: key("n"), AreaID: areaIndi}); err == nil {
-		t.Fatalf("set without consent = %v", err)
+	_, err := e.svc.SetArea(ctx, uid, SetAreaInput{Key: key("n"), AreaID: areaIndi})
+	if ae := apiErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED); ae.Metadata["reason"] != "consent_required" {
+		t.Fatalf("set without consent: reason %q", ae.Metadata["reason"])
 	}
 	if a, c := e.docs(t, uid); a != nil || len(c) != 0 {
 		t.Fatalf("a refused set wrote: %v %v", a, c)
@@ -142,9 +146,8 @@ func TestRepo_IdempotentRetry(t *testing.T) {
 	if !a2["updatedAt"].(time.Time).Equal(a["updatedAt"].(time.Time)) || len(c2) != len(c) {
 		t.Fatalf("the replay wrote: %v %v", a2, c2)
 	}
-	if _, err := e.svc.SetArea(ctx, uid, SetAreaInput{Key: key("r"), AreaID: areaDoml, Consent: grant}); err == nil {
-		t.Fatal("another body with the same key was accepted")
-	}
+	_, err = e.svc.SetArea(ctx, uid, SetAreaInput{Key: key("r"), AreaID: areaDoml, Consent: grant})
+	_ = apiErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
 // TestRepo_ConcurrentSetArea: racing first grants with different keys leave one area doc and exactly one GRANTED record
@@ -179,6 +182,38 @@ func TestRepo_ConcurrentSetArea(t *testing.T) {
 	}
 }
 
+// TestRepo_ConcurrentSameKey: the same key and body sent concurrently (a client retry racing the original) commits once:
+// every call succeeds (the loser either re-runs after the conflict and replays, or takes the AlreadyExists re-run path),
+// one area doc, exactly one GRANTED record and one idempotency doc.
+func TestRepo_ConcurrentSameKey(t *testing.T) {
+	e := newRepoEnv(t, 10)
+	ctx := context.Background()
+	uid := uniqueUID(t)
+	in := SetAreaInput{Key: key("same-race"), AreaID: areaIndi, Consent: grant}
+	var wg sync.WaitGroup
+	errs := make([]error, 3)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = e.svc.SetArea(ctx, uid, in)
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	a, c := e.docs(t, uid)
+	if a == nil || a["areaId"] != areaIndi || len(c) != 1 {
+		t.Fatalf("same-key race: area %v, records %d", a, len(c))
+	}
+	if snap, err := e.client.Collection("idempotency").Doc(idempotency.Key(uid, rpcSetArea, in.Key)).Get(ctx); err != nil || !snap.Exists() {
+		t.Fatalf("idempotency doc: %v", err)
+	}
+}
+
 // TestRepo_DailyCapInTransaction: the real count() refuses the grant at the cap; ClearArea still works.
 func TestRepo_DailyCapInTransaction(t *testing.T) {
 	e := newRepoEnv(t, 2)
@@ -190,8 +225,12 @@ func TestRepo_DailyCapInTransaction(t *testing.T) {
 	if _, err := e.svc.ClearArea(ctx, uid, key("c1")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.svc.SetArea(ctx, uid, SetAreaInput{Key: key("g2"), AreaID: areaIndi, Consent: grant}); err == nil {
-		t.Fatal("the third consent record of the day was accepted")
+	_, err := e.svc.SetArea(ctx, uid, SetAreaInput{Key: key("g2"), AreaID: areaIndi, Consent: grant})
+	if ae := apiErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED); ae.Metadata["limit"] != "location_consent_changes" {
+		t.Fatalf("capped grant: limit %q", ae.Metadata["limit"])
+	}
+	if _, c := e.docs(t, uid); len(c) != 2 {
+		t.Fatalf("the refused grant wrote a record: %d", len(c))
 	}
 	if _, err := e.svc.ClearArea(ctx, uid, key("c2")); err != nil {
 		t.Fatalf("clear at the cap: %v", err)
