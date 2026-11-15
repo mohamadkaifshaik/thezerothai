@@ -30,11 +30,11 @@ void main() {
 
   group('fitWithin', () {
     final cases = <String, (int, int, int, int, int)>{
-      'landscape down': (4000, 3000, 1600, 1600, 1200),
-      'portrait down': (3000, 4000, 1600, 1200, 1600),
+      'landscape down': (4000, 3000, 2048, 2048, 1536),
+      'portrait down': (3000, 4000, 2048, 1536, 2048),
       'square down': (2000, 2000, 400, 400, 400),
-      'never upscales': (800, 600, 1600, 800, 600),
-      'thin strip keeps 1 px': (5000, 1, 1600, 1600, 1),
+      'never upscales': (800, 600, 2048, 800, 600),
+      'thin strip keeps 1 px': (5000, 1, 2048, 2048, 1),
       'rounding 1001 x 777': (1001, 777, 400, 400, 310),
     };
     cases.forEach((name, c) {
@@ -44,13 +44,37 @@ void main() {
     });
   });
 
-  test('the ladder: quality 80..40, then 75 % shrinks, six sizes', () {
-    final attempts = encodeAttempts(4000, 3000, 1600, quality: 80).toList();
+  test(
+    'post sizes: 2048 full at q88, 1080 thumb at q75; avatars unchanged',
+    () {
+      expect((kPostFullEdge, kPostThumbEdge), (2048, 1080));
+      final post = PurposeSpec.of(ImagePurpose.post);
+      expect((post.fullEdge, post.thumbEdge), (2048, 1080));
+      expect((post.fullQuality, post.thumbQuality), (88, 75));
+      // The server's caps still apply (the ladder fits them).
+      expect(
+        (post.maxFullBytes, post.maxThumbBytes),
+        (2 * 1024 * 1024, 256 * 1024),
+      );
+      final avatar = PurposeSpec.of(ImagePurpose.avatar);
+      expect((avatar.fullEdge, avatar.thumbEdge), (400, 96));
+      expect((avatar.fullQuality, avatar.thumbQuality), (80, 70));
+    },
+  );
+
+  test('the ladder: quality 88..48, then 75 % shrinks, six sizes', () {
+    final attempts = encodeAttempts(4000, 3000, 2048, quality: 88).toList();
     expect(attempts, hasLength(6 * 5));
-    expect(attempts.first, (width: 1600, height: 1200, quality: 80));
-    expect(attempts[4], (width: 1600, height: 1200, quality: 40));
-    expect(attempts[5], (width: 1200, height: 900, quality: 80));
-    expect(attempts.last.quality, 40);
+    expect(attempts.first, (width: 2048, height: 1536, quality: 88));
+    expect(attempts[4], (width: 2048, height: 1536, quality: 48));
+    expect(attempts[5], (width: 1536, height: 1152, quality: 88));
+    expect(attempts.last.quality, 48);
+  });
+
+  test('the thumb ladder starts at q75 and steps down to 45', () {
+    final attempts = encodeAttempts(2048, 1536, 1080, quality: 75).toList();
+    expect(attempts.first, (width: 1080, height: 810, quality: 75));
+    expect([for (final a in attempts.take(4)) a.quality], [75, 65, 55, 45]);
   });
 
   test('blurhashSize: longest side 32, at least 1 px', () {
