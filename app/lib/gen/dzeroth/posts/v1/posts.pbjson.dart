@@ -460,6 +460,7 @@ const ArticlePreview$json = {
     {'1': 'title', '3': 2, '4': 1, '5': 9, '10': 'title'},
     {'1': 'excerpt', '3': 3, '4': 1, '5': 9, '10': 'excerpt'},
     {'1': 'cover_url', '3': 4, '4': 1, '5': 9, '10': 'coverUrl'},
+    {'1': 'read_minutes', '3': 5, '4': 1, '5': 5, '10': 'readMinutes'},
   ],
 };
 
@@ -467,7 +468,7 @@ const ArticlePreview$json = {
 final $typed_data.Uint8List articlePreviewDescriptor = $convert.base64Decode(
     'Cg5BcnRpY2xlUHJldmlldxIdCgphcnRpY2xlX2lkGAEgASgJUglhcnRpY2xlSWQSFAoFdGl0bG'
     'UYAiABKAlSBXRpdGxlEhgKB2V4Y2VycHQYAyABKAlSB2V4Y2VycHQSGwoJY292ZXJfdXJsGAQg'
-    'ASgJUghjb3ZlclVybA==');
+    'ASgJUghjb3ZlclVybBIhCgxyZWFkX21pbnV0ZXMYBSABKAVSC3JlYWRNaW51dGVz');
 
 @$core.Deprecated('Use communityRefDescriptor instead')
 const CommunityRef$json = {

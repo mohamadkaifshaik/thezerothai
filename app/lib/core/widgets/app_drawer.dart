@@ -1,11 +1,9 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/auth/presentation/request_sign_out.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
@@ -27,8 +25,9 @@ import '../theme/app_theme.dart';
 /// header (avatar, name, handle, the Following / Followers counts, an aqua
 /// corner glow), a grid of up to four tinted quick tiles (Articles, Lists,
 /// Communities, History), Profile and Follow requests, then the shell entries
-/// (Creator Studio, Premium, Advertise, Calls), Settings and Privacy and Sign
-/// out. Plans is a primary destination (bar and rail), so it has no row here
+/// (Creator Studio, Premium, Advertise, Calls) and Settings and Privacy (Sign
+/// out lives in Settings, not here). Type is plain: regular-weight row labels,
+/// medium tile labels, a semibold name. Plans is a primary destination (bar and rail), so it has no row here
 /// (ADR-0034 3, D5).
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs. A
@@ -149,13 +148,6 @@ class AppDrawer extends StatelessWidget {
               onTap: () =>
                   _go(context, () => context.go(AppRouter.settingsPath)),
             ),
-            // No chevron: it does not open a page.
-            _DrawerRow(
-              icon: Icons.logout,
-              label: 'Sign out',
-              onTap: () =>
-                  _go(context, () => unawaited(requestSignOut(context))),
-            ),
           ],
         ),
       ),
@@ -256,7 +248,7 @@ class _AccountHeader extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         Text(
@@ -482,7 +474,7 @@ class _TileCard extends StatelessWidget {
                       tile.label,
                       maxLines: 1,
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -497,7 +489,7 @@ class _TileCard extends StatelessWidget {
 }
 
 /// One 56dp destination row: a 24dp outline icon in the primary colour, a
-/// bold label and, when it opens a page, a trailing chevron.
+/// regular-weight label and, when it opens a page, a trailing chevron.
 class _DrawerRow extends StatelessWidget {
   const _DrawerRow({
     super.key,
@@ -546,7 +538,10 @@ class _DrawerRow extends StatelessWidget {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleLarge,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w400,
+                      color: theme.colorScheme.onSurface,
+                    ),
                   ),
                 ),
                 if (badge != null) ...[

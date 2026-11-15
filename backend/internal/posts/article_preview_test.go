@@ -10,7 +10,7 @@ import (
 
 func TestArticlePreviewRoundTripAndFrozenCopy(t *testing.T) {
 	p := &Post{ID: "0000000000000000001", AuthorID: "a", Kind: KindPost, CreatedAt: time.Unix(1, 0),
-		Article: &ArticlePreview{ArticleID: "article", Title: "Title", Excerpt: "Body", CoverURL: "https://example.com/image"}}
+		Article: &ArticlePreview{ArticleID: "article", Title: "Title", Excerpt: "Body", CoverURL: "https://example.com/image", ReadMinutes: 5}}
 	got := toDoc(p).toPost(p.ID)
 	if !toDoc(p).HasArticle || toDoc(&Post{Kind: KindPost}).HasArticle || toDoc(&Post{Kind: KindReply, Article: p.Article}).HasArticle || toDoc(&Post{Kind: KindRepost, Article: p.Article}).HasArticle {
 		t.Fatal("hasArticle must identify original article roots only")
@@ -37,6 +37,38 @@ func TestArticlePreviewRoundTripAndFrozenCopy(t *testing.T) {
 	}
 	if ToProto(got).GetArticle().GetTitle() != "Title" {
 		t.Fatal("root wire preview missing")
+	}
+	if got.Article.ReadMinutes != 5 || ToProto(got).GetArticle().GetReadMinutes() != 5 || wire.GetEmbedded().GetArticle().GetReadMinutes() != 5 {
+		t.Fatal("read minutes lost in Firestore or wire roundtrip")
+	}
+}
+
+// TestArticlePreviewReadMinutesSnapshot: the field is additive. A preview stored before it existed has no readMinutes
+// key and reads (and goes on the wire) as 0 = unknown; a set value maps to and from the Firestore field by name.
+func TestArticlePreviewReadMinutesSnapshot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   *ArticlePreview
+		want int32
+	}{
+		{"legacy preview is unknown", &ArticlePreview{ArticleID: "a", Title: "T", Excerpt: "E"}, 0},
+		{"one minute", &ArticlePreview{ArticleID: "a", Title: "T", ReadMinutes: 1}, 1},
+		{"long read", &ArticlePreview{ArticleID: "a", Title: "T", ReadMinutes: 44}, 44},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Post{ID: "0000000000000000001", AuthorID: "a", Kind: KindPost, CreatedAt: time.Unix(1, 0), Article: tc.in}
+			got := toDoc(p).toPost(p.ID)
+			if got.Article.ReadMinutes != tc.want || ToProto(got).GetArticle().GetReadMinutes() != tc.want {
+				t.Fatalf("read minutes = %d / %d, want %d", got.Article.ReadMinutes, ToProto(got).GetArticle().GetReadMinutes(), tc.want)
+			}
+			field, ok := reflect.TypeOf(ArticlePreview{}).FieldByName("ReadMinutes")
+			if !ok || field.Tag.Get("firestore") != "readMinutes,omitempty" {
+				t.Fatalf("firestore tag = %q", field.Tag.Get("firestore"))
+			}
+		})
+	}
+	if articleToProto(nil) != nil || cloneArticle(nil) != nil {
+		t.Fatal("nil preview must stay nil")
 	}
 }
 

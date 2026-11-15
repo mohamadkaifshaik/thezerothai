@@ -44,6 +44,7 @@ import '../widgets/app_account_chip.dart';
 import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/home_retap_signal.dart';
 import '../widgets/app_more_menu.dart';
 import '../widgets/context_pane_slots.dart';
 import '../widgets/responsive_scaffold.dart';
@@ -486,7 +487,17 @@ class MainShell extends StatelessWidget {
     void select(int index) {
       switch (tabs[index].tab) {
         case _Tab.home:
-          context.go('/home');
+          // Home again, with Home itself on top (no page pushed over it): the
+          // feed scrolls to the top, or refreshes when it is there already.
+          final retap = context.read<HomeRetapSignal?>();
+          if (selected == _Tab.home &&
+              location == AppRouter.homePath &&
+              (_shellTopLocation(context) ?? location) == location &&
+              retap != null) {
+            retap.retap();
+          } else {
+            context.go('/home');
+          }
         case _Tab.explore:
           context.go(AppRouter.explorePath);
         case _Tab.notifications:
