@@ -167,6 +167,14 @@ class MediaUploader {
   void forget(String jobId) {
     _reservations.remove(jobId);
     _final.remove(jobId);
+    // The create keys that named this photo go too: the server replays an
+    // answer for a key it has seen, and that answer is signed for the old
+    // pixels (an edited photo must reserve afresh).
+    _keys.removeWhere(
+      (intent, _) =>
+          intent.startsWith('c|') &&
+          (intent.contains('|$jobId:') || intent.contains(',$jobId:')),
+    );
   }
 
   /// FinalizeUpload. A GIF is screened by one slot per server instance, so

@@ -1,3 +1,4 @@
+import 'dart:ui' show PointerDeviceKind;
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -285,6 +286,40 @@ void main() {
         right: 0.9,
         bottom: 0.9,
       ),
+    );
+  });
+
+  testWidgets('keyboard: the description stays above it on a small phone', (
+    tester,
+  ) async {
+    await open(tester, width: 320, height: 640, scale: 2);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump();
+    await tester.ensureVisible(find.byType(TextField));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    // The scrolling controls sit entirely above the keyboard (640 - 300) and
+    // keep a usable height; the field scrolls inside them.
+    final controls = tester.getRect(find.byType(SingleChildScrollView).last);
+    expect(controls.bottom, lessThanOrEqualTo(340));
+    expect(controls.height, greaterThan(150));
+    expect(find.byType(TextField).hitTestable(), findsOneWidget);
+    expect(find.text('Done'), findsOneWidget);
+  });
+
+  testWidgets('a mouse wheel resizes the box', (tester) async {
+    await open(tester);
+    await tester.tap(find.text('Square'));
+    await tester.pump();
+    final before = _boxOf(tester);
+    final pointer = TestPointer(1, PointerDeviceKind.mouse);
+    pointer.hover(tester.getCenter(find.byKey(kCropBoxKey)));
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, -40)));
+    await tester.pump();
+    expect(
+      _boxOf(tester).right - _boxOf(tester).left,
+      lessThan(before.right - before.left),
     );
   });
 

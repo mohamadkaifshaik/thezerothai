@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
@@ -26,7 +27,8 @@ class PhotoEditResult {
 /// Returns the edit and alt text on Done, or null on Cancel / dismiss, when
 /// nothing changes.
 ///
-/// [source] is the picked photo (what is cropped); a GIF passes none and only
+/// [source] is the unedited, oriented photo the crop box sits on (the cubit's
+/// `previewOf`, at most 2048 px); a GIF passes none and only
 /// gets the description. [preview] shows when there is no [source].
 Future<PhotoEditResult?> showPhotoEditor(
   BuildContext context, {
@@ -215,7 +217,8 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
       valueListenable: _alt,
       builder: (context, value, _) {
         final over = kMaxAltTextLength - value.text.runes.length < 0;
-        return Column(
+        final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
+        final column = Column(
           mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -229,15 +232,25 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
                         .pop(PhotoEditResult(edit: _edit, altText: _alt.text)),
             ),
             if (widget.expand)
-              Expanded(flex: 3, child: photo)
+              // With the keyboard up the controls get most of the room.
+              Expanded(flex: typing ? 1 : 3, child: photo)
             else
               SizedBox(height: photoHeight, child: photo),
             if (widget.expand)
-              Flexible(flex: 2, child: controls)
+              Flexible(flex: typing ? 3 : 2, child: controls)
             else
               Flexible(child: controls),
           ],
         );
+        // The sheet does not lift for the keyboard by itself.
+        return widget.expand
+            ? Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: column,
+              )
+            : column;
       },
     );
   }
@@ -473,8 +486,8 @@ class _Interactive extends StatelessWidget {
                     child: CustomPaint(
                       painter: _CropPainter(
                         rect: rect,
-                        shade: Colors.black.withValues(alpha: 0.55),
-                        line: Colors.white,
+                        shade: colors.scrim.withValues(alpha: 0.55),
+                        line: colors.onPrimary,
                       ),
                     ),
                   ),
@@ -591,38 +604,47 @@ class _BoxGestureState extends State<_BoxGesture> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onScaleStart: (d) {
-        _last = d.localFocalPoint;
-        _lastScale = 1;
-        _pointers = d.pointerCount;
+    return Listener(
+      // A mouse wheel resizes the box too.
+      onPointerSignal: (event) {
+        if (event is PointerScrollEvent && event.scrollDelta.dy != 0) {
+          final factor = event.scrollDelta.dy > 0 ? 1.05 : 0.95;
+          widget.onChanged(zoomCrop(widget.box, factor));
+        }
       },
-      onScaleUpdate: (d) {
-        var next = widget.box;
-        if (d.pointerCount != _pointers) {
-          // A finger came or went: the focal point jumps, it is not a move.
-          _pointers = d.pointerCount;
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onScaleStart: (d) {
           _last = d.localFocalPoint;
+          _lastScale = 1;
+          _pointers = d.pointerCount;
+        },
+        onScaleUpdate: (d) {
+          var next = widget.box;
+          if (d.pointerCount != _pointers) {
+            // A finger came or went: the focal point jumps, it is not a move.
+            _pointers = d.pointerCount;
+            _last = d.localFocalPoint;
+            _lastScale = d.scale;
+          }
+          final delta = d.localFocalPoint - _last;
+          _last = d.localFocalPoint;
+          if (delta != Offset.zero) {
+            next = moveCrop(
+              next,
+              delta.dx / widget.width,
+              delta.dy / widget.height,
+            );
+          }
+          if (d.scale != _lastScale && d.pointerCount > 1) {
+            // A pinch out shows less of the photo: the box shrinks.
+            next = zoomCrop(next, _lastScale / d.scale);
+          }
           _lastScale = d.scale;
-        }
-        final delta = d.localFocalPoint - _last;
-        _last = d.localFocalPoint;
-        if (delta != Offset.zero) {
-          next = moveCrop(
-            next,
-            delta.dx / widget.width,
-            delta.dy / widget.height,
-          );
-        }
-        if (d.scale != _lastScale && d.pointerCount > 1) {
-          // A pinch out shows less of the photo: the box shrinks.
-          next = zoomCrop(next, _lastScale / d.scale);
-        }
-        _lastScale = d.scale;
-        if (next != widget.box) widget.onChanged(next);
-      },
-      child: const SizedBox.expand(),
+          if (next != widget.box) widget.onChanged(next);
+        },
+        child: const SizedBox.expand(),
+      ),
     );
   }
 }

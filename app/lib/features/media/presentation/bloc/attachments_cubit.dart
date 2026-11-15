@@ -382,11 +382,22 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// state: they are large. Dropped with the photo.
   final Map<String, Uint8List> _sources = {};
 
+  /// The first processed (unedited) full-size copy of each photo: what the
+  /// editor shows and crops. It is oriented exactly as the processors orient
+  /// the source (EXIF baked in), so the crop fractions land on the right
+  /// pixels on every platform, and it is at most 2048 px, so the editor never
+  /// decodes a 12 MP original.
+  final Map<String, Uint8List> _previews = {};
+
   /// The edit each photo was last processed with.
   final Map<String, PhotoEdit> _edits = {};
 
   /// The picked bytes of photo [id], or null (a GIF, or removed).
   Uint8List? sourceOf(String id) => _sources[id];
+
+  /// What the editor shows of photo [id]: the unedited, oriented photo (see
+  /// [_previews]), or null while it is first being prepared and for a GIF.
+  Uint8List? previewOf(String id) => _previews[id];
 
   /// The edit photo [id] currently has (none by default).
   PhotoEdit editOf(String id) => _edits[id] ?? PhotoEdit.none;
@@ -402,6 +413,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
         edit: edit,
       );
       if (cancellation.isCancelled) return;
+      if (edit == null) _previews[id] = image.fullBytes;
       _update(
         id,
         (a) => a.copyWith(status: AttachmentStatus.ready, image: image),
@@ -441,6 +453,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     _cancelProcessing(id);
     _uploader.forget(id);
     _sources.remove(id);
+    _previews.remove(id);
     _edits.remove(id);
     emit(
       AttachmentsState(
@@ -706,6 +719,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   void clear() {
     _cancelProcessing();
     _sources.clear();
+    _previews.clear();
     _edits.clear();
     emit(const AttachmentsState());
   }
@@ -741,6 +755,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     }
     _cancelProcessing();
     _sources.clear();
+    _previews.clear();
     _edits.clear();
     return super.close();
   }

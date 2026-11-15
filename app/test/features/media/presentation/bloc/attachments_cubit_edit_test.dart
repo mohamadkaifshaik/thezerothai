@@ -152,6 +152,73 @@ void main() {
       },
     );
 
+    test('a re-upload after an edit uses fresh idempotency keys, and only '
+        'the edited photo is reserved', () async {
+      stubHappyUpload(repo);
+      await addPhotos(['a', 'b', 'c']);
+      final id = cubit.state.items[1].id;
+      await cubit.uploadAll();
+      cubit.applyEdit(id, rotate, '');
+      await pumpEventQueue();
+      await cubit.uploadAll();
+
+      final create = verify(
+        () => repo.createUpload(
+          idempotencyKey: captureAny(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: captureAny(named: 'images'),
+        ),
+      ).captured;
+      // [key1, images1, key2, images2]
+      expect(create, hasLength(4));
+      expect(create[0], isNot(create[2]));
+      expect((create[1] as List), hasLength(3));
+      expect((create[3] as List), hasLength(1));
+      final finalizeKeys = verify(
+        () => repo.finalizeUpload(
+          idempotencyKey: captureAny(named: 'idempotencyKey'),
+          items: any(named: 'items'),
+        ),
+      ).captured;
+      expect(finalizeKeys, hasLength(2));
+      expect(finalizeKeys[0], isNot(finalizeKeys[1]));
+    });
+
+    test('editing back to the original after an upload still mints a new '
+        'create key (the old answer is for other pixels)', () async {
+      stubHappyUpload(repo);
+      await addPhotos(['a']);
+      final id = cubit.state.items.single.id;
+      await cubit.uploadAll();
+      cubit.applyEdit(id, rotate, '');
+      await pumpEventQueue();
+      await cubit.uploadAll();
+      cubit.applyEdit(id, PhotoEdit.none, '');
+      await pumpEventQueue();
+      await cubit.uploadAll();
+      final keys = verify(
+        () => repo.createUpload(
+          idempotencyKey: captureAny(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      ).captured;
+      expect(keys.toSet(), hasLength(3));
+    });
+
+    test('previewOf keeps the unedited photo for the editor', () async {
+      await addPhotos(['a']);
+      final id = cubit.state.items.single.id;
+      final first = cubit.previewOf(id);
+      expect(first, isNotNull);
+      cubit.applyEdit(id, rotate, '');
+      await pumpEventQueue();
+      // The edited result does not replace what the editor crops.
+      expect(cubit.previewOf(id), first);
+      cubit.remove(id);
+      expect(cubit.previewOf(id), isNull);
+    });
+
     test('an edit while processing cancels the old work', () async {
       final gated = FakeImageProcessor(gated: true);
       final c = AttachmentsCubit(

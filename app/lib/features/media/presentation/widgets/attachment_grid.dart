@@ -159,7 +159,7 @@ class _AttachmentTileState extends State<AttachmentTile> {
     final id = attachment.id;
     final result = await showPhotoEditor(
       context,
-      source: cubit.sourceOf(id),
+      source: cubit.previewOf(id),
       preview: attachment.previewBytes,
       initialEdit: cubit.editOf(id),
       initialAlt: attachment.altText,
