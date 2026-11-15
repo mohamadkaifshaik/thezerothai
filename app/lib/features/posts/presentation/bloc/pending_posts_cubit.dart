@@ -5,6 +5,9 @@ import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 
 /// Where a [PendingPost] is in its life.
 enum PendingPostStatus {
+  /// The undo window after Post: nothing is uploaded or sent yet.
+  holding,
+
   /// Uploading photos or waiting for CreatePost.
   sending,
 
@@ -38,6 +41,7 @@ class PendingPost {
     this.notice,
     this.keepsPhotos = true,
     this.needsVerify = false,
+    this.holdSeconds = 0,
   });
 
   /// Unique per pending post (the optimistic row's id).
@@ -82,6 +86,10 @@ class PendingPost {
   /// The server wants a verified email: the row offers "Verify email".
   final bool needsVerify;
 
+  /// The length of the undo window, in whole seconds, while [status] is
+  /// holding (the row counts it down).
+  final int holdSeconds;
+
   /// 0..1 upload progress, or null when it is not a photo upload.
   double? get progress =>
       uploading && photosTotal > 0 ? photosDone / photosTotal : null;
@@ -98,6 +106,7 @@ class PendingPost {
     List<Uint8List>? thumbnails,
     bool? keepsPhotos,
     bool? needsVerify,
+    int? holdSeconds,
   }) => PendingPost(
     localId: localId,
     text: text,
@@ -114,6 +123,7 @@ class PendingPost {
     notice: notice ?? this.notice,
     keepsPhotos: keepsPhotos ?? this.keepsPhotos,
     needsVerify: needsVerify ?? this.needsVerify,
+    holdSeconds: holdSeconds ?? this.holdSeconds,
   );
 }
 

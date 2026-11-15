@@ -206,4 +206,51 @@ void main() {
       expect(held.state.count, 1);
     });
   });
+
+  testWidgets('Undo send: Post closes the composer, the row counts down, '
+      'Undo brings the composer back with the text and nothing is sent', (
+    tester,
+  ) async {
+    final posts = _MockPostsRepository();
+    when(() => posts.subFeatureEnabled(any())).thenReturn(true);
+    await pumpW6Composer(
+      tester,
+      posts: posts,
+      features: const {kFeaturePosts},
+      backgroundSend: true,
+      undoWindow: const Duration(seconds: 5),
+      home: (_) => const Scaffold(
+        body: SingleChildScrollView(child: PendingPostsSection()),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), 'maybe not');
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Sending in 5s'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Sending in 3s'), findsOneWidget);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('maybe not'), findsOneWidget);
+    verifyNever(
+      () => posts.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        replyPolicy: any(named: 'replyPolicy'),
+        poll: any(named: 'poll'),
+        communityId: any(named: 'communityId'),
+        beaconId: any(named: 'beaconId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
+      ),
+    );
+  });
 }

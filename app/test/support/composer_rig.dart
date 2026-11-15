@@ -93,6 +93,9 @@ Future<W6ComposerRig> pumpW6Composer(
   /// Provides a `PostSender`: Post then hands off and closes the composer.
   bool backgroundSend = false,
 
+  /// The Undo send window of the provided sender (none: sends at once).
+  Duration undoWindow = Duration.zero,
+
   /// The page under the composer (default: the text "home page").
   WidgetBuilder? home,
 
@@ -139,6 +142,7 @@ Future<W6ComposerRig> pumpW6Composer(
             pending: pendingPosts,
             repository: posts,
             drafts: features.contains(kFeatureDrafts) ? drafts : null,
+            undoDelay: () => undoWindow,
           )
         : null,
   );
