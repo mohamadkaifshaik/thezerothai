@@ -229,6 +229,23 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		return err
 	}())
 
+	// The `location` section: A's chosen area (the whole area doc, resolved through the catalogue) and the consent log.
+	// No other user's data is involved; fixed ids and times keep the golden stable.
+	locAt := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
+	must("seed location area", func() error {
+		_, err := e.fs.Doc("users/"+a.uid+"/locationArea/current").Set(ctx, map[string]any{
+			"areaId": "in.blr.indiranagar", "purposes": []string{"plans_nearby"}, "consentCopyVersion": 1,
+			"adultConfirmedAt": locAt, "consentedAt": locAt, "updatedAt": locAt,
+		})
+		return err
+	}())
+	must("seed location consent", func() error {
+		_, err := e.fs.Doc("users/"+a.uid+"/locationConsents/0000000000000000608").Set(ctx, map[string]any{
+			"purpose": "plans_nearby", "action": "granted", "copyVersion": 1, "adultConfirmed": true, "at": locAt,
+		})
+		return err
+	}())
+
 	fHandle, _ := e.profileOf(t, f)
 	for i, text := range []string{
 		"plain ascii post #golden",

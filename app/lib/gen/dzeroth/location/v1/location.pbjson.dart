@@ -208,6 +208,13 @@ const LocationSettings$json = {
       '5': 5,
       '10': 'requiredCopyVersion'
     },
+    {
+      '1': 'current_copy_version',
+      '3': 4,
+      '4': 1,
+      '5': 5,
+      '10': 'currentCopyVersion'
+    },
   ],
 };
 
@@ -216,7 +223,8 @@ final $typed_data.Uint8List locationSettingsDescriptor = $convert.base64Decode(
     'ChBMb2NhdGlvblNldHRpbmdzEjQKBGFyZWEYASABKAsyIC5kemVyb3RoLmxvY2F0aW9uLnYxLk'
     'FyZWFTdW1tYXJ5UgRhcmVhEjsKB2NvbnNlbnQYAiABKAsyIS5kemVyb3RoLmxvY2F0aW9uLnYx'
     'LkNvbnNlbnRTdGF0ZVIHY29uc2VudBIyChVyZXF1aXJlZF9jb3B5X3ZlcnNpb24YAyABKAVSE3'
-    'JlcXVpcmVkQ29weVZlcnNpb24=');
+    'JlcXVpcmVkQ29weVZlcnNpb24SMAoUY3VycmVudF9jb3B5X3ZlcnNpb24YBCABKAVSEmN1cnJl'
+    'bnRDb3B5VmVyc2lvbg==');
 
 @$core.Deprecated('Use getLocationSettingsRequestDescriptor instead')
 const GetLocationSettingsRequest$json = {

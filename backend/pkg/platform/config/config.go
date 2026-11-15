@@ -64,6 +64,9 @@ type Config struct {
 	// Beacons holds BEACONS_MAX_OPEN_PER_USER, BEACONS_MAX_PENDING_REQUESTS and BEACONS_MAX_OPEN_SPOTS. The beacon buckets
 	// and the daily create cap live in RateLimit.
 	Beacons BeaconsConfig
+	// Location holds LOCATION_CONSENT_CHANGES_PER_DAY, LOCATION_CONSENT_MIN_COPY_VERSION and LOCATION_NEARBY_K_MIN. The
+	// location buckets live in RateLimit.
+	Location LocationConfig
 	// Search holds the cache sizes and trend-refresh values of search and trends. The search buckets and the SearchPeople daily cap
 	// live in RateLimit.
 	Search SearchConfig
@@ -637,6 +640,10 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_BEACONS_WRITE_PER_MIN", 10, &rl.BeaconsWritePerUserPerMinute},
 		{"RATE_LIMIT_BEACONS_ACTION_PER_MIN", 20, &rl.BeaconsActionPerUserPerMinute},
 		{"RATE_LIMIT_BEACONS_READ_PER_MIN", 30, &rl.BeaconsReadPerUserPerMinute},
+		// Location: GetLocationSettings and ListAreas 30/min, SetArea 6/min, ClearArea 30/min on its own (per instance, x3).
+		{"RATE_LIMIT_LOCATION_READ_PER_MIN", 30, &rl.LocationReadPerUserPerMinute},
+		{"RATE_LIMIT_LOCATION_WRITE_PER_MIN", 6, &rl.LocationWritePerUserPerMinute},
+		{"RATE_LIMIT_LOCATION_CLEAR_PER_MIN", 30, &rl.LocationClearPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -820,6 +827,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	beacons, err := loadBeacons()
+	if err != nil {
+		return Config{}, err
+	}
+	location, err := loadLocation()
 	if err != nil {
 		return Config{}, err
 	}
@@ -1223,6 +1234,7 @@ func Load() (Config, error) {
 		Lists:                        lists,
 		Communities:                  communities,
 		Beacons:                      beacons,
+		Location:                     location,
 		Search:                       search,
 		Composer:                     composer,
 		HandleChangeCooldown:         handleCooldown,

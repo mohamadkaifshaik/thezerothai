@@ -28,7 +28,8 @@
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "location_consent_changes" (LOCATION_CONSENT_CHANGES_PER_DAY,
 //   10 consent records per user per IST day); ClearArea is never limited by it.
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_LOCATION_READ_PER_MIN (30: GetLocationSettings, ListAreas),
-//   RATE_LIMIT_LOCATION_WRITE_PER_MIN (6: SetArea, ClearArea), per uid per instance.
+//   RATE_LIMIT_LOCATION_WRITE_PER_MIN (6: SetArea), RATE_LIMIT_LOCATION_CLEAR_PER_MIN (30: ClearArea, its own bucket so a
+//   withdrawal is never delayed by SetArea bursts), per uid per instance.
 
 package locationv1
 
@@ -459,7 +460,8 @@ func (x *ConsentState) GetAdultConfirmedAt() *timestamppb.Timestamp {
 // What the client sends with the first SetArea (and again after a copy version bump).
 type ConsentGrant struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The rationale copy the user saw; >= the server minimum (LOCATION_CONSENT_MIN_COPY_VERSION, 1).
+	// The rationale copy the user saw: between the server minimum (LOCATION_CONSENT_MIN_COPY_VERSION, 1) and the current
+	// copy (LOCATION_CONSENT_COPY_VERSION, 1), both inclusive; LocationSettings carries both.
 	CopyVersion int32 `protobuf:"varint,1,opt,name=copy_version,json=copyVersion,proto3" json:"copy_version,omitempty"`
 	// The user ticked "I am 18 or older". Must be true.
 	AdultConfirmed bool `protobuf:"varint,2,opt,name=adult_confirmed,json=adultConfirmed,proto3" json:"adult_confirmed,omitempty"`
@@ -518,8 +520,10 @@ type LocationSettings struct {
 	Consent *ConsentState `protobuf:"bytes,2,opt,name=consent,proto3" json:"consent,omitempty"`
 	// The minimum copy version the server accepts; the client re-shows the rationale when consent.copy_version is lower.
 	RequiredCopyVersion int32 `protobuf:"varint,3,opt,name=required_copy_version,json=requiredCopyVersion,proto3" json:"required_copy_version,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The current rationale copy version (LOCATION_CONSENT_COPY_VERSION): the highest copy_version a ConsentGrant may carry.
+	CurrentCopyVersion int32 `protobuf:"varint,4,opt,name=current_copy_version,json=currentCopyVersion,proto3" json:"current_copy_version,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *LocationSettings) Reset() {
@@ -569,6 +573,13 @@ func (x *LocationSettings) GetConsent() *ConsentState {
 func (x *LocationSettings) GetRequiredCopyVersion() int32 {
 	if x != nil {
 		return x.RequiredCopyVersion
+	}
+	return 0
+}
+
+func (x *LocationSettings) GetCurrentCopyVersion() int32 {
+	if x != nil {
+		return x.CurrentCopyVersion
 	}
 	return 0
 }
@@ -657,7 +668,8 @@ type SetAreaRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	AreaId         string                 `protobuf:"bytes,2,opt,name=area_id,json=areaId,proto3" json:"area_id,omitempty"`
-	// Required when the caller has no valid consent (see SetArea); ignored otherwise.
+	// Required when the caller has no valid consent (see SetArea). When present it is always validated, and it is not
+	// recorded when the stored consent is current.
 	Consent       *ConsentGrant `protobuf:"bytes,3,opt,name=consent,proto3" json:"consent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1005,11 +1017,12 @@ const file_dzeroth_location_v1_location_proto_rawDesc = "" +
 	"\x12adult_confirmed_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x10adultConfirmedAt\"Z\n" +
 	"\fConsentGrant\x12!\n" +
 	"\fcopy_version\x18\x01 \x01(\x05R\vcopyVersion\x12'\n" +
-	"\x0fadult_confirmed\x18\x02 \x01(\bR\x0eadultConfirmed\"\xb9\x01\n" +
+	"\x0fadult_confirmed\x18\x02 \x01(\bR\x0eadultConfirmed\"\xeb\x01\n" +
 	"\x10LocationSettings\x124\n" +
 	"\x04area\x18\x01 \x01(\v2 .dzeroth.location.v1.AreaSummaryR\x04area\x12;\n" +
 	"\aconsent\x18\x02 \x01(\v2!.dzeroth.location.v1.ConsentStateR\aconsent\x122\n" +
-	"\x15required_copy_version\x18\x03 \x01(\x05R\x13requiredCopyVersion\"\x1c\n" +
+	"\x15required_copy_version\x18\x03 \x01(\x05R\x13requiredCopyVersion\x120\n" +
+	"\x14current_copy_version\x18\x04 \x01(\x05R\x12currentCopyVersion\"\x1c\n" +
 	"\x1aGetLocationSettingsRequest\"`\n" +
 	"\x1bGetLocationSettingsResponse\x12A\n" +
 	"\bsettings\x18\x01 \x01(\v2%.dzeroth.location.v1.LocationSettingsR\bsettings\"\x8f\x01\n" +

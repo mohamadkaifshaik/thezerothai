@@ -26,7 +26,8 @@
 //   - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "location_consent_changes" (LOCATION_CONSENT_CHANGES_PER_DAY,
 //     10 consent records per user per IST day); ClearArea is never limited by it.
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_LOCATION_READ_PER_MIN (30: GetLocationSettings, ListAreas),
-//     RATE_LIMIT_LOCATION_WRITE_PER_MIN (6: SetArea, ClearArea), per uid per instance.
+//     RATE_LIMIT_LOCATION_WRITE_PER_MIN (6: SetArea), RATE_LIMIT_LOCATION_CLEAR_PER_MIN (30: ClearArea, its own bucket so a
+//     withdrawal is never delayed by SetArea bursts), per uid per instance.
 package locationv1connect
 
 import (
@@ -77,10 +78,11 @@ type LocationServiceClient interface {
 	// area is set). Works in every flag mode.
 	GetLocationSettings(context.Context, *connect.Request[v1.GetLocationSettingsRequest]) (*connect.Response[v1.GetLocationSettingsResponse], error)
 	// Set or change the caller's area. area_id must be a non-retired catalogue id (VALIDATION "area_id").
-	// When the caller has no current consent at copy version >= the server minimum, the request must carry consent with
-	// adult_confirmed = true and copy_version >= the minimum (else VALIDATION "consent" when present but invalid, or
-	// FAILED_PRECONDITION "consent_required" when absent); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the
-	// same transaction. A change of area under an existing consent appends nothing (no location history). Setting the
+	// A consent that is present is always validated before any lookup, even when the stored consent is current:
+	// adult_confirmed = true and required_copy_version <= copy_version <= current_copy_version, else VALIDATION "consent".
+	// When the caller has no current consent at copy version >= the server minimum, the request must carry one (else
+	// FAILED_PRECONDITION "consent_required"); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the same
+	// transaction. A change of area under an existing consent appends nothing (no location history). Setting the
 	// stored area again writes only the idempotency doc.
 	SetArea(context.Context, *connect.Request[v1.SetAreaRequest]) (*connect.Response[v1.SetAreaResponse], error)
 	// Withdraw: delete the area doc and append a LOCATION_CONSENT_ACTION_WITHDRAWN record in one transaction. No area set
@@ -166,10 +168,11 @@ type LocationServiceHandler interface {
 	// area is set). Works in every flag mode.
 	GetLocationSettings(context.Context, *connect.Request[v1.GetLocationSettingsRequest]) (*connect.Response[v1.GetLocationSettingsResponse], error)
 	// Set or change the caller's area. area_id must be a non-retired catalogue id (VALIDATION "area_id").
-	// When the caller has no current consent at copy version >= the server minimum, the request must carry consent with
-	// adult_confirmed = true and copy_version >= the minimum (else VALIDATION "consent" when present but invalid, or
-	// FAILED_PRECONDITION "consent_required" when absent); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the
-	// same transaction. A change of area under an existing consent appends nothing (no location history). Setting the
+	// A consent that is present is always validated before any lookup, even when the stored consent is current:
+	// adult_confirmed = true and required_copy_version <= copy_version <= current_copy_version, else VALIDATION "consent".
+	// When the caller has no current consent at copy version >= the server minimum, the request must carry one (else
+	// FAILED_PRECONDITION "consent_required"); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the same
+	// transaction. A change of area under an existing consent appends nothing (no location history). Setting the
 	// stored area again writes only the idempotency doc.
 	SetArea(context.Context, *connect.Request[v1.SetAreaRequest]) (*connect.Response[v1.SetAreaResponse], error)
 	// Withdraw: delete the area doc and append a LOCATION_CONSENT_ACTION_WITHDRAWN record in one transaction. No area set

@@ -1,0 +1,46 @@
+{
+  "_comment": "Shared location area rules (location design 2026-11-15, section 2.2). Read by backend/internal/location/catalog_test.go (ids) and the app's area_search tests (search). Ids: a city is ^in\\.[a-z0-9]{2,12}$, a neighbourhood ^in\\.[a-z0-9]{2,12}\\.[a-z0-9-]{2,40}$. Search normalisation: lower case, apostrophes removed, any other punctuation becomes a space, runs of whitespace collapse to one space, trimmed.",
+  "ids": {
+    "valid": [
+      {"id": "in.blr", "kind": "CITY"},
+      {"id": "in.kochi", "kind": "CITY"},
+      {"id": "in.ab", "kind": "CITY"},
+      {"id": "in.abcdefghijkl", "kind": "CITY"},
+      {"id": "in.blr.indiranagar", "kind": "AREA"},
+      {"id": "in.blr.hsr-layout", "kind": "AREA"},
+      {"id": "in.chn.t-nagar", "kind": "AREA"},
+      {"id": "in.mum.ab", "kind": "AREA"},
+      {"id": "in.ncr.a234567890123456789012345678901234567890", "kind": "AREA"}
+    ],
+    "invalid": [
+      "",
+      "blr",
+      "in",
+      "in.",
+      "in.b",
+      "in.abcdefghijklm",
+      "IN.BLR",
+      "in.Blr",
+      "us.nyc",
+      "in.blr.",
+      "in.blr.a",
+      "in.blr.Indiranagar",
+      "in.blr.hsr_layout",
+      "in.blr.hsr layout",
+      "in.blr.a2345678901234567890123456789012345678901",
+      "in.blr.indiranagar.extra",
+      " in.blr",
+      "in.blr\n"
+    ]
+  },
+  "search": [
+    {"input": "Indiranagar", "normalised": "indiranagar"},
+    {"input": "  HSR   Layout ", "normalised": "hsr layout"},
+    {"input": "T. Nagar", "normalised": "t nagar"},
+    {"input": "C-Scheme", "normalised": "c scheme"},
+    {"input": "Elliot's Beach", "normalised": "elliots beach"},
+    {"input": "HITEC City", "normalised": "hitec city"},
+    {"input": "MG\tRoad", "normalised": "mg road"},
+    {"input": "", "normalised": ""}
+  ]
+}

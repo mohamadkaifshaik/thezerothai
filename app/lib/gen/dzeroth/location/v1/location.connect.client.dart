@@ -28,10 +28,11 @@ extension type LocationServiceClient (connect.Transport _transport) {
   }
 
   /// Set or change the caller's area. area_id must be a non-retired catalogue id (VALIDATION "area_id").
-  /// When the caller has no current consent at copy version >= the server minimum, the request must carry consent with
-  /// adult_confirmed = true and copy_version >= the minimum (else VALIDATION "consent" when present but invalid, or
-  /// FAILED_PRECONDITION "consent_required" when absent); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the
-  /// same transaction. A change of area under an existing consent appends nothing (no location history). Setting the
+  /// A consent that is present is always validated before any lookup, even when the stored consent is current:
+  /// adult_confirmed = true and required_copy_version <= copy_version <= current_copy_version, else VALIDATION "consent".
+  /// When the caller has no current consent at copy version >= the server minimum, the request must carry one (else
+  /// FAILED_PRECONDITION "consent_required"); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the same
+  /// transaction. A change of area under an existing consent appends nothing (no location history). Setting the
   /// stored area again writes only the idempotency doc.
   Future<dzerothlocationv1location.SetAreaResponse> setArea(
     dzerothlocationv1location.SetAreaRequest input, {

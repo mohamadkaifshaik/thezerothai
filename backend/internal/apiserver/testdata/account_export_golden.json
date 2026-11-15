@@ -99,6 +99,30 @@
       "redactedCount": 2
     }
   },
+  "location": {
+    "area": {
+      "adultConfirmedAt": "<time>",
+      "areaId": "in.blr.indiranagar",
+      "cityName": "Bengaluru",
+      "consentCopyVersion": 1,
+      "consentedAt": "<time>",
+      "name": "Indiranagar",
+      "purposes": [
+        "plans_nearby"
+      ],
+      "setAt": "<time>"
+    },
+    "consents": [
+      {
+        "action": "granted",
+        "adultConfirmed": true,
+        "at": "<time>",
+        "copyVersion": 1,
+        "id": "0000000000000000608",
+        "purpose": "plans_nearby"
+      }
+    ]
+  },
   "media": {
     "media": []
   },
