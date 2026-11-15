@@ -382,6 +382,28 @@ class TimelineCubit extends Cubit<TimelineState> {
     return rows;
   }
 
+  /// Distinct authors of the held posts, newest first, capped for the pill.
+  List<NewPostAuthor> _heldAuthors() {
+    if (_held.isEmpty) return const [];
+    final seen = <String>{};
+    final out = <NewPostAuthor>[];
+    for (final e in _snapshot.entries) {
+      final view = e.postView;
+      if (view == null || !_held.contains(view.post.postId)) continue;
+      final author = view.post.author;
+      if (!seen.add(author.userId)) continue;
+      out.add(
+        NewPostAuthor(
+          userId: author.userId,
+          name: author.displayName,
+          avatarUrl: author.avatarUrl,
+        ),
+      );
+      if (out.length == kNewPostAvatarCount) break;
+    }
+    return out;
+  }
+
   void _emitVisible() {
     if (isClosed) return;
     emit(
@@ -389,6 +411,7 @@ class TimelineCubit extends Cubit<TimelineState> {
         entries: _visible(_snapshot),
         hasMore: _snapshot.hasMore,
         newPosts: _held.length,
+        newPostAuthors: _heldAuthors(),
         authorProtected: _snapshot.authorProtected,
       ),
     );
@@ -418,6 +441,7 @@ class TimelineCubit extends Cubit<TimelineState> {
         refreshing: false,
         loadingMore: false,
         newPosts: 0,
+        newPostAuthors: const [],
         unavailable: true,
         clearError: true,
         clearNotice: true,
