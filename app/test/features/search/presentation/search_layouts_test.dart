@@ -1,3 +1,5 @@
+import 'package:dzeroth/features/location/domain/location_feature_flag.dart';
+
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -99,6 +101,24 @@ void main() {
         await tester.tap(find.byTooltip('Settings').first);
         await tester.pumpAndSettle();
         expect(rig.router.state.uri.path, '/settings');
+      });
+
+      testWidgets('F8: with location on the gear opens Explore settings', (
+        tester,
+      ) async {
+        final rig = ContextPaneRig();
+        await rig.pump(
+          tester,
+          location: '/explore',
+          width: size.width,
+          height: size.height,
+          flags: {...kContextPaneFlags, kFeatureLocation},
+          page: (path) =>
+              path == '/explore' ? const ExploreScreen() : Text('$path body'),
+        );
+        await tester.tap(find.byTooltip('Settings').first);
+        await tester.pumpAndSettle();
+        expect(rig.router.state.uri.path, '/explore/settings');
       });
     });
   }

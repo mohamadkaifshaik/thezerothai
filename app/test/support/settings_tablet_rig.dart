@@ -15,6 +15,11 @@ import 'package:dzeroth/features/calls/presentation/calls_screen.dart';
 import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/managed_accounts_screen.dart';
+import 'package:dzeroth/features/location/data/location_repository.dart';
+import 'package:dzeroth/features/location/presentation/area_picker_screen.dart';
+import 'package:dzeroth/features/location/presentation/location_rationale_screen.dart';
+import 'package:dzeroth/features/location/presentation/location_settings_screen.dart';
+import 'package:dzeroth/features/search/presentation/explore_settings_screen.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
@@ -166,6 +171,7 @@ class SettingsTabletRig {
     TextSizeCubit? textSize,
     NotificationsRepository? notifications,
     PostsRepository? posts,
+    LocationRepository? locationRepo,
   }) async {
     UrlLauncherPlatform.instance = launcher;
     final onboarding = this.onboarding = _MockOnboardingBloc();
@@ -237,6 +243,10 @@ class SettingsTabletRig {
           builder: (context, state) =>
               Scaffold(appBar: AppBar(title: const Text('Scheduled stub'))),
         ),
+        GoRoute(
+          path: AppRouter.areaPickerPath,
+          builder: (context, state) => const AreaPickerScreen(),
+        ),
         ShellRoute(
           builder: (context, state, child) => MainShell(
             location: state.matchedLocation,
@@ -297,6 +307,18 @@ class SettingsTabletRig {
               path: AppRouter.messageSettingsPath,
               builder: (context, state) => const MessageSettingsScreen(),
             ),
+            GoRoute(
+              path: AppRouter.locationSettingsPath,
+              builder: (context, state) => const LocationSettingsScreen(),
+            ),
+            GoRoute(
+              path: AppRouter.locationConsentPath,
+              builder: (context, state) => const LocationRationaleScreen(),
+            ),
+            GoRoute(
+              path: AppRouter.exploreSettingsPath,
+              builder: (context, state) => const ExploreSettingsScreen(),
+            ),
           ],
         ),
       ],
@@ -337,6 +359,8 @@ class SettingsTabletRig {
             ),
           if (posts != null)
             RepositoryProvider<PostsRepository>.value(value: posts),
+          if (locationRepo != null)
+            RepositoryProvider<LocationRepository>.value(value: locationRepo),
         ],
         child: MaterialApp.router(
           theme: buildAppTheme(brightness: brightness),

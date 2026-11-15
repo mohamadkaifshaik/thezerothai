@@ -35,6 +35,8 @@ import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/impressions_repository.dart';
 import '../features/engagement/domain/impression_tracker.dart';
 import '../features/engagement/domain/post_views_feature_flag.dart';
+import '../features/location/data/location_repository.dart';
+import '../features/location/domain/location_feature_flag.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
@@ -340,6 +342,19 @@ Future<void> bootstrap() async {
     send: impressionsRepository.record,
     isEnabled: () => impressionsRepository.enabled,
   );
+  // Location (chosen area): SetArea and ListAreas behind the `location` gate;
+  // the settings read and ClearArea bypass it so a stored area can always be
+  // seen and withdrawn. The memo ends with the shared SessionEpoch.
+  final locationGate = buildServiceGate(
+    onboardingBloc,
+    kFeatureLocation,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  final locationRepository = LocationRepository(
+    apiClient: apiClient,
+    gate: locationGate,
+    epoch: database.sessionEpoch,
+  );
   // Polls: VotePoll rides the `engagement` gate (read only: its
   // FEATURE_DISABLED memory is the repository's own, so a refused poll vote
   // never switches off likes).
@@ -530,6 +545,7 @@ Future<void> bootstrap() async {
       communitiesRepository: communitiesRepository,
       beaconsRepository: beaconsRepository,
       creatorInsightsRepository: creatorInsightsRepository,
+      locationRepository: locationRepository,
       pushCubit: pushCubit,
       telemetryConsent: telemetryConsent,
       unreadBadgeCubit: unreadBadgeCubit,

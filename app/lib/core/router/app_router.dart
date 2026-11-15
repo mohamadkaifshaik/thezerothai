@@ -17,7 +17,9 @@ import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/media/domain/media_feature_flag.dart';
 import '../../features/notifications/domain/notification_prefs.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
+import '../../features/location/domain/location_feature_flag.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
+import 'routes/location_routes.dart';
 import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -136,6 +138,19 @@ class AppRouter {
   /// flags are off for the caller, unless one of the two is set (the undo
   /// rule: it can always be turned back).
   static const messageSettingsPath = '/settings/messages';
+
+  /// Settings > Location (the chosen area). Reachable in every flag mode so a
+  /// stored area can always be cleared; its consent leaf and the picker need
+  /// `location`.
+  static const locationSettingsPath = '/settings/location';
+  static const locationConsentPath = '/settings/location/consent';
+
+  /// The area picker (root, full screen; pops an `AreaRef`). Needs `location`.
+  static const areaPickerPath = '/area-picker';
+
+  /// Explore settings (F8): the "Your area" row. A ShellRoute child; needs
+  /// `search`, `ui_shell` and `location`.
+  static const exploreSettingsPath = '/explore/settings';
   // The Scheduled posts list, behind the `posts` and
   // `scheduled_posts` flags. A root-level full-screen route like /compose, NOT
   // a ShellRoute child: the composer pushes it over itself (dialog link, toast
@@ -259,6 +274,7 @@ class AppRouter {
       ...premiumRoutes(premiumPushAllowed: _premiumPushAllowed),
       shellRoute(onboardingBloc: _onboardingBloc),
       ...messagingRootRoutes(),
+      ...locationRootRoutes(),
     ],
   );
 
@@ -425,7 +441,8 @@ class AppRouter {
             _exploreFlagRedirect(loc) ??
             _notificationsFlagRedirect(loc) ??
             _notificationPrefsFlagRedirect(loc) ??
-            _messageSettingsFlagRedirect(loc);
+            _messageSettingsFlagRedirect(loc) ??
+            _locationFlagRedirect(loc);
       case OnboardingStatus.error:
         // GetMe failed with nothing usable (no cached profile, or right
         // after CreateProfile): a full-screen Retry, never Home with every
@@ -552,6 +569,11 @@ class AppRouter {
         kFeatureSearch,
         kFeatureUiShell,
         kFeatureTrends,
+      },
+      exploreSettingsPath => const {
+        kFeatureSearch,
+        kFeatureUiShell,
+        kFeatureLocation,
       },
       exploreMediaPath => const {
         kFeatureSearch,
@@ -700,6 +722,15 @@ class AppRouter {
       return null;
     }
     return settingsPath;
+  }
+
+  /// The consent and picker pages need `location`; Settings > Location itself
+  /// stays reachable in every flag mode (withdrawal).
+  String? _locationFlagRedirect(String loc) {
+    if (loc != locationConsentPath && loc != areaPickerPath) return null;
+    return _onboardingBloc.state.enabledFeatures.contains(kFeatureLocation)
+        ? null
+        : settingsPath;
   }
 
   static final _profileEditRoutes = RegExp(r'^/settings/(?:profile|handle)$');
