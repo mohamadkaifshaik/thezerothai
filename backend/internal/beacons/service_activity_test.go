@@ -171,9 +171,10 @@ func TestServer_ListBeaconsActivity(t *testing.T) {
 	}
 }
 
-// TestFirestoreIndexesCoverTheBeaconQueries: the emulator does not enforce composite indexes, so this asserts that the
-// file firebase deploys declares the indexes ListByAudience needs, with and without the activity filter.
-func TestFirestoreIndexesCoverTheBeaconQueries(t *testing.T) {
+// beaconIndexKeys reads firebase/firestore.indexes.json into the set of beacons COLLECTION indexes, each as its field list
+// "fieldPath:ORDER" (or "fieldPath:CONTAINS" for an arrayConfig field), in file order.
+func beaconIndexKeys(t *testing.T) map[string]bool {
+	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "firebase", "firestore.indexes.json"))
 	if err != nil {
 		t.Fatalf("read firestore.indexes.json: %v", err)
@@ -183,8 +184,9 @@ func TestFirestoreIndexesCoverTheBeaconQueries(t *testing.T) {
 			CollectionGroup string `json:"collectionGroup"`
 			QueryScope      string `json:"queryScope"`
 			Fields          []struct {
-				FieldPath string `json:"fieldPath"`
-				Order     string `json:"order"`
+				FieldPath   string `json:"fieldPath"`
+				Order       string `json:"order"`
+				ArrayConfig string `json:"arrayConfig"`
 			} `json:"fields"`
 		} `json:"indexes"`
 	}
@@ -198,10 +200,48 @@ func TestFirestoreIndexesCoverTheBeaconQueries(t *testing.T) {
 		}
 		var parts []string
 		for _, f := range ix.Fields {
-			parts = append(parts, f.FieldPath+":"+f.Order)
+			mode := f.Order
+			if f.ArrayConfig != "" {
+				mode = f.ArrayConfig
+			}
+			parts = append(parts, f.FieldPath+":"+mode)
 		}
 		have[fmt.Sprint(parts)] = true
 	}
+	return have
+}
+
+// nearbyIndexes are the two composite indexes ListNearby needs (location design 4.1). They are owner-gated: added to
+// firestore.indexes.json in a gate-file PR; until they are READY the query degrades to an empty page (ErrNearbyIndex).
+var nearbyIndexes = map[string][]string{
+	"ListNearby AREA scope": {"communityId:ASCENDING", "nearAreaIds:CONTAINS", "status:ASCENDING", "startAt:ASCENDING"},
+	"ListNearby CITY scope": {"communityId:ASCENDING", "cityId:ASCENDING", "status:ASCENDING", "startAt:ASCENDING"},
+}
+
+// TestFirestoreIndexesCoverTheNearbyQueries: once either Nearby index is in the file, both must be, with exactly the
+// fields ListNearby queries. Skipped while neither is (the owner's index PR is pending; the query degrades meanwhile).
+func TestFirestoreIndexesCoverTheNearbyQueries(t *testing.T) {
+	have := beaconIndexKeys(t)
+	present := 0
+	for _, fields := range nearbyIndexes {
+		if have[fmt.Sprint(fields)] {
+			present++
+		}
+	}
+	if present == 0 {
+		t.Skip("the Nearby indexes are not in firestore.indexes.json yet (owner gate file); ListNearby degrades to an empty page until they are READY")
+	}
+	for name, fields := range nearbyIndexes {
+		if !have[fmt.Sprint(fields)] {
+			t.Errorf("firestore.indexes.json has no beacons index for %s: %v", name, fields)
+		}
+	}
+}
+
+// TestFirestoreIndexesCoverTheBeaconQueries: the emulator does not enforce composite indexes, so this asserts that the
+// file firebase deploys declares the indexes ListByAudience needs, with and without the activity filter.
+func TestFirestoreIndexesCoverTheBeaconQueries(t *testing.T) {
+	have := beaconIndexKeys(t)
 	for name, fields := range map[string][]string{
 		"ListByAudience":                {"communityId:ASCENDING", "status:ASCENDING", "startAt:ASCENDING"},
 		"ListByAudience with activity":  {"communityId:ASCENDING", "activity:ASCENDING", "status:ASCENDING", "startAt:ASCENDING"},

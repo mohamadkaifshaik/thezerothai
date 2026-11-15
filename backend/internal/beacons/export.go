@@ -36,6 +36,8 @@ type ExportedBeacon struct {
 	Status        string    `json:"status"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
+	// AreaID is the plan's catalogue area (Location P2), omitted when it has none.
+	AreaID string `json:"areaId,omitempty"`
 }
 
 // ExportedMembership is one row of the memberships part: the user's relationship with a beacon (no other user's uid).
@@ -83,6 +85,7 @@ func (r *FirestoreRepo) ExportBeaconsPage(ctx context.Context, uid, after string
 			BeaconID: s.Ref.ID, CommunityID: d.CommunityID, Activity: d.Activity, Title: d.Title, Details: d.Details, Venue: d.Venue,
 			StartAt: d.StartAt.UTC(), EndAt: d.EndAt.UTC(), DurationMin: d.DurationMin, OpenSpots: d.OpenSpots, AcceptedCount: d.AcceptedCount,
 			Cost: d.Cost, ChatPref: d.ChatPref, Status: d.Status, CreatedAt: d.CreatedAt.UTC(), UpdatedAt: d.UpdatedAt.UTC(),
+			AreaID: d.AreaID,
 		})
 	}
 	return out, nil

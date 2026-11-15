@@ -295,3 +295,23 @@ func (s *Server) ListSharedBeacons(ctx context.Context, req *connect.Request[bea
 	}
 	return connect.NewResponse(&beaconsv1.ListSharedBeaconsResponse{Views: renderViews(page.Views), NextPageToken: page.NextPageToken}), nil
 }
+
+// ListNearbyBeacons is read class (FEATURE_BEACONS not globally off); the service adds FEATURE_LOCATION on for the caller
+// before any Firestore work.
+func (s *Server) ListNearbyBeacons(ctx context.Context, req *connect.Request[beaconsv1.ListNearbyBeaconsRequest]) (*connect.Response[beaconsv1.ListNearbyBeaconsResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "ListNearbyBeacons", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	m := req.Msg
+	scope, err := nearbyScopeFromProto(m.GetScope())
+	if err != nil {
+		return nil, err
+	}
+	page, err := s.svc.ListNearby(ctx, uid, NearbyInput{AreaID: m.GetAreaId(), Scope: scope, Limit: m.GetLimit(), PageToken: m.GetPageToken()})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toNearbyResponse(page)), nil
+}

@@ -21,6 +21,24 @@ type fakeBeacons struct {
 	hidden bool
 	err    error
 	sets   int
+	// area is whether the beacon has a plan area (clear-area); clears counts the writes.
+	area   bool
+	clears int
+}
+
+func (f *fakeBeacons) ClearArea(_ context.Context, _ string, _ time.Time) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	if !f.exists {
+		return false, beacons.ErrNotFound
+	}
+	if !f.area {
+		return false, nil
+	}
+	f.area = false
+	f.clears++
+	return true, nil
 }
 
 func (f *fakeBeacons) SetHidden(_ context.Context, _ string, hidden bool, _ time.Time) (bool, error) {
@@ -42,13 +60,17 @@ func (f *fakeBeacons) Get(_ context.Context, id string) (beacons.Beacon, error) 
 	if !f.exists {
 		return beacons.Beacon{}, beacons.ErrNotFound
 	}
-	return beacons.Beacon{ID: id, Title: "SECRET TITLE", Venue: "SECRET VENUE", OrganiserID: "secret-organiser", Hidden: f.hidden}, nil
+	b := beacons.Beacon{ID: id, Title: "SECRET TITLE", Venue: "SECRET VENUE", OrganiserID: "secret-organiser", Hidden: f.hidden}
+	if f.area {
+		b.Area = beacons.AreaFields{AreaID: "in.blr.indiranagar", CityID: "in.blr", NearAreaIDs: []string{"in.blr.indiranagar"}}
+	}
+	return b, nil
 }
 
 func runBeacon(f *fakeBeacons, ops *fakeOps, stdin string, args ...string) (code int, stdout, stderr string) {
 	var out, errOut bytes.Buffer
 	open := func(context.Context, string) (*backends, error) {
-		return &backends{beacons: f, reports: ops, close: func() {}}, nil
+		return &backends{beacons: f, beaconAreas: f, reports: ops, close: func() {}}, nil
 	}
 	now := func() time.Time { return time.Unix(1_000_000, 0) }
 	code = run(context.Background(), args, strings.NewReader(stdin), &out, &errOut, open, now)
@@ -321,5 +343,77 @@ func TestBeaconCounts_Usage(t *testing.T) {
 				t.Errorf("a usage error read the counts: calls=%d", s.calls)
 			}
 		})
+	}
+}
+
+func TestBeacon_ClearArea(t *testing.T) {
+	t.Parallel()
+	hash := logger.HashUID(testBeaconID)
+	f := &fakeBeacons{exists: true, area: true}
+	steps := []struct {
+		name string
+		args []string
+		want []string
+		not  []string
+	}{
+		{"dry-run writes nothing", []string{"beacon", "clear-area", testBeaconID, "--dry-run"}, []string{"has_area=true", "would remove it", "beacon_hash=" + hash}, []string{"audit:"}},
+		{"clear", []string{"beacon", "clear-area", testBeaconID}, []string{"area cleared: beacon_hash=" + hash, "wrote=true", "leaves Explore Nearby"}, nil},
+		{"clear again", []string{"beacon", "clear-area", testBeaconID}, []string{"no area", "wrote=false"}, nil},
+		{"dry-run without an area", []string{"beacon", "clear-area", testBeaconID, "--dry-run"}, []string{"has_area=false", "would write nothing"}, nil},
+	}
+	for _, s := range steps {
+		code, out, errOut := runBeacon(f, &fakeOps{}, "", append(s.args, "--project", "dzeroth-dev")...)
+		if code != 0 {
+			t.Fatalf("%s: code %d stderr %q", s.name, code, errOut)
+		}
+		for _, w := range s.want {
+			if !strings.Contains(out, w) {
+				t.Errorf("%s: output lacks %q:\n%s", s.name, w, out)
+			}
+		}
+		for _, n := range s.not {
+			if strings.Contains(out, n) {
+				t.Errorf("%s: output has %q:\n%s", s.name, n, out)
+			}
+		}
+		for _, secret := range []string{testBeaconID, "in.blr", "SECRET TITLE", "secret-organiser"} {
+			if strings.Contains(out, secret) {
+				t.Errorf("%s: output carries %q:\n%s", s.name, secret, out)
+			}
+		}
+	}
+	if f.clears != 1 {
+		t.Errorf("writes = %d, want 1", f.clears)
+	}
+}
+
+func TestBeacon_ClearAreaRefusals(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		args []string
+		code int
+		want string
+	}{
+		{"no id", []string{"beacon", "clear-area"}, 2, "needs the beacon id"},
+		{"bad id", []string{"beacon", "clear-area", "123"}, 2, "19 digits"},
+		{"report", []string{"beacon", "clear-area", testBeaconID, "--report", testListReportID}, 2, "no --report"},
+		{"missing beacon", []string{"beacon", "clear-area", testBeaconID}, 1, "no such beacon"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := &fakeBeacons{area: true}
+			if tc.name != "missing beacon" {
+				f.exists = true
+			}
+			code, _, errOut := runBeacon(f, &fakeOps{}, "", append(tc.args, "--project", "dzeroth-dev")...)
+			if code != tc.code || !strings.Contains(errOut, tc.want) || f.clears != 0 {
+				t.Errorf("code=%d stderr=%q clears=%d, want %d containing %q", code, errOut, f.clears, tc.code, tc.want)
+			}
+		})
+	}
+	f := &fakeBeacons{exists: true, area: true}
+	if code, _, _ := runBeacon(f, &fakeOps{}, "nope\n", "beacon", "clear-area", testBeaconID, "--project", "dzeroth-prod"); code != 1 || f.clears != 0 {
+		t.Errorf("prod without confirmation: code=%d clears=%d", code, f.clears)
 	}
 }

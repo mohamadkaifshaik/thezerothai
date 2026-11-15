@@ -5,7 +5,10 @@ import (
 
 	beaconsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1"
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	locationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/location"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
 // createInputFromProto converts a CreateBeaconRequest; the enum checks answer VALIDATION naming the field before the
@@ -26,7 +29,7 @@ func createInputFromProto(m *beaconsv1.CreateBeaconRequest) (CreateInput, error)
 	in := CreateInput{
 		Key: m.GetIdempotencyKey(), CommunityID: m.GetCommunityId(), Public: m.GetPublic(), Activity: activity,
 		Title: m.GetTitle(), Details: m.GetDetails(), Venue: m.GetVenue(), DurationMin: int(m.GetDurationMinutes()),
-		OpenSpots: int(m.GetOpenSpots()), Cost: cost, ChatPref: chat,
+		OpenSpots: int(m.GetOpenSpots()), Cost: cost, ChatPref: chat, AreaID: m.GetAreaId(),
 	}
 	if m.GetStartAt() != nil {
 		in.StartAt = m.GetStartAt().AsTime()
@@ -37,7 +40,7 @@ func createInputFromProto(m *beaconsv1.CreateBeaconRequest) (CreateInput, error)
 // updateInputFromProto converts an UpdateBeaconRequest: an unset optional field is nil (unchanged); a set cost of
 // UNSPECIFIED answers VALIDATION "cost" before the service runs.
 func updateInputFromProto(m *beaconsv1.UpdateBeaconRequest) (UpdateInput, error) {
-	in := UpdateInput{Key: m.GetIdempotencyKey(), BeaconID: m.GetBeaconId(), Title: m.Title, Details: m.Details, Venue: m.Venue}
+	in := UpdateInput{Key: m.GetIdempotencyKey(), BeaconID: m.GetBeaconId(), Title: m.Title, Details: m.Details, Venue: m.Venue, AreaID: m.AreaId}
 	if m.OpenSpots != nil {
 		n := int(m.GetOpenSpots())
 		in.OpenSpots = &n
@@ -96,9 +99,13 @@ func myRoleFromProto(r beaconsv1.MyBeaconsRole) string {
 	return ""
 }
 
-// toView renders a View. The organiser row is the live profile.
+// toView renders a View. The organiser row is the live profile; Beacon.area is View.Area (the service decided the label).
 func toView(v View) *beaconsv1.BeaconView {
 	b := v.Beacon
+	var area *locationv1.AreaSummary
+	if v.Area != nil {
+		area = location.ToSummary(*v.Area)
+	}
 	return &beaconsv1.BeaconView{
 		Beacon: &beaconsv1.Beacon{
 			BeaconId:        b.ID,
@@ -119,6 +126,7 @@ func toView(v View) *beaconsv1.BeaconView {
 			Hidden:          b.Hidden,
 			CreatedAt:       timestamppb.New(b.CreatedAt),
 			UpdatedAt:       timestamppb.New(b.UpdatedAt),
+			Area:            area,
 		},
 		Viewer: toViewerState(v.Viewer),
 	}
@@ -164,3 +172,38 @@ func PreviewActivityProto(a Activity) beaconsv1.BeaconActivity { return activity
 
 // PreviewStatusProto is PreviewActivityProto for the effective status.
 func PreviewStatusProto(s Status) beaconsv1.BeaconStatus { return statusToProto(s) }
+
+// nearbyScopeFromProto maps NearbyScope (UNSPECIFIED = AREA); a value outside the enum is VALIDATION "scope".
+func nearbyScopeFromProto(sc beaconsv1.NearbyScope) (NearbyScope, error) {
+	switch sc {
+	case beaconsv1.NearbyScope_NEARBY_SCOPE_UNSPECIFIED, beaconsv1.NearbyScope_NEARBY_SCOPE_AREA:
+		return NearbyScopeArea, nil
+	case beaconsv1.NearbyScope_NEARBY_SCOPE_CITY:
+		return NearbyScopeCity, nil
+	}
+	return "", apierr.Validation("scope", "scope is not a known value")
+}
+
+func proximityToProto(p Proximity) beaconsv1.AreaProximity {
+	switch p {
+	case ProximitySameArea:
+		return beaconsv1.AreaProximity_AREA_PROXIMITY_SAME_AREA
+	case ProximityNeighbouring:
+		return beaconsv1.AreaProximity_AREA_PROXIMITY_NEIGHBOURING
+	case ProximitySameCity:
+		return beaconsv1.AreaProximity_AREA_PROXIMITY_SAME_CITY
+	}
+	return beaconsv1.AreaProximity_AREA_PROXIMITY_UNSPECIFIED
+}
+
+// toNearbyResponse renders a NearbyPage; count only when the page carries one (the first page).
+func toNearbyResponse(p NearbyPage) *beaconsv1.ListNearbyBeaconsResponse {
+	out := &beaconsv1.ListNearbyBeaconsResponse{NextPageToken: p.NextPageToken, Area: location.ToSummary(p.Area)}
+	for _, it := range p.Items {
+		out.Items = append(out.Items, &beaconsv1.NearbyBeacon{View: toView(it.View), Proximity: proximityToProto(it.Proximity)})
+	}
+	if p.Count != nil {
+		out.Count = &beaconsv1.NearbyCount{Few: p.Count.Few, Plans: int32(min(p.Count.Plans, nearbyCountCap))} //nolint:gosec // bounded by nearbyCountCap
+	}
+	return out
+}
