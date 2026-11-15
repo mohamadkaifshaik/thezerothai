@@ -1,6 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
+import 'package:dzeroth/core/widgets/home_retap_signal.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/core/widgets/app_account_chip.dart';
@@ -98,6 +99,7 @@ void main() {
     int pendingFollowRequests = 0,
     GraphRepository? graph,
     EdgeInsets padding = EdgeInsets.zero,
+    HomeRetapSignal? retap,
   }) async {
     whenListen(
       onboarding,
@@ -207,6 +209,8 @@ void main() {
         ],
         child: MultiRepositoryProvider(
           providers: [
+            if (retap != null)
+              RepositoryProvider<HomeRetapSignal>.value(value: retap),
             RepositoryProvider<GraphRepository>.value(
               value: graph ?? _MockGraph(),
             ),
@@ -235,6 +239,60 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  group('Home destination tapped again', () {
+    testWidgets('on Home: tells the feed, does not navigate', (tester) async {
+      final retap = HomeRetapSignal();
+      addTearDown(retap.dispose);
+      var fired = 0;
+      retap.addListener(() => fired++);
+      await pump(tester, retap: retap);
+
+      await tester.tap(find.byTooltip('Home'));
+      await tester.pumpAndSettle();
+
+      expect(fired, 1);
+      expect(find.text('home body'), findsOneWidget);
+    });
+
+    testWidgets('from another tab: goes Home, no signal', (tester) async {
+      final retap = HomeRetapSignal();
+      addTearDown(retap.dispose);
+      var fired = 0;
+      retap.addListener(() => fired++);
+      await pump(tester, retap: retap, location: '/notifications');
+
+      await tester.tap(find.byTooltip('Home'));
+      await tester.pumpAndSettle();
+
+      expect(fired, 0);
+      expect(find.text('home body'), findsOneWidget);
+    });
+
+    testWidgets('the rail (tablet) does the same', (tester) async {
+      final retap = HomeRetapSignal();
+      addTearDown(retap.dispose);
+      var fired = 0;
+      retap.addListener(() => fired++);
+      await pump(
+        tester,
+        retap: retap,
+        width: 834,
+        height: 1194,
+        flags: {'posts', kFeatureUiTablet},
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AppNavRail),
+          matching: find.text('Home'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(fired, 1);
+    });
+  });
 
   group('account refresh banner (A10)', () {
     testWidgets('a failed refresh behind a cached profile shows a '
