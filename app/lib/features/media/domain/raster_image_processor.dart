@@ -9,6 +9,7 @@ import 'package:image/image.dart' as img;
 import 'image_preflight.dart';
 import 'image_processor.dart';
 import 'image_size_plan.dart';
+import 'photo_edit.dart';
 import 'processed_image.dart';
 import 'processing_cancellation.dart';
 
@@ -29,15 +30,24 @@ abstract interface class RasterSession {
 
   /// The [crop] of the decoded image drawn onto white at exactly [width] x
   /// [height] and encoded as a JPEG (no metadata) at [quality] (0..100).
+  ///
+  /// With [quarterTurns] the decoded image is first rotated clockwise by that
+  /// many quarter turns and [crop] is a rectangle of the ROTATED image.
   Future<Uint8List> encodeJpeg(
     CropRect crop,
     int width,
     int height,
-    int quality,
-  );
+    int quality, {
+    int quarterTurns = 0,
+  });
 
   /// The [crop] drawn onto white at [width] x [height], as RGBA bytes.
-  Future<Uint8List> rgba(CropRect crop, int width, int height);
+  Future<Uint8List> rgba(
+    CropRect crop,
+    int width,
+    int height, {
+    int quarterTurns = 0,
+  });
 
   void close();
 }
@@ -93,6 +103,7 @@ class RasterImageProcessor implements ImageProcessor {
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
     ImageQuality? quality,
+    PhotoEdit? edit,
   }) async {
     preflightImage(bytes);
     final cancel = cancellation ?? ProcessingCancellation();
@@ -102,6 +113,7 @@ class RasterImageProcessor implements ImageProcessor {
         purpose,
         cancel,
         quality ?? ImageQuality.high,
+        edit,
       );
     } on RasterUnavailableException {
       // Cancelling closes the worker, which fails its pending step: that is
@@ -134,6 +146,7 @@ class RasterImageProcessor implements ImageProcessor {
     ImagePurpose purpose,
     ProcessingCancellation cancel,
     ImageQuality quality,
+    PhotoEdit? edit,
   ) async {
     cancel.throwIfCancelled();
     final opening = _codec.open();
@@ -151,7 +164,14 @@ class RasterImageProcessor implements ImageProcessor {
       final source = await _step(session, cancel, session.decode(bytes));
       checkSourceDims(source.width, source.height);
       final spec = PurposeSpec.of(purpose, quality: quality);
-      final crop = cropFor(purpose, source.width, source.height);
+      final edited = purpose == ImagePurpose.post && edit != null
+          ? edit
+          : PhotoEdit.none;
+      final turns = edited.quarterTurns;
+      final turned = rotatedSize(source.width, source.height, turns);
+      final crop = purpose == ImagePurpose.post
+          ? editCropRect(edited, turned.width, turned.height)
+          : cropFor(purpose, source.width, source.height);
 
       final full = await _encodeWithin(
         session,
@@ -162,6 +182,7 @@ class RasterImageProcessor implements ImageProcessor {
         spec.fullEdge,
         spec.maxFullBytes,
         spec.fullQuality,
+        turns,
       );
       final thumb = await _encodeWithin(
         session,
@@ -172,13 +193,19 @@ class RasterImageProcessor implements ImageProcessor {
         spec.thumbEdge,
         spec.maxThumbBytes,
         spec.thumbQuality,
+        turns,
       );
 
       final hashSize = blurhashSize(thumb.width, thumb.height);
       final pixels = await _step(
         session,
         cancel,
-        session.rgba(crop, hashSize.width, hashSize.height),
+        session.rgba(
+          crop,
+          hashSize.width,
+          hashSize.height,
+          quarterTurns: turns,
+        ),
       );
       if (pixels.length != hashSize.width * hashSize.height * 4) {
         throw const RasterUnavailableException.capability('pixel buffer size');
@@ -222,6 +249,7 @@ class RasterImageProcessor implements ImageProcessor {
     int edge,
     int maxBytes,
     int quality,
+    int turns,
   ) async {
     for (final attempt in encodeAttempts(
       width,
@@ -237,6 +265,7 @@ class RasterImageProcessor implements ImageProcessor {
           attempt.width,
           attempt.height,
           attempt.quality,
+          quarterTurns: turns,
         ),
       );
       final dims = jpegDims(out);
@@ -302,6 +331,7 @@ class FallbackImageProcessor implements ImageProcessor {
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
     ImageQuality? quality,
+    PhotoEdit? edit,
   }) async {
     if (!_primaryBroken) {
       try {
@@ -310,6 +340,7 @@ class FallbackImageProcessor implements ImageProcessor {
           purpose,
           cancellation: cancellation,
           quality: quality,
+          edit: edit,
         );
       } on RasterUnavailableException catch (reason) {
         // A cancel closes the worker; never fall back for a cancelled job.
@@ -328,6 +359,7 @@ class FallbackImageProcessor implements ImageProcessor {
       purpose,
       cancellation: cancellation,
       quality: quality,
+      edit: edit,
     );
   }
 }

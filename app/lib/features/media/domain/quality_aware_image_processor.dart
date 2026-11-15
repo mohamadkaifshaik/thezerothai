@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'image_processor.dart';
 import 'image_size_plan.dart';
+import 'photo_edit.dart';
 import 'processed_image.dart';
 import 'processing_cancellation.dart';
 
@@ -22,10 +23,12 @@ class QualityAwareImageProcessor implements ImageProcessor {
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
     ImageQuality? quality,
+    PhotoEdit? edit,
   }) => _inner.process(
     bytes,
     purpose,
     cancellation: cancellation,
     quality: quality ?? _resolve(),
+    edit: edit,
   );
 }

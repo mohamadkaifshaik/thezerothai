@@ -6,7 +6,7 @@
 // so transparency flattens like the package:image path.
 'use strict';
 
-const PROTOCOL = 1;
+const PROTOCOL = 2;
 
 // Largest output side Dart ever asks for (posts 1600); anything else is malformed.
 const MAX_OUTPUT_EDGE = 4096;
@@ -24,16 +24,26 @@ function isInt(v, min, max) {
   return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 }
 
+// Clockwise quarter turns of a draw request (0 when absent): the crop is then a rectangle of the ROTATED
+// bitmap, so the user's rotation is applied before the crop, like the package:image path.
+function turnsOf(req) {
+  return req.turns === undefined ? 0 : req.turns;
+}
+
 // A draw request: integer output size within 1..MAX_OUTPUT_EDGE, an integer crop inside the decoded
-// bitmap, and (for JPEG) an integer quality 1..100.
+// (and rotated) bitmap, and (for JPEG) an integer quality 1..100.
 function checkDraw(req, needsQuality) {
   if (!bitmap) throw new Error('nothing decoded');
   if (!isInt(req.w, 1, MAX_OUTPUT_EDGE) || !isInt(req.h, 1, MAX_OUTPUT_EDGE)) throw new Error('bad output size');
+  if (!isInt(turnsOf(req), 0, 3)) throw new Error('bad turns');
+  const odd = turnsOf(req) % 2 === 1;
+  const rw = odd ? bitmap.height : bitmap.width;
+  const rh = odd ? bitmap.width : bitmap.height;
   if (
-    !isInt(req.sx, 0, bitmap.width - 1) ||
-    !isInt(req.sy, 0, bitmap.height - 1) ||
-    !isInt(req.sw, 1, bitmap.width - req.sx) ||
-    !isInt(req.sh, 1, bitmap.height - req.sy)
+    !isInt(req.sx, 0, rw - 1) ||
+    !isInt(req.sy, 0, rh - 1) ||
+    !isInt(req.sw, 1, rw - req.sx) ||
+    !isInt(req.sh, 1, rh - req.sy)
   ) {
     throw new Error('bad crop');
   }
@@ -48,7 +58,20 @@ function draw(req) {
   ctx.fillRect(0, 0, req.w, req.h);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(bitmap, req.sx, req.sy, req.sw, req.sh, 0, 0, req.w, req.h);
+  const turns = turnsOf(req);
+  if (turns === 0) {
+    ctx.drawImage(bitmap, req.sx, req.sy, req.sw, req.sh, 0, 0, req.w, req.h);
+  } else {
+    // Map the rotated-frame crop onto the canvas, then draw the bitmap rotated clockwise.
+    const bw = bitmap.width;
+    const bh = bitmap.height;
+    ctx.scale(req.w / req.sw, req.h / req.sh);
+    ctx.translate(-req.sx, -req.sy);
+    if (turns === 1) ctx.transform(0, 1, -1, 0, bh, 0);
+    else if (turns === 2) ctx.transform(-1, 0, 0, -1, bw, bh);
+    else ctx.transform(0, -1, 1, 0, 0, bw);
+    ctx.drawImage(bitmap, 0, 0);
+  }
   return { canvas, ctx };
 }
 

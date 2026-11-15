@@ -9,6 +9,7 @@ import 'package:image/image.dart' as img;
 
 import 'image_preflight.dart';
 import 'image_size_plan.dart';
+import 'photo_edit.dart';
 import 'processed_image.dart';
 import 'processing_cancellation.dart';
 
@@ -45,6 +46,7 @@ abstract interface class ImageProcessor {
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
     ImageQuality? quality,
+    PhotoEdit? edit,
   });
 }
 
@@ -68,17 +70,23 @@ class IsolateImageProcessor implements ImageProcessor {
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
     ImageQuality? quality,
+    PhotoEdit? edit,
   }) async {
     // Cheap header checks first: an oversized file never reaches a decoder.
     preflightImage(bytes);
     cancellation?.throwIfCancelled();
-    final work = compute(_run, (bytes, purpose, quality ?? ImageQuality.high));
+    final work = compute(_run, (
+      bytes,
+      purpose,
+      quality ?? ImageQuality.high,
+      edit,
+    ));
     return cancellation == null ? work : cancellation.guard(work);
   }
 }
 
-ProcessedImage _run((Uint8List, ImagePurpose, ImageQuality) args) =>
-    processImageSync(args.$1, args.$2, quality: args.$3);
+ProcessedImage _run((Uint8List, ImagePurpose, ImageQuality, PhotoEdit?) args) =>
+    processImageSync(args.$1, args.$2, quality: args.$3, edit: args.$4);
 
 /// Synchronous core, exported for tests and for [IsolateImageProcessor].
 ///
@@ -87,11 +95,13 @@ ProcessedImage _run((Uint8List, ImagePurpose, ImageQuality) args) =>
 /// - Flattens transparency onto white (JPEG has no alpha).
 /// - Downscales to the purpose's full edge (never upscales), encodes JPEG
 ///   stepping quality (then size) down until it fits the signed-URL cap.
-/// - Avatars are center-cropped to a square first.
+/// - Avatars are center-cropped to a square first. A post photo's [edit]
+///   (rotation, then crop) is applied to the source before anything else.
 ProcessedImage processImageSync(
   Uint8List bytes,
   ImagePurpose purpose, {
   ImageQuality quality = ImageQuality.high,
+  PhotoEdit? edit,
 }) {
   img.Image? decoded;
   try {
@@ -106,6 +116,23 @@ ProcessedImage processImageSync(
   source = _flattenOnWhite(source);
 
   final avatar = purpose == ImagePurpose.avatar;
+  if (!avatar && edit != null && !edit.isIdentity) {
+    // The user's edit (posts only): rotate clockwise, then crop the rotated
+    // photo, the same order and pixels as the web worker path.
+    if (edit.quarterTurns != 0) {
+      source = img.copyRotate(source, angle: 90.0 * edit.quarterTurns);
+    }
+    if (edit.hasCrop) {
+      final crop = editCropRect(edit, source.width, source.height);
+      source = img.copyCrop(
+        source,
+        x: crop.x,
+        y: crop.y,
+        width: crop.width,
+        height: crop.height,
+      );
+    }
+  }
   if (avatar) {
     // The centered square (image_size_plan.dart).
     final crop = cropFor(purpose, source.width, source.height);

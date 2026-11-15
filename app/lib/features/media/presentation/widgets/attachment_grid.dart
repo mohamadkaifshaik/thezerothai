@@ -1,3 +1,5 @@
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -5,6 +7,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/post/gif_badge.dart';
 import '../bloc/attachments_cubit.dart';
 import 'alt_text_editor.dart';
+import 'photo_editor.dart';
 
 /// The composer's picked images: a single row of removable preview tiles
 /// (at most [kMaxPostImages]) with per-image state (processing, upload
@@ -30,19 +33,40 @@ class AttachmentGrid extends StatelessWidget {
         if (state.isEmpty) return const SizedBox.shrink();
         return SizedBox(
           height: tileSize,
-          child: ListView.separated(
+          // Long-press and drag a tile to reorder; Move left / Move right are
+          // also semantics actions on every tile. The order is the post's
+          // media order.
+          child: ReorderableListView.builder(
             scrollDirection: Axis.horizontal,
+            buildDefaultDragHandles: false,
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
             itemCount: state.items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+            // The indexes are already adjusted for the removed tile.
+            onReorderItem: (oldIndex, newIndex) =>
+                context.read<AttachmentsCubit>().reorder(oldIndex, newIndex),
+            // The dragged tile lives in the Overlay, outside this provider.
+            proxyDecorator: (child, _, _) => BlocProvider.value(
+              value: context.read<AttachmentsCubit>(),
+              child: Material(type: MaterialType.transparency, child: child),
+            ),
             itemBuilder: (context, index) {
               final item = state.items[index];
-              return AttachmentTile(
+              return ReorderableDelayedDragStartListener(
                 key: ValueKey(item.id),
-                attachment: item,
-                position: index + 1,
-                total: state.items.length,
-                enabled: enabled,
+                index: index,
+                enabled:
+                    enabled &&
+                    state.items.length > 1 &&
+                    item.status != AttachmentStatus.uploading,
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
+                  child: AttachmentTile(
+                    attachment: item,
+                    position: index + 1,
+                    total: state.items.length,
+                    enabled: enabled,
+                  ),
+                ),
               );
             },
           ),
@@ -122,6 +146,47 @@ class _AttachmentTileState extends State<AttachmentTile> {
     if (mounted) _altFocus.requestFocus();
   }
 
+  /// Whether the photo can be opened in the editor now.
+  bool get _editable =>
+      enabled &&
+      attachment.image != null &&
+      (attachment.status == AttachmentStatus.ready ||
+          attachment.status == AttachmentStatus.uploaded ||
+          attachment.status == AttachmentStatus.failed);
+
+  Future<void> _edit(BuildContext context) async {
+    final cubit = context.read<AttachmentsCubit>();
+    final id = attachment.id;
+    final result = await showPhotoEditor(
+      context,
+      source: cubit.sourceOf(id),
+      preview: attachment.previewBytes,
+      initialEdit: cubit.editOf(id),
+      initialAlt: attachment.altText,
+      isGif: attachment.isGif,
+    );
+    if (result != null && !cubit.isClosed) {
+      cubit.applyEdit(id, result.edit, result.altText);
+    }
+    if (mounted) _altFocus.requestFocus();
+  }
+
+  Map<CustomSemanticsAction, VoidCallback> _moveActions(BuildContext context) {
+    if (!enabled || total < 2 || _uploading) return const {};
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    // "Left" and "right" are what the user sees; the list runs with the text.
+    final towardStart = rtl ? 'Move right' : 'Move left';
+    final towardEnd = rtl ? 'Move left' : 'Move right';
+    return {
+      if (position > 1)
+        CustomSemanticsAction(label: towardStart): () =>
+            context.read<AttachmentsCubit>().move(attachment.id, -1),
+      if (position < total)
+        CustomSemanticsAction(label: towardEnd): () =>
+            context.read<AttachmentsCubit>().move(attachment.id, 1),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -138,6 +203,9 @@ class _AttachmentTileState extends State<AttachmentTile> {
     return Semantics(
       container: true,
       label: _label,
+      onTap: _editable ? () => _edit(context) : null,
+      onTapHint: attachment.isGif ? 'Edit description' : 'Edit photo',
+      customSemanticsActions: _moveActions(context),
       child: SizedBox(
         width: AttachmentGrid.tileSize,
         height: AttachmentGrid.tileSize,
@@ -167,6 +235,17 @@ class _AttachmentTileState extends State<AttachmentTile> {
                       errorBuilder: (_, _, _) => Icon(
                         Icons.broken_image_outlined,
                         color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                if (_editable)
+                  // Tap the picture to crop, rotate and describe it. Behind
+                  // the buttons, so they keep their own targets.
+                  Positioned.fill(
+                    child: ExcludeSemantics(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _edit(context),
                       ),
                     ),
                   ),

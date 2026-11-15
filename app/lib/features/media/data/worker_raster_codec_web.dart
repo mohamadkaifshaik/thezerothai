@@ -14,7 +14,7 @@ import '../domain/raster_image_processor.dart';
 const kImageWorkerUrl = 'image_worker.js?v=$kImageWorkerProtocol';
 
 /// Must match `PROTOCOL` in app/web/image_worker.js.
-const kImageWorkerProtocol = 1;
+const kImageWorkerProtocol = 2;
 
 /// How long a worker may take to start before the browser counts as
 /// unsupported (a missing script fails fast through `onerror`).
@@ -46,6 +46,7 @@ extension type _Request._(JSObject _) implements JSObject {
     required int w,
     required int h,
     required int quality,
+    required int turns,
   });
 }
 
@@ -91,9 +92,7 @@ class WorkerRasterCodec implements RasterCodec {
       await session.ready.timeout(_kStartTimeout);
     } on TimeoutException {
       session.close();
-      throw const RasterUnavailableException.capability(
-        'worker did not start',
-      );
+      throw const RasterUnavailableException.capability('worker did not start');
     } catch (_) {
       session.close();
       rethrow;
@@ -184,6 +183,7 @@ class _WorkerSession implements RasterSession {
     int w = 0,
     int h = 0,
     int quality = 0,
+    int turns = 0,
   }) async {
     if (_closed) throw const RasterUnavailableException('closed');
     final seq = ++_seq;
@@ -203,6 +203,7 @@ class _WorkerSession implements RasterSession {
         w: w,
         h: h,
         quality: quality,
+        turns: turns,
       ),
     );
     final reply = await done.future.timeout(
@@ -234,21 +235,34 @@ class _WorkerSession implements RasterSession {
     CropRect crop,
     int width,
     int height,
-    int quality,
-  ) async {
+    int quality, {
+    int quarterTurns = 0,
+  }) async {
     final reply = await _send(
       'jpeg',
       crop: crop,
       w: width,
       h: height,
       quality: quality,
+      turns: quarterTurns,
     );
     return _bytesOf(reply);
   }
 
   @override
-  Future<Uint8List> rgba(CropRect crop, int width, int height) async {
-    final reply = await _send('rgba', crop: crop, w: width, h: height);
+  Future<Uint8List> rgba(
+    CropRect crop,
+    int width,
+    int height, {
+    int quarterTurns = 0,
+  }) async {
+    final reply = await _send(
+      'rgba',
+      crop: crop,
+      w: width,
+      h: height,
+      turns: quarterTurns,
+    );
     return _bytesOf(reply);
   }
 
