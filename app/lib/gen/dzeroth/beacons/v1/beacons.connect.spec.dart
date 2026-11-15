@@ -193,4 +193,29 @@ abstract final class BeaconService {
     dzerothbeaconsv1beacons.ListSharedBeaconsResponse.new,
     idempotency: connect.Idempotency.noSideEffects,
   );
+
+  /// Public OPEN and FULL beacons whose start_at >= now in one area, soonest first (Explore Nearby; place-based: the
+  /// match is on the plan's organiser-chosen area, never on a person).
+  ///   - NEARBY_SCOPE_AREA (the default): the area's beacons plus those of its catalogue neighbours.
+  ///   - NEARBY_SCOPE_CITY: every beacon in the area's city. A CITY-kind area always uses this scope, whatever was sent.
+  /// A plan tagged with a city (not a neighbourhood) is in that city's results only, so a neighbourhood sees it under
+  /// NEARBY_SCOPE_CITY. Community beacons are never listed (a widened one, F28b, is public and is).
+  /// area_id: empty means the caller's stored area (LocationService; FAILED_PRECONDITION "area_not_set" when none);
+  /// otherwise a catalogue id, retired included (malformed or unknown => VALIDATION "area_id", the value never echoed), so
+  /// a user may browse an area without storing it. A scope outside the enum => VALIDATION "scope".
+  /// Blocks and hidden apply as in ListBeacons (dropped rows; a page may be short while next_page_token is set).
+  /// Needs FEATURE_BEACONS not globally off and FEATURE_LOCATION on for the caller (FEATURE_DISABLED names the flag),
+  /// before any lookup. limit is clamped (0 = 20, above 50 = 50). page_token is signed and bound to the caller, the
+  /// resolved area and the scope (VALIDATION "page_token" otherwise). The first page carries count (K-anonymity: a number
+  /// only at >= LOCATION_NEARBY_K_MIN, 5; "few" below). Read budget: about 46 reads at limit 20 (the stored area, the
+  /// page, one count aggregation on a first page that does not hold the whole result, the viewer states and the cached
+  /// graph). If the backing Firestore index is not ready the answer is an empty first page with no count, never an
+  /// error. Rate limit: RATE_LIMIT_BEACONS_READ_PER_MIN.
+  static const listNearbyBeacons = connect.Spec(
+    '/$name/ListNearbyBeacons',
+    connect.StreamType.unary,
+    dzerothbeaconsv1beacons.ListNearbyBeaconsRequest.new,
+    dzerothbeaconsv1beacons.ListNearbyBeaconsResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
 }

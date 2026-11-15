@@ -95,6 +95,8 @@ type backends struct {
 	beacons beacons.Moderator
 	// beaconStats is the read-only pilot counts (`opsctl beacon counts`); the same repo as beacons.
 	beaconStats beacons.Stats
+	// beaconAreas clears a plan's area (`opsctl beacon clear-area`, Location P2); the same repo as beacons.
+	beaconAreas beacons.AreaClearer
 	// communities serves `community suspend|restore|archive` and removals is the recentRemovals append of takedown-post and suspend-user.
 	communities communities.Platform
 	removals    communities.PlatformRemovals
@@ -206,6 +208,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		lists:           lists.NewFirestoreRepo(client, nil, nil), // SetHidden and Get need no quota or idempotency store
 		beacons:         beaconRepo,
 		beaconStats:     beaconRepo,
+		beaconAreas:     beaconRepo,
 		communities:     communitiesRepo,
 		removals:        communitiesRepo,
 		hidden:          communitiesRepo,
@@ -258,7 +261,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore, community suspend|restore|archive: print counts or the plan, write nothing (other commands reject it)")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore|clear-area, community suspend|restore|archive: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, recount-children, recount-list-follows --all-missing, search backfill-name-keys: resume after this post, media, list or community id (the checkpoint a capped run printed)")
@@ -334,7 +337,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		listID, rest = rest[0], rest[1:]
 	}
 	var beaconID string
-	if cmd == "beacon" && (sub == "hide" || sub == "restore") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	if cmd == "beacon" && (sub == "hide" || sub == "restore" || sub == "clear-area") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		beaconID, rest = rest[0], rest[1:]
 	}
 	var communityID string
@@ -558,9 +561,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "lists":
 		err = listsCommand(ctx, b, *project, sub, listID, ma, out, now)
 	case "beacon":
-		if sub == "counts" {
+		switch sub {
+		case "counts":
 			err = beaconCounts(ctx, b.beaconStats, out)
-		} else {
+		case "clear-area":
+			err = beaconClearArea(ctx, b, *project, beaconID, ma.dryRun, out, now)
+		default:
 			err = beaconCommand(ctx, b, *project, sub, beaconID, ma, out, now)
 		}
 	case "community":

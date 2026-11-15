@@ -159,11 +159,6 @@ func toArea(a Area) *locationv1.Area {
 	}
 }
 
-// ToSummary is the small form other packages embed (beacons, P2).
-func ToSummary(a Area) *locationv1.AreaSummary {
-	return &locationv1.AreaSummary{AreaId: a.ID, Name: a.Name, Kind: toKind(a.Kind), CityId: a.CityID, CityName: a.CityName}
-}
-
 func toAction(a string) locationv1.LocationConsentAction {
 	switch a {
 	case ActionGranted:

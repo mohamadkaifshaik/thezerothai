@@ -62,6 +62,11 @@ type beaconDoc struct {
 	CreatedAt     time.Time `firestore:"createdAt"`
 	UpdatedAt     time.Time `firestore:"updatedAt"`
 	ExpireAt      time.Time `firestore:"expireAt"`
+	// The optional plan area (Location P2, area.go): absent on a plan without one. nearAreaIds backs the Nearby AREA
+	// query (array-contains), cityId the CITY one.
+	AreaID      string   `firestore:"areaId,omitempty"`
+	CityID      string   `firestore:"cityId,omitempty"`
+	NearAreaIDs []string `firestore:"nearAreaIds,omitempty"`
 }
 
 func (d beaconDoc) beacon(id string) Beacon {
@@ -70,6 +75,24 @@ func (d beaconDoc) beacon(id string) Beacon {
 		Details: d.Details, Venue: d.Venue, StartAt: d.StartAt, EndAt: d.EndAt, DurationMin: d.DurationMin,
 		OpenSpots: d.OpenSpots, AcceptedCount: d.AcceptedCount, Cost: Cost(d.Cost), ChatPref: ChatPref(d.ChatPref),
 		Status: Status(d.Status), Hidden: d.Hidden, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, ExpireAt: d.ExpireAt,
+		Area: AreaFields{AreaID: d.AreaID, CityID: d.CityID, NearAreaIDs: d.NearAreaIDs},
+	}
+}
+
+// areaUpdates are the field-level writes that move the stored area to want: nil when the stored areaId already is
+// want's (the stored id resent is not a change); a zero want deletes the three fields.
+func areaUpdates(d *beaconDoc, want AreaFields) []firestore.Update {
+	if want.AreaID == d.AreaID {
+		return nil
+	}
+	d.AreaID, d.CityID, d.NearAreaIDs = want.AreaID, want.CityID, want.NearAreaIDs
+	if want.AreaID == "" {
+		return []firestore.Update{
+			{Path: "areaId", Value: firestore.Delete}, {Path: "cityId", Value: firestore.Delete}, {Path: "nearAreaIds", Value: firestore.Delete},
+		}
+	}
+	return []firestore.Update{
+		{Path: "areaId", Value: want.AreaID}, {Path: "cityId", Value: want.CityID}, {Path: "nearAreaIds", Value: want.NearAreaIDs},
 	}
 }
 
@@ -257,6 +280,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 			Venue: in.Venue, StartAt: in.StartAt.UTC(), EndAt: in.EndAt.UTC(), DurationMin: in.DurationMin, OpenSpots: in.OpenSpots,
 			AcceptedCount: 0, Cost: string(in.Cost), ChatPref: string(in.ChatPref), Eligibility: EligibilityEveryone,
 			Status: string(StatusOpen), CreatedAt: now, UpdatedAt: now, ExpireAt: in.StartAt.UTC().Add(ExpireAfterStart),
+			AreaID: in.Area.AreaID, CityID: in.Area.CityID, NearAreaIDs: in.Area.NearAreaIDs,
 		}
 		b.Create(r.ref(p.ID), doc)
 		b.Set(r.membershipRef(p.UID, p.ID), membershipDoc{
@@ -288,8 +312,9 @@ func liveStatus(accepted, openSpots int) Status {
 // (F28, repo_reschedule.go) refuses with ErrStarted once the stored start passed, and a new start or duration also
 // rewrites the TTL and window of every participant and membership row in the same commit. An audience (F28b) is compared
 // with the stored one by audienceMove: narrowing or incompatible refuses (ErrAudienceNarrowing, ErrAudienceIncompatible)
-// and writes nothing; a widening sets communityId "" on the beacon and on every membership row in the same commit. Nothing
-// to change writes only the idempotency document.
+// and writes nothing; a widening sets communityId "" on the beacon and on every membership row in the same commit. An area
+// (Location P2) sets or deletes areaId, cityId and nearAreaIds on the beacon only. Nothing to change writes only the
+// idempotency document.
 func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResult, error) {
 	if err := r.ready(); err != nil {
 		return UpdateResult{}, err
@@ -351,6 +376,9 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 				updates = append(updates, firestore.Update{Path: "status", Value: s})
 				d.Status = s
 			}
+		}
+		if p.Area != nil {
+			updates = append(updates, areaUpdates(&d, *p.Area)...) // no notification: Rescheduled stays false
 		}
 		plan, err := r.planReschedule(ctx, tx, p, &d, widen)
 		if err != nil {

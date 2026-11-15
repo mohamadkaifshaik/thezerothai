@@ -250,31 +250,50 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 		rows = rows[:size]
 		out.NextPageToken = s.encodeAfter(binding, rows[size-1])
 	}
-	if len(rows) == 0 {
-		return out, nil
-	}
-	bc, err := s.blocks(ctx, viewer)
+	shown, profs, err := s.visibleRows(ctx, viewer, rows, len(rows))
 	if err != nil {
 		return Page{}, mapErr(ctx, "list", viewer, "", err)
 	}
+	if out.Views, err = s.renderRows(ctx, viewer, shown, profs); err != nil {
+		return Page{}, mapErr(ctx, "list", viewer, "", err)
+	}
+	return out, nil
+}
+
+// visibleRows is the row filter of ListBeacons and ListNearby, in order: visibleRow (hidden unless the viewer organises
+// it; a block either way, the viewer's graph cached, overflow-aware), then one batched profile read of the organisers (a
+// missing or non-ACTIVE organiser drops the row). It records the drop counts of the first countable rows (the ones the
+// page shows; ListNearby may filter a longer probe for its count) on the request line and answers the rows kept, in input
+// order, with the organiser profiles. 0 reads for an empty input.
+func (s *service) visibleRows(ctx context.Context, viewer string, rows []Beacon, countable int) ([]Beacon, map[string]identity.Profile, error) {
+	if len(rows) == 0 {
+		return nil, nil, nil
+	}
+	bc, err := s.blocks(ctx, viewer)
+	if err != nil {
+		return nil, nil, err
+	}
 	kept := make([]Beacon, 0, len(rows))
+	keptAt := make([]int, 0, len(rows)) // each kept row's index in rows
 	organisers := make([]string, 0, len(rows))
 	seen := map[string]bool{}
 	droppedHidden, droppedBlocked := 0, 0
-	for _, b := range rows {
+	for i, b := range rows {
 		cause, err := visibleRow(ctx, bc, viewer, b)
 		if err != nil {
-			return Page{}, mapErr(ctx, "list", viewer, "", err)
+			return nil, nil, err
 		}
-		switch cause {
-		case "hidden":
+		switch {
+		case cause == "hidden" && i < countable:
 			droppedHidden++
-			continue
-		case "blocked":
+		case cause == "blocked" && i < countable:
 			droppedBlocked++
+		}
+		if cause != "" {
 			continue
 		}
 		kept = append(kept, b)
+		keptAt = append(keptAt, i)
 		if !seen[b.OrganiserID] {
 			seen[b.OrganiserID] = true
 			organisers = append(organisers, b.OrganiserID)
@@ -283,34 +302,48 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 	logger.SetRequestField(ctx, fieldDroppedHidden, droppedHidden)
 	logger.SetRequestField(ctx, fieldDroppedBlocked, droppedBlocked)
 	if len(kept) == 0 {
-		return out, nil
+		return nil, nil, nil
 	}
 	profs, err := s.d.Directory.GetProfiles(ctx, organisers)
 	if err != nil {
-		return Page{}, mapErr(ctx, "list", viewer, "", logger.RedactErr(fmt.Errorf("beacons: load organiser profiles: %w", err), organisers...))
+		return nil, nil, logger.RedactErr(fmt.Errorf("beacons: load organiser profiles: %w", err), organisers...)
 	}
 	droppedGone := 0
 	shown := make([]Beacon, 0, len(kept))
-	others := make([]string, 0, len(kept))
-	for _, b := range kept {
+	for k, b := range kept {
 		p, ok := profs[b.OrganiserID]
 		if !ok || p.Status != identity.AccountStatusActive {
-			droppedGone++
+			if keptAt[k] < countable {
+				droppedGone++
+			}
 			continue
 		}
 		shown = append(shown, b)
+	}
+	logger.SetRequestField(ctx, fieldDroppedGone, droppedGone)
+	return shown, profs, nil
+}
+
+// renderRows renders rows visibleRows kept: one GetAll of the viewer's participant rows on the beacons they do not
+// organise, so each row carries the same viewer state GetBeacon answers, then the one batched quick-join lookup.
+func (s *service) renderRows(ctx context.Context, viewer string, shown []Beacon, profs map[string]identity.Profile) ([]View, error) {
+	if len(shown) == 0 {
+		return nil, nil
+	}
+	others := make([]string, 0, len(shown))
+	for _, b := range shown {
 		if b.OrganiserID != viewer {
 			others = append(others, b.ID)
 		}
 	}
 	states, err := s.participantStates(ctx, viewer, others)
 	if err != nil {
-		return Page{}, mapErr(ctx, "list", viewer, "", err)
+		return nil, err
 	}
+	views := make([]View, 0, len(shown))
 	for _, b := range shown {
-		out.Views = append(out.Views, s.viewWith(b, profs[b.OrganiserID], viewer, states[b.ID]))
+		views = append(views, s.viewWith(b, profs[b.OrganiserID], viewer, states[b.ID]))
 	}
-	logger.SetRequestField(ctx, fieldDroppedGone, droppedGone)
-	s.markQuickJoin(ctx, viewer, out.Views)
-	return out, nil
+	s.markQuickJoin(ctx, viewer, views)
+	return views, nil
 }

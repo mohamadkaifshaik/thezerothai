@@ -90,7 +90,7 @@ func TestUpdateBeacon_AudienceMatrix(t *testing.T) {
 			if p.AudienceCommunityID == nil || *p.AudienceCommunityID != tc.req.CommunityID {
 				t.Fatalf("AudienceCommunityID = %v, want %q", p.AudienceCommunityID, tc.req.CommunityID)
 			}
-			if p.RequestHash != updateHash(testBeaconID, nil, nil, nil, nil, schedule{}, &tc.req.CommunityID) {
+			if p.RequestHash != updateHash(testBeaconID, nil, nil, nil, nil, schedule{}, &tc.req.CommunityID, nil) {
 				t.Fatal("request hash does not cover the audience")
 			}
 		})
@@ -243,7 +243,7 @@ func TestUpdateBeacon_WidenReplay(t *testing.T) {
 	}
 	p := e.repo.updatedBy[0]
 	public := ""
-	if p.IdemKey != idempotency.Key(testOrganiser, rpcUpdateBeacon, testKey) || p.RequestHash != updateHash(testBeaconID, nil, nil, nil, nil, schedule{}, &public) {
+	if p.IdemKey != idempotency.Key(testOrganiser, rpcUpdateBeacon, testKey) || p.RequestHash != updateHash(testBeaconID, nil, nil, nil, nil, schedule{}, &public, nil) {
 		t.Fatalf("params = %+v", p)
 	}
 	if e.comm.calls != 0 {
@@ -271,14 +271,14 @@ func TestUpdateBeacon_ReplayAfterWidening(t *testing.T) {
 // TestUpdateHash_Audience: without an audience the hash is the pre-F28b one; each audience hashes apart.
 func TestUpdateHash_Audience(t *testing.T) {
 	title := "T"
-	legacy := updateHash("b", &title, nil, nil, nil, schedule{}, nil)
+	legacy := updateHash("b", &title, nil, nil, nil, schedule{}, nil, nil)
 	if legacy != idempotency.HashRequest(`beacon_id=b|title="T"|details=unset|venue=unset|open_spots=unset`) {
 		t.Fatal("hash without an audience changed")
 	}
 	public, c1, c2 := "", testCommunity, otherCommunity
 	seen := map[string]bool{legacy: true}
 	for _, a := range []*string{&public, &c1, &c2} {
-		h := updateHash("b", &title, nil, nil, nil, schedule{}, a)
+		h := updateHash("b", &title, nil, nil, nil, schedule{}, a, nil)
 		if seen[h] {
 			t.Fatalf("audience %q hashes like another request", *a)
 		}

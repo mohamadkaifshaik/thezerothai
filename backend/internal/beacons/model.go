@@ -8,6 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/location"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -102,6 +103,18 @@ type Beacon struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	ExpireAt  time.Time
+	// Area is the plan's optional catalogue area (Location P2): the organiser-chosen area of the meeting point. A zero
+	// value (AreaID "") is no area.
+	Area AreaFields
+}
+
+// AreaFields is the stored plan area: areaId, cityId and nearAreaIds (the area and its catalogue neighbours, at most
+// 1 + location.MaxNeighbours; a CITY area stores just itself), denormalised from the catalogue on every area write
+// (area.go), so a Nearby read is one query. A zero value is no area.
+type AreaFields struct {
+	AreaID      string
+	CityID      string
+	NearAreaIDs []string
 }
 
 // EffectiveStatus is the status a reader sees at now: CANCELLED is final; otherwise ENDED from EndAt on; otherwise the
@@ -235,6 +248,9 @@ type View struct {
 	Beacon    Beacon
 	Organiser identity.Profile
 	Viewer    ViewerState
+	// Area is the plan area's catalogue entry for the label (Beacon.area), nil when the plan has none, the catalogue
+	// does not know the id or FEATURE_LOCATION is globally off. A retired area still resolves.
+	Area *location.Area
 }
 
 // CreateInput is a CreateBeacon request after the transport layer. Exactly one of CommunityID and Public is set.
@@ -251,6 +267,8 @@ type CreateInput struct {
 	OpenSpots   int
 	Cost        Cost
 	ChatPref    ChatPref
+	// AreaID is the optional catalogue area of the meeting point ("" = none, Location P2).
+	AreaID string
 }
 
 // UpdateInput is an UpdateBeacon request: a nil field is unchanged. StartAt, DurationMin and Cost (F28) may change only
@@ -266,6 +284,8 @@ type UpdateInput struct {
 	DurationMin *int
 	Cost        *Cost
 	Audience    *AudienceInput
+	// AreaID (Location P2): nil = unchanged, "" = remove the area, else a catalogue id.
+	AreaID *string
 }
 
 // AudienceInput is an UpdateBeacon audience as sent (F28b), the CreateBeacon shape: exactly one of CommunityID and Public
@@ -345,6 +365,9 @@ var (
 	ErrOrganiser = errors.New("beacons: the organiser cannot join")
 	// ErrNoteRequired: an empty note under FEATURE_BEACON_QUICK_JOIN from a caller the organiser does not follow.
 	ErrNoteRequired = errors.New("beacons: note required")
+	// ErrNearbyIndex: Firestore refused a Nearby query for a missing or building composite index (FAILED_PRECONDITION on
+	// a real project; the emulator needs none). The service degrades to an empty page and logs a warning.
+	ErrNearbyIndex = errors.New("beacons: nearby index not ready")
 )
 
 // RequestParams is one RequestToJoin write. Now decides the beacon's state and stamps requestedAt.
@@ -431,8 +454,11 @@ type UpdateParams struct {
 	DurationMin                         *int
 	Cost                                *Cost
 	AudienceCommunityID                 *string
-	MaxEditRows                         int
-	Now                                 time.Time
+	// Area (Location P2) is the requested plan area, nil = unchanged; a zero AreaFields removes the stored one. The stored
+	// areaId resent is not a change (nothing written, even when the catalogue neighbours moved since).
+	Area        *AreaFields
+	MaxEditRows int
+	Now         time.Time
 }
 
 // UpdateResult is what Repo.Update answers: the beacon after the write (or as it is now on a replay). Rescheduled is set
@@ -487,6 +513,12 @@ type Repo interface {
 	// ListByAudience runs ListQuery (reads = docs returned, minimum 1). Hidden beacons are returned; filtering is the
 	// service's.
 	ListByAudience(ctx context.Context, q ListQuery) ([]Beacon, error)
+	// ListNearby runs NearbyQuery (reads = docs returned, minimum 1); hidden beacons are returned. ErrNearbyIndex when
+	// Firestore refuses the query for a missing or building composite index.
+	ListNearby(ctx context.Context, q NearbyQuery) ([]Beacon, error)
+	// CountNearby counts NearbyQuery's matches (From only; no cursor), at most q.Limit: one aggregation read per 1,000
+	// index entries. ErrNearbyIndex as ListNearby.
+	CountNearby(ctx context.Context, q NearbyQuery) (int64, error)
 
 	// Participation (PR 3): one transaction each, idempotency first, the beacon and the participant row read before any
 	// write, acceptedCount and status kept on the beacon.
@@ -547,6 +579,9 @@ type Service interface {
 	// ListShared returns the upcoming beacons viewer and in.PeerUID are both in (organiser or ACCEPTED), soonest first,
 	// for the chat strip (FEATURE_CHAT_SHARED_PLANS, gated by the handler). Read-only over existing data.
 	ListShared(ctx context.Context, viewer string, in SharedInput) (Page, error)
+	// ListNearby returns a page of public OPEN and FULL beacons in one area (Explore Nearby, Location P2), soonest first,
+	// with the K-anonymous count on the first page. FEATURE_LOCATION on for viewer is checked here, before any read.
+	ListNearby(ctx context.Context, viewer string, in NearbyInput) (NearbyPage, error)
 }
 
 // Limits are the caps the service needs, from config (BeaconsConfig).
@@ -554,6 +589,9 @@ type Limits struct {
 	MaxOpenPerUser     int
 	MaxPendingRequests int
 	MaxOpenSpots       int
+	// NearbyKMin is LOCATION_NEARBY_K_MIN: the live-plan count from which ListNearbyBeacons shows a number (below it
+	// "a few"). 0 means DefaultNearbyKMin.
+	NearbyKMin int
 }
 
 // IDSource issues beacon ids (a Snowflake node). *snowflake.Node satisfies it.
@@ -587,6 +625,12 @@ type Deps struct {
 	// Outbox makes the cancellation notices durable (B07): an item staged in the cancel transaction, removed once every
 	// notice was handed off, re-run by the outbox sweep otherwise. Nil (or a nil Events) keeps the best-effort notice.
 	Outbox CancelOutbox
+	// Areas is the location catalogue (in memory, no I/O) for plan areas and Nearby (Location P2). Nil refuses every
+	// non-empty area_id (VALIDATION "area_id") and labels nothing.
+	Areas location.Catalog
+	// MyArea reads the caller's stored area for ListNearbyBeacons without an area_id (location.Reader, 1 read). Nil is
+	// "no area" (area_not_set).
+	MyArea location.Reader
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }

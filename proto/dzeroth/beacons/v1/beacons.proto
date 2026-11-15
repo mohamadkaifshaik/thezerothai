@@ -5,7 +5,8 @@ syntax = "proto3";
 // organiser acceptance (docs/beacons-plan.md). Owner module: backend/internal/beacons.
 // Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt, endAt,
 // durationMin, openSpots, acceptedCount, cost, chatPref, eligibility, status, hidden, createdAt, updatedAt,
-// expireAt), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
+// expireAt, and the optional plan area: areaId, cityId, nearAreaIds = the area and its catalogue neighbours, denormalised
+// from the location catalogue on every area write), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
 // users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pendingUntil, communityId, startAt, endAt; never another
 // user's uid, so a row may outlive an erased organiser's beacon and is dropped on read). Only beacons.Service reads or
 // writes them; firestore.rules stay deny-all to clients.
@@ -46,10 +47,11 @@ syntax = "proto3";
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in beacon_id | user_id | community_id | audience | activity |
 //   title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | response |
-//   page_token | idempotency_key | peer_user_id; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
+//   page_token | idempotency_key | peer_user_id | area_id | scope; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
 //   50 = 50), the lists precedent.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
-//   audience while that flag is off for the caller).
+//   audience while that flag is off for the caller, or "location" for a plan area and ListNearbyBeacons while
+//   FEATURE_LOCATION is off for the caller; see each RPC).
 // - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon (including a community audience whose
 //   community is missing or SUSPENDED; the community owner still reads a SUSPENDED community's beacons).
 // - FAILED_PRECONDITION + COMMUNITY_STATE, metadata["reason"] = "community_archived": CreateBeacon, RequestToJoin or
@@ -59,7 +61,8 @@ syntax = "proto3";
 //   else). A block in either direction is never FORBIDDEN: it is the one NOT_FOUND above.
 // - FAILED_PRECONDITION, metadata["reason"] = "full" | "ended" | "cancelled" | "already_requested" |
 //   "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon) | "started"
-//   (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started).
+//   (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started) | "area_not_set"
+//   (ListNearbyBeacons with no area_id while the caller has no stored area).
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "audience", metadata["reason"] = "audience_narrowing"
 //   (UpdateBeacon moving a public beacon into a community) | "audience_incompatible" (UpdateBeacon moving a community
 //   beacon into another community); checked against the stored audience, nothing is written. An audience is only ever
@@ -71,12 +74,13 @@ syntax = "proto3";
 //   that rewrites them); nothing is written.
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_BEACONS_WRITE_PER_MIN (10: Create, Update, Cancel),
 //   RATE_LIMIT_BEACONS_ACTION_PER_MIN (20: Request, Withdraw, Respond, Leave, Remove), RATE_LIMIT_BEACONS_READ_PER_MIN
-//   (30: Get, List*, ListSharedBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
+//   (30: Get, List*, ListSharedBeacons, ListNearbyBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
 //   "beacons_created_daily"); honour retry_after.
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 package dzeroth.beacons.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/location/v1/location.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1;beaconsv1";
@@ -193,6 +197,26 @@ service BeaconService {
   rpc ListSharedBeacons(ListSharedBeaconsRequest) returns (ListSharedBeaconsResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+  // Public OPEN and FULL beacons whose start_at >= now in one area, soonest first (Explore Nearby; place-based: the
+  // match is on the plan's organiser-chosen area, never on a person).
+  //   - NEARBY_SCOPE_AREA (the default): the area's beacons plus those of its catalogue neighbours.
+  //   - NEARBY_SCOPE_CITY: every beacon in the area's city. A CITY-kind area always uses this scope, whatever was sent.
+  // A plan tagged with a city (not a neighbourhood) is in that city's results only, so a neighbourhood sees it under
+  // NEARBY_SCOPE_CITY. Community beacons are never listed (a widened one, F28b, is public and is).
+  // area_id: empty means the caller's stored area (LocationService; FAILED_PRECONDITION "area_not_set" when none);
+  // otherwise a catalogue id, retired included (malformed or unknown => VALIDATION "area_id", the value never echoed), so
+  // a user may browse an area without storing it. A scope outside the enum => VALIDATION "scope".
+  // Blocks and hidden apply as in ListBeacons (dropped rows; a page may be short while next_page_token is set).
+  // Needs FEATURE_BEACONS not globally off and FEATURE_LOCATION on for the caller (FEATURE_DISABLED names the flag),
+  // before any lookup. limit is clamped (0 = 20, above 50 = 50). page_token is signed and bound to the caller, the
+  // resolved area and the scope (VALIDATION "page_token" otherwise). The first page carries count (K-anonymity: a number
+  // only at >= LOCATION_NEARBY_K_MIN, 5; "few" below). Read budget: about 46 reads at limit 20 (the stored area, the
+  // page, one count aggregation on a first page that does not hold the whole result, the viewer states and the cached
+  // graph). If the backing Firestore index is not ready the answer is an empty first page with no count, never an
+  // error. Rate limit: RATE_LIMIT_BEACONS_READ_PER_MIN.
+  rpc ListNearbyBeacons(ListNearbyBeaconsRequest) returns (ListNearbyBeaconsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 enum BeaconActivity {
@@ -275,6 +299,27 @@ enum MyBeaconsWindow {
   MY_BEACONS_WINDOW_PAST = 2;
 }
 
+// The reach of ListNearbyBeacons.
+enum NearbyScope {
+  // Treated as AREA.
+  NEARBY_SCOPE_UNSPECIFIED = 0;
+  // The area and its catalogue neighbours.
+  NEARBY_SCOPE_AREA = 1;
+  // The whole city of the area.
+  NEARBY_SCOPE_CITY = 2;
+}
+
+// Where a listed plan's area sits relative to the requested area. Derived from the plan's area, never from a person.
+enum AreaProximity {
+  AREA_PROXIMITY_UNSPECIFIED = 0;
+  // The plan's area is the requested one (for a CITY area: the plan is tagged with the city itself).
+  AREA_PROXIMITY_SAME_AREA = 1;
+  // The plan's area is a catalogue neighbour of the requested one.
+  AREA_PROXIMITY_NEIGHBOURING = 2;
+  // Elsewhere in the same city (NEARBY_SCOPE_CITY only).
+  AREA_PROXIMITY_SAME_CITY = 3;
+}
+
 enum ParticipantFilter {
   // Same as ACCEPTED.
   PARTICIPANT_FILTER_UNSPECIFIED = 0;
@@ -311,6 +356,9 @@ message Beacon {
   bool hidden = 16;
   google.protobuf.Timestamp created_at = 17;
   google.protobuf.Timestamp updated_at = 18;
+  // The plan's area (organiser-chosen, a catalogue entry: the area of the meeting point). Unset when the plan has none or
+  // FEATURE_LOCATION is globally off. A retired area still resolves.
+  dzeroth.location.v1.AreaSummary area = 19;
 }
 
 // The caller's relationship with a beacon, so the client renders the right action without a second call.
@@ -364,6 +412,10 @@ message CreateBeaconRequest {
   int32 open_spots = 10;
   BeaconCost cost = 11;
   ChatPreference chat_preference = 12;
+  // Optional catalogue area_id of the meeting point; "" = none. Non-empty needs FEATURE_LOCATION on for the caller
+  // (FEATURE_DISABLED "location") and a well-formed, non-retired catalogue id (VALIDATION "area_id"), checked before any
+  // lookup. Allowed for either audience; only public plans are listed by ListNearbyBeacons.
+  string area_id = 13;
 }
 
 message CreateBeaconResponse {
@@ -392,6 +444,11 @@ message UpdateBeaconRequest {
     string community_id = 10;
     bool public = 11;
   }
+  // Unset = unchanged; "" = remove the area; else a well-formed, non-retired catalogue id (VALIDATION "area_id", before
+  // any lookup). Setting an area needs FEATURE_LOCATION on for the caller; removing it only needs the flag not globally
+  // off (FEATURE_DISABLED "location"). Allowed while the beacon is OPEN or FULL (also after it started); no notification.
+  // Resending the stored id is not a change.
+  optional string area_id = 12;
 }
 
 message UpdateBeaconResponse {
@@ -519,4 +576,38 @@ message ListSharedBeaconsResponse {
   // Each view carries the caller's own viewer state.
   repeated BeaconView views = 1;
   string next_page_token = 2;
+}
+
+// The K-anonymous size of a Nearby result.
+message NearbyCount {
+  // 1..K_MIN-1 live plans: "a few", no number.
+  bool few = 1;
+  // A number when >= K_MIN; 0 when few or none. The first page probes max(limit, K_MIN) + 1 plans: when the result fits
+  // in fewer, the count is exact, from the rows that pass the filters (blocks and hidden applied), also when a small
+  // limit set next_page_token. Otherwise it is an aggregation over the query before filtering, at most 1000 (render as
+  // "about"); it is then always above both limit and K_MIN.
+  int32 plans = 2;
+}
+
+message NearbyBeacon {
+  BeaconView view = 1;
+  AreaProximity proximity = 2;
+}
+
+message ListNearbyBeaconsRequest {
+  // Empty = the caller's stored area.
+  string area_id = 1;
+  NearbyScope scope = 2;
+  // Clamped: 0 = 20, above 50 = 50.
+  int32 limit = 3;
+  string page_token = 4;
+}
+
+message ListNearbyBeaconsResponse {
+  repeated NearbyBeacon items = 1;
+  string next_page_token = 2;
+  // The resolved area (the stored one when area_id was empty).
+  dzeroth.location.v1.AreaSummary area = 3;
+  // First page only; unset on later pages.
+  NearbyCount count = 4;
 }

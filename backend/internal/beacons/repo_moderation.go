@@ -31,6 +31,22 @@ var _ Moderator = (*FirestoreRepo)(nil)
 // Restore removes the field (`firestore.Delete`), so storage keeps its "absent means false" shape. Idempotent: a repeat
 // writes nothing. A hidden beacon is NOT_FOUND to everyone but its organiser on every read (R18: invisible, not frozen).
 func (r *FirestoreRepo) SetHidden(ctx context.Context, beaconID string, hidden bool, now time.Time) (bool, error) {
+	return r.operatorUpdate(ctx, beaconID, now, func(d *beaconDoc) []firestore.Update {
+		if d.Hidden == hidden {
+			return nil
+		}
+		var hv any = firestore.Delete
+		if hidden {
+			hv = true
+		}
+		return []firestore.Update{{Path: "hidden", Value: hv}}
+	})
+}
+
+// operatorUpdate is the one transaction of the opsctl levers: read the beacon (ErrNotFound when it is gone), ask change
+// for the field-level writes, and only when there are any write them with updatedAt (never a Set, so a beacon deleted
+// in between stays deleted and no other field is touched). changed reports whether anything was written.
+func (r *FirestoreRepo) operatorUpdate(ctx context.Context, beaconID string, now time.Time, change func(d *beaconDoc) []firestore.Update) (bool, error) {
 	if r == nil || r.client == nil {
 		return false, fmt.Errorf("beacons: repo is not wired")
 	}
@@ -48,15 +64,12 @@ func (r *FirestoreRepo) SetHidden(ctx context.Context, beaconID string, hidden b
 		if err := snap.DataTo(&d); err != nil {
 			return logger.RedactErr(fmt.Errorf("beacons: decode beacon: %w", err), beaconID)
 		}
-		if d.Hidden == hidden {
+		updates := change(&d)
+		if len(updates) == 0 {
 			return nil
 		}
-		var hv any = firestore.Delete
-		if hidden {
-			hv = true
-		}
 		b := store.NewFirestoreTxBatch(tx)
-		b.Update(r.ref(beaconID), []firestore.Update{{Path: "hidden", Value: hv}, {Path: "updatedAt", Value: now.UTC()}})
+		b.Update(r.ref(beaconID), append(updates, firestore.Update{Path: "updatedAt", Value: now.UTC()}))
 		if err := b.Err(); err != nil {
 			return err
 		}
@@ -119,4 +132,22 @@ func (r *FirestoreRepo) Counts(ctx context.Context) (Counts, error) {
 		*c.dst = n.N
 	}
 	return out, nil
+}
+
+// AreaClearer is the operator lever for a bad plan area (`opsctl beacon clear-area`, location design 5.6): abuse or a
+// wrong place shown in Nearby. *FirestoreRepo implements it, so the beacons module stays the only writer of beacons/.
+type AreaClearer interface {
+	// ClearArea removes areaId, cityId and nearAreaIds from one beacon. changed is false when it had no area (nothing
+	// written). ErrNotFound for a missing beacon.
+	ClearArea(ctx context.Context, beaconID string, now time.Time) (changed bool, err error)
+}
+
+var _ AreaClearer = (*FirestoreRepo)(nil)
+
+// ClearArea implements AreaClearer: one transaction that reads the beacon (ErrNotFound when it is gone) and, only when
+// it has an area, deletes the three area fields and stamps updatedAt through a field-level Update (never a Set, so a
+// beacon deleted in between stays deleted and nothing else changes). Idempotent: a repeat writes nothing. The plan drops
+// out of Nearby from the next query; the organiser may set an area again (UpdateBeacon).
+func (r *FirestoreRepo) ClearArea(ctx context.Context, beaconID string, now time.Time) (bool, error) {
+	return r.operatorUpdate(ctx, beaconID, now, func(d *beaconDoc) []firestore.Update { return areaUpdates(d, AreaFields{}) })
 }

@@ -59,6 +59,33 @@ type fakeRepo struct {
 	prechecks     int                          // Request prechecks run
 	// GetParticipants calls: the uid and the beacon ids of each batch.
 	participantBatches []participantBatch
+
+	// Nearby (Location P2): nearby answers ListNearby (Limit honoured, no cursor emulation), nearbyErr fails it;
+	// countN / countErr answer CountNearby; nqueries and cqueries record the calls.
+	nearby    []Beacon
+	nearbyErr error
+	countN    int64
+	countErr  error
+	nqueries  []NearbyQuery
+	cqueries  []NearbyQuery
+}
+
+func (f *fakeRepo) ListNearby(_ context.Context, q NearbyQuery) ([]Beacon, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nqueries = append(f.nqueries, q)
+	if f.nearbyErr != nil {
+		return nil, f.nearbyErr
+	}
+	n := min(len(f.nearby), max(q.Limit, 0))
+	return append([]Beacon(nil), f.nearby[:n]...), nil
+}
+
+func (f *fakeRepo) CountNearby(_ context.Context, q NearbyQuery) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cqueries = append(f.cqueries, q)
+	return f.countN, f.countErr
 }
 
 type participantBatch struct {

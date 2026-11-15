@@ -66,14 +66,14 @@ func TestNormalizeSchedule(t *testing.T) {
 func TestUpdateHash_UnchangedWithoutSchedule(t *testing.T) {
 	title := "T"
 	legacy := idempotency.HashRequest(`beacon_id=b|title="T"|details=unset|venue=unset|open_spots=unset`)
-	if got := updateHash("b", &title, nil, nil, nil, schedule{}, nil); got != legacy {
+	if got := updateHash("b", &title, nil, nil, nil, schedule{}, nil, nil); got != legacy {
 		t.Fatalf("hash without schedule = %s, want the pre-F28 %s", got, legacy)
 	}
 	start := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
 	d, c := 30, CostFree
 	seen := map[string]bool{legacy: true}
 	for _, s := range []schedule{{start: &start}, {duration: &d}, {cost: &c}, {start: &start, duration: &d, cost: &c}} {
-		h := updateHash("b", &title, nil, nil, nil, s, nil)
+		h := updateHash("b", &title, nil, nil, nil, s, nil, nil)
 		if seen[h] {
 			t.Fatalf("schedule %+v hashes like another request", s)
 		}
@@ -94,7 +94,7 @@ func TestUpdateBeacon_ScheduleReachesTheRepo(t *testing.T) {
 		p.MaxEditRows != MaxEditRows || !p.Now.Equal(e.now) {
 		t.Fatalf("params = %+v", p)
 	}
-	if p.RequestHash != updateHash(testBeaconID, nil, nil, nil, nil, schedule{start: &start, duration: &dur, cost: &cost}, nil) {
+	if p.RequestHash != updateHash(testBeaconID, nil, nil, nil, nil, schedule{start: &start, duration: &dur, cost: &cost}, nil, nil) {
 		t.Fatal("request hash does not cover the schedule")
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 const beaconUsage = `  opsctl beacon hide    BEACON_ID --project P [--report R] [--note N] [--dry-run]   (NOT_FOUND to everyone but its organiser from the next request; the organiser still sees and manages it)
   opsctl beacon restore BEACON_ID --project P [--dry-run]
+  opsctl beacon clear-area BEACON_ID --project P [--dry-run]   (removes the plan's area: it leaves Explore Nearby from the next request; prints only beacon_hash, never the area)
   opsctl beacon counts  --project P   (read-only; prints aggregate counts only: beacons_open, beacons_full, beacons_cancelled, beacons_hidden, beacons_ended; open and full include ended plans not yet swept, ended includes cancelled ones)
 `
 
@@ -25,10 +26,22 @@ func parseBeaconArgs(sub, beaconID string, a modArgs) error {
 		}
 		return nil
 	}
+	if sub == "clear-area" {
+		if a.report != "" || a.note != "" {
+			return usageErr("beacon clear-area takes no --report or --note")
+		}
+		if beaconID == "" {
+			return usageErr("beacon clear-area needs the beacon id as its first argument")
+		}
+		if err := beacons.ValidateBeaconID(beaconID); err != nil {
+			return usageErr("beacon clear-area: the beacon id must be 19 digits")
+		}
+		return nil
+	}
 	if sub == "" || sub == "hide" || sub == "restore" {
 		return parseHideRestoreArgs("beacon", "beacon", sub, beaconID, beacons.ValidateBeaconID, a)
 	}
-	return usageErr("beacon needs a sub-command: hide, restore or counts")
+	return usageErr("beacon needs a sub-command: hide, restore, clear-area or counts")
 }
 
 // beaconCounts is `opsctl beacon counts` (docs/beacons-plan.md PR 8, the pilot's daily read): the five aggregate
@@ -126,5 +139,49 @@ func beaconDryRun(ctx context.Context, b *backends, sub, beaconID, hash string, 
 	if report != "" {
 		fmt.Fprintf(out, "dry-run: would resolve report %s as %s\n", report, moderation.ResolutionTakedown)
 	}
+	return nil
+}
+
+// beaconClearArea is `opsctl beacon clear-area` (location design 5.6): the operator lever for a plan area that is abuse or
+// the wrong place. beacons.AreaClearer deletes areaId, cityId and nearAreaIds in one transaction (field-level, never a
+// Set); a plan without an area writes nothing and a missing beacon is refused. The plan leaves Explore Nearby from the
+// next request on every server (beacon docs are not cached); the organiser may set an area again. --dry-run only reads.
+// Output holds no area, title or organiser: the id appears only as beacon_hash, in a fixed-shape audit line.
+func beaconClearArea(ctx context.Context, b *backends, project, beaconID string, dryRun bool, out io.Writer, now func() time.Time) error {
+	if b.beaconAreas == nil || b.beacons == nil {
+		return errors.New("beacon clear-area: no beacons repo configured")
+	}
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	hash := logger.HashUID(beaconID)
+	if dryRun {
+		bc, err := b.beacons.Get(cctx, beaconID)
+		if errors.Is(err, beacons.ErrNotFound) {
+			return errors.New("no such beacon (nothing written)")
+		}
+		if err != nil {
+			return err
+		}
+		has := bc.Area.AreaID != ""
+		verb := "would remove it"
+		if !has {
+			verb = "would write nothing"
+		}
+		fmt.Fprintf(out, "dry-run: beacon clear-area beacon_hash=%s has_area=%t: %s (nothing written)\n", hash, has, verb)
+		return nil
+	}
+	changed, err := b.beaconAreas.ClearArea(cctx, beaconID, now())
+	if errors.Is(err, beacons.ErrNotFound) {
+		return errors.New("no such beacon (nothing written)")
+	}
+	if err != nil {
+		return err
+	}
+	if changed {
+		fmt.Fprintf(out, "area cleared: beacon_hash=%s\nthe plan leaves Explore Nearby from the next request on every server; the organiser may set an area again\n", hash)
+	} else {
+		fmt.Fprintf(out, "no area: beacon_hash=%s; nothing written\n", hash)
+	}
+	fmt.Fprintf(out, "audit: beacon clear-area project=%s at=%s beacon_hash=%s wrote=%t\n", project, now().UTC().Format(time.RFC3339), hash, changed)
 	return nil
 }
