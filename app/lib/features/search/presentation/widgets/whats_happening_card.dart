@@ -17,7 +17,7 @@ import 'trends_status_views.dart';
 /// How many trends the card shows.
 const kWhatsHappeningRows = 5;
 
-/// The desktop side column's "What's happening" card: an outlined
+/// The desktop side column's "Talked about today" card: an outlined
 /// [AppSurface] with the top 5 trends and "Show more" to Explore. Reads the
 /// shared [TrendsCubit], so it never adds a call of its own.
 ///
@@ -107,7 +107,7 @@ class WhatsHappeningCard extends StatelessWidget {
             child: Semantics(
               header: true,
               child: Text(
-                "What's happening",
+                "Talked about today",
                 style: AppTextStyles.cardTitleFor(context),
               ),
             ),

@@ -342,7 +342,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(EditProfileScreen), findsOneWidget);
       expect(find.byType(AppSearchField), findsNothing);
-      expect(find.text("What's happening"), findsNothing);
+      expect(find.text("Talked about today"), findsNothing);
 
       await tester.tap(_close());
       await tester.pumpAndSettle();

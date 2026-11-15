@@ -1,7 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 
 /// A bounded feed snapshot; full content is fetched only in the reader.
@@ -28,12 +30,19 @@ class ArticlePreviewCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (article.coverUrl.isNotEmpty)
+                // The cover is the card's full width; the preview carries no
+                // cover size, so it gets the widest frame (2:1, inside the
+                // 2:1 .. 4:5 range of post media), center-cropped.
                 AspectRatio(
-                  aspectRatio: 5 / 2,
-                  child: Image.network(
-                    article.coverUrl,
+                  aspectRatio: AppSize.postMediaLandscapeAspect,
+                  child: CachedNetworkImage(
+                    imageUrl: article.coverUrl,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, error, stack) =>
+                    alignment: Alignment.center,
+                    placeholder: (_, _) => ColoredBox(
+                      color: theme.colorScheme.surfaceContainerHigh,
+                    ),
+                    errorWidget: (_, _, _) =>
                         const Center(child: Icon(Icons.article_outlined)),
                   ),
                 ),

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -10,15 +8,22 @@ import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'alt_text_chip.dart';
 import 'gif_badge.dart';
 
-/// A post's attached images (0-4), rounded and bordered. Each image occupies
-/// a swipeable page. A single image keeps its own aspect ratio (clamped to
-/// 4:5 .. 16:9 so a tall image cannot take over the feed); multiple images use
-/// a fixed 16:9 viewport and can be browsed horizontally. Images fit inside
-/// their tiles without cropping; unused space is filled with the surface color.
-/// The frame comes from the stored `width`/`height` alone, so it has its
-/// final size before (and whether or not) any image loads: no layout jump.
-/// A single GIF is also held to [maxGifUpscale] times its own size, with a
-/// [minGifFrameEdge] floor for its controls.
+/// A post's attached images (0-4), Substack style: media sits in the body
+/// column and is as wide as the column, never a fixed height.
+///
+/// - One image: full column width at its own aspect ratio, between 2:1 (a
+///   wider panorama is center-cropped at the sides) and 4:5 (a taller image
+///   is center-cropped top and bottom). On tablet and desktop the frame is at
+///   most [AppSize.postMediaMaxSingleHeight] tall; its width shrinks to keep
+///   the ratio, so a landscape or square image is still uncropped.
+/// - Several: a horizontally swipeable row of equal 4:5 tiles ([tileSize]);
+///   on a phone the next tile peeks in at the column's right edge.
+///
+/// Pictures use `BoxFit.cover`, centered: no letterbox, no blurred
+/// background. The frame comes from the stored `width`/`height` alone (4:5
+/// when unknown), so it has its final size before any image loads. A tap
+/// opens the full-screen viewer through [onOpenImage], which shows the image
+/// whole.
 ///
 /// Lists use `thumbUrl` only and decode it at display size. A ref with no
 /// `thumbUrl` shows a placeholder and never falls back to the full image:
@@ -26,11 +31,10 @@ import 'gif_badge.dart';
 /// operations, review #110 M2). The detail view passes [useFullImage] to show
 /// `url` instead.
 ///
-/// A GIF (`MediaRef.content_type == image/gif`) is different in
-/// both views: it shows its still `thumbUrl` with a "GIF" badge and a play
-/// control, and the full file is fetched only after a tap (a tap again stops
-/// it). Nothing autoplays, so reduced motion and a data saver are respected
-/// by construction.
+/// A GIF (`MediaRef.content_type == image/gif`) fills the same frame: its
+/// still `thumbUrl` with a "GIF" badge and a play control, and the full file
+/// is fetched only after a tap (a tap again stops it). Nothing autoplays, so
+/// reduced motion and a data saver are respected by construction.
 class PostMedia extends StatelessWidget {
   const PostMedia({
     super.key,
@@ -38,18 +42,12 @@ class PostMedia extends StatelessWidget {
     this.useFullImage = false,
     this.onOpenImage,
     this.showPageIndicator = false,
-    this.row = false,
   });
-
-  /// The list-card layout: a fixed-height row of whole pictures (see
-  /// [tileSize]), swipeable when there are several. False keeps the pager
-  /// (the opened post, an embedded quote).
-  final bool row;
 
   final List<common.MediaRef> media;
   final ValueChanged<int>? onOpenImage;
 
-  /// Dots under the pager with "Image 2 of 4" for screen readers. Callers
+  /// Dots under the row with "Image 2 of 4" for screen readers. Callers
   /// turn it on only for a post with no text, where nothing else tells the
   /// reader there are more images to swipe to. Ignored for a single image.
   final bool showPageIndicator;
@@ -61,262 +59,164 @@ class PostMedia extends StatelessWidget {
   /// Show the full-size `url` (detail view). Lists leave this false.
   final bool useFullImage;
 
-  static const _minAspect = 4 / 5;
-  static const _maxAspect = 16 / 9;
-  static const _gap = 2.0;
-
-  /// A GIF is never drawn larger than this multiple of its own pixel size
-  /// (its stored `width` x `height`, the server-verified logical screen).
-  static const maxGifUpscale = 2.0;
-
-  /// The shortest side of a single GIF's frame, so a tiny GIF still has room
-  /// for the 48dp play control, the badge and the ALT chip. The pixels inside
-  /// stay within [maxGifUpscale] and are letterboxed.
-  static const minGifFrameEdge = 200.0;
-
   /// The aspect ratio of a single item's frame: its stored size clamped to
-  /// 4:5 .. 16:9, or 16:9 when the size is unknown (refs stored before sizes
-  /// were recorded). The frame is laid out from this before any byte loads.
+  /// 4:5 .. 2:1, or 4:5 when the size is unknown (refs stored before sizes
+  /// were recorded).
   static double frameAspect(common.MediaRef ref) =>
       ref.width > 0 && ref.height > 0
-      ? (ref.width / ref.height).clamp(_minAspect, _maxAspect).toDouble()
-      : _maxAspect;
+      ? (ref.width / ref.height)
+            .clamp(
+              AppSize.postMediaPortraitAspect,
+              AppSize.postMediaLandscapeAspect,
+            )
+            .toDouble()
+      : AppSize.postMediaPortraitAspect;
 
-  /// The widest a single GIF's frame may be: no more than [maxGifUpscale]
-  /// times its own width, nor so wide that its height passes
-  /// [maxGifUpscale] times its own height; never under the
-  /// [minGifFrameEdge] floor. Null when the GIF's size is unknown (the frame
-  /// then fills the width, as before).
-  static double? gifMaxFrameWidth(common.MediaRef ref) {
-    if (ref.width <= 0 || ref.height <= 0) return null;
+  /// A single frame's size in a [column] wide body, for a [wide] (tablet or
+  /// desktop) or phone window. The width is the column's; wide windows cap
+  /// the height and shrink the width with it.
+  static Size singleSize(
+    common.MediaRef ref, {
+    required double column,
+    required bool wide,
+  }) {
     final aspect = frameAspect(ref);
-    final cap = math.min(
-      maxGifUpscale * ref.width,
-      maxGifUpscale * ref.height * aspect,
-    );
-    final floor = minGifFrameEdge * math.max(1, aspect);
-    return math.max(cap, floor);
+    final height = column / aspect;
+    if (wide && height > AppSize.postMediaMaxSingleHeight) {
+      return Size(
+        AppSize.postMediaMaxSingleHeight * aspect,
+        AppSize.postMediaMaxSingleHeight,
+      );
+    }
+    return Size(column, height);
   }
 
-  /// A row tile's size: [rowHeight] tall and as wide as [ref]'s aspect ratio
-  /// makes it (1:1 when its size is unknown), so the whole picture fills the
-  /// tile with no crop and no bars. A tile wider than [maxWidth] is capped to
-  /// it and gets shorter to keep the ratio (a panorama), still whole.
-  static Size tileSize(
-    common.MediaRef ref, {
-    required double rowHeight,
-    required double maxWidth,
-  }) {
-    final aspect = ref.width > 0 && ref.height > 0
-        ? ref.width / ref.height
-        : 1.0;
-    final width = rowHeight * aspect;
-    if (width <= maxWidth) return Size(width, rowHeight);
-    return Size(maxWidth, maxWidth / aspect);
+  /// One tile of the several-images row: 72% of the column on a phone, a
+  /// fixed 240 x 300 wider; always 4:5 and never wider than the column.
+  static Size tileSize({required double column, required bool wide}) {
+    final width = wide
+        ? AppSize.postMediaTileWidthWide
+        : column * AppSize.postMediaTileWidthFraction;
+    final clamped = width > column ? column : width;
+    return Size(
+      clamped,
+      clamped == width && wide
+          ? AppSize.postMediaTileHeightWide
+          : clamped / AppSize.postMediaPortraitAspect,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final items = media.take(4).toList();
     if (items.isEmpty) return const SizedBox.shrink();
-    if (row) {
-      return _MediaRow(
-        media: items,
-        useFullImage: useFullImage,
-        onOpenImage: onOpenImage,
-      );
-    }
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final colors = Theme.of(context).colorScheme;
-    final single = items.length == 1;
-    final first = items.first;
-    final aspect = single ? frameAspect(first) : _maxAspect;
-
-    Widget tile(int index) => _MediaTile(
-      media: items[index],
-      useFullImage: useFullImage,
-      onOpen: onOpenImage == null ? null : () => onOpenImage!(index),
-    );
-
-    // dz.css `.media`: the 20 dp `cardSmall` radius, with the hairline.
-    Widget framed(Widget child) => DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.cardSmall),
-        border: Border.all(color: colors.outlineVariant),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadius.cardSmall),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: useFullImage
-                ? double.infinity
-                : AppSize.postMediaListMaxHeight,
-          ),
-          child: AspectRatio(aspectRatio: aspect, child: child),
-        ),
-      ),
-    );
-
-    if (single) {
-      final maxWidth = first.contentType == kGifContentType
-          ? gifMaxFrameWidth(first)
-          : null;
-      if (maxWidth == null) return framed(tile(0));
-      // A small GIF keeps (at most twice) its own size, start-aligned like
-      // the text above it, instead of being blown up to the column width.
-      return Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: framed(tile(0)),
-        ),
-      );
-    }
-    return _MediaPager(
-      count: items.length,
-      showIndicator: showPageIndicator,
-      framed: framed,
-      tile: tile,
-      gap: _gap,
-    );
-  }
-}
-
-/// A list card's media: whole pictures at the row height, left-aligned at the
-/// body's edge. One picture is a single tile; 2-4 are a horizontal list with a
-/// gap, scrolled freely (no snapping: the tiles differ in width, so there is
-/// no page to snap to). A tile shorter than the row (a capped panorama) sits at
-/// the top. The row is clipped at the body's right edge.
-class _MediaRow extends StatelessWidget {
-  const _MediaRow({
-    required this.media,
-    required this.useFullImage,
-    required this.onOpenImage,
-  });
-
-  final List<common.MediaRef> media;
-  final bool useFullImage;
-  final ValueChanged<int>? onOpenImage;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final rowHeight = AppSize.postMediaRowHeight(
-      MediaQuery.sizeOf(context).width,
-    );
     return LayoutBuilder(
       builder: (context, constraints) {
-        final sizes = [
-          for (final ref in media)
-            PostMedia.tileSize(
-              ref,
-              rowHeight: rowHeight,
-              maxWidth: constraints.maxWidth,
-            ),
-        ];
-        final height = sizes.fold<double>(
-          0,
-          (tallest, size) => size.height > tallest ? size.height : tallest,
-        );
-        Widget tile(int index) => SizedBox.fromSize(
-          size: sizes[index],
-          // dz.css `.media`: the 20 dp `cardSmall` radius, with the hairline,
-          // drawn over the picture so it adds nothing to the tile's size.
+        final column = constraints.maxWidth;
+        Widget tile(int index, Size size) => SizedBox.fromSize(
+          size: size,
+          // The hairline is drawn over the picture so it adds nothing to the
+          // frame's size.
           child: DecoratedBox(
             position: DecorationPosition.foreground,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadius.cardSmall),
+              borderRadius: BorderRadius.circular(AppRadius.postMedia),
               border: Border.all(color: colors.outlineVariant),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.cardSmall),
+              borderRadius: BorderRadius.circular(AppRadius.postMedia),
               child: _MediaTile(
-                media: media[index],
+                media: items[index],
                 useFullImage: useFullImage,
-                inRow: true,
                 onOpen: onOpenImage == null ? null : () => onOpenImage!(index),
               ),
             ),
           ),
         );
-        if (media.length == 1) {
+        if (items.length == 1) {
           return Align(
             alignment: AlignmentDirectional.topStart,
             heightFactor: 1,
-            child: tile(0),
+            child: tile(0, singleSize(items.first, column: column, wide: wide)),
           );
         }
-        return SizedBox(
-          height: height,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            primary: false,
-            itemCount: media.length,
-            separatorBuilder: (_, _) =>
-                const SizedBox(width: AppSize.postMediaRowGap),
-            itemBuilder: (context, index) => Align(
-              alignment: AlignmentDirectional.topStart,
-              child: tile(index),
-            ),
-          ),
+        return _MediaStrip(
+          count: items.length,
+          size: tileSize(column: column, wide: wide),
+          showIndicator: showPageIndicator,
+          tile: tile,
         );
       },
     );
   }
 }
 
-/// The swipeable pages plus, optionally, the dots below them. The dots sit
-/// under the viewport rather than over the image so the 16:9 frame and the
-/// ALT chip stay uncovered.
-class _MediaPager extends StatefulWidget {
-  const _MediaPager({
+/// Several images: equal tiles in a lazy horizontal list, clipped at the
+/// column's right edge (the cut-off tile shows there is more), plus,
+/// optionally, the dots below.
+class _MediaStrip extends StatefulWidget {
+  const _MediaStrip({
     required this.count,
+    required this.size,
     required this.showIndicator,
-    required this.framed,
     required this.tile,
-    required this.gap,
   });
 
   final int count;
+  final Size size;
   final bool showIndicator;
-  final Widget Function(Widget child) framed;
-  final Widget Function(int index) tile;
-  final double gap;
+  final Widget Function(int index, Size size) tile;
 
   @override
-  State<_MediaPager> createState() => _MediaPagerState();
+  State<_MediaStrip> createState() => _MediaStripState();
 }
 
-class _MediaPagerState extends State<_MediaPager> {
+class _MediaStripState extends State<_MediaStrip> {
   int _page = 0;
+
+  bool _onScroll(ScrollNotification note) {
+    if (note.metrics.axis != Axis.horizontal) return false;
+    final step = widget.size.width + AppSize.postMediaRowGap;
+    final page = (note.metrics.pixels / step).round().clamp(
+      0,
+      widget.count - 1,
+    );
+    if (page != _page) setState(() => _page = page);
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final pager = widget.framed(
-      PageView.builder(
+    final strip = SizedBox(
+      height: widget.size.height,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        primary: false,
         itemCount: widget.count,
-        onPageChanged: widget.showIndicator
-            ? (page) => setState(() => _page = page)
-            : null,
         itemBuilder: (context, index) => Padding(
           padding: EdgeInsetsDirectional.only(
-            end: index == widget.count - 1 ? 0 : widget.gap,
+            end: index == widget.count - 1 ? 0 : AppSize.postMediaRowGap,
           ),
-          child: widget.tile(index),
+          child: widget.tile(index, widget.size),
         ),
       ),
     );
-    if (!widget.showIndicator) return pager;
+    if (!widget.showIndicator) return strip;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        pager,
+        NotificationListener<ScrollNotification>(
+          onNotification: _onScroll,
+          child: strip,
+        ),
         _PageDots(count: widget.count, page: _page),
       ],
     );
   }
 }
-
 /// One semantics node ("Image 2 of 4") announced as it changes; the dots are
 /// decoration for sighted users and stay out of the tree.
 class _PageDots extends StatelessWidget {
@@ -367,21 +267,18 @@ class _MediaTile extends StatelessWidget {
   const _MediaTile({
     required this.media,
     required this.useFullImage,
-    this.inRow = false,
     this.onOpen,
   });
 
   final common.MediaRef media;
   final bool useFullImage;
 
-  /// Drawn in the media row: a GIF fills its tile (no 2x pixel cap letterbox).
-  final bool inRow;
   final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
     if (media.contentType == kGifContentType) {
-      return _GifTile(media: media, capUpscale: !inRow);
+      return _GifTile(media: media);
     }
     final colors = Theme.of(context).colorScheme;
     // Lists never fall back to the full image (M2); the detail view prefers it
@@ -455,7 +352,8 @@ Widget _networkImage(String url, ColorScheme colors, {Widget? placeholder}) {
                 .ceil();
         return CachedNetworkImage(
           imageUrl: url,
-          fit: BoxFit.contain,
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
           width: double.infinity,
           height: double.infinity,
           memCacheWidth: px > 0 ? px : null,
@@ -478,12 +376,9 @@ Widget _networkImage(String url, ColorScheme colors, {Widget? placeholder}) {
 /// returns to the still (the user's pause). The whole tile is the target
 /// (far over 48dp); the ALT chip stays a separate control.
 class _GifTile extends StatefulWidget {
-  const _GifTile({required this.media, this.capUpscale = true});
+  const _GifTile({required this.media});
 
   final common.MediaRef media;
-
-  /// Hold the pixels to [PostMedia.maxGifUpscale] times the GIF's own size.
-  final bool capUpscale;
 
   @override
   State<_GifTile> createState() => _GifTileState();
@@ -507,24 +402,6 @@ class _GifTileState extends State<_GifTile> {
     final still = media.thumbUrl.isEmpty
         ? blank
         : _networkImage(media.thumbUrl, colors);
-    // The pixels never pass twice the GIF's own size, even when the frame is
-    // larger (its floor); the frame's surface color letterboxes the rest.
-    Widget bounded(Widget image) =>
-        widget.capUpscale && media.width > 0 && media.height > 0
-        ? ColoredBox(
-            color: colors.surfaceContainerHigh,
-            child: Center(
-              child: ConstrainedBox(
-                key: const ValueKey('gif-pixels'),
-                constraints: BoxConstraints(
-                  maxWidth: PostMedia.maxGifUpscale * media.width,
-                  maxHeight: PostMedia.maxGifUpscale * media.height,
-                ),
-                child: image,
-              ),
-            ),
-          )
-        : image;
     final alt = media.altText;
     final canPlay = media.url.isNotEmpty;
     final label = [
@@ -547,11 +424,9 @@ class _GifTileState extends State<_GifTile> {
           fit: StackFit.expand,
           children: [
             // Only now is the full URL requested; the still shows meanwhile.
-            bounded(
-              _playing
-                  ? _networkImage(media.url, colors, placeholder: still)
-                  : still,
-            ),
+            _playing
+                ? _networkImage(media.url, colors, placeholder: still)
+                : still,
             if (!_playing && canPlay)
               Center(
                 child: DecoratedBox(

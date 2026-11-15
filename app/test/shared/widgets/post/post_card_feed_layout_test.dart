@@ -1,3 +1,4 @@
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
@@ -145,35 +146,63 @@ void main() {
     }
   }
 
-  testWidgets('the five actions are equal slots across the card, in the '
-      'owner order: Reply, Repost, Like, Share, Bookmark', (tester) async {
+  /// The 48 dp tap boxes of the given glyphs, in order.
+  List<Rect> boxesOf(WidgetTester tester, List<IconData> icons) => [
+    for (final icon in icons)
+      tester.getRect(
+        find
+            .ancestor(of: find.byIcon(icon), matching: find.byType(InkResponse))
+            .first,
+      ),
+  ];
+
+  const fiveIcons = [
+    Icons.chat_bubble_outline,
+    Icons.repeat,
+    Icons.favorite_border,
+    Icons.ios_share,
+    Icons.bookmark_border,
+  ];
+
+  testWidgets('the five actions are packed from the left, in the owner '
+      'order: Reply, Repost, Like, Share, Bookmark', (tester) async {
     for (final width in const [320.0, 360.0, 400.0, 700.0, 1100.0]) {
       await _pump(tester, _card(_view()), width: width);
       final icons = [
-        for (final icon in const [
-          Icons.chat_bubble_outline,
-          Icons.repeat,
-          Icons.favorite_border,
-          Icons.ios_share,
-          Icons.bookmark_border,
-        ])
-          tester.getRect(find.byIcon(icon)),
+        for (final icon in fiveIcons) tester.getRect(find.byIcon(icon)),
       ];
+      final boxes = boxesOf(tester, fiveIcons);
       final bar = tester.getRect(find.byType(PostActionBar));
-      final card = tester.getRect(find.byType(PostCard));
-      expect(bar.right, closeTo(card.right - postCardGutter(width), 0.5));
-      final left = bar.left;
-      final slot = bar.width / 5;
+      // The first glyph starts the row (aligned with the text above), and the
+      // same compact row is used at every width: it does not grow to fill.
+      expect(icons.first.left, closeTo(bar.left, 0.5), reason: '$width');
       for (var i = 0; i < 5; i++) {
-        // Each glyph sits at its equal slot's start.
-        expect(icons[i].left, closeTo(left + i * slot, 1), reason: '$width');
+        expect(boxes[i].width, greaterThanOrEqualTo(48), reason: '$width');
+        expect(boxes[i].height, greaterThanOrEqualTo(48), reason: '$width');
+        if (i > 0) {
+          // In order, and the tap boxes meet: nothing is spread.
+          expect(boxes[i].left, closeTo(boxes[i - 1].right, 0.5));
+          expect(icons[i].left, greaterThan(icons[i - 1].left));
+        }
       }
+      expect(boxes.last.right, lessThan(bar.left + 5 * 80), reason: '$width');
       expect(tester.takeException(), isNull);
     }
   });
 
-  testWidgets('a list card has no Bookmark slot without a callback: four '
-      'equal slots', (tester) async {
+  testWidgets('an item with a count is its glyph, 6 dp, the count, then a '
+      '20 dp gap to the next glyph', (tester) async {
+    await _pump(tester, _card(_view()), width: 400);
+    final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
+    final count = tester.getRect(find.text('999'));
+    final repost = tester.getRect(find.byIcon(Icons.repeat));
+    expect(count.left - reply.right, closeTo(AppSpacing.actionGap, 0.5));
+    // Reply has a count: the next glyph is 20 dp past it.
+    expect(repost.left - count.right, closeTo(AppSpacing.actionItemGap, 1));
+  });
+
+  testWidgets('a list card has no Bookmark without a callback: four packed '
+      'items', (tester) async {
     await _pump(
       tester,
       PostCard(
@@ -188,15 +217,16 @@ void main() {
       ),
     );
     expect(find.byIcon(Icons.bookmark_border), findsNothing);
-    final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
-    final share = tester.getRect(find.byIcon(Icons.ios_share));
-    final repost = tester.getRect(find.byIcon(Icons.repeat));
-    final like = tester.getRect(find.byIcon(Icons.favorite_border));
-    expect(repost.left - reply.left, closeTo(like.left - repost.left, 1));
-    expect(share.left - like.left, closeTo(like.left - repost.left, 1));
+    final boxes = boxesOf(tester, const [
+      Icons.repeat,
+      Icons.favorite_border,
+      Icons.ios_share,
+    ]);
+    expect(boxes[1].left, closeTo(boxes[0].right, 0.5));
+    expect(boxes[2].left, closeTo(boxes[1].right, 0.5));
   });
 
-  testWidgets('with views re-enabled they are a sixth equal slot, last', (
+  testWidgets('with views re-enabled they are packed after the others, last', (
     tester,
   ) async {
     final view = _view()..post.viewCount = Int64(4321);
@@ -222,16 +252,7 @@ void main() {
     final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
     final views = tester.getRect(find.byIcon(kPostViewsIcon));
     expect(views.left, greaterThan(bookmark.right));
-    final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
-    final repost = tester.getRect(find.byIcon(Icons.repeat));
-    expect(
-      bookmark.left - reply.left,
-      closeTo(4 * (repost.left - reply.left), 1),
-    );
-    expect(
-      views.left - reply.left,
-      closeTo(5 * (repost.left - reply.left), 1.5),
-    );
+    expect(tester.takeException(), isNull);
   });
 
   test('the views glyph is the single constant', () {

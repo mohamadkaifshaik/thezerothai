@@ -228,20 +228,25 @@ void main() {
     expect(calls, isEmpty);
   });
 
-  testWidgets('flag on: an outline icon in the slot after Like, no Share', (
+  testWidgets('flag on: an outline icon packed after Like, no Share', (
     tester,
   ) async {
     await pump(tester, _view());
     expect(outline(), findsOneWidget);
     expect(find.byIcon(Icons.ios_share), findsNothing);
 
-    // Reply, Repost, Like, Bookmark: four equal slots, left-aligned in each.
-    final row = tester.getRect(find.byType(PostEngagementBar));
-    final slot = row.width / 4;
-    final like = tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx;
+    // Reply, Repost, Like, Bookmark: packed from the left; Bookmark's glyph
+    // starts where Like's target ends.
+    final likeBox = tester.getRect(
+      find
+          .ancestor(
+            of: find.byIcon(Icons.favorite_border),
+            matching: find.byType(InkResponse),
+          )
+          .first,
+    );
     final bookmark = tester.getTopLeft(outline()).dx;
-    expect(like, closeTo(row.left + 2 * slot, 1));
-    expect(bookmark, closeTo(row.left + 3 * slot, 1));
+    expect(bookmark, closeTo(likeBox.right, 1));
     // dz.css `.acts` glyph (R1 restyle; was 16).
     expect(tester.getSize(outline()), const Size.square(AppIconSize.action));
   });

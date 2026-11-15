@@ -55,7 +55,7 @@ class AppSideColumn extends StatelessWidget {
   final AppSideProfile? profile;
 
   /// Self-contained cards between the profile card and the links, top to
-  /// bottom ("You might like" today; W4 adds "What's happening"). Each one owns
+  /// bottom ("You might like" today; W4 adds "Talked about today"). Each one owns
   /// its data, its gating and its bottom margin (the `AppSpacing.md` gap), and
   /// hides itself when it has nothing to show, so an empty section leaves no
   /// gap.

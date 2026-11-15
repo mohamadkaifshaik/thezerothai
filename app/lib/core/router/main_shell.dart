@@ -640,7 +640,7 @@ class MainShell extends StatelessWidget {
                   ) !=
                   null)
                 const MessagesSideCard(),
-              // "What's happening": the top 5 trends; draws nothing unless
+              // "Talked about today": the top 5 trends; draws nothing unless
               // `search` + `trends` are on and the shared list has rows.
               // Not beside Explore and its See all pages: they list the
               // trends themselves.

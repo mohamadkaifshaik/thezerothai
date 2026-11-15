@@ -12,9 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/theme_harness.dart';
 
-/// A list card's media row: every picture whole (its tile has exactly its
-/// aspect ratio, so nothing is cropped and there are no bars), as tall as the
-/// row for the window width, swipeable when there are several.
+/// A post's several-images row: equal 4:5 tiles, swipeable, each tile tappable
+/// and labelled.
 
 const _gutter = 20.0;
 
@@ -42,7 +41,7 @@ Future<void> _pump(
       alignment: Alignment.topLeft,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: _gutter),
-        child: PostMedia(media: media, row: true, onOpenImage: onOpen),
+        child: PostMedia(media: media, onOpenImage: onOpen),
       ),
     ),
     size: Size(window, 900),
@@ -63,86 +62,26 @@ List<Rect> _tiles(WidgetTester tester) {
 }
 
 void main() {
-  final heights = {360.0: 220.0, 700.0: 260.0, 1300.0: 280.0};
-
-  test('the row heights are 220 / 260 / 280 by window width', () {
-    expect(AppSize.postMediaRowHeight(320), 220);
-    expect(AppSize.postMediaRowHeight(599), 220);
-    expect(AppSize.postMediaRowHeight(600), 260);
-    expect(AppSize.postMediaRowHeight(1199), 260);
-    expect(AppSize.postMediaRowHeight(1200), 280);
-  });
-
-  final cases = <(String, int, int)>[
-    ('1:1', 400, 400),
-    ('4:5', 800, 1000),
-    ('16:9', 1600, 900),
-    ('3:1 panorama', 3000, 1000),
-    ('1:3 tall', 400, 1200),
-    ('missing size', 0, 0),
-  ];
-  for (final window in heights.keys) {
-    final rowHeight = heights[window]!;
-    for (final (name, w, h) in cases) {
-      testWidgets('one $name picture at ${window}dp: whole, left-aligned, '
-          'row height $rowHeight', (tester) async {
-        await _pump(tester, [_photo(w, h)], window: window);
-        expect(tester.takeException(), isNull);
-        final tile = _tiles(tester).single;
-        final max = window - 2 * _gutter;
-        final aspect = w > 0 && h > 0 ? w / h : 1.0;
-        final wanted = rowHeight * aspect <= max
-            ? Size(rowHeight * aspect, rowHeight)
-            : Size(max, max / aspect);
-        expect(tile.width, closeTo(wanted.width, 0.01));
-        expect(tile.height, closeTo(wanted.height, 0.01));
-        // No crop: the tile's ratio is the picture's.
-        expect(tile.width / tile.height, closeTo(aspect, 0.001));
-        // Left-aligned at the body's edge.
-        expect(tile.left, closeTo(_gutter, 0.01));
-        expect(
-          tile.top,
-          closeTo(tester.getTopLeft(find.byType(PostMedia)).dy, 0.01),
-        );
-      });
-    }
-  }
-
-  testWidgets('a panorama wider than the body is capped to it, shorter, '
-      'still whole', (tester) async {
-    await _pump(tester, [_photo(3000, 1000)]);
-    final tile = _tiles(tester).single;
-    expect(tile.width, 320);
-    expect(tile.height, closeTo(320 / 3, 0.01));
-  });
-
-  testWidgets('a tall picture keeps a narrow tile, never cropped', (
-    tester,
-  ) async {
-    await _pump(tester, [_photo(400, 1200)]);
-    expect(_tiles(tester).single.size, const Size(220 / 3, 220));
-  });
-
-  testWidgets('several pictures: a row of tiles with a gap, shorter tiles at '
-      'the top', (tester) async {
+  testWidgets('several pictures: equal 4:5 tiles at the body edge with a '
+      'gap, whatever their own ratios', (tester) async {
     await _pump(tester, [_photo(400, 400, n: 1), _photo(3000, 1000, n: 2)]);
     final tiles = _tiles(tester);
     expect(tiles, hasLength(2));
+    final width = (360 - 2 * _gutter) * AppSize.postMediaTileWidthFraction;
     expect(tiles[0].left, closeTo(_gutter, 0.01));
-    expect(tiles[0].height, 220);
+    for (final tile in tiles) {
+      expect(tile.width, closeTo(width, 0.01));
+      expect(tile.height, closeTo(width * 1.25, 0.01));
+    }
     expect(
       tiles[1].left,
       closeTo(tiles[0].right + AppSize.postMediaRowGap, 0.01),
     );
-    // The panorama is capped to the body width and shorter than the row, at
-    // its top.
-    expect(tiles[1].width, 320);
-    expect(tiles[1].height, closeTo(320 / 3, 0.01));
     expect(tiles[1].top, tiles[0].top);
   });
 
-  testWidgets('four pictures scroll horizontally, freely (no snapping), and '
-      'a tap on the third reports index 2', (tester) async {
+  testWidgets('four pictures scroll horizontally, freely, and '
+      'a tap reports the tile index', (tester) async {
     final opened = <int>[];
     await _pump(tester, [
       for (var i = 0; i < 4; i++) _photo(1600, 900, n: i),
@@ -156,21 +95,26 @@ void main() {
     double offset() =>
         tester.state<ScrollableState>(scrollable).position.pixels;
     expect(offset(), 0);
-    // 391 + 8 per tile; a drag of 150 dp stays where it is put.
+    // A drag of 150 dp stays where it is put (no snapping).
     await tester.drag(list, const Offset(-150, 0));
     await tester.pumpAndSettle();
     expect(offset(), greaterThan(100)); // the touch slop eats a little
     expect(offset(), lessThan(151));
-    final third = find.byWidgetPredicate(
-      (w) => w is CachedNetworkImage && w.imageUrl.endsWith('p2_t.jpg'),
-    );
-    // Scroll the third tile (it starts 798 dp in) well into view and tap it.
-    await tester.drag(list, const Offset(-650, 0));
+    // Scroll back to the start and tap the first tile, then the second.
+    await tester.drag(list, const Offset(1000, 0));
     await tester.pumpAndSettle();
-    expect(third, findsOneWidget);
-    await tester.tapAt(Offset(120, tester.getCenter(third).dy));
+    final first = find.byWidgetPredicate(
+      (w) => w is CachedNetworkImage && w.imageUrl.endsWith('p0_t.jpg'),
+    );
+    await tester.tapAt(tester.getCenter(first));
     await tester.pump();
-    expect(opened, [2]);
+    expect(opened, [0]);
+    final second = find.byWidgetPredicate(
+      (w) => w is CachedNetworkImage && w.imageUrl.endsWith('p1_t.jpg'),
+    );
+    await tester.tapAt(tester.getTopLeft(second) + const Offset(5, 5));
+    await tester.pump();
+    expect(opened, [0, 1]);
   });
 
   testWidgets('the row exposes scroll semantics', (tester) async {
@@ -213,11 +157,10 @@ void main() {
         height: 100,
         contentType: 'image/gif',
       ),
+      _photo(100, 100),
     ]);
     expect(find.byType(GifBadge), findsOneWidget);
-    // 100 px stays a 220 dp tile; no 2x letterbox inside it.
-    expect(_tiles(tester).single.size, const Size(220, 220));
-    expect(find.byKey(const ValueKey('gif-pixels')), findsNothing);
+    expect(_tiles(tester).first.size.aspectRatio, closeTo(0.8, 0.001));
   });
 
   for (final window in const [320.0, 360.0, 400.0, 700.0, 1100.0, 1300.0]) {

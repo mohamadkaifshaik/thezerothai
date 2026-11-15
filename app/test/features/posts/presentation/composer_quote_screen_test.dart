@@ -286,7 +286,7 @@ void main() {
     await open(tester);
 
     expect(find.byTooltip('Close'), findsOneWidget);
-    expect(find.text("What's happening?"), findsOneWidget);
+    expect(find.text("Start a thought…"), findsOneWidget);
     expect(find.text('Quoting a post'), findsNothing);
   });
 

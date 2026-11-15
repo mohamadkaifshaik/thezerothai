@@ -567,7 +567,7 @@ void main() {
         flags: withTrends,
         search: search,
       );
-      expect(find.text("What's happening"), findsOneWidget);
+      expect(find.text("Talked about today"), findsOneWidget);
       expect(find.text('#tag5'), findsOneWidget);
       expect(find.text('#tag6'), findsNothing);
       await tester.tap(find.text('Show more'));
@@ -583,7 +583,7 @@ void main() {
         size: const Size(1200, 900),
         search: search,
       );
-      expect(find.text("What's happening"), findsNothing);
+      expect(find.text("Talked about today"), findsNothing);
       expect(search.calls, isEmpty);
     });
 
@@ -598,7 +598,7 @@ void main() {
         search: search,
       );
       // The page lists the trends itself: no second list beside it.
-      expect(find.text("What's happening"), findsNothing);
+      expect(find.text("Talked about today"), findsNothing);
       expect(find.text('Trending'), findsOneWidget);
       expect(search.calls, ['trends:']);
     });

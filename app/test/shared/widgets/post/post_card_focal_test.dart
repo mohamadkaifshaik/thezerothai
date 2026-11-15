@@ -116,7 +116,7 @@ void main() {
     );
   });
 
-  testWidgets('the action row is spread with larger glyphs', (tester) async {
+  testWidgets('the action row is packed left with larger glyphs', (tester) async {
     await pumpCard(
       tester,
       phone,
@@ -125,11 +125,10 @@ void main() {
     );
 
     final bar = tester.widget<PostActionBar>(find.byType(PostActionBar));
-    expect(bar.spread, isTrue);
     // 18 dp below 600 (the mobile design), 20 dp from 600 up.
     expect(bar.iconSize, AppFocalPost.actionIconPhone);
-    // The last button (Share) ends at the card's right padding; its 48dp box
-    // starts the icon at its left, so Share is no longer right-aligned.
+    // The row is compact and left-aligned: Reply starts at the card's left
+    // padding and Share's 48dp box ends well before the right padding.
     final shareBox = tester.getRect(
       find.ancestor(
         of: find.byIcon(Icons.ios_share),
@@ -138,9 +137,17 @@ void main() {
     );
     // The phone gutter is 20 dp since the R1 restyle (was 16).
     expect(
-      shareBox.right,
-      closeTo(phone.size.width - postCardGutter(phone.size.width), 1),
+      tester
+          .getRect(
+            find.ancestor(
+              of: find.byIcon(Icons.chat_bubble_outline),
+              matching: find.byType(InkResponse),
+            ),
+          )
+          .left,
+      closeTo(postCardGutter(phone.size.width), 1),
     );
+    expect(shareBox.right, lessThan(phone.size.width * 0.75));
     expect(
       tester.getTopLeft(find.byIcon(Icons.ios_share)).dx,
       closeTo(shareBox.left, 1),
@@ -227,14 +234,14 @@ void main() {
       expect(find.text(formatPostTimestamp(_created)), findsOneWidget);
       expect(find.text('Bob B'), findsOneWidget, reason: 'the quote embed');
       expect(
-        tester.widget<PostActionBar>(find.byType(PostActionBar)).spread,
-        true,
+        tester.widget<PostActionBar>(find.byType(PostActionBar)).iconSize,
+        AppFocalPost.actionIconPhone,
       );
     },
   );
 
   testWidgets('a focal REPOST keeps the list layout (the original, relative '
-      'time, no spread bar)', (tester) async {
+      'time, list-size glyphs)', (tester) async {
     addTearDown(() => tester.takeException());
     await pumpThemed(
       tester,
@@ -256,8 +263,8 @@ void main() {
     expect(find.text('22h'), findsOneWidget);
     expect(find.text(formatPostTimestamp(_created)), findsNothing);
     expect(
-      tester.widget<PostActionBar>(find.byType(PostActionBar)).spread,
-      false,
+      tester.widget<PostActionBar>(find.byType(PostActionBar)).iconSize,
+      AppIconSize.action,
     );
     final text = tester.widget<PostRichText>(find.byType(PostRichText));
     expect(text.style?.fontSize, isNot(AppFocalPost.bodySize));

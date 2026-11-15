@@ -411,7 +411,7 @@ void main() {
         if (desktop) {
           expect(side, findsOneWidget);
           expect(
-            find.descendant(of: side, matching: find.text("What's happening")),
+            find.descendant(of: side, matching: find.text("Talked about today")),
             findsNothing,
           );
           expect(
