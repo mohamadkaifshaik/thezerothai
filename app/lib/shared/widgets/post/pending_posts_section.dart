@@ -44,18 +44,25 @@ class PendingPostsSection extends StatelessWidget {
             onEdit: sender == null ? null : () => _edit(context, sender, p),
             onDismiss: sender == null ? null : () => sender.release(p.localId),
             onVerify: sender == null ? null : () => _verify(context, p),
+            onUndo: sender == null ? null : () => _undo(context, sender, p),
           ),
       ],
     );
   }
 
-  Future<void> _edit(
+  /// Undo: the composer reopens with everything the post had.
+  Future<void> _undo(BuildContext context, PostSender sender, PendingPost p) =>
+      _reopen(context, sender.undo(p.localId));
+
+  Future<void> _edit(BuildContext context, PostSender sender, PendingPost p) =>
+      _reopen(context, sender.edit(p.localId));
+
+  Future<void> _reopen(
     BuildContext context,
-    PostSender sender,
-    PendingPost p,
+    Future<PostEditSeed?> pendingSeed,
   ) async {
     final router = GoRouter.of(context);
-    final seed = await sender.edit(p.localId);
+    final seed = await pendingSeed;
     if (seed == null) return;
     // The page went away while the row was released (sign-out, navigation):
     // the photos go with it and nothing opens.

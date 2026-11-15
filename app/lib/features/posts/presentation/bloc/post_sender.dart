@@ -153,6 +153,11 @@ class _Entry {
   /// reset): the key may exist on the server and must be kept.
   bool ambiguous = false;
 
+  /// While the undo window is open: the timer that starts the send, and the
+  /// completer of the future `start` returned.
+  Timer? holdTimer;
+  Completer<void>? hold;
+
   /// The token of the run that owns the send now; only that run clears it.
   int? activeRun;
   bool get running => activeRun != null;
@@ -194,7 +199,9 @@ class PostSender {
     DateTime Function()? clock,
     this.postedFor = const Duration(seconds: 4),
     this.maxFailedWithPhotos = 3,
-  }) : _pending = pending,
+    Duration Function()? undoDelay,
+  }) : _undoDelay = undoDelay ?? _noDelay,
+       _pending = pending,
        _repository = repository,
        _drafts = drafts,
        _session = sessionEpoch ?? SessionEpoch(),
@@ -213,6 +220,11 @@ class PostSender {
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   final Uuid _uuid;
   final DateTime Function() _clock;
+
+  /// How long a post waits, after Post, before anything is uploaded or sent
+  /// (the Undo send setting; zero: no window). Read when the post starts.
+  final Duration Function() _undoDelay;
+  static Duration _noDelay() => Duration.zero;
 
   /// How long the "Posted" confirmation stays.
   final Duration postedFor;
@@ -242,6 +254,7 @@ class PostSender {
   /// Adds the status row and runs the send. Returns when the send stops.
   Future<void> start(PostSendJob job) {
     final entry = _Entry(_uuid.v4(), job, _generation, _session.value);
+    final delay = _undoDelay();
     _entries[entry.localId] = entry;
     job.attachments?.retain();
     _pending.add(
@@ -254,15 +267,52 @@ class PostSender {
         photosTotal: job.attachments?.state.count ?? 0,
         uploading: (job.attachments?.state.count ?? 0) > 0,
         draftId: job.draftId,
+        status: delay > Duration.zero
+            ? PendingPostStatus.holding
+            : PendingPostStatus.sending,
+        holdSeconds: (delay.inMilliseconds / 1000).ceil(),
       ),
     );
-    return _run(entry);
+    if (delay <= Duration.zero) return _run(entry);
+    // The undo window: nothing is uploaded or sent until it closes.
+    final done = Completer<void>();
+    entry.hold = done;
+    entry.holdTimer = Timer(delay, () {
+      entry.holdTimer = null;
+      entry.hold = null;
+      if (_dead(entry)) {
+        done.complete();
+        return;
+      }
+      _pending.update(
+        entry.localId,
+        (p) => p.copyWith(status: PendingPostStatus.sending, holdSeconds: 0),
+      );
+      done.complete(_run(entry));
+    });
+    _running.add(done.future);
+    return done.future.whenComplete(() => _running.remove(done.future));
+  }
+
+  /// Undo during the window: nothing was uploaded or sent, so the key is
+  /// released and the composer reopens with everything (the same seed as
+  /// Edit). Null when the window is over (or the post is gone).
+  Future<PostEditSeed?> undo(String localId) async {
+    final e = _entries[localId];
+    if (e == null || e.hold == null) return null;
+    e.holdTimer?.cancel();
+    e.holdTimer = null;
+    e.hold!.complete();
+    e.hold = null;
+    return edit(localId);
   }
 
   /// Retry of a failed row: same key, finished uploads are not repeated.
   Future<void> retry(String localId) {
     final e = _entries[localId];
-    if (e == null || e.running || _dead(e)) return Future.value();
+    if (e == null || e.running || e.hold != null || _dead(e)) {
+      return Future.value();
+    }
     final p = _pending.state.where((x) => x.localId == localId).firstOrNull;
     if (p == null || p.status != PendingPostStatus.failed || !p.canRetry) {
       return Future.value();
@@ -287,7 +337,7 @@ class PostSender {
   /// send is still running: it cannot be dismissed then).
   Future<String?> release(String localId) async {
     final e = _entries[localId];
-    if (e == null || e.running) return null;
+    if (e == null || e.running || e.hold != null) return null;
     _entries.remove(localId);
     _timers.remove(localId)?.cancel();
     _pending.remove(localId);
@@ -301,7 +351,7 @@ class PostSender {
   /// go to the composer with their uploads. Null while the send is running.
   Future<PostEditSeed?> edit(String localId) async {
     final e = _entries[localId];
-    if (e == null || e.running) return null;
+    if (e == null || e.running || e.hold != null) return null;
     _entries.remove(localId);
     _timers.remove(localId)?.cancel();
     _pending.remove(localId);
@@ -351,6 +401,11 @@ class PostSender {
     _entries.clear();
     _pending.clear();
     for (final e in entries) {
+      e.holdTimer?.cancel();
+      e.holdTimer = null;
+      final waiting = e.hold;
+      e.hold = null;
+      if (waiting != null && !waiting.isCompleted) waiting.complete();
       _dropPhotos(e);
     }
   }

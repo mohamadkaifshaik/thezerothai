@@ -36,6 +36,7 @@ import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart'
 import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
 import 'package:dzeroth/features/settings/domain/settings_categories.dart';
 import 'package:dzeroth/features/settings/presentation/bloc/data_usage_cubit.dart';
+import 'package:dzeroth/features/settings/presentation/bloc/undo_send_cubit.dart';
 import 'package:dzeroth/features/settings/presentation/data_usage_screen.dart';
 import 'package:dzeroth/features/settings/presentation/message_settings_screen.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
@@ -172,6 +173,7 @@ class SettingsTabletRig {
     OwnPrivacyStore? ownPrivacy,
     TextSizeCubit? textSize,
     DataUsageCubit? dataUsage,
+    UndoSendCubit? undoSend,
     NotificationsRepository? notifications,
     PostsRepository? posts,
     LocationRepository? locationRepo,
@@ -348,6 +350,8 @@ class SettingsTabletRig {
           BlocProvider<TextSizeCubit>.value(value: textSize),
         if (dataUsage != null)
           BlocProvider<DataUsageCubit>.value(value: dataUsage),
+        if (undoSend != null)
+          BlocProvider<UndoSendCubit>.value(value: undoSend),
       ],
       child: MultiRepositoryProvider(
         providers: [

@@ -163,6 +163,65 @@ void main() {
       );
     });
 
+    group('the undo window', () {
+      PendingPost holding() => _p(
+        'a',
+        'wait',
+      ).copyWith(status: PendingPostStatus.holding, holdSeconds: 5);
+
+      Widget row({VoidCallback? onUndo, bool reduceMotion = false}) =>
+          MaterialApp(
+            home: MediaQuery(
+              data: MediaQueryData(disableAnimations: reduceMotion),
+              child: Scaffold(
+                body: PendingPostStatusRow(post: holding(), onUndo: onUndo),
+              ),
+            ),
+          );
+
+      testWidgets('counts down and offers Undo', (tester) async {
+        var undone = 0;
+        await tester.pumpWidget(row(onUndo: () => undone++));
+        expect(find.text('Sending in 5s'), findsOneWidget);
+        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.text('Sending in 4s'), findsOneWidget);
+        await tester.pump(const Duration(seconds: 3));
+        expect(find.text('Sending in 1s'), findsOneWidget);
+
+        await tester.tap(find.text('Undo'));
+        expect(undone, 1);
+        // The timer stops with the row.
+        await tester.pumpWidget(const SizedBox());
+      });
+
+      testWidgets('announces once, the numbers are not announced', (
+        tester,
+      ) async {
+        await tester.pumpWidget(row(onUndo: () {}));
+        expect(
+          PendingPostStatusRow.announcement(holding()),
+          'Sending in 5 seconds, Undo available',
+        );
+        final before = tester.getSemantics(find.text('Sending in 5s')).label;
+        await tester.pump(const Duration(seconds: 2));
+        final after = tester.getSemantics(find.text('Sending in 3s')).label;
+        expect(before, 'Sending in 5 seconds, Undo available');
+        expect(after, before, reason: 'the live region does not change');
+        await tester.pumpWidget(const SizedBox());
+      });
+
+      testWidgets('reduced motion: no shrinking bar, the numbers stay', (
+        tester,
+      ) async {
+        await tester.pumpWidget(row(onUndo: () {}, reduceMotion: true));
+        expect(find.byType(LinearProgressIndicator), findsNothing);
+        expect(find.text('Sending in 5s'), findsOneWidget);
+        await tester.pumpWidget(const SizedBox());
+      });
+    });
+
     testWidgets('Verify email shows when the server asks for it', (
       tester,
     ) async {
