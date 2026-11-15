@@ -62,18 +62,24 @@ func (r *FirestoreRepo) Conversation(ctx context.Context, conversationID string,
 // exists is not an error (the counter died with it). Nothing is written when the parent is gone. It stays cold whatever
 // HOT_COUNTER_THRESHOLD says: the caller (DeletePost's release) has no parent count to decide with, and a plain -1 on a
 // hot parent is exact (the delta fold keeps the plain field as the source of truth).
-func (r *FirestoreRepo) AddReplyCount(ctx context.Context, parentID string, delta int64) error {
-	return r.addCount(ctx, parentID, "replyCount", delta)
+//
+// author and actor are the parent's author and the reply's: the author's engagements for today move by delta in the
+// same batch (creator stats, F2), unless author is "" or the actor (identity.StatsWriter); a gone parent writes neither.
+func (r *FirestoreRepo) AddReplyCount(ctx context.Context, parentID string, delta int64, author, actor string) error {
+	return r.addCount(ctx, parentID, "replyCount", delta, author, actor)
 }
 
 // AddQuoteCount implements Repo: AddReplyCount for quoteCount.
-func (r *FirestoreRepo) AddQuoteCount(ctx context.Context, quotedID string, delta int64) error {
-	return r.addCount(ctx, quotedID, "quoteCount", delta)
+func (r *FirestoreRepo) AddQuoteCount(ctx context.Context, quotedID string, delta int64, author, actor string) error {
+	return r.addCount(ctx, quotedID, "quoteCount", delta, author, actor)
 }
 
-func (r *FirestoreRepo) addCount(ctx context.Context, id, field string, delta int64) error {
+func (r *FirestoreRepo) addCount(ctx context.Context, id, field string, delta int64, author, actor string) error {
 	b := store.NewFirestoreBatch(r.client)
 	bumpCount(b, r.ref(id), field, delta)
+	if author != "" {
+		r.stageEngagementStat(b, author, actor, delta)
+	}
 	if err := b.Commit(ctx); err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil

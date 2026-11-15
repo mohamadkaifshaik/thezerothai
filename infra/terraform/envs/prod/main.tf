@@ -226,6 +226,7 @@ locals {
     { name = "RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", value = "30" },
     # GetMe's own per-user bucket (it used to share the 60/min default). Must match the config.go default.
     { name = "RATE_LIMIT_GET_ME_PER_MIN", value = "60" },
+    { name = "RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN", value = "10" },
   ]
 }
 
@@ -414,6 +415,9 @@ locals {
     { name = "FEATURE_POST_VIEWS", value = var.feature_post_views },
     { name = "FEATURE_POST_VIEWS_ALLOWLIST", value = var.feature_post_views_allowlist },
     { name = "FEATURE_POST_VIEWS_PERCENT", value = tostring(var.feature_post_views_percent) },
+    { name = "FEATURE_CREATOR_INSIGHTS", value = var.feature_creator_insights },
+    { name = "FEATURE_CREATOR_INSIGHTS_ALLOWLIST", value = var.feature_creator_insights_allowlist },
+    { name = "FEATURE_CREATOR_INSIGHTS_PERCENT", value = tostring(var.feature_creator_insights_percent) },
     { name = "FEATURE_READ_RECEIPTS", value = var.feature_read_receipts },
     { name = "FEATURE_READ_RECEIPTS_ALLOWLIST", value = var.feature_read_receipts_allowlist },
     { name = "FEATURE_READ_RECEIPTS_PERCENT", value = tostring(var.feature_read_receipts_percent) },

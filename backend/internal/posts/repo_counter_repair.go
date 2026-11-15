@@ -108,15 +108,25 @@ type counterSet struct {
 // stageSetCounters is stageSetCounter for several fields at once: ONE Update of the post with every set (in order), and
 // ONE Update per shard holding a non-zero value of any of the fields, with an Increment(-v) per such field (in the same
 // order). With one field it stages exactly what stageSetCounter always did. No sets stages nothing.
+//
+// Creator stats (F2): the drained replyCount / quoteCount deltas are hot engagements whose stat the next fold would have
+// staged; a repair does not stage them (opsctl has no stats writer), so they are an under-count of the repair day,
+// bounded by one rollup tick of hot writes. The self fields of a drained child counter (selfReplyCount, selfQuoteCount)
+// are drained with it, so a later fold never subtracts a self reply whose count is already gone.
 func stageSetCounters(b store.Batch, post *firestore.DocumentRef, shards []shardcount.Shard, sets ...counterSet) {
 	if len(sets) == 0 {
 		return
 	}
 	ups := make([]firestore.Update, len(sets))
-	fields := make([]firestore.FieldPath, len(sets))
+	fields := make([]firestore.FieldPath, 0, len(sets)+2)
 	for i, s := range sets {
 		ups[i] = firestore.Update{FieldPath: s.field, Value: s.n}
-		fields[i] = s.field
+		fields = append(fields, s.field)
+	}
+	for _, s := range sets {
+		if k := shardcount.Key(s.field); k == shardcount.Key(replyCountField) || k == shardcount.Key(quoteCountField) {
+			fields = append(fields, selfFieldOf(s.field))
+		}
 	}
 	b.Update(post, ups)
 	for _, s := range shards {
