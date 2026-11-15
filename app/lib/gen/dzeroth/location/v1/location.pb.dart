@@ -435,7 +435,8 @@ class ConsentGrant extends $pb.GeneratedMessage {
           ConsentGrant.$_createMessage);
   static ConsentGrant? _defaultInstance;
 
-  /// The rationale copy the user saw; >= the server minimum (LOCATION_CONSENT_MIN_COPY_VERSION, 1).
+  /// The rationale copy the user saw: between the server minimum (LOCATION_CONSENT_MIN_COPY_VERSION, 1) and the current
+  /// copy (LOCATION_CONSENT_COPY_VERSION, 1), both inclusive; LocationSettings carries both.
   @$pb.TagNumber(1)
   $core.int get copyVersion => $_getIZ(0);
   @$pb.TagNumber(1)
@@ -461,12 +462,15 @@ class LocationSettings extends $pb.GeneratedMessage {
     AreaSummary? area,
     ConsentState? consent,
     $core.int? requiredCopyVersion,
+    $core.int? currentCopyVersion,
   }) {
     final result = LocationSettings._();
     if (area != null) result.area = area;
     if (consent != null) result.consent = consent;
     if (requiredCopyVersion != null)
       result.requiredCopyVersion = requiredCopyVersion;
+    if (currentCopyVersion != null)
+      result.currentCopyVersion = currentCopyVersion;
     return result;
   }
 
@@ -489,6 +493,7 @@ class LocationSettings extends $pb.GeneratedMessage {
     ..aOM<ConsentState>(2, _omitFieldNames ? '' : 'consent',
         subBuilder: ConsentState.$_createMessage)
     ..aI(3, _omitFieldNames ? '' : 'requiredCopyVersion')
+    ..aI(4, _omitFieldNames ? '' : 'currentCopyVersion')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -545,6 +550,16 @@ class LocationSettings extends $pb.GeneratedMessage {
   $core.bool hasRequiredCopyVersion() => $_has(2);
   @$pb.TagNumber(3)
   void clearRequiredCopyVersion() => $_clearField(3);
+
+  /// The current rationale copy version (LOCATION_CONSENT_COPY_VERSION): the highest copy_version a ConsentGrant may carry.
+  @$pb.TagNumber(4)
+  $core.int get currentCopyVersion => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set currentCopyVersion($core.int value) => $_setSignedInt32(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasCurrentCopyVersion() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCurrentCopyVersion() => $_clearField(4);
 }
 
 class GetLocationSettingsRequest extends $pb.GeneratedMessage {
@@ -734,7 +749,8 @@ class SetAreaRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearAreaId() => $_clearField(2);
 
-  /// Required when the caller has no valid consent (see SetArea); ignored otherwise.
+  /// Required when the caller has no valid consent (see SetArea). When present it is always validated, and it is not
+  /// recorded when the stored consent is current.
   @$pb.TagNumber(3)
   ConsentGrant get consent => $_getN(2);
   @$pb.TagNumber(3)
@@ -1114,10 +1130,11 @@ class LocationServiceApi {
           'GetLocationSettings', request, GetLocationSettingsResponse());
 
   /// Set or change the caller's area. area_id must be a non-retired catalogue id (VALIDATION "area_id").
-  /// When the caller has no current consent at copy version >= the server minimum, the request must carry consent with
-  /// adult_confirmed = true and copy_version >= the minimum (else VALIDATION "consent" when present but invalid, or
-  /// FAILED_PRECONDITION "consent_required" when absent); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the
-  /// same transaction. A change of area under an existing consent appends nothing (no location history). Setting the
+  /// A consent that is present is always validated before any lookup, even when the stored consent is current:
+  /// adult_confirmed = true and required_copy_version <= copy_version <= current_copy_version, else VALIDATION "consent".
+  /// When the caller has no current consent at copy version >= the server minimum, the request must carry one (else
+  /// FAILED_PRECONDITION "consent_required"); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the same
+  /// transaction. A change of area under an existing consent appends nothing (no location history). Setting the
   /// stored area again writes only the idempotency doc.
   $async.Future<SetAreaResponse> setArea(
           $pb.ClientContext? ctx, SetAreaRequest request) =>

@@ -195,6 +195,7 @@ func toSettings(s Settings) *locationv1.LocationSettings {
 			At: ts(s.Consent.At), AdultConfirmedAt: ts(s.Consent.AdultConfirmedAt),
 		},
 		RequiredCopyVersion: int32(min(s.RequiredCopyVersion, 1<<30)), // #nosec G115 -- bounded above
+		CurrentCopyVersion:  int32(min(s.CurrentCopyVersion, 1<<30)),  // #nosec G115 -- bounded above
 	}
 	if s.Area != nil {
 		out.Area = ToSummary(*s.Area)

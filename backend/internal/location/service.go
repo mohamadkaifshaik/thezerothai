@@ -30,6 +30,9 @@ const (
 	limitConsentChanges   = "location_consent_changes"
 	reasonConsentRequired = "consent_required"
 
+	// defaultConsentChangesPerDay is LOCATION_CONSENT_CHANGES_PER_DAY's default, used when Deps leaves it unset.
+	defaultConsentChangesPerDay = 10
+
 	// ListAreas limit clamp: 0 (or below) = defaultAreasLimit, above maxAreasLimit = maxAreasLimit.
 	defaultAreasLimit = 200
 	maxAreasLimit     = 500
@@ -39,6 +42,9 @@ const (
 type Limits struct {
 	// MinCopyVersion is LOCATION_CONSENT_MIN_COPY_VERSION (default 1): the oldest rationale copy a consent may be at.
 	MinCopyVersion int
+	// CurrentCopyVersion is LOCATION_CONSENT_COPY_VERSION (default 1, at least MinCopyVersion): the newest copy a grant
+	// may carry.
+	CurrentCopyVersion int
 	// ConsentChangesPerDay is LOCATION_CONSENT_CHANGES_PER_DAY (default 10): consent records per user per IST day,
 	// checked by SetArea when it grants. ClearArea is never limited by it.
 	ConsentChangesPerDay int
@@ -69,6 +75,7 @@ type Settings struct {
 	Area                *Area
 	Consent             ConsentState
 	RequiredCopyVersion int
+	CurrentCopyVersion  int
 }
 
 // SetAreaInput is a SetArea request.
@@ -114,8 +121,15 @@ func New(d Deps) Service {
 	if now == nil {
 		now = time.Now
 	}
+	// Defensive defaults (config.Load already enforces them): a zero limit would refuse every grant.
 	if d.Limits.MinCopyVersion < 1 {
 		d.Limits.MinCopyVersion = 1
+	}
+	if d.Limits.CurrentCopyVersion < d.Limits.MinCopyVersion {
+		d.Limits.CurrentCopyVersion = d.Limits.MinCopyVersion
+	}
+	if d.Limits.ConsentChangesPerDay < 1 {
+		d.Limits.ConsentChangesPerDay = defaultConsentChangesPerDay
 	}
 	return &service{d: d, now: now}
 }
@@ -130,8 +144,8 @@ func validateKey(key string) error {
 }
 
 // validateSet checks a SetArea request before any lookup; values are never echoed. A consent that is present is always
-// validated (adult_confirmed true and copy_version >= the minimum), even when the caller's stored consent is current and the
-// repo would ignore it: the check runs before the lookup that could tell.
+// validated (adult_confirmed true and MinCopyVersion <= copy_version <= CurrentCopyVersion), even when the caller's stored
+// consent is current and the repo would ignore it: the check runs before the lookup that could tell.
 func (s *service) validateSet(in SetAreaInput) error {
 	if err := validateKey(in.Key); err != nil {
 		return err
@@ -139,8 +153,8 @@ func (s *service) validateSet(in SetAreaInput) error {
 	if !ValidIDFormat(in.AreaID) || !s.d.Catalog.Pickable(in.AreaID) {
 		return apierr.Validation("area_id", "area_id must be a catalogue area that is not retired")
 	}
-	if c := in.Consent; c != nil && (!c.AdultConfirmed || c.CopyVersion < s.d.Limits.MinCopyVersion) {
-		return apierr.Validation("consent", "consent needs adult_confirmed and the current copy_version")
+	if c := in.Consent; c != nil && (!c.AdultConfirmed || c.CopyVersion < s.d.Limits.MinCopyVersion || c.CopyVersion > s.d.Limits.CurrentCopyVersion) {
+		return apierr.Validation("consent", "consent needs adult_confirmed and a supported copy_version")
 	}
 	return nil
 }
@@ -160,7 +174,7 @@ func setHash(in SetAreaInput) string {
 // settings renders a repo state. The area resolves through the catalogue (retired included); the consent comes from the
 // area doc when set, else from the latest record.
 func (s *service) settings(st State) Settings {
-	out := Settings{RequiredCopyVersion: s.d.Limits.MinCopyVersion}
+	out := Settings{RequiredCopyVersion: s.d.Limits.MinCopyVersion, CurrentCopyVersion: s.d.Limits.CurrentCopyVersion}
 	switch {
 	case st.Area != nil:
 		if a, ok := s.d.Catalog.Lookup(st.Area.AreaID); ok {

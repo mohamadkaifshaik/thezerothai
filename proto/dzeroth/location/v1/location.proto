@@ -38,10 +38,11 @@ service LocationService {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
   // Set or change the caller's area. area_id must be a non-retired catalogue id (VALIDATION "area_id").
-  // When the caller has no current consent at copy version >= the server minimum, the request must carry consent with
-  // adult_confirmed = true and copy_version >= the minimum (else VALIDATION "consent" when present but invalid, or
-  // FAILED_PRECONDITION "consent_required" when absent); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the
-  // same transaction. A change of area under an existing consent appends nothing (no location history). Setting the
+  // A consent that is present is always validated before any lookup, even when the stored consent is current:
+  // adult_confirmed = true and required_copy_version <= copy_version <= current_copy_version, else VALIDATION "consent".
+  // When the caller has no current consent at copy version >= the server minimum, the request must carry one (else
+  // FAILED_PRECONDITION "consent_required"); a LOCATION_CONSENT_ACTION_GRANTED record is appended in the same
+  // transaction. A change of area under an existing consent appends nothing (no location history). Setting the
   // stored area again writes only the idempotency doc.
   rpc SetArea(SetAreaRequest) returns (SetAreaResponse);
   // Withdraw: delete the area doc and append a LOCATION_CONSENT_ACTION_WITHDRAWN record in one transaction. No area set
@@ -113,7 +114,8 @@ message ConsentState {
 
 // What the client sends with the first SetArea (and again after a copy version bump).
 message ConsentGrant {
-  // The rationale copy the user saw; >= the server minimum (LOCATION_CONSENT_MIN_COPY_VERSION, 1).
+  // The rationale copy the user saw: between the server minimum (LOCATION_CONSENT_MIN_COPY_VERSION, 1) and the current
+  // copy (LOCATION_CONSENT_COPY_VERSION, 1), both inclusive; LocationSettings carries both.
   int32 copy_version = 1;
   // The user ticked "I am 18 or older". Must be true.
   bool adult_confirmed = 2;
@@ -125,6 +127,8 @@ message LocationSettings {
   ConsentState consent = 2;
   // The minimum copy version the server accepts; the client re-shows the rationale when consent.copy_version is lower.
   int32 required_copy_version = 3;
+  // The current rationale copy version (LOCATION_CONSENT_COPY_VERSION): the highest copy_version a ConsentGrant may carry.
+  int32 current_copy_version = 4;
 }
 
 message GetLocationSettingsRequest {}
@@ -136,7 +140,8 @@ message GetLocationSettingsResponse {
 message SetAreaRequest {
   string idempotency_key = 1;
   string area_id = 2;
-  // Required when the caller has no valid consent (see SetArea); ignored otherwise.
+  // Required when the caller has no valid consent (see SetArea). When present it is always validated, and it is not
+  // recorded when the stored consent is current.
   ConsentGrant consent = 3;
 }
 

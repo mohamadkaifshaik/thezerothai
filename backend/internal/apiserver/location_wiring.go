@@ -31,7 +31,10 @@ func newLocationModule(fs *firestore.Client, cfg config.Config, fc location.Flag
 	repo := location.NewFirestoreRepo(fs, idempotency.New(fs))
 	svc := location.New(location.Deps{
 		Repo: repo, Catalog: catalog, IDs: ids, CursorKey: cfg.CursorHMACKey,
-		Limits: location.Limits{MinCopyVersion: cfg.Location.ConsentMinCopyVersion, ConsentChangesPerDay: cfg.Location.ConsentChangesPerDay},
+		Limits: location.Limits{
+			MinCopyVersion: cfg.Location.ConsentMinCopyVersion, CurrentCopyVersion: cfg.Location.ConsentCopyVersion,
+			ConsentChangesPerDay: cfg.Location.ConsentChangesPerDay,
+		},
 	})
 	return locationModule{catalog: catalog, repo: repo, svc: svc, server: location.NewServer(fc, svc)}, nil
 }

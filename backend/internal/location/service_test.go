@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +90,7 @@ func TestSetArea_Validation(t *testing.T) {
 		{"retired area", retired, SetAreaInput{Key: key("a"), AreaID: "in.blr.old"}, "area_id"},
 		{"consent not adult", nil, SetAreaInput{Key: key("a"), AreaID: areaIndi, Consent: &Grant{CopyVersion: 1}}, "consent"},
 		{"consent old copy", nil, SetAreaInput{Key: key("a"), AreaID: areaIndi, Consent: &Grant{CopyVersion: 0, AdultConfirmed: true}}, "consent"},
+		{"consent future copy", nil, SetAreaInput{Key: key("a"), AreaID: areaIndi, Consent: &Grant{CopyVersion: 2, AdultConfirmed: true}}, "consent"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -173,6 +175,42 @@ func TestSetArea_CopyVersionBump(t *testing.T) {
 	st, err = e.svc.SetArea(ctx, uidA, SetAreaInput{Key: key("4"), AreaID: areaDoml, Consent: &Grant{CopyVersion: 2, AdultConfirmed: true}})
 	if err != nil || st.Consent.CopyVersion != 2 || len(e.repo.consents[uidA]) != 2 {
 		t.Fatalf("re-grant: %+v, %v", st, err)
+	}
+}
+
+// TestSetArea_CopyVersionWindow: a grant is accepted only for MinCopyVersion <= copy_version <= CurrentCopyVersion, and
+// the settings carry both bounds.
+func TestSetArea_CopyVersionWindow(t *testing.T) {
+	e := newEnv(t, Limits{MinCopyVersion: 2, CurrentCopyVersion: 3})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		copy int
+		ok   bool
+	}{{1, false}, {2, true}, {3, true}, {4, false}} {
+		_, err := e.svc.SetArea(ctx, uidA, SetAreaInput{Key: key("w" + strconv.Itoa(tc.copy)), AreaID: areaIndi, Consent: &Grant{CopyVersion: tc.copy, AdultConfirmed: true}})
+		if tc.ok && err != nil {
+			t.Fatalf("copy %d: %v", tc.copy, err)
+		}
+		if !tc.ok {
+			wantValidation(t, err, "consent")
+		}
+	}
+	st, err := e.svc.GetSettings(ctx, uidA)
+	if err != nil || st.RequiredCopyVersion != 2 || st.CurrentCopyVersion != 3 {
+		t.Fatalf("settings bounds: %+v, %v", st, err)
+	}
+}
+
+// TestNew_DefensiveDefaults: zero limits fall back to a usable service (copy versions 1/1, 10 consent changes a day),
+// and a current copy version below the minimum is raised to it.
+func TestNew_DefensiveDefaults(t *testing.T) {
+	s := New(Deps{}).(*service)
+	if l := s.d.Limits; l.MinCopyVersion != 1 || l.CurrentCopyVersion != 1 || l.ConsentChangesPerDay != 10 {
+		t.Fatalf("defaults = %+v", l)
+	}
+	s = New(Deps{Limits: Limits{MinCopyVersion: 3, CurrentCopyVersion: 2, ConsentChangesPerDay: 4}}).(*service)
+	if l := s.d.Limits; l.MinCopyVersion != 3 || l.CurrentCopyVersion != 3 || l.ConsentChangesPerDay != 4 {
+		t.Fatalf("raised = %+v", l)
 	}
 }
 

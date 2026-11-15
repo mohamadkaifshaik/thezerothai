@@ -120,8 +120,8 @@ func TestServer_Rendering(t *testing.T) {
 		c.GetPurpose() != locationv1.LocationPurpose_LOCATION_PURPOSE_PLANS_NEARBY || c.GetCopyVersion() != 1 || c.GetAt() == nil || c.GetAdultConfirmedAt() == nil {
 		t.Fatalf("consent = %v", c)
 	}
-	if s.GetRequiredCopyVersion() != 1 {
-		t.Fatalf("required copy = %d", s.GetRequiredCopyVersion())
+	if s.GetRequiredCopyVersion() != 1 || s.GetCurrentCopyVersion() != 1 {
+		t.Fatalf("copy versions = %d/%d", s.GetRequiredCopyVersion(), s.GetCurrentCopyVersion())
 	}
 	g, err := srv.GetLocationSettings(callerCtx(uidB), connect.NewRequest(&locationv1.GetLocationSettingsRequest{}))
 	if err != nil || g.Msg.GetSettings().GetArea() != nil || g.Msg.GetSettings().GetConsent().GetAt() != nil {
