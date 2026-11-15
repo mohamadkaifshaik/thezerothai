@@ -1,5 +1,9 @@
 import 'package:go_router/go_router.dart';
 
+import '../../../features/location/presentation/location_rationale_screen.dart';
+import '../../../features/location/presentation/location_settings_screen.dart';
+import '../../../features/search/presentation/explore_settings_screen.dart';
+
 import '../../../features/account/presentation/data_export_screen.dart';
 import '../../../features/account/presentation/delete_account_screen.dart';
 import '../../../features/auth/presentation/widgets/auth_gate.dart';
@@ -72,6 +76,11 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
     GoRoute(
       path: AppRouter.explorePath,
       builder: (context, state) => const AuthGate(child: ExploreScreen()),
+    ),
+    GoRoute(
+      path: AppRouter.exploreSettingsPath,
+      builder: (context, state) =>
+          const AuthGate(child: ExploreSettingsScreen()),
     ),
     GoRoute(
       path: AppRouter.exploreTrendingPath,
@@ -346,6 +355,16 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
       path: AppRouter.messageSettingsPath,
       builder: (context, state) =>
           const AuthGate(child: MessageSettingsScreen()),
+    ),
+    GoRoute(
+      path: AppRouter.locationSettingsPath,
+      builder: (context, state) =>
+          const AuthGate(child: LocationSettingsScreen()),
+    ),
+    GoRoute(
+      path: AppRouter.locationConsentPath,
+      builder: (context, state) =>
+          const AuthGate(child: LocationRationaleScreen()),
     ),
   ],
 );

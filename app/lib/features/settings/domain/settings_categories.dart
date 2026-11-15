@@ -55,7 +55,9 @@ SettingsCategory? settingsCategoryOfLeaf(String path) => switch (path) {
   '/settings/delete-account' => SettingsCategory.account,
   '/settings/blocked' ||
   '/settings/muted' ||
-  '/settings/messages' => SettingsCategory.privacy,
+  '/settings/messages' ||
+  '/settings/location' ||
+  '/settings/location/consent' => SettingsCategory.privacy,
   '/settings/notifications' => SettingsCategory.notifications,
   _ => null,
 };

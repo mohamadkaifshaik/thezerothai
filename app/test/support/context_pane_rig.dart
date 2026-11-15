@@ -76,6 +76,7 @@ const kContextPaneRigPaths = <String>[
   '/explore',
   '/explore/trending',
   '/explore/media',
+  '/explore/settings',
   '/post/:id/photo/:index',
   '/notifications',
   '/search',

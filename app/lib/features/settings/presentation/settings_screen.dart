@@ -1,5 +1,11 @@
 import 'dart:async';
 
+import '../../location/domain/location_copy.dart';
+import '../../location/domain/location_feature_flag.dart';
+import '../../location/domain/location_models.dart';
+import '../../location/presentation/bloc/location_settings_cubit.dart';
+import '../../location/presentation/widgets/location_settings_scope.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -630,7 +636,9 @@ class _SettingsRowsScope extends StatelessWidget {
   Widget build(BuildContext context) {
     // The message-privacy cubit (no RPC on creation) is above every row, so
     // the list, the categories and their summaries see the same values.
-    return MessagePrivacyScope(child: Builder(builder: _withDrafts));
+    return MessagePrivacyScope(
+      child: LocationSettingsScope(child: Builder(builder: _withDrafts)),
+    );
   }
 
   Widget _withDrafts(BuildContext context) {
@@ -702,6 +710,7 @@ class _SettingsRows {
     required this.blocked,
     required this.muted,
     required this.messageSettings,
+    required this.location,
     required this.readReceipts,
     required this.notifications,
     required this.export,
@@ -725,6 +734,7 @@ class _SettingsRows {
   final Widget? blocked;
   final Widget? muted;
   final Widget? messageSettings;
+  final Widget? location;
   final Widget? readReceipts;
   final Widget? notifications;
   final Widget? export;
@@ -752,6 +762,7 @@ class _SettingsRows {
       ?blocked,
       ?muted,
       ?messageSettings,
+      ?location,
       ?readReceipts,
       ...telemetry,
       ?messages,
@@ -786,6 +797,7 @@ class _SettingsRows {
         ?blocked,
         ?muted,
         ?messageSettings,
+        ?location,
         ?readReceipts,
         ?protect,
         ...telemetry,
@@ -812,6 +824,7 @@ class _SettingsRows {
         if (blocked != null) 'blocked and muted accounts',
         if (messageSettings != null || messages != null) 'messages',
         if (protect != null) 'protect your posts',
+        if (location != null) 'location',
         if (readReceipts != null) 'read receipts',
         if (telemetry.isNotEmpty) 'usage data',
       ],
@@ -872,6 +885,15 @@ _SettingsRows _rowsFor(
   );
   final whoCanMessage = context.select<MessagePrivacyCubit?, WhoCanMessage?>(
     (cubit) => cubit?.state.confirmed?.whoCanMessage,
+  );
+  // Location: the full row while `location` is on; with it off only while an
+  // area is stored (so it can always be cleared). No cubit = no row.
+  final locationOn = isFeatureEnabled(context, kFeatureLocation);
+  final locationState = context.select<LocationSettingsCubit?, AreaRef?>(
+    (cubit) => cubit?.state.area,
+  );
+  final locationReady = context.select<LocationSettingsCubit?, bool>(
+    (cubit) => cubit != null,
   );
   final textSize = context.select<TextSizeCubit?, AppTextSize?>(
     (cubit) => cubit?.state,
@@ -999,6 +1021,15 @@ _SettingsRows _rowsFor(
             subtitle: whoCanMessage?.label,
             selected: isSelected(AppRouter.messageSettingsPath),
             onTap: () => open(AppRouter.messageSettingsPath),
+          )
+        : null,
+    location: locationReady && (locationOn || locationState != null)
+        ? SettingsRow(
+            icon: Icons.place_outlined,
+            title: kLocationSettingsTitle,
+            subtitle: locationState?.label ?? kLocationNotSet,
+            selected: isSelected(AppRouter.locationSettingsPath),
+            onTap: () => open(AppRouter.locationSettingsPath),
           )
         : null,
     readReceipts: privacy.readReceipts ? const ReadReceiptsRow() : null,

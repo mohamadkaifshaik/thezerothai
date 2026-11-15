@@ -12,6 +12,7 @@ import '../../beacons/data/beacons_repository.dart';
 import '../../beacons/domain/beacons_feature_flag.dart';
 import '../../beacons/presentation/bloc/beacons_cubit.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
+import '../../location/domain/location_feature_flag.dart';
 import '../domain/explore_tab.dart';
 import 'widgets/explore_people_section.dart';
 import 'widgets/explore_plans_section.dart';
@@ -109,6 +110,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
         selected: tab,
         onTab: (t) => setState(() => _tab = t),
         tabBarHeight: tabBar,
+        // F8: with `location` on the gear opens Explore settings.
+        locationOn: isFeatureEnabled(context, kFeatureLocation),
       ),
     );
     if (tab == ExploreTab.plans || tab == ExploreTab.people) {
@@ -162,6 +165,7 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
     required this.selected,
     required this.onTab,
     required this.tabBarHeight,
+    required this.locationOn,
   });
 
   final double extent;
@@ -170,6 +174,7 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
   final ExploreTab selected;
   final ValueChanged<ExploreTab> onTab;
   final double tabBarHeight;
+  final bool locationOn;
 
   @override
   double get minExtent => extent;
@@ -183,6 +188,7 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
       old.rowHeight != rowHeight ||
       old.selected != selected ||
       old.tabBarHeight != tabBarHeight ||
+      old.locationOn != locationOn ||
       !listEquals(old.tabs, tabs);
 
   @override
@@ -213,7 +219,11 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
                 AppIconButton(
                   icon: Icons.settings_outlined,
                   tooltip: 'Settings',
-                  onPressed: () => context.push(AppRouter.settingsPath),
+                  onPressed: () => context.push(
+                    locationOn
+                        ? AppRouter.exploreSettingsPath
+                        : AppRouter.settingsPath,
+                  ),
                 ),
                 const SizedBox(width: AppSpacing.xs),
               ],
