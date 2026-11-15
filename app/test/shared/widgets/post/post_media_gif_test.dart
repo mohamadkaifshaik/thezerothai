@@ -197,7 +197,7 @@ void main() {
               ),
             );
             expect(tester.takeException(), isNull);
-            final tile = tester.getSize(find.byType(AspectRatio));
+            final tile = tester.getSize(find.byType(ClipRRect));
             expect(tile.width, greaterThanOrEqualTo(48));
             expect(tile.height, greaterThanOrEqualTo(48));
             final play = tester.getSize(

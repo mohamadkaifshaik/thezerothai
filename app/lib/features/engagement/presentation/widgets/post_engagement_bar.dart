@@ -74,7 +74,7 @@ class PostEngagementBar extends StatelessWidget {
     this.onQuote,
     this.bookmarkEnabled,
     this.onReply,
-    this.spread = false,
+    this.focal = false,
     this.iconSize = AppIconSize.action,
   });
 
@@ -82,9 +82,8 @@ class PostEngagementBar extends StatelessWidget {
   /// passes a callback that focuses its reply composer.
   final VoidCallback? onReply;
 
-  /// The opened post's row: actions spaced evenly, [iconSize] glyphs
-  /// ([PostActionBar.spread]).
-  final bool spread;
+  /// The opened post's row: no views stat (they sit beside its timestamp).
+  final bool focal;
   final double iconSize;
 
   final pb.PostView view;
@@ -124,7 +123,7 @@ class PostEngagementBar extends StatelessWidget {
     final shareCountOn = isFeatureEnabled(context, kFeatureShareCount);
     // Views: in the row of a list card only; the opened post shows them
     // beside its timestamp (PostCard).
-    final views = spread ? null : shownViewCount(context, view.post);
+    final views = focal ? null : shownViewCount(context, view.post);
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -154,7 +153,6 @@ class PostEngagementBar extends StatelessWidget {
           VoidCallback? onBookmark,
         }) => PostActionBar(
           showDisabled: false,
-          spread: spread,
           iconSize: iconSize,
           replyDisabledHint: replyBlocked ? replyNotAllowedHint(view) : null,
           replyCount: view.post.replyCount.toInt(),

@@ -1,38 +1,53 @@
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Helpers for the swipeable image pages of `PostMedia` (2-4 images).
+/// Helpers for the swipeable tile row of `PostMedia` (2-4 images).
 
-/// The number of pages the media pager is built for, or null when there is no
-/// pager (zero or one image).
+Finder get _strip => find.byType(ListView);
+
+/// The number of tiles the media row is built for, or null when there is no
+/// row (zero or one image).
 int? mediaPageCount(WidgetTester tester) {
-  final finder = find.byType(PageView);
+  final finder = _strip;
   if (finder.evaluate().isEmpty) return null;
-  final delegate = tester.widget<PageView>(finder).childrenDelegate;
+  final delegate = tester.widget<ListView>(finder.first).childrenDelegate;
   return (delegate as SliverChildBuilderDelegate).childCount;
 }
 
-/// The page the pager is settled on (0-based), from its scroll offset.
-int currentMediaPage(WidgetTester tester) {
-  final scrollable = find.descendant(
-    of: find.byType(PageView),
-    matching: find.byType(Scrollable),
+double _step(WidgetTester tester) {
+  final tile = tester.getSize(
+    find
+        .descendant(of: _strip.first, matching: find.byType(SizedBox))
+        .evaluate()
+        .map((e) => find.byWidget(e.widget))
+        .firstWhere((f) => tester.getSize(f).aspectRatio == 4 / 5),
   );
-  final pixels = tester.state<ScrollableState>(scrollable).position.pixels;
-  final width = tester.getSize(find.byType(PageView)).width;
-  return (pixels / width).round();
+  return tile.width + AppSize.postMediaRowGap;
 }
 
-/// Drags the pager by three quarters of a page and settles, so it lands on
-/// the neighbouring page exactly (a fling could skip several).
+/// The tile the row is scrolled to (0-based), from its scroll offset; the last
+/// tile counts once the row cannot scroll further.
+int currentMediaPage(WidgetTester tester) {
+  final scrollable = find.descendant(
+    of: _strip.first,
+    matching: find.byType(Scrollable),
+  );
+  final position = tester.state<ScrollableState>(scrollable).position;
+  final count = mediaPageCount(tester)!;
+  if (position.pixels >= position.maxScrollExtent - 0.5) return count - 1;
+  return (position.pixels / _step(tester)).round();
+}
+
+/// Drags the row by one tile step and settles.
 Future<void> _swipe(WidgetTester tester, double direction) async {
-  final width = tester.getSize(find.byType(PageView)).width;
-  await tester.drag(find.byType(PageView), Offset(direction * width * 0.75, 0));
+  final step = _step(tester);
+  await tester.drag(_strip.first, Offset(direction * step, 0));
   await tester.pumpAndSettle();
 }
 
-/// Swipes one page forward (finger moves left) and settles.
+/// Swipes one tile forward (finger moves left) and settles.
 Future<void> swipeToNextMediaPage(WidgetTester tester) => _swipe(tester, -1);
 
-/// Swipes one page back and settles.
+/// Swipes one tile back and settles.
 Future<void> swipeToPreviousMediaPage(WidgetTester tester) => _swipe(tester, 1);

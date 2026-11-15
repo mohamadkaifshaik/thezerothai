@@ -135,7 +135,7 @@ void main() {
               home: Scaffold(
                 body: Align(
                   alignment: Alignment.topLeft,
-                  child: PostEngagementBar(view: view, spread: spread),
+                  child: PostEngagementBar(view: view, focal: spread),
                 ),
               ),
             ),

@@ -35,6 +35,29 @@ Widget _host(
 common.MediaRef _ref({String alt = ''}) =>
     common.MediaRef(width: 4, height: 3, altText: alt);
 
+/// The chip of the image whose description is [alt].
+Finder _chipOf(String alt) =>
+    find.byWidgetPredicate((w) => w is AltTextChip && w.text == alt);
+
+/// The rounded frame (single image or tile) that holds [chip].
+Finder _frameOf(Finder chip) =>
+    find.ancestor(of: chip, matching: find.byType(ClipRRect)).first;
+
+/// Scrolls the tile row so tile [index] starts at its left edge (or as near
+/// as the row's end allows), building it. The row is lazy: tiles far off
+/// screen do not exist.
+Future<void> _reveal(WidgetTester tester, int index) async {
+  final scrollable = find.descendant(
+    of: find.byType(ListView),
+    matching: find.byType(Scrollable),
+  );
+  final position = tester.state<ScrollableState>(scrollable).position;
+  final tile = tester.getSize(find.byType(ClipRRect).first);
+  final step = tile.width + AppSize.postMediaRowGap;
+  position.jumpTo((index * step).clamp(0.0, position.maxScrollExtent));
+  await tester.pump();
+}
+
 void main() {
   final chip = find.byType(AltTextChip);
 
@@ -48,7 +71,7 @@ void main() {
     expect(find.text('ALT'), findsNothing);
   });
 
-  testWidgets('a chip only on the pages that have a description', (
+  testWidgets('a chip only on the tiles that have a description', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -62,23 +85,16 @@ void main() {
         ),
       ),
     );
-    // Only the visible page is built, so each page shows its own chip state.
-    expect(currentMediaPage(tester), 0);
-    expect(chip, findsOneWidget);
-    expect(find.text('ALT'), findsOneWidget);
-
-    await swipeToNextMediaPage(tester);
-    expect(currentMediaPage(tester), 1);
-    expect(chip, findsNothing);
-    expect(find.text('ALT'), findsNothing);
-
-    await swipeToNextMediaPage(tester);
-    expect(currentMediaPage(tester), 2);
-    expect(chip, findsOneWidget);
-    expect(find.text('ALT'), findsOneWidget);
+    expect(_chipOf('a cat'), findsOneWidget);
+    await _reveal(tester, 2);
+    expect(_chipOf('a dog'), findsOneWidget);
+    // The middle tile has none: a chip per described tile, never an empty one.
+    expect(find.byWidgetPredicate((w) => w is AltTextChip && w.text.isEmpty),
+        findsNothing);
+    expect(find.text('ALT'), findsNWidgets(chip.evaluate().length));
   });
 
-  testWidgets('each page opens the sheet with its own description', (
+  testWidgets('each tile opens the sheet with its own description', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -91,7 +107,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(chip);
+    await tester.tap(_chipOf('a cat'));
     await tester.pumpAndSettle();
     expect(
       find.descendant(
@@ -104,8 +120,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AltTextSheet), findsNothing);
 
-    await swipeToNextMediaPage(tester);
-    await tester.tap(chip);
+    await _reveal(tester, 1);
+    await tester.tap(_chipOf('a dog'));
     await tester.pumpAndSettle();
     expect(
       find.descendant(
@@ -127,7 +143,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(_host(PostMedia(media: [_ref(alt: 'a cat')])));
-    final media = tester.getRect(find.byType(AspectRatio));
+    final media = tester.getRect(_frameOf(chip));
     final target = tester.getRect(
       find.descendant(of: chip, matching: find.byType(ConstrainedBox)).first,
     );
@@ -144,7 +160,7 @@ void main() {
         direction: TextDirection.rtl,
       ),
     );
-    final media = tester.getRect(find.byType(AspectRatio));
+    final media = tester.getRect(_frameOf(chip));
     final target = tester.getRect(
       find.descendant(of: chip, matching: find.byType(ConstrainedBox)).first,
     );
@@ -203,7 +219,7 @@ void main() {
           expect(mediaPageCount(tester), 4);
           expect(tester.takeException(), isNull);
 
-          await tester.tap(chip);
+          await tester.tap(_chipOf('image 0'));
           await tester.pumpAndSettle();
           expect(find.byType(AltTextSheet), findsOneWidget);
           expect(find.text('image 0'), findsOneWidget);
@@ -211,14 +227,13 @@ void main() {
           await tester.tapAt(const Offset(10, 10));
           await tester.pumpAndSettle();
 
-          // Every page shows its own image's chip, and only that one.
+          // Every tile has its own chip.
           for (var i = 0; i < 4; i++) {
-            expect(currentMediaPage(tester), i);
-            expect(chip, findsOneWidget);
+            await _reveal(tester, i);
+            expect(_chipOf('image $i'), findsOneWidget);
             expect(tester.takeException(), isNull);
-            if (i < 3) await swipeToNextMediaPage(tester);
           }
-          await tester.tap(chip);
+          await tester.tap(_chipOf('image 3'));
           await tester.pumpAndSettle();
           expect(find.byType(AltTextSheet), findsOneWidget);
           expect(find.text('image 3'), findsOneWidget);
@@ -288,16 +303,17 @@ void main() {
 
                 expect(mediaPageCount(tester), images == 1 ? isNull : images);
                 expect(tester.takeException(), isNull);
-                final media = tester.getRect(find.byType(AspectRatio));
-                // One page is built at a time: its chip is inside the tile,
-                // 48dp, and the sheet opens with that page's description.
+                // Each tile's chip is inside its tile, 48dp, and the sheet
+                // opens with that tile's description.
                 for (var i = 0; i < images; i++) {
-                  if (images > 1) expect(currentMediaPage(tester), i);
-                  expect(chip, findsOneWidget);
+                  if (images > 1) await _reveal(tester, i);
+                  final mine = _chipOf('image $i');
+                  expect(mine, findsOneWidget);
+                  final media = tester.getRect(_frameOf(mine));
                   final target = tester.getRect(
                     find
                         .descendant(
-                          of: chip,
+                          of: mine,
                           matching: find.byType(ConstrainedBox),
                         )
                         .first,
@@ -308,7 +324,9 @@ void main() {
                   expect(target.right, lessThanOrEqualTo(media.right + 1));
                   expect(target.bottom, lessThanOrEqualTo(media.bottom + 1));
 
-                  await tester.tap(chip);
+                  await tester.ensureVisible(mine);
+                  await tester.pump();
+                  await tester.tap(mine);
                   await tester.pumpAndSettle();
                   expect(find.byType(AltTextSheet), findsOneWidget);
                   expect(find.text('image $i'), findsOneWidget);
@@ -318,7 +336,6 @@ void main() {
                   await tester.tapAt(const Offset(10, 10));
                   await tester.pumpAndSettle();
                   expect(find.byType(AltTextSheet), findsNothing);
-                  if (i < images - 1) await swipeToNextMediaPage(tester);
                 }
               },
             );
