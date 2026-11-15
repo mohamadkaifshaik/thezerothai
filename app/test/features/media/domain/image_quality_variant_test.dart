@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dzeroth/features/media/domain/image_preflight.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/image_size_plan.dart';
+import 'package:dzeroth/features/media/domain/photo_edit.dart';
 import 'package:dzeroth/features/media/domain/processed_image.dart';
 import 'package:dzeroth/features/media/domain/processing_cancellation.dart';
 import 'package:dzeroth/features/media/domain/quality_aware_image_processor.dart';
@@ -27,6 +28,7 @@ class _Recording implements ImageProcessor {
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
     ImageQuality? quality,
+    PhotoEdit? edit,
   }) async {
     seen.add(quality);
     throw UnimplementedError();

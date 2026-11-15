@@ -7,6 +7,7 @@ import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/image_size_plan.dart';
+import 'package:dzeroth/features/media/domain/photo_edit.dart';
 import 'package:dzeroth/features/media/domain/processed_image.dart';
 import 'package:dzeroth/features/media/domain/processing_cancellation.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -119,6 +120,7 @@ class FakeImageProcessor implements ImageProcessor {
   final bool gated;
   final List<ImagePurpose> purposes = [];
   final List<ImageQuality?> qualities = [];
+  final List<PhotoEdit?> edits = [];
   final List<Uint8List> inputs = [];
   final List<ProcessingCancellation?> cancellations = [];
   final List<Completer<void>> _gates = [];
@@ -135,7 +137,9 @@ class FakeImageProcessor implements ImageProcessor {
     ImagePurpose purpose, {
     ProcessingCancellation? cancellation,
     ImageQuality? quality,
+    PhotoEdit? edit,
   }) async {
+    edits.add(edit);
     qualities.add(quality);
     purposes.add(purpose);
     inputs.add(bytes);
