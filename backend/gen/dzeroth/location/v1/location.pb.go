@@ -28,7 +28,8 @@
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "location_consent_changes" (LOCATION_CONSENT_CHANGES_PER_DAY,
 //   10 consent records per user per IST day); ClearArea is never limited by it.
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_LOCATION_READ_PER_MIN (30: GetLocationSettings, ListAreas),
-//   RATE_LIMIT_LOCATION_WRITE_PER_MIN (6: SetArea, ClearArea), per uid per instance.
+//   RATE_LIMIT_LOCATION_WRITE_PER_MIN (6: SetArea), RATE_LIMIT_LOCATION_CLEAR_PER_MIN (30: ClearArea, its own bucket so a
+//   withdrawal is never delayed by SetArea bursts), per uid per instance.
 
 package locationv1
 

@@ -173,10 +173,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	beaconsCreatedDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.BeaconsCreatedPerDay)
 
 	// Location: GetLocationSettings and ListAreas share a read bucket (RATE_LIMIT_LOCATION_READ_PER_MIN, 30/min per
-	// instance), SetArea and ClearArea a write bucket (RATE_LIMIT_LOCATION_WRITE_PER_MIN, 6/min). No in-memory daily cap:
-	// the consent cap (LOCATION_CONSENT_CHANGES_PER_DAY) is persisted and checked inside the SetArea transaction.
+	// instance); SetArea has a write bucket (RATE_LIMIT_LOCATION_WRITE_PER_MIN, 6/min) and ClearArea its own
+	// (RATE_LIMIT_LOCATION_CLEAR_PER_MIN, 30/min), so a burst of SetArea never delays a withdrawal. No in-memory daily
+	// cap: the consent cap (LOCATION_CONSENT_CHANGES_PER_DAY) is persisted and checked inside the SetArea transaction.
 	rlLocationRead := ratelimit.NewLimiter(cfg.RateLimit.LocationReadPerUserPerMinute, idleBucketTTL)
 	rlLocationWrite := ratelimit.NewLimiter(cfg.RateLimit.LocationWritePerUserPerMinute, idleBucketTTL)
+	rlLocationClear := ratelimit.NewLimiter(cfg.RateLimit.LocationClearPerUserPerMinute, idleBucketTTL)
 
 	// The seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
 	// HideCommunityPost, RestoreCommunityPost, SetMemberRole) share one per-user bucket (RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, 20/min per
@@ -296,7 +298,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			locationv1connect.LocationServiceGetLocationSettingsProcedure:        rlLocationRead,
 			locationv1connect.LocationServiceListAreasProcedure:                  rlLocationRead,
 			locationv1connect.LocationServiceSetAreaProcedure:                    rlLocationWrite,
-			locationv1connect.LocationServiceClearAreaProcedure:                  rlLocationWrite,
+			locationv1connect.LocationServiceClearAreaProcedure:                  rlLocationClear,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceFollowProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},

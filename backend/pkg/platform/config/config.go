@@ -640,9 +640,10 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_BEACONS_WRITE_PER_MIN", 10, &rl.BeaconsWritePerUserPerMinute},
 		{"RATE_LIMIT_BEACONS_ACTION_PER_MIN", 20, &rl.BeaconsActionPerUserPerMinute},
 		{"RATE_LIMIT_BEACONS_READ_PER_MIN", 30, &rl.BeaconsReadPerUserPerMinute},
-		// Location: GetLocationSettings and ListAreas 30/min, SetArea and ClearArea 6/min (per instance, x3).
+		// Location: GetLocationSettings and ListAreas 30/min, SetArea 6/min, ClearArea 30/min on its own (per instance, x3).
 		{"RATE_LIMIT_LOCATION_READ_PER_MIN", 30, &rl.LocationReadPerUserPerMinute},
 		{"RATE_LIMIT_LOCATION_WRITE_PER_MIN", 6, &rl.LocationWritePerUserPerMinute},
+		{"RATE_LIMIT_LOCATION_CLEAR_PER_MIN", 30, &rl.LocationClearPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
