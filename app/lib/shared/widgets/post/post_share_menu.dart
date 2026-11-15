@@ -7,10 +7,13 @@ import '../primitives/app_menu_item_row.dart';
 import '../primitives/sheet_option_row.dart';
 
 /// What the user picked in the share menu.
-enum PostShareChoice { sendInMessage, copyLink, shareVia }
+enum PostShareChoice { sendInMessage, copyLink, shareVia, postAbout }
 
 /// The label of the share menu's row that opens the message picker.
 const kSendInMessageLabel = 'Send in a message';
+
+/// The label of the plan share menu's row that opens the composer.
+const kPostAboutPlanLabel = 'Post about this plan';
 
 /// The 48dp square at the trailing edge of the render box of [context]: where
 /// the Share button sits at the end of the post action row. It places the
@@ -31,6 +34,9 @@ Rect targetRectOf(BuildContext context) {
 /// post only for its author); picking it closes the menu and calls it, so
 /// `shared/` knows nothing of the Messages feature. Null: no such row.
 ///
+/// With [onPostAbout] (the plan share menu) the menu leads with
+/// "Post about this plan"; the caller decides whether it exists. Null: no row.
+///
 /// [onShared] is called once with [PostShareChoice.copyLink] after the
 /// clipboard accepted the link, or with [PostShareChoice.shareVia] after the
 /// share sheet reported a completed share ([NativeShareStatus.completed]); a
@@ -49,6 +55,7 @@ Future<void> showPostShareMenu(
   required Rect anchor,
   String title = 'Share post',
   VoidCallback? onSendInMessage,
+  VoidCallback? onPostAbout,
   ValueChanged<PostShareChoice>? onShared,
 }) async {
   // Everything the context is needed for is read before the first await: the
@@ -56,6 +63,7 @@ Future<void> showPostShareMenu(
   final messenger = ScaffoldMessenger.of(context);
   final canShareVia = nativeShare.isAvailable;
   final canSend = onSendInMessage != null;
+  final canPost = onPostAbout != null;
   final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
   final choice = wide
       ? await _showAnchoredMenu(
@@ -63,18 +71,22 @@ Future<void> showPostShareMenu(
           anchor,
           canShareVia: canShareVia,
           canSend: canSend,
+          canPost: canPost,
           title: title,
         )
       : await _showSheet(
           context,
           canShareVia: canShareVia,
           canSend: canSend,
+          canPost: canPost,
           title: title,
         );
   if (choice == null) return;
   switch (choice) {
     case PostShareChoice.sendInMessage:
       onSendInMessage?.call();
+    case PostShareChoice.postAbout:
+      onPostAbout?.call();
     case PostShareChoice.copyLink:
       try {
         await Clipboard.setData(ClipboardData(text: url));
@@ -104,6 +116,7 @@ Future<PostShareChoice?> _showSheet(
   BuildContext context, {
   required bool canShareVia,
   required bool canSend,
+  required bool canPost,
   required String title,
 }) {
   return showModalBottomSheet<PostShareChoice>(
@@ -128,6 +141,12 @@ Future<PostShareChoice?> _showSheet(
               child: Text(title, style: Theme.of(context).textTheme.titleLarge),
             ),
           ),
+          if (canPost)
+            SheetOptionRow(
+              icon: Icons.edit_outlined,
+              label: kPostAboutPlanLabel,
+              onTap: () => Navigator.of(context).pop(PostShareChoice.postAbout),
+            ),
           if (canSend)
             SheetOptionRow(
               icon: Icons.mail_outline,
@@ -158,6 +177,7 @@ Future<PostShareChoice?> _showAnchoredMenu(
   Rect anchor, {
   required bool canShareVia,
   required bool canSend,
+  required bool canPost,
   required String title,
 }) {
   final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
@@ -166,6 +186,14 @@ Future<PostShareChoice?> _showAnchoredMenu(
     position: RelativeRect.fromRect(anchor, Offset.zero & overlay.size),
     semanticLabel: title,
     items: [
+      if (canPost)
+        const PopupMenuItem(
+          value: PostShareChoice.postAbout,
+          child: AppMenuItemRow(
+            icon: Icons.edit_outlined,
+            label: kPostAboutPlanLabel,
+          ),
+        ),
       if (canSend)
         const PopupMenuItem(
           value: PostShareChoice.sendInMessage,

@@ -189,9 +189,13 @@ mixin _ComposerSubmit on _ComposerHost {
         ? bodyWithPolicy
         : 'c:$communityId\u0001$bodyWithPolicy';
     // A quote and a plain post with the same body are different requests.
-    final intent = quoteOfPostId.isEmpty
+    final withQuote = quoteOfPostId.isEmpty
         ? bodyWithCommunity
         : 'q:$quoteOfPostId\u0001$bodyWithCommunity';
+    // The same for a plan: removing it and sending the same text is another
+    // request, so it must not reuse the key.
+    final beaconId = state.beaconId;
+    final intent = beaconId.isEmpty ? withQuote : 'b:$beaconId\u0001$withQuote';
     // The last check before anything leaves: no await from here to the
     // repository reading the session as createPost starts, and no optimistic
     // row of the old account.
@@ -227,6 +231,7 @@ mixin _ComposerSubmit on _ComposerHost {
                 durationMinutes: poll.durationMinutes,
               ),
         communityId: communityId,
+        beaconId: beaconId,
       );
       // The server accepted the post: reported even if the screen closed.
       _usage.log(
@@ -398,6 +403,11 @@ mixin _ComposerSubmit on _ComposerHost {
         error.feature == kFeatureReplyAudience;
     final pollsRefused =
         error is FeatureDisabledException && error.feature == kFeaturePolls;
+    // The server turned plan embeds off: the plan leaves, the text stays, so
+    // the user can still post.
+    final planRefused =
+        error is FeatureDisabledException &&
+        error.feature == kFeaturePostBeaconEmbed;
     // The server will not take a post into this community (communities are
     // off, the caller left or was banned): back to Everyone, so the user can
     // still post, and the community leaves the picker. The gate remembers a
@@ -410,7 +420,10 @@ mixin _ComposerSubmit on _ComposerHost {
                 (error.reason == CommunityForbiddenReason.notMember ||
                     error.reason == CommunityForbiddenReason.banned) ||
             error is CommunityStateException ||
-            error is NotFoundException && quoteOfPostId.isEmpty);
+            // A plan that is gone is a NOT_FOUND too, not the community.
+            error is NotFoundException &&
+                quoteOfPostId.isEmpty &&
+                !state.hasPlan);
     final communityRefused =
         communityGone ||
         state.audience.isCommunity &&
@@ -441,6 +454,7 @@ mixin _ComposerSubmit on _ComposerHost {
         // The server turned polls off: the builder goes with it, the text
         // stays, so the user can still post.
         clearPoll: pollsRefused,
+        clearPlan: planRefused,
       ),
     );
   }

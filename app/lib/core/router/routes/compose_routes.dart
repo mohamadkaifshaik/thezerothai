@@ -53,6 +53,10 @@ GoRoute buildComposeRoute() => GoRoute(
     final draft = state.uri.queryParameters['draft'] ?? '';
     final community = state.uri.queryParameters['community'] ?? '';
     final quoteId = _postIdPattern.hasMatch(quote) ? quote : '';
+    final plan = state.uri.queryParameters['plan'] ?? '';
+    // Only a well-formed plan id (19 digits) attaches a plan, and never to a
+    // quote (the server refuses the pair).
+    final planId = quoteId.isEmpty && _postIdPattern.hasMatch(plan) ? plan : '';
     return ComposerPage<void>(
       // What go_router's default `MaterialPage` carried.
       key: state.pageKey,
@@ -79,6 +83,10 @@ GoRoute buildComposeRoute() => GoRoute(
             draftId: _draftIdPattern.hasMatch(draft) ? draft : '',
             quotePreview: state.extra is pb.EmbeddedPost
                 ? state.extra as pb.EmbeddedPost
+                : null,
+            planId: planId,
+            planPreview: planId.isNotEmpty && state.extra is pb.BeaconPreview
+                ? state.extra as pb.BeaconPreview
                 : null,
           ),
         ),

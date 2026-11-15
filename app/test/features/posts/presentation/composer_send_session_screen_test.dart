@@ -37,6 +37,7 @@ class _SwitchingServer extends FakePostsServer {
     ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
     DraftPoll? poll,
     String communityId = '',
+    String beaconId = '',
   }) async {
     final view = await super.createPost(
       idempotencyKey: idempotencyKey,
@@ -48,6 +49,7 @@ class _SwitchingServer extends FakePostsServer {
       replyPolicy: replyPolicy,
       poll: poll,
       communityId: communityId,
+      beaconId: beaconId,
     );
     epoch.end();
     return view;

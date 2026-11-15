@@ -5,6 +5,7 @@ import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
+import 'package:dzeroth/core/share/share_links.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
@@ -152,6 +153,9 @@ class PlansTabletRig {
     TextDirection textDirection = TextDirection.ltr,
     bool realForms = false,
     bool profile = true,
+
+    /// Provided as the app's `ShareLinksScope` (null: no Share action).
+    ShareLinks? shareLinks,
 
     /// False: pump a frame or two only, for a screen held loading.
     bool settle = true,
@@ -305,15 +309,18 @@ class PlansTabletRig {
               create: (_) => ThemeModeCubit(_MemoryThemeStore()),
             ),
           ],
-          child: MaterialApp.router(
-            theme: buildAppTheme(brightness: brightness),
-            routerConfig: router,
-            builder: (context, child) => Directionality(
-              textDirection: textDirection,
-              child: MediaQuery(
-                data: MediaQuery.of(context)
-                    .copyWith(textScaler: TextScaler.linear(textScale)),
-                child: child!,
+          child: ShareLinksScope(
+            links: shareLinks,
+            child: MaterialApp.router(
+              theme: buildAppTheme(brightness: brightness),
+              routerConfig: router,
+              builder: (context, child) => Directionality(
+                textDirection: textDirection,
+                child: MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(textScaler: TextScaler.linear(textScale)),
+                  child: child!,
+                ),
               ),
             ),
           ),

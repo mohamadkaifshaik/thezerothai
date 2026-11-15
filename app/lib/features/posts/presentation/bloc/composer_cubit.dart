@@ -14,6 +14,7 @@ import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../../communities/data/communities_repository.dart';
 import '../../../communities/domain/communities_feature_flag.dart';
+import '../../../beacons/domain/beacons_feature_flag.dart';
 import '../../../communities/domain/community_role.dart';
 import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../data/posts_repository.dart';
@@ -70,6 +71,7 @@ class ComposerCubit extends Cubit<ComposerState>
     required PendingPostsCubit pending,
     required common.AuthorSnapshot author,
     this.quoteOfPostId = '',
+    String beaconId = '',
     AttachmentsCubit? attachments,
     this.replyAudienceEnabled = false,
     this.scheduleEnabled = false,
@@ -105,7 +107,11 @@ class ComposerCubit extends Cubit<ComposerState>
        _clock = clock ?? DateTime.now,
        // Unsent posts are for a new root post only: never a quote, and a
        // reply has its own constructor.
-       _drafts = quoteOfPostId.isEmpty && uid.isNotEmpty ? drafts : null,
+       // A plan attached at open is not kept in a draft either: the draft
+       // would reopen without it.
+       _drafts = quoteOfPostId.isEmpty && beaconId.isEmpty && uid.isNotEmpty
+           ? drafts
+           : null,
        _draftUid = uid,
        _base = _baseDraft(uid, initialDraft, clock ?? DateTime.now),
        super(
@@ -113,6 +119,8 @@ class ComposerCubit extends Cubit<ComposerState>
            initialDraft,
            pollsOffered: pollsFlag && engagementOn,
            audienceEnabled: replyAudienceEnabled,
+           // A plan rides on a root post, never on a quote.
+           beaconId: quoteOfPostId.isEmpty ? beaconId : '',
          ),
        ) {
     _baseline = _base;
@@ -218,9 +226,11 @@ class ComposerCubit extends Cubit<ComposerState>
     ComposerDraft? d, {
     required bool pollsOffered,
     required bool audienceEnabled,
+    String beaconId = '',
   }) => d == null
-      ? ComposerState(draft: analyzePostDraft(''))
+      ? ComposerState(draft: analyzePostDraft(''), beaconId: beaconId)
       : ComposerState(
+          beaconId: beaconId,
           draft: analyzePostDraft(d.text),
           // A poll or an audience the flags no longer offer is not loaded.
           poll: pollsOffered ? d.poll : null,
@@ -303,6 +313,8 @@ class ComposerCubit extends Cubit<ComposerState>
       scheduleEnabled &&
       replyToPostId.isEmpty &&
       quoteOfPostId.isEmpty &&
+      // SchedulePost has no plan field: the plan would be dropped silently.
+      !state.hasPlan &&
       _repository.subFeatureEnabled(kFeatureScheduledPosts);
 
   /// The raw flags the composer's toolbar rules read: `polls`
@@ -331,7 +343,15 @@ class ComposerCubit extends Cubit<ComposerState>
     // A time is only in force while the composer can still schedule.
     scheduled: state.isScheduling && canSchedule,
     inCommunity: state.audience.isCommunity,
+    hasPlan: state.hasPlan,
   );
+
+  /// Takes the attached plan off the post (the preview's remove button). The
+  /// next send carries no `beacon_id` and has its own idempotency key.
+  void removePlan() {
+    if (isClosed || !state.hasPlan) return;
+    emit(state.copyWith(clearPlan: true, clearError: true));
+  }
 
   bool get _gifHeld => _attachments?.state.hasGif ?? false;
 

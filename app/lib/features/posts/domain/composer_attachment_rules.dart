@@ -20,10 +20,15 @@ enum ComposerBlock {
 
   /// A community is chosen as the audience: SchedulePost takes no
   /// `community_id`.
-  inCommunity;
+  inCommunity,
+
+  /// A plan is attached (`CreatePost.beacon_id`): the server refuses it with
+  /// a poll (VALIDATION `beacon_id`), and SchedulePost has no plan field.
+  hasPlan;
 
   /// The tooltip of a button that this block disables.
   String get pollTooltip => switch (this) {
+    hasPlan => "Polls can't go with a plan",
     scheduled => "Polls can't be scheduled",
     hasGif => "Polls can't have a GIF",
     hasPhotos => "Polls can't have photos",
@@ -48,6 +53,7 @@ enum ComposerBlock {
     hasPoll => "Polls can't be scheduled",
     hasGif => "GIFs can't be scheduled",
     inCommunity => "Community posts can't be scheduled",
+    hasPlan => "A post with a plan can't be scheduled",
     _ => 'Schedule post',
   };
 }
@@ -75,6 +81,7 @@ class ComposerAttachmentRules {
     this.hasPoll = false,
     this.scheduled = false,
     this.inCommunity = false,
+    this.hasPlan = false,
   });
 
   final bool flagPolls;
@@ -91,6 +98,9 @@ class ComposerAttachmentRules {
   /// A community is the chosen audience: it disables Schedule.
   final bool inCommunity;
 
+  /// A plan is attached to the post.
+  final bool hasPlan;
+
   /// The Poll button exists at all.
   bool get showPoll => flagPolls && engagementOn && !isReply && !isQuote;
 
@@ -102,6 +112,7 @@ class ComposerAttachmentRules {
   /// GIF disables photos, the poll and Schedule; photos disable the GIF and
   /// the poll.
   ComposerBlock get poll {
+    if (hasPlan) return ComposerBlock.hasPlan;
     if (scheduled) return ComposerBlock.scheduled;
     if (hasGif) return ComposerBlock.hasGif;
     if (hasPhotos) return ComposerBlock.hasPhotos;
@@ -123,6 +134,7 @@ class ComposerAttachmentRules {
   }
 
   ComposerBlock get schedule {
+    if (hasPlan) return ComposerBlock.hasPlan;
     if (hasPoll) return ComposerBlock.hasPoll;
     if (hasGif) return ComposerBlock.hasGif;
     if (inCommunity) return ComposerBlock.inCommunity;

@@ -233,6 +233,13 @@ class AppRouter {
   static String composeQuotePath(String postId) =>
       '$composePath?quote=${Uri.encodeQueryComponent(postId)}';
 
+  /// The composer with the caller's plan [beaconId] attached:
+  /// `/compose?plan=<id>` (a post that shares the plan, behind
+  /// `post_beacon_embed`). Pass the plan's `BeaconPreview` as `extra` for the
+  /// card in the composer.
+  static String composePlanPath(String beaconId) =>
+      '$composePath?plan=${Uri.encodeQueryComponent(beaconId)}';
+
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed.
   static String profileByIdPath(String userId) =>
