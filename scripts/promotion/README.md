@@ -24,8 +24,8 @@ scripts print flag names and entry counts, and `test/run.sh` fails if any fixtur
 - Cloud Run omits `value` for empty strings (seen on the real dev revision), so "plain value" means "no
   `valueFrom`/`valueSource`", not "has `value`".
 - **Rollback floors (W3-42, W3-36 M-1(b)).** `flag-ceiling.json` `rollback_floors.<FLAG>.commit` is the oldest `main` commit whose
-  image may be restored while that flag is not `off` on the rollback target (unset counts as the code default). Today only
-  `PRIVATE_ACCOUNTS`, at e94014c6 (#418; first set to 061395a0, #395). `resolve-rollback.sh` takes the image's commit from its
+  image may be restored while that flag is not `off` on the rollback target (unset counts as the code default). Today two:
+  `PRIVATE_ACCOUNTS`, at e94014c6 (#418; first set to 061395a0, #395), and `LOCATION`, at 18e514af (#956). `resolve-rollback.sh` takes the image's commit from its
   40-hex Artifact Registry tag (`IMAGE_TAG` = `github.sha` in `deploy-dev.yml`) and runs
   `git merge-base --is-ancestor <floor> <commit>` in `ROLLBACK_REPO` (default: this repo). Fails closed on no commit tag, a malformed floor, a floor
   or commit missing from the checkout. **The checkout needs full history**: `deploy-dev.yml` sets `fetch-depth: 0` on its checkout (the only job that runs these scripts; the prod workflows do not call `resolve-rollback.sh`). In a shallow clone the floor is

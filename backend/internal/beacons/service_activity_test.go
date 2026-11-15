@@ -211,26 +211,17 @@ func beaconIndexKeys(t *testing.T) map[string]bool {
 	return have
 }
 
-// nearbyIndexes are the two composite indexes ListNearby needs (location design 4.1). They are owner-gated: added to
-// firestore.indexes.json in a gate-file PR; until they are READY the query degrades to an empty page (ErrNearbyIndex).
+// nearbyIndexes are the two composite indexes ListNearby needs (location design 4.1). Until a deploy has built them
+// READY the query degrades to an empty page (ErrNearbyIndex).
 var nearbyIndexes = map[string][]string{
 	"ListNearby AREA scope": {"communityId:ASCENDING", "nearAreaIds:CONTAINS", "status:ASCENDING", "startAt:ASCENDING"},
 	"ListNearby CITY scope": {"communityId:ASCENDING", "cityId:ASCENDING", "status:ASCENDING", "startAt:ASCENDING"},
 }
 
-// TestFirestoreIndexesCoverTheNearbyQueries: once either Nearby index is in the file, both must be, with exactly the
-// fields ListNearby queries. Skipped while neither is (the owner's index PR is pending; the query degrades meanwhile).
+// TestFirestoreIndexesCoverTheNearbyQueries: the file firebase deploys declares both Nearby indexes, with exactly the
+// fields ListNearby queries.
 func TestFirestoreIndexesCoverTheNearbyQueries(t *testing.T) {
 	have := beaconIndexKeys(t)
-	present := 0
-	for _, fields := range nearbyIndexes {
-		if have[fmt.Sprint(fields)] {
-			present++
-		}
-	}
-	if present == 0 {
-		t.Skip("the Nearby indexes are not in firestore.indexes.json yet (owner gate file); ListNearby degrades to an empty page until they are READY")
-	}
 	for name, fields := range nearbyIndexes {
 		if !have[fmt.Sprint(fields)] {
 			t.Errorf("firestore.indexes.json has no beacons index for %s: %v", name, fields)
