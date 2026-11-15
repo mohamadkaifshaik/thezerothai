@@ -145,12 +145,16 @@ func (s *service) validateSet(in SetAreaInput) error {
 	return nil
 }
 
+// setHash is the stored idempotency requestHash of a SetArea body. The client's idempotency key is mixed in: the catalogue
+// is small, so a hash of the area id alone could be reversed by hashing every id, and the idempotency doc would then
+// reveal the user's area for its 24 h (DPDP). With the key (16-64 random characters) the hash cannot be enumerated, and a
+// replay with the same key and body still matches.
 func setHash(in SetAreaInput) string {
 	g := Grant{}
 	if in.Consent != nil {
 		g = *in.Consent
 	}
-	return idempotency.HashRequest(fmt.Sprintf("area=%s|consent=%t|copy=%d|adult=%t", in.AreaID, in.Consent != nil, g.CopyVersion, g.AdultConfirmed))
+	return idempotency.HashRequest(fmt.Sprintf("key=%s|area=%s|consent=%t|copy=%d|adult=%t", in.Key, in.AreaID, in.Consent != nil, g.CopyVersion, g.AdultConfirmed))
 }
 
 // settings renders a repo state. The area resolves through the catalogue (retired included); the consent comes from the

@@ -3,6 +3,7 @@ package location
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
 const (
@@ -227,6 +229,26 @@ func TestSetArea_Idempotency(t *testing.T) {
 	// The same key under another uid is another record (keys are hashed with the uid).
 	if _, err := e.svc.SetArea(ctx, uidB, SetAreaInput{Key: key("same"), AreaID: areaDoml, Consent: grant}); err != nil {
 		t.Fatalf("other uid: %v", err)
+	}
+}
+
+// TestSetArea_RequestHashIsKeyed: the stored idempotency requestHash mixes in the client key, so it is not the
+// enumerable hash of the area id alone (DPDP: the idempotency doc must not reveal the area).
+func TestSetArea_RequestHashIsKeyed(t *testing.T) {
+	e := newEnv(t, Limits{})
+	in := SetAreaInput{Key: key("hash"), AreaID: areaIndi, Consent: grant}
+	if _, err := e.svc.SetArea(context.Background(), uidA, in); err != nil {
+		t.Fatal(err)
+	}
+	keyless := idempotency.HashRequest(fmt.Sprintf("area=%s|consent=%t|copy=%d|adult=%t", areaIndi, true, 1, true))
+	stored := e.repo.idem[idempotency.Key(uidA, rpcSetArea, in.Key)]
+	if stored == "" || stored == keyless || stored != setHash(in) {
+		t.Fatalf("stored hash %q; keyless %q", stored, keyless)
+	}
+	other := in
+	other.Key = key("other")
+	if setHash(other) == setHash(in) {
+		t.Fatal("two keys gave the same hash for one body")
 	}
 }
 
