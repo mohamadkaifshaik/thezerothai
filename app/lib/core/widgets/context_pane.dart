@@ -5,7 +5,7 @@ import '../theme/app_theme.dart';
 
 /// One titled card of the desktop side column (and the pages' inline
 /// sections): an outlined `AppSurface` with a
-/// bold [title] (a heading) over [child], as the "What's happening" card.
+/// bold [title] (a heading) over [child], as the "Talked about today" card.
 /// The card owns its bottom gap ([margin]).
 class ContextPaneCard extends StatelessWidget {
   const ContextPaneCard({

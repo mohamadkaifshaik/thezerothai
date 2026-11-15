@@ -1387,7 +1387,7 @@ abstract final class AppTextStyles {
     tracking: AppTypeTokens.eyebrowTracking,
   ).copyWith(color: theme.colorScheme.onSurfaceVariant);
 
-  /// The title of a side-column card ("What's happening", "You might like",
+  /// The title of a side-column card ("Talked about today", "You might like",
   /// "Follow requests"; dz.css `.box h3`): Inter Display 19 sp w800.
   static TextStyle cardTitle(ThemeData theme) => _type(
     AppFonts.display,

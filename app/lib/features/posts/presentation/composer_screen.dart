@@ -714,7 +714,7 @@ class _ComposerViewState extends State<_ComposerView> {
             ? kPollQuestionHint
             : isQuote
             ? 'Add a comment'
-            : "What's happening?",
+            : "Start a thought…",
         hintStyle: _fieldStyle(context)
             ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
         filled: false,
