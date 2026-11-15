@@ -16,6 +16,7 @@ import '../../../shared/widgets/primitives/app_labeled_field.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pickers.dart';
 import '../../communities/data/communities_repository.dart';
+import '../../location/domain/location_models.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
@@ -25,6 +26,7 @@ import '../domain/beacons_feature_flag.dart';
 import '../domain/plan_preview.dart';
 import 'bloc/beacons_state.dart' show BeaconsAudience;
 import 'bloc/create_beacon_cubit.dart';
+import 'widgets/area_label.dart';
 import 'widgets/discard_plan_dialog.dart';
 import 'widgets/plan_form_fields.dart';
 import 'widgets/plan_preview.dart';
@@ -109,6 +111,9 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   var _chat = pb.ChatPreference.CHAT_PREFERENCE_QUIET;
   var _audiences = const [BeaconsAudience.public()];
   var _audience = const BeaconsAudience.public();
+
+  /// The optional area of the meeting point (`location` on).
+  AreaRef? _area;
 
   /// The plan as typed, for the Preview dialog.
   late final ValueNotifier<pb.Beacon> _draft;
@@ -239,7 +244,8 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       _openSpots != 3 ||
       _cost != pb.BeaconCost.BEACON_COST_FREE ||
       _chat != pb.ChatPreference.CHAT_PREFERENCE_QUIET ||
-      !_audience.isPublic;
+      !_audience.isPublic ||
+      _area != null;
 
   /// Toolbar Cancel, platform back and the back gesture all end here. A clean
   /// form leaves at once; a dirty one asks first. While the create is in
@@ -308,6 +314,12 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     });
   }
 
+  Future<void> _pickArea() async {
+    final picked = await pickPlanArea(context);
+    if (picked == null || !mounted) return;
+    setState(() => _area = picked);
+  }
+
   void _create() {
     // The clock moved since the button was enabled: re-check with it now so
     // a start that slipped under 5 minutes shows its inline copy, not the
@@ -327,6 +339,9 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       cost: _cost,
       chatPreference: _chat,
     );
+    if (_area != null && areaLabelsEnabled(context, listen: false)) {
+      request.areaId = _area!.id;
+    }
     if (_audience.isPublic) {
       request.public = true;
     } else {
@@ -461,6 +476,13 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 max: kBeaconVenueMaxLength,
                               ),
                             ),
+                            if (areaLabelsEnabled(context))
+                              PlanAreaField(
+                                label: _area?.label,
+                                enabled: !busy,
+                                onPick: _pickArea,
+                                onClear: () => setState(() => _area = null),
+                              ),
                             PlanPair(
                               first: PlanFormSection(
                                 title: 'Cost',

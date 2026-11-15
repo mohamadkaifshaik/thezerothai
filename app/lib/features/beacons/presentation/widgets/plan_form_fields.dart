@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../../shared/format/scheduled_time.dart';
+import '../../../location/domain/location_models.dart';
 
 /// Shows the date picker; null when dismissed. A seam so tests need not drive
 /// the platform dial.
@@ -493,6 +496,102 @@ class PlanReadOnlyBox extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The label of the plan forms' area field.
+const kPlanAreaTitle = 'Area (optional)';
+const kPlanAreaChoose = 'Choose an area';
+const kPlanAreaClear = 'Clear area';
+const kPlanAreaHint =
+    'Pick the area of the meeting point, not where you live. People who '
+    'choose this area see the plan in Nearby.';
+
+/// Opens the area picker (`/area-picker`); null when dismissed.
+Future<AreaRef?> pickPlanArea(BuildContext context) =>
+    context.push<AreaRef>(AppRouter.areaPickerPath);
+
+/// "Area (optional)" under "Meeting point" on the plan forms: the chosen
+/// area (or "Choose an area") opening the picker, a clear button and the
+/// hint. It describes the plan's place, so it needs neither the user's own
+/// area nor their consent. Show it only with `location` on.
+class PlanAreaField extends StatelessWidget {
+  const PlanAreaField({
+    super.key,
+    required this.label,
+    required this.enabled,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  /// The chosen area's label; null when none.
+  final String? label;
+  final bool enabled;
+  final VoidCallback onPick;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final has = label != null && label!.isNotEmpty;
+    return PlanFormSection(
+      title: kPlanAreaTitle,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  label: has ? 'Area: $label' : kPlanAreaChoose,
+                  excludeSemantics: true,
+                  child: InkWell(
+                    key: const ValueKey('plan-area-field'),
+                    onTap: enabled ? onPick : null,
+                    borderRadius: BorderRadius.circular(AppRadius.card),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minHeight: AppSpacing.minTapTarget,
+                      ),
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.place_outlined),
+                        ),
+                        child: Text(
+                          has ? label! : kPlanAreaChoose,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: has
+                              ? theme.textTheme.bodyLarge
+                              : theme.textTheme.bodyLarge?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (has)
+                IconButton(
+                  key: const ValueKey('plan-area-clear'),
+                  tooltip: kPlanAreaClear,
+                  icon: const Icon(Icons.close),
+                  onPressed: enabled ? onClear : null,
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            kPlanAreaHint,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
