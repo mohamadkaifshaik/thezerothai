@@ -674,7 +674,8 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                   ),
                 ),
                 if (wide && _showDetails)
-                  SizedBox(
+                  _SlidingPane(
+                    chrome: widget.chrome,
                     width: paneWidth,
                     child: SafeArea(
                       left: false,
@@ -961,4 +962,60 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
       );
     },
   );
+}
+
+/// The details pane beside the photo. It is part of the controls: while they
+/// are hidden its width closes to nothing (the photo takes it) with a fade,
+/// the pane sliding out to the right behind the shrinking edge, and it opens
+/// again with them. Reduced motion skips the animation. It stays mounted, so
+/// its scroll position survives, but takes no touches, focus or semantics
+/// while closed.
+class _SlidingPane extends StatelessWidget {
+  const _SlidingPane({
+    required this.chrome,
+    required this.width,
+    required this.child,
+  });
+
+  final ValueListenable<bool> chrome;
+  final double width;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : AppMotion.chromeFade;
+    return ValueListenableBuilder<bool>(
+      valueListenable: chrome,
+      child: child,
+      builder: (context, visible, child) => AnimatedContainer(
+        duration: duration,
+        curve: Curves.easeOut,
+        width: visible ? width : 0,
+        clipBehavior: Clip.hardEdge,
+        decoration: const BoxDecoration(),
+        child: OverflowBox(
+          alignment: AlignmentDirectional.centerEnd,
+          minWidth: width,
+          maxWidth: width,
+          child: IgnorePointer(
+            ignoring: !visible,
+            child: ExcludeFocus(
+              excluding: !visible,
+              child: ExcludeSemantics(
+                excluding: !visible,
+                child: AnimatedOpacity(
+                  opacity: visible ? 1 : 0,
+                  duration: duration,
+                  curve: Curves.easeOut,
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

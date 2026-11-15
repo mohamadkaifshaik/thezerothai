@@ -10,8 +10,10 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/posts/presentation/post_detail_screen.dart';
 import 'package:dzeroth/features/posts/presentation/post_photo_screen.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -71,6 +73,15 @@ void main() {
     ]);
     when(() => posts.getPost(any())).thenAnswer((_) async => view);
     when(() => posts.subFeatureEnabled(any())).thenReturn(true);
+    // The details pane (a thread) listens for removed posts.
+    when(() => posts.removedPosts).thenAnswer((_) => const Stream.empty());
+    when(
+      () => posts.getThread(
+        any(),
+        pageToken: any(named: 'pageToken'),
+        pageSize: any(named: 'pageSize'),
+      ),
+    ).thenAnswer((_) => Completer<pb.GetThreadResponse>().future);
   });
 
   tearDown(() => cubit.close());
@@ -353,6 +364,82 @@ void main() {
       router.pop();
       await settle(tester);
       expect(uiModes, isEmpty);
+    });
+  });
+
+  group('wide layout: the details pane is part of the controls', () {
+    const wide = Size(1280, 800);
+
+    double paneWidth(WidgetTester tester) =>
+        tester.getSize(find.byType(PostDetailScreen)).width;
+
+    testWidgets('a tap closes the pane, the photo takes the width, a tap '
+        'brings both back', (tester) async {
+      await open(tester, size: wide);
+      expect(find.byType(PostDetailScreen), findsOneWidget);
+      final shownPane = paneWidth(tester);
+      expect(shownPane, 380);
+      final shownArea = tester.getSize(find.byType(PageView)).width;
+      expect(shownArea, wide.width - shownPane);
+
+      await tapPicture(tester);
+      // The pane's slot is closed and the photo area fills the window.
+      expect(tester.getSize(find.byType(PageView)).width, wide.width);
+
+      await tapPicture(tester);
+      expect(tester.getSize(find.byType(PageView)).width, shownArea);
+      expect(paneWidth(tester), shownPane);
+    });
+
+    testWidgets('while closed the pane takes no touches or semantics', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await open(tester, size: wide);
+      await tapPicture(tester);
+      final ignore = tester.widget<IgnorePointer>(
+        find
+            .ancestor(
+              of: find.byType(PostDetailScreen),
+              matching: find.byType(IgnorePointer),
+            )
+            .first,
+      );
+      expect(ignore.ignoring, isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('it animates, and reduced motion skips that', (tester) async {
+      await open(tester, size: wide);
+      await tester.tapAt(tester.getCenter(find.byType(PageView)));
+      await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
+      await tester.pump(const Duration(milliseconds: 90));
+      final mid = tester.getSize(find.byType(PageView)).width;
+      expect(mid, greaterThan(wide.width - 380));
+      expect(mid, lessThan(wide.width));
+      await settle(tester);
+    });
+
+    testWidgets('reduced motion: it is closed in the first frame', (
+      tester,
+    ) async {
+      await open(tester, size: wide, reduceMotion: true);
+      await tester.tapAt(tester.getCenter(find.byType(PageView)));
+      await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
+      await tester.pump();
+      expect(tester.getSize(find.byType(PageView)).width, wide.width);
+    });
+
+    testWidgets('a pane the user closed with its own button stays closed', (
+      tester,
+    ) async {
+      await open(tester, size: wide);
+      await tester.tap(find.byTooltip('Hide post'));
+      await settle(tester);
+      expect(find.byType(PostDetailScreen), findsNothing);
+      await tapPicture(tester);
+      await tapPicture(tester);
+      expect(find.byType(PostDetailScreen), findsNothing);
     });
   });
 
