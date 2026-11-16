@@ -74,6 +74,23 @@ String avatarErrorMessage(AppException error) {
   };
 }
 
+/// The notice under a composer's only photo when it is very narrow or very
+/// wide: the feed crops a single photo, and tapping it shows the whole thing.
+/// Never calls the photo broken (thin art is real).
+String thinPhotoNotice({required bool narrow}) =>
+    'This photo is very ${narrow ? 'narrow' : 'wide'}, so it will be '
+    'cropped in the feed. People can tap it to see the whole photo.';
+
+/// Notice button: drop the photo.
+const kThinPhotoRemove = 'Remove';
+
+/// Notice button: keep the photo and hide the notice.
+const kThinPhotoKeep = 'Keep photo';
+
+/// Semantics label of the badge on the photo's tile.
+String thinPhotoBadgeLabel({required bool narrow}) =>
+    'Notice: very ${narrow ? 'narrow' : 'wide'} photo, cropped in the feed';
+
 /// The uploaded avatar was discarded server-side; it must be chosen again.
 const kAvatarGoneMessage =
     'That photo is no longer available. Choose it again.';

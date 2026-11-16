@@ -15,6 +15,7 @@ import '../../domain/media_feature_flag.dart';
 import '../../domain/photo_edit.dart';
 import '../../domain/processed_image.dart';
 import '../../domain/processing_cancellation.dart';
+import '../../domain/unusual_aspect.dart';
 
 /// Shown when a keyboard GIF arrives while GIFs are off.
 const kGifOffMessage = 'GIFs are not available right now.';
@@ -76,6 +77,15 @@ class Attachment {
   final ProcessedImage? image;
 
   bool get isGif => kind == AttachmentKind.gif;
+
+  /// Set when the processed photo is very narrow or very flat (never a GIF);
+  /// the composer warns before posting. From the size already known, so no
+  /// second decode.
+  UnusualShape? get unusualShape {
+    final i = image;
+    if (i == null) return null;
+    return unusualShapeOf(width: i.width, height: i.height, isGif: isGif);
+  }
 
   /// 0..1 while [AttachmentStatus.uploading].
   final double progress;
