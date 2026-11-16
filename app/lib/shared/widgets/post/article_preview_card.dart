@@ -86,7 +86,7 @@ class _ArticlePreviewCardState extends State<ArticlePreviewCard> {
                     // 4:5 of the card's width, never taller than a single
                     // post image may grow (tablet and desktop).
                     final height = math.min(
-                      constraints.maxWidth / AppSize.postMediaPortraitAspect,
+                      constraints.maxWidth / AppSize.postMediaDefaultAspect,
                       AppSize.postMediaMaxSingleHeight,
                     );
                     return SizedBox(

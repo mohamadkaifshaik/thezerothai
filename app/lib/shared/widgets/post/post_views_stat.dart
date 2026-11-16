@@ -67,7 +67,11 @@ class PostViewsStat extends StatelessWidget {
     required this.count,
     this.iconSize,
     this.icon = kPostViewsIcon,
+    this.color,
   });
+
+  /// Overrides the muted text colour (the photo viewer's grey).
+  final Color? color;
 
   /// The glyph; [kPostViewsIcon] unless a comparison asks for another.
   final IconData icon;
@@ -80,7 +84,7 @@ class PostViewsStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = theme.colorScheme.onSurfaceVariant;
+    final color = this.color ?? theme.colorScheme.onSurfaceVariant;
     return Semantics(
       label: viewsSemanticsLabel(count),
       excludeSemantics: true,

@@ -1135,7 +1135,7 @@ class _ComposerViewState extends State<_ComposerView> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     if (widget.mediaEnabled)
-                                      _AddPhotoButton(block: rules.photo),
+                                      AddPhotoButton(block: rules.photo),
                                     if (rules.showGif)
                                       ComposerGifButton(
                                         block: rules.gif,
@@ -1299,8 +1299,8 @@ class _ScheduleImagesNoteBox extends StatelessWidget {
 
 /// The "Add photos" action in the composer's bottom bar. Disabled while the
 /// post is sending or when four photos are attached.
-class _AddPhotoButton extends StatelessWidget {
-  const _AddPhotoButton({required this.block});
+class AddPhotoButton extends StatelessWidget {
+  const AddPhotoButton({super.key, required this.block});
 
   /// Why photos are off for a rule (a poll or a GIF), or none.
   final ComposerBlock block;

@@ -91,7 +91,7 @@ void main() {
         expect(find.text('The first lines of the article'), findsOneWidget);
         // The cover fills the whole card: 390 wide, 4:5 tall.
         final card = tester.getSize(find.byType(Card));
-        expect(card.height, closeTo(390 / AppSize.postMediaPortraitAspect, 1));
+        expect(card.height, closeTo(390 / AppSize.postMediaDefaultAspect, 1));
         // The overlay covers the lower part, at least 55 %.
         final overlay = tester.getSize(
           find.byKey(const ValueKey('article-card-overlay')),
