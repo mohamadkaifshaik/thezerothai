@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
@@ -10,6 +12,7 @@ import '../../data/image_picker_service.dart';
 import '../../data/media_uploader.dart';
 import '../../domain/image_processor.dart';
 import '../../domain/media_feature_flag.dart';
+import '../../domain/photo_edit.dart';
 import '../../domain/processed_image.dart';
 import '../../domain/processing_cancellation.dart';
 
@@ -363,6 +366,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     // A photo removed while it waited is skipped, never processed.
     for (var i = 0; i < accepted.length; i++) {
       if (isClosed) return;
+      _sources[ids[i]] = accepted[i];
       if (!state.items.any((a) => a.id == ids[i])) continue;
       await _process(ids[i], accepted[i]);
     }
@@ -373,7 +377,32 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// work (on the web the worker is terminated).
   final Map<String, ProcessingCancellation> _processing = {};
 
-  Future<void> _process(String id, Uint8List bytes) async {
+  /// The picked bytes of each photo, kept so the editor can crop and rotate
+  /// the SOURCE (not the already processed, smaller copy). Not part of the
+  /// state: they are large. Dropped with the photo.
+  final Map<String, Uint8List> _sources = {};
+
+  /// The first processed (unedited) full-size copy of each photo: what the
+  /// editor shows and crops. It is oriented exactly as the processors orient
+  /// the source (EXIF baked in), so the crop fractions land on the right
+  /// pixels on every platform, and it is at most 2048 px, so the editor never
+  /// decodes a 12 MP original.
+  final Map<String, Uint8List> _previews = {};
+
+  /// The edit each photo was last processed with.
+  final Map<String, PhotoEdit> _edits = {};
+
+  /// The picked bytes of photo [id], or null (a GIF, or removed).
+  Uint8List? sourceOf(String id) => _sources[id];
+
+  /// What the editor shows of photo [id]: the unedited, oriented photo (see
+  /// [_previews]), or null while it is first being prepared and for a GIF.
+  Uint8List? previewOf(String id) => _previews[id];
+
+  /// The edit photo [id] currently has (none by default).
+  PhotoEdit editOf(String id) => _edits[id] ?? PhotoEdit.none;
+
+  Future<void> _process(String id, Uint8List bytes, {PhotoEdit? edit}) async {
     final cancellation = ProcessingCancellation();
     _processing[id] = cancellation;
     try {
@@ -381,8 +410,10 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
         bytes,
         ImagePurpose.post,
         cancellation: cancellation,
+        edit: edit,
       );
       if (cancellation.isCancelled) return;
+      if (edit == null) _previews[id] = image.fullBytes;
       _update(
         id,
         (a) => a.copyWith(status: AttachmentStatus.ready, image: image),
@@ -421,6 +452,9 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   void remove(String id) {
     _cancelProcessing(id);
     _uploader.forget(id);
+    _sources.remove(id);
+    _previews.remove(id);
+    _edits.remove(id);
     emit(
       AttachmentsState(
         items: [
@@ -429,6 +463,57 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
         ],
       ),
     );
+  }
+
+  /// Moves the photo at [oldIndex] to [newIndex] (the index it ends up at,
+  /// after the move). The order is the post's media order.
+  void reorder(int oldIndex, int newIndex) {
+    final items = [...state.items];
+    if (oldIndex < 0 ||
+        oldIndex >= items.length ||
+        newIndex < 0 ||
+        newIndex >= items.length ||
+        oldIndex == newIndex) {
+      return;
+    }
+    items.insert(newIndex, items.removeAt(oldIndex));
+    if (!isClosed) emit(AttachmentsState(items: items));
+  }
+
+  /// Moves photo [id] one place towards the start ([delta] -1) or the end (+1).
+  void move(String id, int delta) {
+    final at = state.items.indexWhere((a) => a.id == id);
+    if (at < 0) return;
+    reorder(at, at + delta);
+  }
+
+  /// The editor's Done: sets the alt text and, when [edit] differs from the
+  /// photo's current edit, reprocesses the SOURCE with it. A photo that was
+  /// already uploaded loses that upload (the next Post uploads the new
+  /// pixels); a still-running processing of the old edit is cancelled. GIFs
+  /// only take the alt text. Does nothing while the photo uploads.
+  void applyEdit(String id, PhotoEdit edit, String altText) {
+    final at = state.items.indexWhere((a) => a.id == id);
+    if (at < 0) return;
+    final item = state.items[at];
+    if (item.status == AttachmentStatus.uploading) return;
+    setAltText(id, altText);
+    final source = _sources[id];
+    if (item.isGif || source == null || edit == editOf(id)) return;
+    _edits[id] = edit;
+    _cancelProcessing(id);
+    // Whatever was reserved or published for the old pixels is stale.
+    _uploader.forget(id);
+    _update(
+      id,
+      (a) => a.copyWith(
+        status: AttachmentStatus.processing,
+        mediaId: '',
+        progress: 0,
+        rejectionReason: '',
+      ),
+    );
+    unawaited(_process(id, source, edit: edit));
   }
 
   void setAltText(String id, String text) {
@@ -680,6 +765,9 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// Drops everything (after a post succeeded).
   void clear() {
     _cancelProcessing();
+    _sources.clear();
+    _previews.clear();
+    _edits.clear();
     emit(const AttachmentsState());
   }
 
@@ -713,6 +801,9 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
       return Future.value();
     }
     _cancelProcessing();
+    _sources.clear();
+    _previews.clear();
+    _edits.clear();
     return super.close();
   }
 }

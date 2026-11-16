@@ -109,6 +109,9 @@ class FakeRasterCodec implements RasterCodec {
   final int hangSessions;
 
   final List<FakeEncode> encodes = [];
+
+  /// The quarter turns of every encode, in call order.
+  final List<int> turns = [];
   final List<({int width, int height})> rgbaCalls = [];
   int opened = 0;
   int closed = 0;
@@ -150,8 +153,10 @@ class _FakeSession implements RasterSession {
     CropRect crop,
     int width,
     int height,
-    int quality,
-  ) async {
+    int quality, {
+    int quarterTurns = 0,
+  }) async {
+    codec.turns.add(quarterTurns);
     codec.encodes.add((
       crop: crop,
       width: width,
@@ -165,7 +170,12 @@ class _FakeSession implements RasterSession {
   }
 
   @override
-  Future<Uint8List> rgba(CropRect crop, int width, int height) async {
+  Future<Uint8List> rgba(
+    CropRect crop,
+    int width,
+    int height, {
+    int quarterTurns = 0,
+  }) async {
     codec.rgbaCalls.add((width: width, height: height));
     return Uint8List(width * height * 4)..fillRange(0, width * height * 4, 128);
   }
