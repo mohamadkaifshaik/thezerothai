@@ -62,3 +62,41 @@ func TestCache_UnreadCountRoundTrip(t *testing.T) {
 		t.Fatal("expected a miss after InvalidateUnreadCount")
 	}
 }
+
+// A new notification row (InvalidateUnreadBelowCap) keeps an unread count at the cap and evicts any lower one; the
+// pending count is evicted either way, and InvalidateUnreadCount always evicts both (audit L1).
+func TestCache_InvalidateUnreadBelowCap(t *testing.T) {
+	tests := []struct {
+		name       string
+		cached     int64 // -1 = nothing cached
+		belowCap   bool  // InvalidateUnreadBelowCap, else InvalidateUnreadCount
+		wantUnread bool
+	}{
+		{"at cap: kept", UnreadBadgeCap, true, true},
+		{"below cap: evicted", UnreadBadgeCap - 1, true, false},
+		{"zero: evicted", 0, true, false},
+		{"nothing cached: still nothing", -1, true, false},
+		{"full invalidation at cap: evicted", UnreadBadgeCap, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewCache(time.Minute)
+			if tt.cached >= 0 {
+				c.SetUnreadCount("uid-1", tt.cached)
+			}
+			c.SetPendingCount("uid-1", 3)
+			if tt.belowCap {
+				c.InvalidateUnreadBelowCap("uid-1")
+			} else {
+				c.InvalidateUnreadCount("uid-1")
+			}
+			n, ok := c.GetUnreadCount("uid-1")
+			if ok != tt.wantUnread || (ok && n != tt.cached) {
+				t.Errorf("unread = %d, %v; want cached=%v (%d)", n, ok, tt.wantUnread, tt.cached)
+			}
+			if _, ok := c.GetPendingCount("uid-1"); ok {
+				t.Error("pending count must always be evicted")
+			}
+		})
+	}
+}

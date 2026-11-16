@@ -280,10 +280,16 @@ type Directory interface {
 	// empty prefix returns nothing without a query. Not cached here; the search module caches by (prefix, limit) for 60 s.
 	SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error)
 	Forget(uids ...string)
-	// ForgetUnread evicts only uid's cached unread count, leaving the profile cached (for a caller that just
-	// wrote a notification row: the profile is unchanged, the badge is not).
+	// ForgetUnread evicts only uid's cached unread count (and pending follow request count), leaving the profile
+	// cached (for a caller that just wrote a notification row: the profile is unchanged, the badge is not). An unread
+	// count already at UnreadBadgeCap stays cached until its TTL: one more row cannot raise it, and re-counting a
+	// capped badge is GetMe's most expensive miss (audit L1).
 	ForgetUnread(uids ...string)
 }
+
+// UnreadBadgeCap is the most unseen notifications GetMe's unread_notification_count reports (the client shows "99+").
+// It must equal notifications.UnreadBadgeCap (identity cannot import notifications; an apiserver test pins the two).
+const UnreadBadgeCap = 100
 
 // MaxResolveHandles is the most distinct handles one ResolveHandles call takes (one post carries at most 10
 // mentions).
