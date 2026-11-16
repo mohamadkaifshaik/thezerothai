@@ -12,7 +12,8 @@ const (
 	// unreadTTL matches the proto doc comment ("cached 30 s") for GetMe's notification count.
 	unreadTTL = 30 * time.Second
 	// pendingTTL bounds GetMe's pending_follow_request_count: at most 30 s stale on this instance, and
-	// evicted with the unread count by any Forget or ForgetUnread on this instance (an accept, a notification row, a counter change).
+	// evicted by any Forget or ForgetUnread on this instance (an accept, a notification row, a counter change), even when
+	// ForgetUnread keeps an unread count that is at the cap.
 	pendingTTL = 30 * time.Second
 	// convBadgeTTL bounds GetMe's unread_conversation_count: at most 30 s stale on this
 	// instance, evicted earlier by MessageBadgeCache.Forget (a send to or a mark-read by that user on this instance).
@@ -132,6 +133,17 @@ func (c *Cache) SetUnreadCount(uid string, n int64) {
 
 func (c *Cache) InvalidateUnreadCount(uid string) {
 	c.unread.Delete(uid)
+	c.pending.Delete(uid)
+}
+
+// InvalidateUnreadBelowCap is InvalidateUnreadCount for a new notification row: a cached unread count already at
+// UnreadBadgeCap is kept (a new row cannot raise a capped badge, and that miss is the most expensive one, audit L1),
+// any lower count is evicted. The pending follow request count is always evicted (the row may be a follow request).
+// A kept count still expires with its own unreadTTL; Forget and InvalidateUnreadCount always evict.
+func (c *Cache) InvalidateUnreadBelowCap(uid string) {
+	if n, ok := c.unread.Get(uid); !ok || n < UnreadBadgeCap {
+		c.unread.Delete(uid)
+	}
 	c.pending.Delete(uid)
 }
 

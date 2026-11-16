@@ -345,7 +345,8 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 	// A concurrent GetMe on this instance may have re-cached the recipient's unread count between the status read
 	// above and this write (it would then serve the pre-write badge until the cache TTL). Evict only the unread
 	// count (no reads) so the next GetMe counts the new row. The profile just read stays cached: it is current and
-	// a full Forget would re-read it on the next request.
+	// a full Forget would re-read it on the next request. A count already at UnreadBadgeCap stays cached (identity's
+	// ForgetUnread): the new row cannot raise it, and that re-count is the costliest GetMe miss (audit L1).
 	if len(createdFor) > 0 {
 		f.d.Directory.ForgetUnread(createdFor...)
 	}
