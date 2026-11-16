@@ -533,7 +533,7 @@ void main() {
         );
       });
 
-      test('an absurd ref (beyond 1:50 or 50:1) is treated as unknown', () {
+      test('an absurd ref (beyond 1:200 or 50:1) is treated as unknown', () {
         expect(PostMedia.rowAspect(_photo(1, 1000000)), closeTo(0.8, 1e-9));
         expect(PostMedia.rowAspect(_photo(1000000, 1)), closeTo(0.8, 1e-9));
         final media = [
@@ -546,7 +546,7 @@ void main() {
         expect(height, closeTo(0.591 * 259 / 0.8, 0.01));
       });
 
-      test('narrow tiles stay uncropped down to 1:50', () {
+      test('narrow tiles stay uncropped down to 1:200', () {
         expect(PostMedia.rowAspect(_photo(20, 1000)), closeTo(0.02, 1e-9));
         expect(PostMedia.rowAspect(_photo(75, 1000)), closeTo(0.075, 1e-9));
       });

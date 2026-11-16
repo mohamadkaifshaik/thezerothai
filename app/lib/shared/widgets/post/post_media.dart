@@ -56,6 +56,12 @@ import 'gif_badge.dart';
 /// still `thumbUrl` with a "GIF" badge and a play control, and the full file
 /// is fetched only after a tap (a tap again stops it). Nothing autoplays, so
 /// reduced motion and a data saver are respected by construction.
+/// The narrowest stored aspect (width / height) a tile trusts: 1:200. A real
+/// strip (X shows 38 x 2048 art uncropped, aspect 0.0186) keeps its own aspect
+/// in a row; a missing size or anything narrower reads as unknown (4:5). The
+/// wide end is unchanged (50:1 is unknown).
+const double kMinTrustedAspect = 1 / 200;
+
 class PostMedia extends StatelessWidget {
   const PostMedia({
     super.key,
@@ -152,16 +158,18 @@ class PostMedia extends StatelessWidget {
   }
 
   /// A tile's aspect in a row (width / height). Narrow tiles keep their own
-  /// aspect, uncropped (X shows strips down to about 0.03); a tile wider than
+  /// aspect, uncropped, down to [kMinTrustedAspect] (1:200); a tile wider than
   /// 3:1 is held at 3:1 (and center-cropped), so a panorama cannot collapse
-  /// the row's height. A ref whose aspect is beyond 1:50 or 50:1 is treated
-  /// as unknown (4:5), as is one with no stored size.
+  /// the row's height. A ref whose aspect is narrower than 1:200 or wider
+  /// than 50:1 is treated as unknown (4:5), as is one with no stored size.
   static double rowAspect(common.MediaRef ref) {
     if (ref.width <= 0 || ref.height <= 0) {
       return AppSize.postMediaDefaultAspect;
     }
     final aspect = ref.width / ref.height;
-    if (aspect < 1 / 50 || aspect > 50) return AppSize.postMediaDefaultAspect;
+    if (aspect < kMinTrustedAspect || aspect > 50) {
+      return AppSize.postMediaDefaultAspect;
+    }
     return math.min(aspect, AppSize.postMediaLandscapeAspect);
   }
 
@@ -246,6 +254,7 @@ class PostMedia extends StatelessWidget {
           showIndicator: showPageIndicator,
           insetStart: insetStart,
           insetEnd: insetEnd,
+          onOpen: onOpenImage,
           tile: (index, size) => tile(index, size, AppRadius.postMediaTile),
         );
       },
@@ -264,8 +273,12 @@ class _MediaStrip extends StatefulWidget {
     required this.insetStart,
     required this.insetEnd,
     required this.tile,
+    this.onOpen,
   });
 
+  /// Opens the viewer at an index; with it, a tile narrower than the 48 dp
+  /// target gets a padded hit area (see [_MediaStripState]).
+  final ValueChanged<int>? onOpen;
   final List<Size> sizes;
   final bool showIndicator;
   final double insetStart;
@@ -278,6 +291,53 @@ class _MediaStrip extends StatefulWidget {
 
 class _MediaStripState extends State<_MediaStrip> {
   int _page = 0;
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// Hit areas for tiles narrower than the 48 dp target, over the picture:
+  /// each runs from the middle of the gap before it to the middle of the gap
+  /// after it (so neighbours never overlap), and the first and last extend
+  /// half a target outward. A tap in the gaps or just beside a strip opens the
+  /// nearest tile. The tiles themselves keep their own semantics nodes.
+  List<Widget> _hitAreas(double offset, double height) {
+    final open = widget.onOpen;
+    if (open == null) return const [];
+    const gap = AppSize.postMediaRowGap;
+    const reach = AppSpacing.minTapTarget / 2;
+    final count = widget.sizes.length;
+    final out = <Widget>[];
+    var left = widget.insetStart - offset;
+    for (var i = 0; i < count; i++) {
+      final width = widget.sizes[i].width;
+      if (width < AppSpacing.minTapTarget) {
+        final start = i == 0 ? left - reach : left - gap / 2;
+        final end = i == count - 1
+            ? left + width + reach
+            : left + width + gap / 2;
+        out.add(
+          PositionedDirectional(
+            start: start,
+            width: end - start,
+            top: 0,
+            height: height,
+            child: ExcludeSemantics(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => open(i),
+              ),
+            ),
+          ),
+        );
+      }
+      left += width + gap;
+    }
+    return out;
+  }
 
   /// The tile whose start is nearest the scroll offset (offset 0 is tile 0:
   /// the inset is the list's start padding).
@@ -309,6 +369,7 @@ class _MediaStripState extends State<_MediaStrip> {
     final count = widget.sizes.length;
     final height = widget.sizes.first.height;
     final list = ListView.builder(
+      controller: _scroll,
       scrollDirection: Axis.horizontal,
       primary: false,
       itemCount: count,
@@ -323,7 +384,29 @@ class _MediaStripState extends State<_MediaStrip> {
         child: widget.tile(index, widget.sizes[index]),
       ),
     );
-    final strip = SizedBox(height: height, child: list);
+    final thin =
+        widget.onOpen != null &&
+        widget.sizes.any((s) => s.width < AppSpacing.minTapTarget);
+    final strip = SizedBox(
+      height: height,
+      child: thin
+          ? Stack(
+              children: [
+                list,
+                ListenableBuilder(
+                  listenable: _scroll,
+                  builder: (context, _) => Stack(
+                    clipBehavior: Clip.none,
+                    children: _hitAreas(
+                      _scroll.hasClients ? _scroll.offset : 0,
+                      height,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : list,
+    );
     if (!widget.showIndicator) return strip;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -485,7 +568,7 @@ double _aspectOf(common.MediaRef media) {
   }
   final aspect = media.width / media.height;
   // An absurd stored size is not trusted (it would ask for a huge decode).
-  return aspect < 1 / 50 || aspect > 50
+  return aspect < kMinTrustedAspect || aspect > 50
       ? AppSize.postMediaDefaultAspect
       : aspect;
 }
