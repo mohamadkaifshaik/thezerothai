@@ -82,6 +82,7 @@ import '../features/timeline/data/timeline_store.dart';
 import '../firebase_options.dart' as dev_firebase;
 import '../firebase_options_prod.dart' as prod_firebase;
 import 'app_config.dart';
+import 'auth_emulator.dart';
 import 'app_widget.dart';
 import 'session_wiring.dart';
 
@@ -118,11 +119,11 @@ Future<void> bootstrap() async {
           },
   );
   final firebaseAuth = fb_auth.FirebaseAuth.instanceFor(app: firebaseApp);
-  if (config.useEmulators) {
-    await firebaseAuth.useAuthEmulator(
-      _emulatorHost(config.authEmulatorHost),
-      _emulatorPort(config.authEmulatorHost),
-    );
+  try {
+    await configureAuthEmulator(firebaseAuth, config);
+  } on AppConfigError catch (e) {
+    runApp(_ConfigErrorApp(message: e.message));
+    return;
   }
   final authRepository = AuthRepository(
     firebaseAuth: firebaseAuth,
@@ -245,6 +246,7 @@ Future<void> bootstrap() async {
   final authBloc = AuthBloc(
     authRepository: authRepository,
     beforeSignOut: () => pushCubit.unregister(),
+    unknownTimeout: kAuthUnknownTimeout,
   )..add(const AuthSubscriptionRequested());
   sessionAuth = authBloc;
   // The auth SDK has not reported yet while the status is unknown: that is no
@@ -619,13 +621,6 @@ Future<String?> _restoredUid(AuthRepository authRepository) async {
   } catch (_) {
     return authRepository.currentUser?.uid;
   }
-}
-
-String _emulatorHost(String hostAndPort) => hostAndPort.split(':').first;
-
-int _emulatorPort(String hostAndPort) {
-  final parts = hostAndPort.split(':');
-  return parts.length > 1 ? int.tryParse(parts[1]) ?? 9099 : 9099;
 }
 
 class _ConfigErrorApp extends StatelessWidget {

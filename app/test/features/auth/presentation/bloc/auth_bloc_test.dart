@@ -63,6 +63,22 @@ void main() {
     );
 
     blocTest<AuthBloc, AuthState>(
+      'settles from the current user when no auth event arrives in time',
+      setUp: () {
+        when(() => authRepository.authStateChanges())
+            .thenAnswer((_) => const Stream.empty());
+        when(() => authRepository.currentUser).thenReturn(null);
+      },
+      build: () => AuthBloc(
+        authRepository: authRepository,
+        unknownTimeout: const Duration(milliseconds: 10),
+      ),
+      act: (bloc) => bloc.add(const AuthSubscriptionRequested()),
+      wait: const Duration(milliseconds: 50),
+      expect: () => [const AuthState(status: AuthStatus.unauthenticated)],
+    );
+
+    blocTest<AuthBloc, AuthState>(
       'emits needsEmailVerification for an unverified password account',
       setUp: () {
         when(() => authRepository.authStateChanges())
