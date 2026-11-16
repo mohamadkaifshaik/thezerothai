@@ -422,15 +422,21 @@ class UnsentPostsStore {
 
   /// How many of [uid]'s stored posts have no unsent-post (draft) row, again
   /// on every change: with the drafts' own count it is the real number of
-  /// unsent posts on the device (a post with a draft row is counted there).
+  /// unsent posts on the device (a post whose draft row exists is counted
+  /// there, an image-only post of a saved draft included).
   Stream<int> watchCountWithoutDraft(String uid) {
-    final table = _db.unsentPostEntries;
-    final total = table.postId.count();
-    return (_db.selectOnly(table)
-          ..addColumns([total])
-          ..where(table.uid.equals(uid) & table.draftId.isNull()))
-        .map((row) => row.read(total) ?? 0)
-        .watchSingle();
+    return _db
+        .customSelect(
+          'SELECT COUNT(*) AS c FROM unsent_post_entries u '
+          'WHERE u.uid = ?1 AND NOT EXISTS ('
+          'SELECT 1 FROM composer_draft_entries d '
+          'WHERE d.uid = u.uid '
+          'AND d.draft_id = COALESCE(u.draft_id, u.delete_draft_id))',
+          variables: [Variable<String>(uid)],
+          readsFrom: {_db.unsentPostEntries, _db.composerDraftEntries},
+        )
+        .watchSingle()
+        .map((row) => row.read<int>('c'));
   }
 
   /// The stored photo bytes of [uid], all posts (tests and the cap).

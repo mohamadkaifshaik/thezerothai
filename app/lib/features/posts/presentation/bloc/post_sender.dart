@@ -172,6 +172,14 @@ class _Entry {
   /// Brought back after a restart.
   bool restored = false;
 
+  /// The claim was a reused one (an Edited post under its old key) when the
+  /// post was first sent; kept apart from the restore's own "key used".
+  bool originallyReused = false;
+
+  /// [attachments] was created by the sender (loaded from disk): it is the
+  /// sender's to close.
+  bool ownsAttachments = false;
+
   /// The key the draft row holds for this send; null once released.
   String? held;
 
@@ -451,6 +459,7 @@ class PostSender {
         return null;
       }
       e.attachments = loaded;
+      e.ownsAttachments = loaded != null;
     }
     _entries.remove(localId);
     _timers.remove(localId)?.cancel();
@@ -463,13 +472,14 @@ class PostSender {
       return null;
     }
     final photos = e.attachments;
-    e.attachments = null;
     AttachmentsCubit? keep;
     if (photos != null) {
       if (e.dropPhotos) {
-        unawaited(photos.release());
+        _dropPhotos(e);
       } else {
         // Ownership moves to the composer: not retained, not closing.
+        e.attachments = null;
+        e.ownsAttachments = false;
         photos.reclaim();
         keep = photos;
       }
@@ -575,6 +585,7 @@ class PostSender {
           ..photosLost = lost
           ..saved = true
           ..restored = true
+          ..originallyReused = record.claimReused
           ..onDisk = withPhotos
           ..clearCommunity = flags & kClearCommunity != 0
           ..clearPlan = flags & kClearPlan != 0
@@ -680,7 +691,14 @@ class PostSender {
   void _dropPhotos(_Entry e) {
     final a = e.attachments;
     e.attachments = null;
-    if (a != null) unawaited(a.release());
+    if (a == null) return;
+    if (e.ownsAttachments) {
+      // Loaded from disk by the sender: nobody else holds it.
+      e.ownsAttachments = false;
+      unawaited(a.close());
+    } else {
+      unawaited(a.release());
+    }
   }
 
   Future<void> _releaseHeldKey(_Entry e) async {
@@ -932,7 +950,7 @@ class PostSender {
     // goes again under the same key (the backoff; after it, Retry is manual).
     if (error is NetworkException && !_dead(e) && _waitForNetwork(e)) return;
     if (error is IdempotencyKeyReusedException) {
-      if (e.restored && e.keyUsed) {
+      if (e.restored && e.keyUsed && !e.originallyReused) {
         return _fail(e, 'This post was already sent.', canRetry: false);
       }
       return _fail(
@@ -1017,13 +1035,18 @@ class PostSender {
   void _shedOldFailed() {
     final failed = [
       for (final e in _entries.values)
+        // A post being saved or already on disk keeps its photos there; on
+        // the web (no disk copy) a waiting post is never shed, its photos
+        // would be lost for good.
         if (!e.running &&
+            !e.saving &&
+            !e.onDisk &&
             e.attachments != null &&
             _pending.state.any(
               (p) =>
                   p.localId == e.localId &&
                   (p.status == PendingPostStatus.failed ||
-                      p.status == PendingPostStatus.waiting),
+                      (p.status == PendingPostStatus.waiting && !kIsWeb)),
             ))
           e,
     ];
@@ -1108,7 +1131,9 @@ class PostSender {
   /// manual) or there is no network service.
   bool _waitForNetwork(_Entry e) {
     final net = _network;
-    if (net == null) return false;
+    // No network service, or its post was deleted from Settings meanwhile:
+    // it fails (unsaved, Retry is manual) instead of queueing to send itself.
+    if (net == null || e.noPersist) return false;
     if (!net.online) {
       _wait(e, connection: true);
       return true;
@@ -1323,6 +1348,17 @@ class PostSender {
         status != PendingPostStatus.failed) {
       return;
     }
+    // Every photo finished uploading: the resend carries those media ids
+    // (never new uploads), as a shed row does.
+    final items = e.attachments!.state.items;
+    if (items.isNotEmpty &&
+        items.every(
+          (a) => a.status == AttachmentStatus.uploaded && a.mediaId.isNotEmpty,
+        )) {
+      e.mediaIds = [for (final a in items) a.mediaId];
+      final alts = [for (final a in items) a.altText];
+      e.altTexts = alts.every((t) => t.isEmpty) ? const [] : alts;
+    }
     _dropPhotos(e);
   }
 
@@ -1335,11 +1371,10 @@ class PostSender {
     try {
       final photos = await store.loadFull(e.job.uid, e.localId);
       if (photos.isEmpty || photos.any((p) => !p.fullLoaded)) return null;
-      return make()
-        ..restore([
-          for (final p in photos) (image: p.image, altText: p.altText),
-        ], gif: e.job.gif)
-        ..retain();
+      return make()..restore([
+        for (final p in photos)
+          (image: p.image, altText: p.altText, mediaId: p.mediaId),
+      ], gif: e.job.gif);
     } catch (_, stack) {
       _onUnexpectedError?.call(
         StateError('Unsent photos could not be read.'),
@@ -1360,6 +1395,7 @@ class PostSender {
       return true;
     }
     e.attachments = cubit;
+    e.ownsAttachments = true;
     return true;
   }
 

@@ -4,7 +4,7 @@ import 'package:drift/native.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/media/domain/processed_image.dart';
 import 'package:dzeroth/features/posts/data/drafts_repository.dart'
-    show kPostSendKeyWindow;
+    show DraftsRepository, kPostSendKeyWindow;
 import 'package:dzeroth/features/posts/data/unsent_posts_store.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
@@ -347,17 +347,36 @@ void main() {
     );
 
     test('only posts without a draft row are counted on their own', () async {
-      UnsentPostRecord withDraft(String id, String? draft) => UnsentPostRecord(
-        uid: 'u1',
-        postId: id,
-        text: 't',
-        author: common.AuthorSnapshot(userId: 'u1'),
-        createdAt: now,
-        draftId: draft,
+      final drafts = DraftsRepository(db);
+      Future<void> draft(String id) => drafts.upsert(
+        ComposerDraft(
+          id: id,
+          uid: 'u1',
+          text: 'text $id',
+          createdAt: now,
+          updatedAt: now,
+        ),
       );
-      await store.save(withDraft('a', 'd1'), epoch: epoch());
-      await store.save(withDraft('b', null), epoch: epoch());
-      await store.save(withDraft('c', null), epoch: epoch());
+      UnsentPostRecord post(String id, {String? draftId, String? deleteId}) =>
+          UnsentPostRecord(
+            uid: 'u1',
+            postId: id,
+            text: 't',
+            author: common.AuthorSnapshot(userId: 'u1'),
+            createdAt: now,
+            draftId: draftId,
+            deleteDraftId: deleteId,
+          );
+      await draft('d1');
+      await draft('d2');
+      // Keyed on a saved draft.
+      await store.save(post('a', draftId: 'd1'), epoch: epoch());
+      // An image-only post of a saved draft: no key on the row, but the
+      // draft row exists, so the drafts already count it.
+      await store.save(post('img', deleteId: 'd2'), epoch: epoch());
+      // No draft row at all.
+      await store.save(post('b'), epoch: epoch());
+      await store.save(post('c', deleteId: 'never-saved'), epoch: epoch());
       expect(await store.watchCountWithoutDraft('u1').first, 2);
     });
   });

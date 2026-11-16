@@ -452,9 +452,16 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// further request starts and an [UploadInterruptedException] is thrown.
   Future<UploadedAttachments> uploadAll({bool Function()? stillWanted}) async {
     final items = state.items;
+    // Photos that already finished uploading (also restored ones) keep their
+    // media id: nothing is uploaded for them again.
+    final done = {
+      for (final a in items)
+        if (a.status == AttachmentStatus.uploaded && a.mediaId.isNotEmpty) a.id,
+    };
     final jobs = [
       for (final a in items)
-        if (a.image != null) UploadJob(id: a.id, image: a.image!),
+        if (a.image != null && !done.contains(a.id))
+          UploadJob(id: a.id, image: a.image!),
     ];
     for (final a in items) {
       if (a.status == AttachmentStatus.ready ||
@@ -467,17 +474,19 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     }
     final List<UploadOutcome> outcomes;
     try {
-      outcomes = await _uploader.upload(
-        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
-        jobs: jobs,
-        stillWanted: stillWanted ?? _stillWanted,
-        onProgress: (id, progress) => _update(
-          id,
-          (a) => a.status == AttachmentStatus.uploading
-              ? a.copyWith(progress: progress)
-              : a,
-        ),
-      );
+      outcomes = jobs.isEmpty
+          ? const <UploadOutcome>[]
+          : await _uploader.upload(
+              purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+              jobs: jobs,
+              stillWanted: stillWanted ?? _stillWanted,
+              onProgress: (id, progress) => _update(
+                id,
+                (a) => a.status == AttachmentStatus.uploading
+                    ? a.copyWith(progress: progress)
+                    : a,
+              ),
+            );
     } on AppException catch (error) {
       if (error is ScreeningUnavailableException) {
         // Every tile in flight was uploaded and none could be checked. Keep
@@ -562,6 +571,11 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     final mediaIds = <String>[];
     final alts = <String>[];
     for (final a in items) {
+      if (done.contains(a.id)) {
+        mediaIds.add(a.mediaId);
+        alts.add(a.altText);
+        continue;
+      }
       final outcome = byId[a.id];
       if (outcome == null || outcome.status != UploadOutcomeStatus.ready) {
         // A contract/logic anomaly, not a user-facing failure: the composer's
@@ -633,8 +647,13 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// Puts already processed photos back (an unsent post restored after the
   /// app restarted): each is ready to upload, nothing is re-processed and no
   /// original file is needed. A GIF keeps its GIF kind.
+  ///
+  /// A photo with a [mediaId] finished uploading before: it comes back as
+  /// uploaded with that id, and [uploadAll] does not upload it again (a new
+  /// upload would be a different media id, and a resend under the same
+  /// idempotency key must carry the same ones).
   void restore(
-    List<({ProcessedImage image, String altText})> photos, {
+    List<({ProcessedImage image, String altText, String mediaId})> photos, {
     bool gif = false,
   }) {
     if (isClosed) return;
@@ -645,9 +664,13 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
             Attachment(
               id: _uuid.v4(),
               kind: gif ? AttachmentKind.gif : AttachmentKind.photo,
-              status: AttachmentStatus.ready,
+              status: p.mediaId.isEmpty
+                  ? AttachmentStatus.ready
+                  : AttachmentStatus.uploaded,
               image: p.image,
               altText: p.altText,
+              mediaId: p.mediaId,
+              progress: p.mediaId.isEmpty ? 0 : 1,
             ),
         ],
       ),

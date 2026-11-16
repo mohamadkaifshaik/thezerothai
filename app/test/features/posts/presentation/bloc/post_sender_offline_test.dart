@@ -56,6 +56,7 @@ void main() {
   Object? Function(int call)? failWith;
   late List<List<String>> mediaSeen;
   late bool hang;
+  late Completer<void> hangGate;
 
   void stubCreate() {
     when(
@@ -73,7 +74,7 @@ void main() {
       keys.add(invocation.namedArguments[#idempotencyKey] as String);
       mediaSeen.add(invocation.namedArguments[#mediaIds] as List<String>);
       // CreatePost that never answers (the app is killed meanwhile).
-      if (hang) await Completer<void>().future;
+      if (hang) await hangGate.future;
       final error = failWith?.call(sent.length + keys.length);
       if (error != null) throw error;
       sent.add(invocation.namedArguments[#text] as String);
@@ -91,6 +92,7 @@ void main() {
     failWith = null;
     mediaSeen = [];
     hang = false;
+    hangGate = Completer<void>();
     when(() => posts.subFeatureEnabled(any())).thenReturn(true);
     stubCreate();
   });
@@ -349,11 +351,18 @@ void main() {
     late UnsentPostsStore store;
     late PostSender sender;
 
-    AttachmentsCubit newCubit() => AttachmentsCubit(
-      picker: FakeImagePicker(),
-      processor: FakeImageProcessor(),
-      uploader: MediaUploader(repository: media),
-    );
+    // The cubits the sender itself makes (loaded from disk).
+    final made = <AttachmentsCubit>[];
+    setUp(made.clear);
+    AttachmentsCubit newCubit() {
+      final cubit = AttachmentsCubit(
+        picker: FakeImagePicker(),
+        processor: FakeImageProcessor(),
+        uploader: MediaUploader(repository: media),
+      );
+      made.add(cubit);
+      return cubit;
+    }
 
     PostSender make(PendingPostsCubit into, FakeNetworkTypeService network) =>
         PostSender(
@@ -956,6 +965,161 @@ void main() {
         expect(row.keepsPhotos, isFalse);
       },
     );
+
+    Future<void> uploadedThenCreateFails() async {
+      var first = true;
+      failWith = (_) {
+        if (!first) return null;
+        first = false;
+        net.setOnline(false);
+        return const NetworkException('down');
+      };
+    }
+
+    test(
+      'one session: uploads succeed, CreatePost fails on the network, the '
+      'resend replays the same media ids and uploads nothing again',
+      () async {
+        await uploadedThenCreateFails();
+        await sender.start(_job(attachments: await photos(2)));
+        await sender.idle;
+        expect(pending.state.single.status, PendingPostStatus.waiting);
+
+        net.setOnline(true);
+        await sender.idle;
+        expect(sent, ['hello']);
+        expect(mediaSeen, [
+          ['m1', 'm2'],
+          ['m1', 'm2'],
+        ]);
+        expect(keys.toSet(), hasLength(1));
+        verify(
+          () => media.createUpload(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            purpose: any(named: 'purpose'),
+            images: any(named: 'images'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test('Edit after the uploads keeps them: an unchanged resend has the same '
+        'media ids', () async {
+      await uploadedThenCreateFails();
+      await sender.start(_job(attachments: await photos(1)));
+      await sender.idle;
+      final seed = await sender.edit(pending.state.single.localId);
+      final items = seed!.attachments!.state.items;
+      expect(items.single.status, AttachmentStatus.uploaded);
+      expect(items.single.mediaId, 'm1');
+      expect(items.single.image!.fullBytes, isNotEmpty);
+
+      final again = await seed.attachments!.uploadAll();
+      expect(again.mediaIds, ['m1']);
+      verify(
+        () => media.createUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      ).called(1);
+    });
+
+    test('a burst of offline photo posts keeps every post\'s photos', () async {
+      final burst = PostSender(
+        pending: pending,
+        repository: posts,
+        sessionEpoch: db.sessionEpoch,
+        network: net,
+        unsent: store,
+        newAttachments: newCubit,
+        maxFailedWithPhotos: 1,
+      );
+      addTearDown(burst.dispose);
+      net.setOnline(false);
+      final cubits = [for (var i = 0; i < 4; i++) await photos(1)];
+      for (var i = 0; i < 4; i++) {
+        unawaited(burst.start(_job(text: 'p$i', attachments: cubits[i])));
+      }
+      await burst.idle;
+      expect(pending.state.every((p) => p.keepsPhotos), isTrue);
+      expect(pending.state.every((p) => p.canRetry), isTrue);
+
+      net.setOnline(true);
+      await burst.idle;
+      expect(sent, ['p0', 'p1', 'p2', 'p3']);
+      verify(
+        () => media.createUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      ).called(4);
+    });
+
+    test('a restored post whose claim was a reused one keeps the earlier '
+        'version copy', () async {
+      await store.save(
+        UnsentPostRecord(
+          uid: 'u1',
+          postId: 'r',
+          text: 'edited',
+          author: common.AuthorSnapshot(userId: 'u1'),
+          createdAt: DateTime.now(),
+          key: 'k-r',
+          keyStartedAt: DateTime.now().subtract(const Duration(hours: 1)),
+          keyUsed: true,
+          ambiguous: true,
+          claimReused: true,
+        ),
+        epoch: db.sessionEpoch.value,
+      );
+      final again = await relaunch();
+      failWith = (_) => const IdempotencyKeyReusedException('same key');
+      await again.sender.retry(again.pending.state.single.localId);
+      await again.sender.idle;
+      expect(
+        again.pending.state.single.error,
+        startsWith('An earlier version'),
+      );
+    });
+
+    test('cubits the sender loads from disk are closed, none leaks', () async {
+      net.setOnline(false);
+      await sender.start(_job(attachments: await photos(1)));
+      await sender.idle;
+      await uploadedThenCreateFails();
+      net.setOnline(true);
+      await sender.idle;
+      // The upload finished, CreatePost failed offline; online again it replays.
+      expect(sent, isEmpty);
+      net.setOnline(true);
+      await sender.idle;
+      expect(sent, ['hello']);
+      expect(made, isNotEmpty);
+      expect(made.every((c) => c.isClosed), isTrue);
+    });
+
+    test('after Delete unsent posts an in-flight send that hits the network '
+        'fails unsaved and does not send itself', () async {
+      hang = true;
+      unawaited(sender.start(_job(text: 'running')));
+      for (var i = 0; i < 100 && keys.isEmpty; i++) {
+        await pumpEventQueue();
+      }
+      expect(keys, hasLength(1));
+      await sender.deleteUnsentPosts('u1');
+
+      net.setOnline(false);
+      hangGate.completeError(const NetworkException('gone'));
+      await sender.idle;
+      expect(pending.state.single.status, PendingPostStatus.failed);
+
+      net.setOnline(true);
+      await sender.idle;
+      expect(keys, hasLength(1));
+      expect(await store.load('u1'), isEmpty);
+    });
 
     test('the web keeps no photo bytes: text only after a restart', () async {
       final web = UnsentPostsStore(db, keepsPhotoBytes: false);
