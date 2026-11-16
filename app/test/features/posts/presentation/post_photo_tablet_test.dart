@@ -135,7 +135,11 @@ void main() {
         await open(tester, width: width, height: height);
         expect(find.text('1 / 2'), findsOneWidget);
         expect(find.byTooltip('Close image'), findsOneWidget);
-        expect(find.byTooltip('Next image'), findsOneWidget);
+        // A phone swipes; the arrows are for tablet and desktop widths.
+        expect(
+          find.byTooltip('Next image'),
+          width < 600 ? findsNothing : findsOneWidget,
+        );
         final caption = find.textContaining('Two photos of the harbour.');
         // With the pane the post itself is beside the photo, once.
         expect(caption, findsOneWidget);

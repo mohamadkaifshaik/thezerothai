@@ -16,12 +16,9 @@ int? mediaPageCount(WidgetTester tester) {
 }
 
 double _step(WidgetTester tester) {
+  // Tiles of the test rows share one aspect, so one step fits them all.
   final tile = tester.getSize(
-    find
-        .descendant(of: _strip.first, matching: find.byType(SizedBox))
-        .evaluate()
-        .map((e) => find.byWidget(e.widget))
-        .firstWhere((f) => tester.getSize(f).aspectRatio == 4 / 5),
+    find.descendant(of: _strip.first, matching: find.byType(ClipRRect)).first,
   );
   return tile.width + AppSize.postMediaRowGap;
 }

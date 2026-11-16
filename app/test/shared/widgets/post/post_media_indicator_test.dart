@@ -210,9 +210,14 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       expect(_current, findsOneWidget);
-      // The tiles stay 4:5.
-      final size = tester.getSize(find.byType(ListView));
-      expect(size.height, closeTo(size.width * 0.72 * 1.25, 0.5));
+      // The tiles share the row's height.
+      final height = tester.getSize(find.byType(ListView)).height;
+      final tiles = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(ClipRRect),
+      );
+      expect(tiles, findsWidgets);
+      expect(tester.getSize(tiles.first).height, closeTo(height, 0.5));
     },
     widths: const [320, 360],
     textScales: kMatrixTextScalesLarge,

@@ -15,20 +15,25 @@ import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'alt_text_chip.dart';
 import 'gif_badge.dart';
 
-/// A post's attached images (0-4), Substack style: media sits in the body
-/// column and is as wide as the column, never a fixed height.
+/// A post's attached images (0-4), X style, at the full body width (the card
+/// does not indent them to the text column).
 ///
-/// - One image: full column width at its own aspect ratio, between 2:1 (a
-///   wider panorama is center-cropped at the sides) and 4:5 (a taller image
-///   is center-cropped top and bottom). On tablet and desktop the frame is at
-///   most [AppSize.postMediaMaxSingleHeight] tall; its width shrinks to keep
-///   the ratio, so a landscape or square image is still uncropped.
-/// - Several: a horizontally swipeable row of equal 4:5 tiles ([tileSize]);
-///   on a phone the next tile peeks in at the column's right edge.
+/// - One image: full column width at its own aspect ratio, uncropped. Only the
+///   extremes are clamped: 9:16 is the tallest and 3:1 the widest frame, and
+///   a picture beyond them is center-cropped. With no stored size the frame is
+///   4:5 ([AppSize.postMediaDefaultAspect]). On tablet and desktop the frame is
+///   at most [AppSize.postMediaMaxSingleHeight] tall; its width shrinks to keep
+///   the ratio.
+/// - Several: a horizontal row of tiles that all share one height
+///   ([rowHeight]); each tile keeps its own aspect (width = height x aspect),
+///   so widths differ. The row scrolls; a caller that lays this widget out
+///   across the whole card passes [insetStart] and [insetEnd] (the card's
+///   padding) so the scroll viewport reaches the card's edges while the first
+///   tile lines up with the body text.
 ///
-/// Pictures use `BoxFit.cover`, centered: no letterbox, no blurred
-/// background. The frame comes from the stored `width`/`height` alone (4:5
-/// when unknown), so it has its final size before any image loads. A tap
+/// Pictures use `BoxFit.cover`, centered (a plain fit except at the clamped
+/// extremes): no letterbox, no blurred background. The frame comes from the
+/// stored `width`/`height` alone (4:5 when unknown), so it has its final size before any image loads. A tap
 /// opens the full-screen viewer through [onOpenImage], which shows the image
 /// whole.
 ///
@@ -57,7 +62,17 @@ class PostMedia extends StatelessWidget {
     this.useFullImage = false,
     this.onOpenImage,
     this.showPageIndicator = false,
+    this.insetStart = 0,
+    this.insetEnd = 0,
   });
+
+  /// The padding the caller leaves at each side of the body column inside the
+  /// width this widget is given: the body column is the given width minus
+  /// these. The several-images row scrolls through them (edge to edge, as on
+  /// X) with its first tile on the column; a single image sits in the column.
+  /// Zero (the default) means the given width is the column.
+  final double insetStart;
+  final double insetEnd;
 
   final List<common.MediaRef> media;
   final ValueChanged<int>? onOpenImage;
@@ -74,9 +89,9 @@ class PostMedia extends StatelessWidget {
   /// Show the full-size `url` (detail view). Lists leave this false.
   final bool useFullImage;
 
-  /// The aspect ratio of a single item's frame: its stored size clamped to
-  /// 4:5 .. 2:1, or 4:5 when the size is unknown (refs stored before sizes
-  /// were recorded).
+  /// The aspect ratio of one item's frame: its stored size clamped to 9:16
+  /// .. 3:1, or 4:5 when the size is unknown (refs stored before sizes were
+  /// recorded).
   static double frameAspect(common.MediaRef ref) =>
       ref.width > 0 && ref.height > 0
       ? (ref.width / ref.height)
@@ -85,7 +100,7 @@ class PostMedia extends StatelessWidget {
               AppSize.postMediaLandscapeAspect,
             )
             .toDouble()
-      : AppSize.postMediaPortraitAspect;
+      : AppSize.postMediaDefaultAspect;
 
   /// The thumbnail's longest edge for a ref whose stored (full) longest edge
   /// is [longest]. The ref does not carry the thumb's size, so it is inferred
@@ -135,20 +150,31 @@ class PostMedia extends StatelessWidget {
     return Size(column, height);
   }
 
-  /// One tile of the several-images row: 72% of the column on a phone, a
-  /// fixed 240 x 300 wider; always 4:5 and never wider than the column.
-  static Size tileSize({required double column, required bool wide}) {
-    final width = wide
-        ? AppSize.postMediaTileWidthWide
-        : column * AppSize.postMediaTileWidthFraction;
-    final clamped = width > column ? column : width;
-    return Size(
-      clamped,
-      clamped == width && wide
-          ? AppSize.postMediaTileHeightWide
-          : clamped / AppSize.postMediaPortraitAspect,
+  /// The shared height of the several-images row in a [column] wide body:
+  /// `min(1.25 x column, 0.59 x column / meanAspect)`, where `meanAspect` is
+  /// the mean of the tiles' [frameAspect]s (each already clamped to 9:16 ..
+  /// 3:1), then at least `0.5 x column` (so a row of landscape pictures is not
+  /// tiny) and, on a [wide] window, at most
+  /// [AppSize.postMediaMaxSingleHeight]. Measured on X at column 259: three
+  /// 9:16 tiles give 272.
+  static double rowHeight(
+    List<common.MediaRef> items, {
+    required double column,
+    required bool wide,
+  }) {
+    final mean = items.map(frameAspect).reduce((a, b) => a + b) / items.length;
+    var height = math.min(
+      column * AppSize.postMediaRowMaxHeightFraction,
+      column * AppSize.postMediaRowAreaFraction / mean,
     );
+    height = math.max(height, column * AppSize.postMediaRowMinHeightFraction);
+    if (wide) height = math.min(height, AppSize.postMediaMaxSingleHeight);
+    return height;
   }
+
+  /// One tile's size in a row of [height]: width = height x its own aspect.
+  static Size tileSize(common.MediaRef ref, {required double height}) =>
+      Size(height * frameAspect(ref), height);
 
   @override
   Widget build(BuildContext context) {
@@ -158,19 +184,19 @@ class PostMedia extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final column = constraints.maxWidth;
-        Widget tile(int index, Size size) => SizedBox.fromSize(
+        final column = constraints.maxWidth - insetStart - insetEnd;
+        Widget tile(int index, Size size, double radius) => SizedBox.fromSize(
           size: size,
           // The hairline is drawn over the picture so it adds nothing to the
           // frame's size.
           child: DecoratedBox(
             position: DecorationPosition.foreground,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadius.postMedia),
+              borderRadius: BorderRadius.circular(radius),
               border: Border.all(color: colors.outlineVariant),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.postMedia),
+              borderRadius: BorderRadius.circular(radius),
               child: _MediaTile(
                 media: items[index],
                 useFullImage: useFullImage,
@@ -180,37 +206,52 @@ class PostMedia extends StatelessWidget {
           ),
         );
         if (items.length == 1) {
-          return Align(
-            alignment: AlignmentDirectional.topStart,
-            heightFactor: 1,
-            child: tile(0, singleSize(items.first, column: column, wide: wide)),
+          return Padding(
+            padding: EdgeInsetsDirectional.only(
+              start: insetStart,
+              end: insetEnd,
+            ),
+            child: Align(
+              alignment: AlignmentDirectional.topStart,
+              heightFactor: 1,
+              child: tile(
+                0,
+                singleSize(items.first, column: column, wide: wide),
+                AppRadius.postMedia,
+              ),
+            ),
           );
         }
+        final height = rowHeight(items, column: column, wide: wide);
         return _MediaStrip(
-          count: items.length,
-          size: tileSize(column: column, wide: wide),
+          sizes: [for (final m in items) tileSize(m, height: height)],
           showIndicator: showPageIndicator,
-          tile: tile,
+          insetStart: insetStart,
+          insetEnd: insetEnd,
+          tile: (index, size) => tile(index, size, AppRadius.postMediaTile),
         );
       },
     );
   }
 }
 
-/// Several images: equal tiles in a lazy horizontal list, clipped at the
-/// column's right edge (the cut-off tile shows there is more), plus,
-/// optionally, the dots below.
+/// Several images: tiles of one height in a lazy horizontal list spanning the
+/// whole given width; [insetStart] / [insetEnd] are its padding, so the first
+/// tile sits on the body column and the tiles scroll out through the card's
+/// edges. Optionally the dots below (on the column).
 class _MediaStrip extends StatefulWidget {
   const _MediaStrip({
-    required this.count,
-    required this.size,
+    required this.sizes,
     required this.showIndicator,
+    required this.insetStart,
+    required this.insetEnd,
     required this.tile,
   });
 
-  final int count;
-  final Size size;
+  final List<Size> sizes;
   final bool showIndicator;
+  final double insetStart;
+  final double insetEnd;
   final Widget Function(int index, Size size) tile;
 
   @override
@@ -220,33 +261,45 @@ class _MediaStrip extends StatefulWidget {
 class _MediaStripState extends State<_MediaStrip> {
   int _page = 0;
 
+  /// The tile whose start is nearest the scroll offset (offset 0 is tile 0:
+  /// the inset is the list's start padding).
   bool _onScroll(ScrollNotification note) {
     if (note.metrics.axis != Axis.horizontal) return false;
-    final step = widget.size.width + AppSize.postMediaRowGap;
-    final page = (note.metrics.pixels / step).round().clamp(
-      0,
-      widget.count - 1,
-    );
-    if (page != _page) setState(() => _page = page);
+    var best = 0;
+    var bestDistance = double.infinity;
+    var start = 0.0;
+    for (var i = 0; i < widget.sizes.length; i++) {
+      final distance = (note.metrics.pixels - start).abs();
+      if (distance < bestDistance) {
+        best = i;
+        bestDistance = distance;
+      }
+      start += widget.sizes[i].width + AppSize.postMediaRowGap;
+    }
+    if (best != _page) setState(() => _page = best);
     return false;
   }
 
   @override
   Widget build(BuildContext context) {
-    final strip = SizedBox(
-      height: widget.size.height,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        primary: false,
-        itemCount: widget.count,
-        itemBuilder: (context, index) => Padding(
-          padding: EdgeInsetsDirectional.only(
-            end: index == widget.count - 1 ? 0 : AppSize.postMediaRowGap,
-          ),
-          child: widget.tile(index, widget.size),
+    final count = widget.sizes.length;
+    final height = widget.sizes.first.height;
+    final list = ListView.builder(
+      scrollDirection: Axis.horizontal,
+      primary: false,
+      itemCount: count,
+      padding: EdgeInsetsDirectional.only(
+        start: widget.insetStart,
+        end: widget.insetEnd,
+      ),
+      itemBuilder: (context, index) => Padding(
+        padding: EdgeInsetsDirectional.only(
+          end: index == count - 1 ? 0 : AppSize.postMediaRowGap,
         ),
+        child: widget.tile(index, widget.sizes[index]),
       ),
     );
+    final strip = SizedBox(height: height, child: list);
     if (!widget.showIndicator) return strip;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -256,7 +309,13 @@ class _MediaStripState extends State<_MediaStrip> {
           onNotification: _onScroll,
           child: strip,
         ),
-        _PageDots(count: widget.count, page: _page),
+        Padding(
+          padding: EdgeInsetsDirectional.only(
+            start: widget.insetStart,
+            end: widget.insetEnd,
+          ),
+          child: _PageDots(count: count, page: _page),
+        ),
       ],
     );
   }
@@ -398,7 +457,7 @@ Widget _withAltChip(Widget image, String alt) {
 /// size is unknown.
 double _aspectOf(common.MediaRef media) => media.width > 0 && media.height > 0
     ? media.width / media.height
-    : AppSize.postMediaPortraitAspect;
+    : AppSize.postMediaDefaultAspect;
 
 /// The feed picture: the thumbnail, or the full file when the thumbnail has
 /// too few pixels for the frame ([PostMedia.thumbSuffices]), the thumbnail
@@ -474,7 +533,7 @@ Widget _networkImage(
 }) {
   return LayoutBuilder(
     builder: (context, constraints) {
-      // A picture cropped at the sides (a panorama in a 2:1 frame) is drawn
+      // A picture cropped at the sides (a panorama in a 3:1 frame) is drawn
       // wider than the frame; decoding at the frame's width would upscale it.
       final px = PostMedia.neededPixels(
         constraints.biggest,

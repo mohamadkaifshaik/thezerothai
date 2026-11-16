@@ -22,9 +22,7 @@ Widget _host(Widget child, {double width = 360}) => MaterialApp(
 void main() {
   group('PostActionBar', () {
     for (final scale in const [1.0, 2.0]) {
-      testWidgets('real counts fit 328dp at text x$scale', (
-        tester,
-      ) async {
+      testWidgets('real counts fit 328dp at text x$scale', (tester) async {
         await tester.pumpWidget(
           MediaQuery(
             data: MediaQueryData(textScaler: TextScaler.linear(scale)),
@@ -442,12 +440,14 @@ void main() {
       matching: find.byType(ClipRRect),
     );
 
-    testWidgets('one image keeps its aspect ratio, clamped', (tester) async {
+    testWidgets('one image keeps its aspect ratio, clamped to 9:16', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _host(PostMedia(media: [ref(w: 100, h: 1000, alt: 'tall')])),
       );
       final size = tester.getSize(frames());
-      expect(size.width / size.height, closeTo(4 / 5, 0.001));
+      expect(size.width / size.height, closeTo(9 / 16, 0.001));
     });
 
     testWidgets('alt text becomes the semantics label on its own tile; '

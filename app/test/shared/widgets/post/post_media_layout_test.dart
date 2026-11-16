@@ -9,10 +9,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/theme_harness.dart';
 
-/// Substack-style post media: a frame is as wide as the body column (never a
-/// fixed height); one image keeps its aspect between 2:1 and 4:5, several are
-/// equal 4:5 tiles in a swipeable row. Tablet and desktop cap a single frame
-/// at 520 dp tall (its width shrinks to keep the ratio).
+/// X-style post media: a frame is as wide as the body column (never a fixed
+/// height); one image keeps its own aspect, uncropped, between 9:16 and 3:1;
+/// several are tiles of one shared height (each at its own aspect) in a
+/// scrollable row. Tablet and desktop cap a single frame at 520 dp tall (its
+/// width shrinks to keep the ratio).
 
 /// Window width and the body column it implies (the feed's column minus the
 /// avatar gutter): phone 390 -> 306, tablet 800 -> 540, desktop 1280 -> 540.
@@ -127,7 +128,7 @@ void main() {
         expect(frame.width / frame.height, closeTo(0.8, 0.001));
       });
 
-      testWidgets('single 9:16 is capped to 4:5 and center-cropped', (
+      testWidgets('single 9:16 is the tallest frame, uncropped', (
         tester,
       ) async {
         await _pump(
@@ -137,8 +138,25 @@ void main() {
           column: column,
         );
         final frame = _frames(tester).single;
-        expect(frame.width / frame.height, closeTo(0.8, 0.001));
-        expect(frame.height, closeTo(wide ? cap : column * 1.25, 0.01));
+        expect(frame.width / frame.height, closeTo(9 / 16, 0.001));
+        final height = column * 16 / 9;
+        expect(
+          frame.height,
+          closeTo(wide && height > cap ? cap : height, 0.01),
+        );
+      });
+
+      testWidgets('single 1:2 is clamped to 9:16 and center-cropped', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          [_photo(500, 1000)],
+          window: window,
+          column: column,
+        );
+        final frame = _frames(tester).single;
+        expect(frame.width / frame.height, closeTo(9 / 16, 0.001));
         final image = tester.widget<CachedNetworkImage>(
           find.byType(CachedNetworkImage).first,
         );
@@ -146,18 +164,36 @@ void main() {
         expect(image.alignment, Alignment.center);
       });
 
-      testWidgets('single 3:1 is capped to 2:1 and center-cropped', (
-        tester,
-      ) async {
+      testWidgets('single 2:3 keeps its ratio', (tester) async {
+        await _pump(tester, [_photo(600, 900)], window: window, column: column);
+        final frame = _frames(tester).single;
+        expect(frame.width / frame.height, closeTo(2 / 3, 0.001));
+      });
+
+      testWidgets('single 2.59:1 panorama is uncropped', (tester) async {
         await _pump(
           tester,
-          [_photo(3000, 1000)],
+          [_photo(2590, 1000)],
           window: window,
           column: column,
         );
         final frame = _frames(tester).single;
         expect(frame.width, closeTo(column, 0.01));
-        expect(frame.height, closeTo(column / 2, 0.01));
+        expect(frame.height, closeTo(column / 2.59, 0.01));
+      });
+
+      testWidgets('single 4:1 is clamped to 3:1 and center-cropped', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          [_photo(4000, 1000)],
+          window: window,
+          column: column,
+        );
+        final frame = _frames(tester).single;
+        expect(frame.width, closeTo(column, 0.01));
+        expect(frame.height, closeTo(column / 3, 0.01));
         expect(
           tester
               .widget<CachedNetworkImage>(find.byType(CachedNetworkImage))
@@ -172,52 +208,37 @@ void main() {
         expect(frame.width / frame.height, closeTo(0.8, 0.001));
       });
 
-      testWidgets('several images: equal 4:5 tiles, a gap, scrollable', (
+      testWidgets('several images: one shared height, own widths, 4 dp gap', (
         tester,
       ) async {
-        await _pump(
-          tester,
-          [
-            _photo(1600, 900, n: 1),
-            _photo(900, 1600, n: 2),
-            _photo(800, 800, n: 3),
-            _photo(0, 0, n: 4),
-          ],
-          window: window,
-          column: column,
-        );
+        final media = [
+          _photo(1600, 900, n: 1),
+          _photo(900, 1600, n: 2),
+          _photo(800, 800, n: 3),
+          _photo(0, 0, n: 4),
+        ];
+        await _pump(tester, media, window: window, column: column);
         final tiles = _frames(tester);
         expect(tiles.length, greaterThanOrEqualTo(2));
-        final want = wide
-            ? const Size(
-                AppSize.postMediaTileWidthWide,
-                AppSize.postMediaTileHeightWide,
-              )
-            : Size(
-                column * AppSize.postMediaTileWidthFraction,
-                column * AppSize.postMediaTileWidthFraction * 1.25,
-              );
-        for (final tile in tiles) {
-          expect(tile.width, closeTo(want.width, 0.01));
-          expect(tile.height, closeTo(want.height, 0.01));
+        final height = PostMedia.rowHeight(media, column: column, wide: wide);
+        for (var i = 0; i < tiles.length; i++) {
+          expect(tiles[i].height, closeTo(height, 0.01));
+          expect(
+            tiles[i].width,
+            closeTo(height * PostMedia.frameAspect(media[i]), 0.01),
+          );
         }
         expect(tiles.first.left, 0);
         expect(
           tiles[1].left,
           closeTo(tiles.first.right + AppSize.postMediaRowGap, 0.01),
         );
-        // The row is clipped at the column: a tile reaches past it (the next
-        // one peeks on a phone) or the row simply scrolls.
         final scrollable = find.descendant(
           of: find.byType(ListView),
           matching: find.byType(Scrollable),
         );
         final position = tester.state<ScrollableState>(scrollable).position;
         expect(position.maxScrollExtent, greaterThan(0));
-        if (!wide) {
-          expect(tiles[1].left, lessThan(column));
-          expect(tiles[1].right, greaterThan(column));
-        }
         await tester.drag(find.byType(ListView), const Offset(-120, 0));
         await tester.pump();
         expect(position.pixels, greaterThan(0));
@@ -281,7 +302,7 @@ void main() {
     );
   });
 
-  testWidgets('frames are rounded 12 dp', (tester) async {
+  testWidgets('frames are rounded 16 dp, row tiles 8 dp', (tester) async {
     await _pump(tester, [_photo(1600, 900)], window: 390, column: 306);
     final clip = tester.widget<ClipRRect>(
       find.descendant(
@@ -290,7 +311,22 @@ void main() {
       ),
     );
     expect(clip.borderRadius, BorderRadius.circular(AppRadius.postMedia));
-    expect(AppRadius.postMedia, 12);
+    expect(AppRadius.postMedia, 16);
+    await _pump(
+      tester,
+      [_photo(900, 1600), _photo(900, 1600)],
+      window: 390,
+      column: 306,
+    );
+    final tile = tester.widget<ClipRRect>(
+      find
+          .descendant(
+            of: find.byType(PostMedia),
+            matching: find.byType(ClipRRect),
+          )
+          .first,
+    );
+    expect(tile.borderRadius, BorderRadius.circular(8));
   });
 
   group('GIFs use the same frame', () {
@@ -381,14 +417,77 @@ void main() {
   });
 
   test('the sizing helpers', () {
-    expect(PostMedia.frameAspect(_photo(1, 100)), closeTo(4 / 5, 1e-9));
-    expect(PostMedia.frameAspect(_photo(100, 1)), closeTo(2, 1e-9));
+    expect(PostMedia.frameAspect(_photo(1, 100)), closeTo(9 / 16, 1e-9));
+    expect(PostMedia.frameAspect(_photo(100, 1)), closeTo(3, 1e-9));
     expect(PostMedia.frameAspect(_photo(0, 80)), closeTo(4 / 5, 1e-9));
     expect(
-      PostMedia.tileSize(column: 306, wide: false),
-      Size(306 * 0.72, 306 * 0.72 * 1.25),
+      PostMedia.tileSize(_photo(900, 1600), height: 272),
+      Size(272 * 9 / 16, 272),
     );
-    expect(PostMedia.tileSize(column: 540, wide: true), const Size(240, 300));
-    expect(PostMedia.tileSize(column: 200, wide: true), const Size(200, 250));
+  });
+
+  group('row height rule at column 259', () {
+    double h(List<common.MediaRef> m, {bool wide = false}) =>
+        PostMedia.rowHeight(m, column: 259, wide: wide);
+
+    test('three 9:16 tiles: height 272, tiles 152 wide', () {
+      final media = [for (var i = 0; i < 3; i++) _photo(900, 1600, n: i)];
+      expect(h(media), closeTo(272, 1));
+      expect(
+        PostMedia.tileSize(media.first, height: h(media)).width,
+        closeTo(152, 1),
+      );
+    });
+
+    test('two 9:16 tiles give the same height as three', () {
+      expect(h([_photo(900, 1600), _photo(900, 1600)]), closeTo(272, 1));
+    });
+
+    test('DIVERGES from X (measured 305, tiles 140/171/204): aspects '
+        '0.46/0.56/0.67 give 255 with the specified rule', () {
+      final media = [
+        _photo(460, 1000, n: 1),
+        _photo(560, 1000, n: 2),
+        _photo(670, 1000, n: 3),
+      ];
+      // The rule clamps each tile to 9:16 first: mean 0.598, 0.59 x 259 /
+      // 0.598 = 255.4. X shows 305, so X does not follow this rule here.
+      expect(h(media), closeTo(255.4, 0.1));
+      expect(
+        [for (final m in media) PostMedia.tileSize(m, height: h(media)).width],
+        [closeTo(143.7, 0.1), closeTo(143.7, 0.1), closeTo(170.5, 0.1)],
+      );
+    });
+
+    test('DIVERGES from X (measured 323, the cap): very narrow strips give '
+        '272 because each tile is clamped to 9:16 first', () {
+      expect(h([_photo(300, 1000), _photo(300, 1000)]), closeTo(271.7, 0.1));
+      expect(h([_photo(300, 1000), _photo(300, 1000)]), lessThan(323));
+    });
+
+    test('landscape-only rows are floored at half the column', () {
+      expect(h([_photo(3000, 1000), _photo(3000, 1000)]), closeTo(129.5, 0.01));
+    });
+
+    test('wide windows cap the row at the single-frame maximum', () {
+      final media = [_photo(900, 1600), _photo(900, 1600)];
+      expect(
+        PostMedia.rowHeight(media, column: 900, wide: true),
+        AppSize.postMediaMaxSingleHeight,
+      );
+    });
+
+    test('per-tile widths follow each aspect', () {
+      final media = [_photo(900, 1600), _photo(800, 800), _photo(1600, 900)];
+      final height = h(media);
+      expect(
+        [for (final m in media) PostMedia.tileSize(m, height: height).width],
+        [
+          closeTo(height * 9 / 16, 0.01),
+          closeTo(height, 0.01),
+          closeTo(height * 16 / 9, 0.01),
+        ],
+      );
+    });
   });
 }

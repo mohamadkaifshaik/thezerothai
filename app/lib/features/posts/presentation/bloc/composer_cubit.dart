@@ -162,6 +162,11 @@ class ComposerCubit extends Cubit<ComposerState>
     DateTime Function()? clock,
     UsageReporter usage = const UsageReporter.none(),
     SessionEpoch? sessionEpoch,
+    // Photos or a GIF for the reply (the photo viewer's "Post your reply"
+    // bar opens the composer with a picker); null keeps a text-only reply.
+    AttachmentsCubit? attachments,
+    this.gifFlag = false,
+    this.mediaOn = false,
   }) : _postTextLimit = postTextLimit,
        quoteOfPostId = '',
        _session = sessionEpoch ?? SessionEpoch(),
@@ -171,7 +176,7 @@ class ComposerCubit extends Cubit<ComposerState>
        _sender = null,
        _resumeKey = null,
        _author = null,
-       _attachments = null,
+       _attachments = attachments,
        _onUnexpectedError = null,
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now,
@@ -182,8 +187,6 @@ class ComposerCubit extends Cubit<ComposerState>
        scheduleEnabled = false,
        pollsFlag = false,
        engagementOn = false,
-       gifFlag = false,
-       mediaOn = false,
        _drafts = null,
        _draftUid = '',
        _base = _baseDraft('', null, clock ?? DateTime.now),
@@ -191,6 +194,8 @@ class ComposerCubit extends Cubit<ComposerState>
     _baseline = _base;
     _openedSession = _session.value;
     _sessionSub = _session.ended.listen((_) => _sessionHasEnded());
+    attachments?.stopWhen(() => !_sessionOver);
+    _watchAttachments();
     revalidateTextLimit();
     _postPolicySub = postPolicyChanges?.listen((_) => revalidateTextLimit());
     if (postTextLimit != null) {

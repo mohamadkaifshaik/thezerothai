@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../theme/app_theme.dart';
 import '../../../features/auth/presentation/widgets/auth_gate.dart';
+import '../../../features/posts/domain/reply_start.dart';
 import '../../../features/posts/presentation/bloc/post_sender.dart'
     show PostEditSeed;
 import '../../../features/posts/presentation/composer_route.dart';
@@ -30,7 +31,10 @@ GoRoute buildComposeReplyRoute() => GoRoute(
         semanticLabel: 'Reply',
         // The page's barrier is the scrim.
         drawScrim: false,
-        editor: ReplyComposerScreen(postId: state.pathParameters['id']!),
+        editor: ReplyComposerScreen(
+          postId: state.pathParameters['id']!,
+          start: ReplyStart.parse(state.uri.queryParameters['start']),
+        ),
       ),
     ),
   ),

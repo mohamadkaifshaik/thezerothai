@@ -94,8 +94,11 @@ abstract final class AppLayout {
 }
 
 abstract final class AppRadius {
-  /// A post media frame or tile (single or in the row).
-  static const double postMedia = 12;
+  /// A single post image frame (X: 16).
+  static const double postMedia = 16;
+
+  /// A tile in the several-images row (X: 8).
+  static const double postMediaTile = 8;
 
   /// Legacy, migrate in sections.
   static const double sm = 8;
@@ -141,30 +144,33 @@ abstract final class AppBreakpoints {
 /// Sizes of the shared chrome (dp), measured on x.com 2026-10-22 and divided
 /// by the verified 1.25 display scale.
 abstract final class AppSize {
-  /// Post media (Substack style): a frame is as wide as the body column and
-  /// never a fixed height. A single image keeps its own aspect ratio between
-  /// [postMediaLandscapeAspect] (2:1: wider is center-cropped) and
-  /// [postMediaPortraitAspect] (4:5: taller is center-cropped); several
-  /// images are a swipeable row of equal 4:5 tiles.
-  static const double postMediaLandscapeAspect = 2;
-  static const double postMediaPortraitAspect = 4 / 5;
+  /// Post media (X style, full body width): a single image is as wide as the
+  /// body column at its own aspect ratio, clamped only at the extremes
+  /// ([postMediaPortraitAspect] 9:16 tallest, [postMediaLandscapeAspect] 3:1
+  /// widest; beyond them it is center-cropped). Several images share one
+  /// height (see `PostMedia.rowHeight`).
+  static const double postMediaLandscapeAspect = 3;
+  static const double postMediaPortraitAspect = 9 / 16;
 
-  /// Phone tile width as a fraction of the column, so the next tile peeks in.
-  static const double postMediaTileWidthFraction = 0.72;
+  /// The aspect used when a ref has no stored size (4:5).
+  static const double postMediaDefaultAspect = 4 / 5;
 
-  /// Tablet and desktop tile size (4:5).
-  static const double postMediaTileWidthWide = 240;
-  static const double postMediaTileHeightWide = 300;
+  /// Row height rule, as fractions of the column width: at most
+  /// [postMediaRowMaxHeightFraction], at least [postMediaRowMinHeightFraction],
+  /// otherwise [postMediaRowAreaFraction] / the mean tile aspect.
+  static const double postMediaRowMaxHeightFraction = 1.25;
+  static const double postMediaRowAreaFraction = 0.59;
+  static const double postMediaRowMinHeightFraction = 0.5;
 
-  /// The tallest a single frame grows on tablet and desktop (its width
-  /// shrinks to keep the ratio). Phones have no cap beyond 4:5.
+  /// The tallest a single frame or row grows on tablet and desktop (a single
+  /// frame's width shrinks to keep the ratio). Phones are capped by 9:16.
   static const double postMediaMaxSingleHeight = 520;
 
   /// The gap between tiles in the media row.
-  static const double postMediaRowGap = 8;
+  static const double postMediaRowGap = 4;
 
   /// The article card in a feed: the cover fills the card at 4:5
-  /// ([postMediaPortraitAspect]) up to [postMediaMaxSingleHeight]; the text
+  /// ([postMediaDefaultAspect]) up to [postMediaMaxSingleHeight]; the text
   /// overlay covers at least this fraction of the card, and the tint of its
   /// gradient is this opaque at the bottom.
   static const double articleCardOverlayFraction = 0.55;
@@ -1505,6 +1511,27 @@ abstract final class AppPickerLayout {
   static const double searchHeight = 48;
   static const double rowPaddingV = 12;
   static const double rowGap = 12;
+}
+
+/// The photo viewer's bottom panel, as X's phone app draws it over black
+/// (measured on x.com): muted grey for idle icons and counts, and X's pink,
+/// green and blue for liked, reposted and bookmarked.
+abstract final class AppPhotoPanel {
+  static const Color muted = Color(0xFF71767B);
+  static const Color liked = Color(0xFFF91880);
+  static const Color reposted = Color(0xFF00BA7C);
+  static const Color bookmarked = Color(0xFF1D9BF0);
+
+  /// The "Post your reply" pill and its icon buttons.
+  static const Color replyField = Color(0xFF202327);
+  static const Color accent = Color(0xFF1D9BF0);
+
+  /// Sizes (dp): the author's avatar, the viewer's avatar, the reply pill's
+  /// height, and the action glyphs.
+  static const double authorAvatar = 40;
+  static const double replyAvatar = 32;
+  static const double replyFieldHeight = 40;
+  static const double actionIcon = 18;
 }
 
 /// Sizes of the post screens' redesign (PostPhoto, Composer, Drafts).

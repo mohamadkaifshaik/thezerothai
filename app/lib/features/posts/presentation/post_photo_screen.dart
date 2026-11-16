@@ -15,14 +15,14 @@ import '../../../core/widgets/tablet_layout.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../engagement/domain/engagement_feature_flag.dart';
-import '../../engagement/presentation/widgets/post_engagement_bar.dart';
 import '../../../shared/widgets/primitives/app_side_sheet.dart';
 import '../../media/domain/processed_image.dart' show kGifContentType;
 import 'post_detail_screen.dart';
 import 'widgets/loaded_post.dart';
+import 'widgets/photo_bottom_panel.dart';
 
-/// The full-screen viewer. The photo fills the screen edge to edge (no
-/// SafeArea around it); one tap on it hides every control (buttons, counter,
+/// The full-screen viewer. The whole photo is shown (contain, never cropped)
+/// on black, edge to edge (no SafeArea around it); one tap on it hides every control (buttons, counter,
 /// dots, caption, action bar) and the system bars, and the next brings them
 /// back. [PostPhotoScreen.chromeVisible] is the one flag all of them follow.
 class PostPhotoScreen extends StatefulWidget {
@@ -248,37 +248,6 @@ class _PhotoDots extends StatelessWidget {
   }
 }
 
-/// Who posted the photo and what they said, under the stage when the post
-/// pane is not beside it.
-class _PhotoCaption extends StatelessWidget {
-  const _PhotoCaption({required this.post});
-
-  final pb.Post post;
-
-  @override
-  Widget build(BuildContext context) {
-    final style = Theme.of(context).textTheme.bodyLarge
-        ?.copyWith(color: AppColors.onPhotoBackground);
-    final name = post.author.displayName.isEmpty
-        ? '@${post.author.handle}'
-        : post.author.displayName;
-    return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(
-            text: name,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-          if (post.text.isNotEmpty) TextSpan(text: '  ${post.text}'),
-        ],
-      ),
-      style: style,
-      maxLines: 3,
-      overflow: TextOverflow.ellipsis,
-    );
-  }
-}
-
 class _PhotoViewer extends StatefulWidget {
   const _PhotoViewer({
     required this.view,
@@ -293,6 +262,11 @@ class _PhotoViewer extends StatefulWidget {
 }
 
 class _PhotoViewerState extends State<_PhotoViewer> {
+  /// The height the bottom panel (with the dots and the safe area under it)
+  /// takes while it is shown; the photo is contained in the area above it,
+  /// as on X. Zero without a panel (the details pane, or controls hidden).
+  final _panelInset = ValueNotifier<double>(0);
+
   bool _showDetails = true;
   bool _zoomed = false;
   late final PageController _pages;
@@ -329,6 +303,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
 
   @override
   void dispose() {
+    _panelInset.dispose();
     _pages.dispose();
     super.dispose();
   }
@@ -419,9 +394,10 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     context.replace(AppRouter.postPhotoPath(widget.view.post.postId, page + 1));
   }
 
-  /// Everything that sits over the picture and hides on a tap: the legibility
-  /// scrims, previous/next, the post button, the counter, the caption, the
-  /// action bar and the dots.
+  /// Everything that sits over the picture and hides on a tap: the top
+  /// scrim, previous/next (tablet and desktop widths), the post button, the
+  /// counter, the dots and the bottom panel (author, text, actions, reply
+  /// bar; beside the details pane it is not shown, the pane holds the same).
   Widget _chromeLayer(
     BuildContext context, {
     required List<common.MediaRef> media,
@@ -431,6 +407,8 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     required bool engagement,
   }) {
     final captionShown = !(wide && _showDetails);
+    // Previous / next arrows are for pointers and big screens; a phone swipes.
+    final arrows = window >= AppBreakpoints.mobile;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -444,21 +422,11 @@ class _PhotoViewerState extends State<_PhotoViewer> {
             child: _Scrim(gradient: AppGradients.photoScrimTop),
           ),
         ),
-        if (captionShown)
-          const PositionedDirectional(
-            bottom: 0,
-            start: 0,
-            end: 0,
-            height: AppPostsLayout.photoScrimBottomHeight,
-            child: IgnorePointer(
-              child: _Scrim(gradient: AppGradients.photoScrimBottom),
-            ),
-          ),
         SafeArea(
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (widget.index > 1)
+              if (arrows && widget.index > 1)
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Padding(
@@ -470,7 +438,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                     ),
                   ),
                 ),
-              if (widget.index < media.length)
+              if (arrows && widget.index < media.length)
                 Align(
                   alignment: Alignment.centerRight,
                   child: Padding(
@@ -516,28 +484,30 @@ class _PhotoViewerState extends State<_PhotoViewer> {
               if (captionShown)
                 Align(
                   alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.md),
+                  child: _SizeReporter(
+                    onHeight: (height) => _panelInset.value =
+                        height + MediaQuery.paddingOf(context).bottom,
+                    onGone: () => _panelInset.value = 0,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _PhotoCaption(post: widget.view.post),
-                        if (engagement)
-                          Theme(
-                            data: appDarkTheme,
-                            child: PostEngagementBar(view: widget.view),
-                          ),
-                        if (window < AppBreakpoints.mobile &&
-                            media.length > 1) ...[
-                          const SizedBox(height: AppSpacing.smd),
-                          Center(
-                            child: _PhotoDots(
-                              index: widget.index,
-                              count: media.length,
+                        if (window < AppBreakpoints.mobile && media.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: AppSpacing.smd,
+                            ),
+                            child: Center(
+                              child: _PhotoDots(
+                                index: widget.index,
+                                count: media.length,
+                              ),
                             ),
                           ),
-                        ],
+                        PhotoBottomPanel(
+                          view: widget.view,
+                          engagement: engagement,
+                        ),
                       ],
                     ),
                   ),
@@ -581,14 +551,29 @@ class _PhotoViewerState extends State<_PhotoViewer> {
       // are hidden (and to hide them again).
       hint: 'Double tap to show or hide the controls',
       onTap: _toggleChrome,
-      child: _ZoomablePhoto(
-        key: ValueKey('photo-$i'),
-        aspect: item.width > 0 && item.height > 0
-            ? item.width / item.height
-            : 0,
-        onTap: _toggleChrome,
-        onZoomed: _onZoomed,
-        child: picture,
+      // The photo sits in the area above the panel while the controls are
+      // shown and takes the whole screen when they are hidden.
+      child: ListenableBuilder(
+        listenable: Listenable.merge([_panelInset, widget.chrome]),
+        builder: (context, child) => AnimatedPadding(
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : AppMotion.chromeFade,
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(
+            bottom: widget.chrome.value ? _panelInset.value : 0,
+          ),
+          child: child,
+        ),
+        child: _ZoomablePhoto(
+          key: ValueKey('photo-$i'),
+          aspect: item.width > 0 && item.height > 0
+              ? item.width / item.height
+              : 0,
+          onTap: _toggleChrome,
+          onZoomed: _onZoomed,
+          child: picture,
+        ),
       ),
     );
   }
@@ -691,6 +676,56 @@ class _PhotoViewerState extends State<_PhotoViewer> {
   }
 }
 
+/// Reports its child's height after layout (and 0 when it leaves the tree),
+/// so the viewer can keep the photo clear of the bottom panel at any text
+/// scale.
+class _SizeReporter extends StatefulWidget {
+  const _SizeReporter({
+    required this.child,
+    required this.onHeight,
+    required this.onGone,
+  });
+
+  final Widget child;
+  final ValueChanged<double> onHeight;
+  final VoidCallback onGone;
+
+  @override
+  State<_SizeReporter> createState() => _SizeReporterState();
+}
+
+class _SizeReporterState extends State<_SizeReporter> {
+  double _last = -1;
+
+  void _measure() {
+    if (!mounted) return;
+    final height = context.size?.height ?? 0;
+    if (height != _last) {
+      _last = height;
+      widget.onHeight(height);
+    }
+  }
+
+  @override
+  void dispose() {
+    // After this frame (not while the tree is torn down); the notifier
+    // belongs to the viewer, which may be gone too.
+    final gone = widget.onGone;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        gone();
+      } catch (_) {}
+    });
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
+    return widget.child;
+  }
+}
+
 /// A dark gradient behind the top or bottom controls.
 class _Scrim extends StatelessWidget {
   const _Scrim({required this.gradient});
@@ -703,21 +738,15 @@ class _Scrim extends StatelessWidget {
 }
 
 /// How a photo of [aspect] (width / height) sits in a [viewport]: the whole
-/// photo (contain, the zoom floor) as [fitted]; [cover] is the scale that
-/// makes it fill the viewport with no bars (1 when the aspects match or the
-/// aspect is unknown, where the photo is simply contained).
+/// photo, never cropped (contain). An unknown aspect (0) fills the viewport
+/// and lets the image widget contain it.
 @visibleForTesting
-({Size fitted, double cover}) photoFit(Size viewport, double aspect) {
-  if (aspect <= 0 || viewport.isEmpty) return (fitted: viewport, cover: 1);
+Size photoFit(Size viewport, double aspect) {
+  if (aspect <= 0 || viewport.isEmpty) return viewport;
   final viewportAspect = viewport.width / viewport.height;
-  final fitted = aspect >= viewportAspect
+  return aspect >= viewportAspect
       ? Size(viewport.width, viewport.width / aspect)
       : Size(viewport.height * aspect, viewport.height);
-  final cover = math.max(
-    viewport.width / fitted.width,
-    viewport.height / fitted.height,
-  );
-  return (fitted: fitted, cover: cover);
 }
 
 /// [offset] (from the viewport centre) kept so the [fitted] photo at [scale]
@@ -741,11 +770,11 @@ Offset clampPhotoOffset(
   );
 }
 
-/// One photo with its own pan and zoom. It opens filling the viewport (cover:
-/// no black on any side); pinch out or double-tap shows the whole photo
-/// (contain), double-tap again goes back; pinch in zooms up to 4x the opening
-/// fit and a drag then pans (a drag at the opening fit is the page swipe).
-/// One tap calls [onTap].
+/// One photo with its own pan and zoom, as on X. It opens whole (contain,
+/// scale 1); double-tap zooms to 2.5x at the tapped point and a second
+/// double-tap returns to contain; a pinch zooms 1x to 4x with the pan clamped
+/// to the photo, and a pinch below contain snaps back to it. A drag at scale 1
+/// is the page swipe's. One tap calls [onTap].
 class _ZoomablePhoto extends StatefulWidget {
   const _ZoomablePhoto({
     super.key,
@@ -755,27 +784,25 @@ class _ZoomablePhoto extends StatefulWidget {
     required this.onZoomed,
   });
 
-  /// Width / height of the photo, 0 when unknown (then it stays contained).
+  /// Width / height of the photo, 0 when unknown (the image widget contains
+  /// it inside the viewport).
   final double aspect;
   final Widget child;
   final VoidCallback onTap;
 
-  /// Whether the photo is zoomed in past its opening fit.
+  /// Whether the photo is zoomed in past contain.
   final ValueChanged<bool> onZoomed;
 
   @override
   State<_ZoomablePhoto> createState() => _ZoomablePhotoState();
 }
 
-enum _Fit { cover, contain, free }
-
 class _ZoomablePhotoState extends State<_ZoomablePhoto>
     with SingleTickerProviderStateMixin {
   static const _maxZoom = 4.0;
-  static const _noZoomJump = 2.5;
+  static const _doubleTapZoom = 2.5;
 
-  _Fit _fit = _Fit.cover;
-  double _freeScale = 1;
+  double _scale = 1;
   Offset _offset = Offset.zero;
   Size _viewport = Size.zero;
   Offset _doubleTapAt = Offset.zero;
@@ -787,22 +814,14 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
   double _toScale = 1;
   Offset _fromOffset = Offset.zero;
   Offset _toOffset = Offset.zero;
-  _Fit? _rest;
   double _startScale = 1;
   Offset _startOffset = Offset.zero;
   Offset _startFocal = Offset.zero;
   bool _reportedZoomed = false;
 
-  ({Size fitted, double cover}) get _geometry =>
-      photoFit(_viewport, widget.aspect);
+  Size get _fitted => photoFit(_viewport, widget.aspect);
 
-  double get _scale => switch (_fit) {
-    _Fit.cover => _geometry.cover,
-    _Fit.contain => 1,
-    _Fit.free => _freeScale,
-  };
-
-  bool get _zoomedIn => _scale > _geometry.cover * 1.01;
+  bool get _zoomedIn => _scale > 1.01;
 
   void _report() {
     final zoomed = _zoomedIn;
@@ -818,26 +837,24 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
     super.dispose();
   }
 
-  void _setFree(double scale, Offset offset) {
-    final s = scale.clamp(1.0, _maxZoom * _geometry.cover);
+  /// A live pinch may dip a little below contain (it snaps back on release).
+  void _setLive(double scale, Offset offset) {
+    final s = scale.clamp(0.7, _maxZoom);
     setState(() {
-      _fit = _Fit.free;
-      _freeScale = s;
-      _offset = clampPhotoOffset(offset, _geometry.fitted, s, _viewport);
+      _scale = s;
+      _offset = clampPhotoOffset(offset, _fitted, s, _viewport);
     });
     _report();
   }
 
-  /// Moves to [scale] and [offset], animated unless reduced motion; ends in
-  /// the named fit when it is one of the two resting states. A new move
+  /// Moves to [scale] and [offset], animated unless reduced motion. A new move
   /// replaces one in flight (the controller's one listener reads the target).
-  void _goTo(double scale, Offset offset, {_Fit? rest}) {
+  void _goTo(double scale, Offset offset) {
     _anim.stop();
     _fromScale = _scale;
     _fromOffset = _offset;
     _toScale = scale;
-    _toOffset = clampPhotoOffset(offset, _geometry.fitted, scale, _viewport);
-    _rest = rest;
+    _toOffset = clampPhotoOffset(offset, _fitted, scale, _viewport);
     if (MediaQuery.disableAnimationsOf(context)) {
       _finishMove();
       return;
@@ -850,8 +867,7 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
   void _tick() {
     final t = AppMotion.expoOut.transform(_anim.value);
     setState(() {
-      _fit = _Fit.free;
-      _freeScale = _fromScale + (_toScale - _fromScale) * t;
+      _scale = _fromScale + (_toScale - _fromScale) * t;
       _offset = Offset.lerp(_fromOffset, _toOffset, t)!;
     });
     _report();
@@ -864,15 +880,8 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
   void _finishMove() {
     if (!mounted) return;
     setState(() {
-      final rest = _rest;
-      if (rest != null) {
-        _fit = rest;
-        _offset = Offset.zero;
-      } else {
-        _fit = _Fit.free;
-        _freeScale = _toScale;
-        _offset = _toOffset;
-      }
+      _scale = _toScale;
+      _offset = _toOffset;
     });
     _report();
   }
@@ -885,56 +894,34 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
-    // One finger pans only a photo zoomed in; at the opening fit it is the
-    // page swipe's.
+    // One finger pans only a zoomed photo; at contain it is the page swipe's.
     if (d.pointerCount < 2 && !_zoomedIn) return;
     final scale = d.pointerCount < 2 ? _startScale : _startScale * d.scale;
     final focal = d.localFocalPoint - _viewport.center(Offset.zero);
-    final ratio = scale / _startScale;
-    _setFree(scale, focal - (_startFocal - _startOffset) * ratio);
+    final ratio = scale.clamp(0.7, _maxZoom) / _startScale;
+    _setLive(scale, focal - (_startFocal - _startOffset) * ratio);
   }
 
   void _onScaleEnd(ScaleEndDetails d) {
-    final cover = _geometry.cover;
-    if (_fit != _Fit.free) return;
-    if (_freeScale < cover) {
-      // Between the whole photo and the opening fit: settle on the nearer.
-      if (_freeScale < (1 + cover) / 2) {
-        _goTo(1, Offset.zero, rest: _Fit.contain);
-      } else {
-        _goTo(cover, Offset.zero, rest: _Fit.cover);
-      }
-    } else if (_freeScale <= cover * 1.01) {
-      _goTo(cover, Offset.zero, rest: _Fit.cover);
-    }
+    if (_scale <= 1.01) _goTo(1, Offset.zero);
   }
 
   void _onDoubleTap() {
-    final cover = _geometry.cover;
     if (_zoomedIn) {
-      _goTo(cover, Offset.zero, rest: _Fit.cover);
-    } else if (cover > 1.02) {
-      // Cover <-> the whole photo.
-      if (_scale >= cover * 0.99) {
-        _goTo(1, Offset.zero, rest: _Fit.contain);
-      } else {
-        _goTo(cover, Offset.zero, rest: _Fit.cover);
-      }
-    } else if (_scale < 1.5) {
-      // Nothing to show of the whole photo: zoom in at the tap.
-      final focal = _doubleTapAt - _viewport.center(Offset.zero);
-      final target = _noZoomJump * cover;
-      _goTo(target, focal - (focal - _offset) * (target / _scale));
-    } else {
-      _goTo(cover, Offset.zero, rest: _Fit.cover);
+      _goTo(1, Offset.zero);
+      return;
     }
+    final focal = _doubleTapAt - _viewport.center(Offset.zero);
+    _goTo(
+      _doubleTapZoom,
+      focal - (focal - _offset) * (_doubleTapZoom / _scale),
+    );
   }
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       _viewport = constraints.biggest;
-      final geometry = _geometry;
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
@@ -950,10 +937,7 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
                 offset: _offset,
                 child: Transform.scale(
                   scale: _scale,
-                  child: SizedBox.fromSize(
-                    size: geometry.fitted,
-                    child: widget.child,
-                  ),
+                  child: SizedBox.fromSize(size: _fitted, child: widget.child),
                 ),
               ),
             ),
