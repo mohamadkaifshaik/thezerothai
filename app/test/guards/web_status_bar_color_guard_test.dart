@@ -53,4 +53,20 @@ void main() {
       );
     }
   });
+
+  test('iOS standalone status bar is translucent and the page covers it', () {
+    final html = File('web/index.html').readAsStringSync();
+    expect(
+      html,
+      contains(
+        '<meta name="apple-mobile-web-app-status-bar-style" '
+        'content="black-translucent">',
+      ),
+    );
+    final viewport = RegExp(r'<meta name="viewport"[^>]*>').firstMatch(html);
+    expect(viewport, isNotNull);
+    // Without viewport-fit=cover the engine reports no safe-area insets and
+    // content would sit under the translucent status bar.
+    expect(viewport!.group(0), contains('viewport-fit=cover'));
+  });
 }
