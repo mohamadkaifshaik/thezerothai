@@ -48,7 +48,8 @@ var (
 
 // BeaconLookup is the consumer-side seam to beacons. ReportableBeacon answers whether callerUID may see the beacon and is
 // not its organiser, and returns its evidence. It returns ErrBeaconNotFound, ErrOwnBeacon or an infrastructure error. It
-// checks no flag. It reads the beacon, the caller's graph, the community role and the organiser's user (all cache-first).
+// checks no flag. It reads the beacon (one fresh point read: beacon docs are not cached), then the caller's graph, the
+// community role and the organiser's user (those three cache-first).
 type BeaconLookup interface {
 	ReportableBeacon(ctx context.Context, callerUID, beaconID string) (ReportedBeacon, error)
 }

@@ -27,6 +27,9 @@ func (r *FirestoreRepo) GetParticipant(ctx context.Context, beaconID, uid string
 	if err := snap.DataTo(&d); err != nil {
 		return Participant{}, logger.RedactErr(fmt.Errorf("beacons: decode participant: %w", err), beaconID, uid)
 	}
+	if d.UID == "" {
+		d.UID = uid // the document id, as GetParticipants and ListParticipants fall back to
+	}
 	return d.participant(beaconID), nil
 }
 
