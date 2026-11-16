@@ -183,6 +183,15 @@ type RateLimitConfig struct {
 	// BEACONS_CREATED_PER_DAY, default 10, logged as limit_name "beacons_created_daily". Per instance, so the effective
 	// limit is x max-instances.
 	BeaconsCreatedPerDay int64
+	// BeaconsCancelledPerDay is the in-memory daily cap on CancelBeacon per uid (ratelimit.DailyCap), env
+	// BEACONS_CANCELLED_PER_DAY, default 20, logged as limit_name "beacons_cancelled_daily" (beacons PR 5 R24). A
+	// cancellation's notices go to up to BEACONS_MAX_OPEN_SPOTS participants in chunks of 10 and are exempt from the
+	// per-actor notification recipient cap (notifications.capExempt), and a replayed or no-op cancel re-runs a still
+	// present cancellation outbox item, so this cap is what bounds an organiser's daily cancel fan-out. The default
+	// never binds a real organiser: at most BEACONS_MAX_OPEN_PER_USER (5) open plans plus BEACONS_CREATED_PER_DAY (10)
+	// created that day can be cancelled, and the rest is headroom for client retries (the interceptor counts every call,
+	// replays included). Per instance, so the effective limit is x max-instances.
+	BeaconsCancelledPerDay int64
 
 	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest, env
 	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph

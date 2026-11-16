@@ -65,6 +65,7 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.BeaconsActionPerUserPerMinute = 20
 	cfg.RateLimit.BeaconsReadPerUserPerMinute = 30
 	cfg.RateLimit.BeaconsCreatedPerDay = 10
+	cfg.RateLimit.BeaconsCancelledPerDay = 20
 	return cfg
 }
 

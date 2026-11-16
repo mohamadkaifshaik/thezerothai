@@ -57,6 +57,7 @@ type fakeRepo struct {
 	respondDone   map[string]ParticipantResult // idempotency key + request hash -> committed Respond result
 	requestDone   map[string]ParticipantResult // idempotency key + request hash -> committed Request result
 	prechecks     int                          // Request prechecks run
+	pgets         int                          // GetParticipant point reads (counted by calls())
 	// GetParticipants calls: the uid and the beacon ids of each batch.
 	participantBatches []participantBatch
 
@@ -193,6 +194,7 @@ func (f *fakeRepo) Remove(_ context.Context, p StateParams) (ParticipantResult, 
 func (f *fakeRepo) GetParticipant(_ context.Context, beaconID, uid string) (Participant, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.pgets++
 	if p, ok := f.participants[f.pkey(beaconID, uid)]; ok {
 		return p, nil
 	}
@@ -315,7 +317,7 @@ func (f *fakeRepo) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.createdBy) + len(f.updatedBy) + len(f.cancelledBy) + len(f.queries) +
-		len(f.requestedBy) + len(f.respondedBy) + len(f.transitioned) + len(f.mqueries) + len(f.pqueries) + len(f.beaconBatches) + len(f.participantBatches) + len(f.mgets)
+		len(f.requestedBy) + len(f.respondedBy) + len(f.transitioned) + len(f.mqueries) + len(f.pqueries) + len(f.beaconBatches) + len(f.participantBatches) + len(f.mgets) + f.pgets
 }
 
 // fakeDirectory serves one profile map; the embedded nil interface panics on any method the service must not call.
