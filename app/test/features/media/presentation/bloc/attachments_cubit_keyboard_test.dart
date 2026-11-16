@@ -61,15 +61,18 @@ void main() {
     expect(cubit.state.refusal, isNull);
   });
 
-  test('with the GIF flag off a keyboard GIF is refused, not attached', () async {
-    await cubit.insertContent(
-      mimeType: 'image/gif',
-      bytes: gifBytes,
-      rules: gifOff,
-    );
-    expect(cubit.state.isEmpty, isTrue);
-    expect(cubit.state.refusal, kGifOffMessage);
-  });
+  test(
+    'with the GIF flag off a keyboard GIF is refused, not attached',
+    () async {
+      await cubit.insertContent(
+        mimeType: 'image/gif',
+        bytes: gifBytes,
+        rules: gifOff,
+      );
+      expect(cubit.state.isEmpty, isTrue);
+      expect(cubit.state.refusal, kGifOffMessage);
+    },
+  );
 
   test('a keyboard GIF over photos says what the GIF button would', () async {
     picker.next = [imageBytes('p')];
@@ -121,12 +124,15 @@ void main() {
     expect(cubit.state.hasGif, isTrue);
   });
 
-  test('with GIFs off a gallery GIF is processed as a photo, as before', () async {
-    final off = build(gifEnabled: false);
-    addTearDown(off.close);
-    picker.next = [gifBytes];
-    await off.pick();
-    expect(off.state.hasGif, isFalse);
-    expect(off.state.photoCount, 1);
-  });
+  test(
+    'with GIFs off a gallery GIF is processed as a photo, as before',
+    () async {
+      final off = build(gifEnabled: false);
+      addTearDown(off.close);
+      picker.next = [gifBytes];
+      await off.pick();
+      expect(off.state.hasGif, isFalse);
+      expect(off.state.photoCount, 1);
+    },
+  );
 }

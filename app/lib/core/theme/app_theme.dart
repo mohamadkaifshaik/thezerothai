@@ -362,6 +362,7 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.live,
     required this.recommendation,
     required this.positive,
+    required this.warning,
     required this.accentText,
     required this.secondaryOnRaised,
     required this.strongPillFill,
@@ -398,6 +399,10 @@ class AppColors extends ThemeExtension<AppColors> {
 
   /// A positive status (available handle).
   final Color positive;
+
+  /// A caution that does not block (amber): text and icons, AA on every
+  /// surface step.
+  final Color warning;
 
   /// Colour for small accent *text* (links, hashtags, "Show more"):
   /// tealText on light, tealElectric on dark.
@@ -456,6 +461,7 @@ class AppColors extends ThemeExtension<AppColors> {
     live: AppPalette.dangerOnDark,
     recommendation: AppPalette.tealElectric,
     positive: AppPalette.tealElectric,
+    warning: AppPalette.amberOnDark,
     accentText: AppPalette.tealElectric,
     secondaryOnRaised: AppPalette.mutedOnDark,
     strongPillFill: AppPalette.pearl,
@@ -483,6 +489,7 @@ class AppColors extends ThemeExtension<AppColors> {
     live: AppPalette.danger,
     recommendation: AppPalette.tealText,
     positive: AppPalette.tealText,
+    warning: AppPalette.amberOnLight,
     accentText: AppPalette.tealText,
     secondaryOnRaised: AppPalette.mutedOnLight,
     strongPillFill: AppPalette.navy,
@@ -511,6 +518,7 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? live,
     Color? recommendation,
     Color? positive,
+    Color? warning,
     Color? accentText,
     Color? secondaryOnRaised,
     Color? strongPillFill,
@@ -537,6 +545,7 @@ class AppColors extends ThemeExtension<AppColors> {
       live: live ?? this.live,
       recommendation: recommendation ?? this.recommendation,
       positive: positive ?? this.positive,
+      warning: warning ?? this.warning,
       accentText: accentText ?? this.accentText,
       secondaryOnRaised: secondaryOnRaised ?? this.secondaryOnRaised,
       strongPillFill: strongPillFill ?? this.strongPillFill,
@@ -569,6 +578,7 @@ class AppColors extends ThemeExtension<AppColors> {
       live: mix(live, other.live),
       recommendation: mix(recommendation, other.recommendation),
       positive: mix(positive, other.positive),
+      warning: mix(warning, other.warning),
       accentText: mix(accentText, other.accentText),
       secondaryOnRaised: mix(secondaryOnRaised, other.secondaryOnRaised),
       strongPillFill: mix(strongPillFill, other.strongPillFill),
@@ -1118,6 +1128,11 @@ abstract final class AppPalette {
 
   /// Danger text and icons on dark (D2): 6.53 on navy.
   static const Color dangerOnDark = Color(0xFFF97066);
+
+  /// Caution amber: text and icons on light (about 6:1 on pearl) and on dark
+  /// (about 10:1 on navy).
+  static const Color amberOnLight = Color(0xFF8A4B00);
+  static const Color amberOnDark = Color(0xFFF5B942);
 
   /// Decorative only; never for input, chip or button borders.
   static const Color hairlineLight = Color(0x140D1528);
