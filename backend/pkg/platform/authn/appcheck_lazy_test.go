@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect"
 	"firebase.google.com/go/v4/appcheck"
+	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -31,6 +32,11 @@ func jwksServer(t *testing.T, status *atomic.Int32, hits *atomic.Int32) {
 	appcheck.JWKSUrl = srv.URL
 	t.Cleanup(func() { appcheck.JWKSUrl = old; srv.Close() })
 }
+
+// noADC stands in for Application Default Credentials: since 4.23 the SDK builds an authenticated HTTP client next to
+// the key fetch, and these tests must run on a machine with no credentials at all. It goes through the same opts
+// seam cmd/api uses, so no env var or real credentials file is involved.
+var noADC = option.WithoutAuthentication()
 
 func callWithToken(t *testing.T, v authn.AppCheckVerifier, mode authn.Mode, token string) (reached bool, err error) {
 	t.Helper()
@@ -58,7 +64,7 @@ func TestAppCheckVerifier_NoNetworkUntilATokenIsPresented(t *testing.T) {
 	status.Store(http.StatusOK)
 	jwksServer(t, &status, &hits)
 
-	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project")
+	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project", noADC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +83,7 @@ func TestAppCheckVerifier_FailsClosedAndRecovers(t *testing.T) {
 	status.Store(http.StatusInternalServerError)
 	jwksServer(t, &status, &hits)
 
-	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project")
+	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project", noADC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,11 +117,39 @@ func TestCheckAppCheck_FailsFastWhenKeysUnreachable(t *testing.T) {
 	status.Store(http.StatusInternalServerError)
 	jwksServer(t, &status, &hits)
 
-	if err := authn.CheckAppCheck(context.Background(), "demo-project"); err == nil {
+	if err := authn.CheckAppCheck(context.Background(), "demo-project", noADC); err == nil {
 		t.Fatal("CheckAppCheck passed although the key endpoint is failing")
 	}
 	status.Store(http.StatusOK)
-	if err := authn.CheckAppCheck(context.Background(), "demo-project"); err != nil {
+	if err := authn.CheckAppCheck(context.Background(), "demo-project", noADC); err != nil {
 		t.Fatalf("CheckAppCheck failed with a healthy key endpoint: %v", err)
+	}
+}
+
+// Since 4.23 the client build has a second step after the key fetch: the authenticated HTTP client. When that step
+// fails (on Cloud Run: no credentials), enforce mode still rejects, the failure is not cached (each call retries the
+// whole build), and the startup self-check fails. WithoutAuthentication plus an API key is rejected by the options
+// validation, which makes the credential step fail deterministically with no key material and no ADC lookup.
+func TestAppCheckVerifier_FailsClosedWhenCredentialsUnavailable(t *testing.T) {
+	var status, hits atomic.Int32
+	status.Store(http.StatusOK)
+	jwksServer(t, &status, &hits)
+	badCreds := []option.ClientOption{option.WithoutAuthentication(), option.WithAPIKey("test-only-not-a-key")}
+
+	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project", badCreds...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		before := hits.Load()
+		if reached, _ := callWithToken(t, v, authn.ModeEnforce, "some-token"); reached {
+			t.Fatalf("call %d: enforce mode let a request through while the App Check client could not be built", i)
+		}
+		if hits.Load() != before+1 {
+			t.Fatalf("call %d: key fetches %d -> %d, want one build attempt per call while the build fails", i, before, hits.Load())
+		}
+	}
+	if err := authn.CheckAppCheck(context.Background(), "demo-project", badCreds...); err == nil {
+		t.Fatal("CheckAppCheck passed although the App Check HTTP client could not be built")
 	}
 }
