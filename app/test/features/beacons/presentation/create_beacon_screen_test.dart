@@ -7,6 +7,7 @@ import 'package:dzeroth/features/communities/data/communities_repository.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as cpb;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import '../../../support/ui_tooltip_finder.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -143,8 +144,8 @@ void main() {
 
     pickedDate = now;
     pickedTime = TimeOfDay.fromDateTime(now.add(const Duration(minutes: 4)));
-    await tapVisible(tester, find.byTooltip('Pick a date'));
-    await tapVisible(tester, find.byTooltip('Pick a time'));
+    await tapVisible(tester, find.byUiTooltip('Pick a date'));
+    await tapVisible(tester, find.byUiTooltip('Pick a time'));
     expect(
       find.text('Pick a time at least 5 minutes from now.'),
       findsOneWidget,
@@ -153,8 +154,8 @@ void main() {
 
     pickedDate = now.add(const Duration(days: 31));
     pickedTime = TimeOfDay.fromDateTime(now);
-    await tapVisible(tester, find.byTooltip('Pick a date'));
-    await tapVisible(tester, find.byTooltip('Pick a time'));
+    await tapVisible(tester, find.byUiTooltip('Pick a date'));
+    await tapVisible(tester, find.byUiTooltip('Pick a time'));
     expect(find.text('Pick a time within the next 30 days.'), findsOneWidget);
     expect(createEnabled(tester), isFalse);
   });
@@ -168,11 +169,11 @@ void main() {
     await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Study'));
     await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Split evenly'));
     await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Open to chat'));
-    await tapVisible(tester, find.byTooltip('More spots'));
+    await tapVisible(tester, find.byUiTooltip('More spots'));
     pickedDate = now.add(const Duration(days: 2));
     pickedTime = const TimeOfDay(hour: 18, minute: 30);
-    await tapVisible(tester, find.byTooltip('Pick a date'));
-    await tapVisible(tester, find.byTooltip('Pick a time'));
+    await tapVisible(tester, find.byUiTooltip('Pick a date'));
+    await tapVisible(tester, find.byUiTooltip('Pick a time'));
 
     await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
     await tester.pumpAndSettle();
@@ -254,8 +255,8 @@ void main() {
     await fillValid(tester);
     pickedDate = now;
     pickedTime = TimeOfDay.fromDateTime(now.add(const Duration(minutes: 6)));
-    await tapVisible(tester, find.byTooltip('Pick a date'));
-    await tapVisible(tester, find.byTooltip('Pick a time'));
+    await tapVisible(tester, find.byUiTooltip('Pick a date'));
+    await tapVisible(tester, find.byUiTooltip('Pick a time'));
     expect(createEnabled(tester), isTrue);
 
     // Two minutes pass before the tap: the start is now 4 minutes out.

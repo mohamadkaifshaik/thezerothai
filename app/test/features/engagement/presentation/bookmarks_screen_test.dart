@@ -184,6 +184,8 @@ void main() {
       await tester.pumpAndSettle();
     } else {
       await tester.pump();
+      // The incoming page fades in from opacity 0, which hides it from semantics.
+      await tester.pump(const Duration(milliseconds: 50));
     }
   }
 
