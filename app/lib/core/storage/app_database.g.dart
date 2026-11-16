@@ -5378,6 +5378,2167 @@ class PostHistoryEntriesCompanion extends UpdateCompanion<PostHistoryRow> {
   }
 }
 
+class $UnsentPostEntriesTable extends UnsentPostEntries
+    with TableInfo<$UnsentPostEntriesTable, UnsentPostRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $UnsentPostEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _postIdMeta = const VerificationMeta('postId');
+  @override
+  late final GeneratedColumn<String> postId = GeneratedColumn<String>(
+    'post_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _postTextMeta = const VerificationMeta(
+    'postText',
+  );
+  @override
+  late final GeneratedColumn<String> postText = GeneratedColumn<String>(
+    'post_text',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _pollJsonMeta = const VerificationMeta(
+    'pollJson',
+  );
+  @override
+  late final GeneratedColumn<String> pollJson = GeneratedColumn<String>(
+    'poll_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _replyAudienceMeta = const VerificationMeta(
+    'replyAudience',
+  );
+  @override
+  late final GeneratedColumn<String> replyAudience = GeneratedColumn<String>(
+    'reply_audience',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('everyone'),
+  );
+  static const VerificationMeta _policyValueMeta = const VerificationMeta(
+    'policyValue',
+  );
+  @override
+  late final GeneratedColumn<int> policyValue = GeneratedColumn<int>(
+    'policy_value',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _communityIdMeta = const VerificationMeta(
+    'communityId',
+  );
+  @override
+  late final GeneratedColumn<String> communityId = GeneratedColumn<String>(
+    'community_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _beaconIdMeta = const VerificationMeta(
+    'beaconId',
+  );
+  @override
+  late final GeneratedColumn<String> beaconId = GeneratedColumn<String>(
+    'beacon_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _isGifMeta = const VerificationMeta('isGif');
+  @override
+  late final GeneratedColumn<bool> isGif = GeneratedColumn<bool>(
+    'is_gif',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_gif" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _draftIdMeta = const VerificationMeta(
+    'draftId',
+  );
+  @override
+  late final GeneratedColumn<String> draftId = GeneratedColumn<String>(
+    'draft_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _deleteDraftIdMeta = const VerificationMeta(
+    'deleteDraftId',
+  );
+  @override
+  late final GeneratedColumn<String> deleteDraftId = GeneratedColumn<String>(
+    'delete_draft_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _authorBytesMeta = const VerificationMeta(
+    'authorBytes',
+  );
+  @override
+  late final GeneratedColumn<Uint8List> authorBytes =
+      GeneratedColumn<Uint8List>(
+        'author_bytes',
+        aliasedName,
+        false,
+        type: DriftSqlType.blob,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _sendKeyMeta = const VerificationMeta(
+    'sendKey',
+  );
+  @override
+  late final GeneratedColumn<String> sendKey = GeneratedColumn<String>(
+    'send_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _keyStartedAtMeta = const VerificationMeta(
+    'keyStartedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> keyStartedAt = GeneratedColumn<DateTime>(
+    'key_started_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _keyUsedMeta = const VerificationMeta(
+    'keyUsed',
+  );
+  @override
+  late final GeneratedColumn<bool> keyUsed = GeneratedColumn<bool>(
+    'key_used',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("key_used" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _keyAmbiguousMeta = const VerificationMeta(
+    'keyAmbiguous',
+  );
+  @override
+  late final GeneratedColumn<bool> keyAmbiguous = GeneratedColumn<bool>(
+    'key_ambiguous',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("key_ambiguous" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _claimReusedMeta = const VerificationMeta(
+    'claimReused',
+  );
+  @override
+  late final GeneratedColumn<bool> claimReused = GeneratedColumn<bool>(
+    'claim_reused',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("claim_reused" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _errorTextMeta = const VerificationMeta(
+    'errorText',
+  );
+  @override
+  late final GeneratedColumn<String> errorText = GeneratedColumn<String>(
+    'error_text',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _canRetryMeta = const VerificationMeta(
+    'canRetry',
+  );
+  @override
+  late final GeneratedColumn<bool> canRetry = GeneratedColumn<bool>(
+    'can_retry',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("can_retry" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _needsVerifyMeta = const VerificationMeta(
+    'needsVerify',
+  );
+  @override
+  late final GeneratedColumn<bool> needsVerify = GeneratedColumn<bool>(
+    'needs_verify',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("needs_verify" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _clearFlagsMeta = const VerificationMeta(
+    'clearFlags',
+  );
+  @override
+  late final GeneratedColumn<int> clearFlags = GeneratedColumn<int>(
+    'clear_flags',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _photosKeptMeta = const VerificationMeta(
+    'photosKept',
+  );
+  @override
+  late final GeneratedColumn<bool> photosKept = GeneratedColumn<bool>(
+    'photos_kept',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("photos_kept" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _photoCountMeta = const VerificationMeta(
+    'photoCount',
+  );
+  @override
+  late final GeneratedColumn<int> photoCount = GeneratedColumn<int>(
+    'photo_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    uid,
+    postId,
+    postText,
+    pollJson,
+    replyAudience,
+    policyValue,
+    communityId,
+    beaconId,
+    isGif,
+    draftId,
+    deleteDraftId,
+    authorBytes,
+    sendKey,
+    keyStartedAt,
+    keyUsed,
+    keyAmbiguous,
+    claimReused,
+    errorText,
+    canRetry,
+    needsVerify,
+    clearFlags,
+    photosKept,
+    photoCount,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'unsent_post_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<UnsentPostRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_uidMeta);
+    }
+    if (data.containsKey('post_id')) {
+      context.handle(
+        _postIdMeta,
+        postId.isAcceptableOrUnknown(data['post_id']!, _postIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_postIdMeta);
+    }
+    if (data.containsKey('post_text')) {
+      context.handle(
+        _postTextMeta,
+        postText.isAcceptableOrUnknown(data['post_text']!, _postTextMeta),
+      );
+    }
+    if (data.containsKey('poll_json')) {
+      context.handle(
+        _pollJsonMeta,
+        pollJson.isAcceptableOrUnknown(data['poll_json']!, _pollJsonMeta),
+      );
+    }
+    if (data.containsKey('reply_audience')) {
+      context.handle(
+        _replyAudienceMeta,
+        replyAudience.isAcceptableOrUnknown(
+          data['reply_audience']!,
+          _replyAudienceMeta,
+        ),
+      );
+    }
+    if (data.containsKey('policy_value')) {
+      context.handle(
+        _policyValueMeta,
+        policyValue.isAcceptableOrUnknown(
+          data['policy_value']!,
+          _policyValueMeta,
+        ),
+      );
+    }
+    if (data.containsKey('community_id')) {
+      context.handle(
+        _communityIdMeta,
+        communityId.isAcceptableOrUnknown(
+          data['community_id']!,
+          _communityIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('beacon_id')) {
+      context.handle(
+        _beaconIdMeta,
+        beaconId.isAcceptableOrUnknown(data['beacon_id']!, _beaconIdMeta),
+      );
+    }
+    if (data.containsKey('is_gif')) {
+      context.handle(
+        _isGifMeta,
+        isGif.isAcceptableOrUnknown(data['is_gif']!, _isGifMeta),
+      );
+    }
+    if (data.containsKey('draft_id')) {
+      context.handle(
+        _draftIdMeta,
+        draftId.isAcceptableOrUnknown(data['draft_id']!, _draftIdMeta),
+      );
+    }
+    if (data.containsKey('delete_draft_id')) {
+      context.handle(
+        _deleteDraftIdMeta,
+        deleteDraftId.isAcceptableOrUnknown(
+          data['delete_draft_id']!,
+          _deleteDraftIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('author_bytes')) {
+      context.handle(
+        _authorBytesMeta,
+        authorBytes.isAcceptableOrUnknown(
+          data['author_bytes']!,
+          _authorBytesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_authorBytesMeta);
+    }
+    if (data.containsKey('send_key')) {
+      context.handle(
+        _sendKeyMeta,
+        sendKey.isAcceptableOrUnknown(data['send_key']!, _sendKeyMeta),
+      );
+    }
+    if (data.containsKey('key_started_at')) {
+      context.handle(
+        _keyStartedAtMeta,
+        keyStartedAt.isAcceptableOrUnknown(
+          data['key_started_at']!,
+          _keyStartedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('key_used')) {
+      context.handle(
+        _keyUsedMeta,
+        keyUsed.isAcceptableOrUnknown(data['key_used']!, _keyUsedMeta),
+      );
+    }
+    if (data.containsKey('key_ambiguous')) {
+      context.handle(
+        _keyAmbiguousMeta,
+        keyAmbiguous.isAcceptableOrUnknown(
+          data['key_ambiguous']!,
+          _keyAmbiguousMeta,
+        ),
+      );
+    }
+    if (data.containsKey('claim_reused')) {
+      context.handle(
+        _claimReusedMeta,
+        claimReused.isAcceptableOrUnknown(
+          data['claim_reused']!,
+          _claimReusedMeta,
+        ),
+      );
+    }
+    if (data.containsKey('error_text')) {
+      context.handle(
+        _errorTextMeta,
+        errorText.isAcceptableOrUnknown(data['error_text']!, _errorTextMeta),
+      );
+    }
+    if (data.containsKey('can_retry')) {
+      context.handle(
+        _canRetryMeta,
+        canRetry.isAcceptableOrUnknown(data['can_retry']!, _canRetryMeta),
+      );
+    }
+    if (data.containsKey('needs_verify')) {
+      context.handle(
+        _needsVerifyMeta,
+        needsVerify.isAcceptableOrUnknown(
+          data['needs_verify']!,
+          _needsVerifyMeta,
+        ),
+      );
+    }
+    if (data.containsKey('clear_flags')) {
+      context.handle(
+        _clearFlagsMeta,
+        clearFlags.isAcceptableOrUnknown(data['clear_flags']!, _clearFlagsMeta),
+      );
+    }
+    if (data.containsKey('photos_kept')) {
+      context.handle(
+        _photosKeptMeta,
+        photosKept.isAcceptableOrUnknown(data['photos_kept']!, _photosKeptMeta),
+      );
+    }
+    if (data.containsKey('photo_count')) {
+      context.handle(
+        _photoCountMeta,
+        photoCount.isAcceptableOrUnknown(data['photo_count']!, _photoCountMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {uid, postId};
+  @override
+  UnsentPostRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return UnsentPostRow(
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      )!,
+      postId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}post_id'],
+      )!,
+      postText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}post_text'],
+      )!,
+      pollJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}poll_json'],
+      )!,
+      replyAudience: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reply_audience'],
+      )!,
+      policyValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}policy_value'],
+      )!,
+      communityId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}community_id'],
+      )!,
+      beaconId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}beacon_id'],
+      )!,
+      isGif: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_gif'],
+      )!,
+      draftId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}draft_id'],
+      ),
+      deleteDraftId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}delete_draft_id'],
+      ),
+      authorBytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}author_bytes'],
+      )!,
+      sendKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}send_key'],
+      ),
+      keyStartedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}key_started_at'],
+      ),
+      keyUsed: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}key_used'],
+      )!,
+      keyAmbiguous: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}key_ambiguous'],
+      )!,
+      claimReused: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}claim_reused'],
+      )!,
+      errorText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_text'],
+      ),
+      canRetry: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}can_retry'],
+      )!,
+      needsVerify: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}needs_verify'],
+      )!,
+      clearFlags: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}clear_flags'],
+      )!,
+      photosKept: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}photos_kept'],
+      )!,
+      photoCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}photo_count'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $UnsentPostEntriesTable createAlias(String alias) {
+    return $UnsentPostEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class UnsentPostRow extends DataClass implements Insertable<UnsentPostRow> {
+  final String uid;
+
+  /// Opaque id of the post (the sender's id for it), unique per account.
+  final String postId;
+
+  /// The post text.
+  final String postText;
+
+  /// JSON `{"c": [choices], "d": minutes}`; '' = no poll.
+  final String pollJson;
+
+  /// `ReplyAudience.name`.
+  final String replyAudience;
+
+  /// The wire value of the reply policy the send uses.
+  final int policyValue;
+  final String communityId;
+  final String beaconId;
+  final bool isGif;
+
+  /// The unsent-post (draft) row this send belongs to, when it has one.
+  final String? draftId;
+  final String? deleteDraftId;
+
+  /// The viewer's own author snapshot (serialized), for the row's avatar.
+  final Uint8List authorBytes;
+
+  /// The idempotency key of the send, with its first use and flags, so a
+  /// restored post sends under the same key (never twice).
+  final String? sendKey;
+  final DateTime? keyStartedAt;
+  final bool keyUsed;
+  final bool keyAmbiguous;
+  final bool claimReused;
+
+  /// How the send last ended, so a restored row says the same: the error copy
+  /// (null while waiting), whether Retry is offered, whether the server wants
+  /// a verified email, and what the server refused (a bit mask: 1 community,
+  /// 2 plan, 4 poll, 8 audience, 16 photos) that Edit takes out.
+  final String? errorText;
+  final bool canRetry;
+  final bool needsVerify;
+  final int clearFlags;
+
+  /// False when the photos were not kept (over the size cap, or the web):
+  /// the restored post then has its text only.
+  final bool photosKept;
+  final int photoCount;
+  final DateTime createdAt;
+  const UnsentPostRow({
+    required this.uid,
+    required this.postId,
+    required this.postText,
+    required this.pollJson,
+    required this.replyAudience,
+    required this.policyValue,
+    required this.communityId,
+    required this.beaconId,
+    required this.isGif,
+    this.draftId,
+    this.deleteDraftId,
+    required this.authorBytes,
+    this.sendKey,
+    this.keyStartedAt,
+    required this.keyUsed,
+    required this.keyAmbiguous,
+    required this.claimReused,
+    this.errorText,
+    required this.canRetry,
+    required this.needsVerify,
+    required this.clearFlags,
+    required this.photosKept,
+    required this.photoCount,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['uid'] = Variable<String>(uid);
+    map['post_id'] = Variable<String>(postId);
+    map['post_text'] = Variable<String>(postText);
+    map['poll_json'] = Variable<String>(pollJson);
+    map['reply_audience'] = Variable<String>(replyAudience);
+    map['policy_value'] = Variable<int>(policyValue);
+    map['community_id'] = Variable<String>(communityId);
+    map['beacon_id'] = Variable<String>(beaconId);
+    map['is_gif'] = Variable<bool>(isGif);
+    if (!nullToAbsent || draftId != null) {
+      map['draft_id'] = Variable<String>(draftId);
+    }
+    if (!nullToAbsent || deleteDraftId != null) {
+      map['delete_draft_id'] = Variable<String>(deleteDraftId);
+    }
+    map['author_bytes'] = Variable<Uint8List>(authorBytes);
+    if (!nullToAbsent || sendKey != null) {
+      map['send_key'] = Variable<String>(sendKey);
+    }
+    if (!nullToAbsent || keyStartedAt != null) {
+      map['key_started_at'] = Variable<DateTime>(keyStartedAt);
+    }
+    map['key_used'] = Variable<bool>(keyUsed);
+    map['key_ambiguous'] = Variable<bool>(keyAmbiguous);
+    map['claim_reused'] = Variable<bool>(claimReused);
+    if (!nullToAbsent || errorText != null) {
+      map['error_text'] = Variable<String>(errorText);
+    }
+    map['can_retry'] = Variable<bool>(canRetry);
+    map['needs_verify'] = Variable<bool>(needsVerify);
+    map['clear_flags'] = Variable<int>(clearFlags);
+    map['photos_kept'] = Variable<bool>(photosKept);
+    map['photo_count'] = Variable<int>(photoCount);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  UnsentPostEntriesCompanion toCompanion(bool nullToAbsent) {
+    return UnsentPostEntriesCompanion(
+      uid: Value(uid),
+      postId: Value(postId),
+      postText: Value(postText),
+      pollJson: Value(pollJson),
+      replyAudience: Value(replyAudience),
+      policyValue: Value(policyValue),
+      communityId: Value(communityId),
+      beaconId: Value(beaconId),
+      isGif: Value(isGif),
+      draftId: draftId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(draftId),
+      deleteDraftId: deleteDraftId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deleteDraftId),
+      authorBytes: Value(authorBytes),
+      sendKey: sendKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sendKey),
+      keyStartedAt: keyStartedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(keyStartedAt),
+      keyUsed: Value(keyUsed),
+      keyAmbiguous: Value(keyAmbiguous),
+      claimReused: Value(claimReused),
+      errorText: errorText == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorText),
+      canRetry: Value(canRetry),
+      needsVerify: Value(needsVerify),
+      clearFlags: Value(clearFlags),
+      photosKept: Value(photosKept),
+      photoCount: Value(photoCount),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory UnsentPostRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return UnsentPostRow(
+      uid: serializer.fromJson<String>(json['uid']),
+      postId: serializer.fromJson<String>(json['postId']),
+      postText: serializer.fromJson<String>(json['postText']),
+      pollJson: serializer.fromJson<String>(json['pollJson']),
+      replyAudience: serializer.fromJson<String>(json['replyAudience']),
+      policyValue: serializer.fromJson<int>(json['policyValue']),
+      communityId: serializer.fromJson<String>(json['communityId']),
+      beaconId: serializer.fromJson<String>(json['beaconId']),
+      isGif: serializer.fromJson<bool>(json['isGif']),
+      draftId: serializer.fromJson<String?>(json['draftId']),
+      deleteDraftId: serializer.fromJson<String?>(json['deleteDraftId']),
+      authorBytes: serializer.fromJson<Uint8List>(json['authorBytes']),
+      sendKey: serializer.fromJson<String?>(json['sendKey']),
+      keyStartedAt: serializer.fromJson<DateTime?>(json['keyStartedAt']),
+      keyUsed: serializer.fromJson<bool>(json['keyUsed']),
+      keyAmbiguous: serializer.fromJson<bool>(json['keyAmbiguous']),
+      claimReused: serializer.fromJson<bool>(json['claimReused']),
+      errorText: serializer.fromJson<String?>(json['errorText']),
+      canRetry: serializer.fromJson<bool>(json['canRetry']),
+      needsVerify: serializer.fromJson<bool>(json['needsVerify']),
+      clearFlags: serializer.fromJson<int>(json['clearFlags']),
+      photosKept: serializer.fromJson<bool>(json['photosKept']),
+      photoCount: serializer.fromJson<int>(json['photoCount']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'uid': serializer.toJson<String>(uid),
+      'postId': serializer.toJson<String>(postId),
+      'postText': serializer.toJson<String>(postText),
+      'pollJson': serializer.toJson<String>(pollJson),
+      'replyAudience': serializer.toJson<String>(replyAudience),
+      'policyValue': serializer.toJson<int>(policyValue),
+      'communityId': serializer.toJson<String>(communityId),
+      'beaconId': serializer.toJson<String>(beaconId),
+      'isGif': serializer.toJson<bool>(isGif),
+      'draftId': serializer.toJson<String?>(draftId),
+      'deleteDraftId': serializer.toJson<String?>(deleteDraftId),
+      'authorBytes': serializer.toJson<Uint8List>(authorBytes),
+      'sendKey': serializer.toJson<String?>(sendKey),
+      'keyStartedAt': serializer.toJson<DateTime?>(keyStartedAt),
+      'keyUsed': serializer.toJson<bool>(keyUsed),
+      'keyAmbiguous': serializer.toJson<bool>(keyAmbiguous),
+      'claimReused': serializer.toJson<bool>(claimReused),
+      'errorText': serializer.toJson<String?>(errorText),
+      'canRetry': serializer.toJson<bool>(canRetry),
+      'needsVerify': serializer.toJson<bool>(needsVerify),
+      'clearFlags': serializer.toJson<int>(clearFlags),
+      'photosKept': serializer.toJson<bool>(photosKept),
+      'photoCount': serializer.toJson<int>(photoCount),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  UnsentPostRow copyWith({
+    String? uid,
+    String? postId,
+    String? postText,
+    String? pollJson,
+    String? replyAudience,
+    int? policyValue,
+    String? communityId,
+    String? beaconId,
+    bool? isGif,
+    Value<String?> draftId = const Value.absent(),
+    Value<String?> deleteDraftId = const Value.absent(),
+    Uint8List? authorBytes,
+    Value<String?> sendKey = const Value.absent(),
+    Value<DateTime?> keyStartedAt = const Value.absent(),
+    bool? keyUsed,
+    bool? keyAmbiguous,
+    bool? claimReused,
+    Value<String?> errorText = const Value.absent(),
+    bool? canRetry,
+    bool? needsVerify,
+    int? clearFlags,
+    bool? photosKept,
+    int? photoCount,
+    DateTime? createdAt,
+  }) => UnsentPostRow(
+    uid: uid ?? this.uid,
+    postId: postId ?? this.postId,
+    postText: postText ?? this.postText,
+    pollJson: pollJson ?? this.pollJson,
+    replyAudience: replyAudience ?? this.replyAudience,
+    policyValue: policyValue ?? this.policyValue,
+    communityId: communityId ?? this.communityId,
+    beaconId: beaconId ?? this.beaconId,
+    isGif: isGif ?? this.isGif,
+    draftId: draftId.present ? draftId.value : this.draftId,
+    deleteDraftId: deleteDraftId.present
+        ? deleteDraftId.value
+        : this.deleteDraftId,
+    authorBytes: authorBytes ?? this.authorBytes,
+    sendKey: sendKey.present ? sendKey.value : this.sendKey,
+    keyStartedAt: keyStartedAt.present ? keyStartedAt.value : this.keyStartedAt,
+    keyUsed: keyUsed ?? this.keyUsed,
+    keyAmbiguous: keyAmbiguous ?? this.keyAmbiguous,
+    claimReused: claimReused ?? this.claimReused,
+    errorText: errorText.present ? errorText.value : this.errorText,
+    canRetry: canRetry ?? this.canRetry,
+    needsVerify: needsVerify ?? this.needsVerify,
+    clearFlags: clearFlags ?? this.clearFlags,
+    photosKept: photosKept ?? this.photosKept,
+    photoCount: photoCount ?? this.photoCount,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  UnsentPostRow copyWithCompanion(UnsentPostEntriesCompanion data) {
+    return UnsentPostRow(
+      uid: data.uid.present ? data.uid.value : this.uid,
+      postId: data.postId.present ? data.postId.value : this.postId,
+      postText: data.postText.present ? data.postText.value : this.postText,
+      pollJson: data.pollJson.present ? data.pollJson.value : this.pollJson,
+      replyAudience: data.replyAudience.present
+          ? data.replyAudience.value
+          : this.replyAudience,
+      policyValue: data.policyValue.present
+          ? data.policyValue.value
+          : this.policyValue,
+      communityId: data.communityId.present
+          ? data.communityId.value
+          : this.communityId,
+      beaconId: data.beaconId.present ? data.beaconId.value : this.beaconId,
+      isGif: data.isGif.present ? data.isGif.value : this.isGif,
+      draftId: data.draftId.present ? data.draftId.value : this.draftId,
+      deleteDraftId: data.deleteDraftId.present
+          ? data.deleteDraftId.value
+          : this.deleteDraftId,
+      authorBytes: data.authorBytes.present
+          ? data.authorBytes.value
+          : this.authorBytes,
+      sendKey: data.sendKey.present ? data.sendKey.value : this.sendKey,
+      keyStartedAt: data.keyStartedAt.present
+          ? data.keyStartedAt.value
+          : this.keyStartedAt,
+      keyUsed: data.keyUsed.present ? data.keyUsed.value : this.keyUsed,
+      keyAmbiguous: data.keyAmbiguous.present
+          ? data.keyAmbiguous.value
+          : this.keyAmbiguous,
+      claimReused: data.claimReused.present
+          ? data.claimReused.value
+          : this.claimReused,
+      errorText: data.errorText.present ? data.errorText.value : this.errorText,
+      canRetry: data.canRetry.present ? data.canRetry.value : this.canRetry,
+      needsVerify: data.needsVerify.present
+          ? data.needsVerify.value
+          : this.needsVerify,
+      clearFlags: data.clearFlags.present
+          ? data.clearFlags.value
+          : this.clearFlags,
+      photosKept: data.photosKept.present
+          ? data.photosKept.value
+          : this.photosKept,
+      photoCount: data.photoCount.present
+          ? data.photoCount.value
+          : this.photoCount,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('UnsentPostRow(')
+          ..write('uid: $uid, ')
+          ..write('postId: $postId, ')
+          ..write('postText: $postText, ')
+          ..write('pollJson: $pollJson, ')
+          ..write('replyAudience: $replyAudience, ')
+          ..write('policyValue: $policyValue, ')
+          ..write('communityId: $communityId, ')
+          ..write('beaconId: $beaconId, ')
+          ..write('isGif: $isGif, ')
+          ..write('draftId: $draftId, ')
+          ..write('deleteDraftId: $deleteDraftId, ')
+          ..write('authorBytes: $authorBytes, ')
+          ..write('sendKey: $sendKey, ')
+          ..write('keyStartedAt: $keyStartedAt, ')
+          ..write('keyUsed: $keyUsed, ')
+          ..write('keyAmbiguous: $keyAmbiguous, ')
+          ..write('claimReused: $claimReused, ')
+          ..write('errorText: $errorText, ')
+          ..write('canRetry: $canRetry, ')
+          ..write('needsVerify: $needsVerify, ')
+          ..write('clearFlags: $clearFlags, ')
+          ..write('photosKept: $photosKept, ')
+          ..write('photoCount: $photoCount, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    uid,
+    postId,
+    postText,
+    pollJson,
+    replyAudience,
+    policyValue,
+    communityId,
+    beaconId,
+    isGif,
+    draftId,
+    deleteDraftId,
+    $driftBlobEquality.hash(authorBytes),
+    sendKey,
+    keyStartedAt,
+    keyUsed,
+    keyAmbiguous,
+    claimReused,
+    errorText,
+    canRetry,
+    needsVerify,
+    clearFlags,
+    photosKept,
+    photoCount,
+    createdAt,
+  ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is UnsentPostRow &&
+          other.uid == this.uid &&
+          other.postId == this.postId &&
+          other.postText == this.postText &&
+          other.pollJson == this.pollJson &&
+          other.replyAudience == this.replyAudience &&
+          other.policyValue == this.policyValue &&
+          other.communityId == this.communityId &&
+          other.beaconId == this.beaconId &&
+          other.isGif == this.isGif &&
+          other.draftId == this.draftId &&
+          other.deleteDraftId == this.deleteDraftId &&
+          $driftBlobEquality.equals(other.authorBytes, this.authorBytes) &&
+          other.sendKey == this.sendKey &&
+          other.keyStartedAt == this.keyStartedAt &&
+          other.keyUsed == this.keyUsed &&
+          other.keyAmbiguous == this.keyAmbiguous &&
+          other.claimReused == this.claimReused &&
+          other.errorText == this.errorText &&
+          other.canRetry == this.canRetry &&
+          other.needsVerify == this.needsVerify &&
+          other.clearFlags == this.clearFlags &&
+          other.photosKept == this.photosKept &&
+          other.photoCount == this.photoCount &&
+          other.createdAt == this.createdAt);
+}
+
+class UnsentPostEntriesCompanion extends UpdateCompanion<UnsentPostRow> {
+  final Value<String> uid;
+  final Value<String> postId;
+  final Value<String> postText;
+  final Value<String> pollJson;
+  final Value<String> replyAudience;
+  final Value<int> policyValue;
+  final Value<String> communityId;
+  final Value<String> beaconId;
+  final Value<bool> isGif;
+  final Value<String?> draftId;
+  final Value<String?> deleteDraftId;
+  final Value<Uint8List> authorBytes;
+  final Value<String?> sendKey;
+  final Value<DateTime?> keyStartedAt;
+  final Value<bool> keyUsed;
+  final Value<bool> keyAmbiguous;
+  final Value<bool> claimReused;
+  final Value<String?> errorText;
+  final Value<bool> canRetry;
+  final Value<bool> needsVerify;
+  final Value<int> clearFlags;
+  final Value<bool> photosKept;
+  final Value<int> photoCount;
+  final Value<DateTime> createdAt;
+  final Value<int> rowid;
+  const UnsentPostEntriesCompanion({
+    this.uid = const Value.absent(),
+    this.postId = const Value.absent(),
+    this.postText = const Value.absent(),
+    this.pollJson = const Value.absent(),
+    this.replyAudience = const Value.absent(),
+    this.policyValue = const Value.absent(),
+    this.communityId = const Value.absent(),
+    this.beaconId = const Value.absent(),
+    this.isGif = const Value.absent(),
+    this.draftId = const Value.absent(),
+    this.deleteDraftId = const Value.absent(),
+    this.authorBytes = const Value.absent(),
+    this.sendKey = const Value.absent(),
+    this.keyStartedAt = const Value.absent(),
+    this.keyUsed = const Value.absent(),
+    this.keyAmbiguous = const Value.absent(),
+    this.claimReused = const Value.absent(),
+    this.errorText = const Value.absent(),
+    this.canRetry = const Value.absent(),
+    this.needsVerify = const Value.absent(),
+    this.clearFlags = const Value.absent(),
+    this.photosKept = const Value.absent(),
+    this.photoCount = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  UnsentPostEntriesCompanion.insert({
+    required String uid,
+    required String postId,
+    this.postText = const Value.absent(),
+    this.pollJson = const Value.absent(),
+    this.replyAudience = const Value.absent(),
+    this.policyValue = const Value.absent(),
+    this.communityId = const Value.absent(),
+    this.beaconId = const Value.absent(),
+    this.isGif = const Value.absent(),
+    this.draftId = const Value.absent(),
+    this.deleteDraftId = const Value.absent(),
+    required Uint8List authorBytes,
+    this.sendKey = const Value.absent(),
+    this.keyStartedAt = const Value.absent(),
+    this.keyUsed = const Value.absent(),
+    this.keyAmbiguous = const Value.absent(),
+    this.claimReused = const Value.absent(),
+    this.errorText = const Value.absent(),
+    this.canRetry = const Value.absent(),
+    this.needsVerify = const Value.absent(),
+    this.clearFlags = const Value.absent(),
+    this.photosKept = const Value.absent(),
+    this.photoCount = const Value.absent(),
+    required DateTime createdAt,
+    this.rowid = const Value.absent(),
+  }) : uid = Value(uid),
+       postId = Value(postId),
+       authorBytes = Value(authorBytes),
+       createdAt = Value(createdAt);
+  static Insertable<UnsentPostRow> custom({
+    Expression<String>? uid,
+    Expression<String>? postId,
+    Expression<String>? postText,
+    Expression<String>? pollJson,
+    Expression<String>? replyAudience,
+    Expression<int>? policyValue,
+    Expression<String>? communityId,
+    Expression<String>? beaconId,
+    Expression<bool>? isGif,
+    Expression<String>? draftId,
+    Expression<String>? deleteDraftId,
+    Expression<Uint8List>? authorBytes,
+    Expression<String>? sendKey,
+    Expression<DateTime>? keyStartedAt,
+    Expression<bool>? keyUsed,
+    Expression<bool>? keyAmbiguous,
+    Expression<bool>? claimReused,
+    Expression<String>? errorText,
+    Expression<bool>? canRetry,
+    Expression<bool>? needsVerify,
+    Expression<int>? clearFlags,
+    Expression<bool>? photosKept,
+    Expression<int>? photoCount,
+    Expression<DateTime>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (uid != null) 'uid': uid,
+      if (postId != null) 'post_id': postId,
+      if (postText != null) 'post_text': postText,
+      if (pollJson != null) 'poll_json': pollJson,
+      if (replyAudience != null) 'reply_audience': replyAudience,
+      if (policyValue != null) 'policy_value': policyValue,
+      if (communityId != null) 'community_id': communityId,
+      if (beaconId != null) 'beacon_id': beaconId,
+      if (isGif != null) 'is_gif': isGif,
+      if (draftId != null) 'draft_id': draftId,
+      if (deleteDraftId != null) 'delete_draft_id': deleteDraftId,
+      if (authorBytes != null) 'author_bytes': authorBytes,
+      if (sendKey != null) 'send_key': sendKey,
+      if (keyStartedAt != null) 'key_started_at': keyStartedAt,
+      if (keyUsed != null) 'key_used': keyUsed,
+      if (keyAmbiguous != null) 'key_ambiguous': keyAmbiguous,
+      if (claimReused != null) 'claim_reused': claimReused,
+      if (errorText != null) 'error_text': errorText,
+      if (canRetry != null) 'can_retry': canRetry,
+      if (needsVerify != null) 'needs_verify': needsVerify,
+      if (clearFlags != null) 'clear_flags': clearFlags,
+      if (photosKept != null) 'photos_kept': photosKept,
+      if (photoCount != null) 'photo_count': photoCount,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  UnsentPostEntriesCompanion copyWith({
+    Value<String>? uid,
+    Value<String>? postId,
+    Value<String>? postText,
+    Value<String>? pollJson,
+    Value<String>? replyAudience,
+    Value<int>? policyValue,
+    Value<String>? communityId,
+    Value<String>? beaconId,
+    Value<bool>? isGif,
+    Value<String?>? draftId,
+    Value<String?>? deleteDraftId,
+    Value<Uint8List>? authorBytes,
+    Value<String?>? sendKey,
+    Value<DateTime?>? keyStartedAt,
+    Value<bool>? keyUsed,
+    Value<bool>? keyAmbiguous,
+    Value<bool>? claimReused,
+    Value<String?>? errorText,
+    Value<bool>? canRetry,
+    Value<bool>? needsVerify,
+    Value<int>? clearFlags,
+    Value<bool>? photosKept,
+    Value<int>? photoCount,
+    Value<DateTime>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return UnsentPostEntriesCompanion(
+      uid: uid ?? this.uid,
+      postId: postId ?? this.postId,
+      postText: postText ?? this.postText,
+      pollJson: pollJson ?? this.pollJson,
+      replyAudience: replyAudience ?? this.replyAudience,
+      policyValue: policyValue ?? this.policyValue,
+      communityId: communityId ?? this.communityId,
+      beaconId: beaconId ?? this.beaconId,
+      isGif: isGif ?? this.isGif,
+      draftId: draftId ?? this.draftId,
+      deleteDraftId: deleteDraftId ?? this.deleteDraftId,
+      authorBytes: authorBytes ?? this.authorBytes,
+      sendKey: sendKey ?? this.sendKey,
+      keyStartedAt: keyStartedAt ?? this.keyStartedAt,
+      keyUsed: keyUsed ?? this.keyUsed,
+      keyAmbiguous: keyAmbiguous ?? this.keyAmbiguous,
+      claimReused: claimReused ?? this.claimReused,
+      errorText: errorText ?? this.errorText,
+      canRetry: canRetry ?? this.canRetry,
+      needsVerify: needsVerify ?? this.needsVerify,
+      clearFlags: clearFlags ?? this.clearFlags,
+      photosKept: photosKept ?? this.photosKept,
+      photoCount: photoCount ?? this.photoCount,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (postId.present) {
+      map['post_id'] = Variable<String>(postId.value);
+    }
+    if (postText.present) {
+      map['post_text'] = Variable<String>(postText.value);
+    }
+    if (pollJson.present) {
+      map['poll_json'] = Variable<String>(pollJson.value);
+    }
+    if (replyAudience.present) {
+      map['reply_audience'] = Variable<String>(replyAudience.value);
+    }
+    if (policyValue.present) {
+      map['policy_value'] = Variable<int>(policyValue.value);
+    }
+    if (communityId.present) {
+      map['community_id'] = Variable<String>(communityId.value);
+    }
+    if (beaconId.present) {
+      map['beacon_id'] = Variable<String>(beaconId.value);
+    }
+    if (isGif.present) {
+      map['is_gif'] = Variable<bool>(isGif.value);
+    }
+    if (draftId.present) {
+      map['draft_id'] = Variable<String>(draftId.value);
+    }
+    if (deleteDraftId.present) {
+      map['delete_draft_id'] = Variable<String>(deleteDraftId.value);
+    }
+    if (authorBytes.present) {
+      map['author_bytes'] = Variable<Uint8List>(authorBytes.value);
+    }
+    if (sendKey.present) {
+      map['send_key'] = Variable<String>(sendKey.value);
+    }
+    if (keyStartedAt.present) {
+      map['key_started_at'] = Variable<DateTime>(keyStartedAt.value);
+    }
+    if (keyUsed.present) {
+      map['key_used'] = Variable<bool>(keyUsed.value);
+    }
+    if (keyAmbiguous.present) {
+      map['key_ambiguous'] = Variable<bool>(keyAmbiguous.value);
+    }
+    if (claimReused.present) {
+      map['claim_reused'] = Variable<bool>(claimReused.value);
+    }
+    if (errorText.present) {
+      map['error_text'] = Variable<String>(errorText.value);
+    }
+    if (canRetry.present) {
+      map['can_retry'] = Variable<bool>(canRetry.value);
+    }
+    if (needsVerify.present) {
+      map['needs_verify'] = Variable<bool>(needsVerify.value);
+    }
+    if (clearFlags.present) {
+      map['clear_flags'] = Variable<int>(clearFlags.value);
+    }
+    if (photosKept.present) {
+      map['photos_kept'] = Variable<bool>(photosKept.value);
+    }
+    if (photoCount.present) {
+      map['photo_count'] = Variable<int>(photoCount.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('UnsentPostEntriesCompanion(')
+          ..write('uid: $uid, ')
+          ..write('postId: $postId, ')
+          ..write('postText: $postText, ')
+          ..write('pollJson: $pollJson, ')
+          ..write('replyAudience: $replyAudience, ')
+          ..write('policyValue: $policyValue, ')
+          ..write('communityId: $communityId, ')
+          ..write('beaconId: $beaconId, ')
+          ..write('isGif: $isGif, ')
+          ..write('draftId: $draftId, ')
+          ..write('deleteDraftId: $deleteDraftId, ')
+          ..write('authorBytes: $authorBytes, ')
+          ..write('sendKey: $sendKey, ')
+          ..write('keyStartedAt: $keyStartedAt, ')
+          ..write('keyUsed: $keyUsed, ')
+          ..write('keyAmbiguous: $keyAmbiguous, ')
+          ..write('claimReused: $claimReused, ')
+          ..write('errorText: $errorText, ')
+          ..write('canRetry: $canRetry, ')
+          ..write('needsVerify: $needsVerify, ')
+          ..write('clearFlags: $clearFlags, ')
+          ..write('photosKept: $photosKept, ')
+          ..write('photoCount: $photoCount, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
+    with TableInfo<$UnsentPostPhotoEntriesTable, UnsentPostPhotoRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $UnsentPostPhotoEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _postIdMeta = const VerificationMeta('postId');
+  @override
+  late final GeneratedColumn<String> postId = GeneratedColumn<String>(
+    'post_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _positionMeta = const VerificationMeta(
+    'position',
+  );
+  @override
+  late final GeneratedColumn<int> position = GeneratedColumn<int>(
+    'position',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _fullBytesMeta = const VerificationMeta(
+    'fullBytes',
+  );
+  @override
+  late final GeneratedColumn<Uint8List> fullBytes = GeneratedColumn<Uint8List>(
+    'full_bytes',
+    aliasedName,
+    false,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _thumbBytesMeta = const VerificationMeta(
+    'thumbBytes',
+  );
+  @override
+  late final GeneratedColumn<Uint8List> thumbBytes = GeneratedColumn<Uint8List>(
+    'thumb_bytes',
+    aliasedName,
+    false,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _widthMeta = const VerificationMeta('width');
+  @override
+  late final GeneratedColumn<int> width = GeneratedColumn<int>(
+    'width',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _heightMeta = const VerificationMeta('height');
+  @override
+  late final GeneratedColumn<int> height = GeneratedColumn<int>(
+    'height',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _fullMd5Meta = const VerificationMeta(
+    'fullMd5',
+  );
+  @override
+  late final GeneratedColumn<String> fullMd5 = GeneratedColumn<String>(
+    'full_md5',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _thumbMd5Meta = const VerificationMeta(
+    'thumbMd5',
+  );
+  @override
+  late final GeneratedColumn<String> thumbMd5 = GeneratedColumn<String>(
+    'thumb_md5',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _blurhashMeta = const VerificationMeta(
+    'blurhash',
+  );
+  @override
+  late final GeneratedColumn<String> blurhash = GeneratedColumn<String>(
+    'blurhash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _contentTypeMeta = const VerificationMeta(
+    'contentType',
+  );
+  @override
+  late final GeneratedColumn<String> contentType = GeneratedColumn<String>(
+    'content_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _thumbContentTypeMeta = const VerificationMeta(
+    'thumbContentType',
+  );
+  @override
+  late final GeneratedColumn<String> thumbContentType = GeneratedColumn<String>(
+    'thumb_content_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _altTextMeta = const VerificationMeta(
+    'altText',
+  );
+  @override
+  late final GeneratedColumn<String> altText = GeneratedColumn<String>(
+    'alt_text',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _mediaIdMeta = const VerificationMeta(
+    'mediaId',
+  );
+  @override
+  late final GeneratedColumn<String> mediaId = GeneratedColumn<String>(
+    'media_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    uid,
+    postId,
+    position,
+    fullBytes,
+    thumbBytes,
+    width,
+    height,
+    fullMd5,
+    thumbMd5,
+    blurhash,
+    contentType,
+    thumbContentType,
+    altText,
+    mediaId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'unsent_post_photo_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<UnsentPostPhotoRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_uidMeta);
+    }
+    if (data.containsKey('post_id')) {
+      context.handle(
+        _postIdMeta,
+        postId.isAcceptableOrUnknown(data['post_id']!, _postIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_postIdMeta);
+    }
+    if (data.containsKey('position')) {
+      context.handle(
+        _positionMeta,
+        position.isAcceptableOrUnknown(data['position']!, _positionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_positionMeta);
+    }
+    if (data.containsKey('full_bytes')) {
+      context.handle(
+        _fullBytesMeta,
+        fullBytes.isAcceptableOrUnknown(data['full_bytes']!, _fullBytesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fullBytesMeta);
+    }
+    if (data.containsKey('thumb_bytes')) {
+      context.handle(
+        _thumbBytesMeta,
+        thumbBytes.isAcceptableOrUnknown(data['thumb_bytes']!, _thumbBytesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_thumbBytesMeta);
+    }
+    if (data.containsKey('width')) {
+      context.handle(
+        _widthMeta,
+        width.isAcceptableOrUnknown(data['width']!, _widthMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_widthMeta);
+    }
+    if (data.containsKey('height')) {
+      context.handle(
+        _heightMeta,
+        height.isAcceptableOrUnknown(data['height']!, _heightMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_heightMeta);
+    }
+    if (data.containsKey('full_md5')) {
+      context.handle(
+        _fullMd5Meta,
+        fullMd5.isAcceptableOrUnknown(data['full_md5']!, _fullMd5Meta),
+      );
+    } else if (isInserting) {
+      context.missing(_fullMd5Meta);
+    }
+    if (data.containsKey('thumb_md5')) {
+      context.handle(
+        _thumbMd5Meta,
+        thumbMd5.isAcceptableOrUnknown(data['thumb_md5']!, _thumbMd5Meta),
+      );
+    } else if (isInserting) {
+      context.missing(_thumbMd5Meta);
+    }
+    if (data.containsKey('blurhash')) {
+      context.handle(
+        _blurhashMeta,
+        blurhash.isAcceptableOrUnknown(data['blurhash']!, _blurhashMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_blurhashMeta);
+    }
+    if (data.containsKey('content_type')) {
+      context.handle(
+        _contentTypeMeta,
+        contentType.isAcceptableOrUnknown(
+          data['content_type']!,
+          _contentTypeMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_contentTypeMeta);
+    }
+    if (data.containsKey('thumb_content_type')) {
+      context.handle(
+        _thumbContentTypeMeta,
+        thumbContentType.isAcceptableOrUnknown(
+          data['thumb_content_type']!,
+          _thumbContentTypeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('alt_text')) {
+      context.handle(
+        _altTextMeta,
+        altText.isAcceptableOrUnknown(data['alt_text']!, _altTextMeta),
+      );
+    }
+    if (data.containsKey('media_id')) {
+      context.handle(
+        _mediaIdMeta,
+        mediaId.isAcceptableOrUnknown(data['media_id']!, _mediaIdMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {uid, postId, position};
+  @override
+  UnsentPostPhotoRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return UnsentPostPhotoRow(
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      )!,
+      postId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}post_id'],
+      )!,
+      position: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}position'],
+      )!,
+      fullBytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}full_bytes'],
+      )!,
+      thumbBytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}thumb_bytes'],
+      )!,
+      width: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}width'],
+      )!,
+      height: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}height'],
+      )!,
+      fullMd5: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}full_md5'],
+      )!,
+      thumbMd5: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}thumb_md5'],
+      )!,
+      blurhash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}blurhash'],
+      )!,
+      contentType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_type'],
+      )!,
+      thumbContentType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}thumb_content_type'],
+      )!,
+      altText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}alt_text'],
+      )!,
+      mediaId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}media_id'],
+      )!,
+    );
+  }
+
+  @override
+  $UnsentPostPhotoEntriesTable createAlias(String alias) {
+    return $UnsentPostPhotoEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class UnsentPostPhotoRow extends DataClass
+    implements Insertable<UnsentPostPhotoRow> {
+  final String uid;
+  final String postId;
+  final int position;
+  final Uint8List fullBytes;
+  final Uint8List thumbBytes;
+  final int width;
+  final int height;
+  final String fullMd5;
+  final String thumbMd5;
+  final String blurhash;
+  final String contentType;
+  final String thumbContentType;
+  final String altText;
+
+  /// The media id of this photo's finished upload, '' while not uploaded.
+  final String mediaId;
+  const UnsentPostPhotoRow({
+    required this.uid,
+    required this.postId,
+    required this.position,
+    required this.fullBytes,
+    required this.thumbBytes,
+    required this.width,
+    required this.height,
+    required this.fullMd5,
+    required this.thumbMd5,
+    required this.blurhash,
+    required this.contentType,
+    required this.thumbContentType,
+    required this.altText,
+    required this.mediaId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['uid'] = Variable<String>(uid);
+    map['post_id'] = Variable<String>(postId);
+    map['position'] = Variable<int>(position);
+    map['full_bytes'] = Variable<Uint8List>(fullBytes);
+    map['thumb_bytes'] = Variable<Uint8List>(thumbBytes);
+    map['width'] = Variable<int>(width);
+    map['height'] = Variable<int>(height);
+    map['full_md5'] = Variable<String>(fullMd5);
+    map['thumb_md5'] = Variable<String>(thumbMd5);
+    map['blurhash'] = Variable<String>(blurhash);
+    map['content_type'] = Variable<String>(contentType);
+    map['thumb_content_type'] = Variable<String>(thumbContentType);
+    map['alt_text'] = Variable<String>(altText);
+    map['media_id'] = Variable<String>(mediaId);
+    return map;
+  }
+
+  UnsentPostPhotoEntriesCompanion toCompanion(bool nullToAbsent) {
+    return UnsentPostPhotoEntriesCompanion(
+      uid: Value(uid),
+      postId: Value(postId),
+      position: Value(position),
+      fullBytes: Value(fullBytes),
+      thumbBytes: Value(thumbBytes),
+      width: Value(width),
+      height: Value(height),
+      fullMd5: Value(fullMd5),
+      thumbMd5: Value(thumbMd5),
+      blurhash: Value(blurhash),
+      contentType: Value(contentType),
+      thumbContentType: Value(thumbContentType),
+      altText: Value(altText),
+      mediaId: Value(mediaId),
+    );
+  }
+
+  factory UnsentPostPhotoRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return UnsentPostPhotoRow(
+      uid: serializer.fromJson<String>(json['uid']),
+      postId: serializer.fromJson<String>(json['postId']),
+      position: serializer.fromJson<int>(json['position']),
+      fullBytes: serializer.fromJson<Uint8List>(json['fullBytes']),
+      thumbBytes: serializer.fromJson<Uint8List>(json['thumbBytes']),
+      width: serializer.fromJson<int>(json['width']),
+      height: serializer.fromJson<int>(json['height']),
+      fullMd5: serializer.fromJson<String>(json['fullMd5']),
+      thumbMd5: serializer.fromJson<String>(json['thumbMd5']),
+      blurhash: serializer.fromJson<String>(json['blurhash']),
+      contentType: serializer.fromJson<String>(json['contentType']),
+      thumbContentType: serializer.fromJson<String>(json['thumbContentType']),
+      altText: serializer.fromJson<String>(json['altText']),
+      mediaId: serializer.fromJson<String>(json['mediaId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'uid': serializer.toJson<String>(uid),
+      'postId': serializer.toJson<String>(postId),
+      'position': serializer.toJson<int>(position),
+      'fullBytes': serializer.toJson<Uint8List>(fullBytes),
+      'thumbBytes': serializer.toJson<Uint8List>(thumbBytes),
+      'width': serializer.toJson<int>(width),
+      'height': serializer.toJson<int>(height),
+      'fullMd5': serializer.toJson<String>(fullMd5),
+      'thumbMd5': serializer.toJson<String>(thumbMd5),
+      'blurhash': serializer.toJson<String>(blurhash),
+      'contentType': serializer.toJson<String>(contentType),
+      'thumbContentType': serializer.toJson<String>(thumbContentType),
+      'altText': serializer.toJson<String>(altText),
+      'mediaId': serializer.toJson<String>(mediaId),
+    };
+  }
+
+  UnsentPostPhotoRow copyWith({
+    String? uid,
+    String? postId,
+    int? position,
+    Uint8List? fullBytes,
+    Uint8List? thumbBytes,
+    int? width,
+    int? height,
+    String? fullMd5,
+    String? thumbMd5,
+    String? blurhash,
+    String? contentType,
+    String? thumbContentType,
+    String? altText,
+    String? mediaId,
+  }) => UnsentPostPhotoRow(
+    uid: uid ?? this.uid,
+    postId: postId ?? this.postId,
+    position: position ?? this.position,
+    fullBytes: fullBytes ?? this.fullBytes,
+    thumbBytes: thumbBytes ?? this.thumbBytes,
+    width: width ?? this.width,
+    height: height ?? this.height,
+    fullMd5: fullMd5 ?? this.fullMd5,
+    thumbMd5: thumbMd5 ?? this.thumbMd5,
+    blurhash: blurhash ?? this.blurhash,
+    contentType: contentType ?? this.contentType,
+    thumbContentType: thumbContentType ?? this.thumbContentType,
+    altText: altText ?? this.altText,
+    mediaId: mediaId ?? this.mediaId,
+  );
+  UnsentPostPhotoRow copyWithCompanion(UnsentPostPhotoEntriesCompanion data) {
+    return UnsentPostPhotoRow(
+      uid: data.uid.present ? data.uid.value : this.uid,
+      postId: data.postId.present ? data.postId.value : this.postId,
+      position: data.position.present ? data.position.value : this.position,
+      fullBytes: data.fullBytes.present ? data.fullBytes.value : this.fullBytes,
+      thumbBytes: data.thumbBytes.present
+          ? data.thumbBytes.value
+          : this.thumbBytes,
+      width: data.width.present ? data.width.value : this.width,
+      height: data.height.present ? data.height.value : this.height,
+      fullMd5: data.fullMd5.present ? data.fullMd5.value : this.fullMd5,
+      thumbMd5: data.thumbMd5.present ? data.thumbMd5.value : this.thumbMd5,
+      blurhash: data.blurhash.present ? data.blurhash.value : this.blurhash,
+      contentType: data.contentType.present
+          ? data.contentType.value
+          : this.contentType,
+      thumbContentType: data.thumbContentType.present
+          ? data.thumbContentType.value
+          : this.thumbContentType,
+      altText: data.altText.present ? data.altText.value : this.altText,
+      mediaId: data.mediaId.present ? data.mediaId.value : this.mediaId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('UnsentPostPhotoRow(')
+          ..write('uid: $uid, ')
+          ..write('postId: $postId, ')
+          ..write('position: $position, ')
+          ..write('fullBytes: $fullBytes, ')
+          ..write('thumbBytes: $thumbBytes, ')
+          ..write('width: $width, ')
+          ..write('height: $height, ')
+          ..write('fullMd5: $fullMd5, ')
+          ..write('thumbMd5: $thumbMd5, ')
+          ..write('blurhash: $blurhash, ')
+          ..write('contentType: $contentType, ')
+          ..write('thumbContentType: $thumbContentType, ')
+          ..write('altText: $altText, ')
+          ..write('mediaId: $mediaId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    uid,
+    postId,
+    position,
+    $driftBlobEquality.hash(fullBytes),
+    $driftBlobEquality.hash(thumbBytes),
+    width,
+    height,
+    fullMd5,
+    thumbMd5,
+    blurhash,
+    contentType,
+    thumbContentType,
+    altText,
+    mediaId,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is UnsentPostPhotoRow &&
+          other.uid == this.uid &&
+          other.postId == this.postId &&
+          other.position == this.position &&
+          $driftBlobEquality.equals(other.fullBytes, this.fullBytes) &&
+          $driftBlobEquality.equals(other.thumbBytes, this.thumbBytes) &&
+          other.width == this.width &&
+          other.height == this.height &&
+          other.fullMd5 == this.fullMd5 &&
+          other.thumbMd5 == this.thumbMd5 &&
+          other.blurhash == this.blurhash &&
+          other.contentType == this.contentType &&
+          other.thumbContentType == this.thumbContentType &&
+          other.altText == this.altText &&
+          other.mediaId == this.mediaId);
+}
+
+class UnsentPostPhotoEntriesCompanion
+    extends UpdateCompanion<UnsentPostPhotoRow> {
+  final Value<String> uid;
+  final Value<String> postId;
+  final Value<int> position;
+  final Value<Uint8List> fullBytes;
+  final Value<Uint8List> thumbBytes;
+  final Value<int> width;
+  final Value<int> height;
+  final Value<String> fullMd5;
+  final Value<String> thumbMd5;
+  final Value<String> blurhash;
+  final Value<String> contentType;
+  final Value<String> thumbContentType;
+  final Value<String> altText;
+  final Value<String> mediaId;
+  final Value<int> rowid;
+  const UnsentPostPhotoEntriesCompanion({
+    this.uid = const Value.absent(),
+    this.postId = const Value.absent(),
+    this.position = const Value.absent(),
+    this.fullBytes = const Value.absent(),
+    this.thumbBytes = const Value.absent(),
+    this.width = const Value.absent(),
+    this.height = const Value.absent(),
+    this.fullMd5 = const Value.absent(),
+    this.thumbMd5 = const Value.absent(),
+    this.blurhash = const Value.absent(),
+    this.contentType = const Value.absent(),
+    this.thumbContentType = const Value.absent(),
+    this.altText = const Value.absent(),
+    this.mediaId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  UnsentPostPhotoEntriesCompanion.insert({
+    required String uid,
+    required String postId,
+    required int position,
+    required Uint8List fullBytes,
+    required Uint8List thumbBytes,
+    required int width,
+    required int height,
+    required String fullMd5,
+    required String thumbMd5,
+    required String blurhash,
+    required String contentType,
+    this.thumbContentType = const Value.absent(),
+    this.altText = const Value.absent(),
+    this.mediaId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : uid = Value(uid),
+       postId = Value(postId),
+       position = Value(position),
+       fullBytes = Value(fullBytes),
+       thumbBytes = Value(thumbBytes),
+       width = Value(width),
+       height = Value(height),
+       fullMd5 = Value(fullMd5),
+       thumbMd5 = Value(thumbMd5),
+       blurhash = Value(blurhash),
+       contentType = Value(contentType);
+  static Insertable<UnsentPostPhotoRow> custom({
+    Expression<String>? uid,
+    Expression<String>? postId,
+    Expression<int>? position,
+    Expression<Uint8List>? fullBytes,
+    Expression<Uint8List>? thumbBytes,
+    Expression<int>? width,
+    Expression<int>? height,
+    Expression<String>? fullMd5,
+    Expression<String>? thumbMd5,
+    Expression<String>? blurhash,
+    Expression<String>? contentType,
+    Expression<String>? thumbContentType,
+    Expression<String>? altText,
+    Expression<String>? mediaId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (uid != null) 'uid': uid,
+      if (postId != null) 'post_id': postId,
+      if (position != null) 'position': position,
+      if (fullBytes != null) 'full_bytes': fullBytes,
+      if (thumbBytes != null) 'thumb_bytes': thumbBytes,
+      if (width != null) 'width': width,
+      if (height != null) 'height': height,
+      if (fullMd5 != null) 'full_md5': fullMd5,
+      if (thumbMd5 != null) 'thumb_md5': thumbMd5,
+      if (blurhash != null) 'blurhash': blurhash,
+      if (contentType != null) 'content_type': contentType,
+      if (thumbContentType != null) 'thumb_content_type': thumbContentType,
+      if (altText != null) 'alt_text': altText,
+      if (mediaId != null) 'media_id': mediaId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  UnsentPostPhotoEntriesCompanion copyWith({
+    Value<String>? uid,
+    Value<String>? postId,
+    Value<int>? position,
+    Value<Uint8List>? fullBytes,
+    Value<Uint8List>? thumbBytes,
+    Value<int>? width,
+    Value<int>? height,
+    Value<String>? fullMd5,
+    Value<String>? thumbMd5,
+    Value<String>? blurhash,
+    Value<String>? contentType,
+    Value<String>? thumbContentType,
+    Value<String>? altText,
+    Value<String>? mediaId,
+    Value<int>? rowid,
+  }) {
+    return UnsentPostPhotoEntriesCompanion(
+      uid: uid ?? this.uid,
+      postId: postId ?? this.postId,
+      position: position ?? this.position,
+      fullBytes: fullBytes ?? this.fullBytes,
+      thumbBytes: thumbBytes ?? this.thumbBytes,
+      width: width ?? this.width,
+      height: height ?? this.height,
+      fullMd5: fullMd5 ?? this.fullMd5,
+      thumbMd5: thumbMd5 ?? this.thumbMd5,
+      blurhash: blurhash ?? this.blurhash,
+      contentType: contentType ?? this.contentType,
+      thumbContentType: thumbContentType ?? this.thumbContentType,
+      altText: altText ?? this.altText,
+      mediaId: mediaId ?? this.mediaId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (postId.present) {
+      map['post_id'] = Variable<String>(postId.value);
+    }
+    if (position.present) {
+      map['position'] = Variable<int>(position.value);
+    }
+    if (fullBytes.present) {
+      map['full_bytes'] = Variable<Uint8List>(fullBytes.value);
+    }
+    if (thumbBytes.present) {
+      map['thumb_bytes'] = Variable<Uint8List>(thumbBytes.value);
+    }
+    if (width.present) {
+      map['width'] = Variable<int>(width.value);
+    }
+    if (height.present) {
+      map['height'] = Variable<int>(height.value);
+    }
+    if (fullMd5.present) {
+      map['full_md5'] = Variable<String>(fullMd5.value);
+    }
+    if (thumbMd5.present) {
+      map['thumb_md5'] = Variable<String>(thumbMd5.value);
+    }
+    if (blurhash.present) {
+      map['blurhash'] = Variable<String>(blurhash.value);
+    }
+    if (contentType.present) {
+      map['content_type'] = Variable<String>(contentType.value);
+    }
+    if (thumbContentType.present) {
+      map['thumb_content_type'] = Variable<String>(thumbContentType.value);
+    }
+    if (altText.present) {
+      map['alt_text'] = Variable<String>(altText.value);
+    }
+    if (mediaId.present) {
+      map['media_id'] = Variable<String>(mediaId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('UnsentPostPhotoEntriesCompanion(')
+          ..write('uid: $uid, ')
+          ..write('postId: $postId, ')
+          ..write('position: $position, ')
+          ..write('fullBytes: $fullBytes, ')
+          ..write('thumbBytes: $thumbBytes, ')
+          ..write('width: $width, ')
+          ..write('height: $height, ')
+          ..write('fullMd5: $fullMd5, ')
+          ..write('thumbMd5: $thumbMd5, ')
+          ..write('blurhash: $blurhash, ')
+          ..write('contentType: $contentType, ')
+          ..write('thumbContentType: $thumbContentType, ')
+          ..write('altText: $altText, ')
+          ..write('mediaId: $mediaId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -5406,6 +7567,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $ComposerDraftEntriesTable(this);
   late final $PostHistoryEntriesTable postHistoryEntries =
       $PostHistoryEntriesTable(this);
+  late final $UnsentPostEntriesTable unsentPostEntries =
+      $UnsentPostEntriesTable(this);
+  late final $UnsentPostPhotoEntriesTable unsentPostPhotoEntries =
+      $UnsentPostPhotoEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5424,6 +7589,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     appSettingEntries,
     composerDraftEntries,
     postHistoryEntries,
+    unsentPostEntries,
+    unsentPostPhotoEntries,
   ];
 }
 
@@ -8553,6 +10720,1016 @@ typedef $$PostHistoryEntriesTableProcessedTableManager =
       PostHistoryRow,
       PrefetchHooks Function()
     >;
+typedef $$UnsentPostEntriesTableCreateCompanionBuilder =
+    UnsentPostEntriesCompanion Function({
+      required String uid,
+      required String postId,
+      Value<String> postText,
+      Value<String> pollJson,
+      Value<String> replyAudience,
+      Value<int> policyValue,
+      Value<String> communityId,
+      Value<String> beaconId,
+      Value<bool> isGif,
+      Value<String?> draftId,
+      Value<String?> deleteDraftId,
+      required Uint8List authorBytes,
+      Value<String?> sendKey,
+      Value<DateTime?> keyStartedAt,
+      Value<bool> keyUsed,
+      Value<bool> keyAmbiguous,
+      Value<bool> claimReused,
+      Value<String?> errorText,
+      Value<bool> canRetry,
+      Value<bool> needsVerify,
+      Value<int> clearFlags,
+      Value<bool> photosKept,
+      Value<int> photoCount,
+      required DateTime createdAt,
+      Value<int> rowid,
+    });
+typedef $$UnsentPostEntriesTableUpdateCompanionBuilder =
+    UnsentPostEntriesCompanion Function({
+      Value<String> uid,
+      Value<String> postId,
+      Value<String> postText,
+      Value<String> pollJson,
+      Value<String> replyAudience,
+      Value<int> policyValue,
+      Value<String> communityId,
+      Value<String> beaconId,
+      Value<bool> isGif,
+      Value<String?> draftId,
+      Value<String?> deleteDraftId,
+      Value<Uint8List> authorBytes,
+      Value<String?> sendKey,
+      Value<DateTime?> keyStartedAt,
+      Value<bool> keyUsed,
+      Value<bool> keyAmbiguous,
+      Value<bool> claimReused,
+      Value<String?> errorText,
+      Value<bool> canRetry,
+      Value<bool> needsVerify,
+      Value<int> clearFlags,
+      Value<bool> photosKept,
+      Value<int> photoCount,
+      Value<DateTime> createdAt,
+      Value<int> rowid,
+    });
+
+class $$UnsentPostEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $UnsentPostEntriesTable> {
+  $$UnsentPostEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get postId => $composableBuilder(
+    column: $table.postId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get postText => $composableBuilder(
+    column: $table.postText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pollJson => $composableBuilder(
+    column: $table.pollJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get replyAudience => $composableBuilder(
+    column: $table.replyAudience,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get policyValue => $composableBuilder(
+    column: $table.policyValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get communityId => $composableBuilder(
+    column: $table.communityId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get beaconId => $composableBuilder(
+    column: $table.beaconId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isGif => $composableBuilder(
+    column: $table.isGif,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get draftId => $composableBuilder(
+    column: $table.draftId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deleteDraftId => $composableBuilder(
+    column: $table.deleteDraftId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get authorBytes => $composableBuilder(
+    column: $table.authorBytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sendKey => $composableBuilder(
+    column: $table.sendKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get keyStartedAt => $composableBuilder(
+    column: $table.keyStartedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get keyUsed => $composableBuilder(
+    column: $table.keyUsed,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get keyAmbiguous => $composableBuilder(
+    column: $table.keyAmbiguous,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get claimReused => $composableBuilder(
+    column: $table.claimReused,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorText => $composableBuilder(
+    column: $table.errorText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get canRetry => $composableBuilder(
+    column: $table.canRetry,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get needsVerify => $composableBuilder(
+    column: $table.needsVerify,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get clearFlags => $composableBuilder(
+    column: $table.clearFlags,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get photosKept => $composableBuilder(
+    column: $table.photosKept,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get photoCount => $composableBuilder(
+    column: $table.photoCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$UnsentPostEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $UnsentPostEntriesTable> {
+  $$UnsentPostEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get postId => $composableBuilder(
+    column: $table.postId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get postText => $composableBuilder(
+    column: $table.postText,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pollJson => $composableBuilder(
+    column: $table.pollJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get replyAudience => $composableBuilder(
+    column: $table.replyAudience,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get policyValue => $composableBuilder(
+    column: $table.policyValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get communityId => $composableBuilder(
+    column: $table.communityId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get beaconId => $composableBuilder(
+    column: $table.beaconId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isGif => $composableBuilder(
+    column: $table.isGif,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get draftId => $composableBuilder(
+    column: $table.draftId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deleteDraftId => $composableBuilder(
+    column: $table.deleteDraftId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get authorBytes => $composableBuilder(
+    column: $table.authorBytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sendKey => $composableBuilder(
+    column: $table.sendKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get keyStartedAt => $composableBuilder(
+    column: $table.keyStartedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get keyUsed => $composableBuilder(
+    column: $table.keyUsed,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get keyAmbiguous => $composableBuilder(
+    column: $table.keyAmbiguous,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get claimReused => $composableBuilder(
+    column: $table.claimReused,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorText => $composableBuilder(
+    column: $table.errorText,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get canRetry => $composableBuilder(
+    column: $table.canRetry,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get needsVerify => $composableBuilder(
+    column: $table.needsVerify,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get clearFlags => $composableBuilder(
+    column: $table.clearFlags,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get photosKept => $composableBuilder(
+    column: $table.photosKept,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get photoCount => $composableBuilder(
+    column: $table.photoCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$UnsentPostEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $UnsentPostEntriesTable> {
+  $$UnsentPostEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<String> get postId =>
+      $composableBuilder(column: $table.postId, builder: (column) => column);
+
+  GeneratedColumn<String> get postText =>
+      $composableBuilder(column: $table.postText, builder: (column) => column);
+
+  GeneratedColumn<String> get pollJson =>
+      $composableBuilder(column: $table.pollJson, builder: (column) => column);
+
+  GeneratedColumn<String> get replyAudience => $composableBuilder(
+    column: $table.replyAudience,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get policyValue => $composableBuilder(
+    column: $table.policyValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get communityId => $composableBuilder(
+    column: $table.communityId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get beaconId =>
+      $composableBuilder(column: $table.beaconId, builder: (column) => column);
+
+  GeneratedColumn<bool> get isGif =>
+      $composableBuilder(column: $table.isGif, builder: (column) => column);
+
+  GeneratedColumn<String> get draftId =>
+      $composableBuilder(column: $table.draftId, builder: (column) => column);
+
+  GeneratedColumn<String> get deleteDraftId => $composableBuilder(
+    column: $table.deleteDraftId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<Uint8List> get authorBytes => $composableBuilder(
+    column: $table.authorBytes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sendKey =>
+      $composableBuilder(column: $table.sendKey, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get keyStartedAt => $composableBuilder(
+    column: $table.keyStartedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get keyUsed =>
+      $composableBuilder(column: $table.keyUsed, builder: (column) => column);
+
+  GeneratedColumn<bool> get keyAmbiguous => $composableBuilder(
+    column: $table.keyAmbiguous,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get claimReused => $composableBuilder(
+    column: $table.claimReused,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get errorText =>
+      $composableBuilder(column: $table.errorText, builder: (column) => column);
+
+  GeneratedColumn<bool> get canRetry =>
+      $composableBuilder(column: $table.canRetry, builder: (column) => column);
+
+  GeneratedColumn<bool> get needsVerify => $composableBuilder(
+    column: $table.needsVerify,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get clearFlags => $composableBuilder(
+    column: $table.clearFlags,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get photosKept => $composableBuilder(
+    column: $table.photosKept,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get photoCount => $composableBuilder(
+    column: $table.photoCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$UnsentPostEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $UnsentPostEntriesTable,
+          UnsentPostRow,
+          $$UnsentPostEntriesTableFilterComposer,
+          $$UnsentPostEntriesTableOrderingComposer,
+          $$UnsentPostEntriesTableAnnotationComposer,
+          $$UnsentPostEntriesTableCreateCompanionBuilder,
+          $$UnsentPostEntriesTableUpdateCompanionBuilder,
+          (
+            UnsentPostRow,
+            BaseReferences<
+              _$AppDatabase,
+              $UnsentPostEntriesTable,
+              UnsentPostRow
+            >,
+          ),
+          UnsentPostRow,
+          PrefetchHooks Function()
+        > {
+  $$UnsentPostEntriesTableTableManager(
+    _$AppDatabase db,
+    $UnsentPostEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$UnsentPostEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$UnsentPostEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$UnsentPostEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> uid = const Value.absent(),
+                Value<String> postId = const Value.absent(),
+                Value<String> postText = const Value.absent(),
+                Value<String> pollJson = const Value.absent(),
+                Value<String> replyAudience = const Value.absent(),
+                Value<int> policyValue = const Value.absent(),
+                Value<String> communityId = const Value.absent(),
+                Value<String> beaconId = const Value.absent(),
+                Value<bool> isGif = const Value.absent(),
+                Value<String?> draftId = const Value.absent(),
+                Value<String?> deleteDraftId = const Value.absent(),
+                Value<Uint8List> authorBytes = const Value.absent(),
+                Value<String?> sendKey = const Value.absent(),
+                Value<DateTime?> keyStartedAt = const Value.absent(),
+                Value<bool> keyUsed = const Value.absent(),
+                Value<bool> keyAmbiguous = const Value.absent(),
+                Value<bool> claimReused = const Value.absent(),
+                Value<String?> errorText = const Value.absent(),
+                Value<bool> canRetry = const Value.absent(),
+                Value<bool> needsVerify = const Value.absent(),
+                Value<int> clearFlags = const Value.absent(),
+                Value<bool> photosKept = const Value.absent(),
+                Value<int> photoCount = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => UnsentPostEntriesCompanion(
+                uid: uid,
+                postId: postId,
+                postText: postText,
+                pollJson: pollJson,
+                replyAudience: replyAudience,
+                policyValue: policyValue,
+                communityId: communityId,
+                beaconId: beaconId,
+                isGif: isGif,
+                draftId: draftId,
+                deleteDraftId: deleteDraftId,
+                authorBytes: authorBytes,
+                sendKey: sendKey,
+                keyStartedAt: keyStartedAt,
+                keyUsed: keyUsed,
+                keyAmbiguous: keyAmbiguous,
+                claimReused: claimReused,
+                errorText: errorText,
+                canRetry: canRetry,
+                needsVerify: needsVerify,
+                clearFlags: clearFlags,
+                photosKept: photosKept,
+                photoCount: photoCount,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String uid,
+                required String postId,
+                Value<String> postText = const Value.absent(),
+                Value<String> pollJson = const Value.absent(),
+                Value<String> replyAudience = const Value.absent(),
+                Value<int> policyValue = const Value.absent(),
+                Value<String> communityId = const Value.absent(),
+                Value<String> beaconId = const Value.absent(),
+                Value<bool> isGif = const Value.absent(),
+                Value<String?> draftId = const Value.absent(),
+                Value<String?> deleteDraftId = const Value.absent(),
+                required Uint8List authorBytes,
+                Value<String?> sendKey = const Value.absent(),
+                Value<DateTime?> keyStartedAt = const Value.absent(),
+                Value<bool> keyUsed = const Value.absent(),
+                Value<bool> keyAmbiguous = const Value.absent(),
+                Value<bool> claimReused = const Value.absent(),
+                Value<String?> errorText = const Value.absent(),
+                Value<bool> canRetry = const Value.absent(),
+                Value<bool> needsVerify = const Value.absent(),
+                Value<int> clearFlags = const Value.absent(),
+                Value<bool> photosKept = const Value.absent(),
+                Value<int> photoCount = const Value.absent(),
+                required DateTime createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => UnsentPostEntriesCompanion.insert(
+                uid: uid,
+                postId: postId,
+                postText: postText,
+                pollJson: pollJson,
+                replyAudience: replyAudience,
+                policyValue: policyValue,
+                communityId: communityId,
+                beaconId: beaconId,
+                isGif: isGif,
+                draftId: draftId,
+                deleteDraftId: deleteDraftId,
+                authorBytes: authorBytes,
+                sendKey: sendKey,
+                keyStartedAt: keyStartedAt,
+                keyUsed: keyUsed,
+                keyAmbiguous: keyAmbiguous,
+                claimReused: claimReused,
+                errorText: errorText,
+                canRetry: canRetry,
+                needsVerify: needsVerify,
+                clearFlags: clearFlags,
+                photosKept: photosKept,
+                photoCount: photoCount,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$UnsentPostEntriesTable, UnsentPostRow>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $UnsentPostEntriesTable,
+                    UnsentPostRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$UnsentPostEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $UnsentPostEntriesTable,
+      UnsentPostRow,
+      $$UnsentPostEntriesTableFilterComposer,
+      $$UnsentPostEntriesTableOrderingComposer,
+      $$UnsentPostEntriesTableAnnotationComposer,
+      $$UnsentPostEntriesTableCreateCompanionBuilder,
+      $$UnsentPostEntriesTableUpdateCompanionBuilder,
+      (
+        UnsentPostRow,
+        BaseReferences<_$AppDatabase, $UnsentPostEntriesTable, UnsentPostRow>,
+      ),
+      UnsentPostRow,
+      PrefetchHooks Function()
+    >;
+typedef $$UnsentPostPhotoEntriesTableCreateCompanionBuilder =
+    UnsentPostPhotoEntriesCompanion Function({
+      required String uid,
+      required String postId,
+      required int position,
+      required Uint8List fullBytes,
+      required Uint8List thumbBytes,
+      required int width,
+      required int height,
+      required String fullMd5,
+      required String thumbMd5,
+      required String blurhash,
+      required String contentType,
+      Value<String> thumbContentType,
+      Value<String> altText,
+      Value<String> mediaId,
+      Value<int> rowid,
+    });
+typedef $$UnsentPostPhotoEntriesTableUpdateCompanionBuilder =
+    UnsentPostPhotoEntriesCompanion Function({
+      Value<String> uid,
+      Value<String> postId,
+      Value<int> position,
+      Value<Uint8List> fullBytes,
+      Value<Uint8List> thumbBytes,
+      Value<int> width,
+      Value<int> height,
+      Value<String> fullMd5,
+      Value<String> thumbMd5,
+      Value<String> blurhash,
+      Value<String> contentType,
+      Value<String> thumbContentType,
+      Value<String> altText,
+      Value<String> mediaId,
+      Value<int> rowid,
+    });
+
+class $$UnsentPostPhotoEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $UnsentPostPhotoEntriesTable> {
+  $$UnsentPostPhotoEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get postId => $composableBuilder(
+    column: $table.postId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get fullBytes => $composableBuilder(
+    column: $table.fullBytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get thumbBytes => $composableBuilder(
+    column: $table.thumbBytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get width => $composableBuilder(
+    column: $table.width,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get height => $composableBuilder(
+    column: $table.height,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get fullMd5 => $composableBuilder(
+    column: $table.fullMd5,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get thumbMd5 => $composableBuilder(
+    column: $table.thumbMd5,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get blurhash => $composableBuilder(
+    column: $table.blurhash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentType => $composableBuilder(
+    column: $table.contentType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get thumbContentType => $composableBuilder(
+    column: $table.thumbContentType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get altText => $composableBuilder(
+    column: $table.altText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mediaId => $composableBuilder(
+    column: $table.mediaId,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$UnsentPostPhotoEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $UnsentPostPhotoEntriesTable> {
+  $$UnsentPostPhotoEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get postId => $composableBuilder(
+    column: $table.postId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get fullBytes => $composableBuilder(
+    column: $table.fullBytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get thumbBytes => $composableBuilder(
+    column: $table.thumbBytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get width => $composableBuilder(
+    column: $table.width,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get height => $composableBuilder(
+    column: $table.height,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get fullMd5 => $composableBuilder(
+    column: $table.fullMd5,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get thumbMd5 => $composableBuilder(
+    column: $table.thumbMd5,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get blurhash => $composableBuilder(
+    column: $table.blurhash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contentType => $composableBuilder(
+    column: $table.contentType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get thumbContentType => $composableBuilder(
+    column: $table.thumbContentType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get altText => $composableBuilder(
+    column: $table.altText,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get mediaId => $composableBuilder(
+    column: $table.mediaId,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$UnsentPostPhotoEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $UnsentPostPhotoEntriesTable> {
+  $$UnsentPostPhotoEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<String> get postId =>
+      $composableBuilder(column: $table.postId, builder: (column) => column);
+
+  GeneratedColumn<int> get position =>
+      $composableBuilder(column: $table.position, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get fullBytes =>
+      $composableBuilder(column: $table.fullBytes, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get thumbBytes => $composableBuilder(
+    column: $table.thumbBytes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get width =>
+      $composableBuilder(column: $table.width, builder: (column) => column);
+
+  GeneratedColumn<int> get height =>
+      $composableBuilder(column: $table.height, builder: (column) => column);
+
+  GeneratedColumn<String> get fullMd5 =>
+      $composableBuilder(column: $table.fullMd5, builder: (column) => column);
+
+  GeneratedColumn<String> get thumbMd5 =>
+      $composableBuilder(column: $table.thumbMd5, builder: (column) => column);
+
+  GeneratedColumn<String> get blurhash =>
+      $composableBuilder(column: $table.blurhash, builder: (column) => column);
+
+  GeneratedColumn<String> get contentType => $composableBuilder(
+    column: $table.contentType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get thumbContentType => $composableBuilder(
+    column: $table.thumbContentType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get altText =>
+      $composableBuilder(column: $table.altText, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaId =>
+      $composableBuilder(column: $table.mediaId, builder: (column) => column);
+}
+
+class $$UnsentPostPhotoEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $UnsentPostPhotoEntriesTable,
+          UnsentPostPhotoRow,
+          $$UnsentPostPhotoEntriesTableFilterComposer,
+          $$UnsentPostPhotoEntriesTableOrderingComposer,
+          $$UnsentPostPhotoEntriesTableAnnotationComposer,
+          $$UnsentPostPhotoEntriesTableCreateCompanionBuilder,
+          $$UnsentPostPhotoEntriesTableUpdateCompanionBuilder,
+          (
+            UnsentPostPhotoRow,
+            BaseReferences<
+              _$AppDatabase,
+              $UnsentPostPhotoEntriesTable,
+              UnsentPostPhotoRow
+            >,
+          ),
+          UnsentPostPhotoRow,
+          PrefetchHooks Function()
+        > {
+  $$UnsentPostPhotoEntriesTableTableManager(
+    _$AppDatabase db,
+    $UnsentPostPhotoEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$UnsentPostPhotoEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$UnsentPostPhotoEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$UnsentPostPhotoEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> uid = const Value.absent(),
+                Value<String> postId = const Value.absent(),
+                Value<int> position = const Value.absent(),
+                Value<Uint8List> fullBytes = const Value.absent(),
+                Value<Uint8List> thumbBytes = const Value.absent(),
+                Value<int> width = const Value.absent(),
+                Value<int> height = const Value.absent(),
+                Value<String> fullMd5 = const Value.absent(),
+                Value<String> thumbMd5 = const Value.absent(),
+                Value<String> blurhash = const Value.absent(),
+                Value<String> contentType = const Value.absent(),
+                Value<String> thumbContentType = const Value.absent(),
+                Value<String> altText = const Value.absent(),
+                Value<String> mediaId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => UnsentPostPhotoEntriesCompanion(
+                uid: uid,
+                postId: postId,
+                position: position,
+                fullBytes: fullBytes,
+                thumbBytes: thumbBytes,
+                width: width,
+                height: height,
+                fullMd5: fullMd5,
+                thumbMd5: thumbMd5,
+                blurhash: blurhash,
+                contentType: contentType,
+                thumbContentType: thumbContentType,
+                altText: altText,
+                mediaId: mediaId,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String uid,
+                required String postId,
+                required int position,
+                required Uint8List fullBytes,
+                required Uint8List thumbBytes,
+                required int width,
+                required int height,
+                required String fullMd5,
+                required String thumbMd5,
+                required String blurhash,
+                required String contentType,
+                Value<String> thumbContentType = const Value.absent(),
+                Value<String> altText = const Value.absent(),
+                Value<String> mediaId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => UnsentPostPhotoEntriesCompanion.insert(
+                uid: uid,
+                postId: postId,
+                position: position,
+                fullBytes: fullBytes,
+                thumbBytes: thumbBytes,
+                width: width,
+                height: height,
+                fullMd5: fullMd5,
+                thumbMd5: thumbMd5,
+                blurhash: blurhash,
+                contentType: contentType,
+                thumbContentType: thumbContentType,
+                altText: altText,
+                mediaId: mediaId,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$UnsentPostPhotoEntriesTable, UnsentPostPhotoRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $UnsentPostPhotoEntriesTable,
+                    UnsentPostPhotoRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$UnsentPostPhotoEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $UnsentPostPhotoEntriesTable,
+      UnsentPostPhotoRow,
+      $$UnsentPostPhotoEntriesTableFilterComposer,
+      $$UnsentPostPhotoEntriesTableOrderingComposer,
+      $$UnsentPostPhotoEntriesTableAnnotationComposer,
+      $$UnsentPostPhotoEntriesTableCreateCompanionBuilder,
+      $$UnsentPostPhotoEntriesTableUpdateCompanionBuilder,
+      (
+        UnsentPostPhotoRow,
+        BaseReferences<
+          _$AppDatabase,
+          $UnsentPostPhotoEntriesTable,
+          UnsentPostPhotoRow
+        >,
+      ),
+      UnsentPostPhotoRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -8586,4 +11763,11 @@ class $AppDatabaseManager {
       $$ComposerDraftEntriesTableTableManager(_db, _db.composerDraftEntries);
   $$PostHistoryEntriesTableTableManager get postHistoryEntries =>
       $$PostHistoryEntriesTableTableManager(_db, _db.postHistoryEntries);
+  $$UnsentPostEntriesTableTableManager get unsentPostEntries =>
+      $$UnsentPostEntriesTableTableManager(_db, _db.unsentPostEntries);
+  $$UnsentPostPhotoEntriesTableTableManager get unsentPostPhotoEntries =>
+      $$UnsentPostPhotoEntriesTableTableManager(
+        _db,
+        _db.unsentPostPhotoEntries,
+      );
 }
