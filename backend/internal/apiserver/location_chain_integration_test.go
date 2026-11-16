@@ -30,7 +30,8 @@ func locationMode(mode flags.Mode) func(*config.Config) {
 func setAreaReq(key, area string, consent bool) *locationv1.SetAreaRequest {
 	r := &locationv1.SetAreaRequest{IdempotencyKey: key, AreaId: area}
 	if consent {
-		r.Consent = &locationv1.ConsentGrant{CopyVersion: 1, AdultConfirmed: true}
+		// Version 2 is the server default (LOCATION_CONSENT_MIN_COPY_VERSION); a grant below it is refused.
+		r.Consent = &locationv1.ConsentGrant{CopyVersion: 2, AdultConfirmed: true}
 	}
 	return r
 }
