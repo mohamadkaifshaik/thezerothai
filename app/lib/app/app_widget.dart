@@ -38,7 +38,10 @@ import '../features/engagement/domain/impression_tracker.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/beacons/data/beacons_repository.dart';
 import '../features/location/data/location_repository.dart';
+import '../features/beacons/presentation/bloc/happening_nearby_session.dart';
 import '../features/beacons/presentation/bloc/plans_session.dart';
+import '../features/beacons/presentation/widgets/happening_nearby_card.dart'
+    show kHappeningNearbyFlags;
 import '../features/creator_insights/data/creator_insights_repository.dart';
 import '../features/communities/data/communities_repository.dart';
 import '../features/lists/data/home_tabs_repository.dart';
@@ -330,6 +333,15 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
           repository: widget.beaconsRepository!,
           communities: widget.communitiesRepository,
         );
+  // The desktop side column's "Happening nearby" count: one Nearby call per
+  // 5 minutes, only once a card asks. Null without both repositories (tests).
+  late final HappeningNearbySession? _happening =
+      widget.beaconsRepository == null || widget.locationRepository == null
+      ? null
+      : HappeningNearbySession(
+          beacons: widget.beaconsRepository!,
+          location: widget.locationRepository!,
+        );
   // The inbox and the Requests folder, shared by the `/messages` route, the
   // band B list pane and the Messages split page (tablet plan sections 5.2
   // and 5.3). Created on first read only, while Messages is available; the
@@ -463,6 +475,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
       ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
       ..register('lists', () => widget.listsRepository?.clearSession())
       ..register('plans', () => _plans?.reset())
+      ..register('happening nearby', () => _happening?.reset())
       ..register('conversations', _conversations.reset)
       ..register('message privacy', _ownPrivacy.clear)
       ..register('badges', () {
@@ -610,6 +623,9 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     // `beacons` off drops the hoisted Plans list; `communities` changing
     // rebuilds it (its audience chips are fixed at construction).
     if (flagsChanged) _plans?.featuresChanged(state.enabledFeatures);
+    if (flagsChanged) {
+      _happening?.featuresChanged(state.enabledFeatures, kHappeningNearbyFlags);
+    }
     // `messaging` off with no read-only answer drops the hoisted folders.
     if (flagsChanged) _onMessagingAccess();
     final uid = state.profile?.userId;
@@ -667,6 +683,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _suggestions.close();
     _trends?.close();
     _plans?.dispose();
+    _happening?.dispose();
     widget.messagingRepository.gate.removeListener(_onMessagingAccess);
     _conversations.dispose();
     _homeRetap.dispose();
@@ -761,6 +778,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
           RepositoryProvider.value(value: widget.locationRepository!),
         if (_plans case final plans?)
           RepositoryProvider<PlansSession>.value(value: plans),
+        if (_happening case final happening?)
+          RepositoryProvider<HappeningNearbySession>.value(value: happening),
         RepositoryProvider<ConversationsSession>.value(value: _conversations),
         RepositoryProvider<HomeRetapSignal>.value(value: _homeRetap),
       ],

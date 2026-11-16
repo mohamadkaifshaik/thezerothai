@@ -29,7 +29,10 @@ void main() {
     MatrixEnv env,
   ) => pumpThemed(
     tester,
-    RepositoryProvider<BeaconsRepository>.value(value: server, child: screen),
+    RepositoryProvider<BeaconsRepository>.value(
+      value: server,
+      child: withPlansFeatures(screen, const {}),
+    ),
     brightness: env.brightness,
     size: env.size,
     textScale: env.textScale,

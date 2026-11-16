@@ -76,7 +76,11 @@ class PostEngagementBar extends StatelessWidget {
     this.onReply,
     this.focal = false,
     this.iconSize = AppIconSize.action,
+    this.style = PostActionBarStyle.feed,
   });
+
+  /// The look of the row (see [PostActionBarStyle]); the feed keeps its own.
+  final PostActionBarStyle style;
 
   /// What Reply does. Null (the default) opens the post; the opened post
   /// passes a callback that focuses its reply composer.
@@ -153,6 +157,7 @@ class PostEngagementBar extends StatelessWidget {
           VoidCallback? onBookmark,
         }) => PostActionBar(
           showDisabled: false,
+          style: style,
           iconSize: iconSize,
           replyDisabledHint: replyBlocked ? replyNotAllowedHint(view) : null,
           replyCount: view.post.replyCount.toInt(),

@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'post_subscription_policy.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/router/close_routes_above.dart';
@@ -17,13 +21,26 @@ import '../../../shared/widgets/post/post_card.dart';
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
+import '../../media/data/gif_source.dart';
+import '../../media/data/image_picker_service.dart';
+import '../../media/data/media_repository.dart';
+import '../../media/data/media_uploader.dart';
+import '../../media/domain/image_processor.dart';
+import '../../media/domain/media_feature_flag.dart';
+import '../../media/presentation/bloc/attachments_cubit.dart';
+import '../../media/presentation/media_error_messages.dart';
+import '../../media/presentation/widgets/attachment_grid.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
+import '../domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/post_text_rules.dart';
 import '../domain/posts_feature_flag.dart';
 import '../domain/reply_audience.dart';
+import '../domain/reply_pickers.dart';
+import '../domain/reply_start.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
+import 'widgets/composer_extras_buttons.dart' show ComposerGifButton;
 import 'composer_route.dart';
 import 'composer_screen.dart';
 import 'post_error_messages.dart';
@@ -33,8 +50,17 @@ import '../../../shared/widgets/primitives/submit_shortcut.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 
 class ReplyComposerScreen extends StatelessWidget {
-  const ReplyComposerScreen({super.key, required this.postId});
+  const ReplyComposerScreen({
+    super.key,
+    required this.postId,
+    this.start = ReplyStart.text,
+  });
   final String postId;
+
+  /// How the composer opens: the field focused, or a photo / GIF picker
+  /// started (the photo viewer's reply bar). A picker needs `media` (and
+  /// `gif`), else it opens as [ReplyStart.text].
+  final ReplyStart start;
 
   @override
   Widget build(BuildContext context) => LoadedPost(
@@ -52,25 +78,112 @@ class ReplyComposerScreen extends StatelessWidget {
       ),
       body: child,
     ),
-    builder: (context, view) => BlocProvider(
-      create: (context) => ComposerCubit.reply(
-        postsRepository: context.read<PostsRepository>(),
-        postTextLimit: () => subscriptionPostLimit(context),
-        postPolicyChanges: subscriptionPostChanges(context),
-        replyToPostId: postId,
-        usage: UsageScope.of(context),
-        // Bound to the session it was opened in: after a sign-out or an
-        // account switch nothing typed here is sent, and the screen leaves.
-        sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
-      ),
-      child: _ReplyEditor(parent: view),
-    ),
+    builder: (context, view) {
+      // No composer tools (and no picker) while replying is not allowed.
+      final blocked =
+          !featureEnabledSnapshot(context, kPostsSubFeatureReplies) ||
+          replyKnownNotAllowed(view);
+      final posts = context.read<PostsRepository>();
+      final pickers = ReplyPickers(
+        mediaFlag: featureEnabledSnapshot(context, kFeatureMedia),
+        gifFlag: featureEnabledSnapshot(context, kFeatureGif),
+        mediaSub: posts.subFeatureEnabled(kPostsSubFeatureMedia),
+        gifSub: posts.subFeatureEnabled(kFeatureGif),
+      );
+      final offered = !blocked && pickers.photo;
+      return _withAttachments(
+        context,
+        offered: offered,
+        gif: pickers.gif,
+        build: (attachments) => BlocProvider(
+          create: (context) => ComposerCubit.reply(
+            postsRepository: posts,
+            postTextLimit: () => subscriptionPostLimit(context),
+            postPolicyChanges: subscriptionPostChanges(context),
+            replyToPostId: postId,
+            usage: UsageScope.of(context),
+            // Bound to the session it was opened in: after a sign-out or an
+            // account switch nothing typed here is sent, and the screen
+            // leaves.
+            sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
+            attachments: attachments,
+            mediaOn: attachments != null,
+            gifFlag: pickers.gif,
+            onUnexpectedError: attachments == null
+                ? null
+                : context.read<UnexpectedErrorReporter>(),
+          ),
+          child: _ReplyEditor(
+            parent: view,
+            // A picker start that is not offered (or a blocked reply) is a
+            // plain focused field.
+            start: blocked ? ReplyStart.text : pickers.effective(start),
+            tools: attachments != null,
+          ),
+        ),
+      );
+    },
   );
+
+  /// A reply holds an [AttachmentsCubit] (photos, a GIF) only when the
+  /// composer offers pickers: `media` on and replying allowed. Otherwise it is
+  /// text only, as before.
+  Widget _withAttachments(
+    BuildContext context, {
+    required bool offered,
+    required bool gif,
+    required Widget Function(AttachmentsCubit? attachments) build,
+  }) {
+    if (!offered) return build(null);
+    return BlocProvider<AttachmentsCubit>(
+      create: (context) => AttachmentsCubit(
+        picker: context.read<ImagePickerService>(),
+        processor: context.read<ImageProcessor>(),
+        uploader: MediaUploader(
+          repository: context.read<MediaRepository>(),
+          onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+        ),
+        gifSource: gif ? context.read<GifSource>() : null,
+        gifPreparer: gif ? context.read<GifPreparer>() : null,
+        gifEnabled: gif,
+      ),
+      child: BlocListener<AttachmentsCubit, AttachmentsState>(
+        listenWhen: (prev, curr) =>
+            (curr.pickFailed && !prev.pickFailed) ||
+            (curr.refusal != null && prev.refusal == null),
+        listener: (context, state) {
+          final cubit = context.read<AttachmentsCubit>();
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(content: Text(state.refusal ?? kPickFailedMessage)),
+            );
+          if (state.refusal != null) {
+            cubit.refusalShown();
+          } else {
+            cubit.pickFailureShown();
+          }
+        },
+        child: Builder(
+          builder: (context) => build(context.read<AttachmentsCubit>()),
+        ),
+      ),
+    );
+  }
 }
 
 class _ReplyEditor extends StatefulWidget {
-  const _ReplyEditor({required this.parent});
+  const _ReplyEditor({
+    required this.parent,
+    required this.start,
+    required this.tools,
+  });
   final pb.PostView parent;
+  final ReplyStart start;
+
+  /// The composer holds attachments: the Photo / GIF tools show in the footer
+  /// and the discard prompt counts a picked photo.
+  final bool tools;
   @override
   State<_ReplyEditor> createState() => _ReplyEditorState();
 }
@@ -86,6 +199,28 @@ class _ReplyEditorState extends State<_ReplyEditor> {
   /// The field's text. Owned here (not by the field) so it survives the
   /// editor moving between full screen and a dialog on a resize.
   final _text = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Opened by the photo viewer's Photo / GIF button: the picker starts as
+    // soon as the screen is up (a cancelled picker leaves the plain reply; the
+    // footer's buttons pick again). Not on the web, where a picker needs a
+    // user gesture: there the field is just focused and the buttons pick.
+    if (widget.tools &&
+        !kIsWeb &&
+        (widget.start == ReplyStart.photo || widget.start == ReplyStart.gif)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final attachments = context.read<AttachmentsCubit>();
+        unawaited(
+          widget.start == ReplyStart.gif
+              ? attachments.pickGif()
+              : attachments.pick(),
+        );
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -118,7 +253,7 @@ class _ReplyEditorState extends State<_ReplyEditor> {
   Future<void> _close() async {
     final state = context.read<ComposerCubit>().state;
     if (_asking || state.isSubmitting) return;
-    if (state.draft.text.isNotEmpty) {
+    if (state.draft.text.isNotEmpty || state.hasAttachments) {
       _asking = true;
       final discard = await showAppMaterialDialog<bool>(
         context: context,
@@ -190,7 +325,10 @@ class _ReplyEditorState extends State<_ReplyEditor> {
           onSubmit: cubit.submit,
           child: PopScope(
             canPop:
-                _leaving || (!state.isSubmitting && state.draft.text.isEmpty),
+                _leaving ||
+                (!state.isSubmitting &&
+                    state.draft.text.isEmpty &&
+                    !state.hasAttachments),
             onPopInvokedWithResult: (didPop, _) {
               if (!didPop) _close();
             },
@@ -308,6 +446,11 @@ class _ReplyEditorState extends State<_ReplyEditor> {
                                   ],
                                 ),
                               ),
+                              if (widget.tools)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: AppSpacing.sm),
+                                  child: AttachmentGrid(),
+                                ),
                               if (blocked)
                                 Padding(
                                   padding: const EdgeInsets.all(AppSpacing.md),
@@ -323,6 +466,9 @@ class _ReplyEditorState extends State<_ReplyEditor> {
                       ),
                       _ReplyFooter(
                         key: const ValueKey('reply-footer'),
+                        tools: widget.tools && !blocked
+                            ? _ReplyTools(submitting: state.isSubmitting)
+                            : null,
                         problem: DraftProblemHint(problem: state.draft.problem),
                         counter: CharacterCounter.ring(
                           remaining: state.draft.remaining,
@@ -429,8 +575,11 @@ class _ReplyFooter extends StatelessWidget {
     required this.problem,
     required this.counter,
     this.reply,
+    this.tools,
   });
 
+  /// The Photo and GIF buttons, at the start.
+  final Widget? tools;
   final Widget problem;
   final Widget counter;
   final Widget? reply;
@@ -451,6 +600,7 @@ class _ReplyFooter extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
         child: Row(
           children: [
+            ?tools,
             Expanded(child: problem),
             counter,
             if (reply case final reply?) ...[
@@ -462,4 +612,38 @@ class _ReplyFooter extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// The reply footer's Photo and GIF buttons, driven by the composer's rules
+/// (the same ones as the post composer): they add, or add again after a
+/// cancelled picker or a removed photo, and are off while sending.
+class _ReplyTools extends StatelessWidget {
+  const _ReplyTools({required this.submitting});
+
+  final bool submitting;
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.read<ComposerCubit>();
+    final attachBusy = context.select<AttachmentsCubit, bool>(
+      (c) => c.state.isBusy,
+    );
+    // The rules read what is attached now.
+    context.select<ComposerCubit, (bool, bool)>(
+      (c) => (c.state.hasAttachments, c.state.attachmentsReady),
+    );
+    final rules = cubit.rules;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AddPhotoButton(block: rules.photo),
+        if (rules.showGif)
+          ComposerGifButton(
+            block: rules.gif,
+            enabled: !submitting && !attachBusy,
+            onPressed: () => context.read<AttachmentsCubit>().pickGif(),
+          ),
+      ],
+    );
+  }
 }

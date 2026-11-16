@@ -35,6 +35,13 @@ class PostActions {
   final ValueChanged<Rect>? onShareAt;
 }
 
+/// How a [PostActionBar] looks. [feed] is the list card's compact row;
+/// [photoViewer] is X's phone photo viewer: reply, repost, like, views,
+/// bookmark, share spread evenly across the width, outline glyphs in grey
+/// with 13 sp counts, and X's pink / green / blue when liked / reposted /
+/// bookmarked ([AppPhotoPanel]). The actions and their semantics are the same.
+enum PostActionBarStyle { feed, photoViewer }
+
 /// Reply / Repost / Like / Share / Bookmark (the owner's order, 2026-11-15),
 /// compact and left-aligned, Substack style: [iconSize] outline glyphs (18 dp,
 /// dz.css `.acts`) with compact 13 sp counts, packed from the start with
@@ -66,7 +73,11 @@ class PostActionBar extends StatelessWidget {
     this.showDisabled = true,
     this.replyDisabledHint,
     this.iconSize = AppIconSize.action,
+    this.style = PostActionBarStyle.feed,
   });
+
+  /// The look; see [PostActionBarStyle].
+  final PostActionBarStyle style;
 
   final PostActions actions;
   final int replyCount;
@@ -108,11 +119,16 @@ class PostActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final viewer = style == PostActionBarStyle.photoViewer;
+    final idle = viewer ? AppPhotoPanel.muted : null;
     final counted = <Widget>[
       if (_shows(actions.onReply) || replyDisabledHint != null)
         _ActionButton(
           icon: Icons.chat_bubble_outline,
           iconSize: iconSize,
+          idleColor: idle,
+          compactEnd: viewer,
+          countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
           label: 'Reply',
           count: replyCount,
           onPressed: actions.onReply,
@@ -123,10 +139,13 @@ class PostActionBar extends StatelessWidget {
           builder: (buttonContext) => _ActionButton(
             icon: Icons.repeat,
             iconSize: iconSize,
+            idleColor: idle,
+            compactEnd: viewer,
+            countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
             label: reposted ? 'Undo repost' : 'Repost',
             count: repostCount,
             active: reposted,
-            activeColor: colors.repost,
+            activeColor: viewer ? AppPhotoPanel.reposted : colors.repost,
             onPressed: actions.onRepostFrom != null
                 ? () => actions.onRepostFrom!(buttonContext)
                 : actions.onRepost,
@@ -136,10 +155,13 @@ class PostActionBar extends StatelessWidget {
         _ActionButton(
           icon: liked ? Icons.favorite : Icons.favorite_border,
           iconSize: iconSize,
+          idleColor: idle,
+          compactEnd: viewer,
+          countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
           label: liked ? 'Unlike' : 'Like',
           count: likeCount,
           active: liked,
-          activeColor: colors.like,
+          activeColor: viewer ? AppPhotoPanel.liked : colors.like,
           onPressed: actions.onLike,
         ),
     ];
@@ -151,6 +173,9 @@ class PostActionBar extends StatelessWidget {
             builder: (buttonContext) => _ActionButton(
               icon: Icons.ios_share,
               iconSize: iconSize,
+              idleColor: idle,
+              compactEnd: viewer,
+              countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
               label: 'Share',
               count: shareCount,
               onPressed: actions.onShareAt != null
@@ -164,8 +189,12 @@ class PostActionBar extends StatelessWidget {
         : _ActionButton(
             icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
             iconSize: iconSize,
+            idleColor: idle,
+            compactEnd: viewer,
+            countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
             label: bookmarked ? 'Bookmarked' : 'Bookmark',
             active: bookmarked,
+            activeColor: viewer ? AppPhotoPanel.bookmarked : null,
             onPressed: actions.onBookmark,
           );
     final views = viewCount == null
@@ -178,8 +207,25 @@ class PostActionBar extends StatelessWidget {
               count: viewCount!,
               iconSize: iconSize,
               icon: viewsIcon,
+              color: idle,
             ),
           );
+    if (viewer) {
+      // X's order, spread evenly: each item takes an equal share and sits at
+      // the start of it, so the first glyph lines up with the text above.
+      final row = <Widget>[...counted, ?views, ?saved, ?share];
+      return Row(
+        children: [
+          for (final item in row)
+            Expanded(
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: item,
+              ),
+            ),
+        ],
+      );
+    }
     final items = <Widget>[...counted, ?share, ?saved, ?views];
     // Packed from the start; loose flex so a row too narrow for its items
     // squeezes them (a count fades) instead of overflowing.
@@ -203,7 +249,21 @@ class _ActionButton extends StatelessWidget {
     this.active = false,
     this.activeColor,
     this.disabledHint,
+    this.idleColor,
+    this.compactEnd = false,
+    this.countWeight = FontWeight.w600,
   });
+
+  /// The count's weight: 600 in the feed (dz.css `.acts span`), 400 in the
+  /// photo viewer.
+  final FontWeight countWeight;
+
+  /// The colour when not active (the photo viewer's grey); null is the
+  /// theme's muted text colour.
+  final Color? idleColor;
+
+  /// No trailing gap after the item (the photo viewer spreads items evenly).
+  final bool compactEnd;
 
   final IconData icon;
   final double iconSize;
@@ -224,7 +284,7 @@ class _ActionButton extends StatelessWidget {
         ? theme.disabledColor
         : active
         ? activeColor ?? theme.colorScheme.primary
-        : theme.colorScheme.onSurfaceVariant;
+        : idleColor ?? theme.colorScheme.onSurfaceVariant;
     final shown = count ?? 0;
     final button = Semantics(
       button: true,
@@ -264,12 +324,12 @@ class _ActionButton extends StatelessWidget {
                     // dz.css `.acts span`: 13 sp, w600.
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: color,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: countWeight,
                     ),
                   ),
                 ),
               ],
-              const SizedBox(width: AppSpacing.actionItemGap),
+              if (!compactEnd) const SizedBox(width: AppSpacing.actionItemGap),
             ],
           ),
         ),

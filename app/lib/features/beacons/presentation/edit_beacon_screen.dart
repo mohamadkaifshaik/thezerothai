@@ -2,16 +2,19 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../shared/widgets/primitives/app_labeled_field.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
+import '../../communities/data/communities_repository.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
 import '../../location/domain/location_models.dart';
 import '../data/beacons_repository.dart';
@@ -28,6 +31,21 @@ import 'widgets/discard_plan_dialog.dart';
 import 'widgets/plan_form_fields.dart';
 import 'widgets/plan_preview.dart';
 import 'widgets/plan_tips.dart';
+
+/// Why the form is not offered (a deep link by someone who is not the
+/// organiser, or to a plan that can no longer change); null when it is.
+String? planEditBlock(pb.Beacon b, {required bool canManage}) {
+  if (!canManage) return kPlanEditNotOrganiser;
+  return switch (b.status) {
+    pb.BeaconStatus.BEACON_STATUS_CANCELLED => kPlanEditCancelled,
+    pb.BeaconStatus.BEACON_STATUS_ENDED => kPlanEditEnded,
+    _ => null,
+  };
+}
+
+const kPlanEditNotOrganiser = 'Only the organiser can edit this plan';
+const kPlanEditCancelled = 'This plan was cancelled';
+const kPlanEditEnded = 'This plan has ended';
 
 /// `/plans/:id/edit` (R34): title, details, meeting point and open spots,
 /// and (F28, R12) until the plan starts its date, time, duration and cost,
@@ -95,6 +113,11 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   bool _makePublic = false;
   bool _discarded = false;
 
+  /// The name of the plan's community, from the communities session cache
+  /// (null until read, or when it cannot be: the audience then reads
+  /// "Community").
+  String? _communityName;
+
   /// The plan with the edits, for the preview; null until it is loaded.
   final _draft = ValueNotifier<pb.Beacon?>(null);
 
@@ -159,6 +182,25 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
     _start = _storedStart(b);
     _duration = b.durationMinutes;
     _cost = b.cost;
+    if (b.communityId.isNotEmpty) _loadCommunityName(b.communityId);
+  }
+
+  Future<void> _loadCommunityName(String id) async {
+    final communities = context.read<CommunitiesRepository?>();
+    if (communities == null || !communities.enabled) return;
+    try {
+      final mine = await communities.myCommunities();
+      if (!mounted) return;
+      final name = mine.communities
+          .where((c) => c.communityId == id)
+          .map((c) => c.name)
+          .firstOrNull;
+      if (name != null && name.isNotEmpty) {
+        setState(() => _communityName = name);
+      }
+    } on AppException {
+      // The audience reads "Community".
+    }
   }
 
   /// The duration chips. A stored length that is not one of them (another
@@ -391,6 +433,13 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
             },
             builder: (context, state) {
               final b = _filled ? state.view?.beacon : null;
+              final loaded = state.view;
+              final blocked = loaded == null
+                  ? null
+                  : planEditBlock(
+                      loaded.beacon,
+                      canManage: loaded.viewer.canManage,
+                    );
               final busy = state.busy;
               final minSpots = b == null
                   ? kBeaconMinSpots
@@ -410,29 +459,44 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                 canPop:
                     state.saved != null ||
                     _discarded ||
+                    blocked != null ||
                     (!busy && (b == null || !_dirty(b))),
                 onPopInvokedWithResult: (didPop, _) {
                   if (!didPop) _requestExit();
                 },
                 child: Column(
                   children: [
-                    AppFormHeader(
-                      title: 'Edit plan',
-                      actionLabel: 'Save',
-                      busy: busy,
-                      busySemanticsLabel: 'Saving plan',
-                      onCancel: _requestExit,
-                      onAction: b != null && !busy && _dirty(b) && _valid(b)
-                          ? _save
-                          : null,
-                      secondaryLabel: b == null ? null : kPlanPreviewTitle,
-                      onSecondary: b == null ? null : _openPreview,
-                    ),
+                    if (blocked != null)
+                      AppBackHeader(title: 'Edit plan', onBack: _back)
+                    else
+                      AppFormHeader(
+                        title: 'Edit plan',
+                        actionLabel: 'Save',
+                        busy: busy,
+                        busySemanticsLabel: 'Saving plan',
+                        onCancel: _requestExit,
+                        onAction: b != null && !busy && _dirty(b) && _valid(b)
+                            ? _save
+                            : null,
+                        secondaryLabel: b == null ? null : kPlanPreviewTitle,
+                        onSecondary: b == null ? null : _openPreview,
+                      ),
                     Expanded(
                       child: state.loading
                           ? const UserListSkeleton(
                               rows: 2,
                               semanticsLabel: 'Loading plan',
+                            )
+                          : blocked != null
+                          ? Center(
+                              child: AppEmptyView(
+                                icon: Icons.lock_outline,
+                                title: blocked,
+                                action: TextButton(
+                                  onPressed: _back,
+                                  child: const Text('Back'),
+                                ),
+                              ),
                             )
                           : state.error != null
                           ? Center(
@@ -554,6 +618,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                   if (b != null && _audienceOpen)
                                     _AudienceField(
                                       community: b.communityId.isNotEmpty,
+                                      communityName: _communityName,
                                       makePublic: _makePublic,
                                       enabled: !busy,
                                       onChanged: (p) =>
@@ -565,6 +630,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                       beacon: b,
                                       started: !_scheduleEditable(b),
                                       showAudience: !_audienceOpen,
+                                      communityName: _communityName,
                                     ),
                                   ],
                                   if (state.saveError != null) ...[
@@ -602,6 +668,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
 class _AudienceField extends StatelessWidget {
   const _AudienceField({
     required this.community,
+    required this.communityName,
     required this.makePublic,
     required this.enabled,
     required this.onChanged,
@@ -609,6 +676,9 @@ class _AudienceField extends StatelessWidget {
 
   /// Whether the plan as stored is scoped to a community.
   final bool community;
+
+  /// The community's name, when known.
+  final String? communityName;
 
   /// Whether the form makes the community plan public.
   final bool makePublic;
@@ -626,7 +696,8 @@ class _AudienceField extends StatelessWidget {
           PlanChoiceChips<bool>(
             values: community ? const [false, true] : const [true],
             selected: !community || makePublic,
-            label: (public) => public ? 'Public' : 'Community',
+            label: (public) =>
+                public ? 'Public' : (communityName ?? 'Community'),
             enabled: enabled,
             onSelected: (public) => onChanged(community && public),
           ),
@@ -653,8 +724,10 @@ class _ReadOnly extends StatelessWidget {
     required this.beacon,
     required this.started,
     required this.showAudience,
+    required this.communityName,
   });
 
+  final String? communityName;
   final pb.Beacon beacon;
   final bool started;
   final bool showAudience;
@@ -662,7 +735,9 @@ class _ReadOnly extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final b = beacon;
-    final audience = b.communityId.isEmpty ? 'Public' : 'Community';
+    final audience = b.communityId.isEmpty
+        ? 'Public'
+        : (communityName ?? 'Community');
     return PlanReadOnlyBox(
       title: started ? kPlanFixedNow : kPlanSetAtCreation,
       lines: [

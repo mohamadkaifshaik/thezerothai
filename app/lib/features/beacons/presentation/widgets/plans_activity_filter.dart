@@ -12,7 +12,9 @@ const kPlansActivityFilterKey = ValueKey('plans-activity-filter');
 const kPlansActivityFilterLabel = 'Filter plans by activity';
 
 /// The chips of the row, in the designs' order: "All" (UNSPECIFIED: no
-/// filter), then each activity a plan can have but "Other".
+/// filter), then each activity a plan can have, "Others" last. "Others"
+/// asks the server for `other` only: a plan with no activity (an older one)
+/// is not in it.
 const kPlanActivityFilters = <pb.BeaconActivity>[
   pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
   pb.BeaconActivity.BEACON_ACTIVITY_COFFEE,
@@ -21,19 +23,60 @@ const kPlanActivityFilters = <pb.BeaconActivity>[
   pb.BeaconActivity.BEACON_ACTIVITY_SPORTS,
   pb.BeaconActivity.BEACON_ACTIVITY_WALK,
   pb.BeaconActivity.BEACON_ACTIVITY_SHOPPING,
+  pb.BeaconActivity.BEACON_ACTIVITY_OTHER,
 ];
 
-/// A chip's label: "All", or the activity's own label.
-String planActivityFilterLabel(pb.BeaconActivity a) =>
-    a == pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED
-    ? 'All'
-    : activityLabel(a);
+/// A chip's label: "All", "Others" (the plans of no listed activity), or the
+/// activity's own label.
+String planActivityFilterLabel(pb.BeaconActivity a) => switch (a) {
+  pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED => 'All',
+  pb.BeaconActivity.BEACON_ACTIVITY_OTHER => 'Others',
+  _ => activityLabel(a),
+};
 
-/// F29: the Plans list's activity chips (the designs' `.pill` chips), one
-/// row that scrolls sideways when it does not fit (a phone, large text),
-/// so a label is never cut. Each chip is an [AppFilterPill]: 48 dp target,
-/// a check and w700 when selected, announced as a selected button. The row
-/// is a named group; it mirrors in RTL.
+/// One row of filter chips for the Plans list (the activities, the
+/// communities): it scrolls sideways when it does not fit (a phone, large
+/// text), never wraps, so a label is never cut. The chips are separated by
+/// [AppSpacing.sm] and the row is padded by [AppSpacing.md]; it is a named
+/// group and mirrors in RTL.
+class PlansChipRow extends StatelessWidget {
+  const PlansChipRow({
+    super.key,
+    required this.label,
+    required this.chips,
+    this.groupKey,
+  });
+
+  final String label;
+  final List<Widget> chips;
+  final Key? groupKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      key: groupKey,
+      container: true,
+      explicitChildNodes: true,
+      label: label,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        child: Row(
+          children: [
+            for (final (i, chip) in chips.indexed) ...[
+              if (i > 0) const SizedBox(width: AppSpacing.sm),
+              chip,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// F29: the Plans list's activity chips (the designs' `.pill` chips). Each
+/// chip is an [AppFilterPill]: 48 dp target, a check and w700 when selected,
+/// announced as a selected button.
 class PlansActivityFilter extends StatelessWidget {
   const PlansActivityFilter({
     super.key,
@@ -46,27 +89,17 @@ class PlansActivityFilter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      key: kPlansActivityFilterKey,
-      container: true,
-      explicitChildNodes: true,
+    return PlansChipRow(
+      groupKey: kPlansActivityFilterKey,
       label: kPlansActivityFilterLabel,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-        child: Row(
-          children: [
-            for (final (i, a) in kPlanActivityFilters.indexed) ...[
-              if (i > 0) const SizedBox(width: AppSpacing.sm),
-              AppFilterPill(
-                label: planActivityFilterLabel(a),
-                selected: a == selected,
-                onPressed: () => onSelected(a),
-              ),
-            ],
-          ],
-        ),
-      ),
+      chips: [
+        for (final a in kPlanActivityFilters)
+          AppFilterPill(
+            label: planActivityFilterLabel(a),
+            selected: a == selected,
+            onPressed: () => onSelected(a),
+          ),
+      ],
     );
   }
 }

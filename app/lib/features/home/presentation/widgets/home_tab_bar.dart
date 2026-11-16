@@ -19,6 +19,7 @@ class HomeTabBar extends StatelessWidget {
       builder: (context, state) {
         final cubit = context.read<HomeTabsCubit>();
         return AppTabBar(
+          autoWidth: true,
           semanticLabel: 'Home timelines',
           selectedIndex: state.selectedIndex,
           onChanged: (i) =>

@@ -90,7 +90,8 @@ void main() {
   });
 
   test('neededPixels counts the side crop of a panorama', () {
-    // A 2:1 image in a square-ish frame is drawn wider than the frame.
+    // A panorama in a frame narrower than its own aspect is drawn wider than
+    // the frame.
     expect(PostMedia.neededPixels(const Size(300, 150), 2, 2), 600);
     expect(PostMedia.neededPixels(const Size(300, 300), 2, 1), 600);
     expect(PostMedia.neededPixels(const Size(300, 375), 0.8, 1), 300);
@@ -127,13 +128,13 @@ void main() {
   });
 
   testWidgets('a panorama decodes at the width its crop needs', (tester) async {
-    // 2:1 stored, frame is 2:1 at most, so fits; use 3:1 -> clamped to 2:1
-    // frame, image drawn 1.5x wider than the frame.
-    await _pump(tester, _ref(3000, 1000), dpr: 2);
+    // 4:1 stored, the frame is 3:1 at most: the image is drawn 4/3 wider
+    // than the frame.
+    await _pump(tester, _ref(4000, 1000), dpr: 2);
     final image = tester.widget<CachedNetworkImage>(
       find.byType(CachedNetworkImage).first,
     );
-    expect(image.memCacheWidth, greaterThanOrEqualTo(306 * 2 * 1.5));
+    expect(image.memCacheWidth, greaterThanOrEqualTo(306 * 2 * 4 / 3));
   });
 
   testWidgets('the detail view decodes a panorama at its crop width too', (
@@ -149,7 +150,7 @@ void main() {
             alignment: Alignment.topLeft,
             child: SizedBox(
               width: 306,
-              child: PostMedia(media: [_ref(3000, 1000)], useFullImage: true),
+              child: PostMedia(media: [_ref(4000, 1000)], useFullImage: true),
             ),
           ),
         ),
@@ -160,7 +161,7 @@ void main() {
       find.byType(CachedNetworkImage).first,
     );
     expect(image.imageUrl, 'https://cdn/full.jpg');
-    expect(image.memCacheWidth, greaterThanOrEqualTo(306 * 2 * 1.5));
+    expect(image.memCacheWidth, greaterThanOrEqualTo(306 * 2 * 4 / 3));
   });
 
   testWidgets('a ref with no thumbnail never loads the full image', (

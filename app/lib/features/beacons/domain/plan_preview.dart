@@ -35,7 +35,7 @@ pb.Beacon draftPlan({
   title: normalizeListText(title),
   details: normalizeListText(details),
   venue: normalizeListText(venue),
-  startAt: ts.Timestamp.fromDateTime(startAt.toUtc()),
+  startAt: ts.Timestamp.fromDateTime(startAt),
   durationMinutes: durationMinutes,
   openSpots: openSpots,
   acceptedCount: 0,
@@ -74,7 +74,7 @@ pb.Beacon editedPlan(
     ..status = live
         ? beaconLiveStatus(loaded.acceptedCount, openSpots)
         : loaded.status;
-  if (startAt != null) b.startAt = ts.Timestamp.fromDateTime(startAt.toUtc());
+  if (startAt != null) b.startAt = ts.Timestamp.fromDateTime(startAt);
   if (durationMinutes != null) b.durationMinutes = durationMinutes;
   if (cost != null) b.cost = cost;
   if (makePublic) b.communityId = '';

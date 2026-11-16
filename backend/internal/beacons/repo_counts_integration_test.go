@@ -11,8 +11,9 @@ import (
 )
 
 // TestRepo_Counts (PR 8 R44): Stats.Counts answers the five aggregate counts over beacons/ (open, full, cancelled,
-// hidden, ended) from count aggregations, reads no document, and a hidden OPEN beacon is in both beacons_open and
-// beacons_hidden (independent counters). A second call answers the same (nothing written).
+// hidden, ended) and Stats.ParticipantCounts the two collection-group counts (requested, accepted), from count
+// aggregations, reading no document; a hidden OPEN beacon is in both beacons_open and beacons_hidden (independent
+// counters). A second call answers the same (nothing written).
 func TestRepo_Counts(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()
@@ -28,6 +29,11 @@ func TestRepo_Counts(t *testing.T) {
 	e.mustRequest(t, "guest-c1", itKeyB, full)
 	if res, err := e.respond("org-c3", itKeyB, full, "guest-c1", true, e.now); err != nil || res.Beacon.Status != StatusFull {
 		t.Fatalf("accept into the one-spot beacon: %+v, %v", res, err)
+	}
+	// Two open join requests on another beacon (participants_requested); guest-c1's accepted row above is the one seat
+	// taken (participants_accepted). Both are collection-group counts over every beacon's beaconParticipants.
+	for _, uid := range []string{"guest-c2", "guest-c3"} {
+		e.mustRequest(t, uid, itKeyB, open[1])
 	}
 	for i, uid := range []string{"org-c4", "org-c5"} {
 		id := e.create(t, uid, itKeyA, e.beaconAt(uid, "", start)).Beacon.ID
@@ -61,6 +67,7 @@ func TestRepo_Counts(t *testing.T) {
 
 	var s Stats = e.repo
 	want := Counts{Open: 5, Full: 1, Cancelled: 3, Hidden: 1, Ended: 2}
+	wantParts := ParticipantCounts{Requested: 2, Accepted: 1}
 	for _, call := range []string{"first", "second"} {
 		got, err := s.Counts(ctx)
 		if err != nil {
@@ -68,6 +75,13 @@ func TestRepo_Counts(t *testing.T) {
 		}
 		if got != want {
 			t.Fatalf("%s Counts = %+v, want %+v", call, got, want)
+		}
+		parts, err := s.ParticipantCounts(ctx)
+		if err != nil {
+			t.Fatalf("%s ParticipantCounts: %v", call, err)
+		}
+		if parts != wantParts {
+			t.Fatalf("%s ParticipantCounts = %+v, want %+v", call, parts, wantParts)
 		}
 	}
 }

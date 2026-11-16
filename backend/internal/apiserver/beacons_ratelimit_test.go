@@ -8,7 +8,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// beaconWriteProcedures share RATE_LIMIT_BEACONS_WRITE_PER_MIN; CreateBeacon alone carries the beacons_created_daily cap.
+// beaconWriteProcedures share RATE_LIMIT_BEACONS_WRITE_PER_MIN; CreateBeacon carries the beacons_created_daily cap and
+// CancelBeacon the beacons_cancelled_daily cap (R24); UpdateBeacon and every other beacon RPC carry none.
 var beaconWriteProcedures = []string{
 	beaconsv1connect.BeaconServiceCreateBeaconProcedure,
 	beaconsv1connect.BeaconServiceUpdateBeaconProcedure,
@@ -34,7 +35,8 @@ var beaconReadProcedures = []string{
 }
 
 // beaconsRateLimitViolations asserts the wiring: each group shares one limiter, the three limiters are three different
-// objects, CreateBeacon alone has a DailyCaps entry and it is named beacons_created_daily.
+// objects, only CreateBeacon and CancelBeacon have DailyCaps entries, named beacons_created_daily and
+// beacons_cancelled_daily, on two different caps.
 func beaconsRateLimitViolations(rl ratelimit.Config) []string {
 	var out []string
 	groups := []struct {
@@ -46,7 +48,7 @@ func beaconsRateLimitViolations(rl ratelimit.Config) []string {
 			if rl.PerProcedure[p] == nil || rl.PerProcedure[p] != rl.PerProcedure[g.procs[0]] {
 				out = append(out, "beacon "+g.name+" "+p+" does not share the beacons "+g.name+" bucket")
 			}
-			if _, ok := rl.DailyCaps[p]; ok && p != beaconsv1connect.BeaconServiceCreateBeaconProcedure {
+			if _, ok := rl.DailyCaps[p]; ok && p != beaconsv1connect.BeaconServiceCreateBeaconProcedure && p != beaconsv1connect.BeaconServiceCancelBeaconProcedure {
 				out = append(out, "beacon "+g.name+" "+p+" must not be on a daily cap")
 			}
 		}
@@ -61,6 +63,12 @@ func beaconsRateLimitViolations(rl ratelimit.Config) []string {
 	if named, ok := rl.DailyCaps[create]; !ok || named.Cap == nil || named.Name != "beacons_created_daily" {
 		out = append(out, "CreateBeacon has no beacons_created_daily DailyCaps entry")
 	}
+	cancel := beaconsv1connect.BeaconServiceCancelBeaconProcedure
+	if named, ok := rl.DailyCaps[cancel]; !ok || named.Cap == nil || named.Name != "beacons_cancelled_daily" {
+		out = append(out, "CancelBeacon has no beacons_cancelled_daily DailyCaps entry")
+	} else if c, ok := rl.DailyCaps[create]; ok && c.Cap == named.Cap {
+		out = append(out, "CreateBeacon and CancelBeacon must not share one daily cap")
+	}
 	return out
 }
 
@@ -68,6 +76,8 @@ func beaconsRateLimitViolations(rl ratelimit.Config) []string {
 func TestBeaconsRateLimit_Guard(t *testing.T) {
 	create := beaconsv1connect.BeaconServiceCreateBeaconProcedure
 	get := beaconsv1connect.BeaconServiceGetBeaconProcedure
+	cancel := beaconsv1connect.BeaconServiceCancelBeaconProcedure
+	update := beaconsv1connect.BeaconServiceUpdateBeaconProcedure
 	tests := []struct {
 		name   string
 		mutate func(*ratelimit.Config)
@@ -83,6 +93,18 @@ func TestBeaconsRateLimit_Guard(t *testing.T) {
 			c.DailyCaps[create] = n
 		}, "CreateBeacon has no beacons_created_daily"},
 		{"get joins a daily cap", func(c *ratelimit.Config) { c.DailyCaps[get] = c.DailyCaps[create] }, "must not be on a daily cap"},
+		{"cancel loses its daily cap", func(c *ratelimit.Config) { delete(c.DailyCaps, cancel) }, "CancelBeacon has no beacons_cancelled_daily"},
+		{"cancel cap is renamed", func(c *ratelimit.Config) {
+			n := c.DailyCaps[cancel]
+			n.Name = "beacons_created_daily"
+			c.DailyCaps[cancel] = n
+		}, "CancelBeacon has no beacons_cancelled_daily"},
+		{"cancel shares the create cap", func(c *ratelimit.Config) {
+			n := c.DailyCaps[cancel]
+			n.Cap = c.DailyCaps[create].Cap
+			c.DailyCaps[cancel] = n
+		}, "must not share one daily cap"},
+		{"update joins a daily cap", func(c *ratelimit.Config) { c.DailyCaps[update] = c.DailyCaps[cancel] }, "must not be on a daily cap"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

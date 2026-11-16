@@ -5,9 +5,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/post/gif_badge.dart';
+import '../../domain/unusual_aspect.dart';
 import '../bloc/attachments_cubit.dart';
+import '../media_error_messages.dart';
 import 'alt_text_editor.dart';
 import 'photo_editor.dart';
+import 'unusual_photo_notice.dart';
 
 /// The composer's picked images: a single row of removable preview tiles
 /// (at most [kMaxPostImages]) with per-image state (processing, upload
@@ -31,7 +34,7 @@ class AttachmentGrid extends StatelessWidget {
       buildWhen: (a, b) => !identical(a.items, b.items),
       builder: (context, state) {
         if (state.isEmpty) return const SizedBox.shrink();
-        return SizedBox(
+        final row = SizedBox(
           height: tileSize,
           // Long-press and drag a tile to reorder; Move left / Move right are
           // also semantics actions on every tile. The order is the post's
@@ -71,6 +74,14 @@ class AttachmentGrid extends StatelessWidget {
             },
           ),
         );
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            row,
+            UnusualPhotoNotice(items: state.items, enabled: enabled),
+          ],
+        );
       },
     );
   }
@@ -102,6 +113,8 @@ class _AttachmentTileState extends State<AttachmentTile> {
   final FocusNode _altFocus = FocusNode(debugLabel: 'attachment alt text');
 
   Attachment get attachment => widget.attachment;
+  // Only a lone thin photo is flagged: in a row the feed shows strips whole.
+  UnusualShape? get _shape => total == 1 ? attachment.unusualShape : null;
   int get position => widget.position;
   int get total => widget.total;
   bool get enabled => widget.enabled;
@@ -164,6 +177,7 @@ class _AttachmentTileState extends State<AttachmentTile> {
       initialEdit: cubit.editOf(id),
       initialAlt: attachment.altText,
       isGif: attachment.isGif,
+      warning: _shape == null ? null : thinPhotoLine(_shape!),
     );
     if (result != null && !cubit.isClosed) {
       cubit.applyEdit(id, result.edit, result.altText);
@@ -226,7 +240,9 @@ class _AttachmentTileState extends State<AttachmentTile> {
                   ExcludeSemantics(
                     child: Image.memory(
                       preview,
-                      fit: BoxFit.cover,
+                      // An unusually shaped photo shows whole, so the user
+                      // sees it is squeezed (the tile colour is the matte).
+                      fit: _shape == null ? BoxFit.cover : BoxFit.contain,
                       cacheWidth:
                           (AttachmentGrid.tileSize *
                                   MediaQuery.devicePixelRatioOf(context))
@@ -278,6 +294,33 @@ class _AttachmentTileState extends State<AttachmentTile> {
                         : null,
                   ),
                 ),
+                if (_shape != null)
+                  PositionedDirectional(
+                    top: AppSpacing.xs,
+                    start: AppSpacing.xs,
+                    child: Semantics(
+                      container: true,
+                      label: thinPhotoBadgeLabel(
+                        narrow: _shape == UnusualShape.narrow,
+                      ),
+                      child: ExcludeSemantics(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: colors.surface.withValues(alpha: 0.85),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(AppSpacing.xs),
+                            child: Icon(
+                              Icons.info_outline_rounded,
+                              size: AppIconSize.md,
+                              color: context.appColors.warning,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 if (attachment.isGif)
                   const PositionedDirectional(
                     bottom: AppSpacing.xs,

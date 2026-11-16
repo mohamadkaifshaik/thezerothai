@@ -147,6 +147,19 @@ void main() {
     );
   });
 
+  test('markNotUploaded sends the bytes again with fresh media ids', () async {
+    stubHappyUpload(repo);
+    picker.next = [imageBytes('a')];
+    await cubit.pick();
+    expect((await cubit.uploadAll()).mediaIds, ['m1']);
+
+    cubit.markNotUploaded();
+    expect(statuses(), [AttachmentStatus.ready]);
+    expect(cubit.state.items.single.mediaId, isEmpty);
+
+    expect((await cubit.uploadAll()).mediaIds, ['m2']);
+  });
+
   test('no alt text at all sends no alt list', () async {
     stubHappyUpload(repo);
     picker.next = [imageBytes('a')];

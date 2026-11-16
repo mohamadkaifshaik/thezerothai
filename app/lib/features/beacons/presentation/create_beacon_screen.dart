@@ -4,10 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;
 
-import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../shared/widgets/primitives/app_dialog.dart';
@@ -16,8 +16,8 @@ import '../../../shared/widgets/primitives/app_labeled_field.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pickers.dart';
 import '../../communities/data/communities_repository.dart';
-import '../../location/domain/location_models.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
+import '../../location/domain/location_models.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
@@ -333,7 +333,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       title: normalizeListText(_title.text),
       details: normalizeListText(_details.text),
       venue: normalizeListText(_venue.text),
-      startAt: ts.Timestamp.fromDateTime(_startAt.toUtc()),
+      startAt: ts.Timestamp.fromDateTime(_startAt),
       durationMinutes: _durationMinutes,
       openSpots: _openSpots,
       cost: _cost,

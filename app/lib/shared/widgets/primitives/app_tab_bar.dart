@@ -3,7 +3,10 @@ import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import 'app_main_column.dart';
 
 /// One tab of an [AppTabBar]: a text label with an optional leading icon.
@@ -43,10 +46,15 @@ class AppTabBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onChanged,
     this.equalWidth = false,
+    this.autoWidth = false,
     this.trailing,
     this.fixedTrailing,
     this.semanticLabel,
-  }) : assert(tabs.length > 0, 'a tab bar needs at least one tab');
+  }) : assert(tabs.length > 0, 'a tab bar needs at least one tab'),
+       assert(
+         !autoWidth || (trailing == null && fixedTrailing == null),
+         'autoWidth does not lay out trailing / fixedTrailing',
+       );
 
   final List<AppTab> tabs;
   final int selectedIndex;
@@ -54,6 +62,13 @@ class AppTabBar extends StatelessWidget {
 
   /// Share the width equally instead of sizing each tab to its label.
   final bool equalWidth;
+
+  /// The one alignment rule of the tab bars under the main headers (Home,
+  /// Explore, Notifications): see [tabsSpread]. The tabs spread evenly across
+  /// the width when there are [kMaxSpreadTabs] or fewer and every label fits
+  /// its share; otherwise the bar scrolls and starts at the leading edge.
+  /// Overrides [equalWidth].
+  final bool autoWidth;
 
   /// A widget after the last tab (the "manage tabs" button of Home).
   final Widget? trailing;
@@ -110,6 +125,14 @@ class AppTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!autoWidth) return _build(context, equal: equalWidth);
+    return LayoutBuilder(
+      builder: (context, box) =>
+          _build(context, equal: tabsSpread(context, tabs, box.maxWidth)),
+    );
+  }
+
+  Widget _build(BuildContext context, {required bool equal}) {
     final theme = Theme.of(context);
     final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     final padding = narrow ? AppSize.tabPaddingNarrow : AppSize.tabPaddingWide;
@@ -119,11 +142,11 @@ class AppTabBar extends StatelessWidget {
           key: tabs[i].key,
           tab: tabs[i],
           selected: i == selectedIndex,
-          horizontalPadding: equalWidth ? 0 : padding,
+          horizontalPadding: equal ? 0 : padding,
           onTap: () => onChanged(i),
         ),
     ];
-    final Widget row = equalWidth
+    final Widget row = equal
         ? Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -285,4 +308,128 @@ class _HairlineBleedPainter extends CustomPainter {
   @override
   bool shouldRepaint(_HairlineBleedPainter oldDelegate) =>
       bleed != oldDelegate.bleed || color != oldDelegate.color;
+}
+
+/// Most tabs that still spread across the width ([AppTabBar.autoWidth]).
+const int kMaxSpreadTabs = 4;
+
+/// The shared alignment rule of the tab bars under the main headers: spread
+/// evenly across [width] with [kMaxSpreadTabs] or fewer tabs, scrollable and
+/// start-aligned with more. Few tabs whose labels do not fit their share at
+/// the ambient text scale (three labels at 360 dp, 2x) also scroll, so no
+/// label is ever ellipsized.
+bool tabsSpread(BuildContext context, List<AppTab> tabs, double width) {
+  if (tabs.length > kMaxSpreadTabs) return false;
+  final style = Theme.of(context).textTheme.titleSmall
+      ?.copyWith(fontWeight: FontWeight.w700);
+  final share = width / tabs.length;
+  for (final tab in tabs) {
+    final painter = TextPainter(
+      text: TextSpan(text: tab.label, style: style),
+      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: Directionality.of(context),
+      maxLines: 1,
+    )..layout();
+    final icon = tab.icon == null ? 0 : AppIconSize.md + AppSpacing.sm;
+    final fits = painter.width + icon + AppSpacing.xs <= share;
+    painter.dispose();
+    if (!fits) return false;
+  }
+  return true;
+}
+
+/// Marks a sliver that spans the whole pane: a screen that wraps its slivers
+/// in the reading column's padding (the Home feed) leaves these alone.
+abstract interface class PaneWideSliver {}
+
+/// The tab bar of a main screen as a pinned sliver: it stays at the top when
+/// the floating top bar above it hides on scroll down. The bar sits in the
+/// reading column ([ShellGeometry.readableInset]) and its hairline spans the
+/// pane, as in the unpinned layout.
+class AppPinnedTabBarSliver extends StatelessWidget implements PaneWideSliver {
+  const AppPinnedTabBarSliver({super.key, required this.child});
+
+  /// The [AppTabBar] (or a binding that builds one).
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final extent = AppTabBar.heightFor(context);
+    // The surface of the top bar above it, so there is no seam: 88 % with
+    // `ui_shell` (the redesign), 92 % without.
+    final color = Theme.of(context).colorScheme.surface.withValues(
+      alpha: isFeatureEnabled(context, kFeatureUiShell) ? 0.88 : 0.92,
+    );
+    // The status bar: the tablet pane has no outer SafeArea, so with the top
+    // bar scrolled away this header would pin under it.
+    final topInset = MediaQuery.paddingOf(context).top;
+    // Read here: a sliver layout builder cannot depend on inherited widgets.
+    final column = ShellGeometry.readableMaxWidth(
+      context,
+      otherwise: AppBreakpoints.mobile,
+    );
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        final inset = math.max(0.0, (constraints.crossAxisExtent - column) / 2);
+        // Where the header sits in the viewport: under the top bar while it is
+        // shown (the bar already took the inset), at 0 once it floated away.
+        final top =
+            constraints.viewportMainAxisExtent -
+            constraints.remainingPaintExtent;
+        final reserve = math.max(0.0, topInset - top);
+        return SliverPersistentHeader(
+          pinned: true,
+          delegate: _PinnedBarDelegate(
+            extent: extent + reserve,
+            reserve: reserve,
+            inset: inset,
+            color: color,
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PinnedBarDelegate extends SliverPersistentHeaderDelegate {
+  const _PinnedBarDelegate({
+    required this.extent,
+    required this.reserve,
+    required this.inset,
+    required this.color,
+    required this.child,
+  });
+
+  final double extent;
+
+  /// The top part of [extent] kept clear for the status bar.
+  final double reserve;
+  final double inset;
+  final Color color;
+  final Widget child;
+
+  @override
+  double get minExtent => extent;
+
+  @override
+  double get maxExtent => extent;
+
+  @override
+  bool shouldRebuild(_PinnedBarDelegate old) =>
+      extent != old.extent ||
+      reserve != old.reserve ||
+      inset != old.inset ||
+      color != old.color ||
+      !identical(child, old.child);
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
+      ColoredBox(
+        color: color,
+        child: Padding(
+          padding: EdgeInsets.only(left: inset, right: inset, top: reserve),
+          child: AppMainColumnBleed(bleed: inset, child: child),
+        ),
+      );
 }

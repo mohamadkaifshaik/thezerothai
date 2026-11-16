@@ -62,7 +62,7 @@ void main() {
   final chip = find.byType(AltTextChip);
 
   testWidgets('no chip on an image without a description', (tester) async {
-    await tester.pumpWidget(_host(PostMedia(media: [_ref(), _ref()])));
+    await tester.pumpWidget(_host(PostMedia(media: [_ref(), _ref(), _ref()])));
     expect(chip, findsNothing);
     expect(find.text('ALT'), findsNothing);
     await swipeToNextMediaPage(tester);

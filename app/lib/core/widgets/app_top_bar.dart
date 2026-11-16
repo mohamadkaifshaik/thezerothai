@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../shared/widgets/primitives/app_avatar.dart';
 import '../../shared/widgets/primitives/app_icon_button.dart';
+import '../../shared/widgets/primitives/app_tab_bar.dart' show PaneWideSliver;
 import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
 import '../theme/app_theme.dart';
@@ -52,6 +53,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.centerTitle = false,
     this.wordmark = false,
     this.onBack,
+    this.titleWidget,
   }) : _height = null;
 
   const AppTopBar._({
@@ -63,6 +65,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.centerTitle = false,
     this.wordmark = false,
     this.onBack,
+    this.titleWidget,
     required double height,
   }) : _height = height;
 
@@ -80,6 +83,8 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     bool centerTitle = false,
     bool wordmark = false,
     VoidCallback? onBack,
+    Widget? titleWidget,
+    double? titleWidgetHeight,
   }) => AppTopBar._(
     key: key,
     title: title,
@@ -89,11 +94,13 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     centerTitle: centerTitle,
     wordmark: wordmark,
     onBack: onBack,
+    titleWidget: titleWidget,
     height: heightOf(
       context,
       title: title != null,
       subtitle: subtitle != null,
       wordmark: wordmark,
+      titleWidgetHeight: titleWidget == null ? null : titleWidgetHeight,
     ),
   );
 
@@ -105,8 +112,14 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     bool title = true,
     bool subtitle = false,
     bool wordmark = false,
+    double? titleWidgetHeight,
   }) {
-    if (!isFeatureEnabled(context, kFeatureUiShell)) return AppSize.headerRow;
+    if (!isFeatureEnabled(context, kFeatureUiShell)) {
+      return math.max(
+        AppSize.headerRow,
+        (titleWidgetHeight ?? 0).ceilToDouble(),
+      );
+    }
     final theme = Theme.of(context);
     final scaler = MediaQuery.textScalerOf(context);
     double line(TextStyle? style) {
@@ -114,6 +127,11 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
       return scaler.scale(style.fontSize ?? 14) * (style.height ?? 1.2);
     }
 
+    if (titleWidgetHeight != null) {
+      // Never under the 53dp row (so the bar matches the others at the
+      // default text scale); it grows only when the widget is taller.
+      return math.max(AppSize.headerRow, titleWidgetHeight.ceilToDouble());
+    }
     final text =
         (wordmark
             ? line(AppTextStyles.wordmark(theme))
@@ -128,6 +146,13 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   }
 
   final String? title;
+
+  /// A custom widget in the title slot (Explore's search field): it takes the
+  /// space between the avatar and the actions, in place of [title] and
+  /// [subtitle]. Size the bar with `titleWidgetHeight` of [AppTopBar.of] /
+  /// [AppTopBar.sliver] when it is taller than the 53dp row. Opt-in: every
+  /// other bar is unchanged.
+  final Widget? titleWidget;
 
   /// A second, secondary line under the title (the handle, a post count).
   final String? subtitle;
@@ -158,7 +183,9 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   /// The row height measured by [AppTopBar.of]; null for the fixed bar.
   final double? _height;
 
-  /// The same bar as a floating, snapping sliver.
+  /// The same bar as a floating, snapping sliver. It spans the whole pane
+  /// ([PaneWideSliver]); give it [onBack] for a pushed screen's Back arrow,
+  /// [titleWidget] (with [titleWidgetHeight]) for a custom title slot.
   static Widget sliver({
     Key? key,
     String? title,
@@ -167,6 +194,9 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     bool showAccountAvatar = true,
     bool centerTitle = false,
     bool wordmark = false,
+    VoidCallback? onBack,
+    Widget? titleWidget,
+    double? titleWidgetHeight,
   }) => _SliverTopBar(
     key: key,
     title: title,
@@ -175,6 +205,9 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     showAccountAvatar: showAccountAvatar,
     centerTitle: centerTitle,
     wordmark: wordmark,
+    onBack: onBack,
+    titleWidget: titleWidget,
+    titleWidgetHeight: titleWidgetHeight,
   );
 
   @override
@@ -204,6 +237,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                 showAccountAvatar: showAccountAvatar,
                 centerTitle: centerTitle,
                 onBack: onBack,
+                titleWidget: titleWidget,
                 fitText: true,
               ),
             ),
@@ -230,6 +264,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
               centerTitle: centerTitle,
               wordmark: wordmark,
               onBack: onBack,
+              titleWidget: titleWidget,
               redesign: true,
             ),
           ),
@@ -249,7 +284,7 @@ const double _verticalPadding = AppSpacing.xs;
 /// The wordmark; a brand name, not translatable copy.
 const String _wordmark = 'DZEROTH';
 
-class _SliverTopBar extends StatelessWidget {
+class _SliverTopBar extends StatelessWidget implements PaneWideSliver {
   const _SliverTopBar({
     super.key,
     this.title,
@@ -258,7 +293,14 @@ class _SliverTopBar extends StatelessWidget {
     this.showAccountAvatar = true,
     this.centerTitle = false,
     this.wordmark = false,
+    this.onBack,
+    this.titleWidget,
+    this.titleWidgetHeight,
   });
+
+  final VoidCallback? onBack;
+  final Widget? titleWidget;
+  final double? titleWidgetHeight;
 
   final String? title;
   final String? subtitle;
@@ -275,12 +317,16 @@ class _SliverTopBar extends StatelessWidget {
         floating: true,
         snap: true,
         automaticallyImplyLeading: false,
+        // The row marks its own title as the header: the app bar's wrapper
+        // would merge the avatar button and the actions into it.
+        excludeHeaderSemantics: true,
         // Grows with the text scale, for a title alone too.
         toolbarHeight: AppTopBar.heightOf(
           context,
           title: title != null,
           subtitle: subtitle != null,
           wordmark: wordmark,
+          titleWidgetHeight: titleWidget == null ? null : titleWidgetHeight,
         ),
         titleSpacing: 0,
         backgroundColor: colors.surface.withValues(alpha: _alpha),
@@ -297,6 +343,8 @@ class _SliverTopBar extends StatelessWidget {
             showAccountAvatar: showAccountAvatar,
             centerTitle: centerTitle,
             wordmark: wordmark,
+            onBack: onBack,
+            titleWidget: titleWidget,
             redesign: true,
           ),
         ),
@@ -304,13 +352,17 @@ class _SliverTopBar extends StatelessWidget {
     }
     // Legacy: a title plus a subtitle needs more than 53dp at 1.3x; a title
     // alone fits in 53dp.
-    final height = subtitle == null
+    var height = subtitle == null
         ? AppSize.headerRow
         : MediaQuery.textScalerOf(context).scale(AppSize.headerRow);
+    if (titleWidget != null && titleWidgetHeight != null) {
+      height = math.max(height, titleWidgetHeight!.ceilToDouble());
+    }
     return SliverAppBar(
       floating: true,
       snap: true,
       automaticallyImplyLeading: false,
+      excludeHeaderSemantics: true,
       toolbarHeight: height < AppSize.headerRow ? AppSize.headerRow : height,
       titleSpacing: 0,
       backgroundColor: colors.surface.withValues(alpha: _legacyAlpha),
@@ -320,6 +372,8 @@ class _SliverTopBar extends StatelessWidget {
         actions: actions,
         showAccountAvatar: showAccountAvatar,
         centerTitle: centerTitle,
+        onBack: onBack,
+        titleWidget: titleWidget,
       ),
     );
   }
@@ -351,7 +405,11 @@ class _BarRow extends StatelessWidget {
     this.wordmark = false,
     this.redesign = false,
     this.onBack,
+    this.titleWidget,
   });
+
+  /// See [AppTopBar.titleWidget].
+  final Widget? titleWidget;
 
   /// See [AppTopBar.onBack].
   final VoidCallback? onBack;
@@ -438,6 +496,17 @@ class _BarRow extends StatelessWidget {
             child: AppAvatarButton(),
           )
         : const SizedBox(width: AppSpacing.md);
+    if (titleWidget != null) {
+      return Row(
+        children: [
+          leading,
+          if (showAvatar) const SizedBox(width: AppSpacing.sm),
+          Expanded(child: Center(child: titleWidget)),
+          ...?actions,
+          SizedBox(width: redesign ? AppSpacing.sm : AppSpacing.xs),
+        ],
+      );
+    }
     // Raised actions are discs: they need more air from the screen edge.
     final endGap = SizedBox(width: redesign ? AppSpacing.sm : AppSpacing.xs);
     final trailing = Row(

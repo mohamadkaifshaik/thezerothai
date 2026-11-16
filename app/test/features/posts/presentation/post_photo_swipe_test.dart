@@ -65,9 +65,10 @@ void main() {
   Future<void> open(
     WidgetTester tester, {
     Set<String> flags = const {'posts', 'engagement', 'replies'},
+    Size size = const Size(390, 844),
   }) async {
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
+    tester.view.physicalSize = size;
     addTearDown(tester.view.reset);
     final onboarding = _Onboarding();
     whenListen(
@@ -154,8 +155,10 @@ void main() {
     expect(find.text('2 / 3'), findsOneWidget);
   });
 
-  testWidgets('the arrows still turn the page', (tester) async {
-    await open(tester);
+  testWidgets('the arrows (tablet and wider) still turn the page', (
+    tester,
+  ) async {
+    await open(tester, size: const Size(700, 900));
     await tester.tap(find.byTooltip('Next image'));
     await tester.pumpAndSettle();
     expect(find.text('2 / 3'), findsOneWidget);

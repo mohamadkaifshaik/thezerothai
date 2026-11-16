@@ -60,6 +60,7 @@ class HomeScreen extends StatelessWidget {
           canCompose: canCompose,
           // One tab: custom list tabs arrive with the Lists wave.
           tabBar: AppTabBar(
+            autoWidth: true,
             semanticLabel: 'Home timelines',
             selectedIndex: 0,
             onChanged: (_) {},
@@ -153,7 +154,7 @@ class _FollowingFeed extends StatelessWidget {
           active: active,
           retapSignal: context.read<HomeRetapSignal?>(),
           // Under the two header rows (top bar + tab bar).
-          newPostsPillTop: AppSize.headerRow * 2 + AppSpacing.sm,
+          newPostsPillTop: HomeTopBar.belowHeaders(context),
           headerSlivers: [
             HomeTopBar.sliver(
               context,
@@ -161,7 +162,7 @@ class _FollowingFeed extends StatelessWidget {
               // Pinned timelines exist only with the tabs (lists + ui_shell).
               pinned: showPinnedControl,
             ),
-            SliverToBoxAdapter(child: tabBar),
+            AppPinnedTabBarSliver(child: tabBar),
             // The entry row first, as in the designs; the cards follow it.
             if (canCompose)
               const SliverToBoxAdapter(child: HomeComposerEntry()),

@@ -144,15 +144,21 @@ class PlanSummary extends StatelessWidget {
                   icon: Icons.people_outline,
                   text: beaconSeatsText(b),
                 ),
-                PlanFactLine(
-                  icon: Icons.payments_outlined,
-                  text: 'Cost: ${costLabel(b.cost)}',
-                ),
-                PlanFactLine(
-                  icon: Icons.chat_bubble_outline,
-                  text: 'Chat: ${chatPreferenceLabel(b.chatPreference)}',
-                  last: true,
-                ),
+                if (b.cost != pb.BeaconCost.BEACON_COST_UNSPECIFIED)
+                  PlanFactLine(
+                    icon: Icons.payments_outlined,
+                    text: 'Cost: ${costLabel(b.cost)}',
+                    last:
+                        b.chatPreference ==
+                        pb.ChatPreference.CHAT_PREFERENCE_UNSPECIFIED,
+                  ),
+                if (b.chatPreference !=
+                    pb.ChatPreference.CHAT_PREFERENCE_UNSPECIFIED)
+                  PlanFactLine(
+                    icon: Icons.chat_bubble_outline,
+                    text: 'Chat: ${chatPreferenceLabel(b.chatPreference)}',
+                    last: true,
+                  ),
               ],
             ),
           ),

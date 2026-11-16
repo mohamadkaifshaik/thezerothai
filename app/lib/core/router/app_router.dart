@@ -7,6 +7,7 @@ import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/beacons/domain/beacons_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
+import '../../features/posts/domain/reply_start.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
 import '../../features/messages/domain/conversation_id.dart'
@@ -255,8 +256,16 @@ class AppRouter {
   static String postPath(String postId) =>
       '/post/${Uri.encodeComponent(postId)}';
 
-  static String composeReplyPath(String postId) =>
-      '/compose/reply/${Uri.encodeComponent(postId)}';
+  /// The reply composer for [postId]; [start] (photo, GIF or emoji) adds
+  /// `?start=<name>` so it opens with that entry started.
+  static String composeReplyPath(
+    String postId, {
+    ReplyStart start = ReplyStart.text,
+  }) {
+    final path = '/compose/reply/${Uri.encodeComponent(postId)}';
+    final query = start.query;
+    return query == null ? path : '$path?start=$query';
+  }
 
   static String postPhotoPath(String postId, int index) =>
       '${postPath(postId)}/photo/$index';

@@ -94,8 +94,11 @@ abstract final class AppLayout {
 }
 
 abstract final class AppRadius {
-  /// A post media frame or tile (single or in the row).
-  static const double postMedia = 12;
+  /// A single post image frame (X: 16).
+  static const double postMedia = 16;
+
+  /// A tile in the several-images row (X: 8).
+  static const double postMediaTile = 8;
 
   /// Legacy, migrate in sections.
   static const double sm = 8;
@@ -181,30 +184,38 @@ abstract final class AppFollowButton {
 /// Sizes of the shared chrome (dp), measured on x.com 2026-10-22 and divided
 /// by the verified 1.25 display scale.
 abstract final class AppSize {
-  /// Post media (Substack style): a frame is as wide as the body column and
-  /// never a fixed height. A single image keeps its own aspect ratio between
-  /// [postMediaLandscapeAspect] (2:1: wider is center-cropped) and
-  /// [postMediaPortraitAspect] (4:5: taller is center-cropped); several
-  /// images are a swipeable row of equal 4:5 tiles.
-  static const double postMediaLandscapeAspect = 2;
-  static const double postMediaPortraitAspect = 4 / 5;
+  /// Post media (X style, full body width): a single image is as wide as the
+  /// body column at its own aspect ratio, clamped only at the extremes
+  /// ([postMediaPortraitAspect] 9:16 tallest, [postMediaLandscapeAspect] 3:1
+  /// widest; beyond them it is center-cropped). Several images share one
+  /// height (see `PostMedia.rowHeight`).
+  static const double postMediaLandscapeAspect = 3;
+  static const double postMediaPortraitAspect = 9 / 16;
 
-  /// Phone tile width as a fraction of the column, so the next tile peeks in.
-  static const double postMediaTileWidthFraction = 0.72;
+  /// The aspect used when a ref has no stored size (4:5).
+  static const double postMediaDefaultAspect = 4 / 5;
 
-  /// Tablet and desktop tile size (4:5).
-  static const double postMediaTileWidthWide = 240;
-  static const double postMediaTileHeightWide = 300;
+  /// Row height rule, as fractions of the column width: at most
+  /// [postMediaRowMaxHeightFraction]; three or more tiles use
+  /// [postMediaRowAreaFraction] / the mean of the first two tiles' aspects
+  /// (two tiles fill the column).
+  static const double postMediaRowMaxHeightFraction = 1.243;
+  static const double postMediaRowAreaFraction = 0.591;
 
   /// The tallest a single frame grows on tablet and desktop (its width
-  /// shrinks to keep the ratio). Phones have no cap beyond 4:5.
+  /// shrinks to keep the ratio). Phones are capped by 9:16. Rows are not
+  /// held to this: X's rows reach [postMediaRowMaxHeightFraction] x column.
   static const double postMediaMaxSingleHeight = 520;
 
   /// The gap between tiles in the media row.
-  static const double postMediaRowGap = 8;
+  static const double postMediaRowGap = 4;
+
+  /// iOS keeps this much of the screen's left edge free for the system back
+  /// swipe: a bled media row starts its scroll area here, not at the edge.
+  static const double iosBackSwipeEdge = 20;
 
   /// The article card in a feed: the cover fills the card at 4:5
-  /// ([postMediaPortraitAspect]) up to [postMediaMaxSingleHeight]; the text
+  /// ([postMediaDefaultAspect]) up to [postMediaMaxSingleHeight]; the text
   /// overlay covers at least this fraction of the card, and the tint of its
   /// gradient is this opaque at the bottom.
   static const double articleCardOverlayFraction = 0.55;
@@ -351,6 +362,7 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.live,
     required this.recommendation,
     required this.positive,
+    required this.warning,
     required this.accentText,
     required this.secondaryOnRaised,
     required this.strongPillFill,
@@ -387,6 +399,10 @@ class AppColors extends ThemeExtension<AppColors> {
 
   /// A positive status (available handle).
   final Color positive;
+
+  /// A caution that does not block (amber): text and icons, AA on every
+  /// surface step.
+  final Color warning;
 
   /// Colour for small accent *text* (links, hashtags, "Show more"):
   /// tealText on light, tealElectric on dark.
@@ -445,6 +461,7 @@ class AppColors extends ThemeExtension<AppColors> {
     live: AppPalette.dangerOnDark,
     recommendation: AppPalette.tealElectric,
     positive: AppPalette.tealElectric,
+    warning: AppPalette.amberOnDark,
     accentText: AppPalette.tealElectric,
     secondaryOnRaised: AppPalette.mutedOnDark,
     strongPillFill: AppPalette.pearl,
@@ -472,6 +489,7 @@ class AppColors extends ThemeExtension<AppColors> {
     live: AppPalette.danger,
     recommendation: AppPalette.tealText,
     positive: AppPalette.tealText,
+    warning: AppPalette.amberOnLight,
     accentText: AppPalette.tealText,
     secondaryOnRaised: AppPalette.mutedOnLight,
     strongPillFill: AppPalette.navy,
@@ -500,6 +518,7 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? live,
     Color? recommendation,
     Color? positive,
+    Color? warning,
     Color? accentText,
     Color? secondaryOnRaised,
     Color? strongPillFill,
@@ -526,6 +545,7 @@ class AppColors extends ThemeExtension<AppColors> {
       live: live ?? this.live,
       recommendation: recommendation ?? this.recommendation,
       positive: positive ?? this.positive,
+      warning: warning ?? this.warning,
       accentText: accentText ?? this.accentText,
       secondaryOnRaised: secondaryOnRaised ?? this.secondaryOnRaised,
       strongPillFill: strongPillFill ?? this.strongPillFill,
@@ -558,6 +578,7 @@ class AppColors extends ThemeExtension<AppColors> {
       live: mix(live, other.live),
       recommendation: mix(recommendation, other.recommendation),
       positive: mix(positive, other.positive),
+      warning: mix(warning, other.warning),
       accentText: mix(accentText, other.accentText),
       secondaryOnRaised: mix(secondaryOnRaised, other.secondaryOnRaised),
       strongPillFill: mix(strongPillFill, other.strongPillFill),
@@ -1108,6 +1129,11 @@ abstract final class AppPalette {
   /// Danger text and icons on dark (D2): 6.53 on navy.
   static const Color dangerOnDark = Color(0xFFF97066);
 
+  /// Caution amber: text and icons on light (about 6:1 on pearl) and on dark
+  /// (about 10:1 on navy).
+  static const Color amberOnLight = Color(0xFF8A4B00);
+  static const Color amberOnDark = Color(0xFFF5B942);
+
   /// Decorative only; never for input, chip or button borders.
   static const Color hairlineLight = Color(0x140D1528);
   static const Color hairlineDark = Color(0x1AFAFAFA);
@@ -1545,6 +1571,33 @@ abstract final class AppPickerLayout {
   static const double searchHeight = 48;
   static const double rowPaddingV = 12;
   static const double rowGap = 12;
+}
+
+/// The photo viewer's bottom panel, as X's phone app draws it over black
+/// (measured on x.com): muted grey for idle icons and counts, and X's pink,
+/// green and blue for liked, reposted and bookmarked.
+abstract final class AppPhotoPanel {
+  static const Color muted = Color(0xFF71767B);
+  static const Color liked = Color(0xFFF91880);
+  static const Color reposted = Color(0xFF00BA7C);
+  static const Color bookmarked = AppPalette.tealElectric;
+
+  /// The "Post your reply" pill and its icon buttons.
+  static const Color replyField = Color(0xFF202327);
+
+  /// The panel is dark in both themes, so the dark theme's teal accent (the
+  /// link colour of the feeds) is the one that reads on it.
+  static const Color accent = AppPalette.tealElectric;
+
+  /// The verified badge keeps its own blue (not an accent).
+  static const Color verified = Color(0xFF1D9BF0);
+
+  /// Sizes (dp): the author's avatar, the viewer's avatar, the reply pill's
+  /// height, and the action glyphs.
+  static const double authorAvatar = 40;
+  static const double replyAvatar = 32;
+  static const double replyFieldHeight = 40;
+  static const double actionIcon = 18;
 }
 
 /// Sizes of the post screens' redesign (PostPhoto, Composer, Drafts).

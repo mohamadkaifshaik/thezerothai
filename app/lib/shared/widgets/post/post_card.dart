@@ -292,6 +292,29 @@ class PostCard extends StatelessWidget {
     final fullContent = showFullImages || focal;
     final windowWidth = MediaQuery.sizeOf(context).width;
     final gutter = postCardGutter(windowWidth);
+    // On a phone a list card's several-images row is laid out across the whole
+    // card width (not inside the card's padding), so it scrolls to the
+    // screen's edges as on X while its first tile stays on the body text.
+    // Taps and drags in the card's padding then reach the row.
+    final bleedMedia =
+        showsMedia &&
+        media.length > 1 &&
+        !asFocal &&
+        !indentBody &&
+        windowWidth < AppBreakpoints.mobile;
+    Widget mediaRow(double insetStart, double insetEnd) => PostMedia(
+      media: media,
+      useFullImage: fullContent,
+      showPageIndicator: PostMedia.hasNoText(text),
+      insetStart: insetStart,
+      insetEnd: insetEnd,
+      onOpenImage: (index) => context.push(
+        AppRouter.postPhotoPath(
+          isRepost ? embedded!.postId : _post.postId,
+          index + 1,
+        ),
+      ),
+    );
     // The opened post's tablet and desktop header: the 56 dp avatar and
     // 21 sp text (the PostDetail designs); phones keep 42 dp and 17 sp. An
     // opened reply keeps the 42 dp avatar, so the thread rail from its parent
@@ -445,17 +468,7 @@ class PostCard extends StatelessWidget {
         ),
       if (showsMedia) ...[
         const SizedBox(height: AppSpacing.sm),
-        PostMedia(
-          media: media,
-          useFullImage: fullContent,
-          showPageIndicator: PostMedia.hasNoText(text),
-          onOpenImage: (index) => context.push(
-            AppRouter.postPhotoPath(
-              isRepost ? embedded!.postId : _post.postId,
-              index + 1,
-            ),
-          ),
-        ),
+        if (bleedMedia) const _MediaSlot() else mediaRow(0, 0),
       ],
       // A poll on this post (live card) or on the original of a
       // repost (the frozen definition: read-only, opens the original).
@@ -608,27 +621,70 @@ class PostCard extends StatelessWidget {
         // same 48 dp tap height, so they line up with no offset). Everything
         // below starts under the avatar circle's left edge and spans the
         // card's full width.
-        row = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        final head = Row(
           children: [
-            Row(
-              children: [
-                avatar,
-                const SizedBox(width: kPostAvatarGap),
-                Expanded(child: header),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsetsDirectional.only(
-                start: kPostAvatarInset,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [...content, tail],
-              ),
-            ),
+            avatar,
+            const SizedBox(width: kPostAvatarGap),
+            Expanded(child: header),
           ],
         );
+        if (bleedMedia) {
+          final backEdge =
+              !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
+              ? AppSize.iosBackSwipeEdge
+              : 0.0;
+          final slot = content.indexWhere((w) => w is _MediaSlot);
+          final body = EdgeInsetsDirectional.only(
+            start: gutter + kPostAvatarInset,
+            end: gutter,
+          );
+          row = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: gutter),
+                child: head,
+              ),
+              Padding(
+                padding: body,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: content.sublist(0, slot),
+                ),
+              ),
+              // On iOS the leftmost edge stays free for the back swipe: the
+              // row bleeds to the right edge only (a touch there would scroll
+              // the row instead of going back). Elsewhere it bleeds both ways.
+              Padding(
+                padding: EdgeInsetsDirectional.only(start: backEdge),
+                child: mediaRow(gutter + kPostAvatarInset - backEdge, gutter),
+              ),
+              Padding(
+                padding: body,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [...content.sublist(slot + 1), tail],
+                ),
+              ),
+            ],
+          );
+        } else {
+          row = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              head,
+              Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  start: kPostAvatarInset,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [...content, tail],
+                ),
+              ),
+            ],
+          );
+        }
       }
     }
 
@@ -653,21 +709,29 @@ class PostCard extends StatelessWidget {
     final dense = !asFocal;
     final padded = Padding(
       padding: EdgeInsets.fromLTRB(
-        gutter,
+        bleedMedia ? 0 : gutter,
         dense && contextLabel == null
             ? kPostListTop
             // A tappable label's 24 dp target carries a little whitespace.
             : contextLabel is PostContextLabel && contextLabel.onTap != null
             ? AppSpacing.sm
             : AppSpacing.smd,
-        gutter,
+        bleedMedia ? 0 : gutter,
         dense && bar != null ? AppSpacing.sm : AppSpacing.smd,
       ),
       child: contextLabel == null
           ? row
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [contextLabel, row],
+              children: [
+                bleedMedia
+                    ? Padding(
+                        padding: EdgeInsets.symmetric(horizontal: gutter),
+                        child: contextLabel,
+                      )
+                    : contextLabel,
+                row,
+              ],
             ),
     );
     // A long press anywhere on the card opens the overflow menu (post text is
@@ -681,4 +745,10 @@ class PostCard extends StatelessWidget {
       child: pressable,
     );
   }
+}
+
+/// Marks where the media row goes while [PostCard] lays the card out around
+/// it (never built).
+class _MediaSlot extends SizedBox {
+  const _MediaSlot();
 }

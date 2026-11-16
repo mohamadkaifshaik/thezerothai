@@ -12,8 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/theme_harness.dart';
 
-/// A post's several-images row: equal 4:5 tiles, swipeable, each tile tappable
-/// and labelled.
+/// A post's several-images row: tiles of one height at their own aspects,
+/// swipeable, each tile tappable and labelled.
 
 const _gutter = 20.0;
 
@@ -62,22 +62,60 @@ List<Rect> _tiles(WidgetTester tester) {
 }
 
 void main() {
-  testWidgets('several pictures: equal 4:5 tiles at the body edge with a '
-      'gap, whatever their own ratios', (tester) async {
-    await _pump(tester, [_photo(400, 400, n: 1), _photo(3000, 1000, n: 2)]);
+  testWidgets('several pictures: one height, own widths, at the body edge '
+      'with a 4 dp gap', (tester) async {
+    final media = [_photo(400, 400, n: 1), _photo(3000, 1000, n: 2)];
+    await _pump(tester, media);
     final tiles = _tiles(tester);
     expect(tiles, hasLength(2));
-    final width = (360 - 2 * _gutter) * AppSize.postMediaTileWidthFraction;
+    final column = 360 - 2 * _gutter;
+    final height = PostMedia.rowHeight(media, column: column);
     expect(tiles[0].left, closeTo(_gutter, 0.01));
-    for (final tile in tiles) {
-      expect(tile.width, closeTo(width, 0.01));
-      expect(tile.height, closeTo(width * 1.25, 0.01));
-    }
+    expect(tiles[0].size, Size(height, height));
+    expect(tiles[1].size, Size(height * 3, height));
     expect(
       tiles[1].left,
       closeTo(tiles[0].right + AppSize.postMediaRowGap, 0.01),
     );
     expect(tiles[1].top, tiles[0].top);
+  });
+
+  testWidgets('the row spans the given width and scrolls through the insets '
+      'while the first tile stays on the body text', (tester) async {
+    addTearDown(() => tester.takeException());
+    final opened = <int>[];
+    await pumpThemed(
+      tester,
+      Align(
+        alignment: Alignment.topLeft,
+        child: PostMedia(
+          media: [for (var i = 0; i < 3; i++) _photo(900, 1600, n: i)],
+          insetStart: _gutter,
+          insetEnd: _gutter,
+          onOpenImage: opened.add,
+        ),
+      ),
+      size: const Size(360, 900),
+    );
+    final list = tester.getRect(find.byType(ListView));
+    expect(list.left, 0);
+    expect(list.right, 360);
+    expect(_tiles(tester).first.left, closeTo(_gutter, 0.01));
+    // Row height follows the column (360 - 2 x 20), not the full width.
+    final height = PostMedia.rowHeight(
+      [for (var i = 0; i < 3; i++) _photo(900, 1600, n: i)],
+      column: 320,
+    );
+    expect(list.height, closeTo(height, 0.01));
+    // Scrolled, a tile passes the body's start edge into the padding, and a
+    // tap there (inside the old padding) still opens it.
+    await tester.drag(find.byType(ListView), const Offset(-100, 0));
+    await tester.pump();
+    final first = _tiles(tester).first;
+    expect(first.left, lessThan(_gutter - 50));
+    await tester.tapAt(Offset(5, first.center.dy));
+    await tester.pump();
+    expect(opened, isNotEmpty);
   });
 
   testWidgets('four pictures scroll horizontally, freely, and '
@@ -160,7 +198,7 @@ void main() {
       _photo(100, 100),
     ]);
     expect(find.byType(GifBadge), findsOneWidget);
-    expect(_tiles(tester).first.size.aspectRatio, closeTo(0.8, 0.001));
+    expect(_tiles(tester).first.size.aspectRatio, closeTo(1, 0.001));
   });
 
   for (final window in const [320.0, 360.0, 400.0, 700.0, 1100.0, 1300.0]) {
