@@ -18,6 +18,11 @@ updates:
     groups:
       go-minor-patch:
         update-types: [minor, patch]
+        # firebase-admin-go comes as its own PR: 4.23.0 changed App Check client construction (ADC at init, client
+        # rebuilt on later calls) and fails the authn fail-closed tests, so it waits for an App Check review without
+        # blocking the rest of the group. Drop this exclusion once 4.23+ is adopted.
+        exclude-patterns:
+          - "firebase.google.com/go/*"
 
   # Flutter app: pubspec.yaml is at app/pubspec.yaml.
   - package-ecosystem: pub
@@ -42,8 +47,15 @@ updates:
       - dependency-name: "firebase_app_check"
         update-types: ["version-update:semver-minor"]
     groups:
+      # build_runner and freezed move together in their own PR: build_runner 2.17 and freezed 4.0.3 need analyzer
+      # ^14.3, which the pinned Flutter SDK (flutter_test -> test_api) and bloc_test cannot resolve yet. Kept apart
+      # so they fail alone instead of blocking pub-minor-patch; fold back in after the Flutter SDK upgrade.
+      dart-codegen:
+        patterns: [build_runner, freezed]
+        update-types: [minor, patch]
       pub-minor-patch:
         update-types: [minor, patch]
+        exclude-patterns: [build_runner, freezed]
 
   # Keeps the SHA pins in .github/workflows current (the version comment is updated too).
   - package-ecosystem: github-actions
