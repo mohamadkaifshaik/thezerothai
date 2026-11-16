@@ -491,4 +491,42 @@ void main() {
       expect(cubit.state.views.single.beacon.beaconId, 'c');
     });
   });
+
+  test('a community that is gone falls back to Public without leaving its '
+      'rows under Public', () async {
+    stubMine([_community('c1', 'Gardeners')]);
+    stubList(
+      (id, _) => BeaconsPage(views: [_view(id.isEmpty ? 'pub' : 'c1-a')]),
+    );
+    final cubit = BeaconsCubit(
+      repository: beacons,
+      communities: communities,
+      communitiesEnabled: true,
+    );
+    await cubit.load();
+    await cubit.select(const BeaconsAudience.community('c1', 'Gardeners'));
+    expect(cubit.state.views.single.beacon.beaconId, 'c1-a');
+
+    // The caller left c1; the Public page is still on its way.
+    stubMine(const []);
+    final publicPage = Completer<BeaconsPage>();
+    when(
+      () => beacons.listBeacons(
+        communityId: any(named: 'communityId'),
+        limit: any(named: 'limit'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) => publicPage.future);
+    final loading = cubit.load();
+    await pumpEventQueue();
+
+    expect(cubit.state.selected, const BeaconsAudience.public());
+    expect(cubit.state.views, isEmpty);
+    expect(cubit.state.status, BeaconsLoad.loading);
+
+    publicPage.complete(BeaconsPage(views: [_view('pub')]));
+    await loading;
+    expect(cubit.state.views.single.beacon.beaconId, 'pub');
+    expect(cubit.state.status, BeaconsLoad.ready);
+  });
 }

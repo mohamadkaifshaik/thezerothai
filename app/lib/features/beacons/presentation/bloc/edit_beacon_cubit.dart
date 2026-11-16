@@ -119,7 +119,7 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
     if (venue != b.venue) request.venue = venue;
     if (openSpots != b.openSpots) request.openSpots = openSpots;
     if (startAt != null && !startAt.isAtSameMomentAs(b.startAt.toDateTime())) {
-      request.startAt = ts.Timestamp.fromDateTime(startAt.toUtc());
+      request.startAt = ts.Timestamp.fromDateTime(startAt);
     }
     if (durationMinutes != null && durationMinutes != b.durationMinutes) {
       request.durationMinutes = durationMinutes;

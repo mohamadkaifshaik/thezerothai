@@ -95,7 +95,11 @@ void main() {
     final onboarding = _MockOnboardingBloc();
     final beacons = FakeBeaconsServer();
     beacons.public.add(
-      beaconView(startAt: DateTime.now().add(const Duration(hours: 2))),
+      beaconView(
+        startAt: DateTime.now().add(const Duration(hours: 2)),
+        // The edit form is the organiser's.
+        canManage: location.endsWith('/edit'),
+      ),
     );
     whenListen(
       auth,

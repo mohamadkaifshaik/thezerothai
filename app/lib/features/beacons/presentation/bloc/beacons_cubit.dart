@@ -66,7 +66,21 @@ class BeaconsCubit extends Cubit<BeaconsState> {
       final selected = audiences.contains(state.selected)
           ? state.selected
           : const BeaconsAudience.public();
-      emit(state.copyWith(audiences: audiences, selected: selected));
+      if (selected != state.selected) {
+        // The chosen community is gone: its rows must not show under Public.
+        emit(
+          state.copyWith(
+            audiences: audiences,
+            selected: selected,
+            status: BeaconsLoad.loading,
+            views: const [],
+            nextPageToken: '',
+            loadingMore: false,
+          ),
+        );
+      } else {
+        emit(state.copyWith(audiences: audiences, selected: selected));
+      }
       await _loadFirstPage(generation);
     } finally {
       _inFlight--;

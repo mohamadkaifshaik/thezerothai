@@ -405,6 +405,29 @@ void main() {
       );
     });
   });
+
+  testWidgets('the beacons flag leaving enabled_features mid-session pauses '
+      'a loaded list', (tester) async {
+    final getMe = StreamController<Set<String>>();
+    addTearDown(getMe.close);
+    await pumpPlansRouter(
+      tester,
+      beacons: server,
+      features: const {kFeatureBeacons},
+      featureChanges: getMe.stream,
+      routes: routes(),
+    );
+    expect(find.byType(BeaconRow), findsOneWidget);
+    final calls = server.calls.length;
+
+    getMe.add(const {});
+    await tester.pumpAndSettle();
+
+    expectPaused();
+    expect(find.byType(BeaconRow), findsNothing);
+    expect(find.byTooltip('New plan'), findsNothing);
+    expect(server.calls.length, calls);
+  });
 }
 
 /// The single widget of type [T] in the tree.

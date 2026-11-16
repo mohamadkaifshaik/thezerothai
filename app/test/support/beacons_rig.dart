@@ -42,7 +42,7 @@ Widget withPlansFeatures(
 /// Mounts [routes] under a real [GoRouter] (so `context.push` works) with the
 /// Plans repositories provided, at [env]'s theme, size and text scale.
 /// [features] provides an `OnboardingBloc` whose `enabled_features` is that
-/// set (null: no bloc, for screens that read no flag); each set
+/// set (null: an empty set); each set
 /// [featureChanges] emits replaces it, as a fresh `GetMe` would. Returns the
 /// router for location assertions.
 Future<GoRouter> pumpPlansRouter(
@@ -70,9 +70,9 @@ Future<GoRouter> pumpPlansRouter(
     theme: buildAppTheme(brightness: env?.brightness ?? Brightness.light),
     routerConfig: router,
   );
-  if (features != null) {
-    app = withPlansFeatures(app, features, changes: featureChanges);
-  }
+  // The plan page reads its flags from the onboarding state: always there,
+  // as in the app (no flags when [features] is null).
+  app = withPlansFeatures(app, features ?? const {}, changes: featureChanges);
   await tester.pumpWidget(
     MultiRepositoryProvider(
       providers: [

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/primitives/character_counter.dart';
 import '../../../../shared/widgets/primitives/app_sheet.dart';
+import '../../../../shared/widgets/primitives/character_counter.dart';
 import '../../../lists/domain/list_text_rules.dart' show normalizeListText;
 import '../../domain/beacon_text_rules.dart';
 import '../../domain/beacons_feature_flag.dart';
