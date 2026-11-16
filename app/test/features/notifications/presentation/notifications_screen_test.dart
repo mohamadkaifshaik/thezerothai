@@ -1032,7 +1032,7 @@ void main() {
         matching: find.byType(AppSkeletonBlock),
       );
       expect(pill, findsOneWidget);
-      expect(tester.getSize(pill), const Size(88, 36));
+      expect(tester.getSize(pill), const Size(77, 32));
       expect(
         find.descendant(of: pending, matching: find.byType(AppSkeletonScope)),
         findsOneWidget,

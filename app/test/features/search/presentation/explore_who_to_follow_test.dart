@@ -11,6 +11,7 @@ import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -113,7 +114,7 @@ void main() {
 
   testWidgets('a follow from the card updates the row button', (tester) async {
     await open(tester);
-    await tester.tap(find.widgetWithText(FilledButton, 'Follow').first);
+    await tester.tap(find.widgetWithText(FollowPill, 'Follow').first);
     await tester.pumpAndSettle();
     verify(
       () => graphRepo.follow(

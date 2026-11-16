@@ -64,13 +64,13 @@ class FollowBackSlot extends StatelessWidget {
 }
 
 /// The button's line while its answer is out: a pill skeleton of the
-/// button's size (88 x 36) in the 48 dp line, so the row neither jumps nor
+/// button's size (77 x 32) in the 48 dp line, so the row neither jumps nor
 /// shows a blank gap.
 class _PendingPill extends StatelessWidget {
   const _PendingPill();
 
   /// The shared button's minimum width.
-  static const double _width = 88;
+  static const double _width = AppFollowButton.minWidth;
 
   @override
   Widget build(BuildContext context) => const SizedBox(
@@ -82,7 +82,7 @@ class _PendingPill extends StatelessWidget {
         semanticsLabel: 'Loading Follow back',
         child: AppSkeletonBlock(
           width: _width,
-          height: AppSize.pillCompact,
+          height: AppFollowButton.heightCompact,
           radius: AppRadius.pill,
         ),
       ),

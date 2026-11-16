@@ -259,7 +259,6 @@ void main() {
         '128 Followers',
         'More options',
         'Follow',
-        'Follow',
       ]);
       handle.dispose();
     });

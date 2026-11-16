@@ -12,6 +12,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/user/protected_badge.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -81,7 +82,7 @@ void main() {
       'lock, inside the screen', (tester, env) async {
     await openRow(tester, env);
     expectNoOverflow(tester);
-    final button = find.widgetWithText(OutlinedButton, 'Requested');
+    final button = find.widgetWithText(FollowPill, 'Requested');
     expect(button, findsOneWidget);
     expectMinTarget(tester, button, reason: 'Requested');
     expectInsideHorizontally(tester, button, env.size.width);
@@ -94,7 +95,7 @@ void main() {
   forEachThemeAndWidth('the cancel confirm: both buttons 48dp and inside the '
       'screen; Cancel request sends one Unfollow', (tester, env) async {
     await openRow(tester, env);
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Requested'));
+    await tester.tap(find.widgetWithText(FollowPill, 'Requested'));
     await tester.pumpAndSettle();
     expectNoOverflow(tester);
     expect(find.text('Cancel your follow request?'), findsOneWidget);
@@ -121,7 +122,7 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
       ),
     ).called(1);
-    expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+    expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
   }, textScales: kMatrixTextScalesLarge);
 
   group('wide layouts: the account menu (W3-34b, was D-2)', () {

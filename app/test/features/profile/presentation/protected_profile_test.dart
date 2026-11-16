@@ -6,6 +6,7 @@ import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/user/protected_badge.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -63,7 +64,7 @@ void main() {
     matching: find.textContaining('Kaif Shaik'),
   );
 
-  Finder requested() => find.widgetWithText(OutlinedButton, 'Requested');
+  Finder requested() => find.widgetWithText(FollowPill, 'Requested');
 
   group('the protected view, every cell of the W3-21 matrix', () {
     forEachThemeAndWidth('stranger sees the lock, the view and Requested', (
@@ -134,7 +135,7 @@ void main() {
         textScale: env.textScale,
       );
 
-      final follow = find.widgetWithText(FilledButton, 'Follow');
+      final follow = find.widgetWithText(FollowPill, 'Follow');
       expectMinTarget(tester, follow, reason: 'Follow');
       expect(
         tester.getRect(follow).overlaps(tester.getRect(headerName())),
@@ -235,7 +236,7 @@ void main() {
 
       expect(find.text('These posts are protected'), findsNothing);
       expect(find.byType(PostCard), findsWidgets);
-      expect(find.widgetWithText(OutlinedButton, 'Following'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Following'), findsOneWidget);
     });
 
     testWidgets('a public profile has no lock', (tester) async {
@@ -277,7 +278,7 @@ void main() {
       arrangeFollowing();
       await rig.open(tester);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Follow'));
+      await tester.tap(find.widgetWithText(FollowPill, 'Follow'));
       await tester.pumpAndSettle();
       expect(requested(), findsOneWidget);
       verify(
@@ -312,7 +313,7 @@ void main() {
         ),
       ).called(1);
       expect(requested(), findsNothing);
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
     });
 
     testWidgets('Keep request sends nothing', (tester) async {
@@ -345,7 +346,7 @@ void main() {
         );
         await rig.open(tester);
 
-        final button = tester.widget<OutlinedButton>(requested());
+        final button = tester.widget<FollowPill>(requested());
         expect(button.onPressed, isNotNull);
       });
     }
@@ -365,12 +366,12 @@ void main() {
       );
       await rig.open(tester);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Follow'));
+      await tester.tap(find.widgetWithText(FollowPill, 'Follow'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('too many follow requests'), findsOneWidget);
       // Rolled back: the button offers Follow again.
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
     });
   });
 }
