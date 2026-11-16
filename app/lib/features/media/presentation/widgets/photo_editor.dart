@@ -37,6 +37,7 @@ Future<PhotoEditResult?> showPhotoEditor(
   PhotoEdit initialEdit = PhotoEdit.none,
   String initialAlt = '',
   bool isGif = false,
+  String? warning,
 }) {
   final inDialog = TabletModalHost.of(context) != null;
   return showAppSheet<PhotoEditResult>(
@@ -57,6 +58,7 @@ Future<PhotoEditResult?> showPhotoEditor(
       initialEdit: initialEdit,
       initialAlt: initialAlt,
       isGif: isGif,
+      warning: warning,
       expand: !inDialog,
     ),
   );
@@ -73,8 +75,12 @@ class PhotoEditorView extends StatefulWidget {
     this.initialEdit = PhotoEdit.none,
     this.initialAlt = '',
     this.isGif = false,
+    this.warning,
     this.expand = false,
   });
+
+  /// The unusual-shape line for the photo being edited, shown at the top.
+  final String? warning;
 
   final Uint8List? source;
   final Uint8List? preview;
@@ -231,6 +237,23 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
                   : () => Navigator.of(context)
                         .pop(PhotoEditResult(edit: _edit, altText: _alt.text)),
             ),
+            if (widget.warning != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  AppSpacing.sm,
+                  AppSpacing.md,
+                  0,
+                ),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    widget.warning!,
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: context.appColors.warning),
+                  ),
+                ),
+              ),
             if (widget.expand)
               // With the keyboard up the controls get most of the room.
               Expanded(flex: typing ? 1 : 3, child: photo)
