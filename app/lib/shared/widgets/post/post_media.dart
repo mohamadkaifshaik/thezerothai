@@ -276,6 +276,12 @@ class _MediaStripState extends State<_MediaStrip> {
       }
       start += widget.sizes[i].width + AppSize.postMediaRowGap;
     }
+    // Scrolled to the end, the last tile is the current one even when the
+    // row cannot bring its start to the viewport's start.
+    if (note.metrics.pixels >= note.metrics.maxScrollExtent - 0.5 &&
+        note.metrics.maxScrollExtent > 0) {
+      best = widget.sizes.length - 1;
+    }
     if (best != _page) setState(() => _page = best);
     return false;
   }

@@ -12,7 +12,8 @@ import '../../../support/theme_harness.dart';
 
 // No thumbUrl: tiles show the placeholder, so no network is touched.
 List<common.MediaRef> _images(int n) => [
-  for (var i = 0; i < n; i++) common.MediaRef(mediaId: 'm$i', altText: ''),
+  for (var i = 0; i < n; i++)
+    common.MediaRef(mediaId: 'm$i', altText: '', width: 900, height: 1600),
 ];
 
 final _current = find.byKey(const ValueKey('media-dot-current'));

@@ -211,10 +211,12 @@ void main() {
       testWidgets('several images: one shared height, own widths, 4 dp gap', (
         tester,
       ) async {
+        // Portrait and square first, so more than one tile is on screen (the
+        // row builds its tiles lazily).
         final media = [
-          _photo(1600, 900, n: 1),
-          _photo(900, 1600, n: 2),
-          _photo(800, 800, n: 3),
+          _photo(900, 1600, n: 1),
+          _photo(800, 800, n: 2),
+          _photo(1600, 900, n: 3),
           _photo(0, 0, n: 4),
         ];
         await _pump(tester, media, window: window, column: column);
@@ -455,7 +457,7 @@ void main() {
       expect(h(media), closeTo(255.4, 0.1));
       expect(
         [for (final m in media) PostMedia.tileSize(m, height: h(media)).width],
-        [closeTo(143.7, 0.1), closeTo(143.7, 0.1), closeTo(170.5, 0.1)],
+        [closeTo(143.7, 0.1), closeTo(143.7, 0.1), closeTo(171.1, 0.1)],
       );
     });
 
