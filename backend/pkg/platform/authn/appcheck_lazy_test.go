@@ -4,11 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"connectrpc.com/connect"
+	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/appcheck"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -16,8 +18,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
-// jwksServer stands in for Google's App Check key endpoint and counts the requests it gets.
-// It is not parallel-safe: appcheck.JWKSUrl is a package variable.
+// jwksServer stands in for Google's App Check key endpoint and counts the requests it gets. It also makes ADC
+// unresolvable for the test (noADC). It is not parallel-safe: appcheck.JWKSUrl is a package variable.
 func jwksServer(t *testing.T, status *atomic.Int32, hits *atomic.Int32) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -31,12 +33,22 @@ func jwksServer(t *testing.T, status *atomic.Int32, hits *atomic.Int32) {
 	old := appcheck.JWKSUrl
 	appcheck.JWKSUrl = srv.URL
 	t.Cleanup(func() { appcheck.JWKSUrl = old; srv.Close() })
+	noADC(t)
 }
 
-// noADC stands in for Application Default Credentials: since 4.23 the SDK builds an authenticated HTTP client next to
-// the key fetch, and these tests must run on a machine with no credentials at all. It goes through the same opts
-// seam cmd/api uses, so no env var or real credentials file is involved.
-var noADC = option.WithoutAuthentication()
+// noADC makes Application Default Credentials unresolvable for the rest of the test, so no test can read this
+// machine's real credentials and any ADC lookup fails at once, with no network. GOOGLE_APPLICATION_CREDENTIALS points
+// at a file that does not exist (the lookup reads it first and errors). The gcloud well-known locations (HOME,
+// APPDATA, CLOUDSDK_CONFIG) point at an empty temp dir, and the metadata-server override is cleared.
+func noADC(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(dir, "no-such-adc.json"))
+	t.Setenv("HOME", dir)
+	t.Setenv("APPDATA", dir)
+	t.Setenv("CLOUDSDK_CONFIG", dir)
+	t.Setenv("GCE_METADATA_HOST", "")
+}
 
 func callWithToken(t *testing.T, v authn.AppCheckVerifier, mode authn.Mode, token string) (reached bool, err error) {
 	t.Helper()
@@ -64,7 +76,7 @@ func TestAppCheckVerifier_NoNetworkUntilATokenIsPresented(t *testing.T) {
 	status.Store(http.StatusOK)
 	jwksServer(t, &status, &hits)
 
-	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project", noADC)
+	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +95,7 @@ func TestAppCheckVerifier_FailsClosedAndRecovers(t *testing.T) {
 	status.Store(http.StatusInternalServerError)
 	jwksServer(t, &status, &hits)
 
-	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project", noADC)
+	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,26 +129,26 @@ func TestCheckAppCheck_FailsFastWhenKeysUnreachable(t *testing.T) {
 	status.Store(http.StatusInternalServerError)
 	jwksServer(t, &status, &hits)
 
-	if err := authn.CheckAppCheck(context.Background(), "demo-project", noADC); err == nil {
+	if err := authn.CheckAppCheck(context.Background(), "demo-project"); err == nil {
 		t.Fatal("CheckAppCheck passed although the key endpoint is failing")
 	}
 	status.Store(http.StatusOK)
-	if err := authn.CheckAppCheck(context.Background(), "demo-project", noADC); err != nil {
+	if err := authn.CheckAppCheck(context.Background(), "demo-project"); err != nil {
 		t.Fatalf("CheckAppCheck failed with a healthy key endpoint: %v", err)
 	}
 }
 
-// Since 4.23 the client build has a second step after the key fetch: the authenticated HTTP client. When that step
-// fails (on Cloud Run: no credentials), enforce mode still rejects, the failure is not cached (each call retries the
-// whole build), and the startup self-check fails. WithoutAuthentication plus an API key is rejected by the options
-// validation, which makes the credential step fail deterministically with no key material and no ADC lookup.
-func TestAppCheckVerifier_FailsClosedWhenCredentialsUnavailable(t *testing.T) {
+// Since 4.23 the client build has a second step after the key fetch: the SDK's HTTP client. When that step fails,
+// enforce mode still rejects, the failure is not cached (each call retries the whole build), and the startup
+// self-check fails. The wrapper always adds option.WithoutAuthentication(); a caller API key conflicts with it in
+// the options validation, which makes the HTTP-client step fail deterministically with no key material and no ADC.
+func TestAppCheckVerifier_FailsClosedWhenClientBuildFails(t *testing.T) {
 	var status, hits atomic.Int32
 	status.Store(http.StatusOK)
 	jwksServer(t, &status, &hits)
-	badCreds := []option.ClientOption{option.WithoutAuthentication(), option.WithAPIKey("test-only-not-a-key")}
+	conflicting := option.WithAPIKey("test-only-not-a-key")
 
-	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project", badCreds...)
+	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project", conflicting)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +161,45 @@ func TestAppCheckVerifier_FailsClosedWhenCredentialsUnavailable(t *testing.T) {
 			t.Fatalf("call %d: key fetches %d -> %d, want one build attempt per call while the build fails", i, before, hits.Load())
 		}
 	}
-	if err := authn.CheckAppCheck(context.Background(), "demo-project", badCreds...); err == nil {
+	if err := authn.CheckAppCheck(context.Background(), "demo-project", conflicting); err == nil {
 		t.Fatal("CheckAppCheck passed although the App Check HTTP client could not be built")
+	}
+}
+
+// The wrapper never uses credentials (we only call VerifyToken, which verifies locally), so a verifier built with no
+// caller options must build where ADC cannot resolve. The first half proves the environment really blocks ADC: the
+// bare 4.23 SDK, given no options, fails there. The second half is the production call shape (cmd/api and apiserver
+// pass no options): CheckAppCheck and the lazy build both succeed, with one key fetch and no rebuild.
+func TestAppCheck_NoCallerOptionsNeedsNoCredentials(t *testing.T) {
+	var status, hits atomic.Int32
+	status.Store(http.StatusOK)
+	jwksServer(t, &status, &hits)
+
+	app, err := firebase.NewApp(context.Background(), &firebase.Config{ProjectID: "demo-project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.AppCheck(context.Background()); err == nil {
+		t.Fatal("the bare SDK built an App Check client although ADC cannot resolve: the test environment is not hermetic")
+	}
+
+	if err := authn.CheckAppCheck(context.Background(), "demo-project"); err != nil {
+		t.Fatalf("CheckAppCheck with no caller options needed credentials: %v", err)
+	}
+	v, err := authn.NewAppCheckVerifier(context.Background(), "demo-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := hits.Load()
+	// The token is not a valid JWT, so it is rejected, but only after the client was built (one key fetch).
+	if reached, _ := callWithToken(t, v, authn.ModeEnforce, "some-token"); reached {
+		t.Fatal("an invalid token reached the handler")
+	}
+	if got := hits.Load(); got != before+1 {
+		t.Fatalf("key fetches %d -> %d, want exactly one successful build", before, got)
+	}
+	_, _ = callWithToken(t, v, authn.ModeEnforce, "another-token")
+	if got := hits.Load(); got != before+1 {
+		t.Fatalf("client rebuilt on a later call: fetches %d -> %d", before+1, got)
 	}
 }

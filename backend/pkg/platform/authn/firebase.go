@@ -86,10 +86,16 @@ func normalizeIdentities(raw map[string]interface{}) map[string][]string {
 }
 
 // newAppCheckClient builds the SDK's App Check client. app.AppCheck fetches Google's signing keys (JWKS), so this
-// is the one place that needs the network. Since firebase-admin-go 4.23 it then also builds an authenticated HTTP
-// client from opts (used only by VerifyOneTimeToken, which we do not call), so with no opts it resolves Application
-// Default Credentials and fails without them. Cloud Run always has ADC; tests pass option.WithoutAuthentication().
+// is the one place that needs the network.
+//
+// It never uses credentials. Since firebase-admin-go 4.23, app.AppCheck also builds an authenticated HTTP client
+// from the app's options, which would resolve Application Default Credentials at build time. That client is used
+// only by VerifyOneTimeToken (replay protection); we call only VerifyToken, which verifies locally against the
+// fetched keys. So option.WithoutAuthentication() always goes first, restoring the 4.22 behaviour for every caller
+// (no ADC needed in cmd/api, apiserver or local dev). Caller opts still follow it, so tests keep the seam. Revisit
+// this if we ever adopt VerifyOneTimeToken: that call needs real credentials.
 func newAppCheckClient(ctx context.Context, projectID string, opts ...option.ClientOption) (*appcheck.Client, error) {
+	opts = append([]option.ClientOption{option.WithoutAuthentication()}, opts...)
 	app, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: projectID}, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("authn: init firebase app: %w", err)
