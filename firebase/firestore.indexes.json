@@ -328,6 +328,17 @@
     { "collectionGroup": "dmInbox", "fieldPath": "peer", "indexes": [] },
     { "collectionGroup": "dmInbox", "fieldPath": "last", "indexes": [] },
     { "collectionGroup": "dmRequests", "fieldPath": "peer", "indexes": [] },
-    { "collectionGroup": "dmRequests", "fieldPath": "last", "indexes": [] }
+    { "collectionGroup": "dmRequests", "fieldPath": "last", "indexes": [] },
+
+    {
+      "collectionGroup": "beaconParticipants",
+      "fieldPath": "state",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
   ]
 }
