@@ -76,7 +76,10 @@ import '../features/onboarding/data/identity_repository.dart';
 import '../features/settings/data/own_privacy_store.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
+import '../features/media/data/media_uploader.dart';
+import '../features/media/presentation/bloc/attachments_cubit.dart';
 import '../features/posts/data/drafts_repository.dart';
+import '../features/posts/data/unsent_posts_store.dart';
 import '../features/engagement/data/post_history_repository.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
@@ -271,7 +274,21 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     onUnexpectedError: reportUnexpectedError,
     // The Undo send window (Settings); none while the setting is off.
     undoDelay: () => _undoSend.window,
+    // Posts wait for a connection and send in order; what could not be sent
+    // survives a restart as "Not sent" rows (never sent by itself).
+    network: _networkType,
+    unsent: _unsent,
+    newAttachments: () => AttachmentsCubit(
+      picker: _imagePicker,
+      processor: _imageProcessor,
+      uploader: MediaUploader(
+        repository: widget.mediaRepository,
+        onUnexpectedError: reportUnexpectedError,
+      ),
+    ),
   );
+  // Processed photo bytes of unsent posts, device only (schema v15).
+  late final UnsentPostsStore _unsent = UnsentPostsStore(widget.database);
   // The session's like/repost overlay; sign-out forgets it.
   late final EngagementCubit _engagement = EngagementCubit(
     repository: widget.engagementRepository,
@@ -498,11 +515,18 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
       if (previousUid != null && _accountUid != previousUid) {
         _endAccountSession();
       }
+      // The new account's unsent posts come back as "Not sent" rows.
+      if (_accountUid != null && _accountUid != previousUid) {
+        unawaited(_postSender.restore(_accountUid!));
+      }
     });
     unawaited(_pushOptIn.load(widget.authBloc.state.user?.uid));
     unawaited(_telemetryConsentCubit?.load(widget.authBloc.state.user?.uid));
     _purgedDraftsUid = widget.authBloc.state.user?.uid;
     _purgeExpiredDrafts(_purgedDraftsUid);
+    if (_purgedDraftsUid != null) {
+      unawaited(_postSender.restore(_purgedDraftsUid!));
+    }
     _screenViews = ScreenViewTracker(_appRouter.router, widget.usage);
     widget.pushCubit.onOpen = (location) => _appRouter.router.push(location);
     widget.pushCubit.onForeground = _onForegroundPush;
@@ -690,6 +714,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         RepositoryProvider.value(value: widget.database),
         RepositoryProvider<PushOptInStore>.value(value: _pushOptInStore),
         RepositoryProvider<DraftsRepository>.value(value: _drafts),
+        RepositoryProvider<UnsentPostsStore>.value(value: _unsent),
         RepositoryProvider<PostSender>.value(value: _postSender),
         RepositoryProvider<PostHistoryRepository>.value(value: _postHistory),
         RepositoryProvider<UnexpectedErrorReporter>.value(
