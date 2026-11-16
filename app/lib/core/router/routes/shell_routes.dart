@@ -37,6 +37,7 @@ import '../../../features/notifications/presentation/notification_settings_scree
 import '../../../features/notifications/presentation/notifications_screen.dart';
 import '../../../features/search/presentation/bloc/explore_media_cubit.dart';
 import '../../../features/search/presentation/explore_media_screen.dart';
+import '../../../features/search/domain/explore_tab.dart';
 import '../../../features/search/presentation/explore_screen.dart';
 import '../../../features/search/presentation/explore_trending_screen.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
@@ -76,7 +77,14 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
     ),
     GoRoute(
       path: AppRouter.explorePath,
-      builder: (context, state) => const AuthGate(child: ExploreScreen()),
+      builder: (context, state) => AuthGate(
+        child: ExploreScreen(
+          // `?tab=nearby` (the side column's "Happening nearby" card).
+          initialTab: state.uri.queryParameters['tab'] == 'nearby'
+              ? ExploreTab.nearby
+              : null,
+        ),
+      ),
     ),
     GoRoute(
       path: AppRouter.exploreSettingsPath,
