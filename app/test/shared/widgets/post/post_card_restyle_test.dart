@@ -343,7 +343,7 @@ void main() {
   }
 
   group('media and quote', () {
-    testWidgets('the media frame has the 12 dp radius', (tester) async {
+    testWidgets('the media frame has the 16 dp radius', (tester) async {
       await _pump(
         tester,
         PostMedia(

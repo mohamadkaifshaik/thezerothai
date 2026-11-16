@@ -12,6 +12,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/presentation/post_detail_screen.dart';
 import 'package:dzeroth/features/posts/presentation/post_photo_screen.dart';
+import 'package:dzeroth/features/posts/presentation/widgets/photo_bottom_panel.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:flutter/gestures.dart';
@@ -42,8 +43,9 @@ Future<void> settle(WidgetTester tester) async {
 }
 
 /// The immersive viewer: one tap on the picture hides every control and the
-/// system bars, the next brings them back; the photo opens filling the screen
-/// (cover) and double-tap shows the whole photo (contain) and back.
+/// system bars, the next brings them back; the photo opens whole (contain,
+/// never cropped, on black), double-tap zooms to 2.5x at the tap and back, and
+/// a pinch zooms 1x to 4x and snaps back to contain from below.
 void main() {
   late _Posts posts;
   late _Engagement engagement;
@@ -160,6 +162,9 @@ void main() {
     );
     unawaited(router.push(AppRouter.postPhotoPath(postId(1), 1)));
     await settle(tester);
+    // The panel reports its height after the first frame; the photo then
+    // moves clear of it.
+    await settle(tester);
   }
 
   Future<void> tapPicture(WidgetTester tester) async {
@@ -199,6 +204,10 @@ void main() {
     return found;
   }
 
+  /// The top of the bottom panel: the photo is contained above it.
+  double panelTop(WidgetTester tester) =>
+      tester.getTopLeft(find.byType(PhotoBottomPanel)).dy;
+
   Rect photo(WidgetTester tester) =>
       tester.getRect(find.byType(CachedNetworkImage).first);
 
@@ -208,18 +217,55 @@ void main() {
       .reduce((a, b) => a < b ? a : b);
 
   group('opening fit', () {
-    testWidgets('a landscape photo fills the phone screen (cover)', (
+    testWidgets('a landscape photo opens whole (contain) on black', (
       tester,
     ) async {
       await open(tester);
       final rect = photo(tester);
-      // No black on any side: the photo covers the whole 390 x 844 screen.
-      expect(rect.left, lessThanOrEqualTo(0.01));
-      expect(rect.top, lessThanOrEqualTo(0.01));
-      expect(rect.right, greaterThanOrEqualTo(_phone.width - 0.01));
-      expect(rect.bottom, greaterThanOrEqualTo(_phone.height - 0.01));
-      // ... and keeps its aspect.
-      expect(rect.width / rect.height, closeTo(1600 / 900, 0.01));
+      // The whole 1600 x 900 photo at the screen's width, centred, with black
+      // above and below.
+      expect(rect.left, closeTo(0, 0.01));
+      expect(rect.width, closeTo(390, 0.01));
+      expect(rect.height, closeTo(390 * 900 / 1600, 0.01));
+      // Centred in the area above the bottom panel, never under it.
+      expect(rect.bottom, lessThanOrEqualTo(panelTop(tester) + 0.5));
+      // (The page dots above the panel are cleared too.)
+      expect(rect.center.dy, lessThanOrEqualTo(panelTop(tester) / 2));
+      expect(rect.center.dy, greaterThan(panelTop(tester) / 2 - 24));
+      expect(rect.top, greaterThan(50));
+      expect(
+        tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor,
+        AppColors.photoBackground,
+      );
+    });
+
+    testWidgets('a portrait photo opens whole too', (tester) async {
+      await open(tester);
+      await tester.fling(find.byType(PageView), const Offset(-300, 0), 1000);
+      await settle(tester);
+      final rect = tester.getRect(
+        find
+            .byWidgetPredicate(
+              (w) => w is CachedNetworkImage && w.imageUrl.endsWith('p2.jpg'),
+            )
+            .first,
+      );
+      expect(rect.width / rect.height, closeTo(900 / 1600, 0.01));
+      // A 9:16 photo is shrunk to fit above the panel: whole, not cropped.
+      expect(rect.bottom, lessThanOrEqualTo(panelTop(tester) + 0.5));
+      expect(rect.top, greaterThanOrEqualTo(-0.01));
+      expect(rect.width, lessThanOrEqualTo(390 + 0.01));
+    });
+
+    testWidgets('with the controls hidden the photo takes the whole screen', (
+      tester,
+    ) async {
+      await open(tester);
+      await tapPicture(tester);
+      final rect = photo(tester);
+      expect(rect.center.dy, closeTo(844 / 2, 0.5));
+      await tapPicture(tester);
+      expect(photo(tester).center.dy, lessThan(844 / 2 - 50));
     });
 
     testWidgets('the picture runs under the status bar (no SafeArea)', (
@@ -230,19 +276,26 @@ void main() {
       expect(tester.getSize(find.byType(PageView)), _phone);
     });
 
-    testWidgets('double-tap shows the whole photo, again goes back', (
+    testWidgets('double-tap zooms to 2.5x at the tap, again goes back', (
       tester,
     ) async {
       await open(tester);
-      await doubleTapPicture(tester);
+      final contain = photo(tester);
+      final at = contain.center + const Offset(60, 10);
+      await tester.tapAt(at);
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.tapAt(at);
+      await settle(tester);
       var rect = photo(tester);
-      expect(rect.width, closeTo(390, 0.5));
-      expect(rect.height, closeTo(390 * 900 / 1600, 0.5));
-      expect(rect.center.dy, closeTo(844 / 2, 0.5));
+      expect(rect.width, closeTo(390 * 2.5, 1));
+      // The tapped point stays under the finger (as far as the pan clamp
+      // lets it): a point right of centre zooms toward the right.
+      expect(rect.center.dx, lessThan(contain.center.dx));
 
       await doubleTapPicture(tester);
       rect = photo(tester);
-      expect(rect.height, greaterThanOrEqualTo(844 - 0.01));
+      expect(rect.width, closeTo(390, 0.5));
+      expect(rect.center.dy, closeTo(contain.center.dy, 0.5));
     });
 
     testWidgets('a pinch zooms in, and a page swipe is then off', (
@@ -259,10 +312,58 @@ void main() {
       await a.up();
       await b.up();
       await settle(tester);
-      expect(photo(tester).height, greaterThan(844 * 1.5));
+      expect(photo(tester).width, greaterThan(390 * 1.5));
       await tester.fling(find.byType(PageView), const Offset(-300, 0), 1000);
       await settle(tester);
       expect(find.text('1 / 2'), findsOneWidget);
+    });
+
+    testWidgets('a pinch is capped at 4x', (tester) async {
+      await open(tester);
+      final center = tester.getCenter(find.byType(PageView));
+      final a = await tester.startGesture(center - const Offset(10, 0));
+      final b = await tester.startGesture(center + const Offset(10, 0));
+      await tester.pump();
+      // In steps, as a hand does: the gesture is recognised after the first.
+      for (var i = 0; i < 15; i++) {
+        await a.moveBy(const Offset(-10, 0));
+        await b.moveBy(const Offset(10, 0));
+        await tester.pump();
+      }
+      await a.up();
+      await b.up();
+      await settle(tester);
+      expect(photo(tester).width, closeTo(390 * 4, 1));
+    });
+
+    testWidgets('a pinch below contain snaps back to contain', (tester) async {
+      await open(tester);
+      final center = tester.getCenter(find.byType(PageView));
+      final a = await tester.startGesture(center - const Offset(100, 0));
+      final b = await tester.startGesture(center + const Offset(100, 0));
+      await tester.pump();
+      await a.moveBy(const Offset(50, 0));
+      await b.moveBy(const Offset(-50, 0));
+      await tester.pump();
+      expect(photo(tester).width, lessThan(390));
+      await a.up();
+      await b.up();
+      await settle(tester);
+      expect(photo(tester).width, closeTo(390, 0.5));
+    });
+
+    testWidgets('a zoomed photo pans, clamped to its edges', (tester) async {
+      await open(tester);
+      final at = photo(tester).center;
+      await tester.tapAt(at);
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.tapAt(at);
+      await settle(tester);
+      await tester.dragFrom(at, const Offset(-2000, 0));
+      await settle(tester);
+      final rect = photo(tester);
+      // Dragged far left: the right edge rests on the screen's right edge.
+      expect(rect.right, closeTo(390, 0.5));
     });
   });
 
@@ -301,10 +402,13 @@ void main() {
       final handle = tester.ensureSemantics();
       await open(tester);
       expect(labelOf(tester, 'Close image'), contains('Close image'));
-      expect(labelOf(tester, 'Next image'), contains('Next image'));
+      expect(labelOf(tester, 'Post your reply'), contains('Post your reply'));
       await tapPicture(tester);
       expect(labelOf(tester, 'Close image'), isNot(contains('Close image')));
-      expect(labelOf(tester, 'Next image'), isNot(contains('Next image')));
+      expect(
+        labelOf(tester, 'Post your reply'),
+        isNot(contains('Post your reply')),
+      );
       handle.dispose();
     });
 
@@ -364,6 +468,33 @@ void main() {
       router.pop();
       await settle(tester);
       expect(uiModes, isEmpty);
+    });
+  });
+
+  group('arrows and the bottom panel by width', () {
+    testWidgets('a phone has no previous / next arrows (it swipes)', (
+      tester,
+    ) async {
+      await open(tester);
+      expect(find.byTooltip('Next image'), findsNothing);
+      expect(find.byTooltip('Previous image'), findsNothing);
+      expect(find.text('Post your reply'), findsOneWidget);
+    });
+
+    testWidgets('a tablet band A has the arrows and the bottom panel', (
+      tester,
+    ) async {
+      await open(tester, size: const Size(700, 900));
+      expect(find.byTooltip('Next image'), findsOneWidget);
+      expect(find.text('Post your reply'), findsOneWidget);
+    });
+
+    testWidgets('the details pane replaces the bottom panel on wide', (
+      tester,
+    ) async {
+      await open(tester, size: const Size(1280, 800));
+      expect(find.byTooltip('Next image'), findsOneWidget);
+      expect(find.text('Post your reply'), findsNothing);
     });
   });
 
@@ -444,21 +575,24 @@ void main() {
   });
 
   group('fit math', () {
-    test('cover scale fills the viewport, contain is the zoom floor', () {
+    test('the photo is contained, never cropped', () {
       final wide = photoFit(const Size(390, 844), 16 / 9);
-      expect(wide.fitted.width, 390);
-      expect(wide.fitted.height, closeTo(219.375, 0.001));
-      expect(wide.cover, closeTo(844 / 219.375, 0.001));
+      expect(wide.width, 390);
+      expect(wide.height, closeTo(219.375, 0.001));
       final tall = photoFit(const Size(390, 844), 9 / 16);
-      expect(tall.fitted.width, 390);
-      expect(tall.fitted.height, closeTo(693.333, 0.001));
-      expect(tall.cover, closeTo(844 / 693.333, 0.001));
+      expect(tall.width, 390);
+      expect(tall.height, closeTo(693.333, 0.001));
+      final narrow = photoFit(const Size(390, 400), 9 / 16);
+      expect(narrow.height, 400);
+      expect(narrow.width, closeTo(225, 0.001));
     });
 
-    test('an unknown aspect or a matching one is simply contained', () {
-      expect(photoFit(const Size(390, 844), 0).cover, 1);
-      expect(photoFit(const Size(400, 800), 0.5).cover, closeTo(1, 1e-9));
-    });
+    test(
+      'an unknown aspect fills the viewport (the image contains itself)',
+      () {
+        expect(photoFit(const Size(390, 844), 0), const Size(390, 844));
+      },
+    );
 
     test('panning stays inside the photo and centres where it fits', () {
       const viewport = Size(390, 844);

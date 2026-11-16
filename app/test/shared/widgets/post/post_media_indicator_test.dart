@@ -12,7 +12,8 @@ import '../../../support/theme_harness.dart';
 
 // No thumbUrl: tiles show the placeholder, so no network is touched.
 List<common.MediaRef> _images(int n) => [
-  for (var i = 0; i < n; i++) common.MediaRef(mediaId: 'm$i', altText: ''),
+  for (var i = 0; i < n; i++)
+    common.MediaRef(mediaId: 'm$i', altText: '', width: 900, height: 1600),
 ];
 
 final _current = find.byKey(const ValueKey('media-dot-current'));
@@ -47,7 +48,25 @@ int _highlighted(WidgetTester tester) {
 }
 
 void main() {
-  for (final n in [2, 3, 4]) {
+  testWidgets(
+    '2 images fill the column: 2 dots, the first current, no scroll',
+    (tester) async {
+      await _pumpMedia(tester, 2);
+      expect(_current, findsOneWidget);
+      expect(_others, findsOneWidget);
+      expect(_highlighted(tester), 0);
+      final scrollable = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      );
+      expect(
+        tester.state<ScrollableState>(scrollable).position.maxScrollExtent,
+        lessThan(1),
+      );
+    },
+  );
+
+  for (final n in [3, 4]) {
     testWidgets('$n images without text show $n dots and follow swipes', (
       tester,
     ) async {
@@ -210,9 +229,14 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       expect(_current, findsOneWidget);
-      // The tiles stay 4:5.
-      final size = tester.getSize(find.byType(ListView));
-      expect(size.height, closeTo(size.width * 0.72 * 1.25, 0.5));
+      // The tiles share the row's height.
+      final height = tester.getSize(find.byType(ListView)).height;
+      final tiles = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(ClipRRect),
+      );
+      expect(tiles, findsWidgets);
+      expect(tester.getSize(tiles.first).height, closeTo(height, 0.5));
     },
     widths: const [320, 360],
     textScales: kMatrixTextScalesLarge,
