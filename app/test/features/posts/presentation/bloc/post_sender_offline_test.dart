@@ -798,14 +798,65 @@ void main() {
       );
     });
 
-    test('MEDIA_NOT_READY after a restart stays permanent', () async {
+    test('MEDIA_NOT_READY on uploads kept from before a restart: Retry uploads '
+        'the bytes again, under the same key', () async {
+      await uploadedThenOffline();
+      final again = await relaunch();
+      var calls = 0;
+      failWith = (_) =>
+          calls++ == 0 ? const MediaNotReadyException('gone') : null;
+      await again.sender.retry(again.pending.state.single.localId);
+      await again.sender.idle;
+      // The dead ids are not sent forever: the row can be retried.
+      expect(again.pending.state.single.status, PendingPostStatus.failed);
+      expect(again.pending.state.single.canRetry, isTrue);
+      expect(mediaSeen.last, ['m1']);
+
+      await again.sender.retry(again.pending.state.single.localId);
+      await again.sender.idle;
+      expect(sent, ['hello']);
+      expect(mediaSeen.last, ['m2']);
+      expect(keys.toSet(), hasLength(1));
+      verify(
+        () => media.createUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      ).called(1);
+    });
+
+    test('the dead ids are gone from the device too: a second restart does '
+        'not bring them back', () async {
       await uploadedThenOffline();
       final again = await relaunch();
       failWith = (_) => const MediaNotReadyException('gone');
       await again.sender.retry(again.pending.state.single.localId);
       await again.sender.idle;
-      expect(again.pending.state.single.status, PendingPostStatus.failed);
-      expect(again.pending.state.single.canRetry, isFalse);
+      await pumpEventQueue();
+      final stored = (await store.load('u1')).single;
+      expect(stored.photos.single.mediaId, isEmpty);
+      expect(stored.canRetry, isTrue);
+    });
+
+    test('MEDIA_NOT_READY in one session: Retry uploads again instead of '
+        'resending the dead ids', () async {
+      var calls = 0;
+      failWith = (_) =>
+          calls++ == 0 ? const MediaNotReadyException('gone') : null;
+      await sender.start(_job(attachments: await photos(1)));
+      await sender.idle;
+      expect(pending.state.single.status, PendingPostStatus.failed);
+      expect(pending.state.single.canRetry, isTrue);
+
+      await sender.retry(pending.state.single.localId);
+      await sender.idle;
+      expect(sent, ['hello']);
+      expect(mediaSeen, [
+        ['m1'],
+        ['m2'],
+      ]);
+      expect(keys.toSet(), hasLength(1));
     });
 
     test('a restored post whose key was used says it was already sent when '

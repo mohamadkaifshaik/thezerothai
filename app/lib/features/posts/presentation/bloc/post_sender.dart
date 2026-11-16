@@ -180,6 +180,10 @@ class _Entry {
   /// sender's to close.
   bool ownsAttachments = false;
 
+  /// MEDIA_NOT_READY emptied the media ids of this many stored photos: the
+  /// store says so until the bytes are loaded again for the next send.
+  int staleMedia = 0;
+
   /// The key the draft row holds for this send; null once released.
   String? held;
 
@@ -967,10 +971,22 @@ class PostSender {
     // composer with the field taken out, as the composer did itself.
     final feature = error is FeatureDisabledException ? error.feature : null;
     var permanent = proves;
-    // A shed row's uploads are the only copy of its photos: when the server
-    // no longer has them, Retry cannot succeed; Edit (text) remains.
-    if (error is MediaNotReadyException && e.mediaIds != null) {
-      permanent = true;
+    // The server no longer has the uploads (the orphan sweep took them):
+    // CreatePost created nothing with those ids, so the key stays and the
+    // next Retry uploads the photos again. Without the bytes (a shed row)
+    // Retry cannot succeed; Edit (text) remains.
+    if (error is MediaNotReadyException) {
+      final ids = e.mediaIds;
+      if (ids != null) {
+        if (e.onDisk) {
+          e.staleMedia = ids.length;
+          e.mediaIds = null;
+          e.altTexts = const [];
+        } else {
+          permanent = true;
+        }
+      }
+      e.attachments?.markNotUploaded();
     }
     if (feature == kFeaturePostBeaconEmbed ||
         (error is NotFoundException && job.beaconId.isNotEmpty)) {
@@ -1229,6 +1245,9 @@ class PostSender {
   List<String>? _storedMediaIds(_Entry e) {
     final ids = e.mediaIds;
     if (ids != null) return ids;
+    if (e.staleMedia > 0 && e.attachments == null) {
+      return List.filled(e.staleMedia, '');
+    }
     final items = e.attachments?.state.items;
     if (items == null) return null;
     return [
@@ -1396,6 +1415,7 @@ class PostSender {
     }
     e.attachments = cubit;
     e.ownsAttachments = true;
+    e.staleMedia = 0;
     return true;
   }
 

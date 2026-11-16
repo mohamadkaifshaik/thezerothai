@@ -762,6 +762,39 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     );
   }
 
+  /// The server no longer has the uploads (MEDIA_NOT_READY): every photo that
+  /// counted as uploaded goes back to ready, without its media id, and the
+  /// uploader forgets its finished work, so the next [uploadAll] uploads the
+  /// bytes again instead of sending the dead ids once more.
+  void markNotUploaded() {
+    if (isClosed) return;
+    final stale = [
+      for (final a in state.items)
+        if (a.status == AttachmentStatus.uploaded) a,
+    ];
+    if (stale.isEmpty) return;
+    for (final a in stale) {
+      _uploader.forget(a.id);
+    }
+    emit(
+      AttachmentsState(
+        items: [
+          for (final a in state.items)
+            if (a.status == AttachmentStatus.uploaded)
+              Attachment(
+                id: a.id,
+                kind: a.kind,
+                status: AttachmentStatus.ready,
+                image: a.image,
+                altText: a.altText,
+              )
+            else
+              a,
+        ],
+      ),
+    );
+  }
+
   /// Drops everything (after a post succeeded).
   void clear() {
     _cancelProcessing();
