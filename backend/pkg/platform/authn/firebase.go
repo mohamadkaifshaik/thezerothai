@@ -87,7 +87,18 @@ func normalizeIdentities(raw map[string]interface{}) map[string][]string {
 
 // newAppCheckClient builds the SDK's App Check client. app.AppCheck fetches Google's signing keys (JWKS), so this
 // is the one place that needs the network.
+//
+// It never uses credentials. Since firebase-admin-go 4.23, app.AppCheck also builds an authenticated HTTP client
+// from the app's options, which would resolve Application Default Credentials at build time. That client is used
+// only by VerifyOneTimeToken (replay protection); we call only VerifyToken, which verifies locally against the
+// fetched keys. So option.WithoutAuthentication() always goes first, restoring the 4.22 behaviour for every caller
+// (no ADC needed in cmd/api, apiserver or local dev). Caller opts are appended after it but cannot turn
+// authentication back on: any credential option (API key, token source, credentials file or JSON) conflicts with
+// it in the options validation, so the build fails, and CheckAppCheck stops startup. Options never affect the key
+// fetch or VerifyToken; the SDK uses them only for that HTTP client. Revisit this if we ever adopt
+// VerifyOneTimeToken: that call needs real credentials.
 func newAppCheckClient(ctx context.Context, projectID string, opts ...option.ClientOption) (*appcheck.Client, error) {
+	opts = append([]option.ClientOption{option.WithoutAuthentication()}, opts...)
 	app, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: projectID}, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("authn: init firebase app: %w", err)
@@ -132,10 +143,11 @@ func (v *firebaseAppCheckVerifier) get(ctx context.Context) (*appcheck.Client, e
 	if v.client != nil {
 		return v.client, nil
 	}
-	// Detach from the first caller's context and never cancel it: the SDK hands this context to the goroutine
-	// that refreshes Google's signing keys every 6 h, so cancelling it (when this request ends, or by a timeout)
-	// would silently stop key refresh. The lock is held meanwhile, so concurrent first calls wait for one build
-	// instead of racing; the SDK's own HTTP client bounds the fetch.
+	// Detach from the first caller's context and never cancel it: the SDK hands this context to the key fetch, the
+	// credential lookup and (as keyfunc's Options.Ctx) the 6 h key refresh, so a request ending mid-build must not
+	// break the shared client. (keyfunc v1.9.0 actually runs the refresh on context.Background(); detaching keeps us
+	// safe if that changes.) The lock is held meanwhile, so concurrent first calls wait for one build instead of
+	// racing; the SDK's own HTTP client bounds the fetch.
 	c, err := v.build(context.WithoutCancel(ctx))
 	if err != nil {
 		return nil, err
