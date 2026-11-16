@@ -90,8 +90,8 @@ func (c *RecipientCap) Admit(actor string, n int) (ok bool, limit int64, newAcco
 
 // capExempt reports whether events of type t bypass the per-actor social recipient cap and are not charged to it
 // (B07). TypeBeaconCancelled: a safety notice sent once per cancelled beacon, only to its accepted participants,
-// so its recipients are bounded by the beacon's capacity (beacons.Limits.MaxOpenSpots) and by the beacon create
-// limits rather than by the organiser's social reach. Charging it all-or-nothing per 10-recipient chunk silently
+// so its recipients are bounded by the beacon's capacity (beacons.Limits.MaxOpenSpots), by the beacon create limits
+// and by the CancelBeacon daily call cap (BEACONS_CANCELLED_PER_DAY, R24) rather than by the organiser's social reach. Charging it all-or-nothing per 10-recipient chunk silently
 // dropped whole chunks for an organiser with less than a chunk of budget left. TypeBeaconUpdated (F28) for the same
 // reasons: the same bounded audience, and a dropped "the time changed" notice leaves people at the wrong time; its
 // volume is bounded by the beacons write rate limit (RATE_LIMIT_BEACONS_WRITE_PER_MIN) and the edit-before-start rule.
