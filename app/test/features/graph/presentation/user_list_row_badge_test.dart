@@ -5,6 +5,7 @@ import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/user/protected_badge.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -62,11 +63,11 @@ void main() {
     expectNoOverflow(tester);
     expect(find.byType(ProtectedBadge), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('Protected account')), findsWidgets);
-    expectMinTarget(tester, find.byType(FilledButton));
+    expectMinTarget(tester, find.byType(FollowPill));
 
     // The badge stays on screen and never touches the button.
     final badge = tester.getRect(find.byType(ProtectedBadge));
-    final button = tester.getRect(find.byType(FilledButton));
+    final button = tester.getRect(find.byType(FollowPill));
     expect(badge.overlaps(button), isFalse);
     expect(badge.right, lessThanOrEqualTo(env.size.width));
     semantics.dispose();
@@ -106,9 +107,7 @@ void main() {
         );
         expectNoOverflow(tester);
         expect(find.byType(ProtectedBadge), findsOneWidget);
-        final button = find.byWidgetPredicate(
-          (w) => w is FilledButton || w is OutlinedButton,
-        );
+        final button = find.byWidgetPredicate((w) => w is FollowPill);
         expectMinTarget(tester, button);
         expect(
           tester
@@ -141,9 +140,7 @@ void main() {
             find.byType(ProtectedBadge),
             private ? findsOneWidget : findsNothing,
           );
-          final button = find.byWidgetPredicate(
-            (w) => w is FilledButton || w is OutlinedButton,
-          );
+          final button = find.byWidgetPredicate((w) => w is FollowPill);
           expectMinTarget(tester, button);
           expect(
             tester.getRect(button).right,
@@ -173,7 +170,7 @@ void main() {
       tester,
     ) async {
       await open(tester, item(isPrivate: true, name: long));
-      final button = tester.getRect(find.byType(FilledButton));
+      final button = tester.getRect(find.byType(FollowPill));
       final name = tester.getRect(textFinder);
       expect(button.left, greaterThanOrEqualTo(name.right));
       expectNoOverflow(tester);
@@ -195,7 +192,7 @@ void main() {
           ),
         );
         expectNoOverflow(tester);
-        final button = find.byType(OutlinedButton);
+        final button = find.byType(FollowPill);
         expectMinTarget(tester, button);
         final rect = tester.getRect(button);
         final handle = tester.getRect(textFinder);

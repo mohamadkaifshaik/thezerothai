@@ -14,6 +14,7 @@ import 'package:dzeroth/features/search/presentation/bloc/trends_cubit.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -232,7 +233,7 @@ void main() {
       await tester.tap(find.text('People'));
       await tester.pumpAndSettle();
       expect(find.byType(UserListRow), findsNWidgets(5));
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsWidgets);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsWidgets);
     });
 
     testWidgets('empty state when nothing is suggested', (tester) async {

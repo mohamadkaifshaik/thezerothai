@@ -4,19 +4,20 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/telemetry/analytics_event.dart';
 import '../../../core/telemetry/usage_reporter.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../../features/graph/presentation/bloc/relationship_state.dart';
 import '../../../features/graph/presentation/graph_error_messages.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'cancel_follow_request_dialog.dart';
+import 'follow_pill.dart';
 
 /// Follow / Following / Unblock button, driven by a [RelationshipCubit]
 /// already provided above it in the widget tree (one cubit per profile
 /// header or list row — see `UserListRow`/`ProfileHeader`).
 ///
-/// - Shows "Follow" (filled) when the caller has no relationship, "Following"
-///   (outlined) when following, and "Unblock" (outlined) when the caller
+/// - Draws the x.com pill ([FollowPill]): "Follow" (filled) when the caller
+///   has no relationship, "Following" (outlined, "Unfollow" in red on hover)
+///   when following, and "Unblock" (red) when the caller
 ///   blocks the target — Follow is never offered while blocking (calling it
 ///   would just fail with `TARGET_BLOCKED`).
 /// - [followedBy] turns "Follow" into "Follow back" (the profile header).
@@ -30,17 +31,6 @@ import 'cancel_follow_request_dialog.dart';
 ///   blocked, suspended or deleted. It is called once instead of the
 ///   snackbar: a list that offers accounts (the "Who to follow" card) drops
 ///   the row rather than say "This account doesn't exist anymore.".
-const _minSize = Size(88, AppSpacing.minTapTarget);
-
-/// Paints a [FollowButton] for a caller with its own look.
-typedef FollowButtonBuilder =
-    Widget Function(
-      BuildContext context, {
-      required bool filled,
-      required VoidCallback? onPressed,
-      required Widget child,
-    });
-
 class FollowButton extends StatelessWidget {
   /// [followedBy]: the other user follows the viewer, so the not-following
   /// state reads "Follow back" (only the profile header knows this; list rows
@@ -50,14 +40,15 @@ class FollowButton extends StatelessWidget {
     this.followedBy = false,
     this.onGone,
     this.source = FollowSource.other,
-    this.buttonBuilder,
+    this.large = false,
+    this.onDark = false,
   });
 
-  /// Draws the button itself, for a screen with its own look (the profile
-  /// hero's pills). The label, the filled / outlined role, the action and
-  /// the busy-state child stay this widget's; only the paint is the caller's.
-  /// Null draws the standard buttons.
-  final FollowButtonBuilder? buttonBuilder;
+  /// The 36dp pill of the profile header (32dp otherwise).
+  final bool large;
+
+  /// Drawn as on the dark theme whatever the theme is (the navy hero).
+  final bool onDark;
 
   final bool followedBy;
 
@@ -93,21 +84,24 @@ class FollowButton extends StatelessWidget {
 
         final String label;
         final VoidCallback? onPressed;
-        final bool filled;
+        final FollowPillStyle style;
+        String? hoverLabel;
 
         if (relationship.blocking) {
           label = 'Unblock';
-          filled = false;
+          style = FollowPillStyle.danger;
           onPressed = state.isUpdating ? null : cubit.unblock;
         } else if (relationship.followState ==
             graph.FollowState.FOLLOW_STATE_FOLLOWING) {
           label = 'Following';
-          filled = false;
+          style = FollowPillStyle.outlined;
+          hoverLabel = 'Unfollow';
           onPressed = state.isUpdating ? null : cubit.unfollow;
         } else if (relationship.followState ==
             graph.FollowState.FOLLOW_STATE_REQUESTED) {
           label = 'Requested';
-          filled = false;
+          style = FollowPillStyle.outlined;
+          hoverLabel = 'Cancel';
           onPressed = state.isUpdating
               ? null
               : () async {
@@ -116,7 +110,7 @@ class FollowButton extends StatelessWidget {
                 };
         } else {
           label = followedBy ? 'Follow back' : 'Follow';
-          filled = true;
+          style = FollowPillStyle.filled;
           onPressed = state.isUpdating
               ? null
               : () async {
@@ -130,45 +124,21 @@ class FollowButton extends StatelessWidget {
                 };
         }
 
-        final child = state.isUpdating
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Text(label);
-
-        // The app theme gives buttons a full-width 48dp minimum
-        // (`Size.fromHeight`), which is an infinite width inside a Row (the
-        // profile header puts this button in one). Keep the 48dp height and
-        // use a finite minimum width.
-        final custom = buttonBuilder;
-        if (custom != null) {
-          return Semantics(
-            button: true,
-            label: label,
-            child: custom(
-              context,
-              filled: filled,
-              onPressed: onPressed,
-              child: child,
-            ),
-          );
-        }
         return Semantics(
           button: true,
           label: label,
-          child: filled
-              ? FilledButton(
-                  style: FilledButton.styleFrom(minimumSize: _minSize),
-                  onPressed: onPressed,
-                  child: child,
-                )
-              : OutlinedButton(
-                  style: OutlinedButton.styleFrom(minimumSize: _minSize),
-                  onPressed: onPressed,
-                  child: child,
-                ),
+          excludeSemantics: true,
+          enabled: onPressed != null,
+          onTap: onPressed,
+          child: FollowPill(
+            label: label,
+            hoverLabel: hoverLabel,
+            style: style,
+            large: large,
+            onDark: onDark,
+            busy: state.isUpdating,
+            onPressed: onPressed,
+          ),
         );
       },
     );

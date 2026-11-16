@@ -7,7 +7,7 @@ import 'package:dzeroth/features/search/domain/search_results_tab.dart';
 import 'package:dzeroth/features/search/presentation/widgets/search_directory_tabs.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
-import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -123,7 +123,7 @@ void main() {
         ),
       ).thenAnswer((_) async => searchList('L1', following: true));
       await rig.pump(tester, tab: SearchResultsTab.lists);
-      await tester.tap(find.widgetWithText(AppPillButton, 'Follow'));
+      await tester.tap(find.widgetWithText(FollowPill, 'Follow'));
       await tester.pumpAndSettle();
       verify(
         () => rig.lists.followList(
@@ -131,7 +131,7 @@ void main() {
           listId: 'L1',
         ),
       ).called(1);
-      expect(find.widgetWithText(AppPillButton, 'Following'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Following'), findsOneWidget);
       await tester.tap(find.text('Coffee lovers'));
       await tester.pumpAndSettle();
       expect(find.text('list page L1'), findsOneWidget);
