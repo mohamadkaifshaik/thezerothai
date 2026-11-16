@@ -2,6 +2,7 @@ package beacons
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -85,61 +86,100 @@ func (r *FirestoreRepo) operatorUpdate(ctx context.Context, beaconID string, now
 // Stats is the operator-side read of the pilot (`opsctl beacon counts`, docs/beacons-plan.md PR 8): aggregate counts
 // only, nothing per beacon or per user. *FirestoreRepo implements it.
 type Stats interface {
-	// Counts answers the five aggregate counts over beacons/ and the two over every beaconParticipants subcollection
-	// through count aggregations: no document is read, whatever the collections hold. The counters are independent: a
-	// hidden OPEN beacon is in both Open and Hidden; ENDED is derived at read time and never stored, so a finished plan
-	// stays in Open or Full until its TTL sweep and is also in Ended (endAt before the repo clock, whatever its status,
-	// cancelled included). Requested and Accepted count participant rows in that state on any beacon (live, ended or
-	// cancelled) until the rows' own TTL sweep.
+	// Counts answers the five aggregate counts over beacons/ through count aggregations: no document is read, whatever
+	// the collection holds. The counters are independent: a hidden OPEN beacon is in both Open and Hidden; ENDED is
+	// derived at read time and never stored, so a finished plan stays in Open or Full until its TTL sweep and is also
+	// in Ended (endAt before the repo clock, whatever its status, cancelled included).
 	Counts(ctx context.Context) (Counts, error)
+	// ParticipantCounts answers the two aggregate counts over every beaconParticipants subcollection (collection-group
+	// count aggregations, no document read): rows in state REQUESTED and ACCEPTED on any beacon (live, ended or
+	// cancelled) until the rows' own TTL sweep. ErrParticipantsIndex when Firestore refuses the query because the
+	// beaconParticipants.state collection-group index is missing or still building.
+	ParticipantCounts(ctx context.Context) (ParticipantCounts, error)
 }
 
 // Counts is one Stats.Counts answer.
 type Counts struct {
 	Open, Full, Cancelled, Hidden, Ended int64
-	// Requested is the number of beaconParticipants rows in state REQUESTED (open join requests) and Accepted the
-	// number in state ACCEPTED (seats taken), across every beacon.
+}
+
+// ParticipantCounts is one Stats.ParticipantCounts answer: Requested is the number of open join requests and Accepted
+// the number of seats taken, across every beacon.
+type ParticipantCounts struct {
 	Requested, Accepted int64
 }
 
+// ErrParticipantsIndex: Firestore refused a participant count for a missing or building beaconParticipants.state
+// collection-group index (FAILED_PRECONDITION on a real project; the emulator enforces no index). It is an owner deploy
+// (`firebase deploy --only firestore:indexes`) that may trail the code, so opsctl reports it and keeps the other counts.
+var ErrParticipantsIndex = errors.New("beacons: beaconParticipants.state collection-group index not ready")
+
 var _ Stats = (*FirestoreRepo)(nil)
 
-// Counts implements Stats: seven count aggregations, each over one single-field filter. The five over beacons/
-// (`status` or `hidden` equality, `endAt` range) use the automatic collection-scope indexes. The two participant counts
-// are collection-group queries on beaconParticipants (`state` equality), which need the COLLECTION_GROUP single-field
-// index declared as the beaconParticipants.state fieldOverride in firebase/firestore.indexes.json: until it is deployed
-// they fail with FAILED_PRECONDITION and Counts returns that error (the emulator enforces no index).
-func (r *FirestoreRepo) Counts(ctx context.Context) (Counts, error) {
-	if r == nil || r.client == nil {
-		return Counts{}, fmt.Errorf("beacons: repo is not wired")
-	}
-	col := r.client.Collection(beaconsCollection)
-	parts := r.client.CollectionGroup(participantsSubcollection)
-	var out Counts
-	for _, c := range []struct {
-		name  string
-		query firestore.Query
-		dst   *int64
-	}{
-		{"open", col.Where("status", "==", string(StatusOpen)), &out.Open},
-		{"full", col.Where("status", "==", string(StatusFull)), &out.Full},
-		{"cancelled", col.Where("status", "==", string(StatusCancelled)), &out.Cancelled},
-		{"hidden", col.Where("hidden", "==", true), &out.Hidden},
-		{"ended", col.Where("endAt", "<", r.now().UTC()), &out.Ended},
-		{"participants requested", parts.Where("state", "==", PStateRequested), &out.Requested},
-		{"participants accepted", parts.Where("state", "==", PStateAccepted), &out.Accepted},
-	} {
+// countQuery is one named count aggregation and where its answer goes.
+type countQuery struct {
+	name  string
+	query firestore.Query
+	dst   *int64
+}
+
+// runCounts runs each count aggregation in order and stops at the first error, wrapped with the count's name. When
+// indexErr is set, a FAILED_PRECONDITION (missing or building index) also wraps indexErr, checked on the raw error.
+func runCounts(ctx context.Context, indexErr error, qs []countQuery) error {
+	for _, c := range qs {
 		res, err := c.query.NewAggregationQuery().WithCount("n").Get(ctx)
 		if err != nil {
-			return Counts{}, fmt.Errorf("beacons: count %s: %w", c.name, err)
+			if indexErr != nil && status.Code(err) == codes.FailedPrecondition {
+				return fmt.Errorf("beacons: count %s: %w", c.name, errors.Join(indexErr, err))
+			}
+			return fmt.Errorf("beacons: count %s: %w", c.name, err)
 		}
 		var n struct {
 			N int64 `firestore:"n"`
 		}
 		if err := res.DataTo(&n); err != nil {
-			return Counts{}, fmt.Errorf("beacons: count %s decode: %w", c.name, err)
+			return fmt.Errorf("beacons: count %s decode: %w", c.name, err)
 		}
 		*c.dst = n.N
+	}
+	return nil
+}
+
+// Counts implements Stats: five count aggregations over beacons/, each over one single-field filter (`status` or
+// `hidden` equality, `endAt` range), so the automatic collection-scope indexes serve them.
+func (r *FirestoreRepo) Counts(ctx context.Context) (Counts, error) {
+	if r == nil || r.client == nil {
+		return Counts{}, fmt.Errorf("beacons: repo is not wired")
+	}
+	col := r.client.Collection(beaconsCollection)
+	var out Counts
+	if err := runCounts(ctx, nil, []countQuery{
+		{"open", col.Where("status", "==", string(StatusOpen)), &out.Open},
+		{"full", col.Where("status", "==", string(StatusFull)), &out.Full},
+		{"cancelled", col.Where("status", "==", string(StatusCancelled)), &out.Cancelled},
+		{"hidden", col.Where("hidden", "==", true), &out.Hidden},
+		{"ended", col.Where("endAt", "<", r.now().UTC()), &out.Ended},
+	}); err != nil {
+		return Counts{}, err
+	}
+	return out, nil
+}
+
+// ParticipantCounts implements Stats: two collection-group count aggregations on beaconParticipants (`state`
+// equality). They need the COLLECTION_GROUP single-field index declared as the beaconParticipants.state fieldOverride
+// in firebase/firestore.indexes.json; until it is deployed and built Firestore answers FAILED_PRECONDITION, returned as
+// ErrParticipantsIndex (still wrapping the Firestore error).
+func (r *FirestoreRepo) ParticipantCounts(ctx context.Context) (ParticipantCounts, error) {
+	if r == nil || r.client == nil {
+		return ParticipantCounts{}, fmt.Errorf("beacons: repo is not wired")
+	}
+	parts := r.client.CollectionGroup(participantsSubcollection)
+	var out ParticipantCounts
+	if err := runCounts(ctx, ErrParticipantsIndex, []countQuery{
+		{"participants requested", parts.Where("state", "==", PStateRequested), &out.Requested},
+		{"participants accepted", parts.Where("state", "==", PStateAccepted), &out.Accepted},
+	}); err != nil {
+		return ParticipantCounts{}, err
 	}
 	return out, nil
 }

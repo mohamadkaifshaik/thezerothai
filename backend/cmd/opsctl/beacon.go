@@ -5,7 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
@@ -15,7 +19,7 @@ import (
 const beaconUsage = `  opsctl beacon hide    BEACON_ID --project P [--report R] [--note N] [--dry-run]   (NOT_FOUND to everyone but its organiser from the next request; the organiser still sees and manages it)
   opsctl beacon restore BEACON_ID --project P [--dry-run]
   opsctl beacon clear-area BEACON_ID --project P [--dry-run]   (removes the plan's area: it leaves Explore Nearby from the next request; prints only beacon_hash, never the area)
-  opsctl beacon counts  --project P   (read-only; prints aggregate counts only: beacons_open, beacons_full, beacons_cancelled, beacons_hidden, beacons_ended, participants_requested, participants_accepted; open and full include ended plans not yet swept, ended includes cancelled ones, participants count rows on every beacon until their TTL sweep; needs the beaconParticipants.state collection-group index)
+  opsctl beacon counts  --project P   (read-only; prints aggregate counts only: beacons_open, beacons_full, beacons_cancelled, beacons_hidden, beacons_ended, participants_requested, participants_accepted; open and full include ended plans not yet swept, ended includes cancelled ones, participants count rows on every beacon until their TTL sweep; while the beaconParticipants.state collection-group index is missing or building they read "unavailable" with a warning on stderr)
 `
 
 // parseBeaconArgs validates `opsctl beacon <hide|restore> BEACON_ID` before anything is opened or confirmed.
@@ -44,14 +48,27 @@ func parseBeaconArgs(sub, beaconID string, a modArgs) error {
 	return usageErr("beacon needs a sub-command: hide, restore, clear-area or counts")
 }
 
+// participantsUnavailable is the value printed for a participant count Firestore refused for a missing index.
+const participantsUnavailable = "unavailable"
+
+// participantsIndexWarning is the stderr line when the participant counts are unavailable: it names the index and the
+// deploy step, and nothing about the data.
+const participantsIndexWarning = "warning: participants_requested and participants_accepted are unavailable: the " +
+	"beaconParticipants.state collection-group index (fieldOverrides in firebase/firestore.indexes.json) is missing or " +
+	"still building; deploy it with `firebase deploy --only firestore:indexes` and rerun once it has finished building"
+
 // beaconCounts is `opsctl beacon counts` (docs/beacons-plan.md PR 8, the pilot's daily read): the five aggregate
 // counts of beacons/ and the two of beaconParticipants (open join requests, seats taken) through beacons.Stats (count
-// aggregations, no document read), one key=value per line in a fixed order and nothing else. The participant counts
-// need the beaconParticipants.state collection-group index (firebase/firestore.indexes.json) deployed first: without
-// it the read fails and nothing is printed. The counters are independent (see beacons.Stats): ENDED is never stored, so beacons_open and
-// beacons_full include finished plans until their TTL sweep, and beacons_ended includes cancelled ones. It never prints an id, title, uid or hash, so the output is safe to paste into a readiness
-// record. A failing read prints nothing.
-func beaconCounts(ctx context.Context, s beacons.Stats, out io.Writer) error {
+// aggregations, no document read), one key=value per line in a fixed order and nothing else. The counters are
+// independent (see beacons.Stats): ENDED is never stored, so beacons_open and beacons_full include finished plans until
+// their TTL sweep, and beacons_ended includes cancelled ones. It never prints an id, title, uid or hash, so the output is
+// safe to paste into a readiness record.
+//
+// The participant counts need the beaconParticipants.state collection-group index. While it is missing or still
+// building (beacons.ErrParticipantsIndex, or any FAILED_PRECONDITION) the five beacon counts are still printed, the two
+// participant keys read "unavailable", a warning naming the index and its deploy step goes to stderr, and the command
+// succeeds. Any other failing read prints nothing on stdout and fails.
+func beaconCounts(ctx context.Context, s beacons.Stats, out, errOut io.Writer) error {
 	if s == nil {
 		return errors.New("beacon counts: no beacons stats configured")
 	}
@@ -61,10 +78,26 @@ func beaconCounts(ctx context.Context, s beacons.Stats, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	requested, accepted := participantsUnavailable, participantsUnavailable
+	p, err := s.ParticipantCounts(cctx)
+	switch {
+	case err == nil:
+		requested, accepted = strconv.FormatInt(p.Requested, 10), strconv.FormatInt(p.Accepted, 10)
+	case participantsIndexMissing(err):
+		fmt.Fprintln(errOut, participantsIndexWarning)
+	default:
+		return err
+	}
 	_, err = fmt.Fprintf(out,
-		"beacons_open=%d\nbeacons_full=%d\nbeacons_cancelled=%d\nbeacons_hidden=%d\nbeacons_ended=%d\nparticipants_requested=%d\nparticipants_accepted=%d\n",
-		c.Open, c.Full, c.Cancelled, c.Hidden, c.Ended, c.Requested, c.Accepted)
+		"beacons_open=%d\nbeacons_full=%d\nbeacons_cancelled=%d\nbeacons_hidden=%d\nbeacons_ended=%d\nparticipants_requested=%s\nparticipants_accepted=%s\n",
+		c.Open, c.Full, c.Cancelled, c.Hidden, c.Ended, requested, accepted)
 	return err
+}
+
+// participantsIndexMissing reports whether a ParticipantCounts error is Firestore refusing the query for a missing or
+// building index: the repo's beacons.ErrParticipantsIndex, or a FAILED_PRECONDITION status anywhere in the chain.
+func participantsIndexMissing(err error) bool {
+	return errors.Is(err, beacons.ErrParticipantsIndex) || status.Code(err) == codes.FailedPrecondition
 }
 
 // beaconCommand is `opsctl beacon hide|restore` (docs/beacons-plan.md PR 4, D6): the platform hide of one beacon, the

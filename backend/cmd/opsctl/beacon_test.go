@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
@@ -266,16 +270,24 @@ func TestReportsShow_BeaconEvidence(t *testing.T) {
 	}
 }
 
-// fakeBeaconStats is a beacons.Stats answering fixed counts.
+// fakeBeaconStats is a beacons.Stats answering fixed counts; perr fails ParticipantCounts alone.
 type fakeBeaconStats struct {
 	counts beacons.Counts
 	err    error
+	parts  beacons.ParticipantCounts
+	perr   error
 	calls  int
+	pcalls int
 }
 
 func (f *fakeBeaconStats) Counts(context.Context) (beacons.Counts, error) {
 	f.calls++
 	return f.counts, f.err
+}
+
+func (f *fakeBeaconStats) ParticipantCounts(context.Context) (beacons.ParticipantCounts, error) {
+	f.pcalls++
+	return f.parts, f.perr
 }
 
 func runBeaconCounts(s *fakeBeaconStats, args ...string) (code int, stdout, stderr string) {
@@ -292,17 +304,68 @@ func runBeaconCounts(s *fakeBeaconStats, args ...string) (code int, stdout, stde
 // key=value per line in a fixed order, and nothing else (no id, title, uid or hash).
 func TestBeaconCounts_PrintsAggregatesOnly(t *testing.T) {
 	t.Parallel()
-	s := &fakeBeaconStats{counts: beacons.Counts{Open: 3, Full: 1, Cancelled: 2, Hidden: 1, Ended: 2, Requested: 4, Accepted: 5}}
+	s := &fakeBeaconStats{
+		counts: beacons.Counts{Open: 3, Full: 1, Cancelled: 2, Hidden: 1, Ended: 2},
+		parts:  beacons.ParticipantCounts{Requested: 4, Accepted: 5},
+	}
 	code, out, errOut := runBeaconCounts(s, "beacon", "counts", "--project", "dzeroth-dev")
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%q", code, errOut)
+	if code != 0 || errOut != "" {
+		t.Fatalf("code=%d stderr=%q, want 0 and no stderr", code, errOut)
 	}
 	want := "beacons_open=3\nbeacons_full=1\nbeacons_cancelled=2\nbeacons_hidden=1\nbeacons_ended=2\nparticipants_requested=4\nparticipants_accepted=5\n"
 	if out != want {
 		t.Fatalf("output = %q, want %q", out, want)
 	}
-	if s.calls != 1 {
-		t.Fatalf("Counts called %d times, want 1", s.calls)
+	if s.calls != 1 || s.pcalls != 1 {
+		t.Fatalf("Counts called %d times, ParticipantCounts %d, want 1 each", s.calls, s.pcalls)
+	}
+}
+
+// TestBeaconCounts_ParticipantsIndexMissing: while the beaconParticipants.state collection-group index is missing or
+// still building (Firestore answers FAILED_PRECONDITION; the repo returns beacons.ErrParticipantsIndex wrapping it), the
+// five beacon counts are still printed, the two participant keys read "unavailable", stderr names the index and its
+// deploy step, and the command succeeds.
+func TestBeaconCounts_ParticipantsIndexMissing(t *testing.T) {
+	t.Parallel()
+	precondition := status.Error(codes.FailedPrecondition, "The query requires an index.")
+	for _, tt := range []struct {
+		name string
+		perr error
+	}{
+		{"raw FAILED_PRECONDITION", precondition},
+		{"wrapped FAILED_PRECONDITION", fmt.Errorf("beacons: count participants requested: %w", precondition)},
+		{"repo sentinel", fmt.Errorf("beacons: count participants requested: %w", errors.Join(beacons.ErrParticipantsIndex, precondition))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := &fakeBeaconStats{counts: beacons.Counts{Open: 3, Full: 1, Cancelled: 2, Hidden: 1, Ended: 2}, perr: tt.perr}
+			code, out, errOut := runBeaconCounts(s, "beacon", "counts", "--project", "dzeroth-dev")
+			if code != 0 {
+				t.Fatalf("code=%d stderr=%q, want 0", code, errOut)
+			}
+			want := "beacons_open=3\nbeacons_full=1\nbeacons_cancelled=2\nbeacons_hidden=1\nbeacons_ended=2\nparticipants_requested=unavailable\nparticipants_accepted=unavailable\n"
+			if out != want {
+				t.Fatalf("output = %q, want %q", out, want)
+			}
+			for _, part := range []string{"warning:", "beaconParticipants.state collection-group index", "firebase deploy --only firestore:indexes"} {
+				if !strings.Contains(errOut, part) {
+					t.Errorf("stderr %q does not contain %q", errOut, part)
+				}
+			}
+		})
+	}
+}
+
+// TestBeaconCounts_ParticipantsOtherErrorFails: any other ParticipantCounts failure is a failure (exit 1) with no
+// partial counts on stdout, as a failing beacon count is.
+func TestBeaconCounts_ParticipantsOtherErrorFails(t *testing.T) {
+	t.Parallel()
+	for _, perr := range []error{errors.New("firestore down"), status.Error(codes.Unavailable, "firestore down")} {
+		s := &fakeBeaconStats{counts: beacons.Counts{Open: 3}, perr: perr}
+		code, out, errOut := runBeaconCounts(s, "beacon", "counts", "--project", "dzeroth-dev")
+		if code != 1 || out != "" || !strings.Contains(errOut, "firestore down") || strings.Contains(errOut, "unavailable") {
+			t.Fatalf("perr=%v: code=%d stdout=%q stderr=%q, want 1, empty stdout and the error", perr, code, out, errOut)
+		}
 	}
 }
 
