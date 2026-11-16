@@ -3,6 +3,7 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/location/domain/location_copy.dart';
 import 'package:dzeroth/features/location/domain/location_feature_flag.dart';
 import 'package:dzeroth/features/location/domain/location_models.dart';
+import 'package:dzeroth/features/location/presentation/location_rationale_screen.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -19,6 +20,20 @@ LocationSettingsData _stored({bool consent = true}) => LocationSettingsData(
   area: fakeAreaOne,
   consent: ConsentInfo(granted: consent, copyVersion: 1, at: _agreed),
 );
+
+/// The rationale is a long scrolling list: bring a line into view before
+/// asserting on it or tapping it.
+Future<void> _reveal(WidgetTester tester, String text) async {
+  await tester.scrollUntilVisible(
+    find.text(text),
+    120,
+    scrollable: find.descendant(
+      of: find.byType(LocationRationaleScreen),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
 
 void main() {
   late SettingsTabletRig rig;
@@ -54,6 +69,7 @@ void main() {
       await tester.tap(find.text(kLocationChooseArea));
       await tester.pumpAndSettle();
       expect(find.text(kLocationRationaleTitle), findsWidgets);
+      await _reveal(tester, 'Notice version $kLocationConsentCopyVersion');
       expect(
         find.text('Notice version $kLocationConsentCopyVersion'),
         findsOne,
@@ -109,6 +125,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(fakeAreaOne.name));
       await tester.pumpAndSettle();
+      await _reveal(tester, kLocationAdultTick);
       expect(find.text(kLocationAdultTick), findsOneWidget);
       repo.setError = null;
       await tester.tap(find.text(kLocationAdultTick));

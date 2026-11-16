@@ -506,8 +506,9 @@ const kPlanAreaTitle = 'Area (optional)';
 const kPlanAreaChoose = 'Choose an area';
 const kPlanAreaClear = 'Clear area';
 const kPlanAreaHint =
-    'Pick the area of the meeting point, not where you live. People who '
-    'choose this area see the plan in Nearby.';
+    'Pick the area of the meeting point, not where you live. Everyone who can '
+    'see the plan sees this area, and people who choose it see the plan in '
+    'Nearby.';
 
 /// Opens the area picker (`/area-picker`); null when dismissed.
 Future<AreaRef?> pickPlanArea(BuildContext context) =>

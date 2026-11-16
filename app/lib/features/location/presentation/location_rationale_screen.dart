@@ -48,6 +48,7 @@ class _LocationRationaleScreenState extends State<LocationRationaleScreen> {
                   kLocationRationaleStored,
                   kLocationRationaleWhy,
                   kLocationRationaleWho,
+                  kLocationRationalePlans,
                   kLocationRationaleWithdraw,
                 ]) ...[
                   Text(line, style: theme.textTheme.bodyLarge),

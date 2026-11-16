@@ -9,10 +9,10 @@ type LocationConfig struct {
 	// SetArea counts them inside its transaction when it grants and refuses with LIMIT_REACHED "location_consent_changes"
 	// at the cap; ClearArea is never limited by it.
 	ConsentChangesPerDay int
-	// ConsentMinCopyVersion is LOCATION_CONSENT_MIN_COPY_VERSION (default 1, > 0): the oldest rationale copy a consent may
+	// ConsentMinCopyVersion is LOCATION_CONSENT_MIN_COPY_VERSION (default 2, > 0): the oldest rationale copy a consent may
 	// be at. Raising it makes every older consent non-current, so the next SetArea needs a new grant.
 	ConsentMinCopyVersion int
-	// ConsentCopyVersion is LOCATION_CONSENT_COPY_VERSION (default 1, >= ConsentMinCopyVersion): the current rationale copy.
+	// ConsentCopyVersion is LOCATION_CONSENT_COPY_VERSION (default 2, >= ConsentMinCopyVersion): the current rationale copy.
 	// A grant's copy_version must be within [ConsentMinCopyVersion, ConsentCopyVersion]; GetLocationSettings returns both.
 	ConsentCopyVersion int
 	// NearbyKMin is LOCATION_NEARBY_K_MIN (default 5, > 0): the count of live plans in an area from which
@@ -26,8 +26,8 @@ func loadLocation() (LocationConfig, error) {
 	var c LocationConfig
 	err := loadPositiveInts([]positiveInt{
 		{&c.ConsentChangesPerDay, "LOCATION_CONSENT_CHANGES_PER_DAY", 10},
-		{&c.ConsentMinCopyVersion, "LOCATION_CONSENT_MIN_COPY_VERSION", 1},
-		{&c.ConsentCopyVersion, "LOCATION_CONSENT_COPY_VERSION", 1},
+		{&c.ConsentMinCopyVersion, "LOCATION_CONSENT_MIN_COPY_VERSION", 2},
+		{&c.ConsentCopyVersion, "LOCATION_CONSENT_COPY_VERSION", 2},
 		{&c.NearbyKMin, "LOCATION_NEARBY_K_MIN", 5},
 	})
 	if err == nil && c.ConsentCopyVersion < c.ConsentMinCopyVersion {

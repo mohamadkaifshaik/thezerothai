@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Draft — last updated 2026-11-01 (W6-55 full refresh: founder approval of the text required;
+<!-- Draft — last updated 2026-11-16 (location and plan-area text added from docs/location-consent-review-2026-11-16.md M-01/M-04/M-10/M-13; counsel and founder approval required before deploy; earlier: W6-55 full refresh: founder approval of the text required;
      Polls, Drafts and Lists sections: W6-46, founder-approved in #564 and kept word for word;
      retained-after-deletion list: ADR-0011 Q10, founder-accepted 2026-10-07, plus the entries accepted later in
      ADR-0016 (D5, implementation notes, notes of 2026-10-28 with its 2026-10-29 addendum and of 2026-10-30) and
@@ -165,7 +165,7 @@
     <a class="home-link" href="/">&larr; dzeroth.com</a>
 
     <h1>Dzeroth Privacy Policy</h1>
-    <p class="updated">Last updated: 1 November 2026</p>
+    <p class="updated">Last updated: 16 November 2026</p>
 
     <p>
       Dzeroth ("Dzeroth", "we", "us") is a text-first social app at
@@ -209,6 +209,13 @@
         the lists you pinned as tabs on your Home screen. Your profile is
         visible to other signed-in users, also when your account is
         protected.
+      </li>
+      <li>
+        <strong>Location area and plan areas.</strong> Only if you choose
+        them. An area you pick in Settings &gt; Location, a record of when
+        you agreed to or withdrew it, and the area you give a plan you
+        organise. See "Location and plan areas" below. We never collect
+        coordinates or your device's location.
       </li>
       <li>
         <strong>Social graph.</strong> The accounts you follow and the
@@ -694,6 +701,45 @@
       </li>
     </ul>
 
+    <h2>Location and plan areas</h2>
+    <p>
+      Dzeroth never reads your device's location. The app doesn't ask your
+      phone or browser for a location permission, and we store no
+      coordinates. Two things in the app can hold a place, and both are
+      areas picked from a fixed list of cities and neighbourhoods.
+    </p>
+    <ul>
+      <li>
+        <strong>Your area.</strong> If you choose one in Settings &gt;
+        Location (after confirming you are 18 or older), we store the area,
+        that you confirmed you are 18 or older and when, the time you agreed,
+        the version of the notice you agreed to, and the purpose: showing you
+        plans in or near your area. We also keep a record of every time you
+        agreed and every time you withdrew, with the same confirmation and
+        time but not the area. Other users can't see your area; it is not on
+        your profile. We use it to show you plans in Nearby and, on large
+        screens, in a box on your Home screen.
+      </li>
+      <li>
+        <strong>A plan's area.</strong> When you organise a plan you can give
+        it the area where it meets. That area belongs to the plan, not to
+        you: everyone who can see the plan sees it, and people who choose that
+        area see the plan in Nearby. Please pick where the plan meets, never
+        where you live; we don't check this.
+      </li>
+    </ul>
+    <p>
+      You can clear your area at any time in Settings &gt; Location. That
+      deletes the area at once and adds a record that you withdrew; it
+      doesn't change the area of a plan you organised, which you can edit or
+      delete on the plan. We keep your area and the record of your agreeing
+      and withdrawing until you clear the area or delete your account, and
+      then delete the area; the record is deleted when you delete your
+      account. A plan's area is kept as long as the plan. Our server logs
+      note that a location request happened and whether an area was set,
+      never which area. See "How long we keep it" and "Your rights" below.
+    </p>
+
     <h2>Who we share it with</h2>
     <p>
       We don't sell your data and we don't use it for advertising. We use
@@ -789,6 +835,7 @@
       <li>Lists you make: until you delete them or your account.</li>
       <li>Drafts: only on your device. See "Drafts" above for when they are deleted.</li>
       <li>Reports: until we have dealt with them, then 90 days; a copy of a reported message at most 180 days. See "Reports and moderation" above.</li>
+      <li>Your location area: until you clear it or delete your account. The record of when you agreed to or withdrew it: until you delete your account. A plan's area: as long as the plan. See "Location and plan areas" above.</li>
       <li>Duplicate-request records (see below): 24 hours, then deleted automatically, usually within a day.</li>
       <li>Data export files: 7 days, then deleted.</li>
       <li>Server logs: kept for about 30 days (Google Cloud Logging's default), then deleted.</li>
@@ -802,7 +849,7 @@
       <li><strong>Access</strong> the personal data we hold about you.</li>
       <li><strong>Correct</strong> inaccurate data.</li>
       <li><strong>Delete</strong> your account and associated data.</li>
-      <li><strong>Export</strong> your data in a portable format (JSON). An export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles), and your pending follow requests. It also contains your posts (including replies, quotes, reposts and scheduled posts), a list of your images with their web addresses (not the image files), the posts you liked, reposted and bookmarked, your notifications, the devices registered for push (platform and dates, never the push token), the reports you made, and your direct messages as described in "Direct messages" above. It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. It also includes your poll votes, the lists you made and the lists made by other people that include you, as described in "Polls" and "Lists" above; drafts are not included, because they are kept only on your device.</li>
+      <li><strong>Export</strong> your data in a portable format (JSON). An export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles), and your pending follow requests. It also contains your posts (including replies, quotes, reposts and scheduled posts), a list of your images with their web addresses (not the image files), the posts you liked, reposted and bookmarked, your notifications, the devices registered for push (platform and dates, never the push token), the reports you made, and your direct messages as described in "Direct messages" above. It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. It also includes your location area and the record of when you agreed to or withdrew it, and the area of the plans you organised. It also includes your poll votes, the lists you made and the lists made by other people that include you, as described in "Polls" and "Lists" above; drafts are not included, because they are kept only on your device.</li>
       <li><strong>Withdraw consent</strong> where we rely on it, or raise a grievance about how we've handled your data.</li>
     </ul>
     <p>
@@ -833,7 +880,7 @@
       block lists and from the notifications you caused in their lists,
       and the follower, following, like and repost counts on their
       profiles and posts
-      are corrected. We also delete your poll votes and the lists you made,
+      are corrected. We also delete your location area and the record of when you agreed to or withdrew it, and the plans you organised with their areas. We also delete your poll votes and the lists you made,
       and remove you from lists made by other people. Drafts are kept on
       your devices, not by us (see "Drafts" above). Once deletion starts it
       can't be undone. Your sign-in
