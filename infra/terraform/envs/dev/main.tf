@@ -324,6 +324,7 @@ locals {
     { name = "RATE_LIMIT_BEACONS_ACTION_PER_MIN", value = "20" },
     { name = "RATE_LIMIT_BEACONS_READ_PER_MIN", value = "30" },
     { name = "BEACONS_CREATED_PER_DAY", value = "10" },
+    { name = "BEACONS_CANCELLED_PER_DAY", value = "20" },
     { name = "FEATURE_PROFILE_EXTRAS", value = var.feature_profile_extras },
     { name = "FEATURE_PROFILE_EXTRAS_ALLOWLIST", value = var.feature_profile_extras_allowlist },
     { name = "FEATURE_PROFILE_EXTRAS_PERCENT", value = tostring(var.feature_profile_extras_percent) },
