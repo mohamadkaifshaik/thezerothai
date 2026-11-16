@@ -6,10 +6,12 @@ import '../../features/beacons/domain/beacons_feature_flag.dart';
 import '../../features/beacons/domain/plans_list_detail.dart';
 import '../../features/beacons/presentation/bloc/plans_session.dart';
 import '../../features/beacons/presentation/widgets/happening_nearby_card.dart';
+import '../../features/beacons/presentation/widgets/upcoming_plans_card.dart';
 import '../../features/beacons/presentation/plans_list_detail.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
+import '../../features/lists/presentation/widgets/discover_lists_card.dart';
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/messages/domain/messages_list_detail.dart';
@@ -680,6 +682,21 @@ class MainShell extends StatelessWidget {
                   title: 'You might like',
                   margin: EdgeInsets.only(bottom: AppSpacing.md),
                 ),
+              // The desktop mocks' "Plans near you" (Explore, Post detail, My
+              // plans): the public plans of the hoisted `/plans` list,
+              // with `beacons` on.
+              if (newShell &&
+                  isFeatureEnabled(context, kFeatureBeacons) &&
+                  _showsUpcomingPlans(sidePaneLocation))
+                if (context.read<PlansSession?>() case final session?)
+                  UpcomingPlansCard(session: session),
+              // The desktop Lists mock's "Discover new Lists", with `lists`
+              // and `list_follows` on (the shell checks both).
+              if (newShell &&
+                  isFeatureEnabled(context, kFeatureLists) &&
+                  isFeatureEnabled(context, kFeatureListFollows) &&
+                  sidePaneLocation == AppRouter.listsPath)
+                const DiscoverListsCard(),
             ],
             // Only what is already loaded: no profile, no card (nothing is fetched).
             profile: ownHandle == null || ownHandle.isEmpty
@@ -758,6 +775,19 @@ String? _shellTopLocation(BuildContext context) {
     return leaf.matchedLocation;
   }
   return null;
+}
+
+/// Where the desktop side column draws the "Upcoming plans" card: Explore, a
+/// post's page (not its photo) and My plans, as the desktop mocks do.
+bool _showsUpcomingPlans(String location) {
+  final segments = [
+    for (final s in Uri.parse(location).pathSegments)
+      if (s.isNotEmpty) s,
+  ];
+  return switch (segments) {
+    ['explore'] || ['post', _] || ['plans', 'mine'] => true,
+    _ => false,
+  };
 }
 
 /// Whether [location] is a profile page itself (`/profile/:handle` or
