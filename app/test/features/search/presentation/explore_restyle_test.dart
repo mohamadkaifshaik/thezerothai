@@ -17,7 +17,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:fixnum/fixnum.dart' show Int64;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart';
 

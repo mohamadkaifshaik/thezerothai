@@ -1,5 +1,6 @@
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
-import 'package:flutter/material.dart';
+import '../../support/ui_tooltip_finder.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -212,7 +213,7 @@ void main() {
 
     for (final d in _five) {
       expect(find.text(d.label), findsNothing, reason: d.label);
-      expect(find.byTooltip(d.label), findsOneWidget, reason: d.label);
+      expect(find.byUiTooltip(d.label), findsOneWidget, reason: d.label);
     }
     expectNoOverflow(tester);
     _expectUnclipped(tester);

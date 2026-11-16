@@ -1,5 +1,5 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Helpers for the swipeable tile row of `PostMedia` (2-4 images).

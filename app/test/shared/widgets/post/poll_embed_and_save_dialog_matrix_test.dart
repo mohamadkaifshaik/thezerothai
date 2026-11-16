@@ -1,6 +1,6 @@
 import 'package:dzeroth/features/posts/presentation/widgets/draft_dialogs.dart';
 import 'package:dzeroth/shared/widgets/post/poll_card.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/poll_fixtures.dart';

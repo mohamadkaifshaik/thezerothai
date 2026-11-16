@@ -8,7 +8,7 @@ import 'package:dzeroth/features/messages/presentation/widgets/message_composer.
 import 'package:dzeroth/features/messages/presentation/widgets/messages_side_card.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;

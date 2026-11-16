@@ -15,7 +15,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.d
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

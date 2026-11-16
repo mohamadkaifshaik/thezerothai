@@ -6,7 +6,7 @@ import 'package:dzeroth/features/media/data/media_uploader.dart';
 import 'package:dzeroth/features/media/domain/processed_image.dart';
 import 'package:dzeroth/features/media/presentation/bloc/attachments_cubit.dart';
 import 'package:dzeroth/features/media/presentation/widgets/attachment_grid.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 

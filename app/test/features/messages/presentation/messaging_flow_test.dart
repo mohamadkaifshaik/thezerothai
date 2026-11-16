@@ -9,7 +9,7 @@ import 'package:dzeroth/features/messages/presentation/widgets/request_banner.da
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/gen/dzeroth/moderation/v1/moderation.pbenum.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/messaging_fixtures.dart';

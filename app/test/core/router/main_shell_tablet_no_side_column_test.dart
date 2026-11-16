@@ -6,7 +6,7 @@ import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/context_pane_rig.dart';

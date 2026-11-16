@@ -17,7 +17,7 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_empty_view.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_icon_button.dart';
 import 'package:dzeroth/core/widgets/shell_fab.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';

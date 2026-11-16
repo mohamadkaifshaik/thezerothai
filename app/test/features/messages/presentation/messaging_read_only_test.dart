@@ -8,7 +8,7 @@ import 'package:dzeroth/features/messages/presentation/widgets/message_composer.
 import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/messaging_fixtures.dart';

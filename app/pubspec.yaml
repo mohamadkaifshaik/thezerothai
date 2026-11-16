@@ -17,6 +17,9 @@ dependencies:
 
   # Navigation
   go_router: ^18.1.4
+  # Material and Cupertino moved out of the framework in Flutter 3.50.
+  material_ui: ^1.11.0
+  cupertino_ui: ^1.1.6
   # usePathUrlStrategy on web; a no-op on mobile.
   flutter_web_plugins:
     sdk: flutter
@@ -68,8 +71,8 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^6.0.0
-  build_runner: ^2.16.1
-  freezed: ^4.0.1
+  build_runner: ^2.17.1
+  freezed: ^4.0.3
   json_serializable: ^6.15.2
   drift_dev: ^2.35.3
   bloc_test: ^10.0.0

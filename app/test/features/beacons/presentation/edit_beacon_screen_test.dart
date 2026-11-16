@@ -11,7 +11,8 @@ import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/shared/format/scheduled_time.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
-import 'package:flutter/material.dart';
+import '../../../support/ui_tooltip_finder.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -87,8 +88,8 @@ void main() {
     // F28: the date, time, duration and cost are fields now, with the
     // designs' helper; activity and chat stay as they were set. The
     // audience is a selector now (F28b): a public plan offers Public alone.
-    expect(find.byTooltip('Pick a date'), findsOneWidget);
-    expect(find.byTooltip('Pick a time'), findsOneWidget);
+    expect(find.byUiTooltip('Pick a date'), findsOneWidget);
+    expect(find.byUiTooltip('Pick a time'), findsOneWidget);
     expect(find.text(kPlanEditNotifyHelper), findsOneWidget);
     expect(chipSelected(tester, '60 min'), isTrue);
     expect(chipSelected(tester, 'Free'), isTrue);
@@ -108,9 +109,9 @@ void main() {
   testWidgets('open spots cannot go below the people going', (tester) async {
     await open(tester);
     // F28 put the date, time, duration and cost above it: scroll to it.
-    await tester.ensureVisible(find.byTooltip('Fewer spots'));
+    await tester.ensureVisible(find.byUiTooltip('Fewer spots'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Fewer spots'));
+    await tester.tap(find.byUiTooltip('Fewer spots'));
     await tester.pump();
     expect(find.text('2'), findsOneWidget);
     expect(saveEnabled(tester), isTrue);
@@ -303,10 +304,10 @@ void main() {
       final router = await openSeamed(tester);
       final next = DateTime(start.year, start.month, start.day + 1);
       pickedDate = next;
-      await tapField(tester, find.byTooltip('Pick a date'));
+      await tapField(tester, find.byUiTooltip('Pick a date'));
       expect(
         find.descendant(
-          of: find.byTooltip('Pick a date'),
+          of: find.byUiTooltip('Pick a date'),
           matching: find.text(formatScheduledDate(next)),
         ),
         findsOneWidget,
@@ -337,10 +338,10 @@ void main() {
     ) async {
       await openSeamed(tester);
       pickedTime = TimeOfDay(hour: start.hour + 1, minute: start.minute);
-      await tapField(tester, find.byTooltip('Pick a time'));
+      await tapField(tester, find.byUiTooltip('Pick a time'));
       expect(saveEnabled(tester), isTrue);
       pickedTime = TimeOfDay.fromDateTime(start);
-      await tapField(tester, find.byTooltip('Pick a time'));
+      await tapField(tester, find.byUiTooltip('Pick a time'));
       expect(saveEnabled(tester), isFalse);
     });
 
@@ -348,15 +349,15 @@ void main() {
         'and the unsaved time; the server says "started"', (tester) async {
       await openSeamed(tester);
       pickedTime = TimeOfDay(hour: start.hour + 1, minute: start.minute);
-      await tapField(tester, find.byTooltip('Pick a time'));
+      await tapField(tester, find.byUiTooltip('Pick a time'));
       expect(saveEnabled(tester), isTrue);
 
       // The stored start passes; any rebuild used to drop the fields.
       now = start.add(const Duration(minutes: 1));
       await tester.enterText(field('Title'), 'Tea');
       await tester.pump();
-      expect(find.byTooltip('Pick a time'), findsOneWidget);
-      expect(find.byTooltip('Pick a date'), findsOneWidget);
+      expect(find.byUiTooltip('Pick a time'), findsOneWidget);
+      expect(find.byUiTooltip('Pick a date'), findsOneWidget);
       expect(find.text(kPlanFixedNow), findsNothing);
       expect(saveEnabled(tester), isTrue);
 
@@ -397,7 +398,7 @@ void main() {
     ) async {
       await openSeamed(tester);
       pickedTime = TimeOfDay(hour: now.hour, minute: now.minute + 1);
-      await tapField(tester, find.byTooltip('Pick a time'));
+      await tapField(tester, find.byUiTooltip('Pick a time'));
       expect(
         find.text('Pick a time at least 5 minutes from now.'),
         findsOneWidget,
@@ -410,7 +411,7 @@ void main() {
         'start is not re-checked)', (tester) async {
       plan(startAt: now.add(const Duration(minutes: 3)));
       await openSeamed(tester);
-      expect(find.byTooltip('Pick a date'), findsOneWidget);
+      expect(find.byUiTooltip('Pick a date'), findsOneWidget);
       await tester.enterText(field('Title'), 'Tea');
       await tester.pump();
       expect(
@@ -428,8 +429,8 @@ void main() {
       plan(startAt: now.subtract(const Duration(minutes: 10)));
       await openSeamed(tester);
       expect(tester.takeException(), isNull);
-      expect(find.byTooltip('Pick a date'), findsNothing);
-      expect(find.byTooltip('Pick a time'), findsNothing);
+      expect(find.byUiTooltip('Pick a date'), findsNothing);
+      expect(find.byUiTooltip('Pick a time'), findsNothing);
       expect(find.widgetWithText(ChoiceChip, '90 min'), findsNothing);
       expect(find.widgetWithText(ChoiceChip, 'Split evenly'), findsNothing);
       expect(find.text(kPlanEditNotifyHelper), findsNothing);
@@ -490,13 +491,13 @@ void main() {
         expect(tester.takeException(), isNull);
         expectNoOverflow(tester);
         for (final tip in ['Pick a date', 'Pick a time']) {
-          await tester.ensureVisible(find.byTooltip(tip));
+          await tester.ensureVisible(find.byUiTooltip(tip));
           await tester.pumpAndSettle();
-          expectMinTarget(tester, find.byTooltip(tip), reason: tip);
+          expectMinTarget(tester, find.byUiTooltip(tip), reason: tip);
           final value = tester.renderObject<RenderParagraph>(
             find.descendant(
               of: find.descendant(
-                of: find.byTooltip(tip),
+                of: find.byUiTooltip(tip),
                 matching: find.byType(Text),
               ),
               matching: find.byType(RichText),

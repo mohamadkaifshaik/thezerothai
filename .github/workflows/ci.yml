@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: "3.47.5"
+  FLUTTER_VERSION: "3.50.0"
   BUF_VERSION: "1.47.2"
 
 jobs:
@@ -167,7 +167,7 @@ jobs:
         uses: ./.github/actions/setup-flutter
         with:
           version: ${{ env.FLUTTER_VERSION }}
-          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
+          sha: ab2912035e160d9cad6306df307576da6128ebdb
 
       - name: make flutter-analyze
         run: make flutter-analyze
@@ -186,7 +186,7 @@ jobs:
         uses: ./.github/actions/setup-flutter
         with:
           version: ${{ env.FLUTTER_VERSION }}
-          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
+          sha: ab2912035e160d9cad6306df307576da6128ebdb
 
       - name: make flutter-test
         env:

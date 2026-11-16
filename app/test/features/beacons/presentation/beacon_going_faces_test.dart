@@ -6,7 +6,7 @@ import 'package:dzeroth/features/beacons/presentation/bloc/beacon_detail_state.d
 import 'package:dzeroth/features/beacons/presentation/beacon_screen.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';

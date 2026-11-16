@@ -20,7 +20,7 @@ import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';

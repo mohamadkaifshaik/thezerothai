@@ -5,7 +5,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/shared/widgets/post/post_media.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/media_pager.dart';

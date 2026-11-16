@@ -9,7 +9,7 @@ import 'package:dzeroth/features/auth/presentation/request_sign_out.dart';
 import 'package:dzeroth/features/posts/data/drafts_repository.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/draft_dialogs.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

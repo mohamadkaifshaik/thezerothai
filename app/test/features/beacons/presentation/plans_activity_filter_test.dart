@@ -5,7 +5,7 @@ import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plans_activity_filter.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 

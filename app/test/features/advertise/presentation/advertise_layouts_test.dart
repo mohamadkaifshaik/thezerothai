@@ -6,7 +6,7 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_rings.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';

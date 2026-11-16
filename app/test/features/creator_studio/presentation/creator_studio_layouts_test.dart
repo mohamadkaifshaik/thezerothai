@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/app_fonts.dart';

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;

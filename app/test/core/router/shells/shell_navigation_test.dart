@@ -10,7 +10,7 @@ import 'package:dzeroth/features/creator_studio/presentation/creator_studio_scre
 import 'package:dzeroth/features/premium/presentation/premium_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_main_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 

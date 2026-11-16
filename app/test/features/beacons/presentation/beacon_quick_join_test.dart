@@ -5,7 +5,7 @@ import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/join_note_sheet.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/quick_join.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 

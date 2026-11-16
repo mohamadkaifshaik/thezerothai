@@ -3,7 +3,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/moderation/presentation/report_sheet.dart';
 import 'package:dzeroth/gen/dzeroth/moderation/v1/moderation.pbenum.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

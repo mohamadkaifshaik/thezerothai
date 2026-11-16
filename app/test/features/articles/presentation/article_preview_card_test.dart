@@ -1,7 +1,7 @@
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart';
 import 'package:dzeroth/shared/widgets/post/article_preview_card.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 

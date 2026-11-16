@@ -1,6 +1,7 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
-import 'package:flutter/material.dart';
+import '../../support/ui_tooltip_finder.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -266,7 +267,7 @@ void main() {
       }
       for (final label in _labels.skip(5)) {
         expect(_inRail(find.text(label)), findsNothing, reason: label);
-        expect(_inRail(find.byTooltip(label)), findsOneWidget, reason: label);
+        expect(_inRail(find.byUiTooltip(label)), findsOneWidget, reason: label);
       }
       // The group divider sits between Messages and Lists.
       final divider = tester.getCenter(_inRail(find.byType(Divider))).dy;
@@ -430,7 +431,7 @@ void main() {
       for (final label in _labels) {
         expect(_inRail(find.text(label)), findsNothing, reason: label);
       }
-      expect(_inRail(find.byTooltip('Home')), findsOneWidget);
+      expect(_inRail(find.byUiTooltip('Home')), findsOneWidget);
       final scrollable = tester.state<ScrollableState>(
         _inRail(find.byType(Scrollable)),
       );
@@ -537,7 +538,7 @@ void main() {
           isSemantics(label: 'Notifications', isSelected: true),
         );
         for (final label in _labels.skip(5)) {
-          expect(_inRail(find.byTooltip(label)), findsOneWidget);
+          expect(_inRail(find.byUiTooltip(label)), findsOneWidget);
         }
         expect(find.bySemanticsLabel('Notifications'), findsOneWidget);
         expectNoOverflow(tester);
@@ -604,7 +605,7 @@ void main() {
 
         for (final label in short ? _shortLabels : _labels.take(5)) {
           expect(_inRail(find.text(label)), findsNothing, reason: label);
-          expect(_inRail(find.byTooltip(label)), findsOneWidget);
+          expect(_inRail(find.byUiTooltip(label)), findsOneWidget);
         }
         final compose = tester.getRect(find.byKey(_composeKey));
         final account = tester.getRect(find.byKey(_accountKey));
@@ -697,7 +698,7 @@ void main() {
 
         for (final label in _labels) {
           expect(_inRail(find.text(label)), findsNothing, reason: label);
-          expect(_inRail(find.byTooltip(label)), findsOneWidget, reason: label);
+          expect(_inRail(find.byUiTooltip(label)), findsOneWidget, reason: label);
         }
         expect(
           tester.getSemantics(_inRail(find.byIcon(Icons.notifications))),

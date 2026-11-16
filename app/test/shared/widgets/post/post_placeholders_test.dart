@@ -6,7 +6,7 @@ import 'package:dzeroth/shared/widgets/post/conversation_row.dart';
 import 'package:dzeroth/shared/widgets/post/protected_post_box.dart';
 import 'package:dzeroth/shared/widgets/post/unavailable_post_box.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

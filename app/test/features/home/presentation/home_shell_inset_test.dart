@@ -17,7 +17,7 @@ import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

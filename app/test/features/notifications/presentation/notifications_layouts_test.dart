@@ -11,7 +11,7 @@ import 'package:dzeroth/features/notifications/presentation/widgets/notification
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

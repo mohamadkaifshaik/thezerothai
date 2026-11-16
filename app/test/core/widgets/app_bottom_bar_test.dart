@@ -2,7 +2,8 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_nav_destination.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
-import 'package:flutter/material.dart';
+import '../../support/ui_tooltip_finder.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/contrast.dart';
@@ -274,8 +275,8 @@ void main() {
 
         expect(find.text('Home'), findsNothing);
         expect(find.text('Notifications'), findsNothing);
-        expect(find.byTooltip('Home'), findsOneWidget);
-        expect(find.byTooltip('Notifications'), findsOneWidget);
+        expect(find.byUiTooltip('Home'), findsOneWidget);
+        expect(find.byUiTooltip('Notifications'), findsOneWidget);
         expect(
           tester.getSemantics(find.bySemanticsLabel('Notifications')),
           isSemantics(
@@ -308,7 +309,7 @@ void main() {
         ],
       );
 
-      expect(find.byTooltip('Your timeline'), findsOneWidget);
+      expect(find.byUiTooltip('Your timeline'), findsOneWidget);
     });
   });
 

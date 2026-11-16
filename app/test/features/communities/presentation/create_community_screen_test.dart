@@ -6,7 +6,7 @@ import 'package:dzeroth/features/communities/presentation/create_community_scree
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_text_field.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

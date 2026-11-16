@@ -1,6 +1,6 @@
 import 'package:dzeroth/features/messages/presentation/widgets/conversation_row.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/messaging_fixtures.dart';

@@ -6,7 +6,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/shared/widgets/post/gif_badge.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/post/post_media.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/posts_fixtures.dart';

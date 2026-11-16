@@ -12,7 +12,7 @@ import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dar
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/post/unavailable_post_box.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_card.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';

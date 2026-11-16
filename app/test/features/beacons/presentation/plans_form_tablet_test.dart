@@ -18,7 +18,8 @@ import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/moderation/domain/reports_feature_flag.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/shared/format/scheduled_time.dart';
-import 'package:flutter/material.dart';
+import '../../../support/ui_tooltip_finder.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -108,8 +109,8 @@ void main() {
         realForms: true,
       );
       expect(find.text('Edit plan'), findsOneWidget);
-      expect(_inForm(find.byTooltip('Pick a date')), findsOneWidget);
-      expect(_inForm(find.byTooltip('Pick a time')), findsOneWidget);
+      expect(_inForm(find.byUiTooltip('Pick a date')), findsOneWidget);
+      expect(_inForm(find.byUiTooltip('Pick a time')), findsOneWidget);
       expect(_inForm(find.text(kPlanEditNotifyHelper)), findsOneWidget);
       expect(
         _inForm(find.widgetWithText(ChoiceChip, '60 min')),
@@ -273,12 +274,12 @@ void main() {
         );
       });
 
-      await _tapInForm(tester, find.byTooltip('Pick a date'));
-      await _tapInForm(tester, find.byTooltip('Pick a time'));
+      await _tapInForm(tester, find.byUiTooltip('Pick a date'));
+      await _tapInForm(tester, find.byUiTooltip('Pick a time'));
       String label(String tooltip) => tester
           .widget<Text>(
             find.descendant(
-              of: find.byTooltip(tooltip),
+              of: find.byUiTooltip(tooltip),
               matching: find.byType(Text),
             ),
           )
@@ -306,7 +307,7 @@ void main() {
         );
       });
 
-      await _tapInForm(tester, find.byTooltip('More spots'));
+      await _tapInForm(tester, find.byUiTooltip('More spots'));
       await _peek(tester, () async {
         expect(_inDialogPreview(find.text('0 of 4 seats taken')), findsOne);
       });
@@ -369,12 +370,12 @@ void main() {
         expect(_inDialogPreview(find.text('Library')), findsOneWidget);
       });
 
-      await _tapInForm(tester, find.byTooltip('Fewer spots'));
+      await _tapInForm(tester, find.byUiTooltip('Fewer spots'));
       await _peek(tester, () async {
         expect(_inDialogPreview(find.text('2 of 2 seats taken')), findsOne);
         expect(_inDialogPreview(find.text('Full')), findsOneWidget);
       });
-      await _tapInForm(tester, find.byTooltip('More spots'));
+      await _tapInForm(tester, find.byUiTooltip('More spots'));
       await _peek(tester, () async {
         expect(_inDialogPreview(find.text('2 of 3 seats taken')), findsOne);
         expect(_inDialogPreview(find.text('Full')), findsNothing);
@@ -404,12 +405,12 @@ void main() {
         realForms: true,
       );
 
-      await _tapInForm(tester, find.byTooltip('Pick a date'));
-      await _tapInForm(tester, find.byTooltip('Pick a time'));
+      await _tapInForm(tester, find.byUiTooltip('Pick a date'));
+      await _tapInForm(tester, find.byUiTooltip('Pick a time'));
       String label(String tooltip) => tester
           .widget<Text>(
             find.descendant(
-              of: find.byTooltip(tooltip),
+              of: find.byUiTooltip(tooltip),
               matching: find.byType(Text),
             ),
           )
@@ -739,7 +740,7 @@ void main() {
             height: 1100,
             realForms: true,
           );
-          await _tapInForm(tester, find.byTooltip(tooltip));
+          await _tapInForm(tester, find.byUiTooltip(tooltip));
           expect(
             find.byType(name == 'date' ? DatePickerDialog : TimePickerDialog),
             findsOneWidget,
@@ -777,7 +778,7 @@ void main() {
           final before = tester
               .widget<Text>(
                 find.descendant(
-                  of: find.byTooltip(tooltip),
+                  of: find.byUiTooltip(tooltip),
                   matching: find.byType(Text),
                 ),
               )
@@ -789,7 +790,7 @@ void main() {
             tester
                 .widget<Text>(
                   find.descendant(
-                    of: find.byTooltip(tooltip),
+                    of: find.byUiTooltip(tooltip),
                     matching: find.byType(Text),
                   ),
                 )
@@ -812,7 +813,7 @@ void main() {
         flags: kPlansFlagModes['ui_shell only']!,
         realForms: true,
       );
-      await _tapInForm(tester, find.byTooltip('Pick a date'));
+      await _tapInForm(tester, find.byUiTooltip('Pick a date'));
       expect(openDialogRect(tester).center.dx, closeTo(417, 1));
     });
 
@@ -828,7 +829,7 @@ void main() {
         flags: kPlansFlagModes['ui_shell only']!,
         realForms: true,
       );
-      await _tapInForm(tester, find.byTooltip('Pick a date'));
+      await _tapInForm(tester, find.byUiTooltip('Pick a date'));
       expect(openDialogRect(tester).center.dx, closeTo(600, 1));
     });
 
@@ -843,7 +844,7 @@ void main() {
         realForms: true,
       );
       final start = DateTime.now().add(const Duration(hours: 1));
-      await _tapInForm(tester, find.byTooltip('Pick a date'));
+      await _tapInForm(tester, find.byUiTooltip('Pick a date'));
       // Switch to typing the date and pick the day after the default start.
       await tester.tap(find.byIcon(Icons.edit_outlined).last);
       await tester.pumpAndSettle();
@@ -861,7 +862,7 @@ void main() {
         tester
             .widget<Text>(
               find.descendant(
-                of: find.byTooltip('Pick a date'),
+                of: find.byUiTooltip('Pick a date'),
                 matching: find.byType(Text),
               ),
             )
@@ -943,7 +944,7 @@ void main() {
           width: w,
           flags: {...kPlansTabletFlags, kFeatureMessaging, kFeatureReports},
         );
-        final button = find.byTooltip('Plan options');
+        final button = find.byUiTooltip('Plan options');
         expect(button, findsOneWidget);
         expect(
           find.ancestor(

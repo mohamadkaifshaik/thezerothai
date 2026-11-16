@@ -12,7 +12,7 @@ import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.d
 import 'package:dzeroth/features/engagement/presentation/bookmarks_screen.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

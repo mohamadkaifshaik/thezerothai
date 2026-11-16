@@ -5,7 +5,7 @@ description: >
   therefore rejected by the repo's "require actions pinned to a full-length commit SHA" setting.
 inputs:
   version:
-    description: Flutter release tag, e.g. 3.47.5
+    description: Flutter release tag, e.g. 3.50.0
     required: true
   sha:
     description: Expected commit SHA of that tag (bump both together)

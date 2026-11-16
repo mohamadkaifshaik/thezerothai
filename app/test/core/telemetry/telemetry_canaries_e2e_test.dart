@@ -8,7 +8,7 @@ import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/telemetry/telemetry_consent_store.dart';
 import 'package:dzeroth/core/telemetry/telemetry_inputs.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';

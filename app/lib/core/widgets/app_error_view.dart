@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../shared/format/rate_limited_message.dart';
 import '../network/app_exception.dart';

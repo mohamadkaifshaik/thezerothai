@@ -22,7 +22,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ReplyPermission;
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
 import 'package:dzeroth/shared/widgets/user/follow_button.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';

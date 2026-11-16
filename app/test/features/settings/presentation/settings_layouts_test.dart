@@ -3,7 +3,7 @@ import 'package:dzeroth/features/graph/presentation/managed_accounts_screen.dart
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/features/settings/presentation/widgets/settings_choice_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/settings_tablet_rig.dart';

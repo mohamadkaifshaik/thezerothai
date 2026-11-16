@@ -1,7 +1,7 @@
 import 'package:dzeroth/features/timeline/presentation/bloc/timeline_state.dart';
 import 'package:dzeroth/features/timeline/presentation/widgets/new_posts_pill.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _host(Widget child) => MaterialApp(

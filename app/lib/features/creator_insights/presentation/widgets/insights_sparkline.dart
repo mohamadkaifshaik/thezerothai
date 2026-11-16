@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// A small line over [values] (one point per day, oldest first), drawn with a
 /// [CustomPainter]. Decorative: the tile around it carries the semantics. A

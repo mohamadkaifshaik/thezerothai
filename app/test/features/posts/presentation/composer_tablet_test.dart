@@ -6,7 +6,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/home/presentation/widgets/home_composer_entry.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/presentation/composer_route.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 

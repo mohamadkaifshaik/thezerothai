@@ -30,7 +30,8 @@ import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
-import 'package:flutter/material.dart';
+import '../../support/ui_tooltip_finder.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -248,7 +249,7 @@ void main() {
       retap.addListener(() => fired++);
       await pump(tester, retap: retap);
 
-      await tester.tap(find.byTooltip('Home'));
+      await tester.tap(find.byUiTooltip('Home'));
       await tester.pumpAndSettle();
 
       expect(fired, 1);
@@ -262,7 +263,7 @@ void main() {
       retap.addListener(() => fired++);
       await pump(tester, retap: retap, location: '/notifications');
 
-      await tester.tap(find.byTooltip('Home'));
+      await tester.tap(find.byUiTooltip('Home'));
       await tester.pumpAndSettle();
 
       expect(fired, 0);
@@ -326,7 +327,7 @@ void main() {
       expect(find.byType(AppBottomBar), findsOneWidget);
       expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
       expect(find.byType(AppDrawer), findsNothing);
-      expect(find.byTooltip('New post'), findsOneWidget);
+      expect(find.byUiTooltip('New post'), findsOneWidget);
     });
 
     testWidgets('phone: the docked 56dp icon bar, never the floating pill; '
@@ -369,7 +370,7 @@ void main() {
 
       expect(find.byIcon(Icons.settings), findsOneWidget);
       expect(find.byIcon(Icons.home), findsNothing);
-      expect(find.byTooltip('New post'), findsNothing);
+      expect(find.byUiTooltip('New post'), findsNothing);
     });
 
     testWidgets('tapping Settings goes to /settings', (tester) async {
@@ -541,7 +542,7 @@ void main() {
         find.descendant(of: bar, matching: find.text('Home')),
         findsNothing,
       );
-      expect(find.byTooltip('Home'), findsOneWidget);
+      expect(find.byUiTooltip('Home'), findsOneWidget);
       expect(
         find.descendant(of: bar, matching: find.text('Notifications')),
         findsNothing,
@@ -553,8 +554,8 @@ void main() {
     testWidgets('x2.0: the bar is icon-only with tooltips', (tester) async {
       await pump(tester, textScale: 2);
 
-      expect(find.byTooltip('Notifications'), findsOneWidget);
-      expect(find.byTooltip('Home'), findsOneWidget);
+      expect(find.byUiTooltip('Notifications'), findsOneWidget);
+      expect(find.byUiTooltip('Home'), findsOneWidget);
     });
 
     testWidgets('on the rail the destination is still "Notifications"', (
@@ -576,7 +577,7 @@ void main() {
         await pump(tester, location: '/home');
         expect(find.byType(FloatingActionButton), findsOneWidget);
 
-        await tester.tap(find.byTooltip('New post'));
+        await tester.tap(find.byUiTooltip('New post'));
         await tester.pumpAndSettle();
         expect(find.text('compose page'), findsOneWidget);
       });
@@ -633,7 +634,7 @@ void main() {
       final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
       expect(rail.extended, isFalse);
       expect(find.byType(AppBottomBar), findsNothing);
-      expect(find.byTooltip('New post'), findsOneWidget);
+      expect(find.byUiTooltip('New post'), findsOneWidget);
       expect(find.byType(AppAccountChip), findsOneWidget);
       // The collapsed chip is the avatar alone.
       expect(find.text('@alice'), findsNothing);
@@ -645,9 +646,9 @@ void main() {
       tester,
     ) async {
       await pump(tester, width: 800, location: '/home');
-      expect(find.byTooltip('New post'), findsOneWidget);
+      expect(find.byUiTooltip('New post'), findsOneWidget);
       await pump(tester, width: 800, location: '/settings');
-      expect(find.byTooltip('New post'), findsNothing);
+      expect(find.byUiTooltip('New post'), findsNothing);
     });
   });
 
@@ -893,7 +894,7 @@ void main() {
       );
       expect(find.text('User 2'), findsNWidgets(2));
 
-      await tester.tap(inColumn(find.byTooltip('Dismiss @user2')));
+      await tester.tap(inColumn(find.byUiTooltip('Dismiss @user2')));
       await tester.pumpAndSettle();
 
       expect(find.text('User 2'), findsNothing);
@@ -925,7 +926,7 @@ void main() {
         for (var i = 1; i <= 3; i++) {
           expectMinTarget(
             tester,
-            inColumn(find.byTooltip('Dismiss @user$i')),
+            inColumn(find.byUiTooltip('Dismiss @user$i')),
             reason: 'Dismiss @user$i',
           );
         }
@@ -1335,7 +1336,7 @@ void main() {
     testWidgets('phone: no compose button on the page', (tester) async {
       await pump(tester, flags: on, location: '/bookmarks');
 
-      expect(find.byTooltip('New post'), findsNothing);
+      expect(find.byUiTooltip('New post'), findsNothing);
     });
 
     testWidgets('absent with bookmarks off, with posts off and with ui_shell '
@@ -1637,9 +1638,9 @@ void main() {
           for (final stop in colors.primaryFillGradient.colors) {
             expect(contrast(label, stop), greaterThanOrEqualTo(4.5));
           }
-          expectMinTarget(tester, inRail(find.byTooltip('New post')));
+          expectMinTarget(tester, inRail(find.byUiTooltip('New post')));
 
-          await tester.tap(find.byTooltip('New post'));
+          await tester.tap(find.byUiTooltip('New post'));
           await tester.pumpAndSettle();
           expect(find.text('compose page'), findsOneWidget);
         });
@@ -1701,7 +1702,7 @@ void main() {
         );
 
         final chip = find.byType(AppAccountChip);
-        expect(find.byTooltip('Account menu'), findsOneWidget);
+        expect(find.byUiTooltip('Account menu'), findsOneWidget);
         expectMinTarget(tester, chip);
         if (desktop) {
           // As wide as the Post pill.
@@ -1767,7 +1768,7 @@ void main() {
 
           expectNoOverflow(tester);
           if (env.size.width >= AppBreakpoints.mobile) {
-            expectMinTarget(tester, inRail(find.byTooltip('New post')));
+            expectMinTarget(tester, inRail(find.byUiTooltip('New post')));
             if (newShell) expectMinTarget(tester, find.byType(AppAccountChip));
           }
         },
@@ -1859,7 +1860,7 @@ void main() {
       // The account avatar (collapsed chip) and the compose circle.
       expect(inRail(find.byType(AppAccountChip)), findsOneWidget);
       expect(find.text('@alice'), findsNothing);
-      expect(inRail(find.byTooltip('New post')), findsOneWidget);
+      expect(inRail(find.byUiTooltip('New post')), findsOneWidget);
       // No phone chrome.
       expect(find.byType(AppBottomBar), findsNothing);
       expect(find.bySemanticsLabel('Open account menu'), findsNothing);
@@ -2172,7 +2173,7 @@ void main() {
           expect(header.left, rail.right);
           // No context pane in either band: the page keeps the content.
           expect(rail.width + header.width, env.size.width);
-          expectMinTarget(tester, inRail(find.byTooltip('New post')));
+          expectMinTarget(tester, inRail(find.byUiTooltip('New post')));
           expectMinTarget(tester, find.byType(AppAccountChip));
           // No rail label is clipped.
           for (final element in inRail(find.byType(RichText)).evaluate()) {

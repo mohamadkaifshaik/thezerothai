@@ -11,7 +11,7 @@ import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
 import 'package:dzeroth/features/communities/data/communities_repository.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as cpb;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';

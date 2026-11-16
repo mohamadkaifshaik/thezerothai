@@ -2,7 +2,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tile_icon.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/contrast.dart';

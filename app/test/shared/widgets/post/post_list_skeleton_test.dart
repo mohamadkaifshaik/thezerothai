@@ -4,7 +4,7 @@ import 'package:dzeroth/shared/widgets/post/post_list_skeleton.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart'
     show kPostAvatarInset, postCardGutter;
 import 'package:dzeroth/shared/widgets/primitives/app_skeleton.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/theme_harness.dart';

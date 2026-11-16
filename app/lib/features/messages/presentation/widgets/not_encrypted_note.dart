@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The disclosure every messaging surface shows: the
 /// operator can read messages. One constant, so the Inbox empty state, the
