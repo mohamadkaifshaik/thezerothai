@@ -18,6 +18,16 @@ abstract interface class NetworkTypeService {
   /// Emits whenever [metered] changes (never repeats a value).
   Stream<bool> get meteredChanges;
 
+  /// Whether the device has a connection at all (any result but
+  /// `ConnectivityResult.none`). True until the first check says otherwise, so
+  /// nothing waits for an answer that is still on its way. It says nothing of
+  /// whether the API is reachable: a send that fails on the network is retried
+  /// by its own backoff.
+  bool get online;
+
+  /// Emits whenever [online] changes (never repeats a value).
+  Stream<bool> get onlineChanges;
+
   /// False where the platform cannot tell Wi-Fi from mobile data (the web):
   /// the connection then counts as unmetered, and the settings page says so.
   bool get canDistinguish;
@@ -43,6 +53,11 @@ bool isMeteredConnection(
   return !web;
 }
 
+/// Whether [results] describe a device with no connection at all. An empty
+/// list counts as none.
+bool isOfflineConnection(List<ConnectivityResult> results) =>
+    results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+
 /// [NetworkTypeService] over `connectivity_plus`. A plugin failure never
 /// breaks the app: the value then stays what it was.
 class ConnectivityNetworkTypeService implements NetworkTypeService {
@@ -62,8 +77,10 @@ class ConnectivityNetworkTypeService implements NetworkTypeService {
 
   final bool _web;
   late bool _metered;
+  bool _online = true;
   StreamSubscription<List<ConnectivityResult>>? _sub;
   final _changes = StreamController<bool>.broadcast();
+  final _onlineChanges = StreamController<bool>.broadcast();
 
   @override
   bool get metered => _metered;
@@ -72,9 +89,20 @@ class ConnectivityNetworkTypeService implements NetworkTypeService {
   Stream<bool> get meteredChanges => _changes.stream;
 
   @override
+  bool get online => _online;
+
+  @override
+  Stream<bool> get onlineChanges => _onlineChanges.stream;
+
+  @override
   bool get canDistinguish => !_web;
 
   void _apply(List<ConnectivityResult> results) {
+    final nowOnline = !isOfflineConnection(results);
+    if (nowOnline != _online && !_onlineChanges.isClosed) {
+      _online = nowOnline;
+      _onlineChanges.add(nowOnline);
+    }
     final next = isMeteredConnection(results, web: _web);
     if (next == _metered || _changes.isClosed) return;
     _metered = next;
@@ -89,5 +117,6 @@ class ConnectivityNetworkTypeService implements NetworkTypeService {
   void dispose() {
     unawaited(_sub?.cancel());
     unawaited(_changes.close());
+    unawaited(_onlineChanges.close());
   }
 }

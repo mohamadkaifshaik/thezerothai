@@ -98,6 +98,7 @@ void main() {
       sessionEpoch: epoch,
       clock: () => now,
       postedFor: const Duration(seconds: 3),
+      maxFailedWithPhotos: 3,
     );
     when(() => posts.subFeatureEnabled(any())).thenReturn(true);
   });

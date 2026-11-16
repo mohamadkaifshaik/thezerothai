@@ -163,6 +163,62 @@ void main() {
       );
     });
 
+    group('waiting for a connection', () {
+      testWidgets('says so and offers Edit and Dismiss, not Retry', (
+        tester,
+      ) async {
+        var edited = 0;
+        var dismissed = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: PendingPostStatusRow(
+                post: _p(
+                  'a',
+                  'later',
+                ).copyWith(status: PendingPostStatus.waiting),
+                onRetry: () {},
+                onEdit: () => edited++,
+                onDismiss: () => dismissed++,
+              ),
+            ),
+          ),
+        );
+        expect(find.text('Waiting for connection'), findsOneWidget);
+        expect(find.text('Retry'), findsNothing);
+        await tester.tap(find.text('Edit'));
+        await tester.tap(find.byIcon(Icons.close));
+        expect((edited, dismissed), (1, 1));
+        // No progress bar: nothing is in flight.
+        expect(find.byType(LinearProgressIndicator), findsNothing);
+      });
+
+      testWidgets('a restored post is "Not sent" with Retry and Edit', (
+        tester,
+      ) async {
+        var retried = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: PendingPostStatusRow(
+                post: _p('a', 'back').copyWith(
+                  status: PendingPostStatus.failed,
+                  error: 'Not sent. It was still waiting when the app closed.',
+                ),
+                onRetry: () => retried++,
+                onEdit: () {},
+                onDismiss: () {},
+              ),
+            ),
+          ),
+        );
+        expect(find.textContaining('Not sent'), findsOneWidget);
+        await tester.tap(find.text('Retry'));
+        expect(retried, 1);
+        expect(find.text('Edit'), findsOneWidget);
+      });
+    });
+
     group('the undo window', () {
       PendingPost holding() => _p(
         'a',
