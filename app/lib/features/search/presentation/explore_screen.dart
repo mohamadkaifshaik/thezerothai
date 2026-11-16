@@ -165,24 +165,26 @@ class _ExploreScreenState extends State<ExploreScreen> {
         tab == ExploreTab.people ||
         tab == ExploreTab.nearby) {
       return Scaffold(
-        body: RefreshIndicator(
-          onRefresh: () => switch (tab) {
-            ExploreTab.plans => plans!.load(),
-            ExploreTab.nearby => nearby!.load(),
-            _ => ExplorePeopleSection.reload(context),
-          },
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              ...header,
-              if (tab == ExploreTab.plans)
-                ExplorePlansSection(cubit: plans!)
-              else if (tab == ExploreTab.nearby)
-                ExploreNearbySection(cubit: nearby!)
-              else
-                const ExplorePeopleSection(),
-              const ShellBottomInsetSliver(),
-            ],
+        body: _ClosesSuggestionsOnScroll(
+          child: RefreshIndicator(
+            onRefresh: () => switch (tab) {
+              ExploreTab.plans => plans!.load(),
+              ExploreTab.nearby => nearby!.load(),
+              _ => ExplorePeopleSection.reload(context),
+            },
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                ...header,
+                if (tab == ExploreTab.plans)
+                  ExplorePlansSection(cubit: plans!)
+                else if (tab == ExploreTab.nearby)
+                  ExploreNearbySection(cubit: nearby!)
+                else
+                  const ExplorePeopleSection(),
+                const ShellBottomInsetSliver(),
+              ],
+            ),
           ),
         ),
       );
@@ -206,6 +208,28 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (media != null) {
       scroll = ExploreMediaStarter(cubit: media, child: scroll);
     }
-    return Scaffold(body: scroll);
+    return Scaffold(body: _ClosesSuggestionsOnScroll(child: scroll));
+  }
+}
+
+/// A drag on the page closes the search suggestions: the floating bar that
+/// carries the field slides away with the scroll, and its overlay (anchored
+/// to the field) must not stay behind. Unfocusing the field hides it.
+class _ClosesSuggestionsOnScroll extends StatelessWidget {
+  const _ClosesSuggestionsOnScroll({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationListener<ScrollStartNotification>(
+      onNotification: (n) {
+        if (n.dragDetails != null && n.metrics.axis == Axis.vertical) {
+          FocusManager.instance.primaryFocus?.unfocus();
+        }
+        return false;
+      },
+      child: child,
+    );
   }
 }

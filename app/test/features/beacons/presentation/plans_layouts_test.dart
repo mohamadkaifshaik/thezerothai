@@ -124,7 +124,7 @@ void main() {
           // the other tab screens); New plan too on the phone and in the list
           // pane. The page's pills beside the headline are the designs'.
           final pills = !phone && size.width < 840 || desktop;
-          expect(_pillMyPlans, pills ? findsOneWidget : findsNothing);
+          expect(_pillMyPlans, findsNothing);
           // The tablet's empty detail pane carries a content-sized New plan
           // pill too.
           final placeholderPill = !phone && !desktop && size.width >= 840;

@@ -12,7 +12,9 @@ const kPlansActivityFilterKey = ValueKey('plans-activity-filter');
 const kPlansActivityFilterLabel = 'Filter plans by activity';
 
 /// The chips of the row, in the designs' order: "All" (UNSPECIFIED: no
-/// filter), then each activity a plan can have, "Others" last.
+/// filter), then each activity a plan can have, "Others" last. "Others"
+/// asks the server for `other` only: a plan with no activity (an older one)
+/// is not in it.
 const kPlanActivityFilters = <pb.BeaconActivity>[
   pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
   pb.BeaconActivity.BEACON_ACTIVITY_COFFEE,

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import 'app_main_column.dart';
@@ -48,7 +50,11 @@ class AppTabBar extends StatelessWidget {
     this.trailing,
     this.fixedTrailing,
     this.semanticLabel,
-  }) : assert(tabs.length > 0, 'a tab bar needs at least one tab');
+  }) : assert(tabs.length > 0, 'a tab bar needs at least one tab'),
+       assert(
+         !autoWidth || (trailing == null && fixedTrailing == null),
+         'autoWidth does not lay out trailing / fixedTrailing',
+       );
 
   final List<AppTab> tabs;
   final int selectedIndex;
@@ -349,7 +355,14 @@ class AppPinnedTabBarSliver extends StatelessWidget implements PaneWideSliver {
   @override
   Widget build(BuildContext context) {
     final extent = AppTabBar.heightFor(context);
-    final color = Theme.of(context).colorScheme.surface;
+    // The surface of the top bar above it, so there is no seam: 88 % with
+    // `ui_shell` (the redesign), 92 % without.
+    final color = Theme.of(context).colorScheme.surface.withValues(
+      alpha: isFeatureEnabled(context, kFeatureUiShell) ? 0.88 : 0.92,
+    );
+    // The status bar: the tablet pane has no outer SafeArea, so with the top
+    // bar scrolled away this header would pin under it.
+    final topInset = MediaQuery.paddingOf(context).top;
     // Read here: a sliver layout builder cannot depend on inherited widgets.
     final column = ShellGeometry.readableMaxWidth(
       context,
@@ -358,10 +371,17 @@ class AppPinnedTabBarSliver extends StatelessWidget implements PaneWideSliver {
     return SliverLayoutBuilder(
       builder: (context, constraints) {
         final inset = math.max(0.0, (constraints.crossAxisExtent - column) / 2);
+        // Where the header sits in the viewport: under the top bar while it is
+        // shown (the bar already took the inset), at 0 once it floated away.
+        final top =
+            constraints.viewportMainAxisExtent -
+            constraints.remainingPaintExtent;
+        final reserve = math.max(0.0, topInset - top);
         return SliverPersistentHeader(
           pinned: true,
           delegate: _PinnedBarDelegate(
-            extent: extent,
+            extent: extent + reserve,
+            reserve: reserve,
             inset: inset,
             color: color,
             child: child,
@@ -375,12 +395,16 @@ class AppPinnedTabBarSliver extends StatelessWidget implements PaneWideSliver {
 class _PinnedBarDelegate extends SliverPersistentHeaderDelegate {
   const _PinnedBarDelegate({
     required this.extent,
+    required this.reserve,
     required this.inset,
     required this.color,
     required this.child,
   });
 
   final double extent;
+
+  /// The top part of [extent] kept clear for the status bar.
+  final double reserve;
   final double inset;
   final Color color;
   final Widget child;
@@ -392,14 +416,19 @@ class _PinnedBarDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => extent;
 
   @override
-  bool shouldRebuild(_PinnedBarDelegate old) => true;
+  bool shouldRebuild(_PinnedBarDelegate old) =>
+      extent != old.extent ||
+      reserve != old.reserve ||
+      inset != old.inset ||
+      color != old.color ||
+      !identical(child, old.child);
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
       ColoredBox(
         color: color,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: inset),
+          padding: EdgeInsets.only(left: inset, right: inset, top: reserve),
           child: AppMainColumnBleed(bleed: inset, child: child),
         ),
       );

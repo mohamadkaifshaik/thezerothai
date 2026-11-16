@@ -154,7 +154,7 @@ class _FollowingFeed extends StatelessWidget {
           active: active,
           retapSignal: context.read<HomeRetapSignal?>(),
           // Under the two header rows (top bar + tab bar).
-          newPostsPillTop: AppSize.headerRow * 2 + AppSpacing.sm,
+          newPostsPillTop: HomeTopBar.belowHeaders(context),
           headerSlivers: [
             HomeTopBar.sliver(
               context,

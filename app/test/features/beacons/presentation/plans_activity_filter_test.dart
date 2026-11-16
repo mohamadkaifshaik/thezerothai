@@ -146,6 +146,11 @@ void main() {
     expect(_rowTitled('Evening walk'), findsNothing);
   });
 
+  test('the empty copy of Others, and of an activity', () {
+    expect(plansFilteredEmptyTitle(_other), 'No plans in Others yet');
+    expect(plansFilteredEmptyTitle(_walk), 'No walk plans yet');
+  });
+
   testWidgets('the same chip again sends nothing', (tester) async {
     final rig = _rig();
     await rig.pump(tester, width: 360);

@@ -1,11 +1,9 @@
-import 'dart:io';
-import 'dart:ui' as ui;
-
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
+import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/features/home/presentation/widgets/pinned_timelines_button.dart';
 import 'package:dzeroth/features/lists/data/home_tabs_repository.dart';
 import 'package:dzeroth/features/lists/data/lists_repository.dart';
@@ -23,11 +21,11 @@ import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import '../../support/app_fonts.dart';
 import '../../support/context_pane_rig.dart';
 import '../../support/fake_push_messaging.dart';
 import '../../support/fake_push_opt_in_store.dart';
@@ -44,8 +42,6 @@ import '../../support/timeline_fixtures.dart';
 // title style and colours at phone 390, tablet 900 and desktop 1440, in
 // light and dark. Explore's title slot is its search field; Home's phone
 // title is the centred wordmark.
-
-const _screenshots = bool.fromEnvironment('TAB_HEADERS_SCREENSHOTS');
 
 class _MockNotifications extends Mock implements NotificationsRepository {}
 
@@ -85,7 +81,6 @@ void main() {
 
   setUpAll(() async {
     registerFallbackValue(const HomeTabEntry(kind: HomeTabKind.list, id: 'L1'));
-    if (_screenshots) await loadAppFonts();
   });
 
   setUp(() async {
@@ -173,6 +168,7 @@ void main() {
     Size size, {
     Brightness brightness = Brightness.light,
     double textScale = 1,
+    EdgeInsets padding = EdgeInsets.zero,
   }) async {
     switch (tab) {
       case _Tab.messages:
@@ -208,6 +204,7 @@ void main() {
           height: size.height,
           brightness: brightness,
           textScale: textScale,
+          padding: padding,
           flags: const {
             ...kContextPaneFlags,
             'lists',
@@ -254,26 +251,13 @@ void main() {
   /// The screen's app bar (the one inside the page, not the shell's).
   Finder bar() => find.byType(AppBar);
 
-  Future<void> capture(WidgetTester tester, String name) async {
-    if (!_screenshots) return;
-    await tester.runAsync(() async {
-      final image = await captureImage(
-        tester.element(find.byType(MaterialApp)),
-      );
-      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      final file = File('../scratchpad/lane-l/$name.png');
-      await file.parent.create(recursive: true);
-      await file.writeAsBytes(bytes!.buffer.asUint8List());
-      image.dispose();
-    });
-  }
-
   for (final brightness in Brightness.values) {
     for (final MapEntry(key: device, value: size) in _sizes.entries) {
       final phone = size.width < 600;
       testWidgets('$device ${brightness.name}: one header on the five tab '
           'screens', (tester) async {
         final heights = <_Tab, double>{};
+        // (kept simple: the bar is compared to its pane per screen)
         final avatars = <_Tab, Offset>{};
         final titleStyles = <_Tab, TextStyle>{};
         final colors = <_Tab, Color?>{};
@@ -284,6 +268,56 @@ void main() {
           expect(bar(), findsOneWidget, reason: '${tab.name} has one bar');
           expect(find.byType(SliverAppBar), findsOneWidget);
           heights[tab] = tester.getSize(bar()).height;
+          // The bar spans the whole pane, like the others (left and width).
+          final barRect = tester.getRect(bar());
+          final pane = tester.getRect(
+            find.ancestor(of: bar(), matching: find.byType(Scaffold)).first,
+          );
+          expect(barRect.width, pane.width, reason: '${tab.name} bar width');
+          expect(barRect.left, pane.left, reason: '${tab.name} bar left');
+          // Semantics: the avatar is its own button; one header node per
+          // titled bar; Explore's field is a text field, not a header.
+          final handle = tester.ensureSemantics();
+          final root = tester.getSemantics(bar());
+          final nodes = <SemanticsNode>[];
+          void walk(SemanticsNode n) {
+            nodes.add(n);
+            n.visitChildren((c) {
+              walk(c);
+              return true;
+            });
+          }
+
+          walk(root);
+          expect(
+            nodes.where((n) => n.getSemanticsData().flagsCollection.isHeader),
+            hasLength(tab == _Tab.explore ? 0 : 1),
+            reason: '${tab.name} header nodes',
+          );
+          if (phone) {
+            final avatar = nodes.where((n) => n.label == 'Open account menu');
+            expect(avatar, hasLength(1), reason: '${tab.name} avatar node');
+            expect(
+              avatar.single.getSemanticsData().flagsCollection.isButton,
+              isTrue,
+            );
+            expect(
+              avatar.single.getSemanticsData().flagsCollection.isHeader,
+              isFalse,
+              reason: '${tab.name} avatar is not merged into the header',
+            );
+          }
+          if (tab == _Tab.explore) {
+            final field = nodes.where(
+              (n) => n.getSemanticsData().flagsCollection.isTextField,
+            );
+            expect(field, isNotEmpty);
+            expect(
+              field.first.getSemanticsData().flagsCollection.isHeader,
+              isFalse,
+            );
+          }
+          handle.dispose();
           colors[tab] = tester
               .widget<SliverAppBar>(find.byType(SliverAppBar))
               .backgroundColor;
@@ -345,10 +379,6 @@ void main() {
               findsOneWidget,
             );
           }
-          await capture(
-            tester,
-            'header-${tab.name}-$device-${brightness.name}',
-          );
         }
         // Identical bar: height, avatar offset, colour, title style.
         final first = heights.values.first;
@@ -418,6 +448,84 @@ void main() {
       }
     });
   }
+
+  // Tablet: the pane has no outer SafeArea, so the pinned tab bar must keep
+  // clear of the status bar once the top bar floated away.
+  for (final tab in [_Tab.home, _Tab.explore, _Tab.notifications]) {
+    testWidgets('${tab.label} at 900 dp with a 24 dp status bar: the pinned '
+        'tabs stay below it', (tester) async {
+      await open(
+        tester,
+        tab,
+        const Size(900, 500),
+        padding: const EdgeInsets.only(top: 24),
+      );
+      final tabBar = find.byType(AppTabBar);
+      expect(tabBar, findsWidgets);
+      // The bar is shown: the tabs sit right under it.
+      expect(
+        tester.getRect(tabBar.first).top,
+        closeTo(tester.getRect(bar()).bottom, 0.5),
+      );
+      final scrollable = find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.drag(scrollable, const Offset(0, -400));
+      await tester.pumpAndSettle();
+      expect(
+        bar().evaluate().isEmpty || tester.getRect(bar()).bottom <= 24,
+        isTrue,
+      );
+      expect(
+        tester.getRect(tabBar.first).top,
+        greaterThanOrEqualTo(24),
+        reason: 'not under the status bar',
+      );
+    });
+  }
+
+  // The "N new posts" pill sits under the top bar and the pinned tab bar at
+  // every text scale.
+  for (final scale in [1.0, 1.3, 2.0]) {
+    testWidgets('Home: the new-posts pill top clears the headers at text '
+        'x$scale', (tester) async {
+      await open(tester, _Tab.home, const Size(390, 844), textScale: scale);
+      final below = tester
+          .widget<TimelineFeedView>(find.byType(TimelineFeedView).first)
+          .newPostsPillTop;
+      final headersBottom = tester.getRect(find.byType(AppTabBar).first).bottom;
+      expect(below - AppSpacing.sm, closeTo(headersBottom, 1.0));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('Explore: a drag closes the open search suggestions', (
+    tester,
+  ) async {
+    await open(tester, _Tab.explore, const Size(390, 520));
+    await tester.tap(find.byType(TextField));
+    await tester.pumpAndSettle();
+    final field = find.byType(EditableText);
+    expect(tester.widget<EditableText>(field).focusNode.hasFocus, isTrue);
+    await tester.drag(
+      find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      const Offset(0, -300),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      field.evaluate().isEmpty ||
+          !tester.widget<EditableText>(field).focusNode.hasFocus,
+      isTrue,
+    );
+  });
 
   // 320 dp and 2x text must not overflow.
   for (final tab in _Tab.values) {

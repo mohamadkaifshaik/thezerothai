@@ -59,7 +59,9 @@ class BeaconsScreen extends StatelessWidget {
 /// The empty state of an activity chip with no plans (F29): "No walk plans
 /// yet".
 String plansFilteredEmptyTitle(pb.BeaconActivity activity) =>
-    'No ${activityLabel(activity).toLowerCase()} plans yet';
+    activity == pb.BeaconActivity.BEACON_ACTIVITY_OTHER
+    ? 'No plans in Others yet'
+    : 'No ${activityLabel(activity).toLowerCase()} plans yet';
 
 /// The paused copy (accepted, ADR-0034 section 4).
 const kPlansPausedTitle = 'Plans are paused';
@@ -103,7 +105,7 @@ class _PlansPaused extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: AppMainColumn(child: _PlansPausedColumn()));
+    return const Scaffold(body: _PlansPausedColumn());
   }
 }
 
@@ -123,11 +125,14 @@ class _PlansPausedColumn extends StatelessWidget {
           showAccountAvatar: !split,
           onBack: _plansBack(context, split: split),
         ),
+        // The bar spans the pane; the notice sits in the reading column.
         const Expanded(
-          child: AppStateView(
-            icon: Icons.event_outlined,
-            title: kPlansPausedTitle,
-            body: kPlansPausedBody,
+          child: AppMainColumn(
+            child: AppStateView(
+              icon: Icons.event_outlined,
+              title: kPlansPausedTitle,
+              body: kPlansPausedBody,
+            ),
           ),
         ),
       ],
@@ -195,12 +200,9 @@ class _PlansRouteState extends State<_PlansRoute> {
     return Scaffold(
       // The floating bar overlays the page: the scroll view runs behind it
       // and ends with the bar's inset. The top bar handles the top safe area.
-      body: AppMainColumn(
-        child: PlansList(
-          session: _session,
-          yourPlans: _showsYourPlans(context),
-        ),
-      ),
+      // The bar spans the pane like the other tab screens; the list keeps
+      // the reading column (PlansList insets its body slivers).
+      body: PlansList(session: _session, yourPlans: _showsYourPlans(context)),
     );
   }
 }
@@ -289,12 +291,10 @@ class PlansList extends StatelessWidget {
             final headline = split
                 ? null
                 : PlansHeadline(
-                    // From 600dp My plans and New plan are pills beside the
-                    // headline (the designs).
+                    // From 600dp New plan is a pill beside the headline (the
+                    // designs); My plans is the header's round action.
                     actions: pills
                         ? _HeadlineActions(
-                            onMyPlans: () =>
-                                _push(context, AppRouter.plansMinePath),
                             onNewPlan: () =>
                                 _push(context, AppRouter.planNewPath),
                           )
@@ -308,72 +308,94 @@ class PlansList extends StatelessWidget {
                 icon: Icons.add,
                 onPressed: () => _push(context, AppRouter.planNewPath),
               ),
-              child: RefreshIndicator(
-                onRefresh: () {
-                  if (yourPlans) unawaited(session.yourPlans.refresh());
-                  return cubit.load();
-                },
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    _plansTopBar(
-                      context,
-                      split: split,
-                      actions: [
-                        AppTopBarAction(
-                          icon: Icons.event_available_outlined,
-                          tooltip: 'My plans',
-                          onPressed: () =>
-                              _push(context, AppRouter.plansMinePath),
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  // The top bar spans the pane; everything else sits in the
+                  // reading column (the Notifications pattern).
+                  final inset = ShellGeometry.readableInset(
+                    context,
+                    box.maxWidth,
+                  );
+                  Widget col(Widget sliver) => SliverPadding(
+                    padding: EdgeInsets.symmetric(horizontal: inset),
+                    sliver: AppMainColumnBleed(bleed: inset, child: sliver),
+                  );
+                  return RefreshIndicator(
+                    onRefresh: () {
+                      if (yourPlans) unawaited(session.yourPlans.refresh());
+                      return cubit.load();
+                    },
+                    child: CustomScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        _plansTopBar(
+                          context,
+                          split: split,
+                          actions: [
+                            AppTopBarAction(
+                              icon: Icons.event_available_outlined,
+                              tooltip: 'My plans',
+                              onPressed: () =>
+                                  _push(context, AppRouter.plansMinePath),
+                            ),
+                            // A phone: the floating button starts one; from
+                            // 600dp the pill beside the headline does.
+                            if (!pills && !shellFabCovers(context))
+                              AppTopBarAction(
+                                icon: Icons.add_circle_outline,
+                                tooltip: 'New plan',
+                                onPressed: () =>
+                                    _push(context, AppRouter.planNewPath),
+                              ),
+                          ],
                         ),
-                        // A phone: the floating button starts one; from
-                        // 600dp the pill beside the headline does.
-                        if (!pills && !shellFabCovers(context))
-                          AppTopBarAction(
-                            icon: Icons.add_circle_outline,
-                            tooltip: 'New plan',
-                            onPressed: () =>
-                                _push(context, AppRouter.planNewPath),
+                        if (state.audiences.length > 1)
+                          col(
+                            SliverToBoxAdapter(
+                              child: _AudienceChips(
+                                state: state,
+                                onSelect: cubit.select,
+                              ),
+                            ),
                           ),
+                        if (headline != null)
+                          col(SliverToBoxAdapter(child: headline)),
+                        // F29: after the headline, before the cards (the
+                        // designs' order), on every state but paused, so a
+                        // filter with no plans or a failed one is one tap
+                        // from another activity.
+                        col(
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: AppSpacing.xs,
+                              ),
+                              child: PlansActivityFilter(
+                                selected: state.activity,
+                                onSelected: cubit.selectActivity,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (yourPlans)
+                          col(
+                            SliverToBoxAdapter(
+                              child: YourPlansSection(
+                                session: session,
+                                selectedId: split ? selectedId : null,
+                                onOpenPlan: (id) => _openPlan(context, id),
+                                onSeeAll: () =>
+                                    _push(context, AppRouter.plansMinePath),
+                              ),
+                            ),
+                          ),
+                        for (final sliver in _body(context, cubit, state))
+                          col(sliver),
+                        const ShellBottomInsetSliver(),
                       ],
                     ),
-                    if (state.audiences.length > 1)
-                      SliverToBoxAdapter(
-                        child: _AudienceChips(
-                          state: state,
-                          onSelect: cubit.select,
-                        ),
-                      ),
-                    if (headline != null) SliverToBoxAdapter(child: headline),
-                    // F29: after the headline, before the cards (the
-                    // designs' order), on every state but paused, so a
-                    // filter with no plans or a failed one is one tap
-                    // from another activity.
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: AppSpacing.xs,
-                        ),
-                        child: PlansActivityFilter(
-                          selected: state.activity,
-                          onSelected: cubit.selectActivity,
-                        ),
-                      ),
-                    ),
-                    if (yourPlans)
-                      SliverToBoxAdapter(
-                        child: YourPlansSection(
-                          session: session,
-                          selectedId: split ? selectedId : null,
-                          onOpenPlan: (id) => _openPlan(context, id),
-                          onSeeAll: () =>
-                              _push(context, AppRouter.plansMinePath),
-                        ),
-                      ),
-                    ..._body(context, cubit, state),
-                    const ShellBottomInsetSliver(),
-                  ],
-                ),
+                  );
+                },
               ),
             );
           },
@@ -533,34 +555,19 @@ class PlansHeadline extends StatelessWidget {
   }
 }
 
-/// My plans (outline) and New plan (primary) beside the headline (the
-/// tablet and desktop designs); the header keeps its round My plans action
-/// at every width.
+/// New plan (primary) beside the headline from 600dp (the designs). My plans
+/// is the header's round action at every width.
 class _HeadlineActions extends StatelessWidget {
-  const _HeadlineActions({required this.onMyPlans, required this.onNewPlan});
+  const _HeadlineActions({required this.onNewPlan});
 
-  final VoidCallback onMyPlans;
   final VoidCallback onNewPlan;
 
   @override
-  Widget build(BuildContext context) => Wrap(
-    alignment: WrapAlignment.end,
-    crossAxisAlignment: WrapCrossAlignment.center,
-    spacing: AppSpacing.sm,
-    children: [
-      AppPillButton(
-        label: 'My plans',
-        variant: AppButtonVariant.outline,
-        compact: true,
-        onPressed: onMyPlans,
-      ),
-      AppPillButton(
-        label: 'New plan',
-        icon: Icons.add,
-        compact: true,
-        onPressed: onNewPlan,
-      ),
-    ],
+  Widget build(BuildContext context) => AppPillButton(
+    label: 'New plan',
+    icon: Icons.add,
+    compact: true,
+    onPressed: onNewPlan,
   );
 }
 

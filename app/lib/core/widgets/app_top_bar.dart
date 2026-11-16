@@ -114,7 +114,12 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     bool wordmark = false,
     double? titleWidgetHeight,
   }) {
-    if (!isFeatureEnabled(context, kFeatureUiShell)) return AppSize.headerRow;
+    if (!isFeatureEnabled(context, kFeatureUiShell)) {
+      return math.max(
+        AppSize.headerRow,
+        (titleWidgetHeight ?? 0).ceilToDouble(),
+      );
+    }
     final theme = Theme.of(context);
     final scaler = MediaQuery.textScalerOf(context);
     double line(TextStyle? style) {
@@ -312,6 +317,9 @@ class _SliverTopBar extends StatelessWidget implements PaneWideSliver {
         floating: true,
         snap: true,
         automaticallyImplyLeading: false,
+        // The row marks its own title as the header: the app bar's wrapper
+        // would merge the avatar button and the actions into it.
+        excludeHeaderSemantics: true,
         // Grows with the text scale, for a title alone too.
         toolbarHeight: AppTopBar.heightOf(
           context,
@@ -344,13 +352,17 @@ class _SliverTopBar extends StatelessWidget implements PaneWideSliver {
     }
     // Legacy: a title plus a subtitle needs more than 53dp at 1.3x; a title
     // alone fits in 53dp.
-    final height = subtitle == null
+    var height = subtitle == null
         ? AppSize.headerRow
         : MediaQuery.textScalerOf(context).scale(AppSize.headerRow);
+    if (titleWidget != null && titleWidgetHeight != null) {
+      height = math.max(height, titleWidgetHeight!.ceilToDouble());
+    }
     return SliverAppBar(
       floating: true,
       snap: true,
       automaticallyImplyLeading: false,
+      excludeHeaderSemantics: true,
       toolbarHeight: height < AppSize.headerRow ? AppSize.headerRow : height,
       titleSpacing: 0,
       backgroundColor: colors.surface.withValues(alpha: _legacyAlpha),

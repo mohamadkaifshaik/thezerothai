@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/home_retap_signal.dart';
 import '../../../lists/domain/home_tab_entry.dart';
 import '../../../lists/presentation/bloc/home_tabs_cubit.dart';
@@ -75,7 +74,7 @@ class _HomeListTabState extends State<HomeListTab> {
         emptySubtitle: 'Posts from people on this List will show up here.',
         fillViewport: true,
         showPending: false,
-        newPostsPillTop: AppSize.headerRow * 2 + AppSpacing.sm,
+        newPostsPillTop: HomeTopBar.belowHeaders(context),
         unavailableView: BlocSelector<HomeTabsCubit, HomeTabsState, bool>(
           selector: (state) => state.saving,
           builder: (context, saving) =>
