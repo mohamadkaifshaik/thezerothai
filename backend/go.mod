@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/storage v1.70.0
 	connectrpc.com/connect v1.21.1
 	connectrpc.com/cors v0.1.0
-	firebase.google.com/go/v4 v4.22.0
+	firebase.google.com/go/v4 v4.23.0
 	github.com/rs/cors v1.11.1
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/sync v0.25.0
