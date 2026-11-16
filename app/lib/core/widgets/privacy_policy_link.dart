@@ -43,6 +43,83 @@ Future<void> launchCommunityRules(BuildContext context) => launchStaticPage(
   "Couldn't open the community rules.",
 );
 
+/// Resolves a static site page (`app/web/<name>.html`: terms, about, help) like
+/// [privacyPolicyUri]: the current origin on web, production elsewhere.
+Uri sitePageUri(String name) {
+  return kIsWeb
+      ? Uri.base.resolve('/$name.html')
+      : Uri.parse('https://dzeroth.com/$name.html');
+}
+
+/// Opens the Terms of Service in the system browser.
+Future<void> launchTerms(BuildContext context) => launchStaticPage(
+  context,
+  sitePageUri('terms'),
+  "Couldn't open the Terms of Service.",
+);
+
+/// Opens the About page in the system browser.
+Future<void> launchAbout(BuildContext context) => launchStaticPage(
+  context,
+  sitePageUri('about'),
+  "Couldn't open the About page.",
+);
+
+/// Opens the Help page in the system browser.
+Future<void> launchHelpPage(BuildContext context) => launchStaticPage(
+  context,
+  sitePageUri('help'),
+  "Couldn't open the Help page.",
+);
+
+/// "Terms · About · Help centre": the site's other pages, shown on the landing
+/// and sign-in/sign-up screens beside the Privacy Policy link. Informational
+/// links only; they carry no consent.
+class SiteLinksRow extends StatelessWidget {
+  const SiteLinksRow({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final baseStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+    );
+    final accentText = context.appColors.accentText;
+    final linkStyle = baseStyle?.copyWith(
+      color: accentText,
+      fontWeight: FontWeight.w600,
+      decoration: TextDecoration.underline,
+      decorationColor: accentText,
+    );
+    Widget link(String label, Future<void> Function(BuildContext) open) =>
+        Semantics(
+          link: true,
+          child: InkWell(
+            onTap: () => open(context),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+                vertical: AppSpacing.xs,
+              ),
+              child: Text(label, style: linkStyle),
+            ),
+          ),
+        );
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        link('Terms', launchTerms),
+        Text('·', style: baseStyle),
+        link('About', launchAbout),
+        Text('·', style: baseStyle),
+        link('Help centre', launchHelpPage),
+      ],
+    );
+  }
+}
+
 /// Opens [uri] in the system browser (shared by the Privacy Policy and the
 /// community rules); a failure is a snackbar saying [failureMessage].
 Future<void> launchStaticPage(

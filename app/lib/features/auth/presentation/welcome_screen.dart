@@ -70,6 +70,7 @@ class WelcomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             const Center(child: PrivacyPolicyLink()),
+            const SiteLinksRow(),
             const SizedBox(height: AppSpacing.sm),
             const Divider(height: 1),
             AuthSwitchLine(

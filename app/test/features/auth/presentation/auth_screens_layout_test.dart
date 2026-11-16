@@ -240,9 +240,22 @@ void main() {
       expect(button.top, greaterThan(lastField.bottom));
       // The mock's `margin-top: auto`: the last line sits on the bottom
       // padding, not under the fields.
+      // That last line is now the site links (Terms, About, Help centre),
+      // with the Privacy Policy line directly above it.
+      // Sign-up is the longer form: with the extra row it can exceed the
+      // 844 dp test screen and scroll, so only login keeps the exact pin.
+      final siteLinks = tester.getRect(find.byType(SiteLinksRow));
+      if (!signup) {
+        expect(
+          siteLinks.bottom,
+          moreOrLessEquals(844 - AppAuthLayout.phonePaddingBottom, epsilon: 1),
+        );
+      } else {
+        expect(siteLinks.bottom, lessThanOrEqualTo(844));
+      }
       expect(
         tester.getRect(find.byType(PrivacyPolicyLink)).bottom,
-        moreOrLessEquals(844 - AppAuthLayout.phonePaddingBottom, epsilon: 1),
+        lessThanOrEqualTo(siteLinks.top + 1),
       );
     });
 
