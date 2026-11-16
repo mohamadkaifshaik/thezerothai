@@ -320,6 +320,11 @@ void main() {
       expect(text.style?.color, AppColors.onPhotoBackground);
       expect(text.style?.fontSize, 15);
       expect(find.text('Show more'), findsOneWidget);
+      // The teal accent of the app, not X blue.
+      expect(
+        tester.widget<Text>(find.text('Show more')).style?.color,
+        AppPalette.tealElectric,
+      );
 
       await tester.tap(find.text('Show more'));
       await tester.pump();
@@ -490,12 +495,22 @@ void main() {
       await open(
         tester,
         view(),
-        features: const {'posts', 'engagement', 'replies', 'media'},
+        features: const {'posts', 'engagement', 'replies', 'media', 'gif'},
       );
       expect(AppPhotoPanel.replyField, const Color(0xFF202327));
-      expect(AppPhotoPanel.accent, const Color(0xFF1D9BF0));
+      expect(AppPhotoPanel.accent, AppPalette.tealElectric);
       final photo = tester.widget<Icon>(find.byIcon(Icons.image_outlined));
       expect(photo.color, AppPhotoPanel.accent);
+      // Photo, GIF and Emoji: the teal accent token.
+      for (final icon in [
+        Icons.image_outlined,
+        Icons.gif_box_outlined,
+        Icons.emoji_emotions_outlined,
+      ]) {
+        final glyph = find.byIcon(icon);
+        expect(glyph, findsOneWidget);
+        expect(tester.widget<Icon>(glyph).color, AppPalette.tealElectric);
+      }
       final pill = tester
           .widgetList<DecoratedBox>(
             find.ancestor(

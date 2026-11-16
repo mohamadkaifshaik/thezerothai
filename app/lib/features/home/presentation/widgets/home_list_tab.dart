@@ -14,6 +14,7 @@ import '../../../timeline/data/timeline_repository.dart';
 import '../../../timeline/domain/feed_key.dart';
 import '../../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../../timeline/presentation/timeline_feed_view.dart';
+import '../../../../shared/widgets/primitives/app_tab_bar.dart';
 import 'home_tab_bar.dart';
 import 'home_top_bar.dart';
 
@@ -82,7 +83,7 @@ class _HomeListTabState extends State<HomeListTab> {
         ),
         headerSlivers: [
           HomeTopBar.sliver(context, phoneTitle: 'Home', pinned: true),
-          const SliverToBoxAdapter(child: HomeTabBar()),
+          const AppPinnedTabBarSliver(child: HomeTabBar()),
         ],
       ),
     );

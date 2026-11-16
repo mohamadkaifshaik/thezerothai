@@ -4,6 +4,7 @@ import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
+import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
@@ -116,7 +117,8 @@ void main() {
       );
 
       expect(find.byTooltip('Back'), findsNothing);
-      await tester.tap(find.bySemanticsLabel('Open account menu'));
+      // The bar's title merges the avatar's label: tap the button itself.
+      await tester.tap(find.byType(AppAvatarButton));
       expect(opened, 1);
     });
 
