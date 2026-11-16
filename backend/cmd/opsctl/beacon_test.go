@@ -292,12 +292,12 @@ func runBeaconCounts(s *fakeBeaconStats, args ...string) (code int, stdout, stde
 // key=value per line in a fixed order, and nothing else (no id, title, uid or hash).
 func TestBeaconCounts_PrintsAggregatesOnly(t *testing.T) {
 	t.Parallel()
-	s := &fakeBeaconStats{counts: beacons.Counts{Open: 3, Full: 1, Cancelled: 2, Hidden: 1, Ended: 2}}
+	s := &fakeBeaconStats{counts: beacons.Counts{Open: 3, Full: 1, Cancelled: 2, Hidden: 1, Ended: 2, Requested: 4, Accepted: 5}}
 	code, out, errOut := runBeaconCounts(s, "beacon", "counts", "--project", "dzeroth-dev")
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
-	want := "beacons_open=3\nbeacons_full=1\nbeacons_cancelled=2\nbeacons_hidden=1\nbeacons_ended=2\n"
+	want := "beacons_open=3\nbeacons_full=1\nbeacons_cancelled=2\nbeacons_hidden=1\nbeacons_ended=2\nparticipants_requested=4\nparticipants_accepted=5\n"
 	if out != want {
 		t.Fatalf("output = %q, want %q", out, want)
 	}
