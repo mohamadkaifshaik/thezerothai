@@ -42,7 +42,7 @@ const kLocationRationaleWithdraw =
     'area at once. We keep a record that you withdrew until you delete your '
     'account. Clearing it does not change the area of a plan you organised.';
 const kLocationAdultTick = 'I am 18 or older';
-const kLocationContinue = 'Continue';
+const kLocationContinue = 'Agree and continue';
 
 const kLocationPickerTitle = 'Choose your area';
 const kLocationSearchHint = 'Search areas and cities';

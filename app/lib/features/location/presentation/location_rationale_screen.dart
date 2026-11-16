@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/privacy_policy_link.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../settings/presentation/settings_up.dart';
 import '../domain/location_copy.dart';
@@ -59,6 +60,11 @@ class _LocationRationaleScreenState extends State<LocationRationaleScreen> {
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: PrivacyPolicyLink(),
                 ),
                 const SizedBox(height: AppSpacing.md),
                 CheckboxListTile(
