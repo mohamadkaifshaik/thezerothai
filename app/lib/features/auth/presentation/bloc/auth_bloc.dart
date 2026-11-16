@@ -11,6 +11,10 @@ import 'auth_state.dart';
 /// How long sign-out waits for the `beforeSignOut` hook.
 const kBeforeSignOutTimeout = Duration(seconds: 3);
 
+/// How long the app waits for the auth SDK's first event before falling back
+/// to its current user (web can stall on persistence or a wrong emulator).
+const kAuthUnknownTimeout = Duration(seconds: 10);
+
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// Provider configuration (Google web client id, Apple service id and
   /// redirect URI) lives on [AuthRepository], the single source shared with
@@ -18,7 +22,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   AuthBloc({
     required AuthRepository authRepository,
     Future<void> Function()? beforeSignOut,
+    Duration? unknownTimeout,
   }) : _authRepository = authRepository,
+       _unknownTimeout = unknownTimeout,
        _beforeSignOut = beforeSignOut,
        super(const AuthState()) {
     on<AuthSubscriptionRequested>(_onSubscriptionRequested);
@@ -43,11 +49,26 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final Future<void> Function()? _beforeSignOut;
   StreamSubscription<AppUser?>? _userSubscription;
 
+  /// When set, a first auth event that has not arrived by then settles the
+  /// status from the SDK's current user (null: signed out), so the app never
+  /// sits on the splash for good. A later real event still wins.
+  final Duration? _unknownTimeout;
+  Timer? _unknownTimer;
+
   void _onSubscriptionRequested(
     AuthSubscriptionRequested event,
     Emitter<AuthState> emit,
   ) {
     _userSubscription?.cancel();
+    final timeout = _unknownTimeout;
+    if (timeout != null) {
+      _unknownTimer?.cancel();
+      _unknownTimer = Timer(timeout, () {
+        if (!isClosed && state.status == AuthStatus.unknown) {
+          add(AuthUserChanged(_authRepository.currentUser));
+        }
+      });
+    }
     _userSubscription = _authRepository.authStateChanges().listen(
       (user) => add(AuthUserChanged(user)),
       // A failing auth stream must not leave the app on the splash screen
@@ -57,6 +78,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   void _onUserChanged(AuthUserChanged event, Emitter<AuthState> emit) {
+    _unknownTimer?.cancel();
     final user = event.user;
     final status = switch (user) {
       null => AuthStatus.unauthenticated,
@@ -183,6 +205,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   @override
   Future<void> close() {
+    _unknownTimer?.cancel();
     _userSubscription?.cancel();
     return super.close();
   }
