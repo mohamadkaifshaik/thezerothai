@@ -202,8 +202,9 @@ abstract final class AppSize {
   static const double postMediaRowMaxHeightFraction = 1.243;
   static const double postMediaRowAreaFraction = 0.591;
 
-  /// The tallest a single frame or row grows on tablet and desktop (a single
-  /// frame's width shrinks to keep the ratio). Phones are capped by 9:16.
+  /// The tallest a single frame grows on tablet and desktop (its width
+  /// shrinks to keep the ratio). Phones are capped by 9:16. Rows are not
+  /// held to this: X's rows reach [postMediaRowMaxHeightFraction] x column.
   static const double postMediaMaxSingleHeight = 520;
 
   /// The gap between tiles in the media row.

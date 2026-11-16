@@ -33,7 +33,7 @@ void main() {
   test('five 38 x 2048 tiles: the row is 1.243 x column and fits', () {
     for (final c in [330.0, 518.0]) {
       final media = [for (var i = 0; i < 5; i++) _photo(38, 2048, n: i)];
-      final h = PostMedia.rowHeight(media, column: c, wide: false);
+      final h = PostMedia.rowHeight(media, column: c);
       expect(h, closeTo(1.243 * c, 1e-9));
       final w = PostMedia.tileSize(media.first, height: h).width;
       expect(w, closeTo(h * _strip, 1e-9));
@@ -41,9 +41,9 @@ void main() {
     }
   });
 
-  test('wide windows keep the 520 dp cap on the row height', () {
+  test('a desktop row of strips is 1.243c (644 at c=518), not capped', () {
     final media = [for (var i = 0; i < 4; i++) _photo(38, 2048, n: i)];
-    expect(PostMedia.rowHeight(media, column: 518, wide: true), 520);
+    expect(PostMedia.rowHeight(media, column: 518), closeTo(644, 0.5));
   });
 
   Future<List<int>> pump(
@@ -52,6 +52,7 @@ void main() {
     required double column,
     int count = 4,
     double inset = 0,
+    List<common.MediaRef>? media,
   }) async {
     addTearDown(() => tester.takeException());
     final opened = <int>[];
@@ -63,7 +64,9 @@ void main() {
           width: column + inset,
           child: PostMedia(
             insetStart: inset,
-            media: [for (var i = 0; i < count; i++) _photo(38, 2048, n: i)],
+            media:
+                media ??
+                [for (var i = 0; i < count; i++) _photo(38, 2048, n: i)],
             onOpenImage: opened.add,
           ),
         ),
@@ -84,16 +87,16 @@ void main() {
     ];
   }
 
-  for (final (name, window, column, wide) in [
-    ('phone', 390.0, 330.0, false),
-    ('desktop', 1280.0, 518.0, true),
+  for (final (name, window, column) in [
+    ('phone', 390.0, 330.0),
+    ('desktop', 1280.0, 518.0),
   ]) {
     testWidgets('$name: strips are uncropped, one row, nothing scrolls', (
       tester,
     ) async {
       await pump(tester, window: window, column: column);
-      // The 520 dp cap of wide windows is the existing rule.
-      final expected = wide ? 520.0 : 1.243 * column;
+      // Rows are 1.243c at every width (the 520 cap is for single images).
+      final expected = 1.243 * column;
       final rects = tiles(tester);
       expect(rects.length, 4);
       for (final r in rects) {
@@ -137,5 +140,39 @@ void main() {
     // Far from the strips nothing opens (the card's own tap decides).
     await tester.tapAt(Offset(all.last.right + 60, all.last.center.dy));
     expect(opened, [0, 3]);
+  });
+
+  testWidgets('a drag from a thin tile scrolls an overflowing mixed row, and '
+      'a tap after it still opens the right tile', (tester) async {
+    final opened = await pump(
+      tester,
+      window: 390,
+      column: 330,
+      media: [
+        _photo(800, 800, n: 0),
+        _photo(38, 2048, n: 1),
+        _photo(38, 2048, n: 2),
+        _photo(800, 800, n: 3),
+      ],
+    );
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position;
+    expect(position.maxScrollExtent, greaterThan(100));
+    position.jumpTo(300);
+    await tester.pump();
+    final strip = tiles(tester).firstWhere((r) => r.width < 10 && r.left > 0);
+    final before = position.pixels;
+    await tester.dragFrom(strip.center, const Offset(-60, 0));
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(before + 30));
+    expect(opened, isEmpty);
+
+    // The strip's hit area followed the content: its tile is index 1.
+    final moved = tiles(tester).firstWhere((r) => r.width < 10 && r.left > 0);
+    expect(moved.center.dx, lessThan(strip.center.dx - 30));
+    await tester.tapAt(moved.center);
+    await tester.pump();
+    expect(opened, [1]);
   });
 }

@@ -178,14 +178,14 @@ class PostMedia extends StatelessWidget {
   /// - two tiles fill the column exactly: `(column - gap) / (a0 + a1)`;
   /// - three or more: `0.591 x column / mean(a0, a1)`, the mean of the FIRST
   ///   TWO tiles' aspects;
-  /// - never above `1.243 x column`, and on a [wide] window never above
-  ///   [AppSize.postMediaMaxSingleHeight] (phones have no such cap), and never
-  ///   below [AppSpacing.minTapTarget] so a row of panoramas stays tappable.
+  /// - never above `1.243 x column` at any window width (X's rows are not
+  ///   held to the single-image 520 dp cap: 644 dp at a 518 dp column), and
+  ///   never below [AppSpacing.minTapTarget] so a row of panoramas stays
+  ///   tappable.
   /// Aspects are the tiles' [rowAspect]s.
   static double rowHeight(
     List<common.MediaRef> items, {
     required double column,
-    required bool wide,
   }) {
     final a0 = rowAspect(items[0]);
     final a1 = items.length > 1 ? rowAspect(items[1]) : a0;
@@ -193,7 +193,6 @@ class PostMedia extends StatelessWidget {
         ? (column - AppSize.postMediaRowGap) / (a0 + a1)
         : column * AppSize.postMediaRowAreaFraction / ((a0 + a1) / 2);
     height = math.min(height, column * AppSize.postMediaRowMaxHeightFraction);
-    if (wide) height = math.min(height, AppSize.postMediaMaxSingleHeight);
     return math.max(height, AppSpacing.minTapTarget);
   }
 
@@ -248,7 +247,7 @@ class PostMedia extends StatelessWidget {
             ),
           );
         }
-        final height = rowHeight(items, column: column, wide: wide);
+        final height = rowHeight(items, column: column);
         return _MediaStrip(
           sizes: [for (final m in items) tileSize(m, height: height)],
           showIndicator: showPageIndicator,
@@ -327,7 +326,9 @@ class _MediaStripState extends State<_MediaStrip> {
             height: height,
             child: ExcludeSemantics(
               child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
+                // Translucent: the drag still reaches the row below, so a
+                // thin tile scrolls it; only a tap is taken here.
+                behavior: HitTestBehavior.translucent,
                 onTap: () => open(i),
               ),
             ),
