@@ -43,6 +43,7 @@ void main() {
     GoRouter.optionURLReflectsImperativeAPIs = true;
     addTearDown(() => GoRouter.optionURLReflectsImperativeAPIs = reflect);
     posts = _Posts();
+    when(() => posts.subFeatureEnabled(any())).thenReturn(true);
     onboarding = _Onboarding();
     parent = postView(1, text: 'A conversation worth continuing.');
     parent.post.media.addAll([common.MediaRef(), common.MediaRef()]);

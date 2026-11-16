@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'post_subscription_policy.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -35,9 +36,11 @@ import '../domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/post_text_rules.dart';
 import '../domain/posts_feature_flag.dart';
 import '../domain/reply_audience.dart';
+import '../domain/reply_pickers.dart';
 import '../domain/reply_start.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
+import 'widgets/composer_extras_buttons.dart' show ComposerGifButton;
 import 'composer_route.dart';
 import 'composer_screen.dart';
 import 'post_error_messages.dart';
@@ -75,43 +78,63 @@ class ReplyComposerScreen extends StatelessWidget {
       ),
       body: child,
     ),
-    builder: (context, view) => _withAttachments(
-      context,
-      (attachments) => BlocProvider(
-        create: (context) => ComposerCubit.reply(
-          postsRepository: context.read<PostsRepository>(),
-          postTextLimit: () => subscriptionPostLimit(context),
-          postPolicyChanges: subscriptionPostChanges(context),
-          replyToPostId: postId,
-          usage: UsageScope.of(context),
-          // Bound to the session it was opened in: after a sign-out or an
-          // account switch nothing typed here is sent, and the screen leaves.
-          sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
-          attachments: attachments,
-          mediaOn: attachments != null,
-          gifFlag: featureEnabledSnapshot(context, kFeatureGif),
+    builder: (context, view) {
+      // No composer tools (and no picker) while replying is not allowed.
+      final blocked =
+          !featureEnabledSnapshot(context, kPostsSubFeatureReplies) ||
+          replyKnownNotAllowed(view);
+      final posts = context.read<PostsRepository>();
+      final pickers = ReplyPickers(
+        mediaFlag: featureEnabledSnapshot(context, kFeatureMedia),
+        gifFlag: featureEnabledSnapshot(context, kFeatureGif),
+        mediaSub: posts.subFeatureEnabled(kPostsSubFeatureMedia),
+        gifSub: posts.subFeatureEnabled(kFeatureGif),
+      );
+      final offered = !blocked && pickers.photo;
+      return _withAttachments(
+        context,
+        offered: offered,
+        gif: pickers.gif,
+        build: (attachments) => BlocProvider(
+          create: (context) => ComposerCubit.reply(
+            postsRepository: posts,
+            postTextLimit: () => subscriptionPostLimit(context),
+            postPolicyChanges: subscriptionPostChanges(context),
+            replyToPostId: postId,
+            usage: UsageScope.of(context),
+            // Bound to the session it was opened in: after a sign-out or an
+            // account switch nothing typed here is sent, and the screen
+            // leaves.
+            sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
+            attachments: attachments,
+            mediaOn: attachments != null,
+            gifFlag: pickers.gif,
+            onUnexpectedError: attachments == null
+                ? null
+                : context.read<UnexpectedErrorReporter>(),
+          ),
+          child: _ReplyEditor(
+            parent: view,
+            // A picker start that is not offered (or a blocked reply) is a
+            // plain focused field.
+            start: blocked ? ReplyStart.text : pickers.effective(start),
+            tools: attachments != null,
+          ),
         ),
-        child: _ReplyEditor(parent: view, start: start),
-      ),
-    ),
+      );
+    },
   );
 
-  /// A reply is text only, unless it was opened with a photo or GIF picker
-  /// (and `media` is on): then it holds an [AttachmentsCubit] like the post
-  /// composer does.
+  /// A reply holds an [AttachmentsCubit] (photos, a GIF) only when the
+  /// composer offers pickers: `media` on and replying allowed. Otherwise it is
+  /// text only, as before.
   Widget _withAttachments(
-    BuildContext context,
-    Widget Function(AttachmentsCubit? attachments) build,
-  ) {
-    final picker = start == ReplyStart.photo || start == ReplyStart.gif;
-    final media =
-        picker &&
-        featureEnabledSnapshot(context, kFeatureMedia) &&
-        context.read<PostsRepository>().subFeatureEnabled(
-          kPostsSubFeatureMedia,
-        );
-    if (!media) return build(null);
-    final gif = featureEnabledSnapshot(context, kFeatureGif);
+    BuildContext context, {
+    required bool offered,
+    required bool gif,
+    required Widget Function(AttachmentsCubit? attachments) build,
+  }) {
+    if (!offered) return build(null);
     return BlocProvider<AttachmentsCubit>(
       create: (context) => AttachmentsCubit(
         picker: context.read<ImagePickerService>(),
@@ -150,9 +173,17 @@ class ReplyComposerScreen extends StatelessWidget {
 }
 
 class _ReplyEditor extends StatefulWidget {
-  const _ReplyEditor({required this.parent, required this.start});
+  const _ReplyEditor({
+    required this.parent,
+    required this.start,
+    required this.tools,
+  });
   final pb.PostView parent;
   final ReplyStart start;
+
+  /// The composer holds attachments: the Photo / GIF tools show in the footer
+  /// and the discard prompt counts a picked photo.
+  final bool tools;
   @override
   State<_ReplyEditor> createState() => _ReplyEditorState();
 }
@@ -173,26 +204,21 @@ class _ReplyEditorState extends State<_ReplyEditor> {
   void initState() {
     super.initState();
     // Opened by the photo viewer's Photo / GIF button: the picker starts as
-    // soon as the screen is up (a cancelled picker leaves the plain reply).
-    if (widget.start == ReplyStart.photo || widget.start == ReplyStart.gif) {
+    // soon as the screen is up (a cancelled picker leaves the plain reply; the
+    // footer's buttons pick again). Not on the web, where a picker needs a
+    // user gesture: there the field is just focused and the buttons pick.
+    if (widget.tools &&
+        !kIsWeb &&
+        (widget.start == ReplyStart.photo || widget.start == ReplyStart.gif)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final attachments = _attachmentsOrNull();
-        if (attachments == null) return;
+        final attachments = context.read<AttachmentsCubit>();
         unawaited(
           widget.start == ReplyStart.gif
               ? attachments.pickGif()
               : attachments.pick(),
         );
       });
-    }
-  }
-
-  AttachmentsCubit? _attachmentsOrNull() {
-    try {
-      return context.read<AttachmentsCubit>();
-    } on ProviderNotFoundException {
-      return null;
     }
   }
 
@@ -420,7 +446,7 @@ class _ReplyEditorState extends State<_ReplyEditor> {
                                   ],
                                 ),
                               ),
-                              if (_attachmentsOrNull() != null)
+                              if (widget.tools)
                                 const Padding(
                                   padding: EdgeInsets.only(top: AppSpacing.sm),
                                   child: AttachmentGrid(),
@@ -440,6 +466,9 @@ class _ReplyEditorState extends State<_ReplyEditor> {
                       ),
                       _ReplyFooter(
                         key: const ValueKey('reply-footer'),
+                        tools: widget.tools && !blocked
+                            ? _ReplyTools(submitting: state.isSubmitting)
+                            : null,
                         problem: DraftProblemHint(problem: state.draft.problem),
                         counter: CharacterCounter.ring(
                           remaining: state.draft.remaining,
@@ -546,8 +575,11 @@ class _ReplyFooter extends StatelessWidget {
     required this.problem,
     required this.counter,
     this.reply,
+    this.tools,
   });
 
+  /// The Photo and GIF buttons, at the start.
+  final Widget? tools;
   final Widget problem;
   final Widget counter;
   final Widget? reply;
@@ -568,6 +600,7 @@ class _ReplyFooter extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
         child: Row(
           children: [
+            ?tools,
             Expanded(child: problem),
             counter,
             if (reply case final reply?) ...[
@@ -579,4 +612,38 @@ class _ReplyFooter extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// The reply footer's Photo and GIF buttons, driven by the composer's rules
+/// (the same ones as the post composer): they add, or add again after a
+/// cancelled picker or a removed photo, and are off while sending.
+class _ReplyTools extends StatelessWidget {
+  const _ReplyTools({required this.submitting});
+
+  final bool submitting;
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.read<ComposerCubit>();
+    final attachBusy = context.select<AttachmentsCubit, bool>(
+      (c) => c.state.isBusy,
+    );
+    // The rules read what is attached now.
+    context.select<ComposerCubit, (bool, bool)>(
+      (c) => (c.state.hasAttachments, c.state.attachmentsReady),
+    );
+    final rules = cubit.rules;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AddPhotoButton(block: rules.photo),
+        if (rules.showGif)
+          ComposerGifButton(
+            block: rules.gif,
+            enabled: !submitting && !attachBusy,
+            onPressed: () => context.read<AttachmentsCubit>().pickGif(),
+          ),
+      ],
+    );
+  }
 }

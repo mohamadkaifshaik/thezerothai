@@ -13,6 +13,8 @@ import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/domain/reply_start.dart';
 import 'package:dzeroth/features/posts/presentation/reply_composer_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
+    show ReplyPermission;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,7 +74,6 @@ void main() {
     ReplyStart start, {
     Set<String> features = const {'posts', 'replies', 'media'},
   }) async {
-    addTearDown(() => tester.takeException());
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.reset);
@@ -110,6 +111,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.takeException(), isNull);
   }
 
   testWidgets('text and emoji just focus the field (no picker)', (
@@ -118,7 +120,7 @@ void main() {
     for (final start in [ReplyStart.text, ReplyStart.emoji]) {
       await open(tester, start);
       expect(picker.calls, 0);
-      expect(find.byType(AttachmentGrid), findsNothing);
+      expect(find.byTooltip('Remove photo 1'), findsNothing);
       expect(
         tester.widget<TextField>(find.byType(TextField)).autofocus,
         isTrue,
@@ -153,5 +155,105 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.text('Discard reply?'), findsOneWidget);
+  });
+
+  group('pickers are gated', () {
+    testWidgets('start=gif with the gif flag off opens no picker, no grid', (
+      tester,
+    ) async {
+      await open(tester, ReplyStart.gif);
+      await tester.pumpAndSettle();
+      expect(picker.calls, 0);
+      expect(find.byTooltip('Remove photo 1'), findsNothing);
+      expect(find.bySemanticsLabel('Photo 1 of 1'), findsNothing);
+      expect(find.byTooltip('Add GIF'), findsNothing);
+      expect(find.byTooltip('Add photos'), findsOneWidget);
+    });
+
+    testWidgets('start=gif when the gate saw gif disabled: no picker', (
+      tester,
+    ) async {
+      when(() => posts.subFeatureEnabled('gif')).thenReturn(false);
+      await open(
+        tester,
+        ReplyStart.gif,
+        features: const {'posts', 'replies', 'media', 'gif'},
+      );
+      await tester.pumpAndSettle();
+      expect(picker.calls, 0);
+      expect(find.byTooltip('Add GIF'), findsNothing);
+    });
+
+    testWidgets('start=photo when the gate saw media disabled: plain reply', (
+      tester,
+    ) async {
+      when(() => posts.subFeatureEnabled('media')).thenReturn(false);
+      await open(tester, ReplyStart.photo);
+      await tester.pumpAndSettle();
+      expect(picker.calls, 0);
+      expect(find.byTooltip('Add photos'), findsNothing);
+    });
+
+    testWidgets('a blocked reply gets no picker, no cubit, no tools', (
+      tester,
+    ) async {
+      when(() => posts.getPost(any())).thenAnswer(
+        (_) async => postView(
+          1,
+        )..viewerReplyPermission = ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED,
+      );
+      await open(tester, ReplyStart.photo);
+      await tester.pumpAndSettle();
+      expect(picker.calls, 0);
+      expect(find.byTooltip('Add photos'), findsNothing);
+      expect(find.byType(AttachmentGrid), findsNothing);
+    });
+
+    testWidgets('replies off: no picker and no tools', (tester) async {
+      await open(tester, ReplyStart.photo, features: const {'posts', 'media'});
+      await tester.pumpAndSettle();
+      expect(picker.calls, 0);
+      expect(find.byTooltip('Add photos'), findsNothing);
+    });
+  });
+
+  group('the footer tools', () {
+    testWidgets('Photo is in the footer for a plain reply too, and picks '
+        'on a tap (no auto-open)', (tester) async {
+      await open(tester, ReplyStart.text);
+      expect(picker.calls, 0);
+      picker.next = [imageBytes('a')];
+      await tester.tap(find.byTooltip('Add photos'));
+      await tester.pumpAndSettle();
+      expect(picker.calls, 1);
+      expect(find.bySemanticsLabel('Photo 1 of 1'), findsOneWidget);
+    });
+
+    testWidgets('after a cancelled picker the button picks again', (
+      tester,
+    ) async {
+      await open(tester, ReplyStart.photo);
+      await tester.pumpAndSettle();
+      expect(picker.calls, 1);
+      expect(find.byType(AttachmentGrid), findsOneWidget);
+      picker.next = [imageBytes('b')];
+      await tester.tap(find.byTooltip('Add photos'));
+      await tester.pumpAndSettle();
+      expect(picker.calls, 2);
+      expect(find.bySemanticsLabel('Photo 1 of 1'), findsOneWidget);
+    });
+
+    testWidgets('a removed photo can be added again', (tester) async {
+      picker.next = [imageBytes('a')];
+      await open(tester, ReplyStart.photo);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Remove photo 1'));
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel('Photo 1 of 1'), findsNothing);
+      picker.next = [imageBytes('b')];
+      await tester.tap(find.byTooltip('Add photos'));
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel('Photo 1 of 1'), findsOneWidget);
+    });
   });
 }

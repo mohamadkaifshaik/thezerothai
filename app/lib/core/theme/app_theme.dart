@@ -169,6 +169,10 @@ abstract final class AppSize {
   /// The gap between tiles in the media row.
   static const double postMediaRowGap = 4;
 
+  /// iOS keeps this much of the screen's left edge free for the system back
+  /// swipe: a bled media row starts its scroll area here, not at the edge.
+  static const double iosBackSwipeEdge = 20;
+
   /// The article card in a feed: the cover fills the card at 4:5
   /// ([postMediaDefaultAspect]) up to [postMediaMaxSingleHeight]; the text
   /// overlay covers at least this fraction of the card, and the tint of its

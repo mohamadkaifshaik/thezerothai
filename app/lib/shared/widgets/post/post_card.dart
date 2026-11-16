@@ -629,6 +629,10 @@ class PostCard extends StatelessWidget {
           ],
         );
         if (bleedMedia) {
+          final backEdge =
+              !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
+              ? AppSize.iosBackSwipeEdge
+              : 0.0;
           final slot = content.indexWhere((w) => w is _MediaSlot);
           final body = EdgeInsetsDirectional.only(
             start: gutter + kPostAvatarInset,
@@ -648,7 +652,13 @@ class PostCard extends StatelessWidget {
                   children: content.sublist(0, slot),
                 ),
               ),
-              mediaRow(gutter + kPostAvatarInset, gutter),
+              // On iOS the leftmost edge stays free for the back swipe: the
+              // row bleeds to the right edge only (a touch there would scroll
+              // the row instead of going back). Elsewhere it bleeds both ways.
+              Padding(
+                padding: EdgeInsetsDirectional.only(start: backEdge),
+                child: mediaRow(gutter + kPostAvatarInset - backEdge, gutter),
+              ),
               Padding(
                 padding: body,
                 child: Column(

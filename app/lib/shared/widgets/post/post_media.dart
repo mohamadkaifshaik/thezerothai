@@ -151,12 +151,19 @@ class PostMedia extends StatelessWidget {
     return Size(column, height);
   }
 
-  /// A tile's own aspect in a row (width / height), never clamped: X shows
-  /// very narrow tiles uncropped. 4:5 when the size is unknown.
-  static double rowAspect(common.MediaRef ref) =>
-      ref.width > 0 && ref.height > 0
-      ? ref.width / ref.height
-      : AppSize.postMediaDefaultAspect;
+  /// A tile's aspect in a row (width / height). Narrow tiles keep their own
+  /// aspect, uncropped (X shows strips down to about 0.03); a tile wider than
+  /// 3:1 is held at 3:1 (and center-cropped), so a panorama cannot collapse
+  /// the row's height. A ref whose aspect is beyond 1:50 or 50:1 is treated
+  /// as unknown (4:5), as is one with no stored size.
+  static double rowAspect(common.MediaRef ref) {
+    if (ref.width <= 0 || ref.height <= 0) {
+      return AppSize.postMediaDefaultAspect;
+    }
+    final aspect = ref.width / ref.height;
+    if (aspect < 1 / 50 || aspect > 50) return AppSize.postMediaDefaultAspect;
+    return math.min(aspect, AppSize.postMediaLandscapeAspect);
+  }
 
   /// The shared height of the several-images row in a [column] wide body
   /// (measured on X):
@@ -164,8 +171,9 @@ class PostMedia extends StatelessWidget {
   /// - three or more: `0.591 x column / mean(a0, a1)`, the mean of the FIRST
   ///   TWO tiles' aspects;
   /// - never above `1.243 x column`, and on a [wide] window never above
-  ///   [AppSize.postMediaMaxSingleHeight] (phones have no such cap).
-  /// Aspects are the tiles' own ([rowAspect]), unclamped.
+  ///   [AppSize.postMediaMaxSingleHeight] (phones have no such cap), and never
+  ///   below [AppSpacing.minTapTarget] so a row of panoramas stays tappable.
+  /// Aspects are the tiles' [rowAspect]s.
   static double rowHeight(
     List<common.MediaRef> items, {
     required double column,
@@ -178,7 +186,7 @@ class PostMedia extends StatelessWidget {
         : column * AppSize.postMediaRowAreaFraction / ((a0 + a1) / 2);
     height = math.min(height, column * AppSize.postMediaRowMaxHeightFraction);
     if (wide) height = math.min(height, AppSize.postMediaMaxSingleHeight);
-    return height;
+    return math.max(height, AppSpacing.minTapTarget);
   }
 
   /// One tile's size in a row of [height]: width = height x its own aspect,
@@ -470,10 +478,17 @@ Widget _withAltChip(Widget image, String alt) {
 }
 
 /// Width / height of the stored picture; 4:5 (the frame's default) when the
-/// size is unknown.
-double _aspectOf(common.MediaRef media) => media.width > 0 && media.height > 0
-    ? media.width / media.height
-    : AppSize.postMediaDefaultAspect;
+/// size is unknown or absurd.
+double _aspectOf(common.MediaRef media) {
+  if (media.width <= 0 || media.height <= 0) {
+    return AppSize.postMediaDefaultAspect;
+  }
+  final aspect = media.width / media.height;
+  // An absurd stored size is not trusted (it would ask for a huge decode).
+  return aspect < 1 / 50 || aspect > 50
+      ? AppSize.postMediaDefaultAspect
+      : aspect;
+}
 
 /// The feed picture: the thumbnail, or the full file when the thumbnail has
 /// too few pixels for the frame ([PostMedia.thumbSuffices]), the thumbnail

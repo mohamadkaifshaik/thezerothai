@@ -128,6 +128,7 @@ class PostActionBar extends StatelessWidget {
           iconSize: iconSize,
           idleColor: idle,
           compactEnd: viewer,
+          countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
           label: 'Reply',
           count: replyCount,
           onPressed: actions.onReply,
@@ -140,6 +141,7 @@ class PostActionBar extends StatelessWidget {
             iconSize: iconSize,
             idleColor: idle,
             compactEnd: viewer,
+            countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
             label: reposted ? 'Undo repost' : 'Repost',
             count: repostCount,
             active: reposted,
@@ -155,6 +157,7 @@ class PostActionBar extends StatelessWidget {
           iconSize: iconSize,
           idleColor: idle,
           compactEnd: viewer,
+          countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
           label: liked ? 'Unlike' : 'Like',
           count: likeCount,
           active: liked,
@@ -172,6 +175,7 @@ class PostActionBar extends StatelessWidget {
               iconSize: iconSize,
               idleColor: idle,
               compactEnd: viewer,
+              countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
               label: 'Share',
               count: shareCount,
               onPressed: actions.onShareAt != null
@@ -187,6 +191,7 @@ class PostActionBar extends StatelessWidget {
             iconSize: iconSize,
             idleColor: idle,
             compactEnd: viewer,
+            countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
             label: bookmarked ? 'Bookmarked' : 'Bookmark',
             active: bookmarked,
             activeColor: viewer ? AppPhotoPanel.bookmarked : null,
@@ -246,7 +251,12 @@ class _ActionButton extends StatelessWidget {
     this.disabledHint,
     this.idleColor,
     this.compactEnd = false,
+    this.countWeight = FontWeight.w600,
   });
+
+  /// The count's weight: 600 in the feed (dz.css `.acts span`), 400 in the
+  /// photo viewer.
+  final FontWeight countWeight;
 
   /// The colour when not active (the photo viewer's grey); null is the
   /// theme's muted text colour.
@@ -314,9 +324,7 @@ class _ActionButton extends StatelessWidget {
                     // dz.css `.acts span`: 13 sp, w600.
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: color,
-                      fontWeight: idleColor == null
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+                      fontWeight: countWeight,
                     ),
                   ),
                 ),

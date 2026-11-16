@@ -4,6 +4,8 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -34,7 +36,6 @@ Future<void> _pump(
   pb.PostView view, {
   double width = 360,
 }) async {
-  addTearDown(() => tester.takeException());
   await pumpThemed(
     tester,
     SingleChildScrollView(
@@ -42,9 +43,38 @@ Future<void> _pump(
     ),
     size: Size(width, 1200),
   );
+  expect(tester.takeException(), isNull);
 }
 
 void main() {
+  tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+  testWidgets('on iOS the row keeps the left 20 dp free for the back swipe '
+      'and bleeds to the right edge only', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    await _pump(tester, _view(3));
+    final list = tester.getRect(find.byType(ListView));
+    expect(list.left, AppSize.iosBackSwipeEdge);
+    expect(list.right, 360);
+    // The first tile is still on the body text.
+    final body = tester.getRect(find.byType(PostRichText));
+    final first = tester.getRect(
+      find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(ClipRRect),
+          )
+          .first,
+    );
+    expect(first.left, closeTo(body.left, 0.5));
+    // A touch in the leftmost 20 dp is not the row's.
+    final hit = tester.hitTestOnBinding(Offset(8, list.center.dy));
+    expect(
+      hit.path.where((e) => e.target is RenderSemanticsGestureHandler).length,
+      1,
+    );
+    debugDefaultTargetPlatformOverride = null;
+  });
   testWidgets('a single image keeps the body width under the avatar', (
     tester,
   ) async {

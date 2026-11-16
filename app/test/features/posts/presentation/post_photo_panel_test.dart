@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
@@ -12,7 +13,9 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/domain/reply_start.dart';
 import 'package:dzeroth/features/posts/presentation/post_photo_screen.dart';
+import 'package:dzeroth/features/posts/presentation/widgets/photo_bottom_panel.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as gpb;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
@@ -59,6 +62,8 @@ void main() {
     when(() => posts.subFeatureEnabled(any())).thenReturn(true);
     when(() => posts.removedPosts).thenAnswer((_) => const Stream.empty());
     when(() => graph.cached(any())).thenReturn(null);
+    when(() => graph.relationshipFor(any()))
+        .thenAnswer((_) async => gpb.Relationship(userId: 'u1'));
     when(
       () => posts.getThread(
         any(),
@@ -104,7 +109,6 @@ void main() {
     Size size = _phone,
     double textScale = 1,
   }) async {
-    addTearDown(() => tester.takeException());
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
     addTearDown(tester.view.reset);
@@ -171,10 +175,14 @@ void main() {
     unawaited(router.push(AppRouter.postPhotoPath(postId(1), 1)));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(tester.takeException(), isNull);
   }
 
   Future<void> settle(WidgetTester tester) async {
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    // The panel reports a new height after a frame; the photo then moves.
     await tester.pump(const Duration(milliseconds: 600));
   }
 
@@ -213,6 +221,67 @@ void main() {
       );
       expect(find.byType(FollowButton), findsOneWidget);
       expect(find.text('Follow'), findsOneWidget);
+    });
+
+    testWidgets('on a cache miss the relationship is loaded, a pill-sized gap '
+        'shows meanwhile', (tester) async {
+      final pending = Completer<gpb.Relationship>();
+      when(() => graph.relationshipFor(any()))
+          .thenAnswer((_) => pending.future);
+      await open(
+        tester,
+        view(),
+        features: const {'posts', 'engagement', 'replies', 'graph'},
+      );
+      expect(find.byType(FollowButton), findsNothing);
+      final gap = tester.getSize(
+        find.byKey(const ValueKey('follow-placeholder')),
+      );
+      expect(gap, const Size(77, 32));
+      pending.complete(gpb.Relationship(userId: 'u1'));
+      await settle(tester);
+      expect(find.byKey(const ValueKey('follow-placeholder')), findsNothing);
+      expect(find.byType(FollowButton), findsOneWidget);
+    });
+
+    testWidgets('a followed author shows Following from the load', (
+      tester,
+    ) async {
+      when(() => graph.relationshipFor(any())).thenAnswer(
+        (_) async => gpb.Relationship(
+          userId: 'u1',
+          followState: gpb.FollowState.FOLLOW_STATE_FOLLOWING,
+        ),
+      );
+      await open(
+        tester,
+        view(),
+        features: const {'posts', 'engagement', 'replies', 'graph'},
+      );
+      expect(find.text('Following'), findsOneWidget);
+    });
+
+    testWidgets('a failed load draws no pill', (tester) async {
+      when(() => graph.relationshipFor(any())).thenThrow(Exception('offline'));
+      await open(
+        tester,
+        view(),
+        features: const {'posts', 'engagement', 'replies', 'graph'},
+      );
+      expect(find.byType(FollowButton), findsNothing);
+      expect(find.byKey(const ValueKey('follow-placeholder')), findsNothing);
+    });
+
+    testWidgets('a cached relationship needs no load', (tester) async {
+      when(() => graph.cached(any()))
+          .thenReturn(gpb.Relationship(userId: 'u1'));
+      await open(
+        tester,
+        view(),
+        features: const {'posts', 'engagement', 'replies', 'graph'},
+      );
+      verifyNever(() => graph.relationshipFor(any()));
+      expect(find.byType(FollowButton), findsOneWidget);
     });
 
     testWidgets('Follow is hidden on the viewer\'s own post', (tester) async {
@@ -389,6 +458,27 @@ void main() {
       expect(find.byTooltip('Add GIF'), findsNothing);
     });
 
+    testWidgets('a sub-feature the posts gate saw disabled hides the button', (
+      tester,
+    ) async {
+      when(() => posts.subFeatureEnabled('gif')).thenReturn(false);
+      await open(
+        tester,
+        view(),
+        features: const {'posts', 'engagement', 'replies', 'media', 'gif'},
+      );
+      expect(find.byTooltip('Add photo'), findsOneWidget);
+      expect(find.byTooltip('Add GIF'), findsNothing);
+      when(() => posts.subFeatureEnabled('media')).thenReturn(false);
+      await open(
+        tester,
+        view(),
+        features: const {'posts', 'engagement', 'replies', 'media', 'gif'},
+      );
+      expect(find.byTooltip('Add photo'), findsNothing);
+      expect(find.byTooltip('Add GIF'), findsNothing);
+    });
+
     testWidgets('no media flag: neither Photo nor GIF', (tester) async {
       await open(tester, view());
       expect(find.byTooltip('Add photo'), findsNothing);
@@ -442,27 +532,79 @@ void main() {
   });
 
   group('small screens and large text', () {
+    const all = {'posts', 'engagement', 'replies', 'graph', 'media', 'gif'};
     for (final scale in const [1.0, 2.0]) {
-      testWidgets('320 dp at text x$scale: no overflow', (tester) async {
+      testWidgets('320 dp at text x$scale: no overflow, also opened', (
+        tester,
+      ) async {
         await open(
           tester,
           view(text: _longText, verified: true),
-          features: const {
-            'posts',
-            'engagement',
-            'replies',
-            'graph',
-            'media',
-            'gif',
-          },
+          features: all,
           size: const Size(320, 640),
           textScale: scale,
         );
-        expect(tester.takeException(), isNull);
         expect(find.text('Post your reply'), findsOneWidget);
         expect(find.byType(FollowButton), findsOneWidget);
+        await tester.tap(find.text('Show more'));
+        await settle(tester);
+        expect(tester.takeException(), isNull);
+        expect(find.text('Show more'), findsNothing);
+        expect(find.text('Post your reply'), findsOneWidget);
+        // The panel never takes more than 60% of the screen.
+        final panel = tester.getSize(find.byType(PhotoBottomPanel));
+        expect(panel.height, lessThanOrEqualTo(640 * 0.6 + 0.5));
+        // The photo keeps a positive box above it.
+        final photo = tester.getRect(find.byType(CachedNetworkImage).first);
+        expect(photo.height, greaterThan(0));
+        expect(
+          photo.bottom,
+          lessThanOrEqualTo(
+            tester.getTopLeft(find.byType(PhotoBottomPanel)).dy + 0.5,
+          ),
+        );
       });
     }
+
+    testWidgets('a very long caption opened scrolls inside, no overflow', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        view(text: List.filled(60, _longText).join(' ')),
+        features: all,
+        size: const Size(320, 640),
+        textScale: 2,
+      );
+      await tester.tap(find.text('Show more'));
+      await settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getSize(find.byType(PhotoBottomPanel)).height,
+        lessThanOrEqualTo(640 * 0.6 + 0.5),
+      );
+    });
+
+    testWidgets('a landscape phone (640 x 320) has no overflow and a photo', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        view(text: _longText, verified: true),
+        features: all,
+        size: const Size(640, 320),
+      );
+      await tester.tap(find.text('Show more'));
+      await settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getSize(find.byType(PhotoBottomPanel)).height,
+        lessThanOrEqualTo(320 * 0.6 + 0.5),
+      );
+      final photo = tester.getRect(find.byType(CachedNetworkImage).first);
+      expect(photo.height, greaterThan(40));
+      expect(photo.width, greaterThan(40));
+    });
   });
 
   group('part of the controls', () {

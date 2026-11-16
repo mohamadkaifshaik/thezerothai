@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -20,7 +23,17 @@ import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../../domain/posts_feature_flag.dart';
 import '../../domain/reply_audience.dart';
+import '../../domain/reply_pickers.dart';
 import '../../domain/reply_start.dart';
+import '../../data/posts_repository.dart';
+
+/// The most of the screen's height the bottom panel may take; the photo keeps
+/// the rest, so it always has a box to be drawn in.
+const double kPhotoPanelMaxFraction = 0.6;
+
+/// The most of the screen's height an opened caption may take before it
+/// scrolls inside the panel.
+const double kPhotoCaptionMaxFraction = 0.4;
 
 /// Whether the photo viewer's panel offers "Post your reply" for [view]: the
 /// `posts` flag and the `replies` sub-feature are on and the server has not
@@ -64,23 +77,39 @@ class PhotoBottomPanel extends StatelessWidget {
             AppSpacing.md,
             AppSpacing.sm,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _AuthorRow(post: post),
-              if (post.text.trim().isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.sm),
-                _ClampedText(text: post.text),
-              ],
-              if (engagement)
-                PostEngagementBar(
-                  view: view,
-                  style: PostActionBarStyle.photoViewer,
-                  iconSize: AppPhotoPanel.actionIcon,
-                ),
-              if (replies) _ReplyBar(postId: post.postId),
-            ],
+          // At most 60% of the screen (the photo keeps the rest); taller
+          // content (big text, a long caption opened, a landscape phone)
+          // scrolls inside the panel.
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              // Its own padding (above and below) is inside the 60%.
+              maxHeight: math.max(
+                0,
+                MediaQuery.sizeOf(context).height * kPhotoPanelMaxFraction -
+                    AppSpacing.xl -
+                    AppSpacing.sm,
+              ),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _AuthorRow(post: post),
+                  if (post.text.trim().isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    _ClampedText(text: post.text),
+                  ],
+                  if (engagement)
+                    PostEngagementBar(
+                      view: view,
+                      style: PostActionBarStyle.photoViewer,
+                      iconSize: AppPhotoPanel.actionIcon,
+                    ),
+                  if (replies) _ReplyBar(postId: post.postId),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -185,8 +214,10 @@ class _AuthorRow extends StatelessWidget {
   }
 }
 
-/// The shared [FollowButton] with a [RelationshipCubit] of its own, seeded
-/// from the graph cache as the post menu does.
+/// The shared [FollowButton] with a [RelationshipCubit] of its own. The
+/// relationship comes from the graph cache; on a miss it is loaded, and the
+/// pill is drawn only once it is known (a pill-sized gap meanwhile, so the
+/// row does not jump). A failed load draws nothing.
 class _FollowControl extends StatefulWidget {
   const _FollowControl({required this.author});
 
@@ -198,19 +229,39 @@ class _FollowControl extends StatefulWidget {
 
 class _FollowControlState extends State<_FollowControl> {
   RelationshipCubit? _cubit;
-  String _userId = '';
+  bool _failed = false;
 
-  RelationshipCubit _cubitFor(BuildContext context) {
-    final userId = widget.author.userId;
-    if (_cubit != null && _userId == userId) return _cubit!;
-    _cubit?.close();
+  @override
+  void initState() {
+    super.initState();
     final repository = context.read<GraphRepository>();
-    _userId = userId;
-    return _cubit = RelationshipCubit(
-      graphRepository: repository,
-      userId: userId,
-      initial: repository.cached(userId) ?? graph.Relationship(userId: userId),
-    );
+    final userId = widget.author.userId;
+    final cached = repository.cached(userId);
+    if (cached != null) {
+      _cubit = _cubitFor(repository, cached);
+    } else {
+      unawaited(_load(repository, userId));
+    }
+  }
+
+  RelationshipCubit _cubitFor(
+    GraphRepository repository,
+    graph.Relationship initial,
+  ) => RelationshipCubit(
+    graphRepository: repository,
+    userId: widget.author.userId,
+    initial: initial,
+  );
+
+  Future<void> _load(GraphRepository repository, String userId) async {
+    try {
+      final relationship = await repository.relationshipFor(userId);
+      if (!mounted) return;
+      setState(() => _cubit = _cubitFor(repository, relationship));
+    } on Object {
+      // The pill is a convenience: no pill rather than a wrong one.
+      if (mounted) setState(() => _failed = true);
+    }
   }
 
   @override
@@ -220,10 +271,19 @@ class _FollowControlState extends State<_FollowControl> {
   }
 
   @override
-  Widget build(BuildContext context) => BlocProvider.value(
-    value: _cubitFor(context),
-    child: const FollowButton(),
-  );
+  Widget build(BuildContext context) {
+    final cubit = _cubit;
+    if (cubit == null) {
+      return _failed
+          ? const SizedBox.shrink()
+          : const SizedBox(
+              key: ValueKey('follow-placeholder'),
+              width: 77,
+              height: 32,
+            );
+    }
+    return BlocProvider.value(value: cubit, child: const FollowButton());
+  }
 }
 
 /// The post text, white 15/20, clamped to two lines with "Show more" (which
@@ -262,12 +322,23 @@ class _ClampedTextState extends State<_ClampedText> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.text,
-              maxLines: _expanded ? null : _lines,
-              overflow: TextOverflow.ellipsis,
-              style: style,
-            ),
+            _expanded
+                ? ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight:
+                          MediaQuery.sizeOf(context).height *
+                          kPhotoCaptionMaxFraction,
+                    ),
+                    child: SingleChildScrollView(
+                      child: Text(widget.text, style: style),
+                    ),
+                  )
+                : Text(
+                    widget.text,
+                    maxLines: _lines,
+                    overflow: TextOverflow.ellipsis,
+                    style: style,
+                  ),
             if (overflows && !_expanded)
               InkWell(
                 onTap: () => setState(() => _expanded = true),
@@ -306,8 +377,15 @@ class _ReplyBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final profile = context.read<OnboardingBloc>().state.profile;
-    final media = isFeatureEnabled(context, kFeatureMedia);
-    final gif = media && isFeatureEnabled(context, kFeatureGif);
+    final posts = context.read<PostsRepository>();
+    final pickers = ReplyPickers(
+      mediaFlag: isFeatureEnabled(context, kFeatureMedia),
+      gifFlag: isFeatureEnabled(context, kFeatureGif),
+      mediaSub: posts.subFeatureEnabled(kPostsSubFeatureMedia),
+      gifSub: posts.subFeatureEnabled(kFeatureGif),
+    );
+    final media = pickers.photo;
+    final gif = pickers.gif;
     final style = Theme.of(context).textTheme.bodyMedium
         ?.copyWith(fontSize: 15, color: AppPhotoPanel.muted);
     Widget icon(IconData data, String label, ReplyStart start) => IconButton(

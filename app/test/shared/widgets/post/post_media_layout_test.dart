@@ -502,6 +502,56 @@ void main() {
       );
     });
 
+    group('extreme aspects', () {
+      test('a wide tile is held at 3:1 for the height and its width', () {
+        // [0.5625, 20]: the 20:1 tile counts as 3:1, so the row does not
+        // collapse and the two tiles still fill the column.
+        final media = [
+          _photo(9, 16),
+          _photo(2000, 100, n: 1),
+        ];
+        expect(PostMedia.rowAspect(media[1]), 3);
+        final height = PostMedia.rowHeight(media, column: 259, wide: false);
+        expect(height, closeTo((259 - 4) / (0.5625 + 3), 0.01));
+        final widths = [
+          for (final m in media) PostMedia.tileSize(m, height: height).width,
+        ];
+        expect(widths.reduce((a, b) => a + b), closeTo(255, 0.01));
+        expect(widths[1], closeTo(height * 3, 0.01));
+      });
+
+      test('three 20:1 tiles keep a tappable row (at least 48 dp)', () {
+        final media = [for (var i = 0; i < 3; i++) _photo(2000, 100, n: i)];
+        // 0.591 x 259 / 3 = 51: above the floor; a narrow column hits it.
+        expect(
+          PostMedia.rowHeight(media, column: 259, wide: false),
+          closeTo(51.0, 0.1),
+        );
+        expect(
+          PostMedia.rowHeight(media, column: 100, wide: false),
+          AppSpacing.minTapTarget,
+        );
+      });
+
+      test('an absurd ref (beyond 1:50 or 50:1) is treated as unknown', () {
+        expect(PostMedia.rowAspect(_photo(1, 1000000)), closeTo(0.8, 1e-9));
+        expect(PostMedia.rowAspect(_photo(1000000, 1)), closeTo(0.8, 1e-9));
+        final media = [
+          _photo(1, 1000000),
+          _photo(1000000, 1, n: 1),
+          _photo(800, 800, n: 2),
+        ];
+        final height = PostMedia.rowHeight(media, column: 259, wide: false);
+        expect(height.isFinite, isTrue);
+        expect(height, closeTo(0.591 * 259 / 0.8, 0.01));
+      });
+
+      test('narrow tiles stay uncropped down to 1:50', () {
+        expect(PostMedia.rowAspect(_photo(20, 1000)), closeTo(0.02, 1e-9));
+        expect(PostMedia.rowAspect(_photo(75, 1000)), closeTo(0.075, 1e-9));
+      });
+    });
+
     test('an unknown size counts as 4:5', () {
       expect(PostMedia.rowAspect(_photo(0, 0)), closeTo(0.8, 1e-9));
     });
@@ -511,6 +561,25 @@ void main() {
       expect(h(aspects, 900), greaterThan(AppSize.postMediaMaxSingleHeight));
       expect(h(aspects, 900, wide: true), AppSize.postMediaMaxSingleHeight);
     });
+  });
+
+  testWidgets('a 20:1 tile in a row is held at 3:1 and center-cropped', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      [_photo(900, 1600, n: 1), _photo(2000, 100, n: 2)],
+      window: 390,
+      column: 306,
+    );
+    expect(tester.takeException(), isNull);
+    final frames = _frames(tester);
+    expect(frames, hasLength(2));
+    expect(frames[1].width / frames[1].height, closeTo(3, 0.01));
+    final image = tester.widget<CachedNetworkImage>(
+      find.byType(CachedNetworkImage).last,
+    );
+    expect(image.fit, BoxFit.cover);
   });
 
   testWidgets('a 0.075 tile is drawn at its own aspect, uncropped', (

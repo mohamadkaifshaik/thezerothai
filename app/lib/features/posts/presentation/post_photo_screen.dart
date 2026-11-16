@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
@@ -487,7 +488,9 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                   child: _SizeReporter(
                     onHeight: (height) => _panelInset.value =
                         height + MediaQuery.paddingOf(context).bottom,
-                    onGone: () => _panelInset.value = 0,
+                    onGone: () {
+                      if (mounted) _panelInset.value = 0;
+                    },
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -551,6 +554,14 @@ class _PhotoViewerState extends State<_PhotoViewer> {
       // are hidden (and to hide them again).
       hint: 'Double tap to show or hide the controls',
       onTap: _toggleChrome,
+      // Screen readers turn the page with these (there are no arrows on a
+      // phone).
+      customSemanticsActions: {
+        if (i > 0)
+          CustomSemanticsAction(label: 'Previous photo'): () => _move(-1),
+        if (i < media.length - 1)
+          CustomSemanticsAction(label: 'Next photo'): () => _move(1),
+      },
       // The photo sits in the area above the panel while the controls are
       // shown and takes the whole screen when they are hidden.
       child: ListenableBuilder(
@@ -708,21 +719,25 @@ class _SizeReporterState extends State<_SizeReporter> {
 
   @override
   void dispose() {
-    // After this frame (not while the tree is torn down); the notifier
-    // belongs to the viewer, which may be gone too.
+    // After this frame (not while the tree is torn down); the viewer's
+    // callback checks that it is still mounted.
     final gone = widget.onGone;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        gone();
-      } catch (_) {}
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => gone());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
-    return widget.child;
+    // Also when the child resizes on its own (an opened caption, text
+    // scale): the notifier reports it, and the height is read after layout.
+    return NotificationListener<SizeChangedLayoutNotification>(
+      onNotification: (_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
+        return false;
+      },
+      child: SizeChangedLayoutNotifier(child: widget.child),
+    );
   }
 }
 
@@ -921,7 +936,26 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      _viewport = constraints.biggest;
+      final viewport = constraints.biggest;
+      if (viewport != _viewport) {
+        final first = _viewport == Size.zero;
+        _viewport = viewport;
+        // A new viewport (rotation, the panel changing size, a window
+        // resize): the pan may now point past the photo's edge.
+        if (!first && _scale > 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(
+              () => _offset = clampPhotoOffset(
+                _offset,
+                _fitted,
+                _scale,
+                _viewport,
+              ),
+            );
+          });
+        }
+      }
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
