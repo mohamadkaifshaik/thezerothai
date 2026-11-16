@@ -243,18 +243,8 @@ class _ProfileHero extends StatelessWidget {
           ? FollowButton(
               followedBy: followedBy,
               source: FollowSource.profile,
-              buttonBuilder:
-                  (
-                    context, {
-                    required filled,
-                    required onPressed,
-                    required child,
-                  }) => _HeroPill(
-                    filled: filled,
-                    height: m.buttonHeight,
-                    onPressed: onPressed,
-                    child: child,
-                  ),
+              large: true,
+              onDark: true,
             )
           : null;
       secondary = onMessage != null && !isBlocking

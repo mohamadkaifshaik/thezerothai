@@ -514,6 +514,7 @@ class _ProfileHeaderBody extends StatelessWidget {
             child: FollowButton(
               followedBy: followedBy,
               source: FollowSource.profile,
+              large: true,
             ),
           ),
         ],

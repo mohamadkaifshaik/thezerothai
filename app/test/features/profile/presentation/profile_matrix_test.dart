@@ -10,6 +10,7 @@ import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/shared/format/joined_date.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -91,7 +92,7 @@ void main() {
       // Targets: Follow back, the website link, the profile menu.
       expectMinTarget(
         tester,
-        find.widgetWithText(FilledButton, 'Follow back'),
+        find.widgetWithText(FollowPill, 'Follow back'),
         reason: 'Follow back',
       );
       expectMinTarget(
@@ -109,7 +110,7 @@ void main() {
       if (!isD1Cell(env)) {
         expect(
           tester
-              .getRect(find.widgetWithText(FilledButton, 'Follow back'))
+              .getRect(find.widgetWithText(FollowPill, 'Follow back'))
               .overlaps(tester.getRect(headerName())),
           isFalse,
           reason: 'Follow back over the display name',
@@ -228,10 +229,10 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('Follows you'), findsNothing);
       expect(find.text('Follow back'), findsNothing);
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
       expectMinTarget(
         tester,
-        find.widgetWithText(FilledButton, 'Follow'),
+        find.widgetWithText(FollowPill, 'Follow'),
         reason: 'Follow',
       );
       // The rest of the header does not change with the answer.
@@ -246,7 +247,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('Follows you'), findsNothing);
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
     }, textScales: const [1.0, 2.0]);
 
     testWidgets('the relationship is asked once per profile open, by the one '
@@ -345,7 +346,7 @@ void main() {
           expect(calls, ['GetProfileRelationship', 'GetRelationships']);
           expect(find.text('Follows you'), findsNothing);
           expect(find.text('Follow back'), findsNothing);
-          expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+          expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
           expect(find.text('Mumbai, India'), findsOneWidget);
           expect(find.text('example.com'), findsOneWidget);
         },
@@ -404,8 +405,8 @@ void main() {
         expect(find.text('Kaif Shaik'), findsWidgets);
         expect(find.text('Mumbai, India'), findsOneWidget);
         expect(find.text('Follows you'), findsNothing);
-        expect(find.widgetWithText(FilledButton, 'Follow'), findsNothing);
-        expect(find.widgetWithText(FilledButton, 'Follow back'), findsNothing);
+        expect(find.widgetWithText(FollowPill, 'Follow'), findsNothing);
+        expect(find.widgetWithText(FollowPill, 'Follow back'), findsNothing);
       },
       widths: const [360, 1200],
       textScales: const [1.0, 2.0],
@@ -448,7 +449,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.widgetWithText(FilledButton, 'Edit profile'), findsOneWidget);
       expect(find.text('Follows you'), findsNothing);
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsNothing);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsNothing);
       expectMinTarget(
         tester,
         find.widgetWithText(FilledButton, 'Edit profile'),
@@ -634,7 +635,7 @@ void main() {
             final action = tester.getRect(
               own
                   ? find.widgetWithText(FilledButton, 'Edit profile')
-                  : find.widgetWithText(FilledButton, 'Follow back'),
+                  : find.widgetWithText(FollowPill, 'Follow back'),
             );
             expect(
               action.overlaps(name),
@@ -700,7 +701,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('Follows you'), findsNothing);
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsNothing);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsNothing);
       expect(find.text('Follow back'), findsNothing);
       verifyNever(() => rig.graphRepository.profileRelationshipFor(any()));
     });

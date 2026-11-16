@@ -9,6 +9,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/shared/widgets/primitives/app_empty_view.dart';
 import 'package:dzeroth/shared/widgets/user/user_list_skeleton.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -415,16 +416,18 @@ void main() {
       ]);
       await open(tester, size: const Size(390, 1000));
 
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
-      expect(find.widgetWithText(OutlinedButton, 'Following'), findsOneWidget);
-      expect(find.widgetWithText(OutlinedButton, 'Unblock'), findsOneWidget);
-      final requested = tester.widget<OutlinedButton>(
-        find.widgetWithText(OutlinedButton, 'Requested'),
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Following'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Unblock'), findsOneWidget);
+      final requested = tester.widget<FollowPill>(
+        find.widgetWithText(FollowPill, 'Requested'),
       );
       // Tapping it asks to cancel the request, so it is live.
       expect(requested.onPressed, isNotNull);
-      for (final b in tester.widgetList<ButtonStyleButton>(
-        find.byWidgetPredicate((w) => w is ButtonStyleButton),
+      for (final b in tester.widgetList<Widget>(
+        find.byWidgetPredicate(
+          (w) => w is ButtonStyleButton || w is FollowPill,
+        ),
       )) {
         expect(
           tester.getSize(find.byWidget(b)).height,
@@ -445,14 +448,14 @@ void main() {
       ).thenAnswer((_) => done.future);
       await open(tester);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Follow'));
+      await tester.tap(find.widgetWithText(FollowPill, 'Follow'));
       await tester.pump();
       // Optimistic and busy: a spinner, no tappable label.
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      final busy = tester.widget<ButtonStyleButton>(
+      final busy = tester.widget<FollowPill>(
         find.descendant(
           of: find.byType(ListView),
-          matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+          matching: find.byType(FollowPill),
         ),
       );
       expect(busy.onPressed, isNull);
@@ -464,7 +467,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(OutlinedButton, 'Following'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Following'), findsOneWidget);
       verify(
         () => graphRepo.follow(
           userId: 'u1',
@@ -482,11 +485,11 @@ void main() {
         ),
       ).thenAnswer((_) async => throw const NetworkException('offline'));
       await open(tester);
-      await tester.tap(find.widgetWithText(FilledButton, 'Follow'));
+      await tester.tap(find.widgetWithText(FollowPill, 'Follow'));
       await tester.pumpAndSettle();
 
       expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
     });
 
     testWidgets('Following unfollows with one request', (tester) async {
@@ -503,7 +506,7 @@ void main() {
         ),
       );
       await open(tester);
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Following'));
+      await tester.tap(find.widgetWithText(FollowPill, 'Following'));
       await tester.pumpAndSettle();
       verify(
         () => graphRepo.unfollow(
@@ -511,7 +514,7 @@ void main() {
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
       ).called(1);
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
     });
 
     testWidgets('the row reads name then handle; a nameless user shows the '

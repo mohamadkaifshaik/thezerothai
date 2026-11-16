@@ -7,6 +7,7 @@ import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -98,7 +99,7 @@ void main() {
   );
   Finder action(bool own) => own
       ? find.widgetWithText(OutlinedButton, 'Edit profile')
-      : find.widgetWithText(FilledButton, 'Follow back');
+      : find.widgetWithText(FollowPill, 'Follow back');
 
   group('D-1: the header actions do not overlap the display name', () {
     // The four cells of the repro, with its assertion.

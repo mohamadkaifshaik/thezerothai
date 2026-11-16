@@ -4,6 +4,7 @@ import 'package:dzeroth/features/graph/presentation/bloc/relationship_cubit.dart
 import 'package:dzeroth/features/graph/presentation/bloc/relationship_state.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/shared/widgets/user/follow_button.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,9 +45,9 @@ void main() {
     await tester.pumpWidget(wrap());
 
     expect(find.text('Follow'), findsOneWidget);
-    // FilledButton has a 48dp minimum height from the app theme.
-    final size = tester.getSize(find.byType(FilledButton));
-    expect(size.height, greaterThanOrEqualTo(48));
+    // The pill is 32dp inside a 48dp hit target.
+    expect(tester.getSize(find.byType(FollowPill)).height, 48);
+    expect(tester.getSize(find.byType(DecoratedBox).last).height, 32);
   });
 
   testWidgets('tapping Follow calls cubit.follow()', (tester) async {
@@ -129,11 +130,13 @@ void main() {
       await tester.pumpWidget(wrap());
 
       expect(find.text('Requested'), findsOneWidget);
-      final button = tester.widget<OutlinedButton>(find.byType(OutlinedButton));
-      expect(button.onPressed, isNotNull);
-      expect(tester.getSize(find.byType(OutlinedButton)).height, 48);
+      final pill = tester.widget<FollowPill>(find.byType(FollowPill));
+      expect(pill.onPressed, isNotNull);
+      expect(pill.style, FollowPillStyle.outlined);
+      expect(pill.hoverLabel, 'Cancel');
+      expect(tester.getSize(find.byType(FollowPill)).height, 48);
       expect(
-        tester.getSize(find.byType(OutlinedButton)).width,
+        tester.getSize(find.byType(FollowPill)).width,
         greaterThanOrEqualTo(48),
       );
     });
@@ -176,8 +179,10 @@ void main() {
 
       await tester.pumpWidget(wrap());
 
-      final button = tester.widget<OutlinedButton>(find.byType(OutlinedButton));
-      expect(button.onPressed, isNull);
+      expect(
+        tester.widget<FollowPill>(find.byType(FollowPill)).onPressed,
+        isNull,
+      );
     });
   });
 
@@ -198,8 +203,10 @@ void main() {
       await tester.pumpWidget(wrap());
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      final button = tester.widget<FilledButton>(find.byType(FilledButton));
-      expect(button.onPressed, isNull);
+      expect(
+        tester.widget<FollowPill>(find.byType(FollowPill)).onPressed,
+        isNull,
+      );
     },
   );
 
@@ -323,7 +330,7 @@ void main() {
       expect(find.text('Follow'), findsNothing);
       expect(find.bySemanticsLabel('Follow back'), findsWidgets);
       expect(
-        tester.getSize(find.byType(FilledButton)).height,
+        tester.getSize(find.byType(FollowPill)).height,
         greaterThanOrEqualTo(48),
       );
 

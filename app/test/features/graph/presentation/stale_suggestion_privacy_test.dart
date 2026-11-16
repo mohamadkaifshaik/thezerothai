@@ -11,6 +11,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/user/protected_badge.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -185,18 +186,18 @@ void main() {
           ),
         );
       });
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsOneWidget);
       expect(find.byType(ProtectedBadge), findsNothing);
 
       await tester.runAsync(() async {
-        await tester.tap(find.widgetWithText(FilledButton, 'Follow'));
+        await tester.tap(find.widgetWithText(FollowPill, 'Follow'));
         await Future<void>.delayed(const Duration(milliseconds: 50));
       });
       await tester.pumpAndSettle();
 
-      expect(find.widgetWithText(OutlinedButton, 'Requested'), findsOneWidget);
+      expect(find.widgetWithText(FollowPill, 'Requested'), findsOneWidget);
       expect(find.text('Following'), findsNothing);
-      expect(find.widgetWithText(FilledButton, 'Follow'), findsNothing);
+      expect(find.widgetWithText(FollowPill, 'Follow'), findsNothing);
       // The badge is the row's field; the answer does not rewrite it.
       expect(find.byType(ProtectedBadge), findsNothing);
       // The shared graph cache holds the answer for every other surface.
@@ -215,7 +216,7 @@ void main() {
       await openCard(tester);
 
       await tester.runAsync(() async {
-        await tester.tap(find.widgetWithText(FilledButton, 'Follow').first);
+        await tester.tap(find.widgetWithText(FollowPill, 'Follow').first);
         await Future<void>.delayed(const Duration(milliseconds: 50));
       });
       await tester.pumpAndSettle();

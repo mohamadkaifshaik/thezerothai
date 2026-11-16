@@ -17,6 +17,7 @@ import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/primitives/sheet_option_row.dart';
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -172,9 +173,7 @@ void main() {
           handle.dispose();
         });
 
-        testWidgets('the avatar is ${width < 600 ? 64 : 88}dp', (
-          tester,
-        ) async {
+        testWidgets('the avatar is ${width < 600 ? 64 : 88}dp', (tester) async {
           final rig = ProfileTabletRig();
           await rig.pump(
             tester,
@@ -321,7 +320,7 @@ void main() {
 
           expect(_inHero(find.text('Message')), findsNothing);
           final follow = tester.getSize(
-            _inHero(find.widgetWithText(FilledButton, 'Follow')),
+            _inHero(find.widgetWithText(FollowPill, 'Follow')),
           );
           expect(follow.width, greaterThan(width < 600 ? 300 : 400));
         });
@@ -699,6 +698,27 @@ void main() {
         width: _phone,
         flags: _fullFlags,
       );
+      // Follow is the x.com pill, 36dp and pale on the navy hero.
+      final follow = find.widgetWithText(FollowPill, 'Follow');
+      expect(tester.getSize(_inHero(follow)).height, 48);
+      final fill =
+          (tester
+                      .widget<DecoratedBox>(
+                        find
+                            .descendant(
+                              of: _inHero(follow),
+                              matching: find.byType(DecoratedBox),
+                            )
+                            .first,
+                      )
+                      .decoration
+                  as BoxDecoration)
+              .color;
+      expect(fill, const Color(0xFFEFF3F4));
+      // A busy hero Follow draws its spinner in the pill's own ink.
+      final pill = tester.widget<FollowPill>(follow);
+      expect(pill.onDark, isTrue);
+      expect(pill.large, isTrue);
       ProgressIndicatorThemeData spinner(String label) => tester
           .widget<ProgressIndicatorTheme>(
             find
@@ -709,7 +729,6 @@ void main() {
                 .first,
           )
           .data;
-      expect(spinner('Follow').color, AppPalette.navy);
       expect(spinner('Message').color, AppPalette.pearl);
     });
   });
