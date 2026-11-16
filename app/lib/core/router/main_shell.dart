@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/beacons/domain/beacons_feature_flag.dart';
 import '../../features/beacons/domain/plans_list_detail.dart';
 import '../../features/beacons/presentation/bloc/plans_session.dart';
+import '../../features/beacons/presentation/widgets/happening_nearby_card.dart';
 import '../../features/beacons/presentation/widgets/upcoming_plans_card.dart';
 import '../../features/beacons/presentation/plans_list_detail.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
@@ -632,6 +633,10 @@ class MainShell extends StatelessWidget {
             // `follow_suggestions` all on. The card draws nothing until the shared
             // list has rows, so the column is unchanged otherwise.
             sections: [
+              // The desktop "Happening nearby" hero, first in the column on
+              // Home, Drafts, Plans and My plans; draws nothing without an answer.
+              if (newShell && happeningNearbyOnLocation(sidePaneLocation))
+                const HappeningNearbyCard(),
               // F16 (R8): on Notifications, the follow-requests card (its own
               // `ListFollowRequests(3)`), above the trends. The page's inline
               // row steps aside under the same rule (`followRequestsCardBeside`).

@@ -36,9 +36,9 @@ import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 /// (W3's, which draws nothing unless its own flags are on). F18 tabs:
 /// Trending, Plans (public plans, with `beacons`) and People (the suggestions,
 /// with `graph` and `follow_suggestions`); a tab whose flag is off is not
-/// shown and Trending alone has no bar. No Nearby tab, no news, sports or
-/// entertainment tabs, no "Happening nearby" hero (nothing counts plans
-/// tonight), no "Posts for you" (F7). The route needs `search` and `ui_shell`.
+/// shown and Trending alone has no bar. `?tab=nearby` opens on Nearby. No
+/// news, sports or entertainment tabs, no "Posts for you" (F7). The
+/// "Happening nearby" hero lives in the desktop side column, not here. The route needs `search` and `ui_shell`.
 /// The height reserved for the search field in Explore's header at text scale
 /// [scaler]: the 48dp target, or the text line plus the field's padding when the
 /// text is scaled up. A pinned sliver header needs its extent up front.
@@ -49,7 +49,11 @@ double searchFieldHeightFor(TextScaler scaler) {
 }
 
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key});
+  const ExploreScreen({super.key, this.initialTab});
+
+  /// The tab to open on (a link's `?tab=`); null keeps the open tab, or
+  /// Trending on first open. Falls back to Trending if the tab is not offered.
+  final ExploreTab? initialTab;
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -69,7 +73,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
   NearbyPlansCubit? _nearby;
   StreamSubscription<NearbyPlansState>? _nearbySub;
   bool _nearbyOff = false;
-  ExploreTab _tab = ExploreTab.trending;
+  late ExploreTab _tab = widget.initialTab ?? ExploreTab.trending;
+
+  @override
+  void didUpdateWidget(ExploreScreen old) {
+    super.didUpdateWidget(old);
+    final tab = widget.initialTab;
+    if (tab != null && tab != old.initialTab) _tab = tab;
+  }
 
   NearbyPlansCubit _makeNearby() {
     final cubit = NearbyPlansCubit(

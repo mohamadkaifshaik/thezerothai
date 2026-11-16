@@ -89,6 +89,7 @@ void main() {
     WidgetTester tester, {
     Set<String> features = const {'search', 'trends', 'beacons', 'location'},
     Size size = const Size(360, 800),
+    ExploreTab? initialTab,
   }) async {
     whenListen(
       onboarding,
@@ -119,7 +120,7 @@ void main() {
               create: (_) => TrendsCubit(repository: FakeSearchRepository()),
             ),
           ],
-          child: const ExploreScreen(),
+          child: ExploreScreen(initialTab: initialTab),
         ),
       ),
       size: size,
@@ -154,6 +155,24 @@ void main() {
     testWidgets('location and beacons: Nearby shows', (tester) async {
       await open(tester);
       expect(tabLabels(tester), ['Trending', 'Nearby', 'Plans']);
+      expect(beacons.calls, isEmpty);
+    });
+
+    testWidgets('initialTab nearby opens on Nearby with one call', (
+      tester,
+    ) async {
+      await open(tester, initialTab: ExploreTab.nearby);
+      expect(beacons.calls, ['nearby']);
+    });
+
+    testWidgets('initialTab nearby with location off falls back to Trending', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        features: {'search', 'trends', 'beacons'},
+        initialTab: ExploreTab.nearby,
+      );
       expect(beacons.calls, isEmpty);
     });
 
