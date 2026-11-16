@@ -141,6 +141,46 @@ abstract final class AppBreakpoints {
   static const double tablet = 1200;
 }
 
+/// The Follow button, as on x.com (measured 2026-11): a 32dp pill (36dp
+/// large) inside a 48dp hit target. Its colours are fixed per theme, not
+/// taken from the brand palette.
+abstract final class AppFollowButton {
+  static const double heightCompact = 32;
+  static const double heightLarge = 36;
+  static const double paddingH = 16;
+  static const double minWidth = 77;
+  static const double fontCompact = 14;
+  static const double fontLarge = 15;
+  static const double borderWidth = 1;
+  static const double spinner = 16;
+  static const double disabledOpacity = 0.5;
+
+  /// The keyboard focus ring: width and the gap between it and the pill.
+  /// The Message circle that sits beside Follow on a profile hero (X): the
+  /// icon inside a 36dp outlined circle, in a 48dp hit target.
+  static const double circleIcon = 20;
+  static const double focusRingWidth = 2;
+  static const double focusRingGap = 2;
+
+  /// Follow, dark theme: pale fill, near-black label.
+  static const Color darkFill = Color(0xFFEFF3F4);
+  static const Color darkFillText = Color(0xFF0F1419);
+
+  /// Follow, light theme: near-black fill, white label.
+  static const Color lightFill = Color(0xFF0F1419);
+  static const Color lightFillText = Color(0xFFFFFFFF);
+
+  /// Following / Requested outline.
+  static const Color darkBorder = Color(0xFF536471);
+  static const Color lightBorder = Color(0xFFCFD9DE);
+
+  /// Unfollow / Cancel on hover or press, and the Unblock fill.
+  static const Color danger = Color(0xFFF4212E);
+  static const Color dangerBorder = Color(0x80F4212E);
+  static const Color dangerFill = Color(0x1AF4212E);
+  static const Color onDanger = Color(0xFFFFFFFF);
+}
+
 /// Sizes of the shared chrome (dp), measured on x.com 2026-10-22 and divided
 /// by the verified 1.25 display scale.
 abstract final class AppSize {

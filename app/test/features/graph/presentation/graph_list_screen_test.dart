@@ -5,6 +5,7 @@ import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -110,7 +111,7 @@ void main() {
     // The row's FollowButton must come from the list item, not a separate
     // GetRelationships round trip. Scoped to the OutlinedButton
     // because the "Following" tab label shares the text.
-    expect(find.widgetWithText(OutlinedButton, 'Following'), findsOneWidget);
+    expect(find.widgetWithText(FollowPill, 'Following'), findsOneWidget);
     verifyNever(() => graphRepository.relationshipFor(any()));
   });
 
@@ -285,7 +286,7 @@ void main() {
       ),
     ).called(1);
     expect(find.textContaining('a bit too fast'), findsOneWidget);
-    expect(find.byType(FilledButton), findsNothing);
+    expect(find.byType(FollowPill), findsNothing);
   });
 
   testWidgets('the Following tab loads lazily and honors initialTab', (

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/network/network_type_service.dart';
 import '../../../../core/storage/session_epoch.dart';
 import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/telemetry/usage_reporter.dart';
@@ -16,6 +17,7 @@ import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../../media/presentation/media_error_messages.dart';
 import '../../data/drafts_repository.dart';
 import '../../data/posts_repository.dart';
+import '../../data/unsent_posts_store.dart';
 import '../../domain/composer_attachment_rules.dart';
 import '../../domain/composer_draft.dart';
 import '../../domain/poll_rules.dart';
@@ -127,13 +129,60 @@ class PostEditSeed {
 }
 
 class _Entry {
-  _Entry(this.localId, this.job, this.generation, this.openedSession)
-    : held = job.claimKey,
+  _Entry(
+    this.localId,
+    this.job,
+    this.generation,
+    this.openedSession,
+    this.order,
+  ) : held = job.claimKey,
       attachments = job.attachments;
   final String localId;
   final PostSendJob job;
   final int generation;
   final int openedSession;
+
+  /// Send order: the queue sends oldest first.
+  final int order;
+
+  /// In the queue: waiting for a connection or for the next retry.
+  bool waiting = false;
+
+  /// Waiting for its backoff timer (the queue holds behind it).
+  bool backingOff = false;
+  Timer? backoffTimer;
+
+  /// Network errors in a row since the last manual Retry (indexes the
+  /// backoff).
+  int netAttempts = 0;
+
+  /// The post has a record in the unsent-posts store (set once the save
+  /// worked), or is being saved right now.
+  bool saved = false;
+  bool saving = false;
+
+  /// Nothing more is written for this post (it was sent, dismissed, edited or
+  /// deleted from Settings).
+  bool noPersist = false;
+
+  /// Its processed photos are on disk: memory may drop them, and a send or an
+  /// Edit loads them again.
+  bool onDisk = false;
+
+  /// Brought back after a restart.
+  bool restored = false;
+
+  /// The claim was a reused one (an Edited post under its old key) when the
+  /// post was first sent; kept apart from the restore's own "key used".
+  bool originallyReused = false;
+
+  /// [attachments] was created by the sender (loaded from disk): it is the
+  /// sender's to close.
+  bool ownsAttachments = false;
+
+  /// MEDIA_NOT_READY emptied the media ids of this many stored photos: the
+  /// store says so until the bytes are loaded again for the next send.
+  int staleMedia = 0;
 
   /// The key the draft row holds for this send; null once released.
   String? held;
@@ -198,9 +247,15 @@ class PostSender {
     Uuid? uuid,
     DateTime Function()? clock,
     this.postedFor = const Duration(seconds: 4),
-    this.maxFailedWithPhotos = 3,
+    this.maxFailedWithPhotos = kUnsentPostsWithPhotos,
     Duration Function()? undoDelay,
+    NetworkTypeService? network,
+    UnsentPostsStore? unsent,
+    AttachmentsCubit Function()? newAttachments,
   }) : _undoDelay = undoDelay ?? _noDelay,
+       _network = network,
+       _unsent = unsent,
+       _newAttachments = newAttachments,
        _pending = pending,
        _repository = repository,
        _drafts = drafts,
@@ -210,7 +265,35 @@ class PostSender {
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now {
     _sub = _session.ended.listen((_) => reset());
+    _netSub = network?.onlineChanges.listen((online) {
+      if (!online) return;
+      // A connection came back: the queue starts over, in order.
+      for (final e in _entries.values) {
+        if (e.waiting && !e.backingOff) e.netAttempts = 0;
+      }
+      _drain();
+    });
   }
+
+  /// Without a network service a network error fails the send at once (no
+  /// queue, no backoff).
+  final NetworkTypeService? _network;
+
+  /// Where unsent posts and their processed photos survive a restart; null:
+  /// nothing is kept.
+  final UnsentPostsStore? _unsent;
+
+  /// A new photo holder for a restored post.
+  final AttachmentsCubit Function()? _newAttachments;
+
+  /// Waits after the 1st, 2nd, 3rd and 4th network error; then Retry is
+  /// manual.
+  static const List<Duration> backoff = [
+    Duration(seconds: 2),
+    Duration(seconds: 5),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+  ];
 
   final PendingPostsCubit _pending;
   final PostsRepository _repository;
@@ -234,6 +317,10 @@ class PostSender {
   final int maxFailedWithPhotos;
 
   StreamSubscription<int>? _sub;
+  StreamSubscription<bool>? _netSub;
+  int _seq = 0;
+  bool _draining = false;
+  Future<void> _storeOps = Future.value();
   int _generation = 0;
   final Map<String, _Entry> _entries = {};
   final Map<String, Timer> _timers = {};
@@ -246,6 +333,7 @@ class PostSender {
     while (_running.isNotEmpty) {
       await Future.wait(List.of(_running));
     }
+    await _storeOps;
   }
 
   bool _dead(_Entry e) =>
@@ -253,7 +341,7 @@ class PostSender {
 
   /// Adds the status row and runs the send. Returns when the send stops.
   Future<void> start(PostSendJob job) {
-    final entry = _Entry(_uuid.v4(), job, _generation, _session.value);
+    final entry = _Entry(_uuid.v4(), job, _generation, _session.value, _seq++);
     final delay = _undoDelay();
     _entries[entry.localId] = entry;
     job.attachments?.retain();
@@ -273,7 +361,7 @@ class PostSender {
         holdSeconds: (delay.inMilliseconds / 1000).ceil(),
       ),
     );
-    if (delay <= Duration.zero) return _run(entry);
+    if (delay <= Duration.zero) return _launch(entry);
     // The undo window: nothing is uploaded or sent until it closes.
     final done = Completer<void>();
     entry.hold = done;
@@ -288,7 +376,7 @@ class PostSender {
         entry.localId,
         (p) => p.copyWith(status: PendingPostStatus.sending, holdSeconds: 0),
       );
-      done.complete(_run(entry));
+      done.complete(_launch(entry));
     });
     _running.add(done.future);
     return done.future.whenComplete(() => _running.remove(done.future));
@@ -317,17 +405,31 @@ class PostSender {
     if (p == null || p.status != PendingPostStatus.failed || !p.canRetry) {
       return Future.value();
     }
-    _pending.update(
-      localId,
-      (x) => x.copyWith(
-        status: PendingPostStatus.sending,
-        clearError: true,
-        needsVerify: false,
-        photosDone: 0,
-        uploading: (e.attachments?.state.count ?? 0) > 0,
-      ),
-    );
-    return _run(e);
+    e.netAttempts = 0;
+    final net = _network;
+    if (net == null) {
+      _pending.update(
+        localId,
+        (x) => x.copyWith(
+          status: PendingPostStatus.sending,
+          clearError: true,
+          needsVerify: false,
+          photosDone: 0,
+          uploading: (e.attachments?.state.count ?? 0) > 0,
+        ),
+      );
+      return _run(e);
+    }
+    // Through the queue: after older posts, and only with a connection.
+    if (!net.online) {
+      _wait(e, connection: true);
+    } else if (_queueBusy()) {
+      _wait(e, connection: false);
+    } else {
+      e.waiting = true;
+      _drain();
+    }
+    return Future.value();
   }
 
   /// Dismiss: the row leaves, its photos are released. The text stays in its
@@ -341,6 +443,7 @@ class PostSender {
     _entries.remove(localId);
     _timers.remove(localId)?.cancel();
     _pending.remove(localId);
+    _forget(e);
     await _releaseHeldKey(e);
     _dropPhotos(e);
     return e.job.draftId;
@@ -352,9 +455,20 @@ class PostSender {
   Future<PostEditSeed?> edit(String localId) async {
     final e = _entries[localId];
     if (e == null || e.running || e.hold != null) return null;
+    // Photos that live on disk only come back for the composer.
+    if (e.onDisk && e.attachments == null && !e.dropPhotos) {
+      final loaded = await _loadBytes(e);
+      if (_entries[localId] != e || e.running) {
+        unawaited(loaded?.close());
+        return null;
+      }
+      e.attachments = loaded;
+      e.ownsAttachments = loaded != null;
+    }
     _entries.remove(localId);
     _timers.remove(localId)?.cancel();
     _pending.remove(localId);
+    _forget(e);
     await _releaseHeldKey(e);
     // Signed out while the key was released: nothing goes to the composer.
     if (_dead(e)) {
@@ -362,13 +476,14 @@ class PostSender {
       return null;
     }
     final photos = e.attachments;
-    e.attachments = null;
     AttachmentsCubit? keep;
     if (photos != null) {
       if (e.dropPhotos) {
-        unawaited(photos.release());
+        _dropPhotos(e);
       } else {
         // Ownership moves to the composer: not retained, not closing.
+        e.attachments = null;
+        e.ownsAttachments = false;
         photos.reclaim();
         keep = photos;
       }
@@ -390,8 +505,165 @@ class PostSender {
     );
   }
 
-  /// Sign-out or account switch: stop everything, forget everything.
+  /// Sign-out or account switch: stop everything, forget everything, and
+  /// delete every unsent post and photo this device kept (of any account).
   void reset() {
+    _stop();
+    final store = _unsent;
+    if (store != null) _storeOp(store.deleteEverything);
+  }
+
+  /// Rows that were waiting or not sent when the app last closed, back as
+  /// "Not sent" rows with Retry / Edit. Nothing is sent: the user taps Retry.
+  /// Anything stored for another account is deleted first, and rows past the
+  /// idempotency window are swept (see [UnsentPostsStore]). Only thumbnails
+  /// come back to memory; the photos load when a post is retried or edited.
+  Future<void> restore(String uid) async {
+    final store = _unsent;
+    if (store == null || uid.isEmpty) return;
+    final session = _session.value;
+    final generation = _generation;
+    bool stale() => session != _session.value || generation != _generation;
+    final List<UnsentPostRecord> records;
+    try {
+      await _storeOps;
+      // Signed out (or switched) meanwhile: nothing of it comes back, and
+      // nothing is purged on behalf of an account that is gone.
+      if (stale()) return;
+      await store.purgeOthers(uid);
+      if (stale()) return;
+      records = await store.load(uid);
+    } catch (_, stack) {
+      _onUnexpectedError?.call(
+        StateError('Unsent posts could not be read.'),
+        stack,
+      );
+      return;
+    }
+    if (stale()) return;
+    for (final record in records) {
+      if (record.uid != uid || _entries.containsKey(record.postId)) continue;
+      _restoreOne(record);
+    }
+  }
+
+  void _restoreOne(UnsentPostRecord record) {
+    final hadPhotos = record.totalPhotos > 0;
+    final withPhotos =
+        record.photosKept &&
+        record.photos.isNotEmpty &&
+        _newAttachments != null;
+    final lost = hadPhotos && !withPhotos;
+    final ids = [for (final p in record.photos) p.mediaId];
+    final uploaded = withPhotos && ids.every((id) => id.isNotEmpty);
+    final alts = [for (final p in record.photos) p.altText];
+    final job = PostSendJob(
+      text: record.text,
+      author: record.author,
+      policy: record.policy,
+      replyAudience: record.replyAudience,
+      poll: record.poll,
+      communityId: record.communityId,
+      beaconId: record.beaconId,
+      thumbnails: [
+        if (withPhotos)
+          for (final p in record.photos) p.image.thumbBytes,
+      ],
+      gif: record.gif,
+      uid: record.uid,
+      draftId: record.draftId,
+      deleteDraftId: record.deleteDraftId,
+      claimKey: record.key,
+      // A key that was used may exist on the server: it is reused, never
+      // replaced, and its 23 hour window keeps running.
+      claimReused: record.claimReused || record.keyUsed,
+      claimStartedAt: record.keyStartedAt,
+    );
+    final flags = record.clearFlags;
+    final entry =
+        _Entry(record.postId, job, _generation, _session.value, _seq++)
+          ..key = record.keyUsed ? record.key : null
+          ..keyUsed = record.keyUsed
+          ..firstUsedAt = record.keyStartedAt
+          ..ambiguous = record.ambiguous
+          ..photosLost = lost
+          ..saved = true
+          ..restored = true
+          ..originallyReused = record.claimReused
+          ..onDisk = withPhotos
+          ..clearCommunity = flags & kClearCommunity != 0
+          ..clearPlan = flags & kClearPlan != 0
+          ..clearPoll = flags & kClearPoll != 0
+          ..clearAudience = flags & kClearAudience != 0
+          ..dropPhotos = flags & kClearPhotos != 0;
+    if (uploaded) {
+      // Every photo finished uploading before the app closed: Retry sends
+      // those uploads, nothing is uploaded again.
+      entry
+        ..mediaIds = ids
+        ..altTexts = alts.every((t) => t.isEmpty) ? const [] : alts;
+    }
+    _entries[entry.localId] = entry;
+    final String copy;
+    if (record.keyUsed && record.ambiguous) {
+      copy = lost
+          ? 'We could not confirm this post was sent. Its photos could not '
+                'be kept.'
+          : 'We could not confirm this post was sent. Retry to check and '
+                'send it.';
+    } else if (lost) {
+      copy = 'Not sent. Its photos could not be kept.';
+    } else {
+      copy =
+          record.errorText ??
+          'Not sent. It was still waiting when the app closed.';
+    }
+    _pending.add(
+      PendingPost(
+        localId: entry.localId,
+        text: record.text,
+        author: record.author,
+        createdAt: record.createdAt,
+        thumbnails: job.thumbnails,
+        photosTotal: record.totalPhotos,
+        draftId: record.draftId,
+        status: PendingPostStatus.failed,
+        error: copy,
+        canRetry: record.canRetry && !lost,
+        needsVerify: record.needsVerify,
+        keepsPhotos: !lost && !entry.dropPhotos,
+      ),
+    );
+  }
+
+  /// Settings' "Delete unsent posts": the rows that wait or failed go (their
+  /// photos are released) and every stored post and photo of [uid] is deleted
+  /// through the same ordered store queue as every other write. A send in
+  /// progress keeps running but is no longer written to the device.
+  Future<void> deleteUnsentPosts(String uid) async {
+    for (final e in _entries.values.toList()) {
+      if (e.job.uid != uid) continue;
+      if (e.running || e.hold != null) {
+        e.noPersist = true;
+        e.saved = false;
+        continue;
+      }
+      final p = _pending.state.where((x) => x.localId == e.localId).firstOrNull;
+      if (p == null ||
+          (p.status != PendingPostStatus.failed &&
+              p.status != PendingPostStatus.waiting)) {
+        continue;
+      }
+      _entries.remove(e.localId);
+      _pending.remove(e.localId);
+      _forget(e);
+      _dropPhotos(e);
+    }
+    final store = _unsent;
+    if (store != null) await _storeOp(() => store.deleteAll(uid));
+  }
+
+  void _stop() {
     _generation++;
     for (final t in _timers.values) {
       t.cancel();
@@ -401,6 +673,8 @@ class PostSender {
     _entries.clear();
     _pending.clear();
     for (final e in entries) {
+      e.backoffTimer?.cancel();
+      e.backoffTimer = null;
       e.holdTimer?.cancel();
       e.holdTimer = null;
       final waiting = e.hold;
@@ -411,15 +685,24 @@ class PostSender {
   }
 
   Future<void> dispose() async {
-    reset();
+    // Closing the app is not a sign-out: what is stored stays.
+    _stop();
     await _sub?.cancel();
+    await _netSub?.cancel();
   }
 
   /// Releases the entry's photos, once.
   void _dropPhotos(_Entry e) {
     final a = e.attachments;
     e.attachments = null;
-    if (a != null) unawaited(a.release());
+    if (a == null) return;
+    if (e.ownsAttachments) {
+      // Loaded from disk by the sender: nobody else holds it.
+      e.ownsAttachments = false;
+      unawaited(a.close());
+    } else {
+      unawaited(a.release());
+    }
   }
 
   Future<void> _releaseHeldKey(_Entry e) async {
@@ -451,6 +734,42 @@ class PostSender {
 
   Future<void> _attempt(_Entry e) async {
     final job = e.job;
+    // A stored key past its window may be forgotten by the server: only Edit.
+    // Checked first: nothing is uploaded for a post that cannot be sent.
+    final usedKey = e.key ?? e.held;
+    if (usedKey != null &&
+        (job.claimReused || e.keyUsed) &&
+        sendKeyExpired(
+          kind: SendKind.post,
+          startedAt: job.claimStartedAt ?? e.firstUsedAt,
+          publishAt: null,
+          now: _clock(),
+        )) {
+      return _fail(
+        e,
+        'We cannot tell whether this post was sent. Edit it to send again.',
+        canRetry: false,
+      );
+    }
+    // Its photos were shed (and never uploaded): sending now would post it
+    // without them.
+    if (e.photosLost && e.mediaIds == null) {
+      return _fail(
+        e,
+        'Its photos could not be kept. Edit the post to send it again.',
+        canRetry: false,
+      );
+    }
+    // Photos that only live on disk come back for this send.
+    if (!await _prepareSend(e)) {
+      if (_dead(e)) return;
+      return _fail(
+        e,
+        'Its photos could not be loaded. Edit the post to send it again.',
+        canRetry: false,
+      );
+    }
+    if (_dead(e)) return;
     final attachments = e.attachments;
     var mediaIds = e.mediaIds ?? const <String>[];
     var altTexts = e.altTexts;
@@ -476,6 +795,11 @@ class PostSender {
         altTexts = uploaded.altTexts;
       } on AppException catch (error) {
         if (_dead(e)) return;
+        if ((error is NetworkException ||
+                error is UploadInterruptedException) &&
+            _waitForNetwork(e)) {
+          return;
+        }
         return _fail(
           e,
           uploadErrorMessage(error, gif: job.gif),
@@ -491,28 +815,34 @@ class PostSender {
     }
     if (_dead(e)) return;
 
-    // A stored key past its window may be forgotten by the server: only Edit.
-    final usedKey = e.key ?? e.held;
-    if (usedKey != null &&
-        (job.claimReused || e.keyUsed) &&
-        sendKeyExpired(
-          kind: SendKind.post,
-          startedAt: job.claimStartedAt ?? e.firstUsedAt,
-          publishAt: null,
-          now: _clock(),
-        )) {
-      return _fail(
-        e,
-        'We cannot tell whether this post was sent. Edit it to send again.',
-        canRetry: false,
-      );
-    }
     // The key is decided once and then reused by every retry.
     final key = e.key ??= e.held ?? _uuid.v4();
     _pending.update(
       e.localId,
       (p) => p.copyWith(uploading: false, photosDone: p.photosTotal),
     );
+    // Written ahead: a stored post records that CreatePost may be on its way
+    // BEFORE the call, so a kill mid-call never loses the key.
+    final store = _unsent;
+    if (store != null && !e.noPersist && (e.saved || e.saving)) {
+      e.firstUsedAt ??= _clock();
+      await _storeOp(
+        () => store.updateSend(
+          job.uid,
+          e.localId,
+          epoch: e.openedSession,
+          key: key,
+          keyStartedAt: _earliest(job.claimStartedAt, e.firstUsedAt),
+          keyUsed: true,
+          ambiguous: true,
+          errorText: null,
+          canRetry: true,
+          needsVerify: false,
+          clearFlags: _clearFlagsOf(e),
+          mediaIds: _storedMediaIds(e) ?? (mediaIds.isEmpty ? null : mediaIds),
+        ),
+      );
+    }
     // No await between this check and the call: the repository reads the
     // session as createPost starts.
     if (_dead(e)) return;
@@ -561,6 +891,7 @@ class PostSender {
               ),
         );
       }
+      _unpersist(e);
       _dropPhotos(e);
       if (_dead(e)) return;
       _entries.remove(e.localId);
@@ -619,7 +950,13 @@ class PostSender {
         error is FeatureDisabledException ||
         error is EmailNotVerifiedException;
     if (!proves) e.ambiguous = true;
+    // No connection, or the server could not be reached: the post waits and
+    // goes again under the same key (the backoff; after it, Retry is manual).
+    if (error is NetworkException && !_dead(e) && _waitForNetwork(e)) return;
     if (error is IdempotencyKeyReusedException) {
+      if (e.restored && e.keyUsed && !e.originallyReused) {
+        return _fail(e, 'This post was already sent.', canRetry: false);
+      }
       return _fail(
         e,
         'An earlier version of this post was already sent. Edit it to post '
@@ -634,10 +971,22 @@ class PostSender {
     // composer with the field taken out, as the composer did itself.
     final feature = error is FeatureDisabledException ? error.feature : null;
     var permanent = proves;
-    // A shed row's uploads are the only copy of its photos: when the server
-    // no longer has them, Retry cannot succeed; Edit (text) remains.
-    if (error is MediaNotReadyException && e.mediaIds != null) {
-      permanent = true;
+    // The server no longer has the uploads (the orphan sweep took them):
+    // CreatePost created nothing with those ids, so the key stays and the
+    // next Retry uploads the photos again. Without the bytes (a shed row)
+    // Retry cannot succeed; Edit (text) remains.
+    if (error is MediaNotReadyException) {
+      final ids = e.mediaIds;
+      if (ids != null) {
+        if (e.onDisk) {
+          e.staleMedia = ids.length;
+          e.mediaIds = null;
+          e.altTexts = const [];
+        } else {
+          permanent = true;
+        }
+      }
+      e.attachments?.markNotUploaded();
     }
     if (feature == kFeaturePostBeaconEmbed ||
         (error is NotFoundException && job.beaconId.isNotEmpty)) {
@@ -692,6 +1041,7 @@ class PostSender {
         uploading: false,
       ),
     );
+    _persist(e);
     _shedOldFailed();
   }
 
@@ -701,12 +1051,18 @@ class PostSender {
   void _shedOldFailed() {
     final failed = [
       for (final e in _entries.values)
+        // A post being saved or already on disk keeps its photos there; on
+        // the web (no disk copy) a waiting post is never shed, its photos
+        // would be lost for good.
         if (!e.running &&
+            !e.saving &&
+            !e.onDisk &&
             e.attachments != null &&
             _pending.state.any(
               (p) =>
                   p.localId == e.localId &&
-                  p.status == PendingPostStatus.failed,
+                  (p.status == PendingPostStatus.failed ||
+                      (p.status == PendingPostStatus.waiting && !kIsWeb)),
             ))
           e,
     ];
@@ -738,6 +1094,350 @@ class PostSender {
         ),
       );
     }
+  }
+
+  bool _queueBusy() => _draining || _entries.values.any((x) => x.waiting);
+
+  /// Starts the send, or queues it: offline, or behind an older post that
+  /// waits (posts go out in order).
+  Future<void> _launch(_Entry e) {
+    final net = _network;
+    if (net != null && (!net.online || _queueBusy())) {
+      _wait(e, connection: !net.online);
+      return Future.value();
+    }
+    return _run(e);
+  }
+
+  /// Puts the post in the queue. With a [delay] (backoff) it goes again when
+  /// the timer fires; without one, as soon as there is a connection.
+  void _wait(_Entry e, {required bool connection, Duration? delay}) {
+    e.activeRun = null;
+    e.waiting = true;
+    e.backoffTimer?.cancel();
+    e.backoffTimer = null;
+    e.backingOff = delay != null;
+    _pending.update(
+      e.localId,
+      (p) => p.copyWith(
+        status: PendingPostStatus.waiting,
+        wasQueued: true,
+        waitingForConnection: connection,
+        uploading: false,
+        photosDone: 0,
+        clearError: true,
+        needsVerify: false,
+      ),
+    );
+    _persist(e);
+    _shedOldFailed();
+    if (delay == null) {
+      _drain();
+    } else {
+      e.backoffTimer = Timer(delay, () {
+        e.backoffTimer = null;
+        e.backingOff = false;
+        _drain();
+      });
+    }
+  }
+
+  /// A network error: wait for the connection, or for the next backoff step.
+  /// False when the backoff is used up (the caller fails the post; Retry is
+  /// manual) or there is no network service.
+  bool _waitForNetwork(_Entry e) {
+    final net = _network;
+    // No network service, or its post was deleted from Settings meanwhile:
+    // it fails (unsaved, Retry is manual) instead of queueing to send itself.
+    if (net == null || e.noPersist) return false;
+    if (!net.online) {
+      _wait(e, connection: true);
+      return true;
+    }
+    if (e.netAttempts < backoff.length) {
+      _wait(e, connection: false, delay: backoff[e.netAttempts++]);
+      return true;
+    }
+    e.netAttempts = 0;
+    return false;
+  }
+
+  _Entry? _head() {
+    _Entry? best;
+    for (final e in _entries.values) {
+      if (!e.waiting || _dead(e)) continue;
+      if (best == null || e.order < best.order) best = e;
+    }
+    return best;
+  }
+
+  /// Sends the queued posts one after the other, oldest first, while there
+  /// is a connection. Stops at a post that waits for its backoff, so the
+  /// order holds.
+  void _drain() {
+    if (_draining) return;
+    final net = _network;
+    if (net != null && !net.online) return;
+    if (_head() == null) return;
+    final f = _drainLoop();
+    _running.add(f);
+    unawaited(f.whenComplete(() => _running.remove(f)));
+  }
+
+  Future<void> _drainLoop() async {
+    _draining = true;
+    try {
+      while (true) {
+        final net = _network;
+        if (net != null && !net.online) return;
+        final head = _head();
+        if (head == null || head.backingOff) return;
+        head.waiting = false;
+        _pending.update(
+          head.localId,
+          (p) => p.copyWith(
+            status: PendingPostStatus.sending,
+            clearError: true,
+            photosDone: 0,
+            uploading: p.photosTotal > 0 && head.mediaIds == null,
+          ),
+        );
+        await _run(head);
+      }
+    } finally {
+      _draining = false;
+    }
+  }
+
+  /// Serialises the store writes, so a delete never overtakes the save it
+  /// follows. The future completes when this write is done (errors are
+  /// reported without details and never thrown).
+  Future<void> _storeOp(Future<void> Function() op) {
+    final next = _storeOps.then((_) => op()).catchError((
+      Object _,
+      StackTrace stack,
+    ) {
+      // Without details: a storage error can carry the post's text.
+      _onUnexpectedError?.call(
+        StateError('Unsent posts storage failed.'),
+        stack,
+      );
+    });
+    _storeOps = next;
+    return next;
+  }
+
+  static DateTime? _earliest(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isBefore(b) ? a : b;
+  }
+
+  int _clearFlagsOf(_Entry e) =>
+      (e.clearCommunity ? kClearCommunity : 0) |
+      (e.clearPlan ? kClearPlan : 0) |
+      (e.clearPoll ? kClearPoll : 0) |
+      (e.clearAudience ? kClearAudience : 0) |
+      (e.dropPhotos ? kClearPhotos : 0);
+
+  /// The media ids of the finished uploads, parallel to the stored photos;
+  /// null when there is nothing to say (no photos in memory).
+  List<String>? _storedMediaIds(_Entry e) {
+    final ids = e.mediaIds;
+    if (ids != null) return ids;
+    if (e.staleMedia > 0 && e.attachments == null) {
+      return List.filled(e.staleMedia, '');
+    }
+    final items = e.attachments?.state.items;
+    if (items == null) return null;
+    return [
+      for (final a in items)
+        if (a.image != null)
+          a.status == AttachmentStatus.uploaded ? a.mediaId : '',
+    ];
+  }
+
+  /// Keeps the post (text, key, how it ended and the processed photos) on the
+  /// device while it waits or has failed. The first call saves it, with the
+  /// idempotency key pinned (so a stored post always has one); later calls
+  /// refresh what the send knows.
+  void _persist(_Entry e) {
+    final store = _unsent;
+    final job = e.job;
+    if (store == null || job.uid.isEmpty || e.noPersist || _dead(e)) return;
+    final epoch = e.openedSession;
+    final key = e.key ??= e.held ?? _uuid.v4();
+    final startedAt = _earliest(job.claimStartedAt, e.firstUsedAt);
+    final row = _pending.state.where((p) => p.localId == e.localId).firstOrNull;
+    final failed = row?.status == PendingPostStatus.failed;
+    final errorText = failed ? row?.error : null;
+    final canRetry = row?.canRetry ?? true;
+    final needsVerify = row?.needsVerify ?? false;
+    final flags = _clearFlagsOf(e);
+    final mediaIds = _storedMediaIds(e);
+    if (e.saved || e.saving) {
+      unawaited(
+        _storeOp(() async {
+          await store.updateSend(
+            job.uid,
+            e.localId,
+            epoch: epoch,
+            key: key,
+            keyStartedAt: startedAt,
+            keyUsed: e.keyUsed,
+            ambiguous: e.ambiguous,
+            errorText: errorText,
+            canRetry: canRetry,
+            needsVerify: needsVerify,
+            clearFlags: flags,
+            mediaIds: mediaIds,
+          );
+          if (e.onDisk) _dropFromMemory(e);
+        }),
+      );
+      return;
+    }
+    e.saving = true;
+    final hadPhotos = job.attachments != null;
+    final photos = [
+      for (final a in e.attachments?.state.items ?? const <Attachment>[])
+        if (a.image != null)
+          StoredPhoto(
+            image: a.image!,
+            altText: a.altText,
+            mediaId: a.status == AttachmentStatus.uploaded ? a.mediaId : '',
+          ),
+    ];
+    final record = UnsentPostRecord(
+      uid: job.uid,
+      postId: e.localId,
+      text: job.text,
+      author: job.author,
+      createdAt: row?.createdAt ?? _clock(),
+      poll: job.poll,
+      replyAudience: job.replyAudience,
+      policy: job.policy,
+      communityId: job.communityId,
+      beaconId: job.beaconId,
+      gif: job.gif,
+      draftId: job.draftId,
+      deleteDraftId: job.deleteDraftId,
+      key: key,
+      keyStartedAt: startedAt,
+      keyUsed: e.keyUsed,
+      ambiguous: e.ambiguous,
+      claimReused: job.claimReused,
+      photosKept: !e.photosLost && (e.attachments != null || !hadPhotos),
+      photoCount: row?.photosTotal,
+      photos: photos,
+      errorText: errorText,
+      canRetry: canRetry,
+      needsVerify: needsVerify,
+      clearFlags: flags,
+    );
+    unawaited(
+      _storeOp(() async {
+        try {
+          final result = await store.save(record, epoch: epoch);
+          // Only a save that worked counts as saved.
+          if (!e.noPersist) e.saved = true;
+          if (_dead(e)) return;
+          if (result == UnsentSave.textOnly && hadPhotos) {
+            _pending.update(e.localId, (p) => p.copyWith(photosNotSaved: true));
+          } else if (result == UnsentSave.full && photos.isNotEmpty) {
+            e.onDisk = true;
+            _dropFromMemory(e);
+          }
+        } finally {
+          e.saving = false;
+        }
+      }),
+    );
+  }
+
+  /// Once a post's photos are safe on disk, a post that is not being sent
+  /// does not keep their bytes in memory: they load again when needed.
+  void _dropFromMemory(_Entry e) {
+    if (e.running || e.attachments == null || _newAttachments == null) return;
+    final status = _pending.state
+        .where((p) => p.localId == e.localId)
+        .firstOrNull
+        ?.status;
+    if (status != PendingPostStatus.waiting &&
+        status != PendingPostStatus.failed) {
+      return;
+    }
+    // Every photo finished uploading: the resend carries those media ids
+    // (never new uploads), as a shed row does.
+    final items = e.attachments!.state.items;
+    if (items.isNotEmpty &&
+        items.every(
+          (a) => a.status == AttachmentStatus.uploaded && a.mediaId.isNotEmpty,
+        )) {
+      e.mediaIds = [for (final a in items) a.mediaId];
+      final alts = [for (final a in items) a.altText];
+      e.altTexts = alts.every((t) => t.isEmpty) ? const [] : alts;
+    }
+    _dropPhotos(e);
+  }
+
+  /// The photos of a stored post as a new holder (for an Edit, or a send of
+  /// a post that was only on disk); null when they cannot be read.
+  Future<AttachmentsCubit?> _loadBytes(_Entry e) async {
+    final store = _unsent;
+    final make = _newAttachments;
+    if (store == null || make == null) return null;
+    try {
+      final photos = await store.loadFull(e.job.uid, e.localId);
+      if (photos.isEmpty || photos.any((p) => !p.fullLoaded)) return null;
+      return make()..restore([
+        for (final p in photos)
+          (image: p.image, altText: p.altText, mediaId: p.mediaId),
+      ], gif: e.job.gif);
+    } catch (_, stack) {
+      _onUnexpectedError?.call(
+        StateError('Unsent photos could not be read.'),
+        stack,
+      );
+      return null;
+    }
+  }
+
+  /// Makes sure a send has its photos: in memory, or as the media ids of
+  /// uploads that finished (no bytes needed), or loaded from disk.
+  Future<bool> _prepareSend(_Entry e) async {
+    if (!e.onDisk || e.attachments != null || e.mediaIds != null) return true;
+    final cubit = await _loadBytes(e);
+    if (cubit == null) return false;
+    if (_dead(e)) {
+      unawaited(cubit.close());
+      return true;
+    }
+    e.attachments = cubit;
+    e.ownsAttachments = true;
+    e.staleMedia = 0;
+    return true;
+  }
+
+  /// The post left the queue for good (sent, dismissed, edited): its stored
+  /// copy and photo bytes go, and nothing more is written for it.
+  void _unpersist(_Entry e) {
+    final store = _unsent;
+    if (store == null) return;
+    final had = e.saved || e.saving;
+    e.noPersist = true;
+    e.saved = false;
+    if (!had) return;
+    unawaited(_storeOp(() => store.delete(e.job.uid, e.localId)));
+  }
+
+  /// The post leaves the queue (Dismiss, Edit, discard).
+  void _forget(_Entry e) {
+    e.backoffTimer?.cancel();
+    e.backoffTimer = null;
+    e.waiting = false;
+    e.backingOff = false;
+    _unpersist(e);
   }
 
   Future<void> _clearClaim(String uid, String draftId, String key) async {

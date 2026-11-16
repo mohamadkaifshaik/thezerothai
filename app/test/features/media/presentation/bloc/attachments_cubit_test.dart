@@ -115,6 +115,51 @@ void main() {
     },
   );
 
+  test('restored photos with a media id are not uploaded again', () async {
+    stubHappyUpload(repo);
+    cubit.restore([
+      (image: fakeProcessed('a'), altText: 'kept', mediaId: 'old1'),
+      (image: fakeProcessed('b'), altText: '', mediaId: ''),
+    ]);
+    expect(statuses(), [AttachmentStatus.uploaded, AttachmentStatus.ready]);
+
+    final result = await cubit.uploadAll();
+
+    expect(result.mediaIds, ['old1', 'm1']);
+    expect(result.altTexts, ['kept', '']);
+    verify(
+      () => repo.createUpload(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        purpose: any(named: 'purpose'),
+        images: any(that: hasLength(1), named: 'images'),
+      ),
+    ).called(1);
+    // Everything restored as uploaded: no request at all.
+    cubit.restore([(image: fakeProcessed('a'), altText: '', mediaId: 'old2')]);
+    clearInteractions(repo);
+    expect((await cubit.uploadAll()).mediaIds, ['old2']);
+    verifyNever(
+      () => repo.createUpload(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        purpose: any(named: 'purpose'),
+        images: any(named: 'images'),
+      ),
+    );
+  });
+
+  test('markNotUploaded sends the bytes again with fresh media ids', () async {
+    stubHappyUpload(repo);
+    picker.next = [imageBytes('a')];
+    await cubit.pick();
+    expect((await cubit.uploadAll()).mediaIds, ['m1']);
+
+    cubit.markNotUploaded();
+    expect(statuses(), [AttachmentStatus.ready]);
+    expect(cubit.state.items.single.mediaId, isEmpty);
+
+    expect((await cubit.uploadAll()).mediaIds, ['m2']);
+  });
+
   test('no alt text at all sends no alt list', () async {
     stubHappyUpload(repo);
     picker.next = [imageBytes('a')];

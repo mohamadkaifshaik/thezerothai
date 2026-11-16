@@ -5,7 +5,7 @@ import 'package:dzeroth/features/engagement/domain/bookmark_history_feature_flag
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('migrates a v13 database to v14, keeping rows and adding post '
+  test('migrates a v13 database forward, keeping rows and adding post '
       'history', () async {
     final executor = NativeDatabase.memory(
       setup: (raw) {
@@ -23,7 +23,7 @@ void main() {
 
     expect(await db.readSetting('theme'), 'dark');
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 14);
+    expect(version.read<int>('user_version'), 15);
 
     final repo = PostHistoryRepository(db);
     await repo.recordOpen(uid: 'u1', postId: 'p1');

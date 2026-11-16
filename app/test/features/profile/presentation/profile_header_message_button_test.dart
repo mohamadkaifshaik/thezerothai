@@ -97,6 +97,11 @@ void main() {
 
   Finder button() => find.byType(MessageButton);
 
+  /// The Message circle of the profile hero (X): an icon button.
+  Finder heroMessage() => find.byWidgetPredicate(
+    (w) => w is IconButton && (w.tooltip ?? '').startsWith('Message @'),
+  );
+
   group('ProfileHeader Message button', () {
     testWidgets('sits left of Follow, is a 48dp target and calls back', (
       tester,
@@ -252,9 +257,9 @@ void main() {
       tester,
     ) async {
       await openScreen(tester, features: const {'graph', 'messaging'});
-      expect(find.widgetWithText(OutlinedButton, 'Message'), findsOneWidget);
+      expect(heroMessage(), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Message'));
+      await tester.tap(heroMessage());
       await tester.pumpAndSettle();
 
       expect(find.text('draft target-uid'), findsOneWidget);
@@ -265,7 +270,7 @@ void main() {
       messaging.cachedByPeer['target-uid'] = threadConv(id: kThreadId);
       await openScreen(tester, features: const {'graph', 'messaging'});
 
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Message'));
+      await tester.tap(heroMessage());
       await tester.pumpAndSettle();
 
       expect(find.text('thread $kThreadId'), findsOneWidget);
@@ -273,7 +278,7 @@ void main() {
 
     testWidgets('messaging off: no button', (tester) async {
       await openScreen(tester, features: const {'graph'});
-      expect(find.widgetWithText(OutlinedButton, 'Message'), findsNothing);
+      expect(heroMessage(), findsNothing);
       expect(find.text('Follow'), findsOneWidget);
     });
 
@@ -283,7 +288,7 @@ void main() {
         features: const {'graph', 'messaging'},
         blocking: true,
       );
-      expect(find.widgetWithText(OutlinedButton, 'Message'), findsNothing);
+      expect(heroMessage(), findsNothing);
     });
   });
 }

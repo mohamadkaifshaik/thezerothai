@@ -11,6 +11,10 @@ enum PendingPostStatus {
   /// Uploading photos or waiting for CreatePost.
   sending,
 
+  /// Queued: waiting for a connection, or for the next retry after a network
+  /// error. It sends by itself, in order, and can still be edited or dismissed.
+  waiting,
+
   /// Stopped with [PendingPost.error]; the user may retry or edit.
   failed,
 
@@ -42,6 +46,9 @@ class PendingPost {
     this.keepsPhotos = true,
     this.needsVerify = false,
     this.holdSeconds = 0,
+    this.waitingForConnection = true,
+    this.photosNotSaved = false,
+    this.wasQueued = false,
   });
 
   /// Unique per pending post (the optimistic row's id).
@@ -90,6 +97,18 @@ class PendingPost {
   /// holding (the row counts it down).
   final int holdSeconds;
 
+  /// While [status] is waiting: true when the device is offline, false when
+  /// the server could not be reached and a retry is coming.
+  final bool waitingForConnection;
+
+  /// The photos could not be kept on the device (too many unsent photos, or
+  /// the web): closing the app loses them, the text is kept.
+  final bool photosNotSaved;
+
+  /// The post has waited at least once (the row announces that once; the
+  /// attempts and waits that follow are not announced again).
+  final bool wasQueued;
+
   /// 0..1 upload progress, or null when it is not a photo upload.
   double? get progress =>
       uploading && photosTotal > 0 ? photosDone / photosTotal : null;
@@ -107,6 +126,9 @@ class PendingPost {
     bool? keepsPhotos,
     bool? needsVerify,
     int? holdSeconds,
+    bool? waitingForConnection,
+    bool? photosNotSaved,
+    bool? wasQueued,
   }) => PendingPost(
     localId: localId,
     text: text,
@@ -124,6 +146,9 @@ class PendingPost {
     keepsPhotos: keepsPhotos ?? this.keepsPhotos,
     needsVerify: needsVerify ?? this.needsVerify,
     holdSeconds: holdSeconds ?? this.holdSeconds,
+    waitingForConnection: waitingForConnection ?? this.waitingForConnection,
+    photosNotSaved: photosNotSaved ?? this.photosNotSaved,
+    wasQueued: wasQueued ?? this.wasQueued,
   );
 }
 

@@ -5,6 +5,11 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../features/posts/presentation/bloc/pending_posts_cubit.dart';
 
+/// What a row says when the photos of a waiting or failed post could not be
+/// saved on this device.
+const kPhotosNotSavedWarning = 'Photos are lost if you close the app.';
+const kPhotosNotSavedWarningSpoken = 'Photos are lost if you close the app';
+
 /// How many characters of the text a label or tooltip quotes.
 const kLabelPreviewLength = 40;
 
@@ -43,10 +48,16 @@ class PendingPostStatusRow extends StatefulWidget {
     switch (p.status) {
       case PendingPostStatus.holding:
         return 'Sending in ${seconds ?? p.holdSeconds}s';
+      case PendingPostStatus.waiting:
+        final base = p.waitingForConnection
+            ? 'Waiting for connection'
+            : "Couldn't reach the server. Trying again soon";
+        return p.photosNotSaved ? '$base. $kPhotosNotSavedWarning' : base;
       case PendingPostStatus.posted:
         return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
       case PendingPostStatus.failed:
-        return p.error ?? "Couldn't post";
+        final error = p.error ?? "Couldn't post";
+        return p.photosNotSaved ? '$error $kPhotosNotSavedWarning' : error;
       case PendingPostStatus.sending:
         if (p.uploading && p.photosTotal > 0) {
           final n = (p.photosDone + 1).clamp(1, p.photosTotal);
@@ -64,19 +75,34 @@ class PendingPostStatusRow extends StatefulWidget {
       // Said once, when the row appears: the ticking numbers are not.
       case PendingPostStatus.holding:
         return 'Sending in ${p.holdSeconds} seconds, Undo available';
+      // Said when the post starts waiting; it then sends by itself.
+      case PendingPostStatus.waiting:
+        return _waitingAnnouncement(p);
       case PendingPostStatus.posted:
         return p.notice == null ? 'Posted' : 'Posted. ${p.notice}';
       case PendingPostStatus.failed:
         return "Couldn't post. ${p.error ?? ''}".trim();
       case PendingPostStatus.sending:
-        return 'Posting';
+        // A post that has waited keeps its waiting announcement while it is
+        // tried again, so the live region says nothing new until it is
+        // posted or has failed.
+        return p.wasQueued ? _waitingAnnouncement(p) : 'Posting';
     }
+  }
+
+  static String _waitingAnnouncement(PendingPost p) {
+    final base = p.waitingForConnection
+        ? 'Waiting for connection. Your post will send when you are back '
+              'online'
+        : "Couldn't reach the server. Your post will be tried again";
+    // Said again when the warning appears.
+    return p.photosNotSaved ? '$base. $kPhotosNotSavedWarningSpoken' : base;
   }
 
   static String _preview(PendingPost p) {
     final collapsed = p.text.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (collapsed.isNotEmpty) return collapsed;
-    return p.thumbnails.isEmpty ? '' : 'Photo post';
+    return p.thumbnails.isEmpty && p.photosTotal == 0 ? '' : 'Photo post';
   }
 
   @override
@@ -135,6 +161,7 @@ class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final failed = post.status == PendingPostStatus.failed;
+    final waiting = post.status == PendingPostStatus.waiting;
     final posted = post.status == PendingPostStatus.posted;
     final status = PendingPostStatusRow.statusText(post, seconds: _seconds);
     final thumb = post.thumbnails.isEmpty ? null : post.thumbnails.first;
@@ -244,7 +271,7 @@ class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
                   )
                 else if (holding && onUndo != null)
                   action('Undo', 'Undo sending $about', onUndo)
-                else if (failed && onDismiss != null)
+                else if ((failed || waiting) && onDismiss != null)
                   IconButton(
                     tooltip: 'Dismiss $about',
                     constraints: BoxConstraints(
@@ -278,23 +305,25 @@ class _PendingPostStatusRowState extends State<PendingPostStatusRow> {
                 ),
               ),
             ],
-            if (failed)
+            if (failed || waiting)
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  if (post.needsVerify && onVerify != null)
+                  if (failed && post.needsVerify && onVerify != null)
                     action('Verify email', 'Verify email for $about', onVerify),
                   if (onEdit != null)
                     action(
-                      post.keepsPhotos || post.thumbnails.isEmpty
+                      post.keepsPhotos ||
+                              (post.thumbnails.isEmpty && post.photosTotal == 0)
                           ? 'Edit'
                           : 'Edit text only',
-                      post.keepsPhotos || post.thumbnails.isEmpty
+                      post.keepsPhotos ||
+                              (post.thumbnails.isEmpty && post.photosTotal == 0)
                           ? 'Edit $about'
                           : 'Edit text of $about, photos will be removed',
                       onEdit,
                     ),
-                  if (post.canRetry && onRetry != null)
+                  if (failed && post.canRetry && onRetry != null)
                     action('Retry', 'Retry sending $about', onRetry),
                 ],
               ),

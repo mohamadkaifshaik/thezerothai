@@ -37,6 +37,8 @@ import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../../posts/data/drafts_repository.dart';
+import '../../posts/data/unsent_posts_store.dart';
+import '../../posts/presentation/bloc/post_sender.dart';
 import '../../posts/domain/posts_feature_flag.dart';
 import '../../posts/presentation/bloc/unsent_posts_cubit.dart';
 import '../../profile/domain/profile_edit_feature_flag.dart';
@@ -660,6 +662,8 @@ class _SettingsRowsScope extends StatelessWidget {
       create: (context) => UnsentPostsCubit(
         repository: drafts,
         uid: uid,
+        photos: context.read<UnsentPostsStore?>(),
+        deleteStored: context.read<PostSender?>()?.deleteUnsentPosts,
         onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
       ),
       child: list,
