@@ -222,7 +222,7 @@ void main() {
         await _pump(tester, media, window: window, column: column);
         final tiles = _frames(tester);
         expect(tiles.length, greaterThanOrEqualTo(2));
-        final height = PostMedia.rowHeight(media, column: column, wide: wide);
+        final height = PostMedia.rowHeight(media, column: column);
         for (var i = 0; i < tiles.length; i++) {
           expect(tiles[i].height, closeTo(height, 0.01));
           expect(
@@ -435,8 +435,8 @@ void main() {
     List<common.MediaRef> row(List<double> aspects) => [
       for (var i = 0; i < aspects.length; i++) ref(aspects[i], n: i),
     ];
-    double h(List<double> aspects, double c, {bool wide = false}) =>
-        PostMedia.rowHeight(row(aspects), column: c, wide: wide);
+    double h(List<double> aspects, double c) =>
+        PostMedia.rowHeight(row(aspects), column: c);
     const gap = 4.0;
 
     group('two tiles fill the column (c = 518)', () {
@@ -447,7 +447,7 @@ void main() {
       ]) {
         test('$aspects: H about $measured, widths sum to c - gap', () {
           final media = row(aspects);
-          final height = PostMedia.rowHeight(media, column: 518, wide: false);
+          final height = PostMedia.rowHeight(media, column: 518);
           // The measured aspects are rounded, so allow a couple of dp.
           expect(height, closeTo(measured, 2.5));
           final widths = [
@@ -491,7 +491,7 @@ void main() {
 
     test('tile widths are the height times the tile\'s own aspect', () {
       final media = row([0.5625, 1.0, 16 / 9]);
-      final height = PostMedia.rowHeight(media, column: 259, wide: false);
+      final height = PostMedia.rowHeight(media, column: 259);
       expect(
         [for (final m in media) PostMedia.tileSize(m, height: height).width],
         [
@@ -506,12 +506,9 @@ void main() {
       test('a wide tile is held at 3:1 for the height and its width', () {
         // [0.5625, 20]: the 20:1 tile counts as 3:1, so the row does not
         // collapse and the two tiles still fill the column.
-        final media = [
-          _photo(9, 16),
-          _photo(2000, 100, n: 1),
-        ];
+        final media = [_photo(9, 16), _photo(2000, 100, n: 1)];
         expect(PostMedia.rowAspect(media[1]), 3);
-        final height = PostMedia.rowHeight(media, column: 259, wide: false);
+        final height = PostMedia.rowHeight(media, column: 259);
         expect(height, closeTo((259 - 4) / (0.5625 + 3), 0.01));
         final widths = [
           for (final m in media) PostMedia.tileSize(m, height: height).width,
@@ -523,17 +520,14 @@ void main() {
       test('three 20:1 tiles keep a tappable row (at least 48 dp)', () {
         final media = [for (var i = 0; i < 3; i++) _photo(2000, 100, n: i)];
         // 0.591 x 259 / 3 = 51: above the floor; a narrow column hits it.
+        expect(PostMedia.rowHeight(media, column: 259), closeTo(51.0, 0.1));
         expect(
-          PostMedia.rowHeight(media, column: 259, wide: false),
-          closeTo(51.0, 0.1),
-        );
-        expect(
-          PostMedia.rowHeight(media, column: 100, wide: false),
+          PostMedia.rowHeight(media, column: 100),
           AppSpacing.minTapTarget,
         );
       });
 
-      test('an absurd ref (beyond 1:50 or 50:1) is treated as unknown', () {
+      test('an absurd ref (beyond 1:200 or 50:1) is treated as unknown', () {
         expect(PostMedia.rowAspect(_photo(1, 1000000)), closeTo(0.8, 1e-9));
         expect(PostMedia.rowAspect(_photo(1000000, 1)), closeTo(0.8, 1e-9));
         final media = [
@@ -541,12 +535,12 @@ void main() {
           _photo(1000000, 1, n: 1),
           _photo(800, 800, n: 2),
         ];
-        final height = PostMedia.rowHeight(media, column: 259, wide: false);
+        final height = PostMedia.rowHeight(media, column: 259);
         expect(height.isFinite, isTrue);
         expect(height, closeTo(0.591 * 259 / 0.8, 0.01));
       });
 
-      test('narrow tiles stay uncropped down to 1:50', () {
+      test('narrow tiles stay uncropped down to 1:200', () {
         expect(PostMedia.rowAspect(_photo(20, 1000)), closeTo(0.02, 1e-9));
         expect(PostMedia.rowAspect(_photo(75, 1000)), closeTo(0.075, 1e-9));
       });
@@ -556,10 +550,10 @@ void main() {
       expect(PostMedia.rowAspect(_photo(0, 0)), closeTo(0.8, 1e-9));
     });
 
-    test('phones have no 520 cap, wide windows do', () {
-      final aspects = [0.5625, 0.5625, 0.5625];
-      expect(h(aspects, 900), greaterThan(AppSize.postMediaMaxSingleHeight));
-      expect(h(aspects, 900, wide: true), AppSize.postMediaMaxSingleHeight);
+    test('rows are not held to the 520 cap at any width', () {
+      // X, desktop, column 518: strips 644 (1.243c), four 9:16 about 546.
+      expect(h([0.0186, 0.0186, 0.0186], 518), closeTo(1.243 * 518, 1e-6));
+      expect(h([0.5625, 0.5625, 0.5625, 0.5625], 518), closeTo(546, 3));
     });
   });
 

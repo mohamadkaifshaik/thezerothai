@@ -69,7 +69,7 @@ void main() {
     final tiles = _tiles(tester);
     expect(tiles, hasLength(2));
     final column = 360 - 2 * _gutter;
-    final height = PostMedia.rowHeight(media, column: column, wide: false);
+    final height = PostMedia.rowHeight(media, column: column);
     expect(tiles[0].left, closeTo(_gutter, 0.01));
     expect(tiles[0].size, Size(height, height));
     expect(tiles[1].size, Size(height * 3, height));
@@ -105,7 +105,6 @@ void main() {
     final height = PostMedia.rowHeight(
       [for (var i = 0; i < 3; i++) _photo(900, 1600, n: i)],
       column: 320,
-      wide: false,
     );
     expect(list.height, closeTo(height, 0.01));
     // Scrolled, a tile passes the body's start edge into the padding, and a
