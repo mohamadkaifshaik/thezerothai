@@ -615,7 +615,7 @@ func (r *FirestoreRepo) GetProfiles(ctx context.Context, uids []string) (map[str
 // unreadNotificationCountCap bounds UnreadNotificationCount's query (rule 5: "every query has a Limit") so
 // a very prolific account's unread count stays one bounded aggregation however much notification volume it has.
 // The client shows "99+" once this cap is hit.
-const unreadNotificationCountCap = 100
+const unreadNotificationCountCap = UnreadBadgeCap
 
 // UnreadNotificationCount is one aggregation query, capped at unreadNotificationCountCap matches.
 func (r *FirestoreRepo) UnreadNotificationCount(ctx context.Context, uid string, since time.Time) (int64, error) {

@@ -631,6 +631,30 @@ func TestForgetUnread_EvictsOnlyTheUnreadCount(t *testing.T) {
 	}
 }
 
+// A badge already at the cap survives the fan-out's ForgetUnread (one more row cannot raise it; audit L1), while
+// Forget (MarkNotificationsSeen, counter writes) still evicts it.
+func TestForgetUnread_KeepsACappedBadge(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo)
+	ctx := context.Background()
+	if _, err := svc.CreateProfile(ctx, "uid-1", validKey, "Alice", "Alice A."); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	svc.cache.SetUnreadCount("uid-1", UnreadBadgeCap)
+	svc.ForgetUnread("uid-1")
+	me, err := svc.GetMe(ctx, "uid-1")
+	if err != nil {
+		t.Fatalf("GetMe: %v", err)
+	}
+	if me.UnreadNotificationCount != UnreadBadgeCap {
+		t.Errorf("badge = %d, want the cached cap %d", me.UnreadNotificationCount, UnreadBadgeCap)
+	}
+	svc.Forget("uid-1")
+	if _, ok := svc.cache.GetUnreadCount("uid-1"); ok {
+		t.Error("expected Forget to evict a capped unread count")
+	}
+}
+
 // TestGetProfile_InvalidUserID (minor fix, phase0 code review): user_id is caller-supplied and must be
 // validated (length/charset) like every other input, not passed straight to a Firestore lookup.
 func TestGetProfile_InvalidUserID(t *testing.T) {

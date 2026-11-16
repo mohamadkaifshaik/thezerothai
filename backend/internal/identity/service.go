@@ -900,10 +900,11 @@ func (s *service) Forget(uids ...string) {
 	}
 }
 
-// ForgetUnread implements Directory: evicts only the cached unread count.
+// ForgetUnread implements Directory: evicts only the cached unread count, unless it is already at UnreadBadgeCap
+// (Cache.InvalidateUnreadBelowCap), and the pending follow request count.
 func (s *service) ForgetUnread(uids ...string) {
 	for _, uid := range uids {
-		s.cache.InvalidateUnreadCount(uid)
+		s.cache.InvalidateUnreadBelowCap(uid)
 	}
 }
 
