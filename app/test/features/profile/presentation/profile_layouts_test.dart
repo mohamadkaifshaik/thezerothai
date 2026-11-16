@@ -261,11 +261,8 @@ void main() {
           await pumpOther(tester);
 
           expect(
-            find.descendant(
-              of: _hero,
-              matching: find.widgetWithText(OutlinedButton, 'Message'),
-            ),
-            findsOneWidget,
+            find.descendant(of: _hero, matching: find.byType(IconButton)),
+            findsWidgets,
           );
           expect(
             find.descendant(
@@ -290,11 +287,24 @@ void main() {
             ),
             findsOneWidget,
           );
-          // Follow takes the primary slot, Message the outline one.
-          expect(
-            tester.getCenter(_inHero(find.text('Follow'))).dx,
-            lessThan(tester.getCenter(_inHero(find.text('Message'))).dx),
+          // As on X: the Message circle, then the Follow pill, right-aligned,
+          // the same 36dp tall.
+          final message = _inHero(find.byTooltip('Message @$kRigOtherHandle'));
+          final circle = find.descendant(
+            of: message,
+            matching: find.byType(Container),
           );
+          expect(tester.getSize(circle.first), const Size(36, 36));
+          final pill = find.descendant(
+            of: _inHero(find.byType(FollowPill)),
+            matching: find.byType(DecoratedBox),
+          );
+          expect(tester.getSize(pill.first).height, 36);
+          expect(
+            tester.getCenter(message).dx,
+            lessThan(tester.getCenter(_inHero(find.text('Follow'))).dx),
+          );
+          expect(tester.getSize(message), const Size(48, 48));
         });
 
         testWidgets('the overflow menu opens in the light or dark theme of '
@@ -315,14 +325,18 @@ void main() {
           );
         });
 
-        testWidgets('Message off: Follow takes the whole row', (tester) async {
+        testWidgets('Message off: Follow stays right-aligned', (tester) async {
           await pumpOther(tester, flags: {..._fullFlags}..remove('messaging'));
 
-          expect(_inHero(find.text('Message')), findsNothing);
-          final follow = tester.getSize(
-            _inHero(find.widgetWithText(FollowPill, 'Follow')),
+          expect(
+            _inHero(find.byTooltip('Message @$kRigOtherHandle')),
+            findsNothing,
           );
-          expect(follow.width, greaterThan(width < 600 ? 300 : 400));
+          final follow = _inHero(find.widgetWithText(FollowPill, 'Follow'));
+          expect(
+            tester.getRect(follow).right,
+            greaterThanOrEqualTo(tester.getRect(_hero).right - 24),
+          );
         });
 
         testWidgets('graph off: no Follow, the Message pill and the menu '
@@ -330,7 +344,10 @@ void main() {
           await pumpOther(tester, flags: {..._fullFlags}..remove('graph'));
 
           expect(_inHero(find.text('Follow')), findsNothing);
-          expect(_inHero(find.text('Message')), findsOneWidget);
+          expect(
+            _inHero(find.byTooltip('Message @$kRigOtherHandle')),
+            findsOneWidget,
+          );
           expect(
             find.descendant(
               of: _hero,
@@ -355,7 +372,10 @@ void main() {
           expect(find.text('Unblock'), findsOneWidget);
           expect(_statLabel('Followers'), findsNothing);
           expect(_inHero(find.text('Follow')), findsNothing);
-          expect(_inHero(find.text('Message')), findsNothing);
+          expect(
+            _inHero(find.byTooltip('Message @$kRigOtherHandle')),
+            findsNothing,
+          );
           expect(
             find.descendant(
               of: _hero,
@@ -719,17 +739,6 @@ void main() {
       final pill = tester.widget<FollowPill>(follow);
       expect(pill.onDark, isTrue);
       expect(pill.large, isTrue);
-      ProgressIndicatorThemeData spinner(String label) => tester
-          .widget<ProgressIndicatorTheme>(
-            find
-                .ancestor(
-                  of: _inHero(find.text(label)),
-                  matching: find.byType(ProgressIndicatorTheme),
-                )
-                .first,
-          )
-          .data;
-      expect(spinner('Message').color, AppPalette.pearl);
     });
   });
 

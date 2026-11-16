@@ -2,6 +2,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _host(Widget child, {Brightness brightness = Brightness.light}) =>
@@ -311,6 +312,86 @@ void main() {
             .opacity,
         0.5,
       );
+    });
+  });
+
+  group('keyboard', () {
+    Finder ring() => find.descendant(
+      of: find.byType(FollowPill),
+      matching: find.byWidgetPredicate(
+        (w) =>
+            w is DecoratedBox &&
+            w.decoration is BoxDecoration &&
+            (w.decoration as BoxDecoration).border is Border &&
+            ((w.decoration as BoxDecoration).border! as Border).top.width == 2,
+      ),
+    );
+
+    testWidgets('a 2dp ring, 2dp clear of the pill, shows on keyboard focus '
+        'only, and Enter and Space activate', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        _host(FollowPill(label: 'Follow', onPressed: () => taps++)),
+      );
+      expect(ring(), findsNothing);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(ring(), findsOneWidget);
+      final pill = _pillSize(tester);
+      final ringRect = tester.getRect(ring());
+      final pillRect = tester.getRect(
+        find
+            .descendant(
+              of: find.byType(FollowPill),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      expect(ringRect.width, pill.width + 8);
+      expect(ringRect.height, pill.height + 8);
+      expect(ringRect.center, pillRect.center);
+      expect(
+        ((tester.widget<DecoratedBox>(ring()).decoration as BoxDecoration)
+                    .border!
+                as Border)
+            .top
+            .color,
+        ThemeData().colorScheme.primary,
+      );
+      // The ring does not move the pill.
+      expect(_pillSize(tester), pill);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(taps, 1);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(taps, 2);
+    });
+
+    testWidgets('a tap does not show the ring', (tester) async {
+      await tester.pumpWidget(
+        _host(FollowPill(label: 'Follow', onPressed: () {})),
+      );
+      await tester.tap(find.byType(FollowPill));
+      await tester.pump();
+      expect(ring(), findsNothing);
+    });
+
+    testWidgets('a busy pill is neither tappable nor focusable', (
+      tester,
+    ) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        _host(FollowPill(label: 'Follow', busy: true, onPressed: () => taps++)),
+      );
+      await tester.tap(find.byType(FollowPill));
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(taps, 0);
+      expect(ring(), findsNothing);
     });
   });
 }

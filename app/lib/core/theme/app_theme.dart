@@ -152,6 +152,13 @@ abstract final class AppFollowButton {
   static const double spinner = 16;
   static const double disabledOpacity = 0.5;
 
+  /// The keyboard focus ring: width and the gap between it and the pill.
+  /// The Message circle that sits beside Follow on a profile hero (X): the
+  /// icon inside a 36dp outlined circle, in a 48dp hit target.
+  static const double circleIcon = 20;
+  static const double focusRingWidth = 2;
+  static const double focusRingGap = 2;
+
   /// Follow, dark theme: pale fill, near-black label.
   static const Color darkFill = Color(0xFFEFF3F4);
   static const Color darkFillText = Color(0xFF0F1419);

@@ -54,6 +54,7 @@ class FollowPill extends StatefulWidget {
 class _FollowPillState extends State<FollowPill> {
   bool _hovered = false;
   bool _pressed = false;
+  bool _focused = false;
 
   bool get _enabled => widget.onPressed != null && !widget.busy;
 
@@ -154,18 +155,51 @@ class _FollowPillState extends State<FollowPill> {
       ),
     );
 
+    // The keyboard focus ring: 2dp wide, 2dp clear of the pill, following its
+    // radius. It paints outside the pill (inside the 48dp box) and never
+    // changes the layout.
+    const ringGap = AppFollowButton.focusRingGap;
+    const ringWidth = AppFollowButton.focusRingWidth;
+    final ringed = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        pill,
+        if (_focused)
+          Positioned(
+            left: -(ringGap + ringWidth),
+            top: -(ringGap + ringWidth),
+            right: -(ringGap + ringWidth),
+            bottom: -(ringGap + ringWidth),
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(
+                    color: theme.colorScheme.primary,
+                    width: ringWidth,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+
     final target = ConstrainedBox(
       constraints: const BoxConstraints(
         minWidth: AppSpacing.minTapTarget,
         minHeight: AppSpacing.minTapTarget,
       ),
-      child: Center(widthFactor: 1, heightFactor: 1, child: pill),
+      child: Center(widthFactor: 1, heightFactor: 1, child: ringed),
     );
 
     return Opacity(
       opacity: _enabled || widget.busy ? 1 : AppFollowButton.disabledOpacity,
       child: FocusableActionDetector(
         enabled: _enabled,
+        onShowFocusHighlight: (v) {
+          if (v != _focused) setState(() => _focused = v);
+        },
         actions: {
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {

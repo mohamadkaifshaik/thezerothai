@@ -248,14 +248,10 @@ class _ProfileHero extends StatelessWidget {
             )
           : null;
       secondary = onMessage != null && !isBlocking
-          ? Tooltip(
-              message: 'Message @${profile.handle}',
-              child: _HeroPill(
-                filled: false,
-                height: m.buttonHeight,
-                onPressed: onMessage,
-                child: const Text('Message'),
-              ),
+          ? _HeroCircleButton(
+              tooltip: 'Message @${profile.handle}',
+              icon: Icons.mail_outline,
+              onPressed: onMessage,
             )
           : null;
     }
@@ -410,12 +406,25 @@ class _ProfileHero extends StatelessWidget {
               sortKey: const OrdinalSortKey(1),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (primary != null) Expanded(child: primary),
-                  if (primary != null && secondary != null)
-                    SizedBox(width: m.buttonGap),
-                  if (secondary != null) Expanded(child: secondary),
-                ],
+                // Another profile, as on X: the Message circle, then the
+                // Follow pill, right-aligned. Your own profile keeps the two
+                // equal pills.
+                mainAxisAlignment: isOwnProfile
+                    ? MainAxisAlignment.start
+                    : MainAxisAlignment.end,
+                children: isOwnProfile
+                    ? [
+                        if (primary != null) Expanded(child: primary),
+                        if (primary != null && secondary != null)
+                          SizedBox(width: m.buttonGap),
+                        if (secondary != null) Expanded(child: secondary),
+                      ]
+                    : [
+                        ?secondary,
+                        if (primary != null && secondary != null)
+                          SizedBox(width: m.buttonGap),
+                        if (primary != null) Flexible(child: primary),
+                      ],
               ),
             ),
           ],
@@ -808,6 +817,50 @@ class _HeroStat extends StatelessWidget {
                   ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The icon button of the hero on another profile (X's Message): the icon in
+/// a 36dp outlined circle inside a 48dp hit target. The tooltip speaks and
+/// labels it.
+class _HeroCircleButton extends StatelessWidget {
+  const _HeroCircleButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(
+        width: AppSpacing.minTapTarget,
+        height: AppSpacing.minTapTarget,
+      ),
+      style: IconButton.styleFrom(
+        foregroundColor: AppPalette.pearl,
+        disabledForegroundColor: AppPalette.mutedOnDark,
+      ),
+      icon: Container(
+        width: AppFollowButton.heightLarge,
+        height: AppFollowButton.heightLarge,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: AppProfileLayout.onDarkOutline,
+            width: AppSize.componentBorder,
+          ),
+        ),
+        child: Icon(icon, size: AppFollowButton.circleIcon),
       ),
     );
   }
