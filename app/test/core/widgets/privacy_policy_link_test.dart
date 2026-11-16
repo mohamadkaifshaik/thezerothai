@@ -82,4 +82,29 @@ void main() {
 
     expect(find.text("Couldn't open the Privacy Policy."), findsOneWidget);
   });
+
+  group('SiteLinksRow', () {
+    for (final (label, page) in const [
+      ('Terms', 'terms'),
+      ('About', 'about'),
+      ('Help centre', 'help'),
+    ]) {
+      testWidgets('$label opens $page.html', (tester) async {
+        await tester.pumpWidget(wrap(const SiteLinksRow()));
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+
+        expect(fakeLauncher.lastUrl, 'https://dzeroth.com/$page.html');
+      });
+    }
+
+    testWidgets('a failed launch is a snackbar, never a throw', (tester) async {
+      fakeLauncher.launchResult = false;
+      await tester.pumpWidget(wrap(const SiteLinksRow()));
+      await tester.tap(find.text('About'));
+      await tester.pumpAndSettle();
+
+      expect(find.text("Couldn't open the About page."), findsOneWidget);
+    });
+  });
 }

@@ -41,7 +41,7 @@ const (
 
 // Limits are the configured location limits.
 type Limits struct {
-	// MinCopyVersion is LOCATION_CONSENT_MIN_COPY_VERSION (default 1): the oldest rationale copy a consent may be at.
+	// MinCopyVersion is LOCATION_CONSENT_MIN_COPY_VERSION (default 2): the oldest rationale copy a consent may be at.
 	MinCopyVersion int
 	// CurrentCopyVersion is LOCATION_CONSENT_COPY_VERSION (default 1, at least MinCopyVersion): the newest copy a grant
 	// may carry.

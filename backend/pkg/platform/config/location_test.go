@@ -15,8 +15,8 @@ func TestLoad_LocationDefaults(t *testing.T) {
 	if rl := cfg.RateLimit; rl.LocationReadPerUserPerMinute != 30 || rl.LocationWritePerUserPerMinute != 6 || rl.LocationClearPerUserPerMinute != 30 {
 		t.Errorf("location buckets = %d/%d/%d, want 30/6/30", rl.LocationReadPerUserPerMinute, rl.LocationWritePerUserPerMinute, rl.LocationClearPerUserPerMinute)
 	}
-	if l := cfg.Location; l.ConsentChangesPerDay != 10 || l.ConsentMinCopyVersion != 1 || l.ConsentCopyVersion != 1 || l.NearbyKMin != 5 {
-		t.Errorf("location config = %+v, want 10/1/1/5", l)
+	if l := cfg.Location; l.ConsentChangesPerDay != 10 || l.ConsentMinCopyVersion != 2 || l.ConsentCopyVersion != 2 || l.NearbyKMin != 5 {
+		t.Errorf("location config = %+v, want 10/2/2/5", l)
 	}
 }
 

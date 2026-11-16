@@ -153,6 +153,7 @@ class AuthPageLayout extends StatelessWidget {
         )
       else if (privacyLink)
         const Center(child: PrivacyPolicyLink()),
+      if (signUp || privacyLink) const SiteLinksRow(),
     ],
   );
 
@@ -986,6 +987,18 @@ class _Footer extends StatelessWidget {
         Text(' · ', style: muted),
         TextButton(
           style: link,
+          onPressed: () => launchTerms(context),
+          child: const Text('Terms'),
+        ),
+        Text(' · ', style: muted),
+        TextButton(
+          style: link,
+          onPressed: () => launchAbout(context),
+          child: const Text('About'),
+        ),
+        Text(' · ', style: muted),
+        TextButton(
+          style: link,
           onPressed: () => showAuthHelp(context),
           child: const Text('Help'),
         ),
@@ -1013,9 +1026,15 @@ void showAuthHelp(BuildContext context) => showAppMaterialDialog<void>(
     content: const Text(
       'Log in or sign up with your email, or continue with an available '
       'provider. New email accounts need verification before you can '
-      'continue.',
+      'continue.\n\n'
+      'Location is optional. Dzeroth never reads your device\'s location; '
+      'you can choose an area later in Settings.',
     ),
     actions: [
+      TextButton(
+        onPressed: () => launchHelpPage(context),
+        child: const Text('Help centre'),
+      ),
       TextButton(
         onPressed: () => launchPrivacyPolicy(context),
         child: const Text('Privacy Policy'),
