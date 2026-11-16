@@ -4,43 +4,43 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_card.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../messages/domain/messaging_feature_flag.dart';
 import '../../messages/presentation/open_conversation.dart';
 import '../../messages/presentation/report_conversation.dart'
     show thankForReport;
 import '../../moderation/domain/reports_feature_flag.dart';
 import '../../moderation/presentation/report_sheet.dart';
-import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
+import 'beacon_people_screen.dart' show kPeopleListNote;
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_detail_cubit.dart';
 import 'bloc/beacon_detail_state.dart';
 import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
 import 'widgets/join_note_sheet.dart';
-import 'widgets/quick_join.dart';
 import 'widgets/plan_share.dart';
 import 'widgets/plan_skeletons.dart';
 import 'widgets/plan_summary.dart';
-import '../../../shared/widgets/primitives/app_card.dart';
-import '../../../shared/widgets/primitives/app_dialog.dart';
-import '../../../shared/widgets/primitives/app_pill_button.dart';
-import '../../../shared/widgets/primitives/app_status_pill.dart';
-import 'beacon_people_screen.dart' show kPeopleListNote;
+import 'widgets/quick_join.dart';
 
 /// The NOT_FOUND text of the plan report sheet.
 const kReportBeaconNotFound = "This plan isn't available to report any more.";
@@ -97,10 +97,8 @@ class _BeaconScreenState extends State<BeaconScreen> {
     }
   }
 
-  /// A flag of the caller; false when no onboarding state is in scope.
-  bool _flag(String name) =>
-      context.read<OnboardingBloc?>()?.state.enabledFeatures.contains(name) ??
-      false;
+  /// A flag of the caller.
+  bool _flag(String name) => featureEnabledSnapshot(context, name);
 
   Future<bool> _confirm({
     required String title,

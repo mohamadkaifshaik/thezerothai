@@ -563,7 +563,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "beacon":
 		switch sub {
 		case "counts":
-			err = beaconCounts(ctx, b.beaconStats, out)
+			err = beaconCounts(ctx, b.beaconStats, out, errOut)
 		case "clear-area":
 			err = beaconClearArea(ctx, b, *project, beaconID, ma.dryRun, out, now)
 		default:

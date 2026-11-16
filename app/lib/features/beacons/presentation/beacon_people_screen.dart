@@ -7,6 +7,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
@@ -21,7 +22,6 @@ import 'beacons_error_messages.dart';
 import 'bloc/beacon_people_cubit.dart';
 import 'bloc/beacon_people_state.dart';
 import 'widgets/participant_row.dart';
-import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// `/plans/:id/people` (R38): who is going, and for the organiser the
 /// requests with their notes and the controls (Accept; Decline, Decline and

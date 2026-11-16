@@ -180,8 +180,8 @@ func idemResult(beaconID, target string) map[string]string {
 }
 
 // Request implements Repo (RequestToJoin). Reads, fresh and in order: idempotency, the beacon, the caller's row, the
-// caller's pending count. Refusals write nothing: ErrOrganiser, ErrCancelled, ErrEnded, ErrFull, ErrAlreadyRequested,
-// ErrPendingLimit. An ACCEPTED caller is Unchanged (idempotency doc only). Otherwise the row is (re)written REQUESTED
+// caller's pending count. Refusals write nothing: ErrOrganiser, ErrCancelled, ErrEnded, ErrAlreadyRequested, ErrFull,
+// ErrPendingLimit, in that order. An ACCEPTED caller is Unchanged (idempotency doc only), also on a FULL beacon. Otherwise the row is (re)written REQUESTED
 // with the note and the beacon's expireAt, the membership row becomes requester/requested/pending. At the pending cap
 // the counted rows are re-checked (reclaimPending): those whose beacon was cancelled or is gone stop pending and do
 // not count.
@@ -209,9 +209,8 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 		if err := checkLive(d, p.BeaconID, p.Now); err != nil {
 			return err
 		}
-		if d.Status == string(StatusFull) {
-			return ErrFull
-		}
+		// The caller's own row answers before FULL: an ACCEPTED caller re-requesting a full beacon is the no-op
+		// success, a REQUESTED one already_requested (a full beacon is full of other people).
 		pd, exists, err := r.getParticipantTx(ctx, tx, p.BeaconID, p.UID)
 		if err != nil {
 			return err
@@ -221,12 +220,15 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 			return ErrAlreadyRequested
 		}
 		if exists && pd.State == PStateAccepted {
-			r.putIdemResult(b, p.UID, p.IdemKey, rpcRequestToJoin, p.RequestHash, idemResult(p.BeaconID, p.UID))
+			r.putIdemResult(b, p.Now, p.UID, p.IdemKey, rpcRequestToJoin, p.RequestHash, idemResult(p.BeaconID, p.UID))
 			if err := b.Err(); err != nil {
 				return err
 			}
 			res = ParticipantResult{Outcome: Unchanged, Beacon: d.beacon(p.BeaconID), Participant: pd.participant(p.BeaconID)}
 			return nil
+		}
+		if d.Status == string(StatusFull) {
+			return ErrFull
 		}
 		if p.Precheck != nil {
 			if err := p.Precheck(ctx); err != nil {
@@ -256,7 +258,7 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 		b.Set(r.membershipRef(p.UID, p.BeaconID), membershipDoc{
 			BeaconID: p.BeaconID, Role: RoleRequester, State: PStateRequested, PendingUntil: d.EndAt, CommunityID: d.CommunityID, StartAt: d.StartAt, EndAt: d.EndAt,
 		})
-		r.putIdemResult(b, p.UID, p.IdemKey, rpcRequestToJoin, p.RequestHash, idemResult(p.BeaconID, p.UID))
+		r.putIdemResult(b, p.Now, p.UID, p.IdemKey, rpcRequestToJoin, p.RequestHash, idemResult(p.BeaconID, p.UID))
 		if err := b.Err(); err != nil {
 			return err
 		}
@@ -364,7 +366,7 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule tran
 				{Path: "updatedAt", Value: now},
 			})
 		}
-		r.putIdemResult(b, p.UID, p.IdemKey, rpc, p.RequestHash, idemResult(p.BeaconID, p.TargetUID))
+		r.putIdemResult(b, p.Now, p.UID, p.IdemKey, rpc, p.RequestHash, idemResult(p.BeaconID, p.TargetUID))
 		if err := b.Err(); err != nil {
 			return err
 		}
@@ -437,7 +439,7 @@ func (r *FirestoreRepo) Respond(ctx context.Context, p RespondParams) (Participa
 			{Path: "state", Value: pd.State},
 			{Path: "respondedAt", Value: now},
 		})
-		r.putIdemResult(b, p.UID, p.IdemKey, rpcRespondToJoinRequest, p.RequestHash, idemResult(p.BeaconID, p.TargetUID))
+		r.putIdemResult(b, p.Now, p.UID, p.IdemKey, rpcRespondToJoinRequest, p.RequestHash, idemResult(p.BeaconID, p.TargetUID))
 		if err := b.Err(); err != nil {
 			return err
 		}

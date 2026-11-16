@@ -45,6 +45,8 @@ var expectedDailyCaps = map[string][]string{
 		graphv1connect.GraphServiceListFollowersProcedure, graphv1connect.GraphServiceListFollowingProcedure,
 	},
 	"beacons_created_daily": {beaconsv1connect.BeaconServiceCreateBeaconProcedure},
+	// CancelBeacon (beacons PR 5 R24, BEACONS_CANCELLED_PER_DAY): bounds the recipient-cap-exempt cancellation notices.
+	"beacons_cancelled_daily": {beaconsv1connect.BeaconServiceCancelBeaconProcedure},
 	// RecordPostShare (shares design §4.7, SHARES_RECORDED_PER_DAY).
 	"shares_daily": {engagementv1connect.EngagementServiceRecordPostShareProcedure},
 	// RecordImpressions (F1 post views, IMPRESSIONS_RECORDED_PER_DAY).

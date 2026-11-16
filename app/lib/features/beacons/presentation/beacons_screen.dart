@@ -13,12 +13,13 @@ import '../../../core/widgets/app_shell_scope.dart';
 import '../../../core/widgets/app_state_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_fab.dart';
 import '../../../core/widgets/shell_geometry.dart';
+import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_chip.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
-import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../communities/data/communities_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
@@ -33,7 +34,6 @@ import 'widgets/beacon_row.dart';
 import 'widgets/plan_skeletons.dart';
 import 'widgets/plans_activity_filter.dart';
 import 'widgets/your_plans_section.dart';
-import '../../../core/widgets/shell_fab.dart';
 
 /// `/plans`: the selected audience's upcoming plans (R30). The audience chips
 /// show only when the caller has joined communities to choose from.

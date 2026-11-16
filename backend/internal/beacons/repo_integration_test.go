@@ -296,6 +296,31 @@ func TestRepo_CancelRules(t *testing.T) {
 	})
 }
 
+// TestRepo_IdempotencyExpiryFollowsTheCallersClock (PR 2 deferred minor): Update and Cancel decide ENDED and stamp
+// updatedAt with p.Now, and the idempotency record they write now expires p.Now + TTL as well, not repo clock + TTL.
+func TestRepo_IdempotencyExpiryFollowsTheCallersClock(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	id := e.create(t, "org-ic", itKeyA, e.beaconAt("org-ic", "", e.now.Add(time.Hour))).Beacon.ID
+	callerNow := e.now.Add(-30 * time.Minute) // differs from the repo clock (e.now)
+	key := idempotency.Key("org-ic", rpcCancelBeacon, itKeyB)
+	res, err := e.repo.Cancel(ctx, CancelParams{UID: "org-ic", BeaconID: id, IdemKey: key, RequestHash: idempotency.HashRequest(id), Now: callerNow})
+	if err != nil || res.Outcome != Written {
+		t.Fatalf("cancel = %+v, %v", res, err)
+	}
+	snap, err := idempotency.New(e.client).Ref(key).Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec idempotency.Record
+	if err := snap.DataTo(&rec); err != nil {
+		t.Fatal(err)
+	}
+	if want := callerNow.Add(idempotency.TTL); !rec.ExpireAt.Equal(want) {
+		t.Fatalf("idempotency expireAt = %v, want the caller's clock + TTL %v", rec.ExpireAt, want)
+	}
+}
+
 func TestRepo_GetMissingIsNotFound(t *testing.T) {
 	e := newRepoEnv(t)
 	if _, err := e.repo.Get(context.Background(), e.node.Generate()); !errors.Is(err, ErrNotFound) {

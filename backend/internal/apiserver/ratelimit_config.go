@@ -165,12 +165,15 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// Beacons: CreateBeacon, UpdateBeacon and CancelBeacon share one per-user bucket (RATE_LIMIT_BEACONS_WRITE_PER_MIN,
 	// 10/min per instance); the five participation RPCs share another (RATE_LIMIT_BEACONS_ACTION_PER_MIN, 20/min); the
-	// six reads (Get, ListBeacons, ListMyBeacons, ListParticipants, ListSharedBeacons, ListNearbyBeacons) a third (RATE_LIMIT_BEACONS_READ_PER_MIN, 30/min). CreateBeacon alone carries the in-memory daily cap
-	// BEACONS_CREATED_PER_DAY (limit_name "beacons_created_daily"). All twelve are mapped now so PR 3 touches no rate limits.
+	// six reads (Get, ListBeacons, ListMyBeacons, ListParticipants, ListSharedBeacons, ListNearbyBeacons) a third (RATE_LIMIT_BEACONS_READ_PER_MIN, 30/min). CreateBeacon carries the in-memory daily cap
+	// BEACONS_CREATED_PER_DAY (limit_name "beacons_created_daily") and CancelBeacon its own, BEACONS_CANCELLED_PER_DAY
+	// (limit_name "beacons_cancelled_daily", R24: the cancellation notices are exempt from the notification recipient
+	// cap, so this bounds them). All twelve are mapped now so PR 3 touches no rate limits.
 	rlBeaconsWrite := ratelimit.NewLimiter(cfg.RateLimit.BeaconsWritePerUserPerMinute, idleBucketTTL)
 	rlBeaconsAction := ratelimit.NewLimiter(cfg.RateLimit.BeaconsActionPerUserPerMinute, idleBucketTTL)
 	rlBeaconsRead := ratelimit.NewLimiter(cfg.RateLimit.BeaconsReadPerUserPerMinute, idleBucketTTL)
 	beaconsCreatedDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.BeaconsCreatedPerDay)
+	beaconsCancelledDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.BeaconsCancelledPerDay)
 
 	// Location: GetLocationSettings and ListAreas share a read bucket (RATE_LIMIT_LOCATION_READ_PER_MIN, 30/min per
 	// instance); SetArea has a write bucket (RATE_LIMIT_LOCATION_WRITE_PER_MIN, 6/min) and ClearArea its own
@@ -330,6 +333,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceListFollowingProcedure: {Name: "follow_list_daily", Cap: followListDailyCap},
 
 			beaconsv1connect.BeaconServiceCreateBeaconProcedure: {Name: "beacons_created_daily", Cap: beaconsCreatedDailyCap},
+			beaconsv1connect.BeaconServiceCancelBeaconProcedure: {Name: "beacons_cancelled_daily", Cap: beaconsCancelledDailyCap},
 		},
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,

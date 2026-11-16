@@ -7,10 +7,11 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
-	"time"
 )
 
-// captureLogs routes slog's default logger into a buffer for the test (restored on cleanup).
+// captureLogs routes slog's default logger into a buffer for the test (restored on cleanup). It swaps a process
+// global (the service logs through slog.Default, not an injected logger), so a test that calls it must not call
+// t.Parallel: Go runs parallel tests only after every sequential one returned, so a sequential caller never overlaps.
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	buf := &bytes.Buffer{}
@@ -188,11 +189,7 @@ func TestEvents_NilSeamIsSafe(t *testing.T) {
 	e.repo.presult = ParticipantResult{Outcome: Written, Beacon: b, Participant: Participant{BeaconID: testBeaconID, UID: testViewer, State: PStateAccepted}}
 	e.repo.cancel = CancelResult{Outcome: Written, Beacon: b}
 	e.repo.plist = []Participant{{UID: "bob", State: PStateAccepted}}
-	e.svc = New(Deps{
-		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, IDs: fakeIDs{},
-		CursorKey: []byte("0123456789abcdef0123456789abcdef"), Limits: Limits{MaxOpenPerUser: 5, MaxPendingRequests: 10, MaxOpenSpots: 20},
-		Now: func() time.Time { return e.now },
-	})
+	e.svc = e.rebuild(func(d *Deps) { d.Events = nil })
 	if _, err := e.svc.RequestToJoin(context.Background(), testViewer, testKey, testBeaconID, ""); err != nil {
 		t.Errorf("request: %v", err)
 	}
