@@ -1,13 +1,11 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/app_shell_scope.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../beacons/data/beacons_repository.dart';
@@ -21,7 +19,6 @@ import '../domain/explore_tab.dart';
 import 'widgets/explore_people_section.dart';
 import 'widgets/explore_nearby_section.dart';
 import 'widgets/explore_plans_section.dart';
-import '../../../shared/widgets/primitives/app_icon_button.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
 import '../domain/search_feature_flags.dart';
@@ -75,8 +72,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
   ExploreTab _tab = ExploreTab.trending;
 
   NearbyPlansCubit _makeNearby() {
-    final cubit = NearbyPlansCubit(repository: context.read<BeaconsRepository>())
-      ..load();
+    final cubit = NearbyPlansCubit(
+      repository: context.read<BeaconsRepository>(),
+    )..load();
     _nearbySub = cubit.stream.listen((s) {
       if (s.load == NearbyLoad.disabled && mounted && !_nearbyOff) {
         setState(() => _nearbyOff = true);
@@ -102,7 +100,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   Widget build(BuildContext context) {
     final scaler = MediaQuery.textScalerOf(context);
-    final rowHeight = searchFieldHeightFor(scaler) + AppSpacing.sm;
     final trends = isFeatureEnabled(context, kFeatureTrends);
     final showMedia = _mediaAllowed(context);
     // Made the first time the flags allow it and kept after that, so a flag
@@ -122,7 +119,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
     final tab = resolveExploreTab(_tab, tabs);
     final showBar = showsExploreTabBar(tabs);
-    final tabBar = showBar ? AppTabBar.heightFor(context) : 0.0;
     BeaconsCubit? plans;
     if (tab == ExploreTab.plans) {
       plans = _plans ??= BeaconsCubit(
@@ -133,48 +129,69 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (tab == ExploreTab.nearby) {
       nearby = _nearby ??= _makeNearby();
     }
-    final header = SliverPersistentHeader(
-      pinned: true,
-      delegate: _ExploreHeader(
-        extent: rowHeight + tabBar,
-        rowHeight: rowHeight,
-        tabs: showBar ? tabs : const [],
-        selected: tab,
-        onTab: (t) => setState(() => _tab = t),
-        tabBarHeight: tabBar,
-        // F8: with `location` on the gear opens Explore settings.
-        locationOn: isFeatureEnabled(context, kFeatureLocation),
+    // The same header as the other tab screens: the floating top bar (the
+    // search field in the title slot, Settings as the round action) and,
+    // with more than Trending, the pinned tab bar.
+    final locationOn = isFeatureEnabled(context, kFeatureLocation);
+    final header = [
+      AppTopBar.sliver(
+        titleWidget: const AppSearchField(),
+        titleWidgetHeight: searchFieldHeightFor(scaler),
+        actions: [
+          AppTopBarAction(
+            icon: Icons.settings_outlined,
+            tooltip: 'Settings',
+            // F8: with `location` on the gear opens Explore settings.
+            onPressed: () => context.push(
+              locationOn
+                  ? AppRouter.exploreSettingsPath
+                  : AppRouter.settingsPath,
+            ),
+          ),
+        ],
       ),
-    );
+      if (showBar)
+        AppPinnedTabBarSliver(
+          child: AppTabBar(
+            tabs: [for (final t in tabs) AppTab(label: t.label)],
+            selectedIndex: tabs.indexOf(tab),
+            onChanged: (i) => setState(() => _tab = tabs[i]),
+            autoWidth: true,
+            semanticLabel: 'Explore',
+          ),
+        ),
+    ];
     if (tab == ExploreTab.plans ||
         tab == ExploreTab.people ||
         tab == ExploreTab.nearby) {
       return Scaffold(
-        body: RefreshIndicator(
-          onRefresh: () => switch (tab) {
-            ExploreTab.plans => plans!.load(),
-            ExploreTab.nearby => nearby!.load(),
-            _ => ExplorePeopleSection.reload(context),
-          },
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              header,
-              if (tab == ExploreTab.plans)
-                ExplorePlansSection(cubit: plans!)
-              else if (tab == ExploreTab.nearby)
-                ExploreNearbySection(cubit: nearby!)
-              else
-                const ExplorePeopleSection(),
-              const ShellBottomInsetSliver(),
-            ],
+        body: _ClosesSuggestionsOnScroll(
+          child: RefreshIndicator(
+            onRefresh: () => switch (tab) {
+              ExploreTab.plans => plans!.load(),
+              ExploreTab.nearby => nearby!.load(),
+              _ => ExplorePeopleSection.reload(context),
+            },
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                ...header,
+                if (tab == ExploreTab.plans)
+                  ExplorePlansSection(cubit: plans!)
+                else if (tab == ExploreTab.nearby)
+                  ExploreNearbySection(cubit: nearby!)
+                else
+                  const ExplorePeopleSection(),
+                const ShellBottomInsetSliver(),
+              ],
+            ),
           ),
         ),
       );
     }
     Widget scroll = CustomScrollView(
       slivers: [
-        header,
+        ...header,
         if (trends) ExploreTrendsSection(showTitle: !showBar),
         if (media != null) ExploreMediaSection(cubit: media),
         // Inline below desktop; from 1200 dp the shell's side column carries
@@ -191,92 +208,28 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (media != null) {
       scroll = ExploreMediaStarter(cubit: media, child: scroll);
     }
-    return Scaffold(body: scroll);
+    return Scaffold(body: _ClosesSuggestionsOnScroll(child: scroll));
   }
 }
 
-class _ExploreHeader extends SliverPersistentHeaderDelegate {
-  const _ExploreHeader({
-    required this.extent,
-    required this.rowHeight,
-    required this.tabs,
-    required this.selected,
-    required this.onTab,
-    required this.tabBarHeight,
-    required this.locationOn,
-  });
+/// A drag on the page closes the search suggestions: the floating bar that
+/// carries the field slides away with the scroll, and its overlay (anchored
+/// to the field) must not stay behind. Unfocusing the field hides it.
+class _ClosesSuggestionsOnScroll extends StatelessWidget {
+  const _ClosesSuggestionsOnScroll({required this.child});
 
-  final double extent;
-  final double rowHeight;
-  final List<ExploreTab> tabs;
-  final ExploreTab selected;
-  final ValueChanged<ExploreTab> onTab;
-  final double tabBarHeight;
-  final bool locationOn;
+  final Widget child;
 
   @override
-  double get minExtent => extent;
-
-  @override
-  double get maxExtent => extent;
-
-  @override
-  bool shouldRebuild(_ExploreHeader old) =>
-      old.extent != extent ||
-      old.rowHeight != rowHeight ||
-      old.selected != selected ||
-      old.tabBarHeight != tabBarHeight ||
-      old.locationOn != locationOn ||
-      !listEquals(old.tabs, tabs);
-
-  @override
-  Widget build(
-    BuildContext context,
-    double shrinkOffset,
-    bool overlapsContent,
-  ) {
-    final colors = Theme.of(context).colorScheme;
-    final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
-    return ColoredBox(
-      color: colors.surface.withValues(alpha: 0.92),
-      child: Column(
-        children: [
-          SizedBox(
-            height: rowHeight,
-            child: Row(
-              children: [
-                // Phones: the avatar opens the drawer (Profile, Lists...).
-                if (narrow && AppShellScope.maybeOf(context) != null)
-                  const Padding(
-                    padding: EdgeInsets.only(left: AppSpacing.sm),
-                    child: AppAvatarButton(),
-                  )
-                else
-                  const SizedBox(width: AppSpacing.md),
-                const Expanded(child: Center(child: AppSearchField())),
-                AppIconButton(
-                  icon: Icons.settings_outlined,
-                  tooltip: 'Settings',
-                  onPressed: () => context.push(
-                    locationOn
-                        ? AppRouter.exploreSettingsPath
-                        : AppRouter.settingsPath,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.xs),
-              ],
-            ),
-          ),
-          if (tabs.isNotEmpty)
-            AppTabBar(
-              tabs: [for (final t in tabs) AppTab(label: t.label)],
-              selectedIndex: tabs.indexOf(selected),
-              onChanged: (i) => onTab(tabs[i]),
-              equalWidth: true,
-              semanticLabel: 'Explore',
-            ),
-        ],
-      ),
+  Widget build(BuildContext context) {
+    return NotificationListener<ScrollStartNotification>(
+      onNotification: (n) {
+        if (n.dragDetails != null && n.metrics.axis == Axis.vertical) {
+          FocusManager.instance.primaryFocus?.unfocus();
+        }
+        return false;
+      },
+      child: child,
     );
   }
 }

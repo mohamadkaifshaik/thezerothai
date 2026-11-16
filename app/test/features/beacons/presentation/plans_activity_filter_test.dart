@@ -21,6 +21,7 @@ const _labels = [
   'Sports',
   'Walk',
   'Shopping',
+  'Others',
 ];
 
 const _all = pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED;
@@ -28,6 +29,7 @@ const _coffee = pb.BeaconActivity.BEACON_ACTIVITY_COFFEE;
 const _walk = pb.BeaconActivity.BEACON_ACTIVITY_WALK;
 const _study = pb.BeaconActivity.BEACON_ACTIVITY_STUDY;
 const _shopping = pb.BeaconActivity.BEACON_ACTIVITY_SHOPPING;
+const _other = pb.BeaconActivity.BEACON_ACTIVITY_OTHER;
 
 Finder _row() => find.byKey(kPlansActivityFilterKey);
 
@@ -121,6 +123,33 @@ void main() {
       expect(_rowTitled('Study group'), findsOneWidget);
     });
   }
+
+  testWidgets('Others is the last chip and filters to OTHER plans end to end', (
+    tester,
+  ) async {
+    final rig = _rig();
+    rig.server.public[2].beacon.activity = _other;
+    await rig.pump(tester, width: 360);
+    final pills = find.descendant(
+      of: _row(),
+      matching: find.byType(AppFilterPill),
+    );
+    expect(tester.widget<AppFilterPill>(pills.last).label, 'Others');
+
+    await _tap(tester, 'Others');
+    // The request carries BEACON_ACTIVITY_OTHER, which the server accepts as a
+    // filter (validateListActivity knows every stored activity).
+    expect(rig.server.listActivities.last, _other);
+    expect(_selected(tester, 'Others'), isTrue);
+    expect(_rowTitled('Study group'), findsOneWidget);
+    expect(_rowTitled('Coffee at noon'), findsNothing);
+    expect(_rowTitled('Evening walk'), findsNothing);
+  });
+
+  test('the empty copy of Others, and of an activity', () {
+    expect(plansFilteredEmptyTitle(_other), 'No plans in Others yet');
+    expect(plansFilteredEmptyTitle(_walk), 'No walk plans yet');
+  });
 
   testWidgets('the same chip again sends nothing', (tester) async {
     final rig = _rig();

@@ -15,7 +15,6 @@ import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
-import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../../shared/widgets/post/timeline_gap_row.dart';
@@ -212,28 +211,17 @@ class _NotificationsViewState extends State<_NotificationsView>
                         title: 'Notifications',
                         actions: const [NotificationSettingsAction()],
                       ),
-                      _inset(
-                        inset,
-                        SliverToBoxAdapter(
-                          // The tabs sit in the reading column; on the
-                          // tablet layout their hairline spans the pane.
-                          child: AppMainColumnBleed(
-                            bleed: inset,
-                            child: AppTabBar(
-                              equalWidth: _tabsFitEqually(
-                                context,
-                                tabs,
-                                constraints.maxWidth - 2 * inset,
-                              ),
-                              semanticLabel: 'Notifications timelines',
-                              selectedIndex: tabs.indexOf(tab),
-                              onChanged: (index) =>
-                                  setState(() => _tab = tabs[index]),
-                              tabs: [
-                                for (final t in tabs) AppTab(label: t.label),
-                              ],
-                            ),
-                          ),
+                      // Pinned under the floating top bar; the tabs sit in the
+                      // reading column and, on the tablet layout, their
+                      // hairline spans the pane.
+                      AppPinnedTabBarSliver(
+                        child: AppTabBar(
+                          autoWidth: true,
+                          semanticLabel: 'Notifications timelines',
+                          selectedIndex: tabs.indexOf(tab),
+                          onChanged: (index) =>
+                              setState(() => _tab = tabs[index]),
+                          tabs: [for (final t in tabs) AppTab(label: t.label)],
                         ),
                       ),
                       _inset(
@@ -281,32 +269,6 @@ class _NotificationsViewState extends State<_NotificationsView>
         ),
       ),
     );
-  }
-
-  /// Whether every tab label, at the bold weight and the user's text scale,
-  /// fits its equal share of [width] (with 4 dp of air). Otherwise the tabs
-  /// size to their labels and the bar scrolls (three labels at 360 dp x2.0),
-  /// so no label is ever ellipsized.
-  static bool _tabsFitEqually(
-    BuildContext context,
-    List<NotificationsTab> tabs,
-    double width,
-  ) {
-    final style = Theme.of(context).textTheme.titleSmall
-        ?.copyWith(fontWeight: FontWeight.w700);
-    final share = width / tabs.length;
-    for (final tab in tabs) {
-      final painter = TextPainter(
-        text: TextSpan(text: tab.label, style: style),
-        textScaler: MediaQuery.textScalerOf(context),
-        textDirection: Directionality.of(context),
-        maxLines: 1,
-      )..layout();
-      final fits = painter.width + AppSpacing.xs <= share;
-      painter.dispose();
-      if (!fits) return false;
-    }
-    return true;
   }
 
   Widget _inset(double inset, Widget sliver) => SliverPadding(
