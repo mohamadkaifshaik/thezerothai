@@ -1,7 +1,7 @@
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/messages/domain/message_search.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_search_panel.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/messages_tablet_fixtures.dart';

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Decorative concentric rings (dz.css `.ring`): 1dp strokes of [color] at
 /// falling opacity around one centre. Paints behind the content, never takes

@@ -4,7 +4,7 @@ import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dar
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/post/pending_post_status_row.dart';
 import 'package:dzeroth/shared/widgets/post/pending_posts_section.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 

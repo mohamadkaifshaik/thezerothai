@@ -3,7 +3,7 @@ import 'package:dzeroth/features/settings/presentation/bloc/data_usage_cubit.dar
 import 'package:dzeroth/features/settings/presentation/bloc/undo_send_cubit.dart';
 import 'package:dzeroth/features/settings/presentation/undo_send_messages.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/settings_tablet_rig.dart';

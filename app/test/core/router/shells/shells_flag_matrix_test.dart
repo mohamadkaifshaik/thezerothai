@@ -7,7 +7,7 @@ import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
 import 'package:dzeroth/features/calls/presentation/calls_screen.dart';
 import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
 import 'package:dzeroth/features/premium/presentation/premium_dialog.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/shells_harness.dart';

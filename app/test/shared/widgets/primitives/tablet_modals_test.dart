@@ -13,7 +13,7 @@ import 'package:dzeroth/shared/widgets/user/cancel_follow_request_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_sheet.dart';
 import 'package:dzeroth/shared/widgets/primitives/sheet_option_row.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 

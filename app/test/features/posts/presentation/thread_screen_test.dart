@@ -16,7 +16,7 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ReplyPermission;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:dzeroth/shared/widgets/post/conversation_row.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';

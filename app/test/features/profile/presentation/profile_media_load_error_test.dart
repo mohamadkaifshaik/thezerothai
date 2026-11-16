@@ -3,7 +3,7 @@ import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/failing_image_cache.dart';

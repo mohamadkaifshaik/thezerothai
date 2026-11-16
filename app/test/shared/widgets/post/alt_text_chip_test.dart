@@ -4,7 +4,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/alt_text_chip.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/post/post_media.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/media_pager.dart';

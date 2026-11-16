@@ -1,5 +1,5 @@
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/theme_harness.dart';

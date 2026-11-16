@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';

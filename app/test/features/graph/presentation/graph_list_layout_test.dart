@@ -10,7 +10,7 @@ import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/shared/widgets/primitives/app_empty_view.dart';
 import 'package:dzeroth/shared/widgets/user/user_list_skeleton.dart';
 import 'package:dzeroth/shared/widgets/user/follow_pill.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';

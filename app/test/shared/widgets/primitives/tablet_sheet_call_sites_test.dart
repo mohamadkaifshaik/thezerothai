@@ -13,7 +13,7 @@ import 'package:dzeroth/features/posts/presentation/widgets/audience_sheet.dart'
 import 'package:dzeroth/features/posts/presentation/widgets/reply_audience_sheet.dart';
 import 'package:dzeroth/gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import 'package:dzeroth/shared/widgets/post/alt_text_chip.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

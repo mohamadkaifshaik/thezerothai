@@ -6,7 +6,7 @@ import 'dart:ui' as ui;
 import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/app_fonts.dart';

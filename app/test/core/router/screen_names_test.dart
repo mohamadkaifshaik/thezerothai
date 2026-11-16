@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/screen_names.dart';
 import 'package:dzeroth/core/telemetry/usage_reporter.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 

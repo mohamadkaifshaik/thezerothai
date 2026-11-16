@@ -1,5 +1,5 @@
 import 'package:dzeroth/core/widgets/context_pane_slots.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A page that lends the column a section while it is mounted.

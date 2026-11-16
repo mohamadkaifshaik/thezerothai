@@ -2,7 +2,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/theme/text_size_cubit.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 

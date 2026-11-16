@@ -3,7 +3,7 @@ import 'package:dzeroth/features/posts/domain/schedule_rules.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/schedule_dialog.dart';
 import 'package:dzeroth/shared/format/scheduled_time.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The Schedule dialog: layout, validation, the images

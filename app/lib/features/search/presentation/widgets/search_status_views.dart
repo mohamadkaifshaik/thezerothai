@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/widgets/app_error_view.dart' show rateLimitedMessage;

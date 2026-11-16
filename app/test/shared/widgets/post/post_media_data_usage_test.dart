@@ -4,7 +4,7 @@ import 'package:dzeroth/features/settings/presentation/bloc/data_usage_cubit.dar
 import 'package:dzeroth/features/settings/presentation/bloc/data_usage_state.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/post/post_media.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 

@@ -4,7 +4,7 @@ import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/domain/search_results_tab.dart';
 import 'package:dzeroth/features/search/presentation/widgets/search_directory_tabs.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/posts_fixtures.dart';

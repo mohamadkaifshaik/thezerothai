@@ -6,7 +6,7 @@ import '../../location/domain/location_models.dart';
 import '../../location/presentation/bloc/location_settings_cubit.dart';
 import '../../location/presentation/widgets/location_settings_scope.dart';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 

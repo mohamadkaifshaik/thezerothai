@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_pill_button.dart';

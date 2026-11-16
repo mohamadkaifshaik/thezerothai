@@ -10,7 +10,7 @@ import 'package:dzeroth/features/profile/presentation/widgets/profile_media_stri
 import 'package:dzeroth/features/search/presentation/widgets/app_search_field.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 

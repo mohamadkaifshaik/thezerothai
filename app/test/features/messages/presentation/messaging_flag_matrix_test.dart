@@ -12,7 +12,7 @@ import 'package:dzeroth/features/moderation/domain/reports_feature_flag.dart';
 import 'package:dzeroth/features/notifications/domain/notifications_feature_flag.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.connect.spec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/messaging_flow_rig.dart';

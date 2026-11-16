@@ -3,7 +3,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/primitives/app_empty_view.dart';
 import 'package:dzeroth/shared/widgets/post/pending_post_row.dart';
 import 'package:dzeroth/shared/widgets/post/post_list_skeleton.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget host(Widget child, {double textScale = 1}) => MaterialApp(

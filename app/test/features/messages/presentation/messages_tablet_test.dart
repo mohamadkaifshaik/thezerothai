@@ -21,7 +21,7 @@ import 'package:dzeroth/features/messages/presentation/thread_route_page.dart';
 import 'package:dzeroth/features/messages/presentation/thread_screen.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 

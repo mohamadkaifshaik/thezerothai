@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../shared/widgets/primitives/app_avatar.dart';

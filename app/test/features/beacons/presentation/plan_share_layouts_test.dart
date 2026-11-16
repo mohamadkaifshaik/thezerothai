@@ -3,7 +3,7 @@ import 'package:dzeroth/core/share/share_links.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plan_share.dart';
 import 'package:dzeroth/shared/widgets/post/post_share_menu.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/beacons_fixtures.dart';

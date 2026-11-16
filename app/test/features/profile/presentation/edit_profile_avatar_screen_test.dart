@@ -18,7 +18,7 @@ import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
 import 'package:dzeroth/features/profile/presentation/edit_profile_screen.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/avatar_editor.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';

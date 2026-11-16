@@ -19,7 +19,7 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:fixnum/fixnum.dart' show Int64;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';

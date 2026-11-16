@@ -3,7 +3,7 @@ import 'package:dzeroth/features/posts/presentation/bloc/composer_cubit.dart';
 import 'package:dzeroth/features/posts/presentation/post_error_messages.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/send_conflict_dialog.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The words and buttons of each [SendConflict].

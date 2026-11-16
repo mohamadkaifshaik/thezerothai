@@ -2,7 +2,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/widgets/service_paused_view.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/contrast.dart';

@@ -3,7 +3,7 @@ import 'package:dzeroth/features/messages/presentation/thread_screen.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/messaging_flow_rig.dart';

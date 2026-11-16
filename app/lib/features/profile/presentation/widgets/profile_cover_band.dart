@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The band behind the avatar on the profile header and on Edit profile: a
 /// flat theme surface (profiles carry no picture there). It is decoration,

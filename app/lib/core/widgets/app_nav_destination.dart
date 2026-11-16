@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Where a destination lives (ADR-0034): [primary] ones are the phone bottom
 /// bar and the first rail items; [secondary] ones are rail-only on >= 600dp

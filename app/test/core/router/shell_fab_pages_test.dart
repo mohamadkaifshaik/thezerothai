@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/communities_tablet_rig.dart';

@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 
 import 'package:flutter/gestures.dart' show PointerScrollEvent;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/tablet_modal.dart';

@@ -5,7 +5,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/shared/widgets/post/pending_posts_section.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 

@@ -7,7 +7,7 @@ import 'package:dzeroth/shared/widgets/post/embedded_post_card.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:dzeroth/shared/widgets/post/protected_post_box.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/geometry.dart';

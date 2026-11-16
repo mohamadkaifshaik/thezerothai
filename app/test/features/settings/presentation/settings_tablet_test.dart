@@ -14,7 +14,7 @@ import 'package:dzeroth/features/settings/presentation/widgets/unsent_posts_row.
 import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

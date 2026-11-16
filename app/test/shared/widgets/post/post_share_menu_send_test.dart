@@ -2,7 +2,7 @@ import 'package:dzeroth/core/share/native_share.dart';
 import 'package:dzeroth/shared/widgets/post/post_share_menu.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/sheet_option_row.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/theme_harness.dart';

@@ -7,7 +7,7 @@ import 'package:dzeroth/features/beacons/presentation/edit_beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/my_beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/create_beacon_screen.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 

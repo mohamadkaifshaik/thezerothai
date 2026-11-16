@@ -5,7 +5,7 @@ import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/thread_side_boxes.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

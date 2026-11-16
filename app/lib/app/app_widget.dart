@@ -4,7 +4,7 @@ import '../features/premium/domain/subscription_repository.dart';
 import '../features/premium/presentation/bloc/subscription_cubit.dart';
 
 import 'package:flutter/foundation.dart' show setEquals;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../features/articles/domain/articles_repository.dart';
 
