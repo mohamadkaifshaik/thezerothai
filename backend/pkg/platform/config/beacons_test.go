@@ -20,6 +20,9 @@ func TestLoad_BeaconsDefaults(t *testing.T) {
 	if cfg.RateLimit.BeaconsCreatedPerDay != 10 {
 		t.Errorf("BeaconsCreatedPerDay = %d, want 10", cfg.RateLimit.BeaconsCreatedPerDay)
 	}
+	if cfg.RateLimit.BeaconsCancelledPerDay != 20 {
+		t.Errorf("BeaconsCancelledPerDay = %d, want 20", cfg.RateLimit.BeaconsCancelledPerDay)
+	}
 	if b := cfg.Beacons; b.MaxOpenPerUser != 5 || b.MaxPendingRequests != 10 || b.MaxOpenSpots != 20 {
 		t.Errorf("beacons config = %+v, want 5/10/20", b)
 	}
@@ -36,6 +39,7 @@ func TestLoad_BeaconsOverridesAndValidation(t *testing.T) {
 		for k, v := range map[string]string{
 			"RATE_LIMIT_BEACONS_WRITE_PER_MIN": "7", "RATE_LIMIT_BEACONS_ACTION_PER_MIN": "8", "RATE_LIMIT_BEACONS_READ_PER_MIN": "9",
 			"BEACONS_CREATED_PER_DAY":   "11",
+			"BEACONS_CANCELLED_PER_DAY": "13",
 			"BEACONS_MAX_OPEN_PER_USER": "3", "BEACONS_MAX_PENDING_REQUESTS": "4", "BEACONS_MAX_OPEN_SPOTS": "12",
 			"FEATURE_BEACONS": "allowlist", "FEATURE_BEACONS_ALLOWLIST": "uid-a,uid-b",
 		} {
@@ -51,6 +55,9 @@ func TestLoad_BeaconsOverridesAndValidation(t *testing.T) {
 		if cfg.RateLimit.BeaconsCreatedPerDay != 11 {
 			t.Errorf("BeaconsCreatedPerDay override = %d, want 11", cfg.RateLimit.BeaconsCreatedPerDay)
 		}
+		if cfg.RateLimit.BeaconsCancelledPerDay != 13 {
+			t.Errorf("BeaconsCancelledPerDay override = %d, want 13", cfg.RateLimit.BeaconsCancelledPerDay)
+		}
 		if b := cfg.Beacons; b.MaxOpenPerUser != 3 || b.MaxPendingRequests != 4 || b.MaxOpenSpots != 12 {
 			t.Errorf("beacons override = %+v, want 3/4/12", b)
 		}
@@ -65,7 +72,7 @@ func TestLoad_BeaconsOverridesAndValidation(t *testing.T) {
 
 	for _, key := range []string{
 		"RATE_LIMIT_BEACONS_WRITE_PER_MIN", "RATE_LIMIT_BEACONS_ACTION_PER_MIN", "RATE_LIMIT_BEACONS_READ_PER_MIN",
-		"BEACONS_CREATED_PER_DAY", "BEACONS_MAX_OPEN_PER_USER", "BEACONS_MAX_PENDING_REQUESTS", "BEACONS_MAX_OPEN_SPOTS",
+		"BEACONS_CREATED_PER_DAY", "BEACONS_CANCELLED_PER_DAY", "BEACONS_MAX_OPEN_PER_USER", "BEACONS_MAX_PENDING_REQUESTS", "BEACONS_MAX_OPEN_SPOTS",
 	} {
 		for _, val := range []string{"0", "-1", "many"} {
 			t.Run(key+"="+val, func(t *testing.T) {

@@ -732,6 +732,8 @@ func Load() (Config, error) {
 		{&rl.FollowListCallsPerDay, "FOLLOW_LIST_CALLS_PER_DAY", 1000},
 		// CreateBeacon per uid, limit_name "beacons_created_daily".
 		{&rl.BeaconsCreatedPerDay, "BEACONS_CREATED_PER_DAY", 10},
+		// CancelBeacon per uid, limit_name "beacons_cancelled_daily" (R24: bounds the cap-exempt cancellation fan-out).
+		{&rl.BeaconsCancelledPerDay, "BEACONS_CANCELLED_PER_DAY", 20},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {

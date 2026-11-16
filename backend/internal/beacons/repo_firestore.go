@@ -159,15 +159,16 @@ func (r *FirestoreRepo) run(ctx context.Context, fn store.TxnFunc) (int, error) 
 }
 
 // putIdem appends the TTL'd idempotency document of rpc, holding the beacon id only (a record outlives the beacon by up
-// to 48 h, so it must not keep its text), to b.
-func (r *FirestoreRepo) putIdem(b store.Batch, uid, key, rpc, hash, beaconID string) {
-	r.putIdemResult(b, uid, key, rpc, hash, map[string]string{"id": beaconID})
+// to 48 h, so it must not keep its text), to b. now is the clock of the write it records (the caller's p.Now, the one
+// that decided ENDED and stamped updatedAt), so the record's expiry and the write it guards agree.
+func (r *FirestoreRepo) putIdem(b store.Batch, now time.Time, uid, key, rpc, hash, beaconID string) {
+	r.putIdemResult(b, now, uid, key, rpc, hash, map[string]string{"id": beaconID})
 }
 
 // putIdemResult is putIdem with an explicit result map (the participation writes also keep the target uid).
-func (r *FirestoreRepo) putIdemResult(b store.Batch, uid, key, rpc, hash string, result map[string]string) {
+func (r *FirestoreRepo) putIdemResult(b store.Batch, now time.Time, uid, key, rpc, hash string, result map[string]string) {
 	r.idem.Put(b, key, idempotency.Record{
-		UID: uid, RPC: rpc, RequestHash: hash, Result: result, ExpireAt: r.now().UTC().Add(idempotency.TTL),
+		UID: uid, RPC: rpc, RequestHash: hash, Result: result, ExpireAt: now.UTC().Add(idempotency.TTL),
 	})
 }
 
@@ -286,7 +287,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		b.Set(r.membershipRef(p.UID, p.ID), membershipDoc{
 			BeaconID: p.ID, Role: RoleOrganiser, State: string(StatusOpen), CommunityID: in.CommunityID, StartAt: doc.StartAt, EndAt: doc.EndAt,
 		})
-		r.putIdem(b, p.UID, p.IdemKey, rpcCreateBeacon, p.RequestHash, p.ID)
+		r.putIdem(b, now, p.UID, p.IdemKey, rpcCreateBeacon, p.RequestHash, p.ID)
 		if err := b.Err(); err != nil {
 			return err
 		}
@@ -394,7 +395,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 			plan.stage(b)
 			outcome = Written
 		}
-		r.putIdem(b, p.UID, p.IdemKey, rpcUpdateBeacon, p.RequestHash, p.BeaconID)
+		r.putIdem(b, p.Now, p.UID, p.IdemKey, rpcUpdateBeacon, p.RequestHash, p.BeaconID)
 		if err := b.Err(); err != nil {
 			return err
 		}
@@ -438,7 +439,7 @@ func (r *FirestoreRepo) Cancel(ctx context.Context, p CancelParams) (CancelResul
 		b := store.NewFirestoreTxBatch(tx)
 		switch d.beacon(p.BeaconID).EffectiveStatus(p.Now) {
 		case StatusCancelled:
-			r.putIdem(b, p.UID, p.IdemKey, rpcCancelBeacon, p.RequestHash, p.BeaconID)
+			r.putIdem(b, p.Now, p.UID, p.IdemKey, rpcCancelBeacon, p.RequestHash, p.BeaconID)
 			if err := b.Err(); err != nil {
 				return err
 			}
@@ -457,7 +458,7 @@ func (r *FirestoreRepo) Cancel(ctx context.Context, p CancelParams) (CancelResul
 		if p.Stage != nil {
 			p.Stage(b, d.beacon(p.BeaconID)) // the cancellation outbox item (B07): after every read, in this commit
 		}
-		r.putIdem(b, p.UID, p.IdemKey, rpcCancelBeacon, p.RequestHash, p.BeaconID)
+		r.putIdem(b, p.Now, p.UID, p.IdemKey, rpcCancelBeacon, p.RequestHash, p.BeaconID)
 		if err := b.Err(); err != nil {
 			return err
 		}

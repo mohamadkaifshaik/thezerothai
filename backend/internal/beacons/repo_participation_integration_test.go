@@ -108,6 +108,21 @@ func TestRepo_RequestRules(t *testing.T) {
 	if err != nil || res.Outcome != Unchanged || res.Participant.State != PStateAccepted {
 		t.Fatalf("request while accepted = %+v, %v, want Unchanged", res, err)
 	}
+	// The caller's own row answers before FULL (PR 3 deferred minor): accepted stays the no-op success and a pending
+	// request stays already_requested on a full beacon; only a newcomer is refused as full.
+	e.mustRequest(t, "p2", "integration-key-rr09", b.ID)
+	e.setField(t, b.ID, firestore.Update{Path: "status", Value: string(StatusFull)})
+	res, err = e.request("p1", "integration-key-rr10", b.ID, "", 10, e.now)
+	if err != nil || res.Outcome != Unchanged || res.Participant.State != PStateAccepted {
+		t.Fatalf("accepted caller on a full beacon = %+v, %v, want Unchanged", res, err)
+	}
+	if _, err := e.request("p2", "integration-key-rr11", b.ID, "", 10, e.now); !errors.Is(err, ErrAlreadyRequested) {
+		t.Fatalf("requested caller on a full beacon = %v, want ErrAlreadyRequested", err)
+	}
+	if _, err := e.request("p3", "integration-key-rr12", b.ID, "", 10, e.now); !errors.Is(err, ErrFull) {
+		t.Fatalf("newcomer on a full beacon = %v, want ErrFull", err)
+	}
+	e.setField(t, b.ID, firestore.Update{Path: "status", Value: string(StatusOpen)})
 	if _, err := e.request("p9", "integration-key-rr08", e.node.Generate(), "", 10, e.now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing beacon = %v, want ErrNotFound", err)
 	}
@@ -601,6 +616,22 @@ func TestRepo_GetParticipantsBatch(t *testing.T) {
 	}
 	if empty, err := e.repo.GetParticipants(ctx, "gp-p1", nil); err != nil || len(empty) != 0 {
 		t.Fatalf("empty batch = %v, %v", empty, err)
+	}
+}
+
+// TestRepo_GetParticipantFallsBackToDocID (PR 3 deferred minor): a participant row without the repeated uid field
+// answers with the document id as its UID, as GetParticipants and ListParticipants already do.
+func TestRepo_GetParticipantFallsBackToDocID(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	b := e.create(t, "org-gf", itKeyA, e.beaconAt("org-gf", "", e.now.Add(time.Hour))).Beacon
+	e.mustRequest(t, "gf-p1", "integration-key-gf01", b.ID)
+	if _, err := e.repo.participantRef(b.ID, "gf-p1").Update(ctx, []firestore.Update{{Path: "uid", Value: firestore.Delete}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.repo.GetParticipant(ctx, b.ID, "gf-p1")
+	if err != nil || got.UID != "gf-p1" || got.State != PStateRequested {
+		t.Fatalf("GetParticipant = %+v, %v, want uid gf-p1 from the document id", got, err)
 	}
 }
 
