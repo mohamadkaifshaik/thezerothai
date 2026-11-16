@@ -37,9 +37,11 @@ func jwksServer(t *testing.T, status *atomic.Int32, hits *atomic.Int32) {
 }
 
 // noADC makes Application Default Credentials unresolvable for the rest of the test, so no test can read this
-// machine's real credentials and any ADC lookup fails at once, with no network. GOOGLE_APPLICATION_CREDENTIALS points
-// at a file that does not exist (the lookup reads it first and errors). The gcloud well-known locations (HOME,
-// APPDATA, CLOUDSDK_CONFIG) point at an empty temp dir, and the metadata-server override is cleared.
+// machine's real credentials. What makes it hermetic is GOOGLE_APPLICATION_CREDENTIALS pointing at a file that does
+// not exist: the ADC lookup reads that variable first and errors on the missing file, before it would try the gcloud
+// well-known file or probe the metadata server, so it fails at once with no network. HOME, APPDATA and
+// CLOUDSDK_CONFIG pointing at an empty temp dir are belt and braces; GCE_METADATA_HOST is set to empty (not unset),
+// which the metadata client treats as no override.
 func noADC(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
@@ -160,6 +162,14 @@ func TestAppCheckVerifier_FailsClosedWhenClientBuildFails(t *testing.T) {
 		if hits.Load() != before+1 {
 			t.Fatalf("call %d: key fetches %d -> %d, want one build attempt per call while the build fails", i, before, hits.Load())
 		}
+	}
+	// Tie the rejection to the build error, not to the token: VerifyToken must surface the client-build failure.
+	before := hits.Load()
+	if err := v.VerifyToken(context.Background(), "some-token"); err == nil || !strings.Contains(err.Error(), "init app check client") {
+		t.Fatalf("VerifyToken error = %v, want the App Check client build error", err)
+	}
+	if hits.Load() != before+1 {
+		t.Fatalf("VerifyToken: key fetches %d -> %d, want one more build attempt (failure not cached)", before, hits.Load())
 	}
 	if err := authn.CheckAppCheck(context.Background(), "demo-project", conflicting); err == nil {
 		t.Fatal("CheckAppCheck passed although the App Check HTTP client could not be built")

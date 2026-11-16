@@ -92,8 +92,11 @@ func normalizeIdentities(raw map[string]interface{}) map[string][]string {
 // from the app's options, which would resolve Application Default Credentials at build time. That client is used
 // only by VerifyOneTimeToken (replay protection); we call only VerifyToken, which verifies locally against the
 // fetched keys. So option.WithoutAuthentication() always goes first, restoring the 4.22 behaviour for every caller
-// (no ADC needed in cmd/api, apiserver or local dev). Caller opts still follow it, so tests keep the seam. Revisit
-// this if we ever adopt VerifyOneTimeToken: that call needs real credentials.
+// (no ADC needed in cmd/api, apiserver or local dev). Caller opts are appended after it but cannot turn
+// authentication back on: any credential option (API key, token source, credentials file or JSON) conflicts with
+// it in the options validation, so the build fails, and CheckAppCheck stops startup. Options never affect the key
+// fetch or VerifyToken; the SDK uses them only for that HTTP client. Revisit this if we ever adopt
+// VerifyOneTimeToken: that call needs real credentials.
 func newAppCheckClient(ctx context.Context, projectID string, opts ...option.ClientOption) (*appcheck.Client, error) {
 	opts = append([]option.ClientOption{option.WithoutAuthentication()}, opts...)
 	app, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: projectID}, opts...)
