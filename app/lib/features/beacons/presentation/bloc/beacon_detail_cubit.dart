@@ -83,14 +83,13 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   }
 
   Future<void> cancel() async {
-    final ok = await _run(BeaconAction.cancel, '', (key) async {
+    await _run(BeaconAction.cancel, '', (key) async {
       await _repository.cancelBeacon(idempotencyKey: key, beaconId: _beaconId);
       if (isClosed) return;
       final view = state.view!.deepCopy()
         ..beacon.status = pb.BeaconStatus.BEACON_STATUS_CANCELLED;
       emit(state.copyWith(view: view));
     });
-    if (!ok) return;
   }
 
   /// Asks to join with [note] (0-140); an empty note is the one-tap "I'm in".

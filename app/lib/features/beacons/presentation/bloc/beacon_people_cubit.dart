@@ -141,6 +141,10 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
   /// there is no open request any more) the user is parked in [_pendingBlock]:
   /// a failed block keeps that, says so, and a retry only blocks, with the
   /// same block key.
+  ///
+  /// Without a graph repository (blocking unavailable in this scope) this
+  /// deliberately degrades to a plain [decline]: the request is still
+  /// answered, only the block is skipped.
   Future<bool> declineAndBlock(String userId) async {
     final graph = _graph;
     if (graph == null) return decline(userId);

@@ -28,6 +28,7 @@ import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cu
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -161,6 +162,17 @@ class PlansTabletRig {
     bool settle = true,
   }) async {
     addTearDown(flagChanges.close);
+    // The edit form is the organiser's: the plan it opens is the caller's.
+    if (location.endsWith('/edit')) {
+      for (final v in server.public) {
+        if (location.contains('/${v.beacon.beaconId}/')) {
+          v.viewer = pb.ViewerState(
+            role: pb.ViewerRole.VIEWER_ROLE_ORGANISER,
+            canManage: true,
+          );
+        }
+      }
+    }
     OnboardingState ready(Set<String> set) => OnboardingState(
       status: OnboardingStatus.ready,
       enabledFeatures: set,
