@@ -120,10 +120,11 @@ void main() {
           await _open(tester, size, AppRouter.plansPath);
           expect(find.text('Flat white before work'), findsWidgets);
           expect(find.textContaining('2 going'), findsWidgets);
-          // My plans and New plan: header icons on the phone and in the list
-          // pane, pills beside the headline on the page.
+          // My plans is the header's round action at every width (one with
+          // the other tab screens); New plan too on the phone and in the list
+          // pane. The page's pills beside the headline are the designs'.
           final pills = !phone && size.width < 840 || desktop;
-          expect(_pillMyPlans, pills ? findsOneWidget : findsNothing);
+          expect(_pillMyPlans, findsNothing);
           // The tablet's empty detail pane carries a content-sized New plan
           // pill too.
           final placeholderPill = !phone && !desktop && size.width >= 840;
@@ -131,10 +132,7 @@ void main() {
             _pillNewPlan,
             pills || placeholderPill ? findsOneWidget : findsNothing,
           );
-          expect(
-            find.byTooltip('My plans'),
-            pills ? findsNothing : findsOneWidget,
-          );
+          expect(find.byTooltip('My plans'), findsOneWidget);
           // "Your plans" on the tablet layout and the desktop, not the phone.
           expect(
             find.text('Your plans'),

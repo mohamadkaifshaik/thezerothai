@@ -1564,11 +1564,17 @@ abstract final class AppPhotoPanel {
   static const Color muted = Color(0xFF71767B);
   static const Color liked = Color(0xFFF91880);
   static const Color reposted = Color(0xFF00BA7C);
-  static const Color bookmarked = Color(0xFF1D9BF0);
+  static const Color bookmarked = AppPalette.tealElectric;
 
   /// The "Post your reply" pill and its icon buttons.
   static const Color replyField = Color(0xFF202327);
-  static const Color accent = Color(0xFF1D9BF0);
+
+  /// The panel is dark in both themes, so the dark theme's teal accent (the
+  /// link colour of the feeds) is the one that reads on it.
+  static const Color accent = AppPalette.tealElectric;
+
+  /// The verified badge keeps its own blue (not an accent).
+  static const Color verified = Color(0xFF1D9BF0);
 
   /// Sizes (dp): the author's avatar, the viewer's avatar, the reply pill's
   /// height, and the action glyphs.

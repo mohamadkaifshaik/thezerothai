@@ -22,6 +22,7 @@ Future<void> _pump(
   bool liked = false,
   bool reposted = false,
   bool bookmarked = false,
+  Brightness brightness = Brightness.light,
 }) => pumpThemed(
   tester,
   Padding(
@@ -40,6 +41,7 @@ Future<void> _pump(
     ),
   ),
   size: const Size(390, 200),
+  brightness: brightness,
 );
 
 Icon _icon(WidgetTester tester, IconData data) =>
@@ -89,9 +91,37 @@ void main() {
     await _pump(tester, liked: true, reposted: true, bookmarked: true);
     expect(_icon(tester, Icons.favorite).color, const Color(0xFFF91880));
     expect(_icon(tester, Icons.repeat).color, const Color(0xFF00BA7C));
-    expect(_icon(tester, Icons.bookmark).color, const Color(0xFF1D9BF0));
+    expect(_icon(tester, Icons.bookmark).color, AppPalette.tealElectric);
     expect(find.byIcon(Icons.bookmark_border), findsNothing);
   });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('the bookmarked colour is the teal accent, not blue '
+        '(${brightness.name})', (tester) async {
+      await _pump(tester, bookmarked: true, brightness: brightness);
+      // The photo viewer's dark panel: the dark theme's teal token.
+      expect(_icon(tester, Icons.bookmark).color, AppPhotoPanel.bookmarked);
+      expect(AppPhotoPanel.bookmarked, AppPalette.tealElectric);
+      expect(AppPhotoPanel.bookmarked, isNot(const Color(0xFF1D9BF0)));
+      // The feed's row: the theme's primary, the teal of links and actions.
+      await _pump(
+        tester,
+        style: PostActionBarStyle.feed,
+        bookmarked: true,
+        brightness: brightness,
+      );
+      final primary = Theme.of(tester.element(find.byType(PostActionBar)))
+          .colorScheme
+          .primary;
+      expect(_icon(tester, Icons.bookmark).color, primary);
+      expect(
+        primary,
+        brightness == Brightness.light
+            ? AppPalette.tealText
+            : AppPalette.tealElectric,
+      );
+    });
+  }
 
   testWidgets('the feed style keeps its own order and colours', (tester) async {
     await _pump(tester, style: PostActionBarStyle.feed, liked: true);

@@ -178,7 +178,7 @@ class _AuthorRow extends StatelessWidget {
                       const Icon(
                         Icons.verified,
                         size: AppIconSize.sm,
-                        color: AppPhotoPanel.accent,
+                        color: AppPhotoPanel.verified,
                       ),
                     ],
                     if (author.handle.isNotEmpty) ...[
