@@ -314,6 +314,7 @@ locals {
     { name = "RATE_LIMIT_BEACONS_ACTION_PER_MIN", value = "20" },
     { name = "RATE_LIMIT_BEACONS_READ_PER_MIN", value = "30" },
     { name = "BEACONS_CREATED_PER_DAY", value = "10" },
+    { name = "BEACONS_CANCELLED_PER_DAY", value = "20" },
     { name = "BOOKMARKS_MAX_PER_USER", value = "1000" },
     { name = "RATE_LIMIT_BOOKMARKS_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", value = "10" },
