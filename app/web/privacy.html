@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <!-- Draft — last updated 2026-11-16 (location and plan-area text added from docs/location-consent-review-2026-11-16.md M-01/M-04/M-10/M-13; counsel and founder approval required before deploy; earlier: W6-55 full refresh: founder approval of the text required;
      Polls, Drafts and Lists sections: W6-46, founder-approved in #564 and kept word for word;
      retained-after-deletion list: ADR-0011 Q10, founder-accepted 2026-10-07, plus the entries accepted later in
@@ -79,96 +79,94 @@
 -->
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Privacy Policy — Dzeroth</title>
-  <meta name="description" content="Dzeroth's privacy policy: what we collect, why, where it's stored and your rights.">
-  <meta name="robots" content="noindex">
-  <style>
-    :root {
-      color-scheme: light dark;
-      --fg: #1a1a1a;
-      --bg: #ffffff;
-      --muted: #555555;
-      --link: #1d4ed8;
-      --border: #e2e2e2;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --fg: #f0f0f0;
-        --bg: #121212;
-        --muted: #b5b5b5;
-        --link: #7fa8ff;
-        --border: #333333;
-      }
-    }
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: var(--bg);
-      color: var(--fg);
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      line-height: 1.55;
-      font-size: 16px;
-    }
-    main {
-      max-width: 680px;
-      margin: 0 auto;
-      padding: 24px 20px 64px;
-    }
-    h1 {
-      font-size: 1.6rem;
-      margin-bottom: 4px;
-    }
-    h2 {
-      font-size: 1.15rem;
-      margin-top: 2em;
-      margin-bottom: 0.5em;
-      border-top: 1px solid var(--border);
-      padding-top: 1em;
-    }
-    p, li {
-      color: var(--fg);
-    }
-    .updated {
-      color: var(--muted);
-      font-size: 0.95rem;
-      margin-top: 0;
-    }
-    a {
-      color: var(--link);
-    }
-    ul {
-      padding-left: 1.25em;
-    }
-    li {
-      margin-bottom: 0.5em;
-    }
-    .footer-note {
-      margin-top: 2.5em;
-      padding-top: 1.25em;
-      border-top: 1px solid var(--border);
-      font-weight: 600;
-    }
-    .home-link {
-      display: inline-block;
-      margin-bottom: 1.5em;
-      font-size: 0.95rem;
-    }
-  </style>
+  <title>Privacy Policy · Dzeroth</title>
+  <meta name="description" content="Dzeroth&#x27;s privacy policy: what we collect, why, where it is stored and your rights.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.png">
+  <link rel="stylesheet" href="/legal.css">
 </head>
 <body>
-  <main>
-    <a class="home-link" href="/">&larr; dzeroth.com</a>
-    <nav aria-label="Site pages"><a href="terms.html">Terms</a> · <a href="about.html">About</a> · <a href="help.html">Help</a></nav>
-
-    <h1>Dzeroth Privacy Policy</h1>
-    <p class="updated">Last updated: 16 November 2026</p>
-
-    <p>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="inner">
+    <a class="wordmark" href="/" aria-label="Dzeroth home">DZEROTH</a>
+    <nav class="site-nav" aria-label="Site pages">
+      <a href="/privacy.html" aria-current="page">Privacy Policy</a>
+      <a href="/terms.html">Terms</a>
+      <a href="/about.html">About</a>
+      <a href="/help.html">Help</a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="page">
+  <header class="title-block">
+    <p class="eyebrow">Legal</p>
+    <h1>Privacy Policy</h1>
+    <p class="meta">Last updated 16 November 2026</p>
+  </header>
+  <details class="toc-mobile">
+    <summary>On this page</summary>
+    <ol>
+      <li><a href="#who-we-are">Who we are</a></li>
+      <li><a href="#data-we-collect">Data we collect</a></li>
+      <li><a href="#why-we-collect-it">Why we collect it</a></li>
+      <li><a href="#following-blocking-and-muting">Following, blocking and muting</a></li>
+      <li><a href="#protected-accounts">Protected accounts</a></li>
+      <li><a href="#posts-likes-and-bookmarks">Posts, likes and bookmarks</a></li>
+      <li><a href="#photos-and-gifs">Photos and GIFs</a></li>
+      <li><a href="#direct-messages">Direct messages</a></li>
+      <li><a href="#notifications-and-push">Notifications and push</a></li>
+      <li><a href="#search-and-trends">Search and trends</a></li>
+      <li><a href="#polls">Polls</a></li>
+      <li><a href="#drafts">Drafts</a></li>
+      <li><a href="#lists">Lists</a></li>
+      <li><a href="#reports-and-moderation">Reports and moderation</a></li>
+      <li><a href="#location-and-plan-areas">Location and plan areas</a></li>
+      <li><a href="#who-we-share-it-with">Who we share it with</a></li>
+      <li><a href="#where-your-data-is-stored">Where your data is stored</a></li>
+      <li><a href="#how-long-we-keep-it">How long we keep it</a></li>
+      <li><a href="#your-rights">Your rights</a></li>
+      <li><a href="#age-requirement">Age requirement</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#changes-to-this-policy">Changes to this policy</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ol>
+  </details>
+  <div class="layout has-toc">
+    <nav class="toc-side" aria-label="On this page">
+      <h2>On this page</h2>
+      <ol>
+        <li><a href="#who-we-are">Who we are</a></li>
+        <li><a href="#data-we-collect">Data we collect</a></li>
+        <li><a href="#why-we-collect-it">Why we collect it</a></li>
+        <li><a href="#following-blocking-and-muting">Following, blocking and muting</a></li>
+        <li><a href="#protected-accounts">Protected accounts</a></li>
+        <li><a href="#posts-likes-and-bookmarks">Posts, likes and bookmarks</a></li>
+        <li><a href="#photos-and-gifs">Photos and GIFs</a></li>
+        <li><a href="#direct-messages">Direct messages</a></li>
+        <li><a href="#notifications-and-push">Notifications and push</a></li>
+        <li><a href="#search-and-trends">Search and trends</a></li>
+        <li><a href="#polls">Polls</a></li>
+        <li><a href="#drafts">Drafts</a></li>
+        <li><a href="#lists">Lists</a></li>
+        <li><a href="#reports-and-moderation">Reports and moderation</a></li>
+        <li><a href="#location-and-plan-areas">Location and plan areas</a></li>
+        <li><a href="#who-we-share-it-with">Who we share it with</a></li>
+        <li><a href="#where-your-data-is-stored">Where your data is stored</a></li>
+        <li><a href="#how-long-we-keep-it">How long we keep it</a></li>
+        <li><a href="#your-rights">Your rights</a></li>
+        <li><a href="#age-requirement">Age requirement</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#changes-to-this-policy">Changes to this policy</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ol>
+    </nav>
+    <article class="prose">
+<p>
       Dzeroth ("Dzeroth", "we", "us") is a text-first social app at
       <a href="https://dzeroth.com">dzeroth.com</a>. This page explains what
       information we collect when you use it, why, where it's stored and how
@@ -180,7 +178,7 @@
       below may not be available on your account yet.
     </p>
 
-    <h2>Who we are</h2>
+    <h2 id="who-we-are">Who we are<a class="h-anchor" href="#who-we-are" aria-label="Link to this section">#</a></h2>
     <p>
       Dzeroth is an early-stage, independently-run project built by a single
       founder based in India. There is no separate data protection team yet —
@@ -188,7 +186,7 @@
       <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a>.
     </p>
 
-    <h2>Data we collect</h2>
+    <h2 id="data-we-collect">Data we collect<a class="h-anchor" href="#data-we-collect" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Account data.</strong> When you sign up, Firebase
@@ -311,7 +309,7 @@
       </li>
     </ul>
 
-    <h2>Why we collect it</h2>
+    <h2 id="why-we-collect-it">Why we collect it<a class="h-anchor" href="#why-we-collect-it" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>To create and secure your account, and verify it's really you.</li>
       <li>To run the features of the app: profiles, following, blocking and muting, posts and timelines, likes, reposts and bookmarks, photos and GIFs, direct messages, notifications, search, polls and lists.</li>
@@ -321,7 +319,7 @@
     </ul>
     <p>We do not sell your data, and we do not use it for third-party advertising.</p>
 
-    <h2>Following, blocking and muting</h2>
+    <h2 id="following-blocking-and-muting">Following, blocking and muting<a class="h-anchor" href="#following-blocking-and-muting" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Follows are public.</strong> Other signed-in users can see who
@@ -349,7 +347,7 @@
       </li>
     </ul>
 
-    <h2>Protected accounts</h2>
+    <h2 id="protected-accounts">Protected accounts<a class="h-anchor" href="#protected-accounts" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Who sees what.</strong> If you protect your account, your
@@ -373,7 +371,7 @@
       </li>
     </ul>
 
-    <h2>Posts, likes and bookmarks</h2>
+    <h2 id="posts-likes-and-bookmarks">Posts, likes and bookmarks<a class="h-anchor" href="#posts-likes-and-bookmarks" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Posts.</strong> Your posts, replies, quotes and reposts can be
@@ -409,7 +407,7 @@
       </li>
     </ul>
 
-    <h2>Photos and GIFs</h2>
+    <h2 id="photos-and-gifs">Photos and GIFs<a class="h-anchor" href="#photos-and-gifs" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Checking images.</strong> To keep unsafe images off Dzeroth,
@@ -439,7 +437,7 @@
       </li>
     </ul>
 
-    <h2>Direct messages</h2>
+    <h2 id="direct-messages">Direct messages<a class="h-anchor" href="#direct-messages" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Not end-to-end encrypted.</strong> Direct messages are stored
@@ -487,7 +485,7 @@
       </li>
     </ul>
 
-    <h2>Notifications and push</h2>
+    <h2 id="notifications-and-push">Notifications and push<a class="h-anchor" href="#notifications-and-push" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Your notifications</strong> are kept for 90 days, then deleted
@@ -505,7 +503,7 @@
       </li>
     </ul>
 
-    <h2>Search and trends</h2>
+    <h2 id="search-and-trends">Search and trends<a class="h-anchor" href="#search-and-trends" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Search.</strong> Search looks up accounts by their @handle and
@@ -526,7 +524,7 @@
       </li>
     </ul>
 
-    <h2>Polls</h2>
+    <h2 id="polls">Polls<a class="h-anchor" href="#polls" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Your vote is stored with your account.</strong> When you
@@ -587,7 +585,7 @@
       </li>
     </ul>
 
-    <h2>Drafts</h2>
+    <h2 id="drafts">Drafts<a class="h-anchor" href="#drafts" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Drafts stay on your device.</strong> A draft is a post you
@@ -628,7 +626,7 @@
       </li>
     </ul>
 
-    <h2>Lists</h2>
+    <h2 id="lists">Lists<a class="h-anchor" href="#lists" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Your lists.</strong> If you make a list, we store its name,
@@ -664,7 +662,7 @@
       </li>
     </ul>
 
-    <h2>Reports and moderation</h2>
+    <h2 id="reports-and-moderation">Reports and moderation<a class="h-anchor" href="#reports-and-moderation" aria-label="Link to this section">#</a></h2>
     <ul>
       <li>
         <strong>Reporting.</strong> You can report a post, an account, a list
@@ -702,7 +700,7 @@
       </li>
     </ul>
 
-    <h2 id="location-and-plan-areas">Location and plan areas</h2>
+    <h2 id="location-and-plan-areas">Location and plan areas<a class="h-anchor" href="#location-and-plan-areas" aria-label="Link to this section">#</a></h2>
     <p>
       Dzeroth never reads your device's location. The app doesn't ask your
       phone or browser for a location permission, and we store no
@@ -741,7 +739,7 @@
       never which area. See "How long we keep it" and "Your rights" below.
     </p>
 
-    <h2>Who we share it with</h2>
+    <h2 id="who-we-share-it-with">Who we share it with<a class="h-anchor" href="#who-we-share-it-with" aria-label="Link to this section">#</a></h2>
     <p>
       We don't sell your data and we don't use it for advertising. We use
       these service providers, who process data on our behalf (a
@@ -798,7 +796,7 @@
       will say so.
     </p>
 
-    <h2>Where your data is stored</h2>
+    <h2 id="where-your-data-is-stored">Where your data is stored<a class="h-anchor" href="#where-your-data-is-stored" aria-label="Link to this section">#</a></h2>
     <p>
       Your profile, social graph, poll votes and lists are stored in Google
       Cloud's <strong>Mumbai (asia-south1)</strong> region, and our servers
@@ -816,7 +814,7 @@
       it is protected by Google's standard encryption at rest.
     </p>
 
-    <h2>How long we keep it</h2>
+    <h2 id="how-long-we-keep-it">How long we keep it<a class="h-anchor" href="#how-long-we-keep-it" aria-label="Link to this section">#</a></h2>
     <p>
       Where a time is given below, the automatic deletion usually
       finishes within a day after it.
@@ -844,7 +842,7 @@
       <li>Mail to privacy@dzeroth.com: kept in the founder's Gmail inbox. We have not set a fixed retention period for these emails yet.</li>
     </ul>
 
-    <h2>Your rights</h2>
+    <h2 id="your-rights">Your rights<a class="h-anchor" href="#your-rights" aria-label="Link to this section">#</a></h2>
     <p>You can ask us to:</p>
     <ul>
       <li><strong>Access</strong> the personal data we hold about you.</li>
@@ -1020,7 +1018,7 @@
       </li>
     </ul>
 
-    <h2>Age requirement</h2>
+    <h2 id="age-requirement">Age requirement<a class="h-anchor" href="#age-requirement" aria-label="Link to this section">#</a></h2>
     <p>
       Dzeroth is intended for people aged <strong>18 and over</strong>.
       The app does not currently check your age at sign-up. If you believe
@@ -1028,7 +1026,7 @@
       <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a>.
     </p>
 
-    <h2>Security</h2>
+    <h2 id="security">Security<a class="h-anchor" href="#security" aria-label="Link to this section">#</a></h2>
     <p>
       We rely on Firebase Authentication for sign-in and Google Cloud's
       infrastructure security, encryption at rest and access controls. Every
@@ -1042,7 +1040,7 @@
       restricted and monitor for unusual activity.
     </p>
 
-    <h2>Changes to this policy</h2>
+    <h2 id="changes-to-this-policy">Changes to this policy<a class="h-anchor" href="#changes-to-this-policy" aria-label="Link to this section">#</a></h2>
     <p>
       We may update this policy as Dzeroth adds or changes features. We'll
       update the "Last updated" date above
@@ -1050,13 +1048,26 @@
       in-app.
     </p>
 
-    <h2>Contact</h2>
+    <h2 id="contact">Contact<a class="h-anchor" href="#contact" aria-label="Link to this section">#</a></h2>
     <p>
       Questions, requests or complaints about your data:
       <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a>.
     </p>
-
-    <p class="footer-note">Questions? privacy@dzeroth.com</p>
-  </main>
+    </article>
+  </div>
+</main>
+<footer class="site-footer">
+  <div class="inner">
+    <span>&copy; 2026 Dzeroth</span>
+    <nav aria-label="Footer">
+      <a href="/privacy.html">Privacy Policy</a>
+      <a href="/terms.html">Terms</a>
+      <a href="/rules.html">Community rules</a>
+      <a href="/about.html">About</a>
+      <a href="/help.html">Help</a>
+      <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a>
+    </nav>
+  </div>
+</footer>
 </body>
 </html>
