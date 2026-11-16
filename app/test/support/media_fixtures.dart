@@ -23,11 +23,15 @@ final Uint8List _tinyPng = base64Decode(
 
 /// A tiny valid-looking upload set (the bytes are never decoded in tests
 /// that use [FakeImageProcessor]).
-ProcessedImage fakeProcessed([String tag = 'a']) => ProcessedImage(
+ProcessedImage fakeProcessed([
+  String tag = 'a',
+  int width = 800,
+  int height = 600,
+]) => ProcessedImage(
   fullBytes: Uint8List.fromList(List.filled(40, tag.codeUnitAt(0))),
   thumbBytes: _tinyPng,
-  width: 800,
-  height: 600,
+  width: width,
+  height: height,
   fullMd5: 'full-$tag',
   thumbMd5: 'thumb-$tag',
   blurhash: 'LEHV6nWB2yk8pyo0adR*.7kCMdnj',
@@ -115,7 +119,10 @@ class FakeImagePicker implements ImagePickerService {
 /// what each call was handed and a cancelled call throws
 /// [ImageProcessingCancelled] right away, like the real processors.
 class FakeImageProcessor implements ImageProcessor {
-  FakeImageProcessor({this.gated = false});
+  FakeImageProcessor({this.gated = false, this.sizes = const {}});
+
+  /// Pixel size by the first byte's tag (default 800 x 600).
+  final Map<String, ({int width, int height})> sizes;
 
   final bool gated;
   final List<ImagePurpose> purposes = [];
@@ -157,7 +164,9 @@ class FakeImageProcessor implements ImageProcessor {
     if (bytes.isNotEmpty && bytes.first == 0) {
       throw const UnsupportedImageException();
     }
-    return fakeProcessed(String.fromCharCode(bytes.first));
+    final tag = String.fromCharCode(bytes.first);
+    final size = sizes[tag];
+    return fakeProcessed(tag, size?.width ?? 800, size?.height ?? 600);
   }
 }
 
