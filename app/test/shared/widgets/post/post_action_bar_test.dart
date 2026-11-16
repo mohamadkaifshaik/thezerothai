@@ -468,8 +468,9 @@ void main() {
       handle.dispose();
     });
 
-    // One image is a plain frame; 2-4 are a row of 4:5 tiles (six given,
-    // four shown).
+    // One image is a plain frame; 2-4 are a row of tiles of one height (six
+    // given, four shown). Two tiles fill the column, so that row cannot
+    // scroll.
     for (final count in [1, 2, 3, 4, 6]) {
       testWidgets(
         '$count images lay out without overflow, as '
@@ -487,7 +488,11 @@ void main() {
             expect(currentMediaPage(tester), 0);
             final tile = tester.getSize(frames().first);
             expect(tile.width / tile.height, closeTo(4 / 5, 0.001));
-            for (var page = 1; page < (count > 4 ? 4 : count); page++) {
+            for (
+              var page = 1;
+              count > 2 && page < (count > 4 ? 4 : count);
+              page++
+            ) {
               await swipeToNextMediaPage(tester);
               expect(currentMediaPage(tester), page);
               expect(tester.takeException(), isNull);

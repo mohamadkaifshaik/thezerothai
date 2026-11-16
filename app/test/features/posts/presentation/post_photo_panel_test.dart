@@ -230,6 +230,12 @@ void main() {
     });
   });
 
+  testWidgets('View post has its own glyph, not the Reply one', (tester) async {
+    await open(tester, view());
+    expect(find.byIcon(Icons.open_in_new), findsOneWidget);
+    expect(find.byIcon(Icons.chat_bubble_outline), findsOneWidget);
+  });
+
   group('post text', () {
     testWidgets('short text is shown whole, with no Show more', (tester) async {
       await open(tester, view());

@@ -227,7 +227,7 @@ void main() {
           expect(tiles[i].height, closeTo(height, 0.01));
           expect(
             tiles[i].width,
-            closeTo(height * PostMedia.frameAspect(media[i]), 0.01),
+            closeTo(height * PostMedia.rowAspect(media[i]), 0.01),
           );
         }
         expect(tiles.first.left, 0);
@@ -428,68 +428,106 @@ void main() {
     );
   });
 
-  group('row height rule at column 259', () {
-    double h(List<common.MediaRef> m, {bool wide = false}) =>
-        PostMedia.rowHeight(m, column: 259, wide: wide);
+  group('row height rule (measured on X)', () {
+    // A ref of natural aspect [a] (width / height).
+    common.MediaRef ref(double a, {int n = 0}) =>
+        _photo((a * 10000).round(), 10000, n: n);
+    List<common.MediaRef> row(List<double> aspects) => [
+      for (var i = 0; i < aspects.length; i++) ref(aspects[i], n: i),
+    ];
+    double h(List<double> aspects, double c, {bool wide = false}) =>
+        PostMedia.rowHeight(row(aspects), column: c, wide: wide);
+    const gap = 4.0;
 
-    test('three 9:16 tiles: height 272, tiles 152 wide', () {
-      final media = [for (var i = 0; i < 3; i++) _photo(900, 1600, n: i)];
-      expect(h(media), closeTo(272, 1));
-      expect(
-        PostMedia.tileSize(media.first, height: h(media)).width,
-        closeTo(152, 1),
-      );
+    group('two tiles fill the column (c = 518)', () {
+      for (final (aspects, measured) in [
+        ([0.75, 0.728], 346.0),
+        ([0.75, 0.563], 390.0),
+        ([0.565, 0.563], 455.0),
+      ]) {
+        test('$aspects: H about $measured, widths sum to c - gap', () {
+          final media = row(aspects);
+          final height = PostMedia.rowHeight(media, column: 518, wide: false);
+          // The measured aspects are rounded, so allow a couple of dp.
+          expect(height, closeTo(measured, 2.5));
+          final widths = [
+            for (final m in media) PostMedia.tileSize(m, height: height).width,
+          ];
+          expect(widths.reduce((a, b) => a + b), closeTo(518 - gap, 0.01));
+        });
+      }
     });
 
-    test('two 9:16 tiles give the same height as three', () {
-      expect(h([_photo(900, 1600), _photo(900, 1600)]), closeTo(272, 1));
+    group('three or more: 0.591 c / mean of the first two aspects', () {
+      for (final c in [518.0, 259.0]) {
+        for (final (aspect, fraction) in [
+          (0.5625, 1.054),
+          (0.513, 1.154),
+          (0.667, 0.889),
+          (0.8, 0.739),
+        ]) {
+          test('uniform $aspect at c=$c: ${fraction}c', () {
+            final height = h([aspect, aspect, aspect], c);
+            expect(height / c, closeTo(fraction, 0.01));
+          });
+        }
+        test('narrow strips hit the cap 1.243c at c=$c', () {
+          expect(h([0.1, 0.1, 0.1, 0.1], c), closeTo(1.243 * c, 0.01));
+        });
+      }
+
+      test('phone c=259: all 9:16 gives 272, strips give 322', () {
+        expect(h([9 / 16, 9 / 16, 9 / 16], 259), closeTo(272, 1));
+        expect(h([0.05, 0.05, 0.05], 259), closeTo(322, 1));
+      });
+
+      test('mixed rows are within 3% of what X showed', () {
+        // [0.562, 0.474, ...]: measured 1.125c, rule 1.141c.
+        expect(h([0.562, 0.474, 0.6, 0.6], 518) / 518, closeTo(1.125, 0.034));
+        // [0.461, 0.561, 0.671, ...]: measured 1.182c, rule 1.157c.
+        expect(h([0.461, 0.561, 0.671, 0.6], 518) / 518, closeTo(1.182, 0.036));
+      });
     });
 
-    test('DIVERGES from X (measured 305, tiles 140/171/204): aspects '
-        '0.46/0.56/0.67 give 255 with the specified rule', () {
-      final media = [
-        _photo(460, 1000, n: 1),
-        _photo(560, 1000, n: 2),
-        _photo(670, 1000, n: 3),
-      ];
-      // The rule clamps each tile to 9:16 first: mean 0.598, 0.59 x 259 /
-      // 0.598 = 255.4. X shows 305, so X does not follow this rule here.
-      expect(h(media), closeTo(255.4, 0.1));
-      expect(
-        [for (final m in media) PostMedia.tileSize(m, height: h(media)).width],
-        [closeTo(143.7, 0.1), closeTo(143.7, 0.1), closeTo(171.1, 0.1)],
-      );
-    });
-
-    test('DIVERGES from X (measured 323, the cap): very narrow strips give '
-        '272 because each tile is clamped to 9:16 first', () {
-      expect(h([_photo(300, 1000), _photo(300, 1000)]), closeTo(271.7, 0.1));
-      expect(h([_photo(300, 1000), _photo(300, 1000)]), lessThan(323));
-    });
-
-    test('landscape-only rows are floored at half the column', () {
-      expect(h([_photo(3000, 1000), _photo(3000, 1000)]), closeTo(129.5, 0.01));
-    });
-
-    test('wide windows cap the row at the single-frame maximum', () {
-      final media = [_photo(900, 1600), _photo(900, 1600)];
-      expect(
-        PostMedia.rowHeight(media, column: 900, wide: true),
-        AppSize.postMediaMaxSingleHeight,
-      );
-    });
-
-    test('per-tile widths follow each aspect', () {
-      final media = [_photo(900, 1600), _photo(800, 800), _photo(1600, 900)];
-      final height = h(media);
+    test('tile widths are the height times the tile\'s own aspect', () {
+      final media = row([0.5625, 1.0, 16 / 9]);
+      final height = PostMedia.rowHeight(media, column: 259, wide: false);
       expect(
         [for (final m in media) PostMedia.tileSize(m, height: height).width],
         [
-          closeTo(height * 9 / 16, 0.01),
+          closeTo(height * 0.5625, 0.01),
           closeTo(height, 0.01),
           closeTo(height * 16 / 9, 0.01),
         ],
       );
     });
+
+    test('an unknown size counts as 4:5', () {
+      expect(PostMedia.rowAspect(_photo(0, 0)), closeTo(0.8, 1e-9));
+    });
+
+    test('phones have no 520 cap, wide windows do', () {
+      final aspects = [0.5625, 0.5625, 0.5625];
+      expect(h(aspects, 900), greaterThan(AppSize.postMediaMaxSingleHeight));
+      expect(h(aspects, 900, wide: true), AppSize.postMediaMaxSingleHeight);
+    });
+  });
+
+  testWidgets('a 0.075 tile is drawn at its own aspect, uncropped', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      [_photo(75, 1000, n: 1), _photo(75, 1000, n: 2), _photo(800, 800, n: 3)],
+      window: 390,
+      column: 306,
+    );
+    final first = _frames(tester).first;
+    expect(first.width / first.height, closeTo(0.075, 0.001));
+    final image = tester.widget<CachedNetworkImage>(
+      find.byType(CachedNetworkImage).first,
+    );
+    // The frame has the picture's own aspect, so cover crops nothing.
+    expect(image.fit, BoxFit.cover);
   });
 }

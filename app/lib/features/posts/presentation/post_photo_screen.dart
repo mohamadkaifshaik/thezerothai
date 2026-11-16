@@ -468,7 +468,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                         ),
                   icon: wide && _showDetails
                       ? Icons.chevron_right
-                      : Icons.chat_bubble_outline,
+                      : Icons.open_in_new,
                 ),
               ),
               Align(

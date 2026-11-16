@@ -32,7 +32,10 @@ int currentMediaPage(WidgetTester tester) {
   );
   final position = tester.state<ScrollableState>(scrollable).position;
   final count = mediaPageCount(tester)!;
-  if (position.pixels >= position.maxScrollExtent - 0.5) return count - 1;
+  if (position.maxScrollExtent > 0 &&
+      position.pixels >= position.maxScrollExtent - 0.5) {
+    return count - 1;
+  }
   return (position.pixels / _step(tester)).round();
 }
 

@@ -25,7 +25,8 @@ import 'gif_badge.dart';
 ///   at most [AppSize.postMediaMaxSingleHeight] tall; its width shrinks to keep
 ///   the ratio.
 /// - Several: a horizontal row of tiles that all share one height
-///   ([rowHeight]); each tile keeps its own aspect (width = height x aspect),
+///   ([rowHeight]); each tile keeps its own aspect (width = height x aspect,
+///   uncropped, even for a very narrow strip),
 ///   so widths differ. The row scrolls; a caller that lays this widget out
 ///   across the whole card passes [insetStart] and [insetEnd] (the card's
 ///   padding) so the scroll viewport reaches the card's edges while the first
@@ -150,31 +151,40 @@ class PostMedia extends StatelessWidget {
     return Size(column, height);
   }
 
-  /// The shared height of the several-images row in a [column] wide body:
-  /// `min(1.25 x column, 0.59 x column / meanAspect)`, where `meanAspect` is
-  /// the mean of the tiles' [frameAspect]s (each already clamped to 9:16 ..
-  /// 3:1), then at least `0.5 x column` (so a row of landscape pictures is not
-  /// tiny) and, on a [wide] window, at most
-  /// [AppSize.postMediaMaxSingleHeight]. Measured on X at column 259: three
-  /// 9:16 tiles give 272.
+  /// A tile's own aspect in a row (width / height), never clamped: X shows
+  /// very narrow tiles uncropped. 4:5 when the size is unknown.
+  static double rowAspect(common.MediaRef ref) =>
+      ref.width > 0 && ref.height > 0
+      ? ref.width / ref.height
+      : AppSize.postMediaDefaultAspect;
+
+  /// The shared height of the several-images row in a [column] wide body
+  /// (measured on X):
+  /// - two tiles fill the column exactly: `(column - gap) / (a0 + a1)`;
+  /// - three or more: `0.591 x column / mean(a0, a1)`, the mean of the FIRST
+  ///   TWO tiles' aspects;
+  /// - never above `1.243 x column`, and on a [wide] window never above
+  ///   [AppSize.postMediaMaxSingleHeight] (phones have no such cap).
+  /// Aspects are the tiles' own ([rowAspect]), unclamped.
   static double rowHeight(
     List<common.MediaRef> items, {
     required double column,
     required bool wide,
   }) {
-    final mean = items.map(frameAspect).reduce((a, b) => a + b) / items.length;
-    var height = math.min(
-      column * AppSize.postMediaRowMaxHeightFraction,
-      column * AppSize.postMediaRowAreaFraction / mean,
-    );
-    height = math.max(height, column * AppSize.postMediaRowMinHeightFraction);
+    final a0 = rowAspect(items[0]);
+    final a1 = items.length > 1 ? rowAspect(items[1]) : a0;
+    var height = items.length == 2
+        ? (column - AppSize.postMediaRowGap) / (a0 + a1)
+        : column * AppSize.postMediaRowAreaFraction / ((a0 + a1) / 2);
+    height = math.min(height, column * AppSize.postMediaRowMaxHeightFraction);
     if (wide) height = math.min(height, AppSize.postMediaMaxSingleHeight);
     return height;
   }
 
-  /// One tile's size in a row of [height]: width = height x its own aspect.
+  /// One tile's size in a row of [height]: width = height x its own aspect,
+  /// so the picture is never cropped.
   static Size tileSize(common.MediaRef ref, {required double height}) =>
-      Size(height * frameAspect(ref), height);
+      Size(height * rowAspect(ref), height);
 
   @override
   Widget build(BuildContext context) {

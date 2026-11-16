@@ -48,7 +48,25 @@ int _highlighted(WidgetTester tester) {
 }
 
 void main() {
-  for (final n in [2, 3, 4]) {
+  testWidgets(
+    '2 images fill the column: 2 dots, the first current, no scroll',
+    (tester) async {
+      await _pumpMedia(tester, 2);
+      expect(_current, findsOneWidget);
+      expect(_others, findsOneWidget);
+      expect(_highlighted(tester), 0);
+      final scrollable = find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      );
+      expect(
+        tester.state<ScrollableState>(scrollable).position.maxScrollExtent,
+        lessThan(1),
+      );
+    },
+  );
+
+  for (final n in [3, 4]) {
     testWidgets('$n images without text show $n dots and follow swipes', (
       tester,
     ) async {

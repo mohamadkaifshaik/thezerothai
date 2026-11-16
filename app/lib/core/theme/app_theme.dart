@@ -156,11 +156,11 @@ abstract final class AppSize {
   static const double postMediaDefaultAspect = 4 / 5;
 
   /// Row height rule, as fractions of the column width: at most
-  /// [postMediaRowMaxHeightFraction], at least [postMediaRowMinHeightFraction],
-  /// otherwise [postMediaRowAreaFraction] / the mean tile aspect.
-  static const double postMediaRowMaxHeightFraction = 1.25;
-  static const double postMediaRowAreaFraction = 0.59;
-  static const double postMediaRowMinHeightFraction = 0.5;
+  /// [postMediaRowMaxHeightFraction]; three or more tiles use
+  /// [postMediaRowAreaFraction] / the mean of the first two tiles' aspects
+  /// (two tiles fill the column).
+  static const double postMediaRowMaxHeightFraction = 1.243;
+  static const double postMediaRowAreaFraction = 0.591;
 
   /// The tallest a single frame or row grows on tablet and desktop (a single
   /// frame's width shrinks to keep the ratio). Phones are capped by 9:16.
