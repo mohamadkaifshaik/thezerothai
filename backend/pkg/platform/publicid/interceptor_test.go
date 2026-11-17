@@ -3,6 +3,7 @@ package publicid
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -335,4 +336,47 @@ func TestNewInterceptor_NilTranslator(t *testing.T) {
 // TestRecordStats_NoRequestInfo: recording without a request log line is a no-op, never a panic.
 func TestRecordStats_NoRequestInfo(t *testing.T) {
 	RecordStats(context.Background(), Stats{InboundIDs: 1})
+}
+
+// TestInterceptor_ContextEndIsNotInternal: a client cancel or a deadline during a lookup answers CANCELED or
+// DEADLINE_EXCEEDED (not reported as Internal), in both directions, whether the resolver returns the context error
+// itself or something wrapping it, or the request context ended while the resolver failed differently.
+func TestInterceptor_ContextEndIsNotInternal(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ctx  func() (context.Context, context.CancelFunc)
+		err  error
+		want connect.Code
+	}{
+		{"canceled", func() (context.Context, context.CancelFunc) { return context.WithCancel(context.Background()) }, context.Canceled, connect.CodeCanceled},
+		{"wrapped canceled", func() (context.Context, context.CancelFunc) { return context.WithCancel(context.Background()) }, fmt.Errorf("read: %w", context.Canceled), connect.CodeCanceled},
+		{"deadline", func() (context.Context, context.CancelFunc) { return context.WithCancel(context.Background()) }, context.DeadlineExceeded, connect.CodeDeadlineExceeded},
+		{"ctx done, other error", func() (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			return ctx, cancel
+		}, errResolver, connect.CodeCanceled},
+	} {
+		for _, dir := range []string{"inbound", "outbound"} {
+			t.Run(tc.name+" "+dir, func(t *testing.T) {
+				res := codedResolver{fakeResolver: newFakeResolver(icPairs())}
+				req := &timelinev1.GetUserTimelineRequest{}
+				if dir == "inbound" {
+					res.inErr = tc.err
+					req.UserId = pubN(1)
+				} else {
+					res.outErr = tc.err
+				}
+				ctx, cancel := tc.ctx()
+				defer cancel()
+				_, err := newIC(t, res, on, nil)(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
+					return connect.NewResponse(userTimeline()), nil
+				})(ctx, connect.NewRequest(req))
+				var ae *apierr.Error
+				if !errors.As(err, &ae) || ae.Code != tc.want {
+					t.Fatalf("err = %v, want code %v", err, tc.want)
+				}
+			})
+		}
+	}
 }

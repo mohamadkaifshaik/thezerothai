@@ -46,7 +46,8 @@ func RecordStats(ctx context.Context, s Stats) {
 //   - record receives the request's Stats when enabled; nil means RecordStats.
 //
 // With the flag on: a request value that is not a public id is an *apierr.Error VALIDATION naming the field, returned
-// before the handler runs. Any other failure (a lookup error, a message type with no plan) is Internal, inbound or
+// before the handler runs. A lookup cut short by the request's end is CANCELED or DEADLINE_EXCEEDED. Any other failure
+// (a lookup error, a message type with no plan) is Internal, inbound or
 // outbound, and outbound the untranslated response is dropped, never returned (for a mutation the write has
 // committed; a retry with the same idempotency key replays). A handler error passes through untouched: error details
 // carry no user id (apierr metadata holds field, feature, limit, reason, state, quota, policy, media id or a poll
@@ -83,7 +84,7 @@ func (t *Translator) intercept(ctx context.Context, req connect.AnyRequest, next
 		if ae, isValidation := err.(*apierr.Error); isValidation {
 			return nil, ae
 		}
-		return nil, internal(fmt.Errorf("publicid: %s: request: %w", req.Spec().Procedure, err))
+		return nil, failure(ctx, fmt.Errorf("publicid: %s: request: %w", req.Spec().Procedure, err))
 	}
 	resp, err := next(ctx, req)
 	if err != nil {
@@ -101,9 +102,22 @@ func (t *Translator) intercept(ctx context.Context, req connect.AnyRequest, next
 	stats, err := t.TranslateResponse(ctx, st, out)
 	record(ctx, stats)
 	if err != nil {
-		return nil, internal(fmt.Errorf("publicid: %s: response: %w", req.Spec().Procedure, err))
+		return nil, failure(ctx, fmt.Errorf("publicid: %s: response: %w", req.Spec().Procedure, err))
 	}
 	return resp, nil
+}
+
+// failure shapes a lookup failure: the request's end (a client cancel or its deadline, seen on ctx or in the cause)
+// answers CANCELED or DEADLINE_EXCEEDED like the modules' own mapErr helpers, which ErrorMapping does not report as an
+// error; anything else is Internal.
+func failure(ctx context.Context, err error) error {
+	switch {
+	case errors.Is(ctx.Err(), context.Canceled), errors.Is(err, context.Canceled):
+		return apierr.New(connect.CodeCanceled, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "request canceled").WithCause(err)
+	case errors.Is(ctx.Err(), context.DeadlineExceeded), errors.Is(err, context.DeadlineExceeded):
+		return apierr.New(connect.CodeDeadlineExceeded, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "deadline exceeded").WithCause(err)
+	}
+	return internal(err)
 }
 
 // internal is the generic Internal answer with err attached for ErrorMapping's report (never sent to the client).
