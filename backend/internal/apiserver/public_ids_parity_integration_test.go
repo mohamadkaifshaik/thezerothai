@@ -11,15 +11,21 @@ package apiserver
 // the field before the handler runs. Two chains (flag on, flag off) over the same emulator, the same caller and the
 // same fixtures, so the flag is the only variable.
 //
+// Each unknown-id case must also give the answer the handler documents for an unknown user (pubUnknownAnswer, read off
+// the handlers), so the comparison is known to exercise the user-id path, and no document anywhere names an unknown id
+// afterwards (no edge, request, member, ban, participant, conversation or array entry).
+//
 // Shared messages: two callers on one allowlist chain, one flagged and one not, fetch the same pages concurrently;
-// the unflagged one never sees a public id and the flagged one never a uid (Notification.id, CONDITIONAL with its rule
-// in PR 4c, is left out of the scan).
+// the unflagged one never sees a public id, the flagged one never a uid and never the tombstone (every seeded account is
+// live and minted, so a tombstone would mean a message translated twice). Notification.id is removed before the scan:
+// it is NOT annotated yet and still carries the actor's raw uid for flagged callers, a known gap that PR 4c closes.
 
 import (
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
@@ -30,6 +36,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -54,8 +62,10 @@ import (
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/publicid"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/userref"
 )
 
@@ -369,6 +379,7 @@ func TestPublicIDs_ParityUnknownAndMalformed(t *testing.T) {
 		}
 	}
 	// One subtest per RPC and per field, so one failing case does not hide the others.
+	env := &pubParityEnv{on: on, off: off, tok: tok, uid: uid, me: me, fx: fx}
 	for _, proc := range publicIDInboundRPCs(t) {
 		t.Run(strings.TrimPrefix(proc, "/dzeroth."), func(t *testing.T) {
 			md, ok := methods[proc]
@@ -381,22 +392,139 @@ func TestPublicIDs_ParityUnknownAndMalformed(t *testing.T) {
 			}
 			for _, path := range fields {
 				t.Run(path.String(), func(t *testing.T) {
-					pubParityCase(t, pubParityEnv{on: on, off: off, tok: tok, uid: uid, me: me, fx: fx}, md, proc, path)
+					pubParityCase(t, env, md, proc, path)
 				})
 			}
 		})
 	}
+	t.Run("no side effects", func(t *testing.T) { pubNoSideEffects(t, env) })
 }
 
-// pubParityEnv is what every parity case shares: both chains, the caller and its fixtures.
+// pubParityEnv is what every parity case shares: both chains, the caller and its fixtures, and every unknown id sent.
 type pubParityEnv struct {
 	on, off      *chainEnv
 	tok, uid, me string
 	fx           pubFixtures
+	unknown      []string
+}
+
+// pubAnswer is the documented answer to an unknown user: the Connect code ("ok" for success) and, for an error, the
+// ErrorDetail reason and an optional metadata reason.
+type pubAnswer struct {
+	code       string
+	reason     commonv1.ErrorReason
+	metaReason string
+}
+
+var (
+	pubOK       = pubAnswer{code: "ok"}
+	pubNotFound = pubAnswer{code: "not_found", reason: commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED}
+)
+
+// pubUnknownAnswer is what each handler answers today for a well-formed user id nobody holds, keyed by procedure and
+// field path, read off the handlers (the file and function named). It documents unknown-user behaviour per RPC; the
+// parity suite asserts the flag-off baseline gives exactly it, so the comparison is known to reach the user id.
+var pubUnknownAnswer = map[string]pubAnswer{
+	// graph/rpcs.go: Follow, Block, Mute map ErrNotFoundOrBlocked to NOT_FOUND; the undo RPCs are idempotent no-ops.
+	"/dzeroth.graph.v1.GraphService/Follow user_id":   pubNotFound,
+	"/dzeroth.graph.v1.GraphService/Unfollow user_id": pubOK,
+	"/dzeroth.graph.v1.GraphService/Block user_id":    pubNotFound,
+	"/dzeroth.graph.v1.GraphService/Unblock user_id":  pubOK,
+	"/dzeroth.graph.v1.GraphService/Mute user_id":     pubNotFound,
+	"/dzeroth.graph.v1.GraphService/Unmute user_id":   pubOK,
+	// graph/follow_requests.go + repo_requests.go: no pending request is a replay outcome, answered with the relationship.
+	"/dzeroth.graph.v1.GraphService/RespondToFollowRequest requester_user_id": pubOK,
+	// graph/lists.go: relationships are computed from the caller's own snapshot (NONE for a stranger).
+	"/dzeroth.graph.v1.GraphService/GetRelationships user_ids": pubOK,
+	// graph/relationship.go and follows_list.go: a target without a profile is NOT_FOUND (identity's GetProfile shape).
+	"/dzeroth.graph.v1.GraphService/GetProfileRelationship user_id": pubNotFound,
+	"/dzeroth.graph.v1.GraphService/ListFollowers user_id":          pubNotFound,
+	"/dzeroth.graph.v1.GraphService/ListFollowing user_id":          pubNotFound,
+	// identity/service.go GetProfile: NOT_FOUND.
+	"/dzeroth.identity.v1.IdentityService/GetProfile user_id": pubNotFound,
+	// timeline/service.go user() -> checkVisible: identity.ProfileNotFoundError.
+	"/dzeroth.timeline.v1.TimelineService/GetUserTimeline user_id": pubNotFound,
+	// lists/service_read.go otherOwner: ProfileNotFoundError; contains_user_id only filters the caller's own lists.
+	"/dzeroth.lists.v1.ListService/ListUserLists owner_id":         pubNotFound,
+	"/dzeroth.lists.v1.ListService/ListUserLists contains_user_id": pubOK,
+	// lists/service_members.go: AddMember's targetVerdict refuses ErrNotFound; RemoveMember of a non-member is a no-op.
+	"/dzeroth.lists.v1.ListService/AddListMember user_id":    pubNotFound,
+	"/dzeroth.lists.v1.ListService/RemoveListMember user_id": pubOK,
+	// communities/service_moderation.go SetMemberRole: errUserNotFound.
+	"/dzeroth.communities.v1.CommunityService/SetMemberRole user_id": pubNotFound,
+	// beacons/service_participation.go + repo_participation.go: no participant row is the state conflict of the RPC.
+	"/dzeroth.beacons.v1.BeaconService/RespondToJoinRequest user_id": {code: "failed_precondition", reason: commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, metaReason: "not_requested"},
+	"/dzeroth.beacons.v1.BeaconService/RemoveParticipant user_id":    {code: "failed_precondition", reason: commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, metaReason: "not_participant"},
+	// beacons/service_shared.go ListShared: a missing peer is an empty page.
+	"/dzeroth.beacons.v1.BeaconService/ListSharedBeacons peer_user_id": pubOK,
+	// messaging/service_send.go: a recipient without an ACTIVE profile is the one CANNOT_MESSAGE refusal.
+	"/dzeroth.messaging.v1.MessagingService/SendMessage recipient_user_id": {code: "failed_precondition", reason: commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE},
+}
+
+// pubCheckAnswer asserts the flag-off baseline is the documented unknown-user answer.
+func pubCheckAnswer(t *testing.T, key string, status int, body string) {
+	t.Helper()
+	want, ok := pubUnknownAnswer[key]
+	if !ok {
+		t.Errorf("no documented unknown-user answer for %q: read the handler and add it to pubUnknownAnswer", key)
+		return
+	}
+	if want.code == "ok" {
+		if status != http.StatusOK {
+			t.Errorf("unknown user (flag-off chain) = %d %s, want 200 (%s)", status, body, key)
+		}
+		return
+	}
+	code, d := pubDetail(body)
+	if code != want.code || d == nil || d.GetReason() != want.reason || (want.metaReason != "" && d.GetMetadata()["reason"] != want.metaReason) {
+		t.Errorf("unknown user (flag-off chain) = %d %s, want %s %v reason=%q (%s)", status, body, want.code, want.reason, want.metaReason, key)
+	}
+}
+
+// pubNoSideEffects: no document names an unknown id after every case ran, on either chain's form.
+func pubNoSideEffects(t *testing.T, e *pubParityEnv) {
+	ctx := context.Background()
+	fs := e.on.fs
+	if len(e.unknown) == 0 {
+		t.Fatal("no unknown id was sent")
+	}
+	// Documents whose data (any field, arrays included) must not mention an unknown id.
+	holders := []string{"graph/" + e.uid, "users/" + e.uid, "lists/" + e.fx.listID, "communities/" + e.fx.communityID, "beacons/" + e.fx.beaconID, "communityMemberships/" + e.uid}
+	data := map[string]string{}
+	for _, path := range holders {
+		snap, err := fs.Doc(path).Get(ctx)
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				continue
+			}
+			t.Fatalf("read %s: %v", path, err)
+		}
+		data[path] = fmt.Sprint(snap.Data())
+	}
+	for _, x := range e.unknown {
+		for _, path := range []string{
+			"follows/" + e.uid + "_" + x, "follows/" + x + "_" + e.uid,
+			"followRequests/" + e.uid + "_" + x, "followRequests/" + x + "_" + e.uid,
+			"graph/" + x, "users/" + x, "communityMemberships/" + x,
+			"communities/" + e.fx.communityID + "/communityMembers/" + x,
+			"beacons/" + e.fx.beaconID + "/beaconParticipants/" + x,
+			"users/" + x + "/beaconMemberships/" + e.fx.beaconID,
+			"conversations/" + messaging.ConversationID(e.uid, x),
+		} {
+			if fsDocExists(t, fs, path) {
+				t.Errorf("an unknown-id call wrote %s", path)
+			}
+		}
+		for path, d := range data {
+			if strings.Contains(d, x) {
+				t.Errorf("%s names an unknown id after the calls: %s", path, d)
+			}
+		}
+	}
 }
 
 // pubParityCase is one (rpc, field): the malformed half on the flag-on chain, then the unknown-id parity.
-func pubParityCase(t *testing.T, e pubParityEnv, md protoreflect.MethodDescriptor, proc string, path pubField) {
+func pubParityCase(t *testing.T, e *pubParityEnv, md protoreflect.MethodDescriptor, proc string, path pubField) {
 	// Malformed (an old client's raw uid): VALIDATION naming the leaf field, from the edge.
 	st, _, body, err := pubPost(e.on.url, e.tok, proc, pubRequest(t, md, proc, e.fx, path, e.uid))
 	if err != nil {
@@ -412,6 +540,7 @@ func pubParityCase(t *testing.T, e pubParityEnv, md protoreflect.MethodDescripto
 	}
 	// Unknown: flag off with an unknown uid vs flag on with an unknown public id.
 	unknownUID, unknownPub := pubUnknownUID(), pubUnknown()
+	e.unknown = append(e.unknown, unknownUID, unknownPub)
 	ost, oct, obody, err := pubPost(e.off.url, e.tok, proc, pubRequest(t, md, proc, e.fx, path, unknownUID))
 	if err != nil {
 		t.Fatalf("unknown uid (flag-off chain): %v", err)
@@ -431,6 +560,7 @@ func pubParityCase(t *testing.T, e pubParityEnv, md protoreflect.MethodDescripto
 			t.Errorf("the flag-off baseline (flag-off chain) stops before the user id: %s %v (fix the fixture or the chain config)", code, d)
 		}
 	}
+	pubCheckAnswer(t, proc+" "+path.String(), ost, obody)
 	t.Logf("unknown id answers %d %s", ost, pubNormalize(obody, masks))
 }
 
@@ -538,7 +668,11 @@ func TestPublicIDs_SharedPagesRace(t *testing.T) {
 	close(results)
 
 	uids := []string{fUID, nUID, a.uid, b.uid}
-	sawPub, sawUID := false, false
+	sawUID := false
+	// Pages that must carry both seeded authors' public ids for the flagged caller (A's quote embeds B's post; the home
+	// timeline is pull-on-read, so it holds A's posts as soon as they are written).
+	mustCarry := map[string]bool{timelinev1connect.TimelineServiceGetHomeTimelineProcedure: true}
+	quoteSeen := map[bool]bool{}
 	for r := range results {
 		if r.err != nil || r.status != http.StatusOK {
 			t.Errorf("%s (flagged=%v): %d %v %s", r.proc, r.flagged, r.status, r.err, r.body)
@@ -554,7 +688,16 @@ func TestPublicIDs_SharedPagesRace(t *testing.T) {
 					t.Errorf("%s: the flagged caller saw a uid: %s", r.proc, body)
 				}
 			}
-			sawPub = sawPub || strings.Contains(body, aPub)
+			if strings.Contains(body, publicid.Tombstone) {
+				t.Errorf("%s: the flagged caller saw the tombstone (every seeded account is minted): %s", r.proc, body)
+			}
+			isQuote := r.proc == postsv1connect.PostServiceGetPostProcedure && strings.Contains(body, quote)
+			if mustCarry[r.proc] || isQuote {
+				if !strings.Contains(body, aPub) || !strings.Contains(body, bPub) {
+					t.Errorf("%s: the flagged page lacks a seeded author's public id (A %v, B %v): %s", r.proc, strings.Contains(body, aPub), strings.Contains(body, bPub), body)
+				}
+				quoteSeen[isQuote] = true
+			}
 			continue
 		}
 		for _, p := range []string{fPub, nPub, aPub, bPub} {
@@ -564,13 +707,15 @@ func TestPublicIDs_SharedPagesRace(t *testing.T) {
 		}
 		sawUID = sawUID || strings.Contains(body, a.uid)
 	}
-	if !sawPub || !sawUID {
-		t.Errorf("the pages carried no author id (flagged saw A's public id: %v; unflagged saw A's uid: %v): the scan proved nothing", sawPub, sawUID)
+	if !sawUID || !quoteSeen[true] || !quoteSeen[false] {
+		t.Errorf("the asserted pages were not seen (unflagged saw A's uid %v, flagged quote %v, flagged home %v): the scan proved nothing", sawUID, quoteSeen[true], quoteSeen[false])
 	}
 }
 
-// pubDropNotificationIDs removes Notification.id (CONDITIONAL, rule in PR 4c: until then it still embeds the actor's
-// uid for actor-keyed types) from a ListNotifications body before the uid scan.
+// pubDropNotificationIDs removes Notification.id from a ListNotifications body before the uid scan. Known gap, not a
+// pass: the field is not annotated yet, so flagged callers still receive the actor's raw uid in it for FOLLOW,
+// FOLLOW_REQUEST, FOLLOW_ACCEPTED, REPOST and BEACON_REQUEST rows until PR 4c annotates it and registers its rule
+// (see publicIDPassThrough). PR 4c removes this helper.
 func pubDropNotificationIDs(t *testing.T, body string) string {
 	t.Helper()
 	var v map[string]any
