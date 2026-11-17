@@ -117,7 +117,7 @@ func NewRefresher(store TrendsStore, scan PostScanner, protected identity.Protec
 		cfg.MaxPosts = 2000
 	}
 	if cfg.MinInterval <= 0 {
-		cfg.MinInterval = 12 * time.Hour
+		cfg.MinInterval = 45 * time.Minute
 	}
 	if cfg.MinAccountAge <= 0 {
 		cfg.MinAccountAge = 72 * time.Hour
