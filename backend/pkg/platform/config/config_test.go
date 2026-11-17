@@ -83,6 +83,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_SEARCH_LISTS", "FEATURE_SEARCH_LISTS_ALLOWLIST", "FEATURE_SEARCH_LISTS_PERCENT",
 		"FEATURE_SEARCH_FILTERS", "FEATURE_SEARCH_FILTERS_ALLOWLIST", "FEATURE_SEARCH_FILTERS_PERCENT",
 		"FEATURE_LOCATION", "FEATURE_LOCATION_ALLOWLIST", "FEATURE_LOCATION_PERCENT",
+		"FEATURE_PUBLIC_IDS", "FEATURE_PUBLIC_IDS_ALLOWLIST", "FEATURE_PUBLIC_IDS_PERCENT",
 		"FEATURE_DM_SUGGESTIONS", "FEATURE_DM_SUGGESTIONS_ALLOWLIST", "FEATURE_DM_SUGGESTIONS_PERCENT",
 		"RATE_LIMIT_SHARES_PER_MIN", "SHARES_RECORDED_PER_DAY",
 		"FEATURE_POST_VIEWS", "FEATURE_POST_VIEWS_ALLOWLIST", "FEATURE_POST_VIEWS_PERCENT", "POST_VIEWS_PUBLIC_THRESHOLD",
@@ -913,6 +914,45 @@ func TestLoad_Location(t *testing.T) {
 	t.Setenv("FEATURE_LOCATION", "sometimes")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() with FEATURE_LOCATION=sometimes: want error")
+	}
+}
+
+func TestLoad_PublicIDs(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.FeaturePublicIDs.Mode != flags.Off || cfg.FeaturePublicIDs.Name != "public_ids" {
+		t.Errorf("FeaturePublicIDs = %+v, want off with wire name public_ids", cfg.FeaturePublicIDs)
+	}
+	for _, tc := range []struct {
+		mode, list, percent string
+		want                flags.Mode
+	}{
+		{"off", "", "", flags.Off},
+		{"allowlist", "uid-a,uid-b", "", flags.Allowlist},
+		{"percent", "", "10", flags.Percent},
+		{"on", "", "", flags.On},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("FEATURE_PUBLIC_IDS", tc.mode)
+			t.Setenv("FEATURE_PUBLIC_IDS_ALLOWLIST", tc.list)
+			t.Setenv("FEATURE_PUBLIC_IDS_PERCENT", tc.percent)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.FeaturePublicIDs.Mode != tc.want {
+				t.Errorf("FeaturePublicIDs.Mode = %q, want %q", cfg.FeaturePublicIDs.Mode, tc.want)
+			}
+		})
+	}
+	clearEnv(t)
+	t.Setenv("FEATURE_PUBLIC_IDS", "sometimes")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() with FEATURE_PUBLIC_IDS=sometimes: want error")
 	}
 }
 

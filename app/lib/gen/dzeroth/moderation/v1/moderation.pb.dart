@@ -102,6 +102,7 @@ class ReportContentRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearTargetType() => $_clearField(2);
 
+  /// A user id only for REPORT_TARGET_TYPE_ACCOUNT (see the enum for every other shape), hence CONDITIONAL.
   @$pb.TagNumber(3)
   $core.String get targetId => $_getSZ(2);
   @$pb.TagNumber(3)

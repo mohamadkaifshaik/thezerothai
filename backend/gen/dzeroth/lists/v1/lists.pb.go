@@ -1566,7 +1566,7 @@ var File_dzeroth_lists_v1_lists_proto protoreflect.FileDescriptor
 
 const file_dzeroth_lists_v1_lists_proto_rawDesc = "" +
 	"\n" +
-	"\x1cdzeroth/lists/v1/lists.proto\x12\x10dzeroth.lists.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/graph/v1/graph.proto\"\xd3\x02\n" +
+	"\x1cdzeroth/lists/v1/lists.proto\x12\x10dzeroth.lists.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1cdzeroth/graph/v1/graph.proto\"\xd3\x02\n" +
 	"\bListInfo\x12\x17\n" +
 	"\alist_id\x18\x01 \x01(\tR\x06listId\x127\n" +
 	"\x05owner\x18\x02 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x05owner\x12\x12\n" +
@@ -1606,27 +1606,27 @@ const file_dzeroth_lists_v1_lists_proto_rawDesc = "" +
 	"\x0eGetListRequest\x12\x17\n" +
 	"\alist_id\x18\x01 \x01(\tR\x06listId\"A\n" +
 	"\x0fGetListResponse\x12.\n" +
-	"\x04list\x18\x01 \x01(\v2\x1a.dzeroth.lists.v1.ListInfoR\x04list\"\x97\x01\n" +
-	"\x14ListUserListsRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12(\n" +
-	"\x10contains_user_id\x18\x02 \x01(\tR\x0econtainsUserId\x12\x1b\n" +
+	"\x04list\x18\x01 \x01(\v2\x1a.dzeroth.lists.v1.ListInfoR\x04list\"\xa3\x01\n" +
+	"\x14ListUserListsRequest\x12\x1f\n" +
+	"\bowner_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\aownerId\x12.\n" +
+	"\x10contains_user_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x0econtainsUserId\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x04 \x01(\tR\tpageToken\"\xa1\x01\n" +
 	"\x15ListUserListsResponse\x120\n" +
 	"\x05lists\x18\x01 \x03(\v2\x1a.dzeroth.lists.v1.ListInfoR\x05lists\x12.\n" +
 	"\x13containing_list_ids\x18\x02 \x03(\tR\x11containingListIds\x12&\n" +
-	"\x0fnext_page_token\x18\x03 \x01(\tR\rnextPageToken\"q\n" +
+	"\x0fnext_page_token\x18\x03 \x01(\tR\rnextPageToken\"w\n" +
 	"\x14AddListMemberRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\alist_id\x18\x02 \x01(\tR\x06listId\x12\x17\n" +
-	"\auser_id\x18\x03 \x01(\tR\x06userId\"G\n" +
+	"\alist_id\x18\x02 \x01(\tR\x06listId\x12\x1d\n" +
+	"\auser_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"G\n" +
 	"\x15AddListMemberResponse\x12.\n" +
-	"\x04list\x18\x01 \x01(\v2\x1a.dzeroth.lists.v1.ListInfoR\x04list\"t\n" +
+	"\x04list\x18\x01 \x01(\v2\x1a.dzeroth.lists.v1.ListInfoR\x04list\"z\n" +
 	"\x17RemoveListMemberRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\alist_id\x18\x02 \x01(\tR\x06listId\x12\x17\n" +
-	"\auser_id\x18\x03 \x01(\tR\x06userId\"J\n" +
+	"\alist_id\x18\x02 \x01(\tR\x06listId\x12\x1d\n" +
+	"\auser_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"J\n" +
 	"\x18RemoveListMemberResponse\x12.\n" +
 	"\x04list\x18\x01 \x01(\v2\x1a.dzeroth.lists.v1.ListInfoR\x04list\"m\n" +
 	"\x16ListListMembersRequest\x12\x17\n" +

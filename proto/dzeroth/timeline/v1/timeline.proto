@@ -45,6 +45,7 @@ syntax = "proto3";
 package dzeroth.timeline.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "dzeroth/communities/v1/communities.proto";
 import "dzeroth/lists/v1/lists.proto";
 import "dzeroth/posts/v1/posts.proto";
@@ -242,7 +243,7 @@ enum UserTimelineTab {
 }
 
 message GetUserTimelineRequest {
-  string user_id = 1;
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   // Read only while tab is UNSPECIFIED; ignored (no error) when tab is set.
   bool include_replies = 2;
   int32 page_size = 3;

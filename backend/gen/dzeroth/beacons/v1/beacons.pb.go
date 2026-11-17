@@ -3117,7 +3117,7 @@ var File_dzeroth_beacons_v1_beacons_proto protoreflect.FileDescriptor
 
 const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\n" +
-	" dzeroth/beacons/v1/beacons.proto\x12\x12dzeroth.beacons.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\"dzeroth/location/v1/location.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xff\x06\n" +
+	" dzeroth/beacons/v1/beacons.proto\x12\x12dzeroth.beacons.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a\"dzeroth/location/v1/location.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xff\x06\n" +
 	"\x06Beacon\x12\x1b\n" +
 	"\tbeacon_id\x18\x01 \x01(\tR\bbeaconId\x12?\n" +
 	"\torganiser\x18\x02 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\torganiser\x12!\n" +
@@ -3248,22 +3248,22 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\x1aWithdrawJoinRequestRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tbeacon_id\x18\x02 \x01(\tR\bbeaconId\"\x1d\n" +
-	"\x1bWithdrawJoinRequestResponse\"\xba\x01\n" +
+	"\x1bWithdrawJoinRequestResponse\"\xc0\x01\n" +
 	"\x1bRespondToJoinRequestRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
-	"\tbeacon_id\x18\x02 \x01(\tR\bbeaconId\x12\x17\n" +
-	"\auser_id\x18\x03 \x01(\tR\x06userId\x12<\n" +
+	"\tbeacon_id\x18\x02 \x01(\tR\bbeaconId\x12\x1d\n" +
+	"\auser_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12<\n" +
 	"\bresponse\x18\x04 \x01(\x0e2 .dzeroth.beacons.v1.JoinResponseR\bresponse\"R\n" +
 	"\x1cRespondToJoinRequestResponse\x122\n" +
 	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"Z\n" +
 	"\x12LeaveBeaconRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tbeacon_id\x18\x02 \x01(\tR\bbeaconId\"\x15\n" +
-	"\x13LeaveBeaconResponse\"y\n" +
+	"\x13LeaveBeaconResponse\"\x7f\n" +
 	"\x18RemoveParticipantRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
-	"\tbeacon_id\x18\x02 \x01(\tR\bbeaconId\x12\x17\n" +
-	"\auser_id\x18\x03 \x01(\tR\x06userId\"O\n" +
+	"\tbeacon_id\x18\x02 \x01(\tR\bbeaconId\x12\x1d\n" +
+	"\auser_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"O\n" +
 	"\x19RemoveParticipantResponse\x122\n" +
 	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"\xaa\x01\n" +
 	"\x17ListParticipantsRequest\x12\x1b\n" +
@@ -3274,9 +3274,9 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"page_token\x18\x04 \x01(\tR\tpageToken\"\x87\x01\n" +
 	"\x18ListParticipantsResponse\x12C\n" +
 	"\fparticipants\x18\x01 \x03(\v2\x1f.dzeroth.beacons.v1.ParticipantR\fparticipants\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"q\n" +
-	"\x18ListSharedBeaconsRequest\x12 \n" +
-	"\fpeer_user_id\x18\x01 \x01(\tR\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"w\n" +
+	"\x18ListSharedBeaconsRequest\x12&\n" +
+	"\fpeer_user_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\n" +
 	"peerUserId\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1d\n" +
 	"\n" +

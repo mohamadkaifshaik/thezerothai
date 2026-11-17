@@ -80,6 +80,7 @@ syntax = "proto3";
 package dzeroth.beacons.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "dzeroth/location/v1/location.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -525,7 +526,7 @@ message RespondToJoinRequestRequest {
   string idempotency_key = 1;
   string beacon_id = 2;
   // The requester. [A-Za-z0-9-]{1,128}, else VALIDATION "user_id".
-  string user_id = 3;
+  string user_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   JoinResponse response = 4;
 }
 
@@ -544,7 +545,7 @@ message RemoveParticipantRequest {
   string idempotency_key = 1;
   string beacon_id = 2;
   // The ACCEPTED participant. [A-Za-z0-9-]{1,128}, else VALIDATION "user_id".
-  string user_id = 3;
+  string user_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message RemoveParticipantResponse {
@@ -566,7 +567,7 @@ message ListParticipantsResponse {
 
 message ListSharedBeaconsRequest {
   // The other user of the chat.
-  string peer_user_id = 1;
+  string peer_user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   // Clamped: 0 = 3, above 10 = 10.
   int32 limit = 2;
   string page_token = 3;

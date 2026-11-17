@@ -281,6 +281,7 @@ const SendMessageRequest$json = {
       '3': 3,
       '4': 1,
       '5': 9,
+      '8': {},
       '9': 0,
       '10': 'recipientUserId'
     },
@@ -295,9 +296,10 @@ const SendMessageRequest$json = {
 /// Descriptor for `SendMessageRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List sendMessageRequestDescriptor = $convert.base64Decode(
     'ChJTZW5kTWVzc2FnZVJlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg5pZGVtcG90ZW'
-    '5jeUtleRIpCg9jb252ZXJzYXRpb25faWQYAiABKAlIAFIOY29udmVyc2F0aW9uSWQSLAoRcmVj'
-    'aXBpZW50X3VzZXJfaWQYAyABKAlIAFIPcmVjaXBpZW50VXNlcklkEhIKBHRleHQYBCABKAlSBH'
-    'RleHQSJAoOc2hhcmVkX3Bvc3RfaWQYBSABKAlSDHNoYXJlZFBvc3RJZEIICgZ0YXJnZXQ=');
+    '5jeUtleRIpCg9jb252ZXJzYXRpb25faWQYAiABKAlIAFIOY29udmVyc2F0aW9uSWQSMgoRcmVj'
+    'aXBpZW50X3VzZXJfaWQYAyABKAlCBOjgGAFIAFIPcmVjaXBpZW50VXNlcklkEhIKBHRleHQYBC'
+    'ABKAlSBHRleHQSJAoOc2hhcmVkX3Bvc3RfaWQYBSABKAlSDHNoYXJlZFBvc3RJZEIICgZ0YXJn'
+    'ZXQ=');
 
 @$core.Deprecated('Use sendMessageResponseDescriptor instead')
 const SendMessageResponse$json = {

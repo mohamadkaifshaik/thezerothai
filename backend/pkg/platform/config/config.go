@@ -316,6 +316,11 @@ type Config struct {
 	// Trending page, per caller, after FEATURE_SEARCH. FEATURE_TRENDING_POSTS[_ALLOWLIST|_PERCENT], default off in every
 	// environment; it never ramps ahead of FEATURE_SEARCH.
 	FeatureTrendingPosts flags.Spec
+	// FeaturePublicIDs is the flag (wire name `public_ids`) for the opaque public user id ("u" + 26 base32 characters)
+	// that replaces the Firebase uid on the wire. FEATURE_PUBLIC_IDS[_ALLOWLIST|_PERCENT], default off in every
+	// environment. Inert today: the proto contract (Profile.public_id, AuthorSnapshot.public_id, GetProfileRequest
+	// public_id, the user_ref field option) exists, but nothing reads the flag yet.
+	FeaturePublicIDs flags.Spec
 	// FeaturePolls is the flag (wire name `polls`) gating CREATING a poll per caller (CreatePost with `poll`,
 	// FEATURE_DISABLED feature=polls, rejected before any lookup). VotePoll needs engagement on for the caller and polls NOT globally off.
 	// It never ramps ahead of FEATURE_ENGAGEMENT and leaves off only once 100% of traffic is on a revision that stores
@@ -1149,6 +1154,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featurePublicIDs, err := flags.LoadSpec("PUBLIC_IDS", "public_ids", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featurePolls, err := flags.LoadSpec("POLLS", "polls", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1312,6 +1321,7 @@ func Load() (Config, error) {
 		FeatureTrends:                featureTrends,
 		FeatureTrendingMedia:         featureTrendingMedia,
 		FeatureTrendingPosts:         featureTrendingPosts,
+		FeaturePublicIDs:             featurePublicIDs,
 		FeaturePolls:                 featurePolls,
 		FeatureDrafts:                featureDrafts,
 		FeatureGif:                   featureGif,

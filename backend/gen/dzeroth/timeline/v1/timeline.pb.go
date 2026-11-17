@@ -886,7 +886,7 @@ var File_dzeroth_timeline_v1_timeline_proto protoreflect.FileDescriptor
 
 const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/timeline/v1/timeline.proto\x12\x13dzeroth.timeline.v1\x1a\x1edzeroth/common/v1/common.proto\x1a(dzeroth/communities/v1/communities.proto\x1a\x1cdzeroth/lists/v1/lists.proto\x1a\x1cdzeroth/posts/v1/posts.proto\"u\n" +
+	"\"dzeroth/timeline/v1/timeline.proto\x12\x13dzeroth.timeline.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a(dzeroth/communities/v1/communities.proto\x1a\x1cdzeroth/lists/v1/lists.proto\x1a\x1cdzeroth/posts/v1/posts.proto\"u\n" +
 	"\x16GetHomeTimelineRequest\x12\x1b\n" +
 	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
@@ -900,9 +900,9 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"sinceToken\x12$\n" +
 	"\x0egap_page_token\x18\x04 \x01(\tR\fgapPageToken\x12\x1f\n" +
 	"\vremoved_ids\x18\x05 \x03(\tR\n" +
-	"removedIds\"\xef\x01\n" +
-	"\x16GetUserTimelineRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12'\n" +
+	"removedIds\"\xf5\x01\n" +
+	"\x16GetUserTimelineRequest\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12'\n" +
 	"\x0finclude_replies\x18\x02 \x01(\bR\x0eincludeReplies\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +

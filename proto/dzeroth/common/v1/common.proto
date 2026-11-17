@@ -4,7 +4,8 @@ syntax = "proto3";
 //
 // Conventions for every service in this repo:
 // - IDs are strings. Post and media IDs are 64-bit Snowflake values rendered as 19-digit zero-padded
-//   decimal strings (lexicographic order == time order). User IDs are Firebase Auth UIDs.
+//   decimal strings (lexicographic order == time order). User IDs are Firebase Auth UIDs; every field that holds one
+//   carries the `user_ref` option (options.proto), as the public id (FEATURE_PUBLIC_IDS) will replace them on the wire.
 // - Every mutating RPC takes `idempotency_key`: a client-generated UUID (16-64 chars, [A-Za-z0-9_-]),
 //   generated once per user intent and reused on every retry of that intent. Scoped per user.
 // - List RPCs take `page_size` (0 => 20, max 50, larger values are clamped) and an opaque `page_token`,
@@ -13,6 +14,7 @@ syntax = "proto3";
 //
 package dzeroth.common.v1;
 
+import "dzeroth/common/v1/options.proto";
 import "google/protobuf/duration.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1";
@@ -24,7 +26,9 @@ option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;co
 // - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
 //   cache, up to 60 s stale).
 message AuthorSnapshot {
-  string user_id = 1;
+  // Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Still set; it holds the Firebase uid until the
+  // edge translates user ids to public ids (options.proto, user_ref).
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   string handle = 2;
   string display_name = 3;
   // Public avatar thumbnail URL (96 px). Empty when the user has no avatar.
@@ -40,6 +44,10 @@ message AuthorSnapshot {
   // Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
   // for an account, and `posts.v1.Post.visibility` / `posts.v1.EmbedViewerState` for a post.
   bool is_private = 6;
+  // The user's public id (FEATURE_PUBLIC_IDS): "u" + 26 lower-case base32 characters, random and immutable, never
+  // derived from the uid or a time. Not set by any server yet: always "" until the public id rollout; clients must
+  // fall back to user_id while it is "".
+  string public_id = 7 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_PUBLIC_ID];
 }
 
 // A moderated, publicly readable image. URLs are immutable and cacheable forever.

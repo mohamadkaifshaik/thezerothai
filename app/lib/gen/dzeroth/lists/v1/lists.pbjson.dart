@@ -228,8 +228,15 @@ final $typed_data.Uint8List getListResponseDescriptor = $convert.base64Decode(
 const ListUserListsRequest$json = {
   '1': 'ListUserListsRequest',
   '2': [
-    {'1': 'owner_id', '3': 1, '4': 1, '5': 9, '10': 'ownerId'},
-    {'1': 'contains_user_id', '3': 2, '4': 1, '5': 9, '10': 'containsUserId'},
+    {'1': 'owner_id', '3': 1, '4': 1, '5': 9, '8': {}, '10': 'ownerId'},
+    {
+      '1': 'contains_user_id',
+      '3': 2,
+      '4': 1,
+      '5': 9,
+      '8': {},
+      '10': 'containsUserId'
+    },
     {'1': 'page_size', '3': 3, '4': 1, '5': 5, '10': 'pageSize'},
     {'1': 'page_token', '3': 4, '4': 1, '5': 9, '10': 'pageToken'},
   ],
@@ -237,9 +244,9 @@ const ListUserListsRequest$json = {
 
 /// Descriptor for `ListUserListsRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List listUserListsRequestDescriptor = $convert.base64Decode(
-    'ChRMaXN0VXNlckxpc3RzUmVxdWVzdBIZCghvd25lcl9pZBgBIAEoCVIHb3duZXJJZBIoChBjb2'
-    '50YWluc191c2VyX2lkGAIgASgJUg5jb250YWluc1VzZXJJZBIbCglwYWdlX3NpemUYAyABKAVS'
-    'CHBhZ2VTaXplEh0KCnBhZ2VfdG9rZW4YBCABKAlSCXBhZ2VUb2tlbg==');
+    'ChRMaXN0VXNlckxpc3RzUmVxdWVzdBIfCghvd25lcl9pZBgBIAEoCUIE6OAYAVIHb3duZXJJZB'
+    'IuChBjb250YWluc191c2VyX2lkGAIgASgJQgTo4BgBUg5jb250YWluc1VzZXJJZBIbCglwYWdl'
+    'X3NpemUYAyABKAVSCHBhZ2VTaXplEh0KCnBhZ2VfdG9rZW4YBCABKAlSCXBhZ2VUb2tlbg==');
 
 @$core.Deprecated('Use listUserListsResponseDescriptor instead')
 const ListUserListsResponse$json = {
@@ -276,15 +283,15 @@ const AddListMemberRequest$json = {
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
     {'1': 'list_id', '3': 2, '4': 1, '5': 9, '10': 'listId'},
-    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '8': {}, '10': 'userId'},
   ],
 };
 
 /// Descriptor for `AddListMemberRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List addListMemberRequestDescriptor = $convert.base64Decode(
     'ChRBZGRMaXN0TWVtYmVyUmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDmlkZW1wb3'
-    'RlbmN5S2V5EhcKB2xpc3RfaWQYAiABKAlSBmxpc3RJZBIXCgd1c2VyX2lkGAMgASgJUgZ1c2Vy'
-    'SWQ=');
+    'RlbmN5S2V5EhcKB2xpc3RfaWQYAiABKAlSBmxpc3RJZBIdCgd1c2VyX2lkGAMgASgJQgTo4BgB'
+    'UgZ1c2VySWQ=');
 
 @$core.Deprecated('Use addListMemberResponseDescriptor instead')
 const AddListMemberResponse$json = {
@@ -312,15 +319,15 @@ const RemoveListMemberRequest$json = {
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
     {'1': 'list_id', '3': 2, '4': 1, '5': 9, '10': 'listId'},
-    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '8': {}, '10': 'userId'},
   ],
 };
 
 /// Descriptor for `RemoveListMemberRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List removeListMemberRequestDescriptor = $convert.base64Decode(
     'ChdSZW1vdmVMaXN0TWVtYmVyUmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDmlkZW'
-    '1wb3RlbmN5S2V5EhcKB2xpc3RfaWQYAiABKAlSBmxpc3RJZBIXCgd1c2VyX2lkGAMgASgJUgZ1'
-    'c2VySWQ=');
+    '1wb3RlbmN5S2V5EhcKB2xpc3RfaWQYAiABKAlSBmxpc3RJZBIdCgd1c2VyX2lkGAMgASgJQgTo'
+    '4BgBUgZ1c2VySWQ=');
 
 @$core.Deprecated('Use removeListMemberResponseDescriptor instead')
 const RemoveListMemberResponse$json = {

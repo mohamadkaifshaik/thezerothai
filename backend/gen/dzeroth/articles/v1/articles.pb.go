@@ -704,11 +704,11 @@ var File_dzeroth_articles_v1_articles_proto protoreflect.FileDescriptor
 
 const file_dzeroth_articles_v1_articles_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/articles/v1/articles.proto\x12\x13dzeroth.articles.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb5\x04\n" +
+	"\"dzeroth/articles/v1/articles.proto\x12\x13dzeroth.articles.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xbb\x04\n" +
 	"\aArticle\x12\x1d\n" +
 	"\n" +
-	"article_id\x18\x01 \x01(\tR\tarticleId\x12\x1b\n" +
-	"\tauthor_id\x18\x02 \x01(\tR\bauthorId\x12\x1a\n" +
+	"article_id\x18\x01 \x01(\tR\tarticleId\x12!\n" +
+	"\tauthor_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\bauthorId\x12\x1a\n" +
 	"\brevision\x18\x03 \x01(\x03R\brevision\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x1b\n" +
 	"\tbody_json\x18\x05 \x01(\tR\bbodyJson\x12$\n" +

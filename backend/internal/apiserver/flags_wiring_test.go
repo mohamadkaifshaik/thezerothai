@@ -155,6 +155,7 @@ func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
 		{"FEATURE_DM_SUGGESTIONS", "dm_suggestions"},
 		{"FEATURE_POST_VIEWS", "post_views"},
 		{"FEATURE_CREATOR_INSIGHTS", "creator_insights"},
+		{"FEATURE_PUBLIC_IDS", "public_ids"},
 	} {
 		for _, tc := range []struct {
 			name        string

@@ -89,7 +89,7 @@ final $typed_data.Uint8List getHomeTimelineResponseDescriptor = $convert.base64D
 const GetUserTimelineRequest$json = {
   '1': 'GetUserTimelineRequest',
   '2': [
-    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '8': {}, '10': 'userId'},
     {'1': 'include_replies', '3': 2, '4': 1, '5': 8, '10': 'includeReplies'},
     {'1': 'page_size', '3': 3, '4': 1, '5': 5, '10': 'pageSize'},
     {'1': 'page_token', '3': 4, '4': 1, '5': 9, '10': 'pageToken'},
@@ -107,11 +107,11 @@ const GetUserTimelineRequest$json = {
 
 /// Descriptor for `GetUserTimelineRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List getUserTimelineRequestDescriptor = $convert.base64Decode(
-    'ChZHZXRVc2VyVGltZWxpbmVSZXF1ZXN0EhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZBInCg9pbm'
-    'NsdWRlX3JlcGxpZXMYAiABKAhSDmluY2x1ZGVSZXBsaWVzEhsKCXBhZ2Vfc2l6ZRgDIAEoBVII'
-    'cGFnZVNpemUSHQoKcGFnZV90b2tlbhgEIAEoCVIJcGFnZVRva2VuEh8KC3NpbmNlX3Rva2VuGA'
-    'UgASgJUgpzaW5jZVRva2VuEjYKA3RhYhgGIAEoDjIkLmR6ZXJvdGgudGltZWxpbmUudjEuVXNl'
-    'clRpbWVsaW5lVGFiUgN0YWI=');
+    'ChZHZXRVc2VyVGltZWxpbmVSZXF1ZXN0Eh0KB3VzZXJfaWQYASABKAlCBOjgGAFSBnVzZXJJZB'
+    'InCg9pbmNsdWRlX3JlcGxpZXMYAiABKAhSDmluY2x1ZGVSZXBsaWVzEhsKCXBhZ2Vfc2l6ZRgD'
+    'IAEoBVIIcGFnZVNpemUSHQoKcGFnZV90b2tlbhgEIAEoCVIJcGFnZVRva2VuEh8KC3NpbmNlX3'
+    'Rva2VuGAUgASgJUgpzaW5jZVRva2VuEjYKA3RhYhgGIAEoDjIkLmR6ZXJvdGgudGltZWxpbmUu'
+    'djEuVXNlclRpbWVsaW5lVGFiUgN0YWI=');
 
 @$core.Deprecated('Use getUserTimelineResponseDescriptor instead')
 const GetUserTimelineResponse$json = {

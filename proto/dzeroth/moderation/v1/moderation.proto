@@ -10,6 +10,8 @@ syntax = "proto3";
 // Privacy: the reporter's identity is never returned to, or derivable by, the reported user.
 package dzeroth.moderation.v1;
 
+import "dzeroth/common/v1/options.proto";
+
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1;moderationv1";
 
 service ModerationService {
@@ -88,7 +90,8 @@ enum ReportReason {
 message ReportContentRequest {
   string idempotency_key = 1;
   ReportTargetType target_type = 2;
-  string target_id = 3;
+  // A user id only for REPORT_TARGET_TYPE_ACCOUNT (see the enum for every other shape), hence CONDITIONAL.
+  string target_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_CONDITIONAL];
   ReportReason reason = 4;
   string note = 5;
 }
