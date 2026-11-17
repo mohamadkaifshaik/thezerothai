@@ -7,6 +7,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 ci=$(dirname "$here")
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# The fixture cases below pin the untimed packing; the timed packing has its own cases and a repo-wide run further down.
+export SHARD_TIMINGS_DIR=$tmp/no-timings
 pass=0
 failed=0
 
@@ -148,11 +150,66 @@ printf '//go:build !integration\n\npackage p4\n' >"$fx/backend/p4/d_test.go"
 expect_out go-packages-not-integration "$(lines ./p1 ./p3 ./p4)" "${fxenv[@]}" bash "$ci/shard.sh" go-packages 0/1
 expect_err go-packages-none "is empty" env BACKEND_DIR="$tmp/nobackend" bash "$ci/shard.sh" go-packages 0/1
 
+# --- timed packing: <SHARD_TIMINGS_DIR>/<kind>.tsv, "<ms>	<item>" ---
+tm=$tmp/timings
+mkdir -p "$tm"
+timed=(env SHARD_TIMINGS_DIR="$tm" APP_DIR="$fx/app" BACKEND_DIR="$fx/backend")
+# Fully timed (CRLF line endings, a stale row for a file that does not exist): z 100, b/c 90, lf 80, b/a 5, a 5, crlf 5, e 5.
+# Greedy, longest first, ties by name, 2 shards: z->0 (100), b/c->1 (90), lf->1 (170), a/b-a/crlf/e (5 each, ties by name)
+# -> shard 0 (105), 0 (110), 0 (115)... shard 0 stays lighter than 170, so shard 0 gets all four.
+printf '100	test/z_test.dart
+90	test/b/c_test.dart
+80	test/lf_test.dart
+5	test/b/a_test.dart
+5	test/a_test.dart
+5	test/crlf_test.dart
+5	test/e_test.dart
+999	test/gone_test.dart
+' >"$tm/flutter.tsv"
+expect_out flutter-timed-0of2 "$(lines test/a_test.dart test/b/a_test.dart test/crlf_test.dart test/e_test.dart test/z_test.dart)" 	"${timed[@]}" bash "$ci/shard.sh" flutter-files 0/2
+expect_out flutter-timed-1of2 "$(lines test/b/c_test.dart test/lf_test.dart)" "${timed[@]}" bash "$ci/shard.sh" flutter-files 1/2
+# Mixed: only lf (12 bytes, 6000 ms) and z (20 bytes, 200 ms) are measured, so 6200/32 = 193 ms per byte; the rest are
+# estimated: b/a 30 bytes 5812, b/c 20 bytes 3875, crlf 12 bytes 2325, a 10 bytes 1937, e 0. Longest first: lf->0, b/a->1,
+# b/c->1 (9687), crlf->0 (8325), a->0 (10262), z->1 (9887), e->1.
+printf '6000	test/lf_test.dart
+200	test/z_test.dart
+' >"$tm/flutter.tsv"
+expect_out flutter-mixed-0of2 "$(lines test/a_test.dart test/crlf_test.dart test/lf_test.dart)" "${timed[@]}" bash "$ci/shard.sh" flutter-files 0/2
+expect_out flutter-mixed-1of2 "$(lines test/b/a_test.dart test/b/c_test.dart test/e_test.dart test/z_test.dart)" 	"${timed[@]}" bash "$ci/shard.sh" flutter-files 1/2
+# A timing file that matches nothing here is the by-size packing again.
+printf '5	test/elsewhere_test.dart
+' >"$tm/flutter.tsv"
+expect_out flutter-stale-only "$(lines test/a_test.dart test/b/a_test.dart test/crlf_test.dart test/e_test.dart)" "${timed[@]}" bash "$ci/shard.sh" flutter-files 0/2
+# go-names: TestA 100, TestB 100, TestC_sub 1 measured; ExampleA and FuzzParse unmeasured weigh the mean (67). Longest first, ties by name:
+# TestA->0, TestB->1, ExampleA(67)->0? loads 100/100 tie -> 0 (167), FuzzParse(67)->1 (167), TestC_sub(1)->0.
+printf '100	TestA
+100	TestB
+1	TestC_sub
+' >"$tm/go-names.tsv"
+expect_out go-timed-0of2 '^(ExampleA|TestA|TestC_sub)$' "${timed[@]}" bash "$ci/shard.sh" go-run 0/2
+expect_out go-timed-1of2 '^(FuzzParse|TestB)$' "${timed[@]}" bash "$ci/shard.sh" go-run 1/2
+# Heavy names are spread, not clustered by sort order: TestA and TestB (heavy) land in different shards of 2.
+printf '100	TestA
+100	TestB
+1	TestC_sub
+1	ExampleA
+1	FuzzParse
+' >"$tm/go-names.tsv"
+expect_out go-timed-heavy-split-1 "$(lines TestB)" "${timed[@]}" bash "$ci/shard.sh" go-names 1/3
+# go-packages: p1 has a 20-byte... measured p1 5000 ms, p3 100 ms; p4 unmeasured (estimated from bytes).
+printf '5000	./p1
+100	./p3
+' >"$tm/go-packages.tsv"
+expect_out go-packages-timed-0of2 ./p1 "${timed[@]}" bash "$ci/shard.sh" go-packages 0/2
+expect_out go-packages-timed-1of2 "$(lines ./p3 ./p4)" "${timed[@]}" bash "$ci/shard.sh" go-packages 1/2
+
 # --- this checkout: for several shard counts the shards are disjoint and together are exactly the whole suite ---
 # go-names is the whole list (one regex for every name is over go-run's size limit); go-run must hold the same names.
 items_of() { # <mode> <spec>: one item per line (go-run regexes are unpacked into names)
 	if [ "$1" = go-run ]; then shard go-run "$2" | sed -E 's/^\^\(//; s/\)\$$//' | tr '|' '\n'; else shard "$1" "$2"; fi
 }
+for timings in none real; do
+if [ "$timings" = real ]; then export SHARD_TIMINGS_DIR=$ci/timings; else export SHARD_TIMINGS_DIR=$tmp/no-timings; fi
 for mode in flutter-files go-run go-packages; do
 	full=$mode
 	[ "$mode" = go-run ] && full=go-names
@@ -164,12 +221,30 @@ for mode in flutter-files go-run go-packages; do
 		if [ "$(LC_ALL=C sort "$tmp/union")" = "$(LC_ALL=C sort "$tmp/all")" ]; then
 			pass=$((pass + 1))
 		else
-			echo "FAIL repo-$mode-$n: the $n shards are not a partition of the suite"
+			echo "FAIL repo-$mode-$n ($timings timings): the $n shards are not a partition of the suite"
 			diff <(LC_ALL=C sort "$tmp/all") <(LC_ALL=C sort "$tmp/union") | head -10 | sed 's/^/    /'
 			failed=$((failed + 1))
 		fi
 	done
 done
+done
+
+# --- changed-groups.sh: which ci.yml job groups a change needs (fail open) ---
+ALL='go_checks=true go_unit=true int=true flutter=true promotion=true'
+groups_of() { printf '%s\n' "$@" | bash "$ci/changed-groups.sh" | paste -sd' ' -; }
+expect_out groups-docs "go_checks=false go_unit=false int=false flutter=false promotion=false" groups_of docs/plan.md .claude/rules/x.md README.md releases/v1-readiness.md
+expect_out groups-app "go_checks=true go_unit=false int=false flutter=true promotion=false" groups_of app/lib/main.dart app/pubspec.lock docs/x.md
+expect_out groups-backend "go_checks=true go_unit=true int=true flutter=false promotion=true" groups_of backend/internal/posts/service.go
+expect_out groups-infra "go_checks=false go_unit=true int=false flutter=false promotion=true" groups_of infra/terraform/envs/dev/main.tf
+expect_out groups-app-and-backend "$ALL" groups_of app/lib/main.dart backend/x.go infra/terraform/x.tf README.md
+expect_out groups-app-and-backend-flags "go_checks=true go_unit=true int=true flutter=true promotion=true" groups_of app/lib/main.dart backend/x.go
+for shared in proto/dzeroth/a/v1/a.proto testdata/x.json scripts/ci/shard.sh Makefile .github/workflows/ci.yml firebase/firestore.rules \
+	firebase.json osv-scanner.toml loadtest/a.js docs2/a.md '"quoted/p\303\251.md"'; do
+	expect_out "groups-shared-$shared" "$ALL" groups_of "$shared" docs/a.md
+done
+expect_out groups-empty-list "$ALL" groups_of
+expect_out groups-all-flag "$ALL" bash -c "bash '$ci/changed-groups.sh' --all | paste -sd' ' -"
+expect_out groups-crlf-input "go_checks=false go_unit=false int=false flutter=false promotion=false" bash -c "printf 'docs/a.md\r\n' | bash '$ci/changed-groups.sh' | paste -sd' ' -"
 
 # --- cover.sh merge ---
 cov=$tmp/cov
