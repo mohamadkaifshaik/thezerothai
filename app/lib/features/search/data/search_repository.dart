@@ -155,6 +155,13 @@ abstract class SearchRepository {
   /// caller checks `search` and `trending_media`.
   Future<SearchPostsPage> exploreMedia({String? pageToken, int pageSize = 20});
 
+  /// The global post feed (Trending): the newest public posts of every
+  /// author, paged. A page can be short or empty while the token is set; an
+  /// expired or foreign token answers [SearchInvalidQueryException] with
+  /// `field == 'page_token'` (start again from page one). The caller checks
+  /// `search` and `trending_posts`.
+  Future<SearchPostsPage> explorePosts({String? pageToken, int pageSize = 20});
+
   /// Public Lists whose name starts with [query] (1-30 code points, the
   /// caller checks `search_lists` and `lists`).
   Future<SearchListsPage> searchLists(
@@ -262,6 +269,24 @@ class ConnectSearchRepository implements SearchRepository {
     final response = await _read(
       () => _apiClient.search.exploreMedia(
         pb.ExploreMediaRequest(pageSize: pageSize, pageToken: pageToken ?? ''),
+      ),
+    );
+    return SearchPostsPage(
+      posts: response.posts,
+      nextPageToken: response.nextPageToken.isEmpty
+          ? null
+          : response.nextPageToken,
+    );
+  }
+
+  @override
+  Future<SearchPostsPage> explorePosts({
+    String? pageToken,
+    int pageSize = 20,
+  }) async {
+    final response = await _read(
+      () => _apiClient.search.explorePosts(
+        pb.ExplorePostsRequest(pageSize: pageSize, pageToken: pageToken ?? ''),
       ),
     );
     return SearchPostsPage(

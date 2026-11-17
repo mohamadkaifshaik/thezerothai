@@ -17,3 +17,8 @@ const kFeatureSearchFilters = 'search_filters';
 /// Trending page (`ExploreMedia`). The server also needs `search` on for the
 /// caller; the page mounts the section only when both are on.
 const kFeatureTrendingMedia = 'trending_media';
+
+/// `trending_posts` (`FEATURE_TRENDING_POSTS`): the newest public posts on the
+/// Trending page (`ExplorePosts`). The server also needs `search` on for the
+/// caller; the page mounts the Posts section only when both are on.
+const kFeatureTrendingPosts = 'trending_posts';
