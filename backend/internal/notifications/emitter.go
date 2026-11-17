@@ -154,7 +154,7 @@ func (e *PubSubEmitter) Emit(ctx context.Context, ev Event) error {
 	ctx, cancel := context.WithTimeout(ctx, publishTimeout)
 	defer cancel()
 	if err := e.pub.Publish(ctx, data); err != nil {
-		e.log.WarnContext(ctx, "notification_publish_failed", "type", string(ev.Type), "actor_hash", logger.HashUID(ev.ActorID), "err", err)
+		e.log.WarnContext(ctx, "notification_publish_failed", "type", string(ev.Type), "actor_hash", logger.HashUID(ev.ActorID), "err", logger.ScrubErr(err, ev.ActorID))
 		return fmt.Errorf("notifications: publish: %w", err)
 	}
 	return nil

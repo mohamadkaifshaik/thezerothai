@@ -52,6 +52,8 @@ func modFixture() (*fixture, *fakeModRepo) {
 	f := newFixture()
 	f.dir.profiles[userKey] = profile(userKey, identity.AccountStatusActive)
 	f.dir.profiles["gone"] = profile("gone", identity.AccountStatusDeleting)
+	// SetMemberRole's pre-check reads the community fresh: the owner and modUID may act in testCID
+	f.seed(Community{ID: testCID, Name: "Go", OwnerID: ownerUID, ModeratorIDs: []string{modUID}, MemberCount: 3, Status: StatusActive})
 	m := &fakeModRepo{}
 	f.svc.mod = m
 	f.svc.d.CursorKey = []byte("0123456789abcdef0123456789abcdef")
@@ -187,6 +189,9 @@ func TestSetMemberRole_ValidationAndTargetProfile(t *testing.T) {
 				}
 			} else {
 				wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, nil)
+				if f.repo.gets != 0 || f.dir.asked != 0 {
+					t.Errorf("validation read storage: %d community gets, %d profile lookups", f.repo.gets, f.dir.asked)
+				}
 			}
 			if len(m.roles) != 0 {
 				t.Error("the repository ran")

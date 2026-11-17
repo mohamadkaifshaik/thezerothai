@@ -9,7 +9,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const listsUsage = `  opsctl lists hide    LIST_ID --project P [--report R] [--note N] [--dry-run]   (non-owners get NOT_FOUND on every list read within 60 s on every server; the owner still sees it)
@@ -79,7 +78,7 @@ func listsCommand(ctx context.Context, b *backends, project, sub, listID string,
 			return err
 		}
 	}
-	hash := logger.HashUID(listID)
+	hash := uidHashForAudit(listID)
 	if dryRun {
 		l, err := b.lists.Get(cctx, listID)
 		if errors.Is(err, lists.ErrNotFound) {

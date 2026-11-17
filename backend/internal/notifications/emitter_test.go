@@ -84,6 +84,18 @@ func TestPubSubEmitter(t *testing.T) {
 			t.Errorf("log = %s (want the failure line, with a hashed actor)", buf.String())
 		}
 	})
+	t.Run("a publish error naming the actor is scrubbed", func(t *testing.T) {
+		const actor = "ActorUidAbCdEfGhIjKl1234"
+		var buf bytes.Buffer
+		pubErr := errors.New("rpc error: documents/users/" + actor + " publish " + actor)
+		em := NewPubSubEmitter(&fakePublisher{err: pubErr}, allFlags{}, slog.New(slog.NewJSONHandler(&buf, nil)))
+		if err := em.Emit(context.Background(), Event{Type: TypeFollow, ActorID: actor, RecipientIDs: []string{"bob"}}); !errors.Is(err, pubErr) {
+			t.Fatalf("err = %v", err)
+		}
+		if strings.Contains(buf.String(), actor) || !strings.Contains(buf.String(), "rpc error: <redacted>") {
+			t.Errorf("log = %s (want the scrubbed cause, no raw actor uid)", buf.String())
+		}
+	})
 }
 
 func TestInlineEmitter(t *testing.T) {

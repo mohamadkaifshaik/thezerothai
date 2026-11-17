@@ -14,7 +14,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const testBeaconID = "1234567890123456780"
@@ -115,10 +114,10 @@ func TestBeacon_UsageAndValidation(t *testing.T) {
 	}
 }
 
+// Not parallel: the printed beacon_hash is keyed by CURSOR_HMAC_KEY from the environment.
 func TestBeacon_HideRestoreAndOutput(t *testing.T) {
-	t.Parallel()
 	f := &fakeBeacons{exists: true}
-	hash := logger.HashUID(testBeaconID)
+	hash := keyedAuditUIDHash(t, testBeaconID)
 	steps := []struct {
 		name string
 		args []string
@@ -409,9 +408,9 @@ func TestBeaconCounts_Usage(t *testing.T) {
 	}
 }
 
+// Not parallel: the printed beacon_hash is keyed by CURSOR_HMAC_KEY from the environment.
 func TestBeacon_ClearArea(t *testing.T) {
-	t.Parallel()
-	hash := logger.HashUID(testBeaconID)
+	hash := keyedAuditUIDHash(t, testBeaconID)
 	f := &fakeBeacons{exists: true, area: true}
 	steps := []struct {
 		name string

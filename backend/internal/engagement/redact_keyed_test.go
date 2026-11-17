@@ -21,7 +21,7 @@ func assertKeyedPostRedaction(t *testing.T, msg, uid string, postIDs ...string) 
 		if strings.Contains(msg, p) {
 			t.Errorf("plain post id %q in %q", p, msg)
 		}
-		if strings.Contains(msg, logger.HashUID(p)) {
+		if strings.Contains(msg, plainDigest(p)) {
 			t.Errorf("unkeyed hash of post id %q in %q", p, msg)
 		}
 		if !strings.Contains(msg, logger.HashPost(p)) {

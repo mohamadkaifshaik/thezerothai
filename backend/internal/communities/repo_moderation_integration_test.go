@@ -4,8 +4,11 @@ package communities
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +16,9 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
@@ -339,6 +344,68 @@ func TestSetMemberRole_RoleMatrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// An unauthorized caller gets the same answer whatever the target's account state (no account-status or block oracle), nothing is
+// written, and the target is never looked up; the owner still gets "user not found" for a target that is not ACTIVE.
+func TestSetMemberRole_UnauthorizedAnswerIgnoresTheTarget(t *testing.T) {
+	e := newModEnv(t)
+	ctx := context.Background()
+	e.dir.mu.Lock()
+	e.dir.profiles["t-suspended"] = profile("t-suspended", identity.AccountStatusSuspended)
+	e.dir.profiles["t-deleting"] = profile("t-deleting", identity.AccountStatusDeleting)
+	e.dir.mu.Unlock()
+	targets := []string{"target", "t-suspended", "t-deleting", "t-missing"}
+	const missingCID = "0000000000000000898"
+	tests := []struct {
+		actor, cid string
+		actions    []RoleAction
+	}{
+		{"member", modCID, []RoleAction{RoleActionBan, RoleActionUnban, RoleActionMakeModerator, RoleActionRemoveModerator}},
+		{"banned", modCID, []RoleAction{RoleActionBan, RoleActionUnban}},
+		{"stranger", modCID, []RoleAction{RoleActionBan, RoleActionUnban, RoleActionMakeModerator, RoleActionRemoveModerator}},
+		{"mod1", modCID, []RoleAction{RoleActionMakeModerator, RoleActionRemoveModerator}},
+		{"owner", missingCID, []RoleAction{RoleActionBan, RoleActionMakeModerator}},
+	}
+	n := 600
+	for _, tc := range tests {
+		for _, a := range tc.actions {
+			var first *apierr.Error
+			for _, target := range targets {
+				n++
+				e.dir.mu.Lock()
+				e.dir.asked = 0
+				e.dir.mu.Unlock()
+				_, err := e.svc.SetMemberRole(ctx, tc.actor, RoleInput{Key: key(n), CommunityID: tc.cid, UserID: target, Action: a})
+				var ae *apierr.Error
+				if !errors.As(err, &ae) {
+					t.Fatalf("%s %s %s: err = %v, want an *apierr.Error", tc.actor, a, target, err)
+				}
+				if first == nil {
+					first = ae
+				} else if ae.Code != first.Code || ae.Reason != first.Reason || ae.Message != first.Message || !maps.Equal(ae.Metadata, first.Metadata) {
+					t.Errorf("%s %s: target %s answered %v %q %v, another target %v %q %v", tc.actor, a, target, ae.Code, ae.Message, ae.Metadata, first.Code, first.Message, first.Metadata)
+				}
+				e.dir.mu.Lock()
+				asked := e.dir.asked
+				e.dir.mu.Unlock()
+				if asked != 0 {
+					t.Errorf("%s %s %s: the target was looked up for an unauthorized caller", tc.actor, a, target)
+				}
+			}
+		}
+	}
+	if c := e.community(t, modCID); len(c.Modlog) != 0 {
+		t.Errorf("refused calls logged %+v", c.Modlog)
+	}
+	for _, target := range []string{"t-suspended", "t-deleting", "t-missing"} {
+		n++
+		_, err := e.role(ctx, "owner", n, target, RoleActionBan)
+		wantAPIErr(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
+		if !strings.Contains(err.Error(), userNotFound) {
+			t.Errorf("owner, target %s: %v, want %q", target, err, userNotFound)
+		}
 	}
 }
 

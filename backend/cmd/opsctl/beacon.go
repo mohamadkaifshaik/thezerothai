@@ -13,7 +13,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const beaconUsage = `  opsctl beacon hide    BEACON_ID --project P [--report R] [--note N] [--dry-run]   (NOT_FOUND to everyone but its organiser from the next request; the organiser still sees and manages it)
@@ -126,7 +125,7 @@ func beaconCommand(ctx context.Context, b *backends, project, sub, beaconID stri
 			return err
 		}
 	}
-	hash := logger.HashUID(beaconID)
+	hash := uidHashForAudit(beaconID)
 	if a.dryRun {
 		return beaconDryRun(cctx, b, sub, beaconID, hash, hide, a.report, out)
 	}
@@ -190,7 +189,7 @@ func beaconClearArea(ctx context.Context, b *backends, project, beaconID string,
 	}
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	hash := logger.HashUID(beaconID)
+	hash := uidHashForAudit(beaconID)
 	if dryRun {
 		bc, err := b.beacons.Get(cctx, beaconID)
 		if errors.Is(err, beacons.ErrNotFound) {
