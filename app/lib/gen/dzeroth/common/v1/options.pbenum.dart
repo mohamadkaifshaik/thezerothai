@@ -26,7 +26,9 @@ class UserRefKind extends $pb.ProtobufEnum {
       UserRefKind._(1, _omitEnumNames ? '' : 'USER_REF_KIND_TRANSLATE');
 
   /// The field holds a user id only for some values of a sibling field (e.g. moderation.v1.ReportContentRequest.target_id
-  /// when target_type is ACCOUNT). The edge needs a per-message rule for it; the generic walker must not touch it.
+  /// when target_type is ACCOUNT), or an id that embeds a user id (e.g. notifications.v1.Notification.id, whose last "_"
+  /// segment names the actor for some types). The edge needs a per-field rule for it, which says whether and where the
+  /// value holds a user id; the generic walker never touches it otherwise.
   static const UserRefKind USER_REF_KIND_CONDITIONAL =
       UserRefKind._(2, _omitEnumNames ? '' : 'USER_REF_KIND_CONDITIONAL');
 
