@@ -119,18 +119,19 @@ func (f *fakeSource) ExportPage(_ context.Context, _, after string, _ int) ([]Ex
 	return p, nil
 }
 
-// TestExporter_Golden: the section for a user with two lists, byte for byte (member ids included, no hidden flag), against
-// testdata/export_lists.golden.json. Change the file only for an intended format change: it is the contract of the `lists`
-// section in the account export.
+// TestExporter_Golden: the section for a user with two lists, byte for byte (members by public id and handle, never by
+// uid; no hidden flag), against testdata/export_lists.golden.json. Change the file only for an intended format change: it
+// is the contract of the `lists` section in the account export. u-a has a public id, u-b (SUSPENDED) none, u-gone no
+// profile at all (an empty row: the member count stays truthful).
 func TestExporter_Golden(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 30, 9, 0, 0, 0, time.UTC)
 	src := &fakeSource{pages: [][]ExportedList{{
-		{ListID: "0000000000000000001", Name: "Cricket", Description: "Test and ODI", IsPrivate: true, MemberIDs: []string{"u-a", "u-b"}, CreatedAt: at, UpdatedAt: at.Add(time.Hour)},
+		{ListID: "0000000000000000001", Name: "Cricket", Description: "Test and ODI", IsPrivate: true, MemberIDs: []string{"u-a", "u-b", "u-gone"}, CreatedAt: at, UpdatedAt: at.Add(time.Hour)},
 		{ListID: "0000000000000000002", Name: "Empty", Description: "", IsPrivate: false, MemberIDs: []string{}, CreatedAt: at, UpdatedAt: at},
 	}}}
 	var buf bytes.Buffer
-	if err := NewExporter(src).ExportUser(context.Background(), "u1", &buf); err != nil {
+	if err := NewExporter(src, exportPeople()).ExportUser(context.Background(), "u1", &buf); err != nil {
 		t.Fatal(err)
 	}
 	want, err := os.ReadFile("testdata/export_lists.golden.json")
@@ -145,7 +146,7 @@ func TestExporter_Golden(t *testing.T) {
 func TestExporter_EmptyAndPaging(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	if err := NewExporter(&fakeSource{}).ExportUser(context.Background(), "u1", &buf); err != nil || buf.String() != "{\"lists\":[]}\n" {
+	if err := NewExporter(&fakeSource{}, exportPeople()).ExportUser(context.Background(), "u1", &buf); err != nil || buf.String() != "{\"lists\":[]}\n" {
 		t.Errorf("empty export = %q, %v", buf.String(), err)
 	}
 	// A full page is followed by a request after its last id; a short page ends the section.
@@ -156,7 +157,7 @@ func TestExporter_EmptyAndPaging(t *testing.T) {
 	last := full[len(full)-1].ListID
 	src := &fakeSource{pages: [][]ExportedList{full, {{ListID: "zz", MemberIDs: []string{}}}}}
 	buf.Reset()
-	if err := NewExporter(src).ExportUser(context.Background(), "u1", &buf); err != nil {
+	if err := NewExporter(src, exportPeople()).ExportUser(context.Background(), "u1", &buf); err != nil {
 		t.Fatal(err)
 	}
 	if len(src.after) != 2 || src.after[0] != "" || src.after[1] != last {

@@ -78,9 +78,14 @@
         "description": "",
         "isPrivate": true,
         "listId": "0000000000000000604",
-        "memberIds": [
-          "<uid:f>",
-          "<uid:g>"
+        "members": [
+          {
+            "handle": "<handle:f>",
+            "publicId": "u1fffffffffffffffffffffffff"
+          },
+          {
+            "handle": "<handle:g>"
+          }
         ],
         "name": "list 604",
         "updatedAt": "<time>"

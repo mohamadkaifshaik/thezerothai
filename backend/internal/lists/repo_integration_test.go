@@ -577,14 +577,15 @@ func TestEraser_Integration_Paging(t *testing.T) {
 	}
 }
 
-// Export: own lists only (not the ones the user is a member of), with member ids.
+// Export: own lists only (not the ones the user is a member of), with one members row each (m1 has no profile here: an
+// empty row, never its uid).
 func TestExporter_Integration(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	e.seedLists(t, "owner", 2, []string{"m1"})
 	e.seedLists(t, "stranger", 2, []string{"owner"}) // a member, not the owner: not exported
 	var out []byte
 	buf := &bytesBuffer{}
-	if err := NewExporter(e.repo).ExportUser(context.Background(), "owner", buf); err != nil {
+	if err := NewExporter(e.repo, exportPeople()).ExportUser(context.Background(), "owner", buf); err != nil {
 		t.Fatal(err)
 	}
 	out = buf.b
@@ -594,9 +595,12 @@ func TestExporter_Integration(t *testing.T) {
 	if countSub(string(out), `"owner"`) != 0 {
 		t.Errorf("the export names the owner uid or a foreign list: %s", out)
 	}
+	if countSub(string(out), `"members":[{}]`) != 2 || countSub(string(out), `"m1"`) != 0 {
+		t.Errorf("the members rows are wrong or carry a uid: %s", out)
+	}
 	// An account with no lists.
 	buf = &bytesBuffer{}
-	if err := NewExporter(e.repo).ExportUser(context.Background(), "nobody", buf); err != nil {
+	if err := NewExporter(e.repo, exportPeople()).ExportUser(context.Background(), "nobody", buf); err != nil {
 		t.Fatal(err)
 	}
 	if string(buf.b) != "{\"lists\":[]}\n" {

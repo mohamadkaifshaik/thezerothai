@@ -210,8 +210,9 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		}
 	}
 
-	// The `lists` section carries the account's OWN list with its member ids; a list that another user
-	// owns and A is only a member of belongs to its owner and is absent. Fixed ids keep the golden stable.
+	// The `lists` section carries the account's OWN list with its members by handle and public id (f has one, g none),
+	// never by uid; a list that another user owns and A is only a member of belongs to its owner and is absent. Fixed ids
+	// keep the golden stable.
 	e.seedList(t, "0000000000000000604", a.uid, []string{f.uid, g.uid})
 	e.seedList(t, "0000000000000000605", f.uid, []string{a.uid, g.uid})
 	// `lists_member_of` lists A's public membership (606: id, owner handle, name) and only counts the private (605) and moderator-hidden
@@ -316,6 +317,16 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	}
 
 	// --- privacy greps over the RAW bytes (not the normalized form) ---
+	// No other person's uid appears anywhere in the archive, in any section, present or future: every seeded account but
+	// A is named by handle and public id at most.
+	for _, u := range []struct {
+		role string
+		who  testUser
+	}{{"f (followed, list member, DM peer, list owner)", f}, {"g (follower, list member, DM peer)", g}, {"x (blocked)", x}, {"y (blocks A)", y}, {"z (muted)", z}, {"w (stranger)", w}, {"v (blocked by the stranger)", v}} {
+		if strings.Contains(string(raw), u.who.uid) {
+			t.Errorf("the export contains the uid of %s", u.role)
+		}
+	}
 	yHandle, _ := e.profileOf(t, y)
 	wHandle, _ := e.profileOf(t, w)
 	vHandle, _ := e.profileOf(t, v)
@@ -371,6 +382,9 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	// The subject's OWN relationships are in it: the blocked and muted users by public id (when they have one) and
 	// handle, never by uid.
 	var doc struct {
+		Lists struct {
+			Lists []map[string]any `json:"lists"`
+		} `json:"lists"`
 		Graph struct {
 			Blocked   []map[string]any `json:"blocked"`
 			Muted     []map[string]any `json:"muted"`
@@ -387,6 +401,13 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		len(doc.Graph.Muted) != 1 || doc.Graph.Muted[0]["handle"] != zHandle ||
 		len(doc.Graph.Following) != 1 || len(doc.Graph.Followers) != 1 {
 		t.Errorf("the subject's own graph is wrong: %+v", doc.Graph)
+	}
+	// A's own list names its members by handle (and public id when they have one), one row per member.
+	gHandle, _ := e.profileOf(t, g)
+	if len(doc.Lists.Lists) != 1 || fmt.Sprint(doc.Lists.Lists[0]["members"]) != fmt.Sprint([]any{
+		map[string]any{"handle": fHandle, "publicId": "u1fffffffffffffffffffffffff"}, map[string]any{"handle": gHandle},
+	}) || doc.Lists.Lists[0]["memberIds"] != nil {
+		t.Errorf("the subject's own list members are wrong: %+v", doc.Lists.Lists)
 	}
 	for _, rows := range [][]map[string]any{doc.Graph.Blocked, doc.Graph.Muted, doc.Graph.Following, doc.Graph.Followers} {
 		for _, r := range rows {

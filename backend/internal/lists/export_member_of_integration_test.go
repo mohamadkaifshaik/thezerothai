@@ -38,7 +38,7 @@ func TestExporter_Integration_MemberOf(t *testing.T) {
 	}}
 	buf := &bytesBuffer{}
 	// 4 lists name "me" (701-704); the own list 704 is exported in the lists part and not repeated in member-of.
-	x := NewExporter(e.repo).WithMembership(e.repo, handles, &fakeSocial{snap: graph.Snapshot{}})
+	x := NewExporter(e.repo, exportPeople()).WithMembership(e.repo, handles, &fakeSocial{snap: graph.Snapshot{}})
 	if err := x.ExportUser(context.Background(), "me", buf); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestExporter_Integration_MemberOfPages(t *testing.T) {
 		}
 	}
 	buf := &bytesBuffer{}
-	if err := NewExporter(e.repo).WithMembership(e.repo, &fakeHandles{profs: profs}, &fakeSocial{}).ExportUser(context.Background(), "me", buf); err != nil {
+	if err := NewExporter(e.repo, exportPeople()).WithMembership(e.repo, &fakeHandles{profs: profs}, &fakeSocial{}).ExportUser(context.Background(), "me", buf); err != nil {
 		t.Fatal(err)
 	}
 	// 100 on the first page, 1 on the second; the second page is short, so no third query.

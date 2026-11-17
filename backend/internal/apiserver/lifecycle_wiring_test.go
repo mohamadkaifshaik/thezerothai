@@ -231,7 +231,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	listsRepo := lists.NewFirestoreRepo(nil, nil, nil)
-	if err := registerListsLifecycle(l, listsRepo, nil, nil); err != nil {
+	if err := registerListsLifecycle(l, listsRepo, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err != nil {
@@ -279,7 +279,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err == nil {
 		t.Error("registering the messaging step twice was accepted")
 	}
-	if err := registerListsLifecycle(l, listsRepo, nil, nil); err == nil {
+	if err := registerListsLifecycle(l, listsRepo, nil, nil, nil); err == nil {
 		t.Error("registering the lists step twice was accepted")
 	}
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err == nil {
@@ -478,7 +478,7 @@ func TestListsAdapters(t *testing.T) {
 		t.Error("a corrupt checkpoint was accepted")
 	}
 	var buf bytes.Buffer
-	sec := listsSection{lists.NewExporter(fakeListsSource{})}
+	sec := listsSection{lists.NewExporter(fakeListsSource{}, nopHandles{})}
 	if sec.Name() != "lists" || sec.WriteSection(context.Background(), "u1", &buf) != nil || buf.String() != "{\"lists\":[]}\n" {
 		t.Errorf("section %q = %q", sec.Name(), buf.String())
 	}

@@ -69,7 +69,7 @@ func (f *fakeSocial) Snapshot(context.Context, string) (graph.Snapshot, error) {
 func exportMemberOf(t *testing.T, rows []MemberOfDoc, profs map[string]identity.Profile, snap graph.Snapshot) (out string, h *fakeHandles, s *fakeSocial) {
 	t.Helper()
 	h, s = &fakeHandles{profs: profs}, &fakeSocial{snap: snap}
-	x := NewExporter(fakeExportSrc{}).WithMembership(&fakeMemberOf{rows: rows}, h, s)
+	x := NewExporter(fakeExportSrc{}, exportPeople()).WithMembership(&fakeMemberOf{rows: rows}, h, s)
 	var buf bytes.Buffer
 	if err := x.ExportUser(context.Background(), "me", &buf); err != nil {
 		t.Fatal(err)
@@ -154,7 +154,7 @@ func TestExportMemberOf_PagesAndChunks(t *testing.T) {
 	f := &fakeMemberOf{rows: rows}
 	h := &fakeHandles{profs: profs}
 	var buf bytes.Buffer
-	if err := NewExporter(fakeExportSrc{}).WithMembership(f, h, &fakeSocial{}).ExportUser(context.Background(), "me", &buf); err != nil {
+	if err := NewExporter(fakeExportSrc{}, exportPeople()).WithMembership(f, h, &fakeSocial{}).ExportUser(context.Background(), "me", &buf); err != nil {
 		t.Fatal(err)
 	}
 	var got struct {
