@@ -54,6 +54,12 @@ class FakeSearchRepository implements SearchRepository {
   /// The page token of every `exploreMedia`, in order (null for the first).
   final List<String?> exploreMediaTokens = [];
 
+  /// The global post feed, like the media feed above.
+  SearchPostsPage explorePostsResult = const SearchPostsPage();
+  SearchPostsPage Function(String? pageToken)? explorePostsHandler;
+  Completer<void>? explorePostsGate;
+  final List<String?> explorePostsTokens = [];
+
   final List<String> calls = [];
   final List<String> peopleQueries = [];
   final List<String?> postsPageTokens = [];
@@ -96,6 +102,19 @@ class FakeSearchRepository implements SearchRepository {
     final e = error;
     if (e != null) throw e;
     return exploreMediaHandler?.call(pageToken) ?? exploreMediaResult;
+  }
+
+  @override
+  Future<SearchPostsPage> explorePosts({
+    String? pageToken,
+    int pageSize = 20,
+  }) async {
+    calls.add('explore_posts');
+    explorePostsTokens.add(pageToken);
+    await explorePostsGate?.future;
+    final e = error;
+    if (e != null) throw e;
+    return explorePostsHandler?.call(pageToken) ?? explorePostsResult;
   }
 
   @override

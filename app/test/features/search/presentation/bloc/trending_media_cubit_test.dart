@@ -143,5 +143,71 @@ void main() {
       expect(repo.exploreMediaTokens, [null]);
       await cubit.close();
     });
+
+    test('empty pages with a token stall after 3 calls; only '
+        'continueAfterStall asks again', () async {
+      var round = 0;
+      final repo = FakeSearchRepository()
+        ..exploreMediaHandler = (_) =>
+            ++round <= 3 ? _page(const [], 'n') : _page([_photo('a', 1)], null);
+      final cubit = TrendingMediaCubit(repository: repo);
+      await cubit.start();
+      expect(repo.exploreMediaTokens, [null, 'n', 'n']);
+      expect(cubit.state.stalled, isTrue);
+      await cubit.loadMore();
+      expect(repo.exploreMediaTokens, hasLength(3));
+      await cubit.continueAfterStall();
+      expect(_ids(cubit.state), ['a']);
+      expect(cubit.state.stalled, isFalse);
+      await cubit.close();
+    });
+
+    test('an expired token restarts from page one silently', () async {
+      var expired = true;
+      final repo = FakeSearchRepository()
+        ..exploreMediaHandler = (t) {
+          if (t == null) return _page([_photo('a', 5)], 'old');
+          if (expired) {
+            expired = false;
+            throw const SearchInvalidQueryException(field: 'page_token');
+          }
+          return _page(const [], null);
+        };
+      final cubit = TrendingMediaCubit(repository: repo);
+      await cubit.start();
+      await cubit.loadMore();
+      expect(repo.exploreMediaTokens, [null, 'old', null, 'old']);
+      expect(cubit.state.pagingFailed, isFalse);
+      expect(cubit.state.resetSerial, 1);
+      expect(_ids(cubit.state), ['a']);
+      await cubit.close();
+    });
+
+    test('refresh keeps the tiles when it fails', () async {
+      final repo = FakeSearchRepository()
+        ..exploreMediaResult = _page([_photo('a', 5)], null);
+      final cubit = TrendingMediaCubit(repository: repo);
+      await cubit.start();
+      repo.error = Exception('down');
+      await cubit.refresh();
+      expect(_ids(cubit.state), ['a']);
+      expect(cubit.state.notice, isNotNull);
+      repo.error = null;
+      repo.exploreMediaResult = _page([_photo('b', 9), _photo('a', 5)], null);
+      await cubit.refresh();
+      expect(_ids(cubit.state), ['b', 'a']);
+      expect(cubit.state.notice, isNull);
+      await cubit.close();
+    });
+
+    test('a tag asks SearchPosts MEDIA for #tag, not ExploreMedia', () async {
+      final repo = FakeSearchRepository()
+        ..postsResult = _page([_photo('a', 5)], null);
+      final cubit = TrendingMediaCubit(repository: repo, tag: 'go');
+      await cubit.start();
+      expect(repo.calls, ['posts:#go:SEARCH_TAB_MEDIA']);
+      expect(repo.exploreMediaTokens, isEmpty);
+      await cubit.close();
+    });
   });
 }

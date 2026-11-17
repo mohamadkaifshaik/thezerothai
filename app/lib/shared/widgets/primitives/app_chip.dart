@@ -118,10 +118,14 @@ class AppFilterPill extends StatelessWidget {
     required this.selected,
     required this.onPressed,
     this.maxLines = 1,
+    this.semanticsLabel,
   });
 
   final String label;
   final bool selected;
+
+  /// Spoken label when it differs from [label] (default: [label]).
+  final String? semanticsLabel;
 
   /// Lines of the label before it ellipsizes; null wraps it whole (a
   /// Settings choice at large text, R4). One by default (the filter rows).
@@ -186,7 +190,7 @@ class AppFilterPill extends StatelessWidget {
       selected: selected,
       enabled: enabled,
       onTap: onPressed,
-      label: label,
+      label: semanticsLabel ?? label,
       child: ExcludeSemantics(
         child: Opacity(
           opacity: enabled ? 1 : 0.5,

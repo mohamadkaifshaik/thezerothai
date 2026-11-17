@@ -58,20 +58,52 @@ FakeSearchRepository _repo() => FakeSearchRepository()
   );
 
 void main() {
-  group('Trending page, global media feed', () {
-    testWidgets('shows the media heading and grid when the flag is on', (
+  group('Trending page (See all) with the Posts and Media sections', () {
+    testWidgets('has no media feed: it lives in the Explore tab', (
       tester,
     ) async {
       final repo = _repo();
       await _open(tester, repo: repo, mediaOn: true);
       await tester.pumpAndSettle();
-      expect(find.text('Media'), findsOneWidget);
-      expect(find.byKey(const ValueKey('trending-media-a')), findsOneWidget);
-      expect(find.byKey(const ValueKey('trending-media-b')), findsOneWidget);
-      expect(repo.exploreMediaTokens, [null]);
+      expect(find.text('Media'), findsNothing);
+      expect(find.byKey(const ValueKey('trending-media-a')), findsNothing);
+      expect(repo.exploreMediaTokens, isEmpty);
+      expect(find.text('#tag1'), findsOneWidget);
     });
 
-    testWidgets('asks nothing and shows nothing when the flag is off', (
+    testWidgets('a row opens the hashtag in the Explore tab', (tester) async {
+      final repo = _repo();
+      await _open(tester, repo: repo, mediaOn: true);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('#tag1'));
+      await tester.pumpAndSettle();
+      expect(find.text('/explore body'), findsOneWidget);
+    });
+
+    testWidgets('Posts alone does the same', (tester) async {
+      final repo = _repo();
+      useFailingImageCache();
+      final rig = ContextPaneRig(search: repo);
+      await rig.pump(
+        tester,
+        location: '/explore/trending',
+        width: 390,
+        height: 844,
+        flags: {...kContextPaneFlags, 'trending_posts'},
+        page: (path) => switch (path) {
+          '/explore/trending' => const ExploreTrendingScreen(),
+          _ => Text('$path body'),
+        },
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('#tag1'));
+      await tester.pumpAndSettle();
+      expect(find.text('/explore body'), findsOneWidget);
+    });
+  });
+
+  group('Trending page (See all), both section flags off', () {
+    testWidgets('asks nothing for media and a row opens the results', (
       tester,
     ) async {
       final repo = _repo();
@@ -80,13 +112,9 @@ void main() {
       expect(find.text('Media'), findsNothing);
       expect(repo.exploreMediaTokens, isEmpty);
       expect(find.text('#tag1'), findsOneWidget);
-    });
-
-    testWidgets('an empty feed shows the empty state', (tester) async {
-      final repo = _repo()..exploreMediaResult = const SearchPostsPage();
-      await _open(tester, repo: repo, mediaOn: true);
+      await tester.tap(find.text('#tag1'));
       await tester.pumpAndSettle();
-      expect(find.text('No photos yet'), findsOneWidget);
+      expect(find.text('/search body'), findsOneWidget);
     });
   });
 }

@@ -8,41 +8,33 @@ import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
-import '../data/search_repository.dart';
 import '../domain/search_feature_flags.dart';
-import 'bloc/trending_media_cubit.dart';
 import 'bloc/trends_cubit.dart';
 import 'bloc/trends_state.dart';
 import 'widgets/explore_trends_section.dart';
-import 'widgets/trending_media_sliver.dart';
 import 'widgets/trends_loader.dart';
 import 'widgets/trends_status_views.dart';
 
 /// `/explore/trending`: Explore's "See all" for Trending, the whole list (up
 /// to [kExploreTrendsMaxRows]) in the same ranked rows. Reads the shared
 /// [TrendsCubit], so it costs no call of its own. Loading, failed (with Retry)
-/// and empty states. Below the rows, the global media feed (the newest photos
-/// of every public author, [TrendingMediaCubit]) when `trending_media` is on
-/// for the caller. The route needs `search`, `trends` and `ui_shell`.
+/// and empty states. With `trending_posts` or `trending_media` on (the
+/// Posts and Media sections of Explore's Trending tab) a row opens that
+/// hashtag in the tab (`/explore?tag=`) instead of the search results; the
+/// media feed lives in the tab, not here. The route needs `search`,
+/// `trends` and `ui_shell`.
 class ExploreTrendingScreen extends StatelessWidget {
   const ExploreTrendingScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final mediaOn =
+    final inExplore =
         isFeatureEnabled(context, kFeatureSearch) &&
-        isFeatureEnabled(context, kFeatureTrendingMedia);
-    Widget content = BlocBuilder<TrendsCubit, TrendsState>(
-      builder: (context, state) => _body(context, state, mediaOn: mediaOn),
+        (isFeatureEnabled(context, kFeatureTrendingPosts) ||
+            isFeatureEnabled(context, kFeatureTrendingMedia));
+    final content = BlocBuilder<TrendsCubit, TrendsState>(
+      builder: (context, state) => _body(context, state, inExplore: inExplore),
     );
-    if (mediaOn) {
-      content = BlocProvider<TrendingMediaCubit>(
-        create: (context) =>
-            TrendingMediaCubit(repository: context.read<SearchRepository>())
-              ..start(),
-        child: content,
-      );
-    }
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -67,7 +59,7 @@ class ExploreTrendingScreen extends StatelessWidget {
   Widget _body(
     BuildContext context,
     TrendsState state, {
-    required bool mediaOn,
+    required bool inExplore,
   }) {
     // Pull to refresh asks the shared cubit again, past its 5 minute reuse window.
     Future<void> refresh() =>
@@ -103,53 +95,43 @@ class ExploreTrendingScreen extends StatelessWidget {
     }
     return RefreshIndicator(
       onRefresh: refresh,
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (n) {
-          // Near the end of the page: the next photos (a no-op unless the
-          // feed is ready and has a next page).
-          if (mediaOn &&
-              n.metrics.extentAfter < MediaQuery.sizeOf(context).height) {
-            context.read<TrendingMediaCubit>().loadMore();
-          }
-          return false;
-        },
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            if (empty)
-              const SliverToBoxAdapter(
-                child: AppEmptyView(
-                  icon: Icons.trending_up,
-                  title: 'Nothing is trending yet',
-                  subtitle:
-                      'Hashtags show up here as people use them. '
-                      'The newest one is always shown.',
-                ),
-              )
-            else
-              SliverList.builder(
-                itemCount: trends.length + 1 + (latest == null ? 0 : 1),
-                itemBuilder: (context, i) {
-                  if (i == 0) return ExploreTrendsNote(state: state);
-                  if (i <= trends.length) {
-                    return exploreTrendRow(
-                      context,
-                      trends[i - 1],
-                      last: i == trends.length && latest == null,
-                    );
-                  }
-                  // The Latest row closes the list (or is the only row, "Just posted").
-                  return exploreLatestRow(
-                    context,
-                    latest!,
-                    kicker: trends.isEmpty ? 'Just posted' : 'Latest',
-                  );
-                },
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          if (empty)
+            const SliverToBoxAdapter(
+              child: AppEmptyView(
+                icon: Icons.trending_up,
+                title: 'Nothing is trending yet',
+                subtitle:
+                    'Hashtags show up here as people use them. '
+                    'The newest one is always shown.',
               ),
-            if (mediaOn) const TrendingMediaSliver(),
-            const ShellBottomInsetSliver(),
-          ],
-        ),
+            )
+          else
+            SliverList.builder(
+              itemCount: trends.length + 1 + (latest == null ? 0 : 1),
+              itemBuilder: (context, i) {
+                if (i == 0) return ExploreTrendsNote(state: state);
+                if (i <= trends.length) {
+                  return exploreTrendRow(
+                    context,
+                    trends[i - 1],
+                    last: i == trends.length && latest == null,
+                    inExplore: inExplore,
+                  );
+                }
+                // The Latest row closes the list (or is the only row, "Just posted").
+                return exploreLatestRow(
+                  context,
+                  latest!,
+                  kicker: trends.isEmpty ? 'Just posted' : 'Latest',
+                  inExplore: inExplore,
+                );
+              },
+            ),
+          const ShellBottomInsetSliver(),
+        ],
       ),
     );
   }

@@ -26,6 +26,8 @@ import '../../media/domain/media_feature_flag.dart';
 import '../data/search_repository.dart';
 import 'bloc/explore_media_cubit.dart';
 import 'widgets/explore_media_section.dart';
+import 'explore_trending_body.dart';
+import 'trending_sections_model.dart';
 import 'widgets/explore_trends_section.dart';
 import 'widgets/app_search_field.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
@@ -49,7 +51,21 @@ double searchFieldHeightFor(TextScaler scaler) {
 }
 
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key, this.initialTab});
+  const ExploreScreen({
+    super.key,
+    this.initialTab,
+    this.initialTag,
+    this.linkKey,
+  });
+
+  /// The hashtag a link's `?tag=` names (validated, no `#`): Trending opens
+  /// filtered to it. Null leaves the filter as it is.
+  final String? initialTag;
+
+  /// Changes with every in-app navigation to the link (the route's `extra`),
+  /// so the same `?tag=` applies again after the filter was cleared; a link
+  /// with none applies when the tag itself changes.
+  final Object? linkKey;
 
   /// The tab to open on (a link's `?tab=`); null keeps the open tab, or
   /// Trending on first open. Falls back to Trending if the tab is not offered.
@@ -64,6 +80,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// needs is off). Shared with the Media page by its route's `extra`.
   ExploreMediaCubit? _media;
 
+  /// The Trending tab's Posts and Media sections (the `trending_posts` and
+  /// `trending_media` flags): the section shown, the hashtag filter and the
+  /// cubits of both, made the first time a flag allows it and kept for the
+  /// session of the screen.
+  TrendingSectionsModel? _trending;
+
   /// The Plans tab's public list, made when the tab is first opened (opening
   /// Explore sends no ListBeacons) and kept for the session of the screen.
   BeaconsCubit? _plans;
@@ -75,11 +97,33 @@ class _ExploreScreenState extends State<ExploreScreen> {
   bool _nearbyOff = false;
   late ExploreTab _tab = widget.initialTab ?? ExploreTab.trending;
 
+  /// A link's hashtag not yet given to the Trending model (made lazily).
+  late String? _pendingTag = widget.initialTag;
+
   @override
   void didUpdateWidget(ExploreScreen old) {
     super.didUpdateWidget(old);
     final tab = widget.initialTab;
     if (tab != null && tab != old.initialTab) _tab = tab;
+    final tag = widget.initialTag;
+    if (tag != null &&
+        (tag != old.initialTag ||
+            (widget.linkKey != null && widget.linkKey != old.linkKey))) {
+      // A link to a hashtag opens Trending with it selected.
+      _tab = tab ?? ExploreTab.trending;
+      final model = _trending;
+      if (model != null) {
+        model.openTag(tag);
+      } else {
+        _pendingTag = tag;
+      }
+    }
+  }
+
+  /// A Trending section switched itself off (FEATURE_DISABLED): the layout
+  /// follows.
+  void _onTrending() {
+    if (mounted) setState(() {});
   }
 
   NearbyPlansCubit _makeNearby() {
@@ -99,8 +143,19 @@ class _ExploreScreenState extends State<ExploreScreen> {
       isFeatureEnabled(context, kFeatureMedia) &&
       isFeatureEnabled(context, kFeatureTrends);
 
+  bool _postsAllowed(BuildContext context) =>
+      isFeatureEnabled(context, kFeatureSearch) &&
+      isFeatureEnabled(context, kFeatureTrendingPosts) &&
+      !(_trending?.postsOff ?? false);
+
+  bool _trendingMediaAllowed(BuildContext context) =>
+      isFeatureEnabled(context, kFeatureSearch) &&
+      isFeatureEnabled(context, kFeatureTrendingMedia) &&
+      !(_trending?.mediaOff ?? false);
+
   @override
   void dispose() {
+    _trending?.dispose();
     _media?.close();
     _plans?.close();
     _nearbySub?.cancel();
@@ -112,7 +167,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Widget build(BuildContext context) {
     final scaler = MediaQuery.textScalerOf(context);
     final trends = isFeatureEnabled(context, kFeatureTrends);
-    final showMedia = _mediaAllowed(context);
+    // The new Trending tab (Posts and/or Media sections) or, with both of
+    // those flags off, today's tab.
+    final postsOn = _postsAllowed(context);
+    final trendingMediaOn = _trendingMediaAllowed(context);
+    final newTrending = postsOn || trendingMediaOn;
+    final showMedia = !newTrending && _mediaAllowed(context);
     // Made the first time the flags allow it and kept after that, so a flag
     // flicker never asks again.
     final media = showMedia
@@ -144,33 +204,32 @@ class _ExploreScreenState extends State<ExploreScreen> {
     // search field in the title slot, Settings as the round action) and,
     // with more than Trending, the pinned tab bar.
     final locationOn = isFeatureEnabled(context, kFeatureLocation);
-    final header = [
-      AppTopBar.sliver(
-        titleWidget: const AppSearchField(),
-        titleWidgetHeight: searchFieldHeightFor(scaler),
-        actions: [
-          AppTopBarAction(
-            icon: Icons.settings_outlined,
-            tooltip: 'Settings',
-            // F8: with `location` on the gear opens Explore settings.
-            onPressed: () => context.push(
-              locationOn
-                  ? AppRouter.exploreSettingsPath
-                  : AppRouter.settingsPath,
-            ),
-          ),
-        ],
+    final actions = [
+      AppTopBarAction(
+        icon: Icons.settings_outlined,
+        tooltip: 'Settings',
+        // F8: with `location` on the gear opens Explore settings.
+        onPressed: () => context.push(
+          locationOn ? AppRouter.exploreSettingsPath : AppRouter.settingsPath,
+        ),
       ),
-      if (showBar)
-        AppPinnedTabBarSliver(
-          child: AppTabBar(
+    ];
+    final tabBar = showBar
+        ? AppTabBar(
             tabs: [for (final t in tabs) AppTab(label: t.label)],
             selectedIndex: tabs.indexOf(tab),
             onChanged: (i) => setState(() => _tab = tabs[i]),
             autoWidth: true,
             semanticLabel: 'Explore',
-          ),
-        ),
+          )
+        : null;
+    final header = [
+      AppTopBar.sliver(
+        titleWidget: const AppSearchField(),
+        titleWidgetHeight: searchFieldHeightFor(scaler),
+        actions: actions,
+      ),
+      if (tabBar != null) AppPinnedTabBarSliver(child: tabBar),
     ];
     if (tab == ExploreTab.plans ||
         tab == ExploreTab.people ||
@@ -200,10 +259,35 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
       );
     }
+    if (newTrending) {
+      final model = _trending ??= TrendingSectionsModel(
+        repository: context.read<SearchRepository>(),
+        initialTag: _pendingTag,
+      )..addListener(_onTrending);
+      _pendingTag = null;
+      return Scaffold(
+        body: _ClosesSuggestionsOnScroll(
+          child: ExploreTrendingBody(
+            model: model,
+            topBar: header[0],
+            topBarBox: AppTopBar.of(
+              context,
+              titleWidget: const AppSearchField(),
+              titleWidgetHeight: searchFieldHeightFor(scaler),
+              actions: actions,
+            ),
+            exploreTabBar: tabBar,
+            trendsOn: trends,
+            postsOn: postsOn,
+            mediaOn: trendingMediaOn,
+          ),
+        ),
+      );
+    }
     Widget scroll = CustomScrollView(
       slivers: [
         ...header,
-        if (trends) ExploreTrendsSection(showTitle: !showBar),
+        if (trends) const ExploreTrendsSection(),
         if (media != null) ExploreMediaSection(cubit: media),
         // Inline below desktop; from 1200 dp the shell's side column carries
         // the same suggestions ("You might like"), so one card, one place.
