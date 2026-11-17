@@ -430,6 +430,49 @@ void main() {
       verify(() => lists.getList('L9')).called(1);
     });
 
+    testWidgets('a pinned community tab loads the community feed, not a List', (
+      tester,
+    ) async {
+      withFeatures(const {'posts', 'lists', 'communities', 'ui_shell'});
+      final community = FeedKey.community('C1');
+      // Community tabs are shown only while the communities gate is wired and on.
+      tabs = HomeTabsRepository(
+        apiClient: ApiClient.withTransport(transport),
+        gate: ServiceFeatureGate(
+          isEnabled: () => true,
+          onUnexpectedError: (_, _) {},
+        ),
+        communitiesGate: ServiceFeatureGate(
+          isEnabled: () => true,
+          onUnexpectedError: (_, _) {},
+        ),
+        epoch: epoch,
+      );
+      tabs.adoptFromMe([
+        common.HomeTab(
+          kind: common.HomeTabKind.HOME_TAB_KIND_COMMUNITY,
+          id: 'C1',
+          title: 'Makers',
+        ),
+      ], epoch: epoch.value);
+      when(() => timeline.sinceRefresh(community)).thenReturn(null);
+      when(() => timeline.sinceRefreshAttempt(community))
+          .thenReturn(const Duration(seconds: 5));
+      when(() => timeline.cached(community))
+          .thenAnswer((_) async => snapshotOf([71]));
+      when(() => timeline.refresh(community))
+          .thenAnswer((_) async => snapshotOf([71]));
+      await openHome(tester);
+
+      await tester.tap(find.text('Makers'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('post 71'), findsOneWidget);
+      expect(find.text('This List is unavailable'), findsNothing);
+      verify(() => timeline.cached(community)).called(greaterThan(0));
+      verifyNever(() => timeline.cached(FeedKey.list('C1')));
+    });
+
     testWidgets('"+" opens Manage pinned', (tester) async {
       await openHome(tester);
 

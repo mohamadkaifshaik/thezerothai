@@ -206,6 +206,8 @@ locals {
     // Tags that never trend, applied at serve time and by the sweep. Operators hide a tag
     // at once with `opsctl trends hide`; this list is the deploy-time floor. Comma-separated tag bodies, no leading #.
     { name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) },
+    { name = "TRENDS_MAX_POSTS_PER_AUTHOR", value = tostring(var.trends_max_posts_per_author) },
+    { name = "TRENDS_MIN_INTERVAL", value = var.trends_min_interval },
     { name = "TRENDS_DENYLIST", value = var.trends_denylist },
     // Polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_POLLS", value = var.feature_polls },
@@ -531,14 +533,25 @@ module "scheduler" {
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
 
   # Cloud Scheduler's free tier is 3 jobs PER BILLING ACCOUNT, shared by dev and prod. Count today:
-  #   dev : 0  (this env keeps jobs = {} on purpose)
-  #   prod: 2  (daily-maintenance, publish-scheduled; see envs/prod)
-  #   total: 2 of 3 free. Do not add a dev job.
-  # Because no dev job exists, `gcloud scheduler jobs run <job>` cannot work here. To exercise a cron route in dev,
-  # POST to it directly with an OIDC identity token minted for the pubsub-push service account (IAM Credentials
-  # impersonation is the fallback for minting it). Minting that token needs the opt-in
-  # google_service_account_iam_member.cron_test_invoker_openid grant below, which is NOT created by default.
-  jobs = {}
+  #   dev : 1  (trends-refresh)
+  #   prod: 3  (daily-maintenance, publish-scheduled, trends-refresh; see envs/prod)
+  #   total: 4, one over the 3 free; the fourth is paid (about $0.10/month; owner-approved with the hourly trends work).
+  # Only trends-refresh runs in dev; to exercise any other cron route in dev, POST to it directly with an OIDC identity
+  # token minted for the pubsub-push service account (IAM Credentials impersonation is the fallback for minting it).
+  # Minting that token needs the opt-in google_service_account_iam_member.cron_test_invoker_openid grant below, which is
+  # NOT created by default.
+  jobs = {
+    # Hourly trends refresh (cold start: Popular hashtags within about an hour, not at the 03:00 daily step). Same OIDC
+    # and route as the daily step's trends part; the sweep reads only posts newer than its watermark (at most
+    # TRENDS_MAX_POSTS_PER_RUN 2000 posts and TRENDS_MAX_AUTHOR_CHECKS 500 profiles per run), writes one document, and a
+    # run within TRENDS_MIN_INTERVAL (45m) of the last list is skipped, so retries and overlaps are safe. Minute 7 keeps it
+    # off the 03:00 daily-maintenance tick. Deadlines: handler 25 s < Cloud Run 30 s < attempt deadline 60 s.
+    "trends-refresh" = {
+      schedule                 = "7 * * * *"
+      path                     = "/internal/cron/trends-refresh"
+      attempt_deadline_seconds = 60
+    }
+  }
 
   depends_on = [module.project_services, module.cloud_run_api]
 }

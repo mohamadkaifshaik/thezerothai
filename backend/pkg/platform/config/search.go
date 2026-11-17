@@ -27,7 +27,7 @@ type SearchConfig struct {
 	// TrendsMaxPostsPerRun caps the posts one refresh run scans (TRENDS_MAX_POSTS_PER_RUN, default 2,000).
 	TrendsMaxPostsPerRun int
 	// TrendsMinInterval is the shortest time between two refreshes: a run within it of the last list is skipped as
-	// "fresh" (TRENDS_MIN_INTERVAL, default 12h; 50m with the hourly option). Must be > 0.
+	// "fresh" (TRENDS_MIN_INTERVAL, default 45m, so the hourly trends-refresh Scheduler job is never skipped as fresh; the daily-maintenance step and a retry shortly after a good run still are). Must be > 0.
 	TrendsMinInterval time.Duration
 	// TrendsMinAccountAge is the age an author account needs before its posts count towards a trend (TRENDS_MIN_ACCOUNT_AGE,
 	// default 72h). Must be > 0.
@@ -65,7 +65,7 @@ func loadSearch() (SearchConfig, error) {
 		}
 		*f.dst = v
 	}
-	d, err := getDuration("TRENDS_MIN_INTERVAL", 12*time.Hour)
+	d, err := getDuration("TRENDS_MIN_INTERVAL", 45*time.Minute)
 	if err != nil {
 		return SearchConfig{}, err
 	}
