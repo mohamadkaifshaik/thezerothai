@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/home_retap_signal.dart';
 import '../../../core/widgets/telemetry_consent_card.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
+import '../../communities/data/communities_repository.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
 import '../../lists/data/home_tabs_repository.dart';
 import '../../lists/data/lists_repository.dart';
@@ -74,6 +75,7 @@ class HomeScreen extends StatelessWidget {
       create: (context) => HomeTabsCubit(
         tabs: context.read<HomeTabsRepository>(),
         lists: context.read<ListsRepository>(),
+        communities: context.read<CommunitiesRepository?>(),
       ),
       child: Scaffold(
         body: HomeTabsView(

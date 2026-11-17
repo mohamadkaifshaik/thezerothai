@@ -15,6 +15,7 @@ import '../../../shared/widgets/primitives/app_card.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_tile_icon.dart';
+import '../../communities/data/communities_repository.dart';
 import '../data/home_tabs_repository.dart';
 import '../data/lists_repository.dart';
 import '../domain/home_tab_entry.dart';
@@ -54,6 +55,7 @@ class _ManagePinnedScreenState extends State<ManagePinnedScreen> {
   late final HomeTabsCubit _tabs = HomeTabsCubit(
     tabs: context.read<HomeTabsRepository>(),
     lists: _lists,
+    communities: context.read<CommunitiesRepository?>(),
   );
   late final ListsCubit _own = ListsCubit(repository: _lists)..load();
 
