@@ -23,6 +23,8 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -57,9 +59,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/userref"
 )
 
-// pubChainCfg turns on every module an inbound-translating RPC belongs to, with the abuse limits relaxed, and sets
-// FEATURE_PUBLIC_IDS to mode (allow = its allowlist).
-func pubChainCfg(mode flags.Mode, allow ...string) func(*config.Config) {
+// pubChainCfg turns on every module an inbound-translating RPC belongs to, lifts every rate limit, lets creators call
+// CreateCommunity (COMMUNITY_CREATORS: empty means nobody), and sets FEATURE_PUBLIC_IDS to mode (allow = its allowlist).
+func pubChainCfg(mode flags.Mode, allow, creators []string) func(*config.Config) {
 	return func(c *config.Config) {
 		w320Base(c)
 		w320AllW3On(c)
@@ -71,11 +73,29 @@ func pubChainCfg(mode flags.Mode, allow ...string) func(*config.Config) {
 		c.FeatureChatSharedPlans = flags.Spec{Name: "chat_shared_plans", Mode: flags.On} // ListSharedBeacons' gate
 		c.FeatureQuotes = flags.Spec{Name: "quotes", Mode: flags.On}
 		c.FeatureReplies = flags.Spec{Name: "replies", Mode: flags.On}
+		c.Communities.Creators = creators
+		pubRelaxAllLimits(c)
 		spec := flags.Spec{Name: identity.PublicIDsFlag, Mode: mode, Allowlist: map[string]struct{}{}}
 		for _, u := range allow {
 			spec.Allowlist[u] = struct{}{}
 		}
 		c.FeaturePublicIDs = spec
+	}
+}
+
+// pubTimestamp is a protojson Timestamp value (any key: BeaconView's `since`, say), masked like the *At keys.
+var pubTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}`)
+
+// pubRelaxAllLimits lifts every per-minute and per-day limit in RateLimitConfig (all int or int64 counts, where higher
+// is more permissive): one caller makes about 70 calls in the parity test, several to the same procedure, and the
+// limits have their own tests. Done by reflection so a limit added later cannot throttle this test.
+func pubRelaxAllLimits(c *config.Config) {
+	v := reflect.ValueOf(&c.RateLimit).Elem()
+	for i := range v.NumField() {
+		f := v.Field(i)
+		if f.CanSet() && f.Type() != reflect.TypeOf(time.Duration(0)) && (f.Kind() == reflect.Int || f.Kind() == reflect.Int64) {
+			f.SetInt(1_000_000)
+		}
 	}
 }
 
@@ -256,7 +276,7 @@ func pubNormalize(body string, masks map[string]string) string {
 		case map[string]any:
 			delete(y, "publicId")
 			for k, val := range y {
-				if s, ok := val.(string); ok && s != "" && (strings.HasSuffix(k, "Token") || strings.HasSuffix(k, "At")) {
+				if s, ok := val.(string); ok && s != "" && (strings.HasSuffix(k, "Token") || strings.HasSuffix(k, "At") || pubTimestamp.MatchString(s)) {
 					y[k] = "<" + k + ">"
 					continue
 				}
@@ -306,23 +326,25 @@ func pubDetail(body string) (code string, d *commonv1.ErrorDetail) {
 func TestPublicIDs_ParityUnknownAndMalformed(t *testing.T) {
 	skipIfNoEmulators(t)
 	ctx := context.Background()
-	on := newChain(t, pubChainCfg(flags.On))
-	off := newChain(t, pubChainCfg(flags.Off))
+	// The caller is minted first so both chains can name it in COMMUNITY_CREATORS.
 	tok, uid := mintToken(t, "")
+	on := newChain(t, pubChainCfg(flags.On, nil, []string{uid}))
+	off := newChain(t, pubChainCfg(flags.Off, nil, []string{uid}))
 	on.createProfile(t, tok) // flag on: minted at signup
 	me := pubStoredID(t, on, uid)
 
-	// Fixtures the RPCs act on, all the caller's own.
+	// Fixtures the RPCs act on, all the caller's own, created through the flag-on chain (the same Firestore as the
+	// flag-off one). A failure names the step and the chain.
 	var fx pubFixtures
 	lr, err := listsv1connect.NewListServiceClient(http.DefaultClient, on.url).CreateList(ctx, authed(tok, &listsv1.CreateListRequest{IdempotencyKey: contractKey("pubid-list"), Name: "Parity"}))
 	if err != nil {
-		t.Fatalf("CreateList: %v", err)
+		t.Fatalf("fixture CreateList (flag-on chain): %v", err)
 	}
 	fx.listID = lr.Msg.GetList().GetListId()
 	cr, err := communitiesv1connect.NewCommunityServiceClient(http.DefaultClient, on.url).CreateCommunity(ctx, authed(tok, &communitiesv1.CreateCommunityRequest{
 		IdempotencyKey: contractKey("pubid-cm"), Name: "Parity " + uniqueHandle("c"), Description: "d"}))
 	if err != nil {
-		t.Fatalf("CreateCommunity: %v", err)
+		t.Fatalf("fixture CreateCommunity (flag-on chain, caller in COMMUNITY_CREATORS): %v", err)
 	}
 	fx.communityID = cr.Msg.GetCommunity().GetCommunityId()
 	br, err := beaconsv1connect.NewBeaconServiceClient(http.DefaultClient, on.url).CreateBeacon(ctx, authed(tok, &beaconsv1.CreateBeaconRequest{
@@ -332,9 +354,12 @@ func TestPublicIDs_ParityUnknownAndMalformed(t *testing.T) {
 		Cost: beaconsv1.BeaconCost_BEACON_COST_FREE, ChatPreference: beaconsv1.ChatPreference_CHAT_PREFERENCE_QUIET,
 	}))
 	if err != nil {
-		t.Fatalf("CreateBeacon: %v", err)
+		t.Fatalf("fixture CreateBeacon (flag-on chain): %v", err)
 	}
 	fx.beaconID = br.Msg.GetView().GetBeacon().GetBeaconId()
+	if fx.listID == "" || fx.communityID == "" || fx.beaconID == "" {
+		t.Fatalf("fixtures incomplete: %+v", fx)
+	}
 
 	methods := map[string]protoreflect.MethodDescriptor{}
 	for _, sd := range publicIDServices() {
@@ -343,55 +368,70 @@ func TestPublicIDs_ParityUnknownAndMalformed(t *testing.T) {
 			methods["/"+string(sd.FullName())+"/"+string(ms.Get(i).Name())] = ms.Get(i)
 		}
 	}
-	covered := 0
+	// One subtest per RPC and per field, so one failing case does not hide the others.
 	for _, proc := range publicIDInboundRPCs(t) {
-		md := methods[proc]
-		fields := pubTranslateFields(md.Input(), nil, map[protoreflect.FullName]bool{})
-		if len(fields) == 0 {
-			t.Errorf("%s: plans translate its request but no TRANSLATE field found by the test's own walk", proc)
-			continue
-		}
-		for _, path := range fields {
-			name := proc + " " + path.String()
-			// Malformed (an old client's raw uid): VALIDATION naming the leaf field, from the edge.
-			st, _, body, err := pubPost(on.url, tok, proc, pubRequest(t, md, proc, fx, path, uid))
-			if err != nil {
-				t.Fatalf("%s malformed: %v", name, err)
+		t.Run(strings.TrimPrefix(proc, "/dzeroth."), func(t *testing.T) {
+			md, ok := methods[proc]
+			if !ok {
+				t.Fatal("not in the registry")
 			}
-			if code, d := pubDetail(body); st != http.StatusBadRequest || code != "invalid_argument" || d == nil ||
-				d.GetReason() != commonv1.ErrorReason_ERROR_REASON_VALIDATION || d.GetMetadata()["field"] != string(path.leaf().Name()) {
-				t.Errorf("%s: a raw uid with the flag on = %d %s, want VALIDATION field=%s", name, st, body, path.leaf().Name())
+			fields := pubTranslateFields(md.Input(), nil, map[protoreflect.FullName]bool{})
+			if len(fields) == 0 {
+				t.Fatal("plans translate its request but the test's own walk finds no TRANSLATE field")
 			}
-			if reason, excluded := publicIDParityExcluded[proc]; excluded {
-				t.Logf("%s: unknown-id parity excluded: %s", name, reason)
-				continue
+			for _, path := range fields {
+				t.Run(path.String(), func(t *testing.T) {
+					pubParityCase(t, pubParityEnv{on: on, off: off, tok: tok, uid: uid, me: me, fx: fx}, md, proc, path)
+				})
 			}
-			// Unknown: flag off with an unknown uid vs flag on with an unknown public id.
-			unknownUID, unknownPub := pubUnknownUID(), pubUnknown()
-			ost, oct, obody, err := pubPost(off.url, tok, proc, pubRequest(t, md, proc, fx, path, unknownUID))
-			if err != nil {
-				t.Fatalf("%s off: %v", name, err)
-			}
-			nst, nct, nbody, err := pubPost(on.url, tok, proc, pubRequest(t, md, proc, fx, path, unknownPub))
-			if err != nil {
-				t.Fatalf("%s on: %v", name, err)
-			}
-			masks := map[string]string{unknownUID: "<ID>", unknownPub: "<ID>", uid: "<ME>", me: "<ME>"}
-			if ost != nst || oct != nct || pubNormalize(obody, masks) != pubNormalize(nbody, masks) {
-				t.Errorf("%s: unknown id differs between the forms (a bug to report)\n  off/uid: %d %s %s\n  on/pub:  %d %s %s", name, ost, oct, obody, nst, nct, nbody)
-			}
-			// The baseline must reach the user id: not a flag gate, not another field's VALIDATION.
-			if code, d := pubDetail(obody); d != nil {
-				if d.GetReason() == commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED ||
-					(d.GetReason() == commonv1.ErrorReason_ERROR_REASON_VALIDATION && d.GetMetadata()["field"] != string(path.leaf().Name())) {
-					t.Errorf("%s: the flag-off baseline stops before the user id: %s %v (fix the fixture)", name, code, d)
-				}
-			}
-			t.Logf("%s: unknown id answers %d %s", name, ost, pubNormalize(obody, masks))
-			covered++
+		})
+	}
+}
+
+// pubParityEnv is what every parity case shares: both chains, the caller and its fixtures.
+type pubParityEnv struct {
+	on, off      *chainEnv
+	tok, uid, me string
+	fx           pubFixtures
+}
+
+// pubParityCase is one (rpc, field): the malformed half on the flag-on chain, then the unknown-id parity.
+func pubParityCase(t *testing.T, e pubParityEnv, md protoreflect.MethodDescriptor, proc string, path pubField) {
+	// Malformed (an old client's raw uid): VALIDATION naming the leaf field, from the edge.
+	st, _, body, err := pubPost(e.on.url, e.tok, proc, pubRequest(t, md, proc, e.fx, path, e.uid))
+	if err != nil {
+		t.Fatalf("malformed (flag-on chain): %v", err)
+	}
+	if code, d := pubDetail(body); st != http.StatusBadRequest || code != "invalid_argument" || d == nil ||
+		d.GetReason() != commonv1.ErrorReason_ERROR_REASON_VALIDATION || d.GetMetadata()["field"] != string(path.leaf().Name()) {
+		t.Errorf("a raw uid with the flag on (flag-on chain) = %d %s, want VALIDATION field=%s", st, body, path.leaf().Name())
+	}
+	if reason, excluded := publicIDParityExcluded[proc]; excluded {
+		t.Logf("unknown-id parity excluded: %s", reason)
+		return
+	}
+	// Unknown: flag off with an unknown uid vs flag on with an unknown public id.
+	unknownUID, unknownPub := pubUnknownUID(), pubUnknown()
+	ost, oct, obody, err := pubPost(e.off.url, e.tok, proc, pubRequest(t, md, proc, e.fx, path, unknownUID))
+	if err != nil {
+		t.Fatalf("unknown uid (flag-off chain): %v", err)
+	}
+	nst, nct, nbody, err := pubPost(e.on.url, e.tok, proc, pubRequest(t, md, proc, e.fx, path, unknownPub))
+	if err != nil {
+		t.Fatalf("unknown public id (flag-on chain): %v", err)
+	}
+	masks := map[string]string{unknownUID: "<ID>", unknownPub: "<ID>", e.uid: "<ME>", e.me: "<ME>"}
+	if ost != nst || oct != nct || pubNormalize(obody, masks) != pubNormalize(nbody, masks) {
+		t.Errorf("unknown id differs between the forms (a bug to report)\n  flag-off chain, uid:      %d %s %s\n  flag-on chain, public id: %d %s %s", ost, oct, obody, nst, nct, nbody)
+	}
+	// The baseline must reach the user id: not a flag gate, not another field's VALIDATION.
+	if code, d := pubDetail(obody); d != nil {
+		if d.GetReason() == commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED ||
+			(d.GetReason() == commonv1.ErrorReason_ERROR_REASON_VALIDATION && d.GetMetadata()["field"] != string(path.leaf().Name())) {
+			t.Errorf("the flag-off baseline (flag-off chain) stops before the user id: %s %v (fix the fixture or the chain config)", code, d)
 		}
 	}
-	t.Logf("parity: %d (rpc, field) pairs compared", covered)
+	t.Logf("unknown id answers %d %s", ost, pubNormalize(obody, masks))
 }
 
 // publicIDServices is every dzeroth service in the registry (the same list the plans are built from).
@@ -413,7 +453,7 @@ func TestPublicIDs_SharedPagesRace(t *testing.T) {
 	ctx := context.Background()
 	fTok, fUID := mintToken(t, "")
 	nTok, nUID := mintToken(t, "")
-	env := newChain(t, pubChainCfg(flags.Allowlist, fUID))
+	env := newChain(t, pubChainCfg(flags.Allowlist, []string{fUID}, nil))
 	w := newW320BM(env)
 	env.createProfile(t, fTok)
 	env.createProfile(t, nTok)
