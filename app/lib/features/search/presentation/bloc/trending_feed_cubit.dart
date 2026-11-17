@@ -98,4 +98,9 @@ class TrendingFeedCubit extends PagedTrendingCubit<TrendingFeedState> {
   void removePost(String postId) {
     if (_removed.add(postId)) reemit();
   }
+
+  /// A delete failed: the row returns.
+  void restorePost(String postId) {
+    if (_removed.remove(postId)) reemit();
+  }
 }

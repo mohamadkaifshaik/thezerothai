@@ -47,7 +47,7 @@ class TrendingMediaSliver extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _MediaHeading(),
+                    const ExploreSubsectionHeading('Media'),
                     const Text('Photos could not load.'),
                     TextButton(
                       onPressed: cubit.retry,
@@ -77,7 +77,7 @@ class TrendingMediaSliver extends StatelessWidget {
         }
         return SliverMainAxisGroup(
           slivers: [
-            const SliverToBoxAdapter(child: _MediaHeading()),
+            const SliverToBoxAdapter(child: ExploreSubsectionHeading('Media')),
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
               sliver: SliverLayoutBuilder(
@@ -134,8 +134,12 @@ class TrendingMediaSliver extends StatelessWidget {
       );
 }
 
-class _MediaHeading extends StatelessWidget {
-  const _MediaHeading();
+/// The small heading of a sub-section of the Trending page ("Media", and on
+/// desktop "Posts"): titleMedium, announced as a header.
+class ExploreSubsectionHeading extends StatelessWidget {
+  const ExploreSubsectionHeading(this.title, {super.key});
+
+  final String title;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -145,6 +149,9 @@ class _MediaHeading extends StatelessWidget {
       AppSpacing.md,
       AppSpacing.xs,
     ),
-    child: Text('Media', style: Theme.of(context).textTheme.titleMedium),
+    child: Semantics(
+      header: true,
+      child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+    ),
   );
 }
