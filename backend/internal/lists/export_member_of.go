@@ -121,9 +121,11 @@ func (x *Exporter) writeMemberOf(ctx context.Context, uid string, w io.Writer) e
 			}
 		}
 		for i := 0; i < len(need); i += memberOfLookupChunk {
-			profs, err := x.handles.GetProfiles(ctx, need[i:min(i+memberOfLookupChunk, len(need))])
+			chunk := need[i:min(i+memberOfLookupChunk, len(need))]
+			profs, err := x.handles.GetProfiles(ctx, chunk)
 			if err != nil {
-				return fmt.Errorf("lists: export member-of owners: %w", err)
+				// The read names the list owners asked for (identity's error text, Firestore's document paths).
+				return logger.ScrubPairErr(fmt.Errorf("lists: export member-of owners: %w", err), uid, chunk...)
 			}
 			for id, p := range profs {
 				owners[id] = p
@@ -139,7 +141,7 @@ func (x *Exporter) writeMemberOf(ctx context.Context, uid string, w io.Writer) e
 				if snap == nil {
 					s, err := x.social.Snapshot(ctx, uid)
 					if err != nil {
-						return fmt.Errorf("lists: export member-of graph: %w", err)
+						return logger.ScrubPairErr(fmt.Errorf("lists: export member-of graph: %w", err), uid)
 					}
 					snap = &s
 				}

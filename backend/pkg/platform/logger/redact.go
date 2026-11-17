@@ -67,14 +67,41 @@ func ScrubErr(err error, ids ...string) error {
 	if err == nil {
 		return nil
 	}
-	// Patterns first: once an id is hashed, the 16-char hash would no longer look like half of an edge id.
-	msg := CauseChain(err)
-	msg = docPathRe.ReplaceAllString(msg, "<redacted>")
-	msg = edgeIDRe.ReplaceAllString(msg, "<redacted>")
-	msg = hexIDRe.ReplaceAllString(msg, "<redacted>")
+	msg := scrubPatterns(err)
 	for _, id := range ids {
 		if id != "" {
 			msg = strings.ReplaceAll(msg, id, HashUID(id))
+		}
+	}
+	return &redactedError{msg: msg, cause: err}
+}
+
+// scrubPatterns is err's full message with document paths, edge ids and 64-hex ids replaced. It runs before any id is
+// hashed: once an id is hashed, the 16-char hash would no longer look like half of an edge id, and the other half
+// would stay raw. For the same reason an error must not go through RedactErr before ScrubErr.
+func scrubPatterns(err error) string {
+	msg := CauseChain(err)
+	msg = docPathRe.ReplaceAllString(msg, "<redacted>")
+	msg = edgeIDRe.ReplaceAllString(msg, "<redacted>")
+	return hexIDRe.ReplaceAllString(msg, "<redacted>")
+}
+
+// ScrubPairErr is ScrubErr for an error raised while one user's work reads other people's documents (an account
+// export resolving the accounts its subject follows, lists or reported). uid, the user the work is for, becomes
+// HashUID(uid) as everywhere else; each of others becomes HashTarget, a separate domain, so the line cannot be joined
+// to that person's own uid_hash lines to learn who is linked to whom (the pair rule of the purge_missing_counterpart
+// line). An id equal to uid keeps the uid hash. Empty ids are ignored; nil in, nil out; errors.Is/As still reach err.
+func ScrubPairErr(err error, uid string, others ...string) error {
+	if err == nil {
+		return nil
+	}
+	msg := scrubPatterns(err)
+	if uid != "" {
+		msg = strings.ReplaceAll(msg, uid, HashUID(uid))
+	}
+	for _, id := range others {
+		if id != "" && id != uid {
+			msg = strings.ReplaceAll(msg, id, HashTarget(id))
 		}
 	}
 	return &redactedError{msg: msg, cause: err}

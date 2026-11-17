@@ -226,11 +226,11 @@ func (r *FirestoreRepo) GetProfile(ctx context.Context, uid string) (Profile, er
 		if status.Code(err) == codes.NotFound {
 			return Profile{}, ErrNotFound
 		}
-		return Profile{}, fmt.Errorf("identity: get profile %s: %w", uid, err)
+		return Profile{}, fmt.Errorf("identity: get profile: %w", err)
 	}
 	var d userDoc
 	if err := snap.DataTo(&d); err != nil {
-		return Profile{}, fmt.Errorf("identity: decode profile %s: %w", uid, err)
+		return Profile{}, fmt.Errorf("identity: decode profile: %w", err)
 	}
 	return d.toProfile(uid), nil
 }
@@ -328,13 +328,13 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 		case err == nil:
 			var d userDoc
 			if derr := userSnap.DataTo(&d); derr != nil {
-				return fmt.Errorf("identity: decode user %s: %w", uid, derr)
+				return fmt.Errorf("identity: decode user: %w", derr)
 			}
 			result = d.toProfile(uid)
 			replay = true
 			return nil
 		case status.Code(err) != codes.NotFound:
-			return fmt.Errorf("identity: get user %s: %w", uid, err)
+			return fmt.Errorf("identity: get user: %w", err)
 		}
 
 		// The drawn id's lookup is read before the Auth call and any write, so a collision is told apart from every
@@ -464,11 +464,11 @@ func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate fu
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
 			}
-			return fmt.Errorf("identity: get user %s: %w", uid, err)
+			return fmt.Errorf("identity: get user: %w", err)
 		}
 		var d userDoc
 		if err := snap.DataTo(&d); err != nil {
-			return fmt.Errorf("identity: decode user %s: %w", uid, err)
+			return fmt.Errorf("identity: decode user: %w", err)
 		}
 		profile := d.toProfile(uid)
 		before := profile // Profile is comparable: a mutation that changed nothing leaves it == before
@@ -566,11 +566,11 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
 			}
-			return fmt.Errorf("identity: get user %s: %w", uid, err)
+			return fmt.Errorf("identity: get user: %w", err)
 		}
 		var d userDoc
 		if err := userSnap.DataTo(&d); err != nil {
-			return fmt.Errorf("identity: decode user %s: %w", uid, err)
+			return fmt.Errorf("identity: decode user: %w", err)
 		}
 
 		if d.HandleLower == newHandleLower {
@@ -703,7 +703,7 @@ func (r *FirestoreRepo) GetProfiles(ctx context.Context, uids []string) (map[str
 		}
 		var d userDoc
 		if err := snap.DataTo(&d); err != nil {
-			return nil, fmt.Errorf("identity: decode profile %s: %w", uids[i], err)
+			return nil, fmt.Errorf("identity: decode profile entry %d: %w", i, err)
 		}
 		out[uids[i]] = d.toProfile(uids[i])
 	}
@@ -722,13 +722,13 @@ func (r *FirestoreRepo) UnreadNotificationCount(ctx context.Context, uid string,
 		Limit(unreadNotificationCountCap)
 	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("identity: count notifications for %s: %w", uid, err)
+		return 0, fmt.Errorf("identity: count notifications: %w", err)
 	}
 	var out struct {
 		Count int64 `firestore:"count"`
 	}
 	if err := res.DataTo(&out); err != nil {
-		return 0, fmt.Errorf("identity: decode notification count for %s: %w", uid, err)
+		return 0, fmt.Errorf("identity: decode notification count: %w", err)
 	}
 	return out.Count, nil
 }
@@ -743,7 +743,7 @@ func (r *FirestoreRepo) MarkNotificationsSeen(ctx context.Context, uid string, a
 		if status.Code(err) == codes.NotFound {
 			return ErrNotFound
 		}
-		return fmt.Errorf("identity: mark notifications seen for %s: %w", uid, err)
+		return fmt.Errorf("identity: mark notifications seen: %w", err)
 	}
 	return nil
 }
