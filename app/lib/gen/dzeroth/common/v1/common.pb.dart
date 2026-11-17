@@ -36,6 +36,7 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
     $core.String? avatarUrl,
     $core.bool? verified,
     $core.bool? isPrivate,
+    $core.String? publicId,
   }) {
     final result = AuthorSnapshot._();
     if (userId != null) result.userId = userId;
@@ -44,6 +45,7 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
     if (avatarUrl != null) result.avatarUrl = avatarUrl;
     if (verified != null) result.verified = verified;
     if (isPrivate != null) result.isPrivate = isPrivate;
+    if (publicId != null) result.publicId = publicId;
     return result;
   }
 
@@ -67,6 +69,7 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
     ..aOS(4, _omitFieldNames ? '' : 'avatarUrl')
     ..aOB(5, _omitFieldNames ? '' : 'verified')
     ..aOB(6, _omitFieldNames ? '' : 'isPrivate')
+    ..aOS(7, _omitFieldNames ? '' : 'publicId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -91,6 +94,8 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
           AuthorSnapshot.$_createMessage);
   static AuthorSnapshot? _defaultInstance;
 
+  /// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Still set; it holds the Firebase uid until the
+  /// edge translates user ids to public ids (options.proto, user_ref).
   @$pb.TagNumber(1)
   $core.String get userId => $_getSZ(0);
   @$pb.TagNumber(1)
@@ -154,6 +159,18 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
   $core.bool hasIsPrivate() => $_has(5);
   @$pb.TagNumber(6)
   void clearIsPrivate() => $_clearField(6);
+
+  /// The user's public id (FEATURE_PUBLIC_IDS): "u" + 26 lower-case base32 characters, random and immutable, never
+  /// derived from the uid or a time. Not set by any server yet: always "" until the public id rollout; clients must
+  /// fall back to user_id while it is "".
+  @$pb.TagNumber(7)
+  $core.String get publicId => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set publicId($core.String value) => $_setString(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasPublicId() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearPublicId() => $_clearField(7);
 }
 
 /// A moderated, publicly readable image. URLs are immutable and cacheable forever.

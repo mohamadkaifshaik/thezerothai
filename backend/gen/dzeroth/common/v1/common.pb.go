@@ -8,7 +8,8 @@
 //
 // Conventions for every service in this repo:
 // - IDs are strings. Post and media IDs are 64-bit Snowflake values rendered as 19-digit zero-padded
-//   decimal strings (lexicographic order == time order). User IDs are Firebase Auth UIDs.
+//   decimal strings (lexicographic order == time order). User IDs are Firebase Auth UIDs; every field that holds one
+//   carries the `user_ref` option (options.proto), as the public id (FEATURE_PUBLIC_IDS) will replace them on the wire.
 // - Every mutating RPC takes `idempotency_key`: a client-generated UUID (16-64 chars, [A-Za-z0-9_-]),
 //   generated once per user intent and reused on every retry of that intent. Scoped per user.
 // - List RPCs take `page_size` (0 => 20, max 50, larger values are clamped) and an opaque `page_token`,
@@ -267,10 +268,12 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 // - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
 //   cache, up to 60 s stale).
 type AuthorSnapshot struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	UserId      string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Handle      string                 `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
-	DisplayName string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Still set; it holds the Firebase uid until the
+	// edge translates user ids to public ids (options.proto, user_ref).
+	UserId      string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Handle      string `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
+	DisplayName string `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	// Public avatar thumbnail URL (96 px). Empty when the user has no avatar.
 	AvatarUrl string `protobuf:"bytes,4,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
 	Verified  bool   `protobuf:"varint,5,opt,name=verified,proto3" json:"verified,omitempty"`
@@ -283,7 +286,11 @@ type AuthorSnapshot struct {
 	// `notifications.v1.Notification.actor`.
 	// Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
 	// for an account, and `posts.v1.Post.visibility` / `posts.v1.EmbedViewerState` for a post.
-	IsPrivate     bool `protobuf:"varint,6,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
+	IsPrivate bool `protobuf:"varint,6,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
+	// The user's public id (FEATURE_PUBLIC_IDS): "u" + 26 lower-case base32 characters, random and immutable, never
+	// derived from the uid or a time. Not set by any server yet: always "" until the public id rollout; clients must
+	// fall back to user_id while it is "".
+	PublicId      string `protobuf:"bytes,7,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -358,6 +365,13 @@ func (x *AuthorSnapshot) GetIsPrivate() bool {
 		return x.IsPrivate
 	}
 	return false
+}
+
+func (x *AuthorSnapshot) GetPublicId() string {
+	if x != nil {
+		return x.PublicId
+	}
+	return ""
 }
 
 // A moderated, publicly readable image. URLs are immutable and cacheable forever.
@@ -618,16 +632,17 @@ var File_dzeroth_common_v1_common_proto protoreflect.FileDescriptor
 
 const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x1edzeroth/common/v1/common.proto\x12\x11dzeroth.common.v1\x1a\x1egoogle/protobuf/duration.proto\"\xbe\x01\n" +
-	"\x0eAuthorSnapshot\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
+	"\x1edzeroth/common/v1/common.proto\x12\x11dzeroth.common.v1\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1egoogle/protobuf/duration.proto\"\xe7\x01\n" +
+	"\x0eAuthorSnapshot\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x1d\n" +
 	"\n" +
 	"avatar_url\x18\x04 \x01(\tR\tavatarUrl\x12\x1a\n" +
 	"\bverified\x18\x05 \x01(\bR\bverified\x12\x1d\n" +
 	"\n" +
-	"is_private\x18\x06 \x01(\bR\tisPrivate\"\xdc\x01\n" +
+	"is_private\x18\x06 \x01(\bR\tisPrivate\x12!\n" +
+	"\tpublic_id\x18\a \x01(\tB\x04\xe8\xe0\x18\x03R\bpublicId\"\xdc\x01\n" +
 	"\bMediaRef\x12\x19\n" +
 	"\bmedia_id\x18\x01 \x01(\tR\amediaId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x1b\n" +
@@ -721,6 +736,7 @@ func file_dzeroth_common_v1_common_proto_init() {
 	if File_dzeroth_common_v1_common_proto != nil {
 		return
 	}
+	file_dzeroth_common_v1_options_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -69,6 +69,7 @@ package dzeroth.messaging.v1;
 
 import "dzeroth/beacons/v1/beacons.proto";
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "dzeroth/posts/v1/posts.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -337,7 +338,7 @@ message SendMessageRequest {
     // An existing conversation (32 lower-case hex) the caller is a participant of.
     string conversation_id = 2;
     // Open or continue the 1:1 conversation with this user. [A-Za-z0-9-]{1,128}; not the caller.
-    string recipient_user_id = 3;
+    string recipient_user_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   }
   // NFC, <= 280 code points, <= 10 lines (the post grammar). Required, also when shared_post_id is set: the caption,
   // or the canonical post URL when the user typed none.

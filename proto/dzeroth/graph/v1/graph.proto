@@ -21,6 +21,7 @@ syntax = "proto3";
 package dzeroth.graph.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1;graphv1";
@@ -206,7 +207,7 @@ enum FollowState {
 }
 
 message Relationship {
-  string user_id = 1;
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   FollowState follow_state = 2;
   bool blocking = 3;
   bool muting = 4;
@@ -228,7 +229,7 @@ message FollowRequest {
   string idempotency_key = 1;
   // [A-Za-z0-9-]{1,128}. `_` is reserved (the follows doc-id separator); anything else => VALIDATION.
   // The same charset applies to every user_id / user_ids field in this service.
-  string user_id = 2;
+  string user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message FollowResponse {
@@ -237,7 +238,7 @@ message FollowResponse {
 
 message UnfollowRequest {
   string idempotency_key = 1;
-  string user_id = 2;
+  string user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message UnfollowResponse {
@@ -257,7 +258,7 @@ message ListFollowRequestsResponse {
 
 message RespondToFollowRequestRequest {
   string idempotency_key = 1;
-  string requester_user_id = 2;
+  string requester_user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   bool accept = 3;
 }
 
@@ -269,7 +270,7 @@ message RespondToFollowRequestResponse {
 
 message BlockRequest {
   string idempotency_key = 1;
-  string user_id = 2;
+  string user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message BlockResponse {
@@ -278,7 +279,7 @@ message BlockResponse {
 
 message UnblockRequest {
   string idempotency_key = 1;
-  string user_id = 2;
+  string user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message UnblockResponse {
@@ -287,7 +288,7 @@ message UnblockResponse {
 
 message MuteRequest {
   string idempotency_key = 1;
-  string user_id = 2;
+  string user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message MuteResponse {
@@ -296,7 +297,7 @@ message MuteResponse {
 
 message UnmuteRequest {
   string idempotency_key = 1;
-  string user_id = 2;
+  string user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message UnmuteResponse {
@@ -305,7 +306,7 @@ message UnmuteResponse {
 
 message GetRelationshipsRequest {
   // 1-50 user ids.
-  repeated string user_ids = 1;
+  repeated string user_ids = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message GetRelationshipsResponse {
@@ -314,7 +315,7 @@ message GetRelationshipsResponse {
 
 message GetProfileRelationshipRequest {
   // The profile's owner. [A-Za-z0-9-]{1,128}.
-  string user_id = 1;
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message GetProfileRelationshipResponse {
@@ -335,7 +336,7 @@ message ListSuggestedUsersResponse {
 }
 
 message ListFollowersRequest {
-  string user_id = 1;
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   int32 page_size = 2;
   string page_token = 3;
 }
@@ -346,7 +347,7 @@ message ListFollowersResponse {
 }
 
 message ListFollowingRequest {
-  string user_id = 1;
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   int32 page_size = 2;
   string page_token = 3;
 }

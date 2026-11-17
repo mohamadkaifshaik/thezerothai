@@ -191,15 +191,15 @@ final $typed_data.Uint8List ensureBillingIdentityRequestDescriptor =
 const EnsureBillingIdentityResponse$json = {
   '1': 'EnsureBillingIdentityResponse',
   '2': [
-    {'1': 'app_user_id', '3': 1, '4': 1, '5': 9, '10': 'appUserId'},
+    {'1': 'app_user_id', '3': 1, '4': 1, '5': 9, '8': {}, '10': 'appUserId'},
   ],
 };
 
 /// Descriptor for `EnsureBillingIdentityResponse`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List ensureBillingIdentityResponseDescriptor =
     $convert.base64Decode(
-        'Ch1FbnN1cmVCaWxsaW5nSWRlbnRpdHlSZXNwb25zZRIeCgthcHBfdXNlcl9pZBgBIAEoCVIJYX'
-        'BwVXNlcklk');
+        'Ch1FbnN1cmVCaWxsaW5nSWRlbnRpdHlSZXNwb25zZRIkCgthcHBfdXNlcl9pZBgBIAEoCUIE6O'
+        'AYBFIJYXBwVXNlcklk');
 
 const $core.Map<$core.String, $core.dynamic> BillingServiceBase$json = {
   '1': 'BillingService',

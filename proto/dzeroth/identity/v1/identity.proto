@@ -12,6 +12,7 @@ syntax = "proto3";
 package dzeroth.identity.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1;identityv1";
@@ -182,7 +183,9 @@ enum AccountStatus {
 }
 
 message Profile {
-  string user_id = 1;
+  // Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Still set; it holds the Firebase uid until the
+  // edge translates user ids to public ids (common/v1/options.proto, user_ref).
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   // Display form; uniqueness is on the lower-cased form. 3-15 chars, [A-Za-z0-9_].
   string handle = 2;
   // 1-50 chars after NFC normalization.
@@ -235,6 +238,10 @@ message Profile {
   // value returns when the flag is back on. Clients grey out a recipient whose policy is FOLLOWING_ONLY unless that
   // account follows the caller (the server decides: SendMessage answers CANNOT_MESSAGE).
   DmPolicy dm_policy = 19;
+  // The user's public id (FEATURE_PUBLIC_IDS): "u" + 26 lower-case base32 characters, random and immutable, never
+  // derived from the uid or a time. Not set by any server yet: always "" until the public id rollout; clients must
+  // fall back to user_id while it is "". "Is this me" compares it with GetMe's profile.public_id once it is set.
+  string public_id = 21 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_PUBLIC_ID];
 }
 
 // Who may start a direct message with an account. Existing accepted conversations always keep working.
@@ -309,9 +316,12 @@ message GetMeResponse {
 
 message GetProfileRequest {
   oneof target {
-    string user_id = 1;
+    string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
     // Case-insensitive.
     string handle = 2;
+    // A public id (FEATURE_PUBLIC_IDS, see Profile.public_id). Not served yet: today it answers INVALID_ARGUMENT +
+    // VALIDATION "target", exactly like an empty target.
+    string public_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_PUBLIC_ID];
   }
 }
 

@@ -26,7 +26,7 @@ const Article$json = {
   '1': 'Article',
   '2': [
     {'1': 'article_id', '3': 1, '4': 1, '5': 9, '10': 'articleId'},
-    {'1': 'author_id', '3': 2, '4': 1, '5': 9, '10': 'authorId'},
+    {'1': 'author_id', '3': 2, '4': 1, '5': 9, '8': {}, '10': 'authorId'},
     {'1': 'revision', '3': 3, '4': 1, '5': 3, '10': 'revision'},
     {'1': 'title', '3': 4, '4': 1, '5': 9, '10': 'title'},
     {'1': 'body_json', '3': 5, '4': 1, '5': 9, '10': 'bodyJson'},
@@ -77,17 +77,17 @@ const Article$json = {
 
 /// Descriptor for `Article`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List articleDescriptor = $convert.base64Decode(
-    'CgdBcnRpY2xlEh0KCmFydGljbGVfaWQYASABKAlSCWFydGljbGVJZBIbCglhdXRob3JfaWQYAi'
-    'ABKAlSCGF1dGhvcklkEhoKCHJldmlzaW9uGAMgASgDUghyZXZpc2lvbhIUCgV0aXRsZRgEIAEo'
-    'CVIFdGl0bGUSGwoJYm9keV9qc29uGAUgASgJUghib2R5SnNvbhIkCg5jb3Zlcl9tZWRpYV9pZB'
-    'gGIAEoCVIMY292ZXJNZWRpYUlkEhcKB3Bvc3RfaWQYByABKAlSBnBvc3RJZBI5Cgp1cGRhdGVk'
-    'X2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIJdXBkYXRlZEF0EhsKCWNvdm'
-    'VyX3VybBgJIAEoCVIIY292ZXJVcmwSLwoTcHVibGljYXRpb25fcGVuZGluZxgKIAEoCFIScHVi'
-    'bGljYXRpb25QZW5kaW5nEi8KE3B1YmxpY2F0aW9uX2NhcHRpb24YCyABKAlSEnB1YmxpY2F0aW'
-    '9uQ2FwdGlvbhJXChhwdWJsaWNhdGlvbl9yZXBseV9wb2xpY3kYDCABKA4yHS5kemVyb3RoLnBv'
-    'c3RzLnYxLlJlcGx5UG9saWN5UhZwdWJsaWNhdGlvblJlcGx5UG9saWN5EhgKB2V4Y2VycHQYDS'
-    'ABKAlSB2V4Y2VycHQSMwoGaW1hZ2VzGA4gAygLMhsuZHplcm90aC5jb21tb24udjEuTWVkaWFS'
-    'ZWZSBmltYWdlcw==');
+    'CgdBcnRpY2xlEh0KCmFydGljbGVfaWQYASABKAlSCWFydGljbGVJZBIhCglhdXRob3JfaWQYAi'
+    'ABKAlCBOjgGAFSCGF1dGhvcklkEhoKCHJldmlzaW9uGAMgASgDUghyZXZpc2lvbhIUCgV0aXRs'
+    'ZRgEIAEoCVIFdGl0bGUSGwoJYm9keV9qc29uGAUgASgJUghib2R5SnNvbhIkCg5jb3Zlcl9tZW'
+    'RpYV9pZBgGIAEoCVIMY292ZXJNZWRpYUlkEhcKB3Bvc3RfaWQYByABKAlSBnBvc3RJZBI5Cgp1'
+    'cGRhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIJdXBkYXRlZEF0Eh'
+    'sKCWNvdmVyX3VybBgJIAEoCVIIY292ZXJVcmwSLwoTcHVibGljYXRpb25fcGVuZGluZxgKIAEo'
+    'CFIScHVibGljYXRpb25QZW5kaW5nEi8KE3B1YmxpY2F0aW9uX2NhcHRpb24YCyABKAlSEnB1Ym'
+    'xpY2F0aW9uQ2FwdGlvbhJXChhwdWJsaWNhdGlvbl9yZXBseV9wb2xpY3kYDCABKA4yHS5kemVy'
+    'b3RoLnBvc3RzLnYxLlJlcGx5UG9saWN5UhZwdWJsaWNhdGlvblJlcGx5UG9saWN5EhgKB2V4Y2'
+    'VycHQYDSABKAlSB2V4Y2VycHQSMwoGaW1hZ2VzGA4gAygLMhsuZHplcm90aC5jb21tb24udjEu'
+    'TWVkaWFSZWZSBmltYWdlcw==');
 
 @$core.Deprecated('Use getArticleRequestDescriptor instead')
 const GetArticleRequest$json = {

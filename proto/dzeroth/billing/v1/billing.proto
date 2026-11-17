@@ -6,6 +6,7 @@ syntax = "proto3";
 // callers cannot request another user's billing account.
 package dzeroth.billing.v1;
 
+import "dzeroth/common/v1/options.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/billing/v1;billingv1";
@@ -69,5 +70,5 @@ message EnsureBillingIdentityRequest {
 }
 
 message EnsureBillingIdentityResponse {
-  string app_user_id = 1;
+  string app_user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_NOT_USER];
 }

@@ -76,7 +76,7 @@ const ReportContentRequest$json = {
       '6': '.dzeroth.moderation.v1.ReportTargetType',
       '10': 'targetType'
     },
-    {'1': 'target_id', '3': 3, '4': 1, '5': 9, '10': 'targetId'},
+    {'1': 'target_id', '3': 3, '4': 1, '5': 9, '8': {}, '10': 'targetId'},
     {
       '1': 'reason',
       '3': 4,
@@ -93,9 +93,9 @@ const ReportContentRequest$json = {
 final $typed_data.Uint8List reportContentRequestDescriptor = $convert.base64Decode(
     'ChRSZXBvcnRDb250ZW50UmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDmlkZW1wb3'
     'RlbmN5S2V5EkgKC3RhcmdldF90eXBlGAIgASgOMicuZHplcm90aC5tb2RlcmF0aW9uLnYxLlJl'
-    'cG9ydFRhcmdldFR5cGVSCnRhcmdldFR5cGUSGwoJdGFyZ2V0X2lkGAMgASgJUgh0YXJnZXRJZB'
-    'I7CgZyZWFzb24YBCABKA4yIy5kemVyb3RoLm1vZGVyYXRpb24udjEuUmVwb3J0UmVhc29uUgZy'
-    'ZWFzb24SEgoEbm90ZRgFIAEoCVIEbm90ZQ==');
+    'cG9ydFRhcmdldFR5cGVSCnRhcmdldFR5cGUSIQoJdGFyZ2V0X2lkGAMgASgJQgTo4BgCUgh0YX'
+    'JnZXRJZBI7CgZyZWFzb24YBCABKA4yIy5kemVyb3RoLm1vZGVyYXRpb24udjEuUmVwb3J0UmVh'
+    'c29uUgZyZWFzb24SEgoEbm90ZRgFIAEoCVIEbm90ZQ==');
 
 @$core.Deprecated('Use reportContentResponseDescriptor instead')
 const ReportContentResponse$json = {

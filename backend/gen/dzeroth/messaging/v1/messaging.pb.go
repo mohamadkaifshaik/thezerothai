@@ -1583,7 +1583,7 @@ var File_dzeroth_messaging_v1_messaging_proto protoreflect.FileDescriptor
 
 const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\n" +
-	"$dzeroth/messaging/v1/messaging.proto\x12\x14dzeroth.messaging.v1\x1a dzeroth/beacons/v1/beacons.proto\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x04\n" +
+	"$dzeroth/messaging/v1/messaging.proto\x12\x14dzeroth.messaging.v1\x1a dzeroth/beacons/v1/beacons.proto\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x04\n" +
 	"\fConversation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\x04kind\x18\x02 \x01(\x0e2&.dzeroth.messaging.v1.ConversationKindR\x04kind\x125\n" +
@@ -1616,11 +1616,11 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12?\n" +
 	"\vshared_post\x18\b \x01(\v2\x1e.dzeroth.posts.v1.EmbeddedPostR\n" +
-	"sharedPostJ\x04\b\a\x10\b\"\xda\x01\n" +
+	"sharedPostJ\x04\b\a\x10\b\"\xe0\x01\n" +
 	"\x12SendMessageRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12)\n" +
-	"\x0fconversation_id\x18\x02 \x01(\tH\x00R\x0econversationId\x12,\n" +
-	"\x11recipient_user_id\x18\x03 \x01(\tH\x00R\x0frecipientUserId\x12\x12\n" +
+	"\x0fconversation_id\x18\x02 \x01(\tH\x00R\x0econversationId\x122\n" +
+	"\x11recipient_user_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x01H\x00R\x0frecipientUserId\x12\x12\n" +
 	"\x04text\x18\x04 \x01(\tR\x04text\x12$\n" +
 	"\x0eshared_post_id\x18\x05 \x01(\tR\fsharedPostIdB\b\n" +
 	"\x06target\"\x96\x01\n" +

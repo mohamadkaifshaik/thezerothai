@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+// Custom options shared by every dzeroth API.
+//
+// user_ref marks every string field that carries a user identifier, so the edge can tell user ids apart from every
+// other id without a hand-kept list. Today user ids on the wire are Firebase Auth uids. The public id
+// (FEATURE_PUBLIC_IDS, "u" + 26 lower-case base32 characters, random, immutable) replaces them on the wire: one Connect
+// interceptor translates every USER_REF_KIND_TRANSLATE field (inbound public id -> uid, outbound uid -> public id), so
+// modules keep using uids internally. A guard test (backend/pkg/platform/userref) requires every field whose name looks
+// like a user id to carry this option with an explicit kind, so a new field cannot silently skip the translation.
+// Nothing reads this option at runtime yet.
+package dzeroth.common.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1";
+
+// How the edge treats a field that names a user. Values are never renumbered or reused.
+enum UserRefKind {
+  // Not a valid annotation: the guard test rejects a field annotated with it.
+  USER_REF_KIND_UNSPECIFIED = 0;
+  // The field holds a user id (string, repeated string). On the wire it is the user's public id once FEATURE_PUBLIC_IDS
+  // is on; the edge translates it in both directions. "" stays "" (several requests read "" as "the caller").
+  USER_REF_KIND_TRANSLATE = 1;
+  // The field holds a user id only for some values of a sibling field (e.g. moderation.v1.ReportContentRequest.target_id
+  // when target_type is ACCOUNT). The edge needs a per-message rule for it; the generic walker must not touch it.
+  USER_REF_KIND_CONDITIONAL = 2;
+  // The field already holds a public id (e.g. Profile.public_id). Never translated.
+  USER_REF_KIND_PUBLIC_ID = 3;
+  // The field's name looks like a user id but it is not one (e.g. billing.v1's private billing customer id). Never
+  // translated. Present so the guard test can tell "reviewed, not a user id" from "forgotten".
+  USER_REF_KIND_NOT_USER = 4;
+}
+
+extend google.protobuf.FieldOptions {
+  // Field option number 50701 sits in the range reserved for an organisation's own options (50000-99999,
+  // descriptor.proto). It is used by dzeroth only and never reused for another option.
+  UserRefKind user_ref = 50701;
+}

@@ -126,6 +126,7 @@ syntax = "proto3";
 package dzeroth.communities.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "dzeroth/graph/v1/graph.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -601,7 +602,7 @@ message SetMemberRoleRequest {
   string idempotency_key = 1;
   string community_id = 2;
   // The target user.
-  string user_id = 3;
+  string user_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   MemberRoleAction action = 4;
 }
 
