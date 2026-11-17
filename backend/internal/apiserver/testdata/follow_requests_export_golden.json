@@ -2,20 +2,17 @@
   "received": [
     {
       "handle": "<handle:R1>",
-      "requestedAt": "<time>",
-      "userId": "<uid:R1>"
+      "requestedAt": "<time>"
     },
     {
       "handle": "<handle:R2>",
-      "requestedAt": "<time>",
-      "userId": "<uid:R2>"
+      "requestedAt": "<time>"
     }
   ],
   "sent": [
     {
       "handle": "<handle:Q>",
-      "requestedAt": "<time>",
-      "userId": "<uid:Q>"
+      "requestedAt": "<time>"
     }
   ]
 }

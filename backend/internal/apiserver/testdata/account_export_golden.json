@@ -39,7 +39,7 @@
     "reposts": [],
     "shares": []
   },
-  "exportVersion": 1,
+  "exportVersion": 2,
   "follow_requests": {
     "received": [],
     "sent": []
@@ -49,25 +49,23 @@
     "blocked": [
       {
         "handle": "<handle:x>",
-        "userId": "<uid:x>"
+        "publicId": "u2xxxxxxxxxxxxxxxxxxxxxxxxx"
       }
     ],
     "followers": [
       {
-        "handle": "<handle:g>",
-        "userId": "<uid:g>"
+        "handle": "<handle:g>"
       }
     ],
     "following": [
       {
         "handle": "<handle:f>",
-        "userId": "<uid:f>"
+        "publicId": "u1fffffffffffffffffffffffff"
       }
     ],
     "muted": [
       {
-        "handle": "<handle:z>",
-        "userId": "<uid:z>"
+        "handle": "<handle:z>"
       }
     ],
     "userId": "<uid:A>"

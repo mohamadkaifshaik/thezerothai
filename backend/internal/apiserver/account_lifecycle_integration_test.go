@@ -311,7 +311,7 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	if err := json.Unmarshal(raw, &env); err != nil {
 		t.Fatalf("export is not valid JSON: %v\n%s", err, raw)
 	}
-	if env.ExportVersion != 1 || len(env.Graph.Following) != 1 || len(env.Graph.Followers) != 1 || len(env.Posts.Posts) != 1 || env.Posts.Posts[0]["text"] != "to be erased" {
+	if env.ExportVersion != 2 || len(env.Graph.Following) != 1 || len(env.Graph.Followers) != 1 || len(env.Posts.Posts) != 1 || env.Posts.Posts[0]["text"] != "to be erased" {
 		t.Errorf("export content = %s", raw)
 	}
 	for _, internal := range []string{"status", "snapshotVersion", "deletionJob", "blockedBy"} {
