@@ -766,14 +766,21 @@ class _ComposerViewState extends State<_ComposerView> {
   ) {
     final cubit = context.read<ComposerCubit>();
     final hasPoll = state.hasPoll;
+    // With a poll or a quote the field sits in a scroll view with the rest
+    // (builder / quoted post), so it keeps its own height and never expands.
+    final scrolls = hasPoll || isQuote;
     final field = TextField(
       controller: _controller,
       focusNode: _questionFocus,
       autofocus: true,
       enabled: !state.isSubmitting,
-      expands: !hasPoll,
+      expands: !scrolls,
       maxLines: null,
-      minLines: hasPoll ? 2 : null,
+      minLines: hasPoll
+          ? 2
+          : isQuote
+          ? 3
+          : null,
       textAlignVertical: TextAlignVertical.top,
       keyboardType: TextInputType.multiline,
       textCapitalization: TextCapitalization.sentences,
@@ -832,7 +839,7 @@ class _ComposerViewState extends State<_ComposerView> {
             child: !cubit.canChooseCommunity
                 ? field
                 : Column(
-                    mainAxisSize: hasPoll ? MainAxisSize.min : MainAxisSize.max,
+                    mainAxisSize: scrolls ? MainAxisSize.min : MainAxisSize.max,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // The pill's own context: the tablet menu hangs
@@ -845,7 +852,7 @@ class _ComposerViewState extends State<_ComposerView> {
                               : () => _chooseAudience(context, state, pill),
                         ),
                       ),
-                      if (hasPoll) field else Expanded(child: field),
+                      if (scrolls) field else Expanded(child: field),
                     ],
                   ),
           ),
@@ -1060,7 +1067,7 @@ class _ComposerViewState extends State<_ComposerView> {
                       if (scheduling && state.hasAttachments)
                         const _ScheduleImagesNoteBox(),
                       Expanded(
-                        child: poll == null
+                        child: poll == null && !isQuote
                             ? _questionArea(context, state, isQuote)
                             // With a poll the question and the builder scroll
                             // together: four choices and the length do not fit
@@ -1069,34 +1076,41 @@ class _ComposerViewState extends State<_ComposerView> {
                                 child: Column(
                                   children: [
                                     _questionArea(context, state, isQuote),
-                                    Padding(
-                                      padding:
-                                          const EdgeInsetsDirectional.fromSTEB(
-                                            AppSpacing.md,
-                                            0,
-                                            AppSpacing.md,
-                                            AppSpacing.md,
-                                          ),
-                                      child: ComposerPollBuilder(
-                                        poll: poll,
-                                        durationClamped:
-                                            state.pollDurationClamped,
-                                        enabled: !state.isSubmitting,
-                                        onChoiceChanged:
-                                            cubit.pollChoiceChanged,
-                                        onChoiceAdded: cubit.pollChoiceAdded,
-                                        onChoiceRemoved:
-                                            cubit.pollChoiceRemoved,
-                                        onLengthChanged:
-                                            cubit.pollDurationChanged,
-                                        onRemove: cubit.pollRemoved,
+                                    // The quoted post sits below the input
+                                    // and scrolls with it, so the keyboard
+                                    // never hides what is being typed.
+                                    if (isQuote)
+                                      _QuotePreview(
+                                        preview: widget.quotePreview,
                                       ),
-                                    ),
+                                    if (poll != null)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsetsDirectional.fromSTEB(
+                                              AppSpacing.md,
+                                              0,
+                                              AppSpacing.md,
+                                              AppSpacing.md,
+                                            ),
+                                        child: ComposerPollBuilder(
+                                          poll: poll,
+                                          durationClamped:
+                                              state.pollDurationClamped,
+                                          enabled: !state.isSubmitting,
+                                          onChoiceChanged:
+                                              cubit.pollChoiceChanged,
+                                          onChoiceAdded: cubit.pollChoiceAdded,
+                                          onChoiceRemoved:
+                                              cubit.pollChoiceRemoved,
+                                          onLengthChanged:
+                                              cubit.pollDurationChanged,
+                                          onRemove: cubit.pollRemoved,
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
                       ),
-                      if (isQuote) _QuotePreview(preview: widget.quotePreview),
                       if (state.hasPlan)
                         _PlanPreview(
                           preview: widget.planPreview,
@@ -1155,6 +1169,17 @@ class _ComposerViewState extends State<_ComposerView> {
                                         onPressed: state.hasPoll
                                             ? _questionFocus.requestFocus
                                             : cubit.pollAdded,
+                                      ),
+                                    if (!isQuote &&
+                                        isFeatureEnabled(
+                                          context,
+                                          kFeaturePosts,
+                                        ))
+                                      ComposerArticleButton(
+                                        enabled: !state.isSubmitting,
+                                        onPressed: () => context.push(
+                                          AppRouter.articlesPath,
+                                        ),
                                       ),
                                     if (cubit.canSchedule)
                                       ScheduleButton(
@@ -1460,7 +1485,7 @@ class _PlanPreview extends StatelessWidget {
 
 /// The quoted post under the text field: the frozen snapshot the router
 /// passed, or a plain line after a page reload (the server still embeds the
-/// original). Capped in height so a long quote never squeezes the field.
+/// original). It lives in the scroll area under the input, never above it.
 class _QuotePreview extends StatelessWidget {
   const _QuotePreview({required this.preview});
 
@@ -1477,21 +1502,14 @@ class _QuotePreview extends StatelessWidget {
         AppSpacing.md,
         AppSpacing.sm,
       ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.3,
-        ),
-        child: quoted == null
-            ? Text(
-                'Quoting a post',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              )
-            : SingleChildScrollView(
-                child: EmbeddedPostCard(embedded: quoted, maxTextLines: 4),
+      child: quoted == null
+          ? Text(
+              'Quoting a post',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
-      ),
+            )
+          : EmbeddedPostCard(embedded: quoted, maxTextLines: 4),
     );
   }
 }

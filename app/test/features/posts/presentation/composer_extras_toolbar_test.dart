@@ -123,6 +123,11 @@ void main() {
           builder: (context, state) => const Scaffold(body: Text('home page')),
         ),
         GoRoute(
+          path: '/compose/articles',
+          builder: (context, state) =>
+              const Scaffold(body: Text('articles editor')),
+        ),
+        GoRoute(
           path: '/compose',
           builder: (context, state) => ComposerScreen(
             quoteOfPostId: quote,
@@ -212,6 +217,23 @@ void main() {
         tester.getCenter(find.byTooltip('Schedule post')).dx,
       ];
       expect(xs, orderedEquals([...xs]..sort()));
+    });
+
+    testWidgets('the Article button opens the editor; off without posts', (
+      tester,
+    ) async {
+      await open(tester);
+      expect(find.byType(ComposerArticleButton), findsOneWidget);
+      await tester.tap(find.byTooltip('Write an article'));
+      await tester.pumpAndSettle();
+      expect(find.text('articles editor'), findsOneWidget);
+      await open(tester, features: {kFeatureMedia});
+      expect(find.byType(ComposerArticleButton), findsNothing);
+    });
+
+    testWidgets('a quote offers no Article button', (tester) async {
+      await open(tester, features: {...all, 'quotes'}, quote: postId(5));
+      expect(find.byType(ComposerArticleButton), findsNothing);
     });
 
     testWidgets('a quote offers no poll', (tester) async {

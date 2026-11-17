@@ -12,6 +12,10 @@ enum AppTintTone {
 
   /// Muted label on a raised surface step (a neutral status).
   neutral,
+
+  /// Error label on a 14 % error tint (the theme's error colour: 5.98:1 on
+  /// light, 6.5:1 on dark).
+  danger,
 }
 
 /// A small full-round tinted label (dz.css `.badge`): 12 sp w700, tokens only.
@@ -50,10 +54,17 @@ class AppTintBadge extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = context.appColors;
     final accent = tone == AppTintTone.accent;
+    final danger = tone == AppTintTone.danger;
     final fill = accent
         ? AppPalette.teal.withValues(alpha: _tintAlpha)
+        : danger
+        ? theme.colorScheme.error.withValues(alpha: _tintAlpha)
         : theme.colorScheme.surfaceContainerHigh;
-    final labelColor = accent ? colors.accentText : colors.secondaryOnRaised;
+    final labelColor = accent
+        ? colors.accentText
+        : danger
+        ? theme.colorScheme.error
+        : colors.secondaryOnRaised;
     final badge = Container(
       constraints: const BoxConstraints(minHeight: minHeight),
       padding: const EdgeInsets.symmetric(
