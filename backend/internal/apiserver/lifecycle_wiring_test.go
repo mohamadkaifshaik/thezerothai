@@ -214,7 +214,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerEngagementLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil)); err != nil {
+	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := registerScheduledLifecycle(l, postsRepo); err != nil {

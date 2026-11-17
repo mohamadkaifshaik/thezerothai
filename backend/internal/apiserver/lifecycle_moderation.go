@@ -1,7 +1,7 @@
 // lifecycle_moderation.go joins the moderation module to the account-lifecycle registry: the reports
 // Eraser step (anonymise the reports the account filed) and the `reports` export section (the reports the account
-// filed, never reports about it). Kept apart from registerLifecycleModules so slices that add their own lines
-// there do not collide with this one.
+// filed, never reports about it; a reported account is named by public id and handle, never by uid). Kept apart from
+// registerLifecycleModules so slices that add their own lines there do not collide with this one.
 package apiserver
 
 import (
@@ -28,10 +28,11 @@ func (s reportsSection) WriteSection(ctx context.Context, uid string, w io.Write
 }
 
 // registerModerationLifecycle registers the reports step and export section on l. Call it after
-// registerLifecycleModules (Lifecycle always runs the identity step last).
-func registerModerationLifecycle(l *identity.Lifecycle, repo *moderation.FirestoreRepo) error {
+// registerLifecycleModules (Lifecycle always runs the identity step last). people names the reported accounts in the
+// export (identity's repo: every account status).
+func registerModerationLifecycle(l *identity.Lifecycle, repo *moderation.FirestoreRepo, people moderation.ProfileReader) error {
 	if err := l.RegisterEraser(identity.BeforeIdentity, reportsEraserStep(repo)); err != nil {
 		return err
 	}
-	return l.RegisterExportSection(reportsSection{repo})
+	return l.RegisterExportSection(reportsSection{moderation.NewReportExporter(repo, people)})
 }

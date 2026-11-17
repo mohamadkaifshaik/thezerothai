@@ -282,6 +282,15 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 			t.Fatalf("seed public id: %v", err)
 		}
 	}
+	// The `reports` section: A reported x's account. The reported person is named by handle and public id, never by uid
+	// (the stored targetId is x's uid). Seeded directly with a fixed id: ReportID hashes the random uids.
+	must("seed an account report", func() error {
+		_, err := e.fs.Doc("reports/00000000000000000000000000000609").Set(ctx, map[string]any{
+			"reporterId": a.uid, "targetType": "ACCOUNT", "targetId": x.uid, "targetOwnerId": x.uid,
+			"reason": "HARASSMENT", "note": "golden report", "status": "OPEN", "createdAt": locAt,
+		})
+		return err
+	}())
 
 	_, raw := e.exportOf(t, a, key("export"))
 
@@ -322,7 +331,7 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	for _, u := range []struct {
 		role string
 		who  testUser
-	}{{"f (followed, list member, DM peer, list owner)", f}, {"g (follower, list member, DM peer)", g}, {"x (blocked)", x}, {"y (blocks A)", y}, {"z (muted)", z}, {"w (stranger)", w}, {"v (blocked by the stranger)", v}} {
+	}{{"f (followed, list member, DM peer, list owner)", f}, {"g (follower, list member, DM peer)", g}, {"x (blocked, reported)", x}, {"y (blocks A)", y}, {"z (muted)", z}, {"w (stranger)", w}, {"v (blocked by the stranger)", v}} {
 		if strings.Contains(string(raw), u.who.uid) {
 			t.Errorf("the export contains the uid of %s", u.role)
 		}
@@ -359,8 +368,9 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		}
 	}
 	// The account's own status (users/{uid}.status) is internal and no section may carry a `status` key, except the
-	// `scheduled` section, whose items legitimately report PENDING, PUBLISHED, CANCELLED or FAILED. The
-	// ban therefore runs over everything except that one section, and the account values are banned everywhere.
+	// `scheduled` section, whose items legitimately report PENDING, PUBLISHED, CANCELLED or FAILED, and the `reports`
+	// section, whose rows report the state (OPEN or RESOLVED) of a report A filed. The ban therefore runs over everything
+	// except those two sections, and the account values are banned everywhere.
 	var sections map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &sections); err != nil {
 		t.Fatalf("export is not a JSON object: %v", err)
@@ -369,6 +379,10 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		t.Error("the export has no scheduled section")
 	}
 	delete(sections, "scheduled")
+	if _, ok := sections["reports"]; !ok {
+		t.Error("the export has no reports section")
+	}
+	delete(sections, "reports")
 	rest, err := json.Marshal(sections)
 	if err != nil {
 		t.Fatal(err)
@@ -385,6 +399,9 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		Lists struct {
 			Lists []map[string]any `json:"lists"`
 		} `json:"lists"`
+		Reports struct {
+			Reports []map[string]any `json:"reports"`
+		} `json:"reports"`
 		Graph struct {
 			Blocked   []map[string]any `json:"blocked"`
 			Muted     []map[string]any `json:"muted"`
@@ -402,12 +419,17 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		len(doc.Graph.Following) != 1 || len(doc.Graph.Followers) != 1 {
 		t.Errorf("the subject's own graph is wrong: %+v", doc.Graph)
 	}
-	// A's own list names its members by handle (and public id when they have one), one row per member.
+	// A's own list names its members by handle (and public id when they have one), one row per member; A's report on x
+	// names x the same way.
 	gHandle, _ := e.profileOf(t, g)
 	if len(doc.Lists.Lists) != 1 || fmt.Sprint(doc.Lists.Lists[0]["members"]) != fmt.Sprint([]any{
 		map[string]any{"handle": fHandle, "publicId": "u1fffffffffffffffffffffffff"}, map[string]any{"handle": gHandle},
 	}) || doc.Lists.Lists[0]["memberIds"] != nil {
 		t.Errorf("the subject's own list members are wrong: %+v", doc.Lists.Lists)
+	}
+	if len(doc.Reports.Reports) != 1 || doc.Reports.Reports[0]["targetPublicId"] != "u2xxxxxxxxxxxxxxxxxxxxxxxxx" ||
+		doc.Reports.Reports[0]["targetHandle"] != xHandle || doc.Reports.Reports[0]["targetId"] != nil {
+		t.Errorf("the account report is wrong: %+v", doc.Reports.Reports)
 	}
 	for _, rows := range [][]map[string]any{doc.Graph.Blocked, doc.Graph.Muted, doc.Graph.Following, doc.Graph.Followers} {
 		for _, r := range rows {

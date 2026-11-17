@@ -390,7 +390,7 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerArticleLifecycle(l, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil)); err != nil {
+	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := registerScheduledLifecycle(l, posts.NewFirestoreRepo(nil)); err != nil {

@@ -14,10 +14,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"time"
 
@@ -43,9 +41,8 @@ const (
 )
 
 var (
-	_ Ops      = (*FirestoreRepo)(nil)
-	_ Eraser   = (*FirestoreRepo)(nil)
-	_ Exporter = (*FirestoreRepo)(nil)
+	_ Ops    = (*FirestoreRepo)(nil)
+	_ Eraser = (*FirestoreRepo)(nil)
 )
 
 // ReportID derives the report doc id: the first 32 hex characters of SHA-256(reporter|type|target).
@@ -493,64 +490,4 @@ func (r *FirestoreRepo) PurgeReporter(ctx context.Context, uid string, cp Checkp
 	next := Checkpoint{Cleared: cp.Cleared + len(docs)}
 	slog.InfoContext(ctx, "moderation_purge_batch", "uid_hash", logger.HashUID(uid), "reports", len(docs), "cleared_total", next.Cleared)
 	return next, len(docs) < opsPage, nil
-}
-
-// exportedReport is one filed report in the data export (never evidence or anyone else's data). TargetID is exported as
-// stored on purpose: the exporter filed the report, so a MESSAGE report's `<conversation id>:<message id>` names the
-// exporter's own conversation, whose id the client already holds (it is the id in every messaging response). The export's
-// `messages` section leaves ids out; this one adds none the client does not have.
-type exportedReport struct {
-	ID         string    `json:"id"`
-	TargetType string    `json:"targetType"`
-	TargetID   string    `json:"targetId"`
-	Reason     string    `json:"reason"`
-	Note       string    `json:"note"`
-	Status     string    `json:"status"`
-	CreatedAt  time.Time `json:"createdAt"`
-}
-
-// ExportUser implements Exporter: {"userId": ..., "reports": [...]} in pages of opsPage.
-func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer) error {
-	if _, err := fmt.Fprintf(w, `{"userId":%q,"reports":[`, uid); err != nil {
-		return fmt.Errorf("moderation: write export: %w", err)
-	}
-	enc := json.NewEncoder(w)
-	first := true
-	var last *firestore.DocumentSnapshot
-	for {
-		q := r.client.Collection(reportsCollection).Where("reporterId", "==", uid).
-			OrderBy(firestore.DocumentID, firestore.Asc).Limit(opsPage)
-		if last != nil {
-			q = q.StartAfter(last)
-		}
-		docs, err := q.Documents(ctx).GetAll()
-		if err != nil {
-			return fmt.Errorf("moderation: export %s: query: %w", logger.HashUID(uid), err)
-		}
-		for _, s := range docs {
-			var d reportDoc
-			if err := s.DataTo(&d); err != nil {
-				return fmt.Errorf("moderation: export decode %s: %w", s.Ref.ID, err)
-			}
-			if !first {
-				if _, err := io.WriteString(w, ","); err != nil {
-					return fmt.Errorf("moderation: write export: %w", err)
-				}
-			}
-			first = false
-			er := exportedReport{ID: s.Ref.ID, TargetType: d.TargetType, TargetID: d.TargetID, Reason: d.Reason,
-				Note: d.Note, Status: d.Status, CreatedAt: d.CreatedAt.UTC()}
-			if err := enc.Encode(er); err != nil {
-				return fmt.Errorf("moderation: write export: %w", err)
-			}
-		}
-		if len(docs) < opsPage {
-			break
-		}
-		last = docs[len(docs)-1]
-	}
-	if _, err := io.WriteString(w, "]}\n"); err != nil {
-		return fmt.Errorf("moderation: write export: %w", err)
-	}
-	return nil
 }

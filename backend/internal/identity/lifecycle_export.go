@@ -51,7 +51,8 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // exportVersion is the envelope's schema version; bump it with any incompatible change to a built-in section or to
 // a registered section's row shape. 2 (public ids): the graph and follow_requests rows name other people by
 // {publicId, handle} instead of {userId, handle}; the lists section's "memberIds" became "members" rows of the same
-// shape (unreleased with 2, so no further bump).
+// shape, and a reports row on an ACCOUNT target carries targetPublicId/targetHandle instead of targetId (all unreleased
+// with 2, so no further bump).
 const exportVersion = 2
 
 // errPermanent marks an export failure that a retry cannot fix.

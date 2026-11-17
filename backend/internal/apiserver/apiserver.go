@@ -525,7 +525,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// moderation: ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
 	// identity.GetProfile for target visibility and writes only reports/* and the reports quota.
 	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
-	if err := registerModerationLifecycle(lifecycle, moderationRepo); err != nil {
+	if err := registerModerationLifecycle(lifecycle, moderationRepo, identityRepo); err != nil {
 		return nil, nil, fmt.Errorf("moderation lifecycle registry: %w", err)
 	}
 	// scheduled posts: the erase step and export section are registered whether or not

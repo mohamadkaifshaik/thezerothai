@@ -242,7 +242,18 @@
     "website": "https://example.com/me"
   },
   "reports": {
-    "reports": [],
+    "reports": [
+      {
+        "createdAt": "<time>",
+        "id": "00000000000000000000000000000609",
+        "note": "golden report",
+        "reason": "HARASSMENT",
+        "status": "OPEN",
+        "targetHandle": "<handle:x>",
+        "targetPublicId": "u2xxxxxxxxxxxxxxxxxxxxxxxxx",
+        "targetType": "ACCOUNT"
+      }
+    ],
     "userId": "<uid:A>"
   },
   "scheduled": {
