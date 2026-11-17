@@ -523,7 +523,11 @@ type GetTrendsResponse struct {
 	// Best first; at most limit.
 	Trends []*Trend `protobuf:"bytes,1,rep,name=trends,proto3" json:"trends,omitempty"`
 	// When the list was computed. Unset when there is no list yet.
-	ComputedAt    *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
+	ComputedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
+	// The newest hashtag, read when the answer is loaded (a tag used by an ACTIVE account's newest visible post, not denied
+	// or hidden; no minimum author count, no account-age rule). Unset when there is none, and unset for a prefix answer.
+	// post_count is 0 here. Not counted in limit.
+	Latest        *Trend `protobuf:"bytes,3,opt,name=latest,proto3" json:"latest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -568,6 +572,13 @@ func (x *GetTrendsResponse) GetTrends() []*Trend {
 func (x *GetTrendsResponse) GetComputedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.ComputedAt
+	}
+	return nil
+}
+
+func (x *GetTrendsResponse) GetLatest() *Trend {
+	if x != nil {
+		return x.Latest
 	}
 	return nil
 }
@@ -836,11 +847,12 @@ const file_dzeroth_search_v1_search_proto_rawDesc = "" +
 	"\x03tag\x18\x01 \x01(\tR\x03tag\x12\x1d\n" +
 	"\n" +
 	"post_count\x18\x02 \x01(\x03R\tpostCount\x12\x12\n" +
-	"\x04rank\x18\x03 \x01(\x05R\x04rank\"\x82\x01\n" +
+	"\x04rank\x18\x03 \x01(\x05R\x04rank\"\xb4\x01\n" +
 	"\x11GetTrendsResponse\x120\n" +
 	"\x06trends\x18\x01 \x03(\v2\x18.dzeroth.search.v1.TrendR\x06trends\x12;\n" +
 	"\vcomputed_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"computedAt\"f\n" +
+	"computedAt\x120\n" +
+	"\x06latest\x18\x03 \x01(\v2\x18.dzeroth.search.v1.TrendR\x06latest\"f\n" +
 	"\x12SearchListsRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
@@ -908,23 +920,24 @@ var file_dzeroth_search_v1_search_proto_depIdxs = []int32{
 	13, // 2: dzeroth.search.v1.SearchPostsResponse.posts:type_name -> dzeroth.posts.v1.PostView
 	6,  // 3: dzeroth.search.v1.GetTrendsResponse.trends:type_name -> dzeroth.search.v1.Trend
 	14, // 4: dzeroth.search.v1.GetTrendsResponse.computed_at:type_name -> google.protobuf.Timestamp
-	15, // 5: dzeroth.search.v1.SearchListsResponse.lists:type_name -> dzeroth.lists.v1.ListInfo
-	16, // 6: dzeroth.search.v1.SearchCommunitiesResponse.communities:type_name -> dzeroth.communities.v1.Community
-	1,  // 7: dzeroth.search.v1.SearchService.SearchPeople:input_type -> dzeroth.search.v1.SearchPeopleRequest
-	3,  // 8: dzeroth.search.v1.SearchService.SearchPosts:input_type -> dzeroth.search.v1.SearchPostsRequest
-	5,  // 9: dzeroth.search.v1.SearchService.GetTrends:input_type -> dzeroth.search.v1.GetTrendsRequest
-	8,  // 10: dzeroth.search.v1.SearchService.SearchLists:input_type -> dzeroth.search.v1.SearchListsRequest
-	10, // 11: dzeroth.search.v1.SearchService.SearchCommunities:input_type -> dzeroth.search.v1.SearchCommunitiesRequest
-	2,  // 12: dzeroth.search.v1.SearchService.SearchPeople:output_type -> dzeroth.search.v1.SearchPeopleResponse
-	4,  // 13: dzeroth.search.v1.SearchService.SearchPosts:output_type -> dzeroth.search.v1.SearchPostsResponse
-	7,  // 14: dzeroth.search.v1.SearchService.GetTrends:output_type -> dzeroth.search.v1.GetTrendsResponse
-	9,  // 15: dzeroth.search.v1.SearchService.SearchLists:output_type -> dzeroth.search.v1.SearchListsResponse
-	11, // 16: dzeroth.search.v1.SearchService.SearchCommunities:output_type -> dzeroth.search.v1.SearchCommunitiesResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	6,  // 5: dzeroth.search.v1.GetTrendsResponse.latest:type_name -> dzeroth.search.v1.Trend
+	15, // 6: dzeroth.search.v1.SearchListsResponse.lists:type_name -> dzeroth.lists.v1.ListInfo
+	16, // 7: dzeroth.search.v1.SearchCommunitiesResponse.communities:type_name -> dzeroth.communities.v1.Community
+	1,  // 8: dzeroth.search.v1.SearchService.SearchPeople:input_type -> dzeroth.search.v1.SearchPeopleRequest
+	3,  // 9: dzeroth.search.v1.SearchService.SearchPosts:input_type -> dzeroth.search.v1.SearchPostsRequest
+	5,  // 10: dzeroth.search.v1.SearchService.GetTrends:input_type -> dzeroth.search.v1.GetTrendsRequest
+	8,  // 11: dzeroth.search.v1.SearchService.SearchLists:input_type -> dzeroth.search.v1.SearchListsRequest
+	10, // 12: dzeroth.search.v1.SearchService.SearchCommunities:input_type -> dzeroth.search.v1.SearchCommunitiesRequest
+	2,  // 13: dzeroth.search.v1.SearchService.SearchPeople:output_type -> dzeroth.search.v1.SearchPeopleResponse
+	4,  // 14: dzeroth.search.v1.SearchService.SearchPosts:output_type -> dzeroth.search.v1.SearchPostsResponse
+	7,  // 15: dzeroth.search.v1.SearchService.GetTrends:output_type -> dzeroth.search.v1.GetTrendsResponse
+	9,  // 16: dzeroth.search.v1.SearchService.SearchLists:output_type -> dzeroth.search.v1.SearchListsResponse
+	11, // 17: dzeroth.search.v1.SearchService.SearchCommunities:output_type -> dzeroth.search.v1.SearchCommunitiesResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_search_v1_search_proto_init() }

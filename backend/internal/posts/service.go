@@ -303,6 +303,26 @@ func (s *service) CreatedAfter(ctx context.Context, after Position, limit int) (
 	return s.repo.CreatedAfter(ctx, after, limit)
 }
 
+// recentRepo is the newest-first query; FirestoreRepo has it. A Repo without it refuses Recent.
+type recentRepo interface {
+	Recent(ctx context.Context, limit int) ([]*Post, error)
+}
+
+// Recent implements RecentReader. The posts are PROJECTED (see RecentReader) and are never cached.
+func (s *service) Recent(ctx context.Context, limit int) ([]*Post, error) {
+	r, ok := s.repo.(recentRepo)
+	if !ok {
+		return nil, fmt.Errorf("posts: Recent needs the newest-first query")
+	}
+	if limit <= 0 {
+		limit = MaxRecentLimit
+	}
+	if limit > MaxRecentLimit {
+		limit = MaxRecentLimit
+	}
+	return r.Recent(ctx, limit)
+}
+
 // fill puts results of a read that started at readAt in the posts cache (every read path fills it),
 // skipping posts this instance deleted since the read began.
 func (s *service) fill(ps []*Post, readAt time.Time) {

@@ -241,6 +241,10 @@ message GetTrendsResponse {
   repeated Trend trends = 1;
   // When the list was computed. Unset when there is no list yet.
   google.protobuf.Timestamp computed_at = 2;
+  // The newest hashtag, read when the answer is loaded (a tag used by an ACTIVE account's newest visible post, not denied
+  // or hidden; no minimum author count, no account-age rule). Unset when there is none, and unset for a prefix answer.
+  // post_count is 0 here. Not counted in limit.
+  Trend latest = 3;
 }
 
 message SearchListsRequest {

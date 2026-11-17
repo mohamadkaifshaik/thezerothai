@@ -119,12 +119,16 @@ class SearchCommunitiesPage {
 }
 
 class TrendsResult {
-  const TrendsResult({this.trends = const [], this.computedAt});
+  const TrendsResult({this.trends = const [], this.computedAt, this.latest});
 
   final List<Trend> trends;
 
   /// When the server computed the list; null when there is no list yet.
   final DateTime? computedAt;
+
+  /// The newest hashtag (the Latest row), null when the server has none or the
+  /// answer is for a prefix.
+  final Trend? latest;
 }
 
 /// The only caller of SearchService. Read-only: no idempotency
@@ -303,6 +307,7 @@ class ConnectSearchRepository implements SearchRepository {
       computedAt: response.hasComputedAt()
           ? response.computedAt.toDateTime()
           : null,
+      latest: response.hasLatest() ? response.latest : null,
     );
   }
 }
