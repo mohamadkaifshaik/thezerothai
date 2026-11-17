@@ -88,7 +88,7 @@ final $typed_data.Uint8List exportFormatDescriptor = $convert.base64Decode(
 const Profile$json = {
   '1': 'Profile',
   '2': [
-    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '8': {}, '10': 'userId'},
     {'1': 'handle', '3': 2, '4': 1, '5': 9, '10': 'handle'},
     {'1': 'display_name', '3': 3, '4': 1, '5': 9, '10': 'displayName'},
     {'1': 'bio', '3': 4, '4': 1, '5': 9, '10': 'bio'},
@@ -126,6 +126,7 @@ const Profile$json = {
       '6': '.dzeroth.identity.v1.DmPolicy',
       '10': 'dmPolicy'
     },
+    {'1': 'public_id', '3': 21, '4': 1, '5': 9, '8': {}, '10': 'publicId'},
   ],
   '9': [
     {'1': 13, '2': 14},
@@ -136,19 +137,20 @@ const Profile$json = {
 
 /// Descriptor for `Profile`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List profileDescriptor = $convert.base64Decode(
-    'CgdQcm9maWxlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZBIWCgZoYW5kbGUYAiABKAlSBmhhbm'
-    'RsZRIhCgxkaXNwbGF5X25hbWUYAyABKAlSC2Rpc3BsYXlOYW1lEhAKA2JpbxgEIAEoCVIDYmlv'
-    'Eh0KCmF2YXRhcl91cmwYBSABKAlSCWF2YXRhclVybBIoChBhdmF0YXJfdGh1bWJfdXJsGAYgAS'
-    'gJUg5hdmF0YXJUaHVtYlVybBIdCgppc19wcml2YXRlGAcgASgIUglpc1ByaXZhdGUSGgoIdmVy'
-    'aWZpZWQYCCABKAhSCHZlcmlmaWVkEicKD2ZvbGxvd2Vyc19jb3VudBgJIAEoA1IOZm9sbG93ZX'
-    'JzQ291bnQSJwoPZm9sbG93aW5nX2NvdW50GAogASgDUg5mb2xsb3dpbmdDb3VudBIfCgtwb3N0'
-    'c19jb3VudBgLIAEoA1IKcG9zdHNDb3VudBI5CgpjcmVhdGVkX2F0GAwgASgLMhouZ29vZ2xlLn'
-    'Byb3RvYnVmLlRpbWVzdGFtcFIJY3JlYXRlZEF0EhoKCGxvY2F0aW9uGA8gASgJUghsb2NhdGlv'
-    'bhIYCgd3ZWJzaXRlGBAgASgJUgd3ZWJzaXRlEiQKDnBpbm5lZF9wb3N0X2lkGBEgASgJUgxwaW'
-    '5uZWRQb3N0SWQSMwoVc3Vic2NyaXB0aW9uX3ZlcmlmaWVkGBIgASgIUhRzdWJzY3JpcHRpb25W'
-    'ZXJpZmllZBIjCg1yZWFkX3JlY2VpcHRzGBQgASgIUgxyZWFkUmVjZWlwdHMSOgoJZG1fcG9saW'
-    'N5GBMgASgOMh0uZHplcm90aC5pZGVudGl0eS52MS5EbVBvbGljeVIIZG1Qb2xpY3lKBAgNEA5K'
-    'BAgOEA9SCmJhbm5lcl91cmxSEGJhbm5lcl90aHVtYl91cmw=');
+    'CgdQcm9maWxlEh0KB3VzZXJfaWQYASABKAlCBOjgGAFSBnVzZXJJZBIWCgZoYW5kbGUYAiABKA'
+    'lSBmhhbmRsZRIhCgxkaXNwbGF5X25hbWUYAyABKAlSC2Rpc3BsYXlOYW1lEhAKA2JpbxgEIAEo'
+    'CVIDYmlvEh0KCmF2YXRhcl91cmwYBSABKAlSCWF2YXRhclVybBIoChBhdmF0YXJfdGh1bWJfdX'
+    'JsGAYgASgJUg5hdmF0YXJUaHVtYlVybBIdCgppc19wcml2YXRlGAcgASgIUglpc1ByaXZhdGUS'
+    'GgoIdmVyaWZpZWQYCCABKAhSCHZlcmlmaWVkEicKD2ZvbGxvd2Vyc19jb3VudBgJIAEoA1IOZm'
+    '9sbG93ZXJzQ291bnQSJwoPZm9sbG93aW5nX2NvdW50GAogASgDUg5mb2xsb3dpbmdDb3VudBIf'
+    'Cgtwb3N0c19jb3VudBgLIAEoA1IKcG9zdHNDb3VudBI5CgpjcmVhdGVkX2F0GAwgASgLMhouZ2'
+    '9vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIJY3JlYXRlZEF0EhoKCGxvY2F0aW9uGA8gASgJUghs'
+    'b2NhdGlvbhIYCgd3ZWJzaXRlGBAgASgJUgd3ZWJzaXRlEiQKDnBpbm5lZF9wb3N0X2lkGBEgAS'
+    'gJUgxwaW5uZWRQb3N0SWQSMwoVc3Vic2NyaXB0aW9uX3ZlcmlmaWVkGBIgASgIUhRzdWJzY3Jp'
+    'cHRpb25WZXJpZmllZBIjCg1yZWFkX3JlY2VpcHRzGBQgASgIUgxyZWFkUmVjZWlwdHMSOgoJZG'
+    '1fcG9saWN5GBMgASgOMh0uZHplcm90aC5pZGVudGl0eS52MS5EbVBvbGljeVIIZG1Qb2xpY3kS'
+    'IQoJcHVibGljX2lkGBUgASgJQgTo4BgDUghwdWJsaWNJZEoECA0QDkoECA4QD1IKYmFubmVyX3'
+    'VybFIQYmFubmVyX3RodW1iX3VybA==');
 
 @$core.Deprecated('Use createProfileRequestDescriptor instead')
 const CreateProfileRequest$json = {
@@ -320,8 +322,17 @@ final $typed_data.Uint8List getMeResponseDescriptor = $convert.base64Decode(
 const GetProfileRequest$json = {
   '1': 'GetProfileRequest',
   '2': [
-    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '9': 0, '10': 'userId'},
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '8': {}, '9': 0, '10': 'userId'},
     {'1': 'handle', '3': 2, '4': 1, '5': 9, '9': 0, '10': 'handle'},
+    {
+      '1': 'public_id',
+      '3': 3,
+      '4': 1,
+      '5': 9,
+      '8': {},
+      '9': 0,
+      '10': 'publicId'
+    },
   ],
   '8': [
     {'1': 'target'},
@@ -330,8 +341,9 @@ const GetProfileRequest$json = {
 
 /// Descriptor for `GetProfileRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List getProfileRequestDescriptor = $convert.base64Decode(
-    'ChFHZXRQcm9maWxlUmVxdWVzdBIZCgd1c2VyX2lkGAEgASgJSABSBnVzZXJJZBIYCgZoYW5kbG'
-    'UYAiABKAlIAFIGaGFuZGxlQggKBnRhcmdldA==');
+    'ChFHZXRQcm9maWxlUmVxdWVzdBIfCgd1c2VyX2lkGAEgASgJQgTo4BgBSABSBnVzZXJJZBIYCg'
+    'ZoYW5kbGUYAiABKAlIAFIGaGFuZGxlEiMKCXB1YmxpY19pZBgDIAEoCUIE6OAYA0gAUghwdWJs'
+    'aWNJZEIICgZ0YXJnZXQ=');
 
 @$core.Deprecated('Use getProfileResponseDescriptor instead')
 const GetProfileResponse$json = {

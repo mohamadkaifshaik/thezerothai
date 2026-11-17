@@ -64,6 +64,7 @@ syntax = "proto3";
 package dzeroth.lists.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "dzeroth/graph/v1/graph.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1;listsv1";
@@ -255,9 +256,9 @@ message GetListResponse {
 
 message ListUserListsRequest {
   // "" => the caller.
-  string owner_id = 1;
+  string owner_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   // Optional; only with the caller's own lists (see ListUserLists).
-  string contains_user_id = 2;
+  string contains_user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   // 0 => 20; max 50 (clamped).
   int32 page_size = 3;
   string page_token = 4;
@@ -274,7 +275,7 @@ message ListUserListsResponse {
 message AddListMemberRequest {
   string idempotency_key = 1;
   string list_id = 2;
-  string user_id = 3;
+  string user_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message AddListMemberResponse {
@@ -284,7 +285,7 @@ message AddListMemberResponse {
 message RemoveListMemberRequest {
   string idempotency_key = 1;
   string list_id = 2;
-  string user_id = 3;
+  string user_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message RemoveListMemberResponse {

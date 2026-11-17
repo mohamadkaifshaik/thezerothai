@@ -2357,7 +2357,7 @@ var File_dzeroth_communities_v1_communities_proto protoreflect.FileDescriptor
 
 const file_dzeroth_communities_v1_communities_proto_rawDesc = "" +
 	"\n" +
-	"(dzeroth/communities/v1/communities.proto\x12\x16dzeroth.communities.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1cdzeroth/graph/v1/graph.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"9\n" +
+	"(dzeroth/communities/v1/communities.proto\x12\x16dzeroth.communities.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1cdzeroth/graph/v1/graph.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"9\n" +
 	"\rCommunityRule\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\"P\n" +
@@ -2467,11 +2467,11 @@ const file_dzeroth_communities_v1_communities_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12!\n" +
 	"\fcommunity_id\x18\x02 \x01(\tR\vcommunityId\x12\x17\n" +
 	"\apost_id\x18\x03 \x01(\tR\x06postId\"\x1e\n" +
-	"\x1cRestoreCommunityPostResponse\"\xbd\x01\n" +
+	"\x1cRestoreCommunityPostResponse\"\xc3\x01\n" +
 	"\x14SetMemberRoleRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12!\n" +
-	"\fcommunity_id\x18\x02 \x01(\tR\vcommunityId\x12\x17\n" +
-	"\auser_id\x18\x03 \x01(\tR\x06userId\x12@\n" +
+	"\fcommunity_id\x18\x02 \x01(\tR\vcommunityId\x12\x1d\n" +
+	"\auser_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12@\n" +
 	"\x06action\x18\x04 \x01(\x0e2(.dzeroth.communities.v1.MemberRoleActionR\x06action\"\x93\x01\n" +
 	"\x15SetMemberRoleResponse\x129\n" +
 	"\x04role\x18\x01 \x01(\x0e2%.dzeroth.communities.v1.CommunityRoleR\x04role\x12?\n" +

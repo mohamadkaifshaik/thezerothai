@@ -155,15 +155,15 @@ final $typed_data.Uint8List scheduledPostFailureDescriptor = $convert.base64Deco
 const Mention$json = {
   '1': 'Mention',
   '2': [
-    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '8': {}, '10': 'userId'},
     {'1': 'handle', '3': 2, '4': 1, '5': 9, '10': 'handle'},
   ],
 };
 
 /// Descriptor for `Mention`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List mentionDescriptor = $convert.base64Decode(
-    'CgdNZW50aW9uEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZBIWCgZoYW5kbGUYAiABKAlSBmhhbm'
-    'RsZQ==');
+    'CgdNZW50aW9uEh0KB3VzZXJfaWQYASABKAlCBOjgGAFSBnVzZXJJZBIWCgZoYW5kbGUYAiABKA'
+    'lSBmhhbmRsZQ==');
 
 @$core.Deprecated('Use pollChoiceDescriptor instead')
 const PollChoice$json = {

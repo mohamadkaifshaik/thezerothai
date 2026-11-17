@@ -45,6 +45,7 @@ class Profile extends $pb.GeneratedMessage {
     $core.bool? subscriptionVerified,
     DmPolicy? dmPolicy,
     $core.bool? readReceipts,
+    $core.String? publicId,
   }) {
     final result = Profile._();
     if (userId != null) result.userId = userId;
@@ -66,6 +67,7 @@ class Profile extends $pb.GeneratedMessage {
       result.subscriptionVerified = subscriptionVerified;
     if (dmPolicy != null) result.dmPolicy = dmPolicy;
     if (readReceipts != null) result.readReceipts = readReceipts;
+    if (publicId != null) result.publicId = publicId;
     return result;
   }
 
@@ -103,6 +105,7 @@ class Profile extends $pb.GeneratedMessage {
     ..aE<DmPolicy>(19, _omitFieldNames ? '' : 'dmPolicy',
         enumValues: DmPolicy.values)
     ..aOB(20, _omitFieldNames ? '' : 'readReceipts')
+    ..aOS(21, _omitFieldNames ? '' : 'publicId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -125,6 +128,8 @@ class Profile extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<Profile>(Profile.$_createMessage);
   static Profile? _defaultInstance;
 
+  /// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Still set; it holds the Firebase uid until the
+  /// edge translates user ids to public ids (common/v1/options.proto, user_ref).
   @$pb.TagNumber(1)
   $core.String get userId => $_getSZ(0);
   @$pb.TagNumber(1)
@@ -317,6 +322,18 @@ class Profile extends $pb.GeneratedMessage {
   $core.bool hasReadReceipts() => $_has(17);
   @$pb.TagNumber(20)
   void clearReadReceipts() => $_clearField(20);
+
+  /// The user's public id (FEATURE_PUBLIC_IDS): "u" + 26 lower-case base32 characters, random and immutable, never
+  /// derived from the uid or a time. Not set by any server yet: always "" until the public id rollout; clients must
+  /// fall back to user_id while it is "". "Is this me" compares it with GetMe's profile.public_id once it is set.
+  @$pb.TagNumber(21)
+  $core.String get publicId => $_getSZ(18);
+  @$pb.TagNumber(21)
+  set publicId($core.String value) => $_setString(18, value);
+  @$pb.TagNumber(21)
+  $core.bool hasPublicId() => $_has(18);
+  @$pb.TagNumber(21)
+  void clearPublicId() => $_clearField(21);
 }
 
 class CreateProfileRequest extends $pb.GeneratedMessage {
@@ -919,16 +936,18 @@ class GetMeResponse extends $pb.GeneratedMessage {
   $pb.PbList<$1.HomeTab> get homeTabs => $_getList(7);
 }
 
-enum GetProfileRequest_Target { userId, handle, notSet }
+enum GetProfileRequest_Target { userId, handle, publicId, notSet }
 
 class GetProfileRequest extends $pb.GeneratedMessage {
   factory GetProfileRequest({
     $core.String? userId,
     $core.String? handle,
+    $core.String? publicId,
   }) {
     final result = GetProfileRequest._();
     if (userId != null) result.userId = userId;
     if (handle != null) result.handle = handle;
+    if (publicId != null) result.publicId = publicId;
     return result;
   }
 
@@ -945,6 +964,7 @@ class GetProfileRequest extends $pb.GeneratedMessage {
       _GetProfileRequest_TargetByTag = {
     1: GetProfileRequest_Target.userId,
     2: GetProfileRequest_Target.handle,
+    3: GetProfileRequest_Target.publicId,
     0: GetProfileRequest_Target.notSet
   };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
@@ -952,9 +972,10 @@ class GetProfileRequest extends $pb.GeneratedMessage {
       package:
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.identity.v1'),
       createEmptyInstance: GetProfileRequest.$_createMessage)
-    ..oo(0, [1, 2])
+    ..oo(0, [1, 2, 3])
     ..aOS(1, _omitFieldNames ? '' : 'userId')
     ..aOS(2, _omitFieldNames ? '' : 'handle')
+    ..aOS(3, _omitFieldNames ? '' : 'publicId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -981,10 +1002,12 @@ class GetProfileRequest extends $pb.GeneratedMessage {
 
   @$pb.TagNumber(1)
   @$pb.TagNumber(2)
+  @$pb.TagNumber(3)
   GetProfileRequest_Target whichTarget() =>
       _GetProfileRequest_TargetByTag[$_whichOneof(0)]!;
   @$pb.TagNumber(1)
   @$pb.TagNumber(2)
+  @$pb.TagNumber(3)
   void clearTarget() => $_clearField($_whichOneof(0));
 
   @$pb.TagNumber(1)
@@ -1005,6 +1028,17 @@ class GetProfileRequest extends $pb.GeneratedMessage {
   $core.bool hasHandle() => $_has(1);
   @$pb.TagNumber(2)
   void clearHandle() => $_clearField(2);
+
+  /// A public id (FEATURE_PUBLIC_IDS, see Profile.public_id). Not served yet: today it answers INVALID_ARGUMENT +
+  /// VALIDATION "target", exactly like an empty target.
+  @$pb.TagNumber(3)
+  $core.String get publicId => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set publicId($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPublicId() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPublicId() => $_clearField(3);
 }
 
 class GetProfileResponse extends $pb.GeneratedMessage {

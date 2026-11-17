@@ -902,7 +902,7 @@ const RespondToJoinRequestRequest$json = {
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
     {'1': 'beacon_id', '3': 2, '4': 1, '5': 9, '10': 'beaconId'},
-    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '8': {}, '10': 'userId'},
     {
       '1': 'response',
       '3': 4,
@@ -917,9 +917,9 @@ const RespondToJoinRequestRequest$json = {
 /// Descriptor for `RespondToJoinRequestRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List respondToJoinRequestRequestDescriptor = $convert.base64Decode(
     'ChtSZXNwb25kVG9Kb2luUmVxdWVzdFJlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg'
-    '5pZGVtcG90ZW5jeUtleRIbCgliZWFjb25faWQYAiABKAlSCGJlYWNvbklkEhcKB3VzZXJfaWQY'
-    'AyABKAlSBnVzZXJJZBI8CghyZXNwb25zZRgEIAEoDjIgLmR6ZXJvdGguYmVhY29ucy52MS5Kb2'
-    'luUmVzcG9uc2VSCHJlc3BvbnNl');
+    '5pZGVtcG90ZW5jeUtleRIbCgliZWFjb25faWQYAiABKAlSCGJlYWNvbklkEh0KB3VzZXJfaWQY'
+    'AyABKAlCBOjgGAFSBnVzZXJJZBI8CghyZXNwb25zZRgEIAEoDjIgLmR6ZXJvdGguYmVhY29ucy'
+    '52MS5Kb2luUmVzcG9uc2VSCHJlc3BvbnNl');
 
 @$core.Deprecated('Use respondToJoinRequestResponseDescriptor instead')
 const RespondToJoinRequestResponse$json = {
@@ -971,15 +971,15 @@ const RemoveParticipantRequest$json = {
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
     {'1': 'beacon_id', '3': 2, '4': 1, '5': 9, '10': 'beaconId'},
-    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '8': {}, '10': 'userId'},
   ],
 };
 
 /// Descriptor for `RemoveParticipantRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List removeParticipantRequestDescriptor = $convert.base64Decode(
     'ChhSZW1vdmVQYXJ0aWNpcGFudFJlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg5pZG'
-    'VtcG90ZW5jeUtleRIbCgliZWFjb25faWQYAiABKAlSCGJlYWNvbklkEhcKB3VzZXJfaWQYAyAB'
-    'KAlSBnVzZXJJZA==');
+    'VtcG90ZW5jeUtleRIbCgliZWFjb25faWQYAiABKAlSCGJlYWNvbklkEh0KB3VzZXJfaWQYAyAB'
+    'KAlCBOjgGAFSBnVzZXJJZA==');
 
 @$core.Deprecated('Use removeParticipantResponseDescriptor instead')
 const RemoveParticipantResponse$json = {
@@ -1053,7 +1053,7 @@ final $typed_data.Uint8List listParticipantsResponseDescriptor = $convert.base64
 const ListSharedBeaconsRequest$json = {
   '1': 'ListSharedBeaconsRequest',
   '2': [
-    {'1': 'peer_user_id', '3': 1, '4': 1, '5': 9, '10': 'peerUserId'},
+    {'1': 'peer_user_id', '3': 1, '4': 1, '5': 9, '8': {}, '10': 'peerUserId'},
     {'1': 'limit', '3': 2, '4': 1, '5': 5, '10': 'limit'},
     {'1': 'page_token', '3': 3, '4': 1, '5': 9, '10': 'pageToken'},
   ],
@@ -1061,9 +1061,9 @@ const ListSharedBeaconsRequest$json = {
 
 /// Descriptor for `ListSharedBeaconsRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List listSharedBeaconsRequestDescriptor = $convert.base64Decode(
-    'ChhMaXN0U2hhcmVkQmVhY29uc1JlcXVlc3QSIAoMcGVlcl91c2VyX2lkGAEgASgJUgpwZWVyVX'
-    'NlcklkEhQKBWxpbWl0GAIgASgFUgVsaW1pdBIdCgpwYWdlX3Rva2VuGAMgASgJUglwYWdlVG9r'
-    'ZW4=');
+    'ChhMaXN0U2hhcmVkQmVhY29uc1JlcXVlc3QSJgoMcGVlcl91c2VyX2lkGAEgASgJQgTo4BgBUg'
+    'pwZWVyVXNlcklkEhQKBWxpbWl0GAIgASgFUgVsaW1pdBIdCgpwYWdlX3Rva2VuGAMgASgJUglw'
+    'YWdlVG9rZW4=');
 
 @$core.Deprecated('Use listSharedBeaconsResponseDescriptor instead')
 const ListSharedBeaconsResponse$json = {

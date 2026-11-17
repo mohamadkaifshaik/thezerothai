@@ -434,6 +434,24 @@ func (l *Lifecycle) identityStep(ctx context.Context, p Profile, st *jobStats) (
 	if outcome == HandleOwnerMismatch {
 		l.log.WarnContext(ctx, "handle_owner_mismatch", append([]any{"uid_hash", logger.HashUID(p.UserID)}, logger.TraceAttrs(ctx)...)...)
 	}
+	// The public id lookup names the uid, so it goes before users/{uid} (stepUserDoc), owner-checked like the handle.
+	// Never flag-gated: an id minted while public_ids was on is erased whatever the flag says now. "" = never minted.
+	// No tombstone: the id is never reissued (128 random bits; a mint is create-only). The log line never carries the id.
+	if p.PublicID != "" {
+		pub, err := l.repo.DeletePublicIDIfOwned(ctx, p.PublicID, p.UserID)
+		if err != nil {
+			return nil, false, logger.RedactErr(fmt.Errorf("identity: delete public id: %w", err), p.UserID, p.PublicID)
+		}
+		switch pub {
+		case HandleDeleted:
+			st.docs++
+		case HandleOwnerMismatch:
+			l.log.WarnContext(ctx, "public_id_owner_mismatch", append([]any{"uid_hash", logger.HashUID(p.UserID)}, logger.TraceAttrs(ctx)...)...)
+		}
+		if l.cache != nil {
+			l.cache.InvalidatePublicID(p.UserID, p.PublicID)
+		}
+	}
 	// The protected set lists uids, so the entry goes before users/{uid} is deleted (this step runs before
 	// stepUserDoc). Unconditional on isPrivate so a drifted entry cannot outlive the account.
 	if err := l.repo.RemoveFromProtectedSet(ctx, p.UserID); err != nil {

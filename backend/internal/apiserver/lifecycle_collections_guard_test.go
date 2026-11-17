@@ -78,6 +78,10 @@ var lifecycleCollections = []collectionRow{
 	{Name: "users", Disposition: erasedByStep, Step: "users_doc", Section: "profile", Owner: "identity", Cite: "ADR-0011 Q1 step 7 (users/{uid} last)"},
 	{Name: "private", Sub: true, Disposition: erasedByStep, Step: "identity", ExportNote: "reserved for PII, none at Stage 0 (ADR-0003 row users/{uid}/private)", Owner: "identity", Cite: "ADR-0011 Q1 step 5"},
 	{Name: "handles", Disposition: erasedByStep, Step: "identity", Section: "profile", Owner: "identity", Cite: "ADR-0011 Q1 step 5 (only when owned by the uid)"},
+	// PublicIds/{publicId} {uid, createdAt}: the lookup of the account's public id (identity/publicid.go). The identity
+	// step deletes it (only when it names the uid) before users/{uid} goes; no tombstone (128 random bits, create-only
+	// mint, never reissued). The id itself is exported in the profile section (profile.publicId).
+	{Name: "publicIds", Disposition: erasedByStep, Step: "identity", Section: "profile", Owner: "identity", Cite: "erasure and export follow the ADR-0011 Q1 pattern (step 5, owner-checked like handles); public id design owner-approved 2026-11-17, ADR pending"},
 	{Name: "exports", Disposition: erasedByStep, Step: "identity", ExportNote: "the export file itself", Owner: "identity", Cite: "ADR-0011 Q1 step 5 (objects first, then docs)"},
 	{Name: "quotas", Disposition: erasedByStep, Step: "identity", ExportNote: "operational counters, not user content", Owner: "platform", Cite: "ADR-0011 Q1 step 5"},
 	{Name: "privacy", Disposition: erasedByStep, Step: "identity", ExportNote: "protectedAuthors lists other users, so the uid entry is removed (ArrayRemove) and the doc is never exported", Owner: "identity", Cite: "ADR-0025 D2, D11"},
@@ -531,6 +535,16 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 			}
 		})
 	}
+	// The public id lookup (identity's publicIdsCollection) is found by the scan and needs its row.
+	t.Run("without the publicIds row", func(t *testing.T) {
+		rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == "publicIds" })
+		if len(rows) != len(lifecycleCollections)-1 {
+			t.Fatal("the table has no publicIds row to remove")
+		}
+		if p := strings.Join(coverageProblems(real, rows, steps, sections), "\n"); !strings.Contains(p, `collection "publicIds"`) || !strings.Contains(p, "has no row in lifecycleCollections") {
+			t.Errorf("removing the publicIds row went unnoticed: %q", p)
+		}
+	})
 	t.Run("without the lists row", func(t *testing.T) {
 		rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == "lists" })
 		if len(rows) != len(lifecycleCollections)-1 {

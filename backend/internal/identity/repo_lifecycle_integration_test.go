@@ -29,7 +29,7 @@ func lifecycleRepo(t *testing.T) (*identity.FirestoreRepo, *firestore.Client) {
 
 func seedProfile(t *testing.T, repo *identity.FirestoreRepo, uid, handle string) {
 	t.Helper()
-	if _, _, err := repo.CreateProfile(context.Background(), uid, handle, lower(handle), "Name "+uid, time.Now().UTC(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), uid, handle, lower(handle), "Name "+uid, "", time.Now().UTC(), nil); err != nil {
 		t.Fatalf("seed %s: %v", uid, err)
 	}
 }

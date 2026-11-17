@@ -19,10 +19,18 @@ const (
 	notificationsSubcollection = "notifications"
 )
 
+// publicIdsCollection holds publicIds/{publicId} -> {uid, createdAt}, the lookup of the public id (publicid.go).
+const publicIdsCollection = "publicIds"
+
 // ErrNotFound and ErrHandleTaken are the sentinel errors service.go maps to Connect codes/ErrorReasons.
 var (
 	ErrNotFound    = errors.New("identity: not found")
 	ErrHandleTaken = errors.New("identity: handle taken")
+	// ErrCreateConflict means a transaction's create-only write found its document already there, so nothing
+	// committed. With a public id in the transaction the usual cause is a racing signup of the same uid or handle (a rerun
+	// resolves it as a replay or ErrHandleTaken) and, in principle, a public id collision; the service reruns with a
+	// fresh id either way (at most maxPublicIDAttempts runs).
+	ErrCreateConflict = errors.New("identity: create-only write conflicted")
 )
 
 // ErrHandleChangeCooldown is returned by FirestoreRepo.ChangeHandle when uid's HandleChangedAt, read
@@ -75,6 +83,9 @@ type userDoc struct {
 	// AuthBaseline: hashes of the sign-up identity (auth_baseline.go), written once by CreateProfile. In userDoc so a
 	// whole-document rewrite cannot drop it; absent for accounts created before it existed.
 	AuthBaseline *AuthBaseline `firestore:"authBaseline,omitempty"`
+	// PublicID is the account's public id (publicid.go): absent until minted, then immutable. omitempty so a whole-document
+	// rewrite of an account without one never adds an empty field; carried by Profile so such a rewrite cannot drop it.
+	PublicID string `firestore:"publicId,omitempty"`
 	// Account-deletion job state: set once by DeleteAccount, absent for every live account. Pointers
 	// with omitempty, so a normal profile write never stores them; Profile carries them so a whole-doc rewrite
 	// (UpdateProfile) cannot drop them.
@@ -85,6 +96,7 @@ type userDoc struct {
 func (d userDoc) toProfile(uid string) Profile {
 	return Profile{
 		UserID:               uid,
+		PublicID:             d.PublicID,
 		Handle:               d.Handle,
 		HandleLower:          d.HandleLower,
 		DisplayName:          d.DisplayName,
@@ -117,6 +129,7 @@ func (d userDoc) toProfile(uid string) Profile {
 
 func profileToDoc(p Profile) userDoc {
 	return userDoc{
+		PublicID:             p.PublicID,
 		Handle:               p.Handle,
 		HandleLower:          p.HandleLower,
 		DisplayName:          p.DisplayName,
@@ -173,7 +186,8 @@ func statusToString(s AccountStatus) string {
 	}
 }
 
-// handleDoc is the handles/{handleLower} shape: uniqueness by transactional Create.
+// handleDoc is the handles/{handleLower} shape: uniqueness by transactional Create. publicIds/{publicId} has the
+// same shape (the owning uid and when the id was minted).
 type handleDoc struct {
 	UID       string    `firestore:"uid"`
 	CreatedAt time.Time `firestore:"createdAt"`
@@ -196,6 +210,10 @@ func (r *FirestoreRepo) userRef(uid string) *firestore.DocumentRef {
 
 func (r *FirestoreRepo) handleRef(handleLower string) *firestore.DocumentRef {
 	return r.client.Collection(handlesCollection).Doc(handleLower)
+}
+
+func (r *FirestoreRepo) publicIDRef(publicID string) *firestore.DocumentRef {
+	return r.client.Collection(publicIdsCollection).Doc(publicID)
 }
 
 // GetProfile reads users/{uid}.
@@ -253,17 +271,29 @@ func (r *FirestoreRepo) ResolveHandle(ctx context.Context, handleLower string) (
 // MaxResolveHandles). Handles with no
 // document are absent from the result (not an error).
 func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error) {
-	out := make(map[string]string, len(handleLowers))
-	if len(handleLowers) == 0 {
+	return r.resolveOwners(ctx, handlesCollection, handleLowers)
+}
+
+// ResolvePublicIDs: one GetAll on publicIds/{id} for every id (the service chunks at publicIDChunk). Ids with no
+// document are absent from the result (not an error). The errors never carry an id.
+func (r *FirestoreRepo) ResolvePublicIDs(ctx context.Context, publicIDs []string) (map[string]string, error) {
+	return r.resolveOwners(ctx, publicIdsCollection, publicIDs)
+}
+
+// resolveOwners is one GetAll on collection/{key} for every key, each document a handleDoc; it maps key -> uid. Keys
+// with no document are absent. The error text names the collection and a count, never a key.
+func (r *FirestoreRepo) resolveOwners(ctx context.Context, collection string, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	if len(keys) == 0 {
 		return out, nil
 	}
-	refs := make([]*firestore.DocumentRef, len(handleLowers))
-	for i, h := range handleLowers {
-		refs[i] = r.handleRef(h)
+	refs := make([]*firestore.DocumentRef, len(keys))
+	for i, k := range keys {
+		refs[i] = r.client.Collection(collection).Doc(k)
 	}
 	snaps, err := r.client.GetAll(ctx, refs)
 	if err != nil {
-		return nil, fmt.Errorf("identity: resolve %d handles: %w", len(handleLowers), err)
+		return nil, fmt.Errorf("identity: resolve %d %s: %w", len(keys), collection, err)
 	}
 	for i, snap := range snaps {
 		if !snap.Exists() {
@@ -271,20 +301,23 @@ func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []strin
 		}
 		var d handleDoc
 		if err := snap.DataTo(&d); err != nil {
-			return nil, fmt.Errorf("identity: decode handle %s: %w", handleLowers[i], err)
+			return nil, fmt.Errorf("identity: decode %s entry %d: %w", collection, i, err)
 		}
-		out[handleLowers[i]] = d.UID
+		out[keys[i]] = d.UID
 	}
 	return out, nil
 }
 
 // CreateProfile writes users, handles and the graph doc in one transaction; a replay (users/{uid} already exists)
 // writes nothing. authorize adds no Firestore operations; the baseline it returns (nil = none) is stored on the new
-// users document.
-func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (Profile, bool, error) {
+// users document. A non-empty publicID is stored on the users document and its publicIds/{publicID} lookup is created
+// (create-only) in the same transaction: one more write, no read. A commit that loses a create-only write (the lookup
+// already exists, or a racing signup created users/{uid} or the handle) is ErrCreateConflict and writes nothing.
+func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName, publicID string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (Profile, bool, error) {
 	var result Profile
 	replay := false
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
+		result, replay = Profile{}, false // the closure reruns on contention
 
 		userSnap, err := tx.Get(r.userRef(uid))
 		switch {
@@ -334,11 +367,15 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 			CreatedAt:    now,
 			UpdatedAt:    now,
 			AuthBaseline: baseline,
+			PublicID:     publicID,
 		}
 		b := store.NewFirestoreTxBatch(tx)
 		b.Create(r.userRef(uid), doc)
 		if !handleOwnedByCaller {
 			b.Create(r.handleRef(handleLower), handleDoc{UID: uid, CreatedAt: now})
+		}
+		if publicID != "" {
+			b.Create(r.publicIDRef(publicID), handleDoc{UID: uid, CreatedAt: now})
 		}
 		r.graph.InitGraph(b, uid, now)
 		if b.Err() != nil {
@@ -350,9 +387,56 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 		return nil
 	})
 	if err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			return Profile{}, false, ErrCreateConflict
+		}
 		return Profile{}, false, err
 	}
 	return result, replay, nil
+}
+
+// EnsurePublicID is the lazy mint: one transaction reads users/{uid} and, only when it is ACTIVE and has no publicId,
+// creates publicIds/{publicID} (create-only) and sets users/{uid}.publicId field-level (never a whole-document
+// rewrite). Two concurrent calls serialise on the users read: the loser reruns, finds the winner's id and writes
+// nothing, so a user never gets two ids or an orphan lookup. Cost: 1 read, plus 2 writes only when it mints.
+// It returns the profile as read (with the new id when it minted). ErrNotFound when the document is absent;
+// ErrCreateConflict when the lookup already exists (nothing written).
+func (r *FirestoreRepo) EnsurePublicID(ctx context.Context, uid, publicID string, now time.Time) (Profile, error) {
+	var out Profile
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
+		snap, err := tx.Get(r.userRef(uid))
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				return ErrNotFound
+			}
+			return fmt.Errorf("identity: get user for public id: %w", err)
+		}
+		var d userDoc
+		if err := snap.DataTo(&d); err != nil {
+			return fmt.Errorf("identity: decode user for public id: %w", err)
+		}
+		out = d.toProfile(uid)
+		if out.PublicID != "" || out.Status != AccountStatusActive {
+			return nil // already minted, or not ACTIVE (a DELETING account must never gain a lookup the erase step missed)
+		}
+		b := store.NewFirestoreTxBatch(tx)
+		b.Create(r.publicIDRef(publicID), handleDoc{UID: uid, CreatedAt: now})
+		b.Update(r.userRef(uid), []firestore.Update{{Path: "publicId", Value: publicID}})
+		if b.Err() != nil {
+			return b.Err()
+		}
+		out.PublicID = publicID
+		return nil
+	})
+	switch {
+	case err == nil:
+		return out, nil
+	case errors.Is(err, ErrNotFound):
+		return Profile{}, ErrNotFound
+	case status.Code(err) == codes.AlreadyExists:
+		return Profile{}, ErrCreateConflict
+	}
+	return Profile{}, fmt.Errorf("identity: ensure public id: %w", err)
 }
 
 // UpdateProfile reads and rewrites the whole document in one transaction (the extras are in userDoc, so they survive

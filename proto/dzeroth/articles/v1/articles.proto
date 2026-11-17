@@ -2,6 +2,7 @@ syntax = "proto3";
 package dzeroth.articles.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "dzeroth/posts/v1/posts.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -25,7 +26,7 @@ service ArticleService {
 
 message Article {
   string article_id = 1;
-  string author_id = 2;
+  string author_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   int64 revision = 3;
   string title = 4;
   // JSON array of validated structured blocks; never HTML. Empty in ListArticles responses: open an article

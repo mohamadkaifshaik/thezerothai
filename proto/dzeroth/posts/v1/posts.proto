@@ -9,6 +9,7 @@ package dzeroth.posts.v1;
 
 import "dzeroth/beacons/v1/beacons.proto";
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1;postsv1";
@@ -368,7 +369,7 @@ enum ScheduledPostFailure {
 }
 
 message Mention {
-  string user_id = 1;
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   string handle = 2;
 }
 

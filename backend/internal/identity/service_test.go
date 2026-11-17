@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +18,11 @@ import (
 // fakeRepo is an in-memory Repo for service-layer unit tests ("table-driven,
 // fakes"). No Firestore, no emulator.
 type fakeRepo struct {
+	// mu serialises the methods the concurrent public id tests reach (GetProfile, CreateProfile, EnsurePublicID,
+	// ResolvePublicIDs, GetProfiles, UnreadNotificationCount): each call is one "transaction".
+	mu        sync.Mutex
 	profiles  map[string]Profile
+	publicIDs map[string]string // publicIds/{id} -> uid
 	handles   map[string]string // handleLower -> uid
 	unread    map[string]int64
 	createErr error
@@ -37,17 +42,26 @@ type fakeRepo struct {
 
 	searchCalls int
 	searchArgs  []searchArg
+
+	// Public id counters: EnsurePublicID calls and the ones that wrote; ResolvePublicIDs calls and the ids each read.
+	ensureCalls, ensureWrites int
+	resolvePubCalls           int
+	resolvePubArgs            [][]string
+	createPublicIDs           []string // the publicID argument of every CreateProfile call
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
-		profiles: map[string]Profile{},
-		handles:  map[string]string{},
-		unread:   map[string]int64{},
+		profiles:  map[string]Profile{},
+		publicIDs: map[string]string{},
+		handles:   map[string]string{},
+		unread:    map[string]int64{},
 	}
 }
 
 func (f *fakeRepo) GetProfile(_ context.Context, uid string) (Profile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.getProfileCalls++
 	p, ok := f.profiles[uid]
 	if !ok {
@@ -81,8 +95,11 @@ func (f *fakeRepo) ResolveHandles(ctx context.Context, handleLowers []string) (m
 	return out, nil
 }
 
-func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (Profile, bool, error) {
+func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName, publicID string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (Profile, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.createCalls++
+	f.createPublicIDs = append(f.createPublicIDs, publicID)
 	if f.createErr != nil {
 		return Profile{}, false, f.createErr
 	}
@@ -99,13 +116,19 @@ func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, 
 	if _, taken := f.handles[handleLower]; taken {
 		return Profile{}, false, ErrHandleTaken
 	}
+	if _, taken := f.publicIDs[publicID]; publicID != "" && taken {
+		return Profile{}, false, ErrCreateConflict // the create-only lookup lost: nothing committed
+	}
 	p := Profile{
 		UserID: uid, Handle: handle, HandleLower: handleLower, DisplayName: displayName,
 		Status: AccountStatusActive, CreatedAt: now, UpdatedAt: now,
-		AuthBaselineEnc: encodeAuthBaseline(baseline),
+		AuthBaselineEnc: encodeAuthBaseline(baseline), PublicID: publicID,
 	}
 	f.profiles[uid] = p
 	f.handles[handleLower] = uid
+	if publicID != "" {
+		f.publicIDs[publicID] = uid
+	}
 	return p, false, nil
 }
 
@@ -173,10 +196,52 @@ func (f *fakeRepo) ChangeHandle(_ context.Context, uid, newHandle, newHandleLowe
 }
 
 func (f *fakeRepo) UnreadNotificationCount(_ context.Context, uid string, _ time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.unread[uid], nil
 }
 
+// EnsurePublicID mirrors FirestoreRepo.EnsurePublicID: under the lock (one serialisable transaction) it reads the
+// profile and mints only for an ACTIVE profile without an id; a taken lookup is ErrCreateConflict with nothing written.
+func (f *fakeRepo) EnsurePublicID(_ context.Context, uid, publicID string, _ time.Time) (Profile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ensureCalls++
+	p, ok := f.profiles[uid]
+	if !ok {
+		return Profile{}, ErrNotFound
+	}
+	if p.PublicID != "" || p.Status != AccountStatusActive {
+		return p, nil
+	}
+	if _, taken := f.publicIDs[publicID]; taken {
+		return Profile{}, ErrCreateConflict
+	}
+	f.ensureWrites++
+	p.PublicID = publicID
+	f.profiles[uid] = p
+	f.publicIDs[publicID] = uid
+	return p, nil
+}
+
+// ResolvePublicIDs mirrors FirestoreRepo.ResolvePublicIDs: one GetAll, absent ids absent.
+func (f *fakeRepo) ResolvePublicIDs(_ context.Context, ids []string) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resolvePubCalls++
+	f.resolvePubArgs = append(f.resolvePubArgs, append([]string(nil), ids...))
+	out := map[string]string{}
+	for _, id := range ids {
+		if uid, ok := f.publicIDs[id]; ok {
+			out[id] = uid
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeRepo) GetProfiles(_ context.Context, uids []string) (map[string]Profile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.getProfilesCalls++
 	out := make(map[string]Profile, len(uids))
 	for _, uid := range uids {
@@ -440,7 +505,7 @@ func (f *fakeBlockChecker) IsFollowing(_ context.Context, viewerUID, targetUID s
 // TestGetProfile_BlockedByTarget_NotFound: byte-identical NOT_FOUND to a missing profile.
 func TestGetProfile_BlockedByTarget_NotFound(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", "", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	bc := &fakeBlockChecker{blockedBy: map[string]map[string]bool{"uid-a": {"uid-b": true}}}
@@ -464,7 +529,7 @@ func TestGetProfile_BlockedByTarget_NotFound(t *testing.T) {
 // blocked, so they can unblock" — IsBlockedBy is asked "did the TARGET block the VIEWER", never the reverse.
 func TestGetProfile_CallerBlocksTarget_StillVisible(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", "", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	// uid-b never blocked uid-a; only uid-a -> uid-b's block would live in graph.blocked, which this
@@ -483,7 +548,7 @@ func TestGetProfile_CallerBlocksTarget_StillVisible(t *testing.T) {
 
 func TestGetProfile_NilBlockChecker_NoOp(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", "", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	svc := newTestService(repo) // no WithBlockChecker
@@ -494,7 +559,7 @@ func TestGetProfile_NilBlockChecker_NoOp(t *testing.T) {
 
 func TestGetProfile_OwnProfile_SkipsBlockCheck(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-a", "Alice", "alice", "Alice", time.Now(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-a", "Alice", "alice", "Alice", "", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	bc := &fakeBlockChecker{blockedBy: map[string]map[string]bool{"uid-a": {"uid-a": true}}}
@@ -514,7 +579,7 @@ func (f *fakeFeatureFlags) EnabledFeatures(string) []string { return f.enabled }
 
 func TestGetMe_EnabledFeatures(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", time.Now(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", "", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithFeatureFlags(&fakeFeatureFlags{enabled: []string{"graph"}})).(*service)
@@ -529,7 +594,7 @@ func TestGetMe_EnabledFeatures(t *testing.T) {
 
 func TestGetMe_NilFeatureFlags_NoOp(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", time.Now(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", "", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	svc := newTestService(repo)
@@ -555,7 +620,7 @@ func TestGetProfiles_CacheFirstThenBatch(t *testing.T) {
 	}
 	// uid-c exists in the repo but was never fetched through svc, so it's a cache miss; uid-ghost doesn't
 	// exist at all and must be silently dropped. Seeded directly on the repo (bypassing handle validation).
-	if _, _, err := repo.CreateProfile(ctx, "uid-c", "handlec", "handlec", "Name", time.Now(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-c", "handlec", "handlec", "Name", "", time.Now(), nil); err != nil {
 		t.Fatalf("seed uid-c: %v", err)
 	}
 

@@ -243,8 +243,10 @@ func (ExportFormat) EnumDescriptor() ([]byte, []int) {
 }
 
 type Profile struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	UserId string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Still set; it holds the Firebase uid until the
+	// edge translates user ids to public ids (common/v1/options.proto, user_ref).
+	UserId string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	// Display form; uniqueness is on the lower-cased form. 3-15 chars, [A-Za-z0-9_].
 	Handle string `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
 	// 1-50 chars after NFC normalization.
@@ -290,7 +292,11 @@ type Profile struct {
 	// Always UNSPECIFIED while FEATURE_DM_POLICY is globally off, in every Profile including the owner's own; the stored
 	// value returns when the flag is back on. Clients grey out a recipient whose policy is FOLLOWING_ONLY unless that
 	// account follows the caller (the server decides: SendMessage answers CANNOT_MESSAGE).
-	DmPolicy      DmPolicy `protobuf:"varint,19,opt,name=dm_policy,json=dmPolicy,proto3,enum=dzeroth.identity.v1.DmPolicy" json:"dm_policy,omitempty"`
+	DmPolicy DmPolicy `protobuf:"varint,19,opt,name=dm_policy,json=dmPolicy,proto3,enum=dzeroth.identity.v1.DmPolicy" json:"dm_policy,omitempty"`
+	// The user's public id (FEATURE_PUBLIC_IDS): "u" + 26 lower-case base32 characters, random and immutable, never
+	// derived from the uid or a time. Not set by any server yet: always "" until the public id rollout; clients must
+	// fall back to user_id while it is "". "Is this me" compares it with GetMe's profile.public_id once it is set.
+	PublicId      string `protobuf:"bytes,21,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -449,6 +455,13 @@ func (x *Profile) GetDmPolicy() DmPolicy {
 		return x.DmPolicy
 	}
 	return DmPolicy_DM_POLICY_UNSPECIFIED
+}
+
+func (x *Profile) GetPublicId() string {
+	if x != nil {
+		return x.PublicId
+	}
+	return ""
 }
 
 type CreateProfileRequest struct {
@@ -901,6 +914,7 @@ type GetProfileRequest struct {
 	//
 	//	*GetProfileRequest_UserId
 	//	*GetProfileRequest_Handle
+	//	*GetProfileRequest_PublicId
 	Target        isGetProfileRequest_Target `protobuf_oneof:"target"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -961,6 +975,15 @@ func (x *GetProfileRequest) GetHandle() string {
 	return ""
 }
 
+func (x *GetProfileRequest) GetPublicId() string {
+	if x != nil {
+		if x, ok := x.Target.(*GetProfileRequest_PublicId); ok {
+			return x.PublicId
+		}
+	}
+	return ""
+}
+
 type isGetProfileRequest_Target interface {
 	isGetProfileRequest_Target()
 }
@@ -974,9 +997,17 @@ type GetProfileRequest_Handle struct {
 	Handle string `protobuf:"bytes,2,opt,name=handle,proto3,oneof"`
 }
 
+type GetProfileRequest_PublicId struct {
+	// A public id (FEATURE_PUBLIC_IDS, see Profile.public_id). Not served yet: today it answers INVALID_ARGUMENT +
+	// VALIDATION "target", exactly like an empty target.
+	PublicId string `protobuf:"bytes,3,opt,name=public_id,json=publicId,proto3,oneof"`
+}
+
 func (*GetProfileRequest_UserId) isGetProfileRequest_Target() {}
 
 func (*GetProfileRequest_Handle) isGetProfileRequest_Target() {}
+
+func (*GetProfileRequest_PublicId) isGetProfileRequest_Target() {}
 
 type GetProfileResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2037,9 +2068,9 @@ var File_dzeroth_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xbd\x05\n" +
-	"\aProfile\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
+	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe6\x05\n" +
+	"\aProfile\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x10\n" +
 	"\x03bio\x18\x04 \x01(\tR\x03bio\x12\x1d\n" +
@@ -2061,7 +2092,8 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x0epinned_post_id\x18\x11 \x01(\tR\fpinnedPostId\x123\n" +
 	"\x15subscription_verified\x18\x12 \x01(\bR\x14subscriptionVerified\x12#\n" +
 	"\rread_receipts\x18\x14 \x01(\bR\freadReceipts\x12:\n" +
-	"\tdm_policy\x18\x13 \x01(\x0e2\x1d.dzeroth.identity.v1.DmPolicyR\bdmPolicyJ\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0fR\n" +
+	"\tdm_policy\x18\x13 \x01(\x0e2\x1d.dzeroth.identity.v1.DmPolicyR\bdmPolicy\x12!\n" +
+	"\tpublic_id\x18\x15 \x01(\tB\x04\xe8\xe0\x18\x03R\bpublicIdJ\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0fR\n" +
 	"banner_urlR\x10banner_thumb_url\"z\n" +
 	"\x14CreateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x16\n" +
@@ -2087,10 +2119,11 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x10enabled_features\x18\x05 \x03(\tR\x0fenabledFeatures\x12?\n" +
 	"\x1cpending_follow_request_count\x18\x06 \x01(\x03R\x19pendingFollowRequestCount\x12:\n" +
 	"\x19unread_conversation_count\x18\a \x01(\x03R\x17unreadConversationCount\x127\n" +
-	"\thome_tabs\x18\b \x03(\v2\x1a.dzeroth.common.v1.HomeTabR\bhomeTabs\"R\n" +
-	"\x11GetProfileRequest\x12\x19\n" +
-	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x12\x18\n" +
-	"\x06handle\x18\x02 \x01(\tH\x00R\x06handleB\b\n" +
+	"\thome_tabs\x18\b \x03(\v2\x1a.dzeroth.common.v1.HomeTabR\bhomeTabs\"}\n" +
+	"\x11GetProfileRequest\x12\x1f\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01H\x00R\x06userId\x12\x18\n" +
+	"\x06handle\x18\x02 \x01(\tH\x00R\x06handle\x12#\n" +
+	"\tpublic_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x03H\x00R\bpublicIdB\b\n" +
 	"\x06target\"L\n" +
 	"\x12GetProfileResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\xc4\x04\n" +
@@ -2327,6 +2360,7 @@ func file_dzeroth_identity_v1_identity_proto_init() {
 	file_dzeroth_identity_v1_identity_proto_msgTypes[9].OneofWrappers = []any{
 		(*GetProfileRequest_UserId)(nil),
 		(*GetProfileRequest_Handle)(nil),
+		(*GetProfileRequest_PublicId)(nil),
 	}
 	file_dzeroth_identity_v1_identity_proto_msgTypes[11].OneofWrappers = []any{}
 	file_dzeroth_identity_v1_identity_proto_msgTypes[25].OneofWrappers = []any{}

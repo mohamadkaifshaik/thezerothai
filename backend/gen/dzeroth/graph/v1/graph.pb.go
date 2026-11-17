@@ -1740,9 +1740,9 @@ var File_dzeroth_graph_v1_graph_proto protoreflect.FileDescriptor
 
 const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"\n" +
-	"\x1cdzeroth/graph/v1/graph.proto\x12\x10dzeroth.graph.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9d\x01\n" +
-	"\fRelationship\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12@\n" +
+	"\x1cdzeroth/graph/v1/graph.proto\x12\x10dzeroth.graph.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa3\x01\n" +
+	"\fRelationship\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12@\n" +
 	"\ffollow_state\x18\x02 \x01(\x0e2\x1d.dzeroth.graph.v1.FollowStateR\vfollowState\x12\x1a\n" +
 	"\bblocking\x18\x03 \x01(\bR\bblocking\x12\x16\n" +
 	"\x06muting\x18\x04 \x01(\bR\x06muting\"\xcd\x01\n" +
@@ -1750,15 +1750,15 @@ const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"\x04user\x18\x01 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x04user\x120\n" +
 	"\x05since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\x12B\n" +
 	"\frelationship\x18\x03 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\x12\x10\n" +
-	"\x03bio\x18\x04 \x01(\tR\x03bio\"Q\n" +
+	"\x03bio\x18\x04 \x01(\tR\x03bio\"W\n" +
 	"\rFollowRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"T\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"T\n" +
 	"\x0eFollowResponse\x12B\n" +
-	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"S\n" +
+	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"Y\n" +
 	"\x0fUnfollowRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"V\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"V\n" +
 	"\x10UnfollowResponse\x12B\n" +
 	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"W\n" +
 	"\x19ListFollowRequestsRequest\x12\x1b\n" +
@@ -1767,39 +1767,39 @@ const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\"\x80\x01\n" +
 	"\x1aListFollowRequestsResponse\x12:\n" +
 	"\brequests\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.UserListItemR\brequests\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x8c\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x92\x01\n" +
 	"\x1dRespondToFollowRequestRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12*\n" +
-	"\x11requester_user_id\x18\x02 \x01(\tR\x0frequesterUserId\x12\x16\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x120\n" +
+	"\x11requester_user_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x0frequesterUserId\x12\x16\n" +
 	"\x06accept\x18\x03 \x01(\bR\x06accept\"d\n" +
 	"\x1eRespondToFollowRequestResponse\x12B\n" +
-	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"P\n" +
+	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"V\n" +
 	"\fBlockRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"S\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"S\n" +
 	"\rBlockResponse\x12B\n" +
-	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"R\n" +
+	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"X\n" +
 	"\x0eUnblockRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"U\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"U\n" +
 	"\x0fUnblockResponse\x12B\n" +
-	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"O\n" +
+	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"U\n" +
 	"\vMuteRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"R\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"R\n" +
 	"\fMuteResponse\x12B\n" +
-	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"Q\n" +
+	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"W\n" +
 	"\rUnmuteRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"T\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"T\n" +
 	"\x0eUnmuteResponse\x12B\n" +
-	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"4\n" +
-	"\x17GetRelationshipsRequest\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\tR\auserIds\"`\n" +
+	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\":\n" +
+	"\x17GetRelationshipsRequest\x12\x1f\n" +
+	"\buser_ids\x18\x01 \x03(\tB\x04\xe8\xe0\x18\x01R\auserIds\"`\n" +
 	"\x18GetRelationshipsResponse\x12D\n" +
-	"\rrelationships\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.RelationshipR\rrelationships\"8\n" +
-	"\x1dGetProfileRelationshipRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\"\x85\x01\n" +
+	"\rrelationships\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.RelationshipR\rrelationships\">\n" +
+	"\x1dGetProfileRelationshipRequest\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\"\x85\x01\n" +
 	"\x1eGetProfileRelationshipResponse\x12B\n" +
 	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\x12\x1f\n" +
 	"\vfollowed_by\x18\x02 \x01(\bR\n" +
@@ -1808,17 +1808,17 @@ const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"\vmax_results\x18\x01 \x01(\x05R\n" +
 	"maxResults\"R\n" +
 	"\x1aListSuggestedUsersResponse\x124\n" +
-	"\x05users\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.UserListItemR\x05users\"k\n" +
-	"\x14ListFollowersRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1b\n" +
+	"\x05users\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.UserListItemR\x05users\"q\n" +
+	"\x14ListFollowersRequest\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x03 \x01(\tR\tpageToken\"u\n" +
 	"\x15ListFollowersResponse\x124\n" +
 	"\x05users\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.UserListItemR\x05users\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"k\n" +
-	"\x14ListFollowingRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1b\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"q\n" +
+	"\x14ListFollowingRequest\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x03 \x01(\tR\tpageToken\"u\n" +

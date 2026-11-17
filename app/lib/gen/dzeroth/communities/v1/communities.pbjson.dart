@@ -785,7 +785,7 @@ const SetMemberRoleRequest$json = {
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
     {'1': 'community_id', '3': 2, '4': 1, '5': 9, '10': 'communityId'},
-    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 3, '4': 1, '5': 9, '8': {}, '10': 'userId'},
     {
       '1': 'action',
       '3': 4,
@@ -800,9 +800,9 @@ const SetMemberRoleRequest$json = {
 /// Descriptor for `SetMemberRoleRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List setMemberRoleRequestDescriptor = $convert.base64Decode(
     'ChRTZXRNZW1iZXJSb2xlUmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDmlkZW1wb3'
-    'RlbmN5S2V5EiEKDGNvbW11bml0eV9pZBgCIAEoCVILY29tbXVuaXR5SWQSFwoHdXNlcl9pZBgD'
-    'IAEoCVIGdXNlcklkEkAKBmFjdGlvbhgEIAEoDjIoLmR6ZXJvdGguY29tbXVuaXRpZXMudjEuTW'
-    'VtYmVyUm9sZUFjdGlvblIGYWN0aW9u');
+    'RlbmN5S2V5EiEKDGNvbW11bml0eV9pZBgCIAEoCVILY29tbXVuaXR5SWQSHQoHdXNlcl9pZBgD'
+    'IAEoCUIE6OAYAVIGdXNlcklkEkAKBmFjdGlvbhgEIAEoDjIoLmR6ZXJvdGguY29tbXVuaXRpZX'
+    'MudjEuTWVtYmVyUm9sZUFjdGlvblIGYWN0aW9u');
 
 @$core.Deprecated('Use setMemberRoleResponseDescriptor instead')
 const SetMemberRoleResponse$json = {

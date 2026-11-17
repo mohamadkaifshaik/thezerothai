@@ -12,6 +12,7 @@
 package billingv1
 
 import (
+	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -494,7 +495,7 @@ var File_dzeroth_billing_v1_billing_proto protoreflect.FileDescriptor
 
 const file_dzeroth_billing_v1_billing_proto_rawDesc = "" +
 	"\n" +
-	" dzeroth/billing/v1/billing.proto\x12\x12dzeroth.billing.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x1a\n" +
+	" dzeroth/billing/v1/billing.proto\x12\x12dzeroth.billing.v1\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x1a\n" +
 	"\x18GetMySubscriptionRequest\"\xff\x02\n" +
 	"\x19GetMySubscriptionResponse\x128\n" +
 	"\x04tier\x18\x01 \x01(\x0e2$.dzeroth.billing.v1.SubscriptionTierR\x04tier\x12T\n" +
@@ -513,9 +514,9 @@ const file_dzeroth_billing_v1_billing_proto_rawDesc = "" +
 	"\x06period\x18\x03 \x01(\tR\x06period\x12 \n" +
 	"\vpurchasable\x18\x04 \x01(\bR\vpurchasable\"G\n" +
 	"\x1cEnsureBillingIdentityRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\"?\n" +
-	"\x1dEnsureBillingIdentityResponse\x12\x1e\n" +
-	"\vapp_user_id\x18\x01 \x01(\tR\tappUserId*\x8c\x01\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\"E\n" +
+	"\x1dEnsureBillingIdentityResponse\x12$\n" +
+	"\vapp_user_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x04R\tappUserId*\x8c\x01\n" +
 	"\x10SubscriptionTier\x12!\n" +
 	"\x1dSUBSCRIPTION_TIER_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16SUBSCRIPTION_TIER_FREE\x10\x01\x12\x1a\n" +

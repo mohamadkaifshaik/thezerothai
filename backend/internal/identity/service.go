@@ -61,6 +61,8 @@ type service struct {
 	// authAudit turns on the GetMe sign-in identity audit (auth_baseline.go); false = the comparison never runs.
 	authAudit    bool
 	authAuditLog *slog.Logger
+	// newPublicID draws a public id; nil means NewPublicID (crypto/rand). Tests replace it to force collisions.
+	newPublicID func() (string, error)
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
@@ -207,7 +209,8 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 			return s.signup.checkSignup(ctx, newSignupTarget(uid))
 		}
 	}
-	profile, _, err := s.repo.CreateProfile(ctx, uid, handle, handleLower, normalizeDisplayName(displayName), s.now().UTC(), authorize)
+	// While public_ids is not globally off the same transaction also creates the public id (publicIds/{id}, 1 write).
+	profile, err := s.createProfileMinting(ctx, uid, handle, handleLower, normalizeDisplayName(displayName), authorize)
 	if err != nil {
 		switch {
 		case errors.Is(err, errSignupRefused), errors.Is(err, ErrAuthAdminRefused):
@@ -265,6 +268,8 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	if err != nil {
 		return MeResult{}, err
 	}
+	// Lazy public id mint (public_ids not globally off, ACTIVE, no id yet): one transaction, else nothing.
+	profile = s.ensurePublicID(ctx, profile)
 	// Warn-only: no result, no error, no read; it cannot change what GetMe answers.
 	s.auditAuthIdentity(ctx, profile)
 	var enabled []string
@@ -272,6 +277,7 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 		enabled = s.features.EnabledFeatures(uid)
 	}
 	res := MeResult{Profile: s.present(profile), EnabledFeatures: enabled, PendingFollowRequestCount: s.pendingRequests(ctx, profile)}
+	s.showPublicID(&res.Profile, profile, uid)
 	res.UnreadConversationCount = s.unreadConversations(ctx, uid, enabled)
 	res.HomeTabs = visibleHomeTabs(profile.HomeTabs(), enabled)
 	if n, ok := s.cache.GetUnreadCount(uid); ok {
@@ -368,8 +374,27 @@ func (s *service) pendingRequests(ctx context.Context, p Profile) int64 {
 // wired. If the
 // target blocked the caller, returns the byte-identical NOT_FOUND used for a missing profile ("no existence leak")
 // — the caller can still view a target they themselves blocked, so they can unblock.
+//
+// The public_id arm (a caller with public_ids on; for anyone else the target counts as empty) resolves the id to its
+// uid (cache-first, then publicIds/{id}) and then runs exactly the shared path below, so an unknown, erased, blocked-by
+// or non-ACTIVE target answers the same NOT_FOUND bytes as by handle. The response carries Profile.public_id only for a
+// caller with public_ids on.
 func (s *service) GetProfile(ctx context.Context, callerUID string, target ProfileTarget) (Profile, error) {
 	uid := target.UserID
+	byPublicID := uid == "" && target.Handle == "" && target.PublicID != "" && s.publicIDsShown(callerUID)
+	if byPublicID {
+		if !ValidPublicID(target.PublicID) {
+			return Profile{}, apierr.Validation("public_id", "public_id must be a valid public id")
+		}
+		resolved, err := s.UIDForPublicID(ctx, target.PublicID)
+		switch {
+		case errors.Is(err, ErrNotFound):
+			return Profile{}, notFoundErr()
+		case err != nil:
+			return Profile{}, logger.RedactErr(fmt.Errorf("identity: resolve public id: %w", err), callerUID, target.PublicID)
+		}
+		uid = resolved
+	}
 	if uid == "" {
 		if target.Handle == "" {
 			return Profile{}, apierr.Validation("target", "user_id or handle is required")
@@ -379,7 +404,7 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 		if !handle.ValidRun(target.Handle) || reservedDocID(target.Handle) {
 			return Profile{}, apierr.Validation("handle", "handle must be 3-15 characters: letters, numbers, underscore")
 		}
-	} else if userIDIssue(uid) {
+	} else if !byPublicID && userIDIssue(uid) {
 		return Profile{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
 	}
 	if uid == "" {
@@ -404,6 +429,11 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 	if err != nil {
 		return Profile{}, err
 	}
+	// Defensive: a lookup that names an account carrying a different id (corrupt data) is the same NOT_FOUND. A
+	// profile cached before its lazy mint has no id yet and is not contradicted.
+	if byPublicID && profile.PublicID != "" && profile.PublicID != target.PublicID {
+		return Profile{}, notFoundErr()
+	}
 	// M3 (security review): a SUSPENDED or DELETING profile is invisible to everyone but its
 	// owner, with the byte-identical NOT_FOUND a missing user gets, by id and by handle alike. 0 extra reads.
 	// This is also what keeps "handle taken + NOT_FOUND" ambiguous between blocked-by, suspended and deleting.
@@ -420,6 +450,7 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 		}
 	}
 	out := s.present(profile)
+	s.showPublicID(&out, profile, callerUID)
 	if callerUID != uid {
 		out.ReadReceipts = false // the setting is the owner's alone
 	}
@@ -437,6 +468,9 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 // rendering of the location stays ungated (D9). The cache, the stored document and the export keep the stored
 // values, so a flag that comes back shows both again without a write.
 func (s *service) present(p Profile) Profile {
+	// The public id is never in a response by default; GetMe and GetProfile put it back for a caller with public_ids on
+	// (showPublicID), so every other RPC, and every caller while the flag is off, stays byte-identical.
+	p.PublicID = ""
 	if s.extras == nil || s.extras.GloballyOff(ProfileExtrasFlag) {
 		p.PinnedPostID = ""
 		p.Website = ""

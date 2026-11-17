@@ -16,6 +16,7 @@
 package moderationv1
 
 import (
+	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -192,11 +193,12 @@ type ReportContentRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	TargetType     ReportTargetType       `protobuf:"varint,2,opt,name=target_type,json=targetType,proto3,enum=dzeroth.moderation.v1.ReportTargetType" json:"target_type,omitempty"`
-	TargetId       string                 `protobuf:"bytes,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
-	Reason         ReportReason           `protobuf:"varint,4,opt,name=reason,proto3,enum=dzeroth.moderation.v1.ReportReason" json:"reason,omitempty"`
-	Note           string                 `protobuf:"bytes,5,opt,name=note,proto3" json:"note,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// A user id only for REPORT_TARGET_TYPE_ACCOUNT (see the enum for every other shape), hence CONDITIONAL.
+	TargetId      string       `protobuf:"bytes,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	Reason        ReportReason `protobuf:"varint,4,opt,name=reason,proto3,enum=dzeroth.moderation.v1.ReportReason" json:"reason,omitempty"`
+	Note          string       `protobuf:"bytes,5,opt,name=note,proto3" json:"note,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ReportContentRequest) Reset() {
@@ -321,12 +323,12 @@ var File_dzeroth_moderation_v1_moderation_proto protoreflect.FileDescriptor
 
 const file_dzeroth_moderation_v1_moderation_proto_rawDesc = "" +
 	"\n" +
-	"&dzeroth/moderation/v1/moderation.proto\x12\x15dzeroth.moderation.v1\"\xf7\x01\n" +
+	"&dzeroth/moderation/v1/moderation.proto\x12\x15dzeroth.moderation.v1\x1a\x1fdzeroth/common/v1/options.proto\"\xfd\x01\n" +
 	"\x14ReportContentRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12H\n" +
 	"\vtarget_type\x18\x02 \x01(\x0e2'.dzeroth.moderation.v1.ReportTargetTypeR\n" +
-	"targetType\x12\x1b\n" +
-	"\ttarget_id\x18\x03 \x01(\tR\btargetId\x12;\n" +
+	"targetType\x12!\n" +
+	"\ttarget_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x02R\btargetId\x12;\n" +
 	"\x06reason\x18\x04 \x01(\x0e2#.dzeroth.moderation.v1.ReportReasonR\x06reason\x12\x12\n" +
 	"\x04note\x18\x05 \x01(\tR\x04note\"_\n" +
 	"\x15ReportContentResponse\x12\x1b\n" +

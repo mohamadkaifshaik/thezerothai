@@ -35,7 +35,7 @@ func TestProfileInTx_Integration(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-tx-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-tx-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatal(err)
 	}
 
