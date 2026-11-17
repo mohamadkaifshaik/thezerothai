@@ -290,11 +290,22 @@ func (s *service) ByHashtag(ctx context.Context, tag string, w Window, limit int
 
 // ByMediaFeed implements Reader (the global media feed).
 func (s *service) ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error) {
+	return s.globalFeed(ctx, w, limit, s.repo.ByMediaFeed)
+}
+
+// ByLatestFeed implements Reader (the global newest-posts feed).
+func (s *service) ByLatestFeed(ctx context.Context, w Window, limit int) ([]*Post, error) {
+	return s.globalFeed(ctx, w, limit, s.repo.ByLatestFeed)
+}
+
+// globalFeed runs one of the global (author-less) Trending feed queries: validate the window, clamp the limit, fill the
+// posts cache from the result.
+func (s *service) globalFeed(ctx context.Context, w Window, limit int, query func(context.Context, Window, int) ([]*Post, error)) ([]*Post, error) {
 	if err := w.validate(); err != nil {
 		return nil, err
 	}
 	readAt := s.now()
-	out, err := s.repo.ByMediaFeed(ctx, w, clampLimit(limit))
+	out, err := query(ctx, w, clampLimit(limit))
 	if err != nil {
 		return nil, err
 	}

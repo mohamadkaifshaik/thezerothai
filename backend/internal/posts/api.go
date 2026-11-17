@@ -313,6 +313,11 @@ type Reader interface {
 	// composite index posts(hasMedia ASC, createdAt DESC). Unfiltered like ByHashtag: the caller drops !Visible rows,
 	// replies and every per-viewer rule. Needs that index READY and `opsctl backfill-has-media` run in the project.
 	ByMediaFeed(ctx context.Context, window Window, limit int) ([]*Post, error)
+	// ByLatestFeed returns every post, newest first, inside window, at most limit (clamped). Query: the bare posts
+	// collection ORDER BY createdAt DESC, __name__ DESC with no filter, served by the automatic single-field index of
+	// createdAt (the shape RecentReader.Recent already runs; no composite index). Unfiltered like ByHashtag: replies,
+	// REPOSTs and hidden posts come back too, so the caller drops !Visible rows, replies, REPOSTs and every per-viewer rule.
+	ByLatestFeed(ctx context.Context, window Window, limit int) ([]*Post, error)
 	// ByCommunity returns the posts listed in community cid (communityId == cid: root posts and quotes, never a reply or a REPOST; a
 	// moderator hide removes the key), newest first, inside window, at most limit (clamped to 1..50). It is its own query, `communityId == cid
 	// ORDER BY __name__ DESC` with id-bound windows (automatic single-field index, proven on dzeroth-dev), never the createdAt

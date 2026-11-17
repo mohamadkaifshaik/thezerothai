@@ -175,6 +175,42 @@ final $typed_data.Uint8List exploreMediaResponseDescriptor = $convert.base64Deco
     'EuUG9zdFZpZXdSBXBvc3RzEiYKD25leHRfcGFnZV90b2tlbhgCIAEoCVINbmV4dFBhZ2VUb2tl'
     'bg==');
 
+@$core.Deprecated('Use explorePostsRequestDescriptor instead')
+const ExplorePostsRequest$json = {
+  '1': 'ExplorePostsRequest',
+  '2': [
+    {'1': 'page_size', '3': 1, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 2, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `ExplorePostsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List explorePostsRequestDescriptor = $convert.base64Decode(
+    'ChNFeHBsb3JlUG9zdHNSZXF1ZXN0EhsKCXBhZ2Vfc2l6ZRgBIAEoBVIIcGFnZVNpemUSHQoKcG'
+    'FnZV90b2tlbhgCIAEoCVIJcGFnZVRva2Vu');
+
+@$core.Deprecated('Use explorePostsResponseDescriptor instead')
+const ExplorePostsResponse$json = {
+  '1': 'ExplorePostsResponse',
+  '2': [
+    {
+      '1': 'posts',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.PostView',
+      '10': 'posts'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `ExplorePostsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List explorePostsResponseDescriptor = $convert.base64Decode(
+    'ChRFeHBsb3JlUG9zdHNSZXNwb25zZRIwCgVwb3N0cxgBIAMoCzIaLmR6ZXJvdGgucG9zdHMudj'
+    'EuUG9zdFZpZXdSBXBvc3RzEiYKD25leHRfcGFnZV90b2tlbhgCIAEoCVINbmV4dFBhZ2VUb2tl'
+    'bg==');
+
 @$core.Deprecated('Use getTrendsRequestDescriptor instead')
 const GetTrendsRequest$json = {
   '1': 'GetTrendsRequest',
@@ -355,6 +391,12 @@ const $core.Map<$core.String, $core.dynamic> SearchServiceBase$json = {
       '3': '.dzeroth.search.v1.ExploreMediaResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'ExplorePosts',
+      '2': '.dzeroth.search.v1.ExplorePostsRequest',
+      '3': '.dzeroth.search.v1.ExplorePostsResponse',
+      '4': {'34': 1},
+    },
   ],
 };
 
@@ -391,6 +433,8 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.communities.v1.Community': $4.Community$json,
   '.dzeroth.search.v1.ExploreMediaRequest': ExploreMediaRequest$json,
   '.dzeroth.search.v1.ExploreMediaResponse': ExploreMediaResponse$json,
+  '.dzeroth.search.v1.ExplorePostsRequest': ExplorePostsRequest$json,
+  '.dzeroth.search.v1.ExplorePostsResponse': ExplorePostsResponse$json,
 };
 
 /// Descriptor for `SearchService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -406,4 +450,6 @@ final $typed_data.Uint8List searchServiceDescriptor = $convert.base64Decode(
     'Y2gudjEuU2VhcmNoQ29tbXVuaXRpZXNSZXF1ZXN0GiwuZHplcm90aC5zZWFyY2gudjEuU2Vhcm'
     'NoQ29tbXVuaXRpZXNSZXNwb25zZSIDkAIBEmQKDEV4cGxvcmVNZWRpYRImLmR6ZXJvdGguc2Vh'
     'cmNoLnYxLkV4cGxvcmVNZWRpYVJlcXVlc3QaJy5kemVyb3RoLnNlYXJjaC52MS5FeHBsb3JlTW'
-    'VkaWFSZXNwb25zZSIDkAIB');
+    'VkaWFSZXNwb25zZSIDkAIBEmQKDEV4cGxvcmVQb3N0cxImLmR6ZXJvdGguc2VhcmNoLnYxLkV4'
+    'cGxvcmVQb3N0c1JlcXVlc3QaJy5kemVyb3RoLnNlYXJjaC52MS5FeHBsb3JlUG9zdHNSZXNwb2'
+    '5zZSIDkAIB');

@@ -522,6 +522,147 @@ class ExploreMediaResponse extends $pb.GeneratedMessage {
   void clearNextPageToken() => $_clearField(2);
 }
 
+class ExplorePostsRequest extends $pb.GeneratedMessage {
+  factory ExplorePostsRequest({
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = ExplorePostsRequest._();
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ExplorePostsRequest._();
+
+  factory ExplorePostsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ExplorePostsRequest()..mergeFromBuffer(data, registry);
+  factory ExplorePostsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ExplorePostsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ExplorePostsRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.search.v1'),
+      createEmptyInstance: ExplorePostsRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(2, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ExplorePostsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ExplorePostsRequest copyWith(void Function(ExplorePostsRequest) updates) =>
+      super.copyWith((message) => updates(message as ExplorePostsRequest))
+          as ExplorePostsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use ExplorePostsRequest() / ExplorePostsRequest.new instead')
+  static ExplorePostsRequest create() => ExplorePostsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ExplorePostsRequest._();
+  @$core.override
+  ExplorePostsRequest createEmptyInstance() => ExplorePostsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ExplorePostsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ExplorePostsRequest>(
+          ExplorePostsRequest.$_createMessage);
+  static ExplorePostsRequest? _defaultInstance;
+
+  /// 0 => 20; max 50 (clamped); negative => VALIDATION "page_size".
+  @$pb.TagNumber(1)
+  $core.int get pageSize => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set pageSize($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPageSize() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPageSize() => $_clearField(1);
+
+  /// next_page_token of the previous page (any page of this RPC for this caller).
+  @$pb.TagNumber(2)
+  $core.String get pageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageToken() => $_clearField(2);
+}
+
+class ExplorePostsResponse extends $pb.GeneratedMessage {
+  factory ExplorePostsResponse({
+    $core.Iterable<$1.PostView>? posts,
+    $core.String? nextPageToken,
+  }) {
+    final result = ExplorePostsResponse._();
+    if (posts != null) result.posts.addAll(posts);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  ExplorePostsResponse._();
+
+  factory ExplorePostsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ExplorePostsResponse()..mergeFromBuffer(data, registry);
+  factory ExplorePostsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ExplorePostsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ExplorePostsResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.search.v1'),
+      createEmptyInstance: ExplorePostsResponse.$_createMessage)
+    ..pPM<$1.PostView>(1, _omitFieldNames ? '' : 'posts',
+        subBuilder: $1.PostView.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ExplorePostsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ExplorePostsResponse copyWith(void Function(ExplorePostsResponse) updates) =>
+      super.copyWith((message) => updates(message as ExplorePostsResponse))
+          as ExplorePostsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ExplorePostsResponse() / ExplorePostsResponse.new instead')
+  static ExplorePostsResponse create() => ExplorePostsResponse._();
+  static $pb.GeneratedMessage $_createMessage() => ExplorePostsResponse._();
+  @$core.override
+  ExplorePostsResponse createEmptyInstance() => ExplorePostsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ExplorePostsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ExplorePostsResponse>(
+          ExplorePostsResponse.$_createMessage);
+  static ExplorePostsResponse? _defaultInstance;
+
+  /// Newest first. May be short or empty while next_page_token is set.
+  @$pb.TagNumber(1)
+  $pb.PbList<$1.PostView> get posts => $_getList(0);
+
+  /// "" => no more.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
 class GetTrendsRequest extends $pb.GeneratedMessage {
   factory GetTrendsRequest({
     $core.int? limit,
@@ -1206,6 +1347,24 @@ class SearchServiceApi {
           $pb.ClientContext? ctx, ExploreMediaRequest request) =>
       _client.invoke<ExploreMediaResponse>(ctx, 'SearchService', 'ExploreMedia',
           request, ExploreMediaResponse());
+
+  /// The global newest-posts feed (Trending, Posts section): posts from every public author, newest first, as standard
+  /// post cards (the viewer's liked / reposted / bookmarked flags, plan cards and wire visibility as on the other post
+  /// lists). Rows: root posts and quotes, with or without images; a reply and a REPOST never list (a REPOST would repeat
+  /// an older post as new). The ExploreMedia rules per caller: hidden posts, blocked or muted authors (either way, a
+  /// quote's embedded author too), a protected author's post the caller does not follow (a quote of one is kept with
+  /// embed_viewer_state = PROTECTED), and an author that is not ACTIVE are dropped. A page may be SHORT or EMPTY while
+  /// next_page_token is non-empty: keep following it until it is "". Flags: "search", then "trending_posts"
+  /// (FEATURE_TRENDING_POSTS), both before any read. The feed reads posts ORDER BY createdAt DESC on the automatic
+  /// single-field index (no composite index). page_size 0 => 20, max 50 (clamped); negative => VALIDATION "page_size".
+  /// page_token: opaque, sealed, bound to the caller and to this RPC, 24 h TTL; expired, foreign, tampered or an
+  /// ExploreMedia token => VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call;
+  /// every filter runs per call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per
+  /// instance). Writes nothing.
+  $async.Future<ExplorePostsResponse> explorePosts(
+          $pb.ClientContext? ctx, ExplorePostsRequest request) =>
+      _client.invoke<ExplorePostsResponse>(ctx, 'SearchService', 'ExplorePosts',
+          request, ExplorePostsResponse());
 }
 
 const $core.bool _omitFieldNames =
