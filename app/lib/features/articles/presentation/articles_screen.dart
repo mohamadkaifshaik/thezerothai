@@ -356,7 +356,9 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     final rtl = Directionality.of(context) == TextDirection.rtl;
     final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     return PopScope(
-      canPop: !_dirty && !_saving,
+      // Nothing to pop (reached with go from the drawer): take the back
+      // gesture ourselves so _back() can step up to the library or Home.
+      canPop: !_dirty && !_saving && (GoRouter.maybeOf(context)?.canPop() ?? true),
       onPopInvokedWithResult: (didPop, _) async {
         if (!didPop) await _back();
       },
