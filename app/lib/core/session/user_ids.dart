@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show ValueKey;
+
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 
 /// The id the server sends for an account that has no public id (erased, or
@@ -32,3 +34,12 @@ extension MyUserId on OnboardingState {
     return id;
   }
 }
+
+/// The key of a user row built eagerly (a `Column` or a collection `for`): the
+/// user id, so a row keeps its own state when the list changes. Unavailable
+/// accounts all share one id, and duplicate sibling keys are an error, so they
+/// are keyed by position instead.
+ValueKey<String> userRowKey(String userId, int index, {String prefix = ''}) =>
+    ValueKey(
+      '$prefix${isUnavailableUserId(userId) ? 'unavailable-$index' : userId}',
+    );

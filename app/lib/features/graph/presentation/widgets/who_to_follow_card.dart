@@ -161,7 +161,7 @@ class _CardState extends State<_Card> {
               // the account that moved up.
               for (var i = 0; i < shown.length; i++)
                 UserListRow(
-                  key: ValueKey(shown[i].user.userId),
+                  key: userRowKey(shown[i].user.userId, i),
                   followSource: FollowSource.suggestions,
                   item: shown[i],
                   onProfileTap: shown[i].user.userId.isEmpty
