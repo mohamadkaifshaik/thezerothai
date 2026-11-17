@@ -37,5 +37,17 @@ abstract class ExploreMediaState with _$ExploreMediaState {
     /// The last page request failed (the tiles stay); [error] says why.
     @Default(false) bool pagingFailed,
     Object? error,
+
+    /// A pull to refresh is on its way (the tiles stay).
+    @Default(false) bool refreshing,
+
+    /// A round found nothing on empty pages; only "Show more" asks again.
+    @Default(false) bool stalled,
+
+    /// A failed refresh with the tiles kept.
+    Object? notice,
+
+    /// Changes when an expired token restarted the list from page one.
+    @Default(0) int resetSerial,
   }) = _ExploreMediaState;
 }

@@ -18,7 +18,11 @@ mixin _$ExploreMediaState {
  ExploreMediaStatus get status; List<ExploreMediaTile> get tiles;/// A further page is in flight.
  bool get loadingMore;/// Some hashtag still has a next page token.
  bool get hasMore;/// The last page request failed (the tiles stay); [error] says why.
- bool get pagingFailed; Object? get error;
+ bool get pagingFailed; Object? get error;/// A pull to refresh is on its way (the tiles stay).
+ bool get refreshing;/// A round found nothing on empty pages; only "Show more" asks again.
+ bool get stalled;/// A failed refresh with the tiles kept.
+ Object? get notice;/// Changes when an expired token restarted the list from page one.
+ int get resetSerial;
 /// Create a copy of ExploreMediaState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -30,20 +34,20 @@ $ExploreMediaStateCopyWith<ExploreMediaState> get copyWith => _$ExploreMediaStat
 @override
 bool operator ==(Object other) {
   final _this = this as ExploreMediaState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ExploreMediaState&&(identical(other.status, _this.status) || other.status == _this.status)&&const DeepCollectionEquality().equals(other.tiles, _this.tiles)&&(identical(other.loadingMore, _this.loadingMore) || other.loadingMore == _this.loadingMore)&&(identical(other.hasMore, _this.hasMore) || other.hasMore == _this.hasMore)&&(identical(other.pagingFailed, _this.pagingFailed) || other.pagingFailed == _this.pagingFailed)&&const DeepCollectionEquality().equals(other.error, _this.error));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ExploreMediaState&&(identical(other.status, _this.status) || other.status == _this.status)&&const DeepCollectionEquality().equals(other.tiles, _this.tiles)&&(identical(other.loadingMore, _this.loadingMore) || other.loadingMore == _this.loadingMore)&&(identical(other.hasMore, _this.hasMore) || other.hasMore == _this.hasMore)&&(identical(other.pagingFailed, _this.pagingFailed) || other.pagingFailed == _this.pagingFailed)&&const DeepCollectionEquality().equals(other.error, _this.error)&&(identical(other.refreshing, _this.refreshing) || other.refreshing == _this.refreshing)&&(identical(other.stalled, _this.stalled) || other.stalled == _this.stalled)&&const DeepCollectionEquality().equals(other.notice, _this.notice)&&(identical(other.resetSerial, _this.resetSerial) || other.resetSerial == _this.resetSerial));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ExploreMediaState;
-  return Object.hash(runtimeType,_this.status,const DeepCollectionEquality().hash(_this.tiles),_this.loadingMore,_this.hasMore,_this.pagingFailed,const DeepCollectionEquality().hash(_this.error));
+  return Object.hash(runtimeType,_this.status,const DeepCollectionEquality().hash(_this.tiles),_this.loadingMore,_this.hasMore,_this.pagingFailed,const DeepCollectionEquality().hash(_this.error),_this.refreshing,_this.stalled,const DeepCollectionEquality().hash(_this.notice),_this.resetSerial);
 }
 
 @override
 String toString() {
   final _this = this as ExploreMediaState;
-  return 'ExploreMediaState(status: ${_this.status}, tiles: ${_this.tiles}, loadingMore: ${_this.loadingMore}, hasMore: ${_this.hasMore}, pagingFailed: ${_this.pagingFailed}, error: ${_this.error})';
+  return 'ExploreMediaState(status: ${_this.status}, tiles: ${_this.tiles}, loadingMore: ${_this.loadingMore}, hasMore: ${_this.hasMore}, pagingFailed: ${_this.pagingFailed}, error: ${_this.error}, refreshing: ${_this.refreshing}, stalled: ${_this.stalled}, notice: ${_this.notice}, resetSerial: ${_this.resetSerial})';
 }
 
 
@@ -54,7 +58,7 @@ abstract mixin class $ExploreMediaStateCopyWith<$Res>  {
   factory $ExploreMediaStateCopyWith(ExploreMediaState value, $Res Function(ExploreMediaState) _then) = _$ExploreMediaStateCopyWithImpl;
 @useResult
 $Res call({
- ExploreMediaStatus status, List<ExploreMediaTile> tiles, bool loadingMore, bool hasMore, bool pagingFailed, Object? error
+ ExploreMediaStatus status, List<ExploreMediaTile> tiles, bool loadingMore, bool hasMore, bool pagingFailed, Object? error, bool refreshing, bool stalled, Object? notice, int resetSerial
 });
 
 
@@ -71,14 +75,17 @@ class _$ExploreMediaStateCopyWithImpl<$Res>
 
 /// Create a copy of ExploreMediaState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? tiles = null,Object? loadingMore = null,Object? hasMore = null,Object? pagingFailed = null,Object? error = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? tiles = null,Object? loadingMore = null,Object? hasMore = null,Object? pagingFailed = null,Object? error = freezed,Object? refreshing = null,Object? stalled = null,Object? notice = freezed,Object? resetSerial = null,}) {
   return _then(ExploreMediaState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as ExploreMediaStatus,tiles: null == tiles ? _self.tiles : tiles // ignore: cast_nullable_to_non_nullable
 as List<ExploreMediaTile>,loadingMore: null == loadingMore ? _self.loadingMore : loadingMore // ignore: cast_nullable_to_non_nullable
 as bool,hasMore: null == hasMore ? _self.hasMore : hasMore // ignore: cast_nullable_to_non_nullable
 as bool,pagingFailed: null == pagingFailed ? _self.pagingFailed : pagingFailed // ignore: cast_nullable_to_non_nullable
-as bool,error: freezed == error ? _self.error : error ,
+as bool,error: freezed == error ? _self.error : error ,refreshing: null == refreshing ? _self.refreshing : refreshing // ignore: cast_nullable_to_non_nullable
+as bool,stalled: null == stalled ? _self.stalled : stalled // ignore: cast_nullable_to_non_nullable
+as bool,notice: freezed == notice ? _self.notice : notice ,resetSerial: null == resetSerial ? _self.resetSerial : resetSerial // ignore: cast_nullable_to_non_nullable
+as int,
   ));
 }
 
@@ -163,10 +170,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( ExploreMediaStatus status,  List<ExploreMediaTile> tiles,  bool loadingMore,  bool hasMore,  bool pagingFailed,  Object? error)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( ExploreMediaStatus status,  List<ExploreMediaTile> tiles,  bool loadingMore,  bool hasMore,  bool pagingFailed,  Object? error,  bool refreshing,  bool stalled,  Object? notice,  int resetSerial)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ExploreMediaState() when $default != null:
-return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.pagingFailed,_that.error);case _:
+return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.pagingFailed,_that.error,_that.refreshing,_that.stalled,_that.notice,_that.resetSerial);case _:
   return orElse();
 
 }
@@ -184,10 +191,10 @@ return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.p
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( ExploreMediaStatus status,  List<ExploreMediaTile> tiles,  bool loadingMore,  bool hasMore,  bool pagingFailed,  Object? error)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( ExploreMediaStatus status,  List<ExploreMediaTile> tiles,  bool loadingMore,  bool hasMore,  bool pagingFailed,  Object? error,  bool refreshing,  bool stalled,  Object? notice,  int resetSerial)  $default,) {final _that = this;
 switch (_that) {
 case _ExploreMediaState():
-return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.pagingFailed,_that.error);case _:
+return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.pagingFailed,_that.error,_that.refreshing,_that.stalled,_that.notice,_that.resetSerial);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -204,10 +211,10 @@ return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.p
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( ExploreMediaStatus status,  List<ExploreMediaTile> tiles,  bool loadingMore,  bool hasMore,  bool pagingFailed,  Object? error)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( ExploreMediaStatus status,  List<ExploreMediaTile> tiles,  bool loadingMore,  bool hasMore,  bool pagingFailed,  Object? error,  bool refreshing,  bool stalled,  Object? notice,  int resetSerial)?  $default,) {final _that = this;
 switch (_that) {
 case _ExploreMediaState() when $default != null:
-return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.pagingFailed,_that.error);case _:
+return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.pagingFailed,_that.error,_that.refreshing,_that.stalled,_that.notice,_that.resetSerial);case _:
   return null;
 
 }
@@ -219,7 +226,7 @@ return $default(_that.status,_that.tiles,_that.loadingMore,_that.hasMore,_that.p
 
 
 class _ExploreMediaState implements ExploreMediaState {
-  const _ExploreMediaState({this.status = ExploreMediaStatus.initial,  List<ExploreMediaTile> tiles = const <ExploreMediaTile>[], this.loadingMore = false, this.hasMore = false, this.pagingFailed = false, this.error}): _tiles = tiles;
+  const _ExploreMediaState({this.status = ExploreMediaStatus.initial,  List<ExploreMediaTile> tiles = const <ExploreMediaTile>[], this.loadingMore = false, this.hasMore = false, this.pagingFailed = false, this.error, this.refreshing = false, this.stalled = false, this.notice, this.resetSerial = 0}): _tiles = tiles;
   
 
 @override@JsonKey() final  ExploreMediaStatus status;
@@ -237,6 +244,14 @@ class _ExploreMediaState implements ExploreMediaState {
 /// The last page request failed (the tiles stay); [error] says why.
 @override@JsonKey() final  bool pagingFailed;
 @override final  Object? error;
+/// A pull to refresh is on its way (the tiles stay).
+@override@JsonKey() final  bool refreshing;
+/// A round found nothing on empty pages; only "Show more" asks again.
+@override@JsonKey() final  bool stalled;
+/// A failed refresh with the tiles kept.
+@override final  Object? notice;
+/// Changes when an expired token restarted the list from page one.
+@override@JsonKey() final  int resetSerial;
 
 /// Create a copy of ExploreMediaState
 /// with the given fields replaced by the non-null parameter values.
@@ -248,18 +263,18 @@ _$ExploreMediaStateCopyWith<_ExploreMediaState> get copyWith => __$ExploreMediaS
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ExploreMediaState&&(identical(other.status, status) || other.status == status)&&const DeepCollectionEquality().equals(other.tiles, _tiles)&&(identical(other.loadingMore, loadingMore) || other.loadingMore == loadingMore)&&(identical(other.hasMore, hasMore) || other.hasMore == hasMore)&&(identical(other.pagingFailed, pagingFailed) || other.pagingFailed == pagingFailed)&&const DeepCollectionEquality().equals(other.error, error));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ExploreMediaState&&(identical(other.status, status) || other.status == status)&&const DeepCollectionEquality().equals(other.tiles, _tiles)&&(identical(other.loadingMore, loadingMore) || other.loadingMore == loadingMore)&&(identical(other.hasMore, hasMore) || other.hasMore == hasMore)&&(identical(other.pagingFailed, pagingFailed) || other.pagingFailed == pagingFailed)&&const DeepCollectionEquality().equals(other.error, error)&&(identical(other.refreshing, refreshing) || other.refreshing == refreshing)&&(identical(other.stalled, stalled) || other.stalled == stalled)&&const DeepCollectionEquality().equals(other.notice, notice)&&(identical(other.resetSerial, resetSerial) || other.resetSerial == resetSerial));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,const DeepCollectionEquality().hash(_tiles),loadingMore,hasMore,pagingFailed,const DeepCollectionEquality().hash(error));
+    return Object.hash(runtimeType,status,const DeepCollectionEquality().hash(_tiles),loadingMore,hasMore,pagingFailed,const DeepCollectionEquality().hash(error),refreshing,stalled,const DeepCollectionEquality().hash(notice),resetSerial);
 }
 
 @override
 String toString() {
-    return 'ExploreMediaState(status: $status, tiles: $tiles, loadingMore: $loadingMore, hasMore: $hasMore, pagingFailed: $pagingFailed, error: $error)';
+    return 'ExploreMediaState(status: $status, tiles: $tiles, loadingMore: $loadingMore, hasMore: $hasMore, pagingFailed: $pagingFailed, error: $error, refreshing: $refreshing, stalled: $stalled, notice: $notice, resetSerial: $resetSerial)';
 }
 
 
@@ -270,7 +285,7 @@ abstract mixin class _$ExploreMediaStateCopyWith<$Res> implements $ExploreMediaS
   factory _$ExploreMediaStateCopyWith(_ExploreMediaState value, $Res Function(_ExploreMediaState) _then) = __$ExploreMediaStateCopyWithImpl;
 @override @useResult
 $Res call({
- ExploreMediaStatus status, List<ExploreMediaTile> tiles, bool loadingMore, bool hasMore, bool pagingFailed, Object? error
+ ExploreMediaStatus status, List<ExploreMediaTile> tiles, bool loadingMore, bool hasMore, bool pagingFailed, Object? error, bool refreshing, bool stalled, Object? notice, int resetSerial
 });
 
 
@@ -287,14 +302,17 @@ class __$ExploreMediaStateCopyWithImpl<$Res>
 
 /// Create a copy of ExploreMediaState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? tiles = null,Object? loadingMore = null,Object? hasMore = null,Object? pagingFailed = null,Object? error = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? tiles = null,Object? loadingMore = null,Object? hasMore = null,Object? pagingFailed = null,Object? error = freezed,Object? refreshing = null,Object? stalled = null,Object? notice = freezed,Object? resetSerial = null,}) {
   return _then(_ExploreMediaState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as ExploreMediaStatus,tiles: null == tiles ? _self._tiles : tiles // ignore: cast_nullable_to_non_nullable
 as List<ExploreMediaTile>,loadingMore: null == loadingMore ? _self.loadingMore : loadingMore // ignore: cast_nullable_to_non_nullable
 as bool,hasMore: null == hasMore ? _self.hasMore : hasMore // ignore: cast_nullable_to_non_nullable
 as bool,pagingFailed: null == pagingFailed ? _self.pagingFailed : pagingFailed // ignore: cast_nullable_to_non_nullable
-as bool,error: freezed == error ? _self.error : error ,
+as bool,error: freezed == error ? _self.error : error ,refreshing: null == refreshing ? _self.refreshing : refreshing // ignore: cast_nullable_to_non_nullable
+as bool,stalled: null == stalled ? _self.stalled : stalled // ignore: cast_nullable_to_non_nullable
+as bool,notice: freezed == notice ? _self.notice : notice ,resetSerial: null == resetSerial ? _self.resetSerial : resetSerial // ignore: cast_nullable_to_non_nullable
+as int,
   ));
 }
 

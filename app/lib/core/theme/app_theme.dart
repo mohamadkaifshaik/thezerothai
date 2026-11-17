@@ -1899,6 +1899,9 @@ abstract final class AppExplorePeopleLayout {
   static const double mediaTileTarget = 150;
   static const int mediaMinColumns = 3;
   static const int mediaMaxColumns = 6;
+
+  /// The Trending Media grid on a tablet (600-1199), in both bands.
+  static const int mediaTabletColumns = 4;
   static const double mediaTileAspect = 0.75;
   static const double mediaGap = 6;
 
