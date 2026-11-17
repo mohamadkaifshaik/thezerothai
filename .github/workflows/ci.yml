@@ -6,9 +6,13 @@ name: CI
 # `make ci` and `make test-int` run as parallel jobs that call the same Makefile targets a local `make ci` /
 # `make test-int` runs. The three slow suites are split into shards by scripts/ci/shard.sh (disjoint, together every
 # test; the shard count is the length of each `matrix.shard` list):
-#   flutter test    6 shards, test files bin-packed by size        make flutter-test SHARD=i/n
-#   go unit tests   3 shards, Go packages bin-packed by test size  make test-shard SHARD=i/n, gate: make test-cover
-#   test-int        6 shards, top-level test names, round robin    make test-int-shard SHARD=i/n, gate: make test-int-cover
+#   flutter test    6 shards, test files bin-packed by measured time        make flutter-test SHARD=i/n
+#   go unit tests   3 shards, Go packages bin-packed by measured time       make test-shard SHARD=i/n, gate: make test-cover
+#   test-int        6 shards, test names bin-packed by estimated time       make test-int-shard SHARD=i/n, gate: make test-int-cover
+# The timings are scripts/ci/timings/*.tsv (refresh: scripts/ci/refresh-timings.sh); an item without one is estimated from its size.
+# The `changes` job (scripts/ci/changed-groups.sh) lists the job groups a pull request needs. A group it does not need is
+# skipped, and the summary jobs below count a skipped group as passed only when `changes` said so. Anything unknown, shared
+# or unreadable runs everything.
 # Gate and summary jobs report the results under the check names these jobs had before the split: the main ruleset
 # requires "make ci (...)", "make test-int (Firebase emulators)" and "promotion scripts (...)" by name.
 # About 21 jobs per run, up to 18 at once: on a plan with a 20-job concurrency limit, parallel PRs queue.
@@ -28,10 +32,57 @@ concurrency:
 env:
   FLUTTER_VERSION: "3.50.0"
   BUF_VERSION: "1.47.2"
+  # Keep in step with the npx pin in the Makefile (FIREBASE).
+  FIREBASE_TOOLS_VERSION: "15.32.0"
 
 jobs:
+  # Which job groups this change needs. Job-level `if:` only (never `on.pull_request.paths`: a workflow that does not run
+  # leaves a required check pending forever). Fail open: anything but a clean pull_request diff turns every group on.
+  changes:
+    name: changes (which job groups this change needs)
+    runs-on: ubuntu-latest
+    outputs:
+      go_checks: ${{ steps.groups.outputs.go_checks }}
+      go_unit: ${{ steps.groups.outputs.go_unit }}
+      int: ${{ steps.groups.outputs.int }}
+      flutter: ${{ steps.groups.outputs.flutter }}
+      promotion: ${{ steps.groups.outputs.promotion }}
+    steps:
+      # A pull_request run checks out the merge of the PR into its base: HEAD is that merge commit and HEAD^1 the base tip,
+      # so `git diff HEAD^1 HEAD` is exactly what the PR changes, even if the base moved since the PR was opened.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          filter: blob:none # `git diff --name-only --no-renames` reads trees only
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Classify the changed paths
+        id: groups
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -o pipefail
+          if [ "$EVENT_NAME" != pull_request ]; then
+            echo "event $EVENT_NAME: every group on"
+            bash scripts/ci/changed-groups.sh --all >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Not a two-parent merge commit, or git cannot diff it: run everything rather than guess.
+          if [ "$(git rev-list --parents -n 1 HEAD | wc -w)" != 3 ] ||
+            ! git -c core.quotepath=off diff --name-only --no-renames HEAD^1 HEAD >"$RUNNER_TEMP/changed.txt"; then
+            echo "::warning::could not diff the pull request: every group on"
+            bash scripts/ci/changed-groups.sh --all >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed paths:"
+          sed 's/^/  /' "$RUNNER_TEMP/changed.txt"
+          bash scripts/ci/changed-groups.sh <"$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
+
   go-checks:
     name: go checks (gofmt, vet, golangci-lint, buf lint/breaking, govulncheck, osv-scanner)
+    needs: [changes]
+    if: needs.changes.outputs.go_checks != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,6 +141,8 @@ jobs:
   # which a split by test name would repeat in every shard. Each shard uploads its pkg/platform profile; go-unit gates them.
   go-unit-shard:
     name: go unit tests (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
+    needs: [changes]
+    if: needs.changes.outputs.go_unit != 'false'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false # report every failing shard, not just the first
@@ -122,31 +175,43 @@ jobs:
   # means something over all shards together. As make-ci below: fail, never skip, when a shard did not succeed.
   go-unit:
     name: go unit tests (race, pkg/platform coverage gate)
-    needs: [go-unit-shard]
+    needs: [changes, go-unit-shard]
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # A skipped shard group passes only when `changes` skipped it on purpose; a failed `changes` job fails this one.
       - name: Every go unit test shard succeeded
+        id: shards
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
-          jq -e 'all(.[]; .result == "success")' <<<"$NEEDS" >/dev/null || {
+          jq -e '.changes.result == "success" and
+            .["go-unit-shard"].result == (if .changes.outputs.go_unit == "false" then "skipped" else "success" end)' <<<"$NEEDS" >/dev/null || {
             echo "::error::go unit tests failed: a shard did not succeed (see its job log)"
             exit 1
           }
+          echo "run=$(jq -r '.changes.outputs.go_unit != "false"' <<<"$NEEDS")" >>"$GITHUB_OUTPUT"
 
-      # `go tool cover` reads the source files of the profiled packages, so the gate needs the checkout and Go.
+      # `go tool cover` reads the source files of the profiled packages, so the gate needs backend/ and Go (not the module
+      # cache: it only reads sources and `go list` metadata, so this job skips the cache restore and the rest of the tree).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.shards.outputs.run == 'true'
+        with:
+          sparse-checkout: |
+            backend
+            scripts/ci
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.shards.outputs.run == 'true'
         with:
           # Pinned patch: 1.26.11 fixes GO-2026-6859 (net/http); 1.26.10 fixed GO-2026-6809 (crypto/x509). Bump with each 1.26 security release; go.mod only states the minimum language version.
           go-version: "1.26.11"
           check-latest: true
-          cache-dependency-path: backend/go.sum
+          cache: false
 
       - name: Download the shard coverage profiles
+        if: steps.shards.outputs.run == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: cover-platform-shard-*
@@ -155,10 +220,13 @@ jobs:
 
       # cover.sh merge fails unless it gets exactly one profile for every shard index 0..n-1.
       - name: make test-cover
+        if: steps.shards.outputs.run == 'true'
         run: make test-cover
 
   flutter-analyze:
     name: flutter analyze (and CSP loader hashes)
+    needs: [changes]
+    if: needs.changes.outputs.flutter != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -174,6 +242,8 @@ jobs:
 
   flutter-test:
     name: flutter test (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
+    needs: [changes]
+    if: needs.changes.outputs.flutter != 'false'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false # report every failing shard, not just the first
@@ -194,10 +264,12 @@ jobs:
         run: make flutter-test SHARD="$SHARD"
 
   # Summary under the required check name. always(): GitHub counts a skipped required check as passed, so this job must
-  # run, and fail, when any job above failed, was cancelled or was skipped. Re-running failed jobs re-runs this one too.
+  # run, and fail, when any job above failed or was cancelled. A job is expected to be `skipped` exactly when `changes`
+  # turned its group off, and `success` otherwise; a failed `changes` job fails this one (its skipped dependants must not
+  # read as passed). go-unit runs always() itself, so it is always expected to succeed. Re-running failed jobs re-runs this one too.
   make-ci:
     name: make ci (lint, vet, unit tests, buf breaking, flutter analyze/test)
-    needs: [go-checks, go-unit-shard, go-unit, flutter-analyze, flutter-test]
+    needs: [changes, go-checks, go-unit-shard, go-unit, flutter-analyze, flutter-test]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -206,16 +278,20 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
-          jq -e 'all(.[]; .result == "success")' <<<"$NEEDS" >/dev/null || {
+          jq -e '. as $n | $n.changes.result == "success" and $n["go-unit"].result == "success" and
+            ($n.changes.outputs as $o | [["go-checks", "go_checks"], ["go-unit-shard", "go_unit"], ["flutter-analyze", "flutter"], ["flutter-test", "flutter"]] |
+              all(.[]; . as [$job, $flag] | $n[$job].result == (if $o[$flag] == "false" then "skipped" else "success" end)))' <<<"$NEEDS" >/dev/null || {
             echo "::error::make ci failed: a job above did not succeed (see the results listed in this step)"
             exit 1
           }
 
   test-int-shard:
     name: make test-int (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
+    # Needs only `changes` (cheap, first): these jobs use nothing from the make ci jobs (own checkout, toolchains and
+    # coverage files; generated code is committed), so everything else runs in parallel.
+    needs: [changes]
+    if: needs.changes.outputs.int != 'false'
     runs-on: ubuntu-latest
-    # No `needs:`: these jobs use nothing from the make ci jobs (own checkout, toolchains and coverage files; generated code
-    # is committed), so everything runs in parallel and every job always reports a result.
     strategy:
       fail-fast: false # report every failing shard, not just the first
       matrix:
@@ -252,8 +328,27 @@ jobs:
           restore-keys: |
             firebase-emulators-${{ runner.os }}-v15-
 
+      # firebase-tools (about 20 s of npm install) lives in its own npm prefix, cached per Node and firebase-tools version.
+      # The install step still checks the version it finds, so a bad or partial cache restore re-installs instead of failing.
+      - name: Node version (cache key)
+        id: node
+        run: echo "version=$(node --version)" >>"$GITHUB_OUTPUT"
+
+      - name: Cache firebase-tools
+        id: fbt
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/firebase-tools-npm
+          key: firebase-tools-${{ runner.os }}-node${{ steps.node.outputs.version }}-${{ env.FIREBASE_TOOLS_VERSION }}
+
       - name: Install firebase-tools
-        run: npm install -g firebase-tools@15.32.0
+        run: |
+          prefix="$HOME/.cache/firebase-tools-npm"
+          if [ "$(PATH="$prefix/bin:$PATH" firebase --version 2>/dev/null | tail -n 1)" != "$FIREBASE_TOOLS_VERSION" ]; then
+            npm install -g --prefix "$prefix" "firebase-tools@${FIREBASE_TOOLS_VERSION}"
+          fi
+          echo "$prefix/bin" >>"$GITHUB_PATH"
+          PATH="$prefix/bin:$PATH" firebase --version
 
       - name: make test-int-shard
         env:
@@ -268,35 +363,45 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Summary under the check name test-int had before the split (not a required check),
+  # Summary under the required check name test-int had before the split,
   # plus the internal/ 70% coverage gate, which only means something over all shards together.
   emulator-integration:
     name: make test-int (Firebase emulators)
-    needs: [test-int-shard]
-    if: always() # as make-ci above: fail, never skip, when a shard did not succeed
+    needs: [changes, test-int-shard]
+    if: always() # as make-ci above: fail, never skip, when a shard did not succeed; skipped shards pass only if `changes` said so
     runs-on: ubuntu-latest
     steps:
       - name: Every test-int shard succeeded
+        id: shards
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
-          jq -e 'all(.[]; .result == "success")' <<<"$NEEDS" >/dev/null || {
+          jq -e '.changes.result == "success" and
+            .["test-int-shard"].result == (if .changes.outputs.int == "false" then "skipped" else "success" end)' <<<"$NEEDS" >/dev/null || {
             echo "::error::make test-int failed: a shard did not succeed (see its job log)"
             exit 1
           }
+          echo "run=$(jq -r '.changes.outputs.int != "false"' <<<"$NEEDS")" >>"$GITHUB_OUTPUT"
 
-      # `go tool cover` reads the source files of the profiled packages, so the gate needs the checkout and Go.
+      # As go-unit above: backend/ and Go, no module cache.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.shards.outputs.run == 'true'
+        with:
+          sparse-checkout: |
+            backend
+            scripts/ci
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.shards.outputs.run == 'true'
         with:
           # Pinned patch: 1.26.11 fixes GO-2026-6859 (net/http); 1.26.10 fixed GO-2026-6809 (crypto/x509). Bump with each 1.26 security release; go.mod only states the minimum language version.
           go-version: "1.26.11"
           check-latest: true
-          cache-dependency-path: backend/go.sum
+          cache: false
 
       - name: Download the shard coverage profiles
+        if: steps.shards.outputs.run == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: cover-internal-shard-*
@@ -304,14 +409,28 @@ jobs:
           merge-multiple: true
 
       - name: make test-int-cover
+        if: steps.shards.outputs.run == 'true'
         run: make test-int-cover
 
   # Release-process scripts (scripts/promotion) and the CI shard scripts (scripts/ci). Pure shell + jq; no credentials, no
   # GCP access: this job has the workflow's read-only `contents` permission and no id-token.
   promotion-scripts:
     name: promotion scripts (shellcheck, actionlint, fixture tests, flag registry)
+    needs: [changes]
+    if: always() # required check: runs (cheaply) even when `changes` turned its checks off, and fails if `changes` failed
     runs-on: ubuntu-latest
     steps:
+      - name: Does this change need the promotion script checks
+        id: gate
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '.changes.result == "success"' <<<"$NEEDS" >/dev/null || {
+            echo "::error::the changes job did not succeed, so the groups this change needs are unknown"
+            exit 1
+          }
+          echo "run=$(jq -r '.changes.outputs.promotion != "false"' <<<"$NEEDS")" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -320,6 +439,7 @@ jobs:
       #  actionlint's hash matches the project's published checksums file;
       # shellcheck publishes no checksum file, so its hash was computed from the release asset when pinned.
       - name: Install shellcheck + actionlint
+        if: steps.gate.outputs.run == 'true'
         env:
           SHELLCHECK_VERSION: v0.10.0
           SHELLCHECK_SHA256: 6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
@@ -339,26 +459,30 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: shellcheck
+        if: steps.gate.outputs.run == 'true'
         run: shellcheck -x -P SCRIPTDIR -S warning scripts/promotion/*.sh scripts/promotion/test/*.sh scripts/promotion/test/fakebin/* scripts/ci/*.sh scripts/ci/test/*.sh
 
       - name: actionlint
+        if: steps.gate.outputs.run == 'true'
         run: actionlint
 
       - name: Fixture tests
-        run: |
-          bash scripts/promotion/test/run.sh
-          bash scripts/promotion/test/promote-test.sh
-          bash scripts/ci/test/run.sh
+        if: steps.gate.outputs.run == 'true'
+        # The three suites run side by side (own temp dirs and logs), logs printed in order; any failure fails the step.
+        run: bash scripts/ci/run-fixture-tests.sh
 
       - name: fieldOverrides changes are acknowledged
+        if: steps.gate.outputs.run == 'true'
         run: bash scripts/promotion/check-field-overrides.sh firebase/firestore.indexes.json firebase/field-overrides.ack
 
       - name: Flag registry matches config.go, ceiling and Terraform
+        if: steps.gate.outputs.run == 'true'
         run: |
           bash scripts/promotion/check-flag-registry.sh backend/pkg/platform/config/config.go \
             scripts/promotion/flag-ceiling.json infra/terraform/envs/dev/main.tf infra/terraform/envs/prod/main.tf
 
       # ADR-0022: a time-boxed credit-mode marker (until:YYYY-MM-DD) in infra/terraform must not outlive its date (UTC).
+      # Runs on every pull request (no `changes` gating) so it goes red everywhere the day after a date.
       # Red from the day after a date means: revert that line (or renew it by a new decision), do not delete this step.
       - name: No expired until-markers in infra/terraform (ADR-0022)
         run: bash scripts/promotion/check-until-dates.sh infra/terraform

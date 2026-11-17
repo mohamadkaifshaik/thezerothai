@@ -18,6 +18,10 @@
 #   in exactly one shard, so a name two packages share runs in both of them in that one shard, and `go test -run <regex>
 #   ./...` keeps go's package parallelism. The scan relies on gofmt (make fmt) starting every top-level declaration at
 #   column 0. A name with no test under the current build tags matches nothing, which is harmless. test-int uses these.
+# Timings: when scripts/ci/timings/<flutter|go-names|go-packages>.tsv (or $SHARD_TIMINGS_DIR/...) holds measured times, the
+#   greedy packing above weighs items by those milliseconds instead of bytes (go-names: instead of round robin), and an
+#   item with no measurement is estimated in ms from its size (go-names: the mean measured weight). Without such a file
+#   nothing changes. scripts/ci/refresh-timings.sh regenerates the files from CI logs.
 # go-packages: every directory under BACKEND_DIR holding a unit test file (a *_test.go without the exact line
 #   `//go:build integration`), as `go test` would see it from BACKEND_DIR (./... skips testdata and directories starting with . or _),
 #   bin-packed like flutter-files by the size of those unit test files. Packages with only integration tests are left
@@ -92,16 +96,69 @@ go_names() {
 		sed -E 's/^func //; s/\($//; /^TestMain$/d' | LC_ALL=C sort -u
 }
 
+# Measured times: <SHARD_TIMINGS_DIR, default scripts/ci/timings>/<kind>.tsv holds "<ms>\t<item>" rows (refresh-timings.sh
+# writes them from CI logs). A missing file, or one that matches nothing in this checkout, means "no timings": the
+# packing below is then exactly the by-size packing (flutter, go-packages) or the round robin (go-names) described above.
+timing_file() { printf '%s/%s.tsv' "${SHARD_TIMINGS_DIR:-$root/scripts/ci/timings}" "$1"; }
+
+# weigh <kind>: reads <bytes>\t<item> lines, prints <weight>\t<item>. An item with a measured time weighs that many ms. An
+# unmeasured one is estimated in the same unit, bytes * (measured ms / bytes of the measured items), so measured and
+# estimated items stay comparable. With no measured item at all the weight is the byte count, as before. Rows of the
+# timing file for items that are not in the input (stale) are ignored; CRs in the file are ignored (no eol attribute).
+weigh() {
+	local tf
+	tf=$(timing_file "$1")
+	[ -f "$tf" ] || tf=/dev/null
+	LC_ALL=C awk -F '\t' -v tf="$tf" '
+		BEGIN {
+			while ((getline l < tf) > 0) {
+				gsub(/\r/, "", l)
+				if (split(l, a, "\t") == 2 && a[1] ~ /^[0-9]+$/ && a[2] != "") t[a[2]] = a[1] + 0
+			}
+		}
+		{ n++; bytes[n] = $1 + 0; item[n] = $2; if ($2 in t) { ms += t[$2]; kb += $1 } }
+		END {
+			ratio = (kb > 0) ? ms / kb : 1
+			for (i = 1; i <= n; i++) printf "%d\t%s\n", (item[i] in t) ? t[item[i]] : bytes[i] * ratio, item[i]
+		}'
+}
+
+# weigh_names: reads names, prints <weight>\t<name> when at least one has a measured time (an unmeasured name weighs the
+# mean of the measured ones), prints nothing when none has.
+weigh_names() {
+	local tf
+	tf=$(timing_file go-names)
+	[ -f "$tf" ] || { cat >/dev/null; return 0; } # drain stdin: a writer that gets SIGPIPE fails the pipeline (pipefail)
+	LC_ALL=C awk -F '\t' -v tf="$tf" '
+		BEGIN {
+			while ((getline l < tf) > 0) {
+				gsub(/\r/, "", l)
+				if (split(l, a, "\t") == 2 && a[1] ~ /^[0-9]+$/ && a[2] != "") t[a[2]] = a[1] + 0
+			}
+		}
+		{ n++; item[n] = $1; if ($1 in t) { known++; sum += t[$1] } }
+		END {
+			if (!known) exit
+			mean = sum / known
+			for (i = 1; i <= n; i++) printf "%d\t%s\n", (item[i] in t) ? t[item[i]] : mean, item[i]
+		}'
+}
+
 case "$mode" in
 flutter-files)
 	sizes=$(flutter_sizes)
-	mine=$(if [ -n "$sizes" ]; then printf '%s\n' "$sizes" | pack; fi) ;;
+	mine=$(if [ -n "$sizes" ]; then printf '%s\n' "$sizes" | weigh flutter | pack; fi) ;;
 go-packages)
 	sizes=$(go_package_sizes)
-	mine=$(if [ -n "$sizes" ]; then printf '%s
-' "$sizes" | pack; fi) ;;
+	mine=$(if [ -n "$sizes" ]; then printf '%s\n' "$sizes" | weigh go-packages | pack; fi) ;;
 go-names | go-run)
-	mine=$(go_names | awk -v i="$index" -v n="$total" '(NR - 1) % n == i') ;;
+	names=$(go_names)
+	weighted=$(printf '%s\n' "$names" | weigh_names)
+	if [ -n "$weighted" ]; then
+		mine=$(printf '%s\n' "$weighted" | pack)
+	else
+		mine=$(printf '%s\n' "$names" | awk -v i="$index" -v n="$total" 'NF && (++k - 1) % n == i')
+	fi ;;
 esac
 if [ -z "$mine" ]; then
 	echo "shard $spec of $mode is empty: lower the shard count" >&2
