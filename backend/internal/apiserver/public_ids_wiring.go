@@ -26,6 +26,13 @@ const (
 
 // publicIDPassThrough lists the CONDITIONAL user_ref fields whose rule has not landed: the edge leaves them untouched
 // in both directions. Each entry names the change that replaces it with a rule (Rules.Register).
+//
+// OPEN GAPS UNTIL PR 4c. FEATURE_PUBLIC_IDS must not be enabled for any caller (allowlist included) before PR 4c lands:
+//   - dzeroth.moderation.v1.ReportContentRequest.target_id (below): untouched, so an ACCOUNT report from a flagged
+//     client, which sends a public id, reaches moderation as an unknown uid and fails NOT_FOUND until the rule lands.
+//   - dzeroth.notifications.v1.Notification.id: NOT annotated yet, so neither this list nor the plan guard tracks it.
+//     For FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED, REPOST and BEACON_REQUEST rows its last "_" segment is the actor's
+//     raw uid, which a flagged caller still receives until PR 4c annotates it (make proto) and registers its rule.
 var publicIDPassThrough = map[protoreflect.FullName]string{
 	"dzeroth.moderation.v1.ReportContentRequest.target_id": "rule (translate when target_type == ACCOUNT) lands in PR 4c",
 }
