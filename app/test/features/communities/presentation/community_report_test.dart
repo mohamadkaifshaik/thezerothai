@@ -171,10 +171,13 @@ void main() {
     });
   }
 
-  testWidgets('owner: no menu', (tester) async {
+  testWidgets('owner: the menu offers Edit, never Report', (tester) async {
     stubRole(pb.CommunityRole.COMMUNITY_ROLE_OWNER);
     await open(tester);
-    expect(menu(), findsNothing);
+    await tester.tap(menu());
+    await tester.pumpAndSettle();
+    expect(find.text('Edit community'), findsWidgets);
+    expect(find.text('Report Community'), findsNothing);
   });
 
   testWidgets('reports flag off: no menu', (tester) async {

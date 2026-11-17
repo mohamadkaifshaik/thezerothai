@@ -9,6 +9,9 @@ enum AppStatusTone {
 
   /// Accent label on a 14 % teal tint.
   info,
+
+  /// Error label on a 14 % error tint (an ended or failed state).
+  danger,
 }
 
 /// A small full-round status label ("Coming soon"): at least 24 dp tall, a
@@ -36,9 +39,11 @@ class AppStatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppTintBadge(
       label: label,
-      tone: tone == AppStatusTone.info
-          ? AppTintTone.accent
-          : AppTintTone.neutral,
+      tone: switch (tone) {
+        AppStatusTone.info => AppTintTone.accent,
+        AppStatusTone.danger => AppTintTone.danger,
+        AppStatusTone.neutral => AppTintTone.neutral,
+      },
       excludeSemantics: true,
     );
   }

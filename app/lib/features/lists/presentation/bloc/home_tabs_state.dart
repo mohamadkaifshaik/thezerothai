@@ -7,6 +7,7 @@ const kFollowingTabKey = 'following';
 
 /// The text of a pinned tab whose list has no known name yet.
 const kUnnamedListTabLabel = 'List';
+const kUnnamedCommunityTabLabel = 'Community';
 
 /// What the Home tab bar and "Manage pinned" show.
 @immutable
@@ -44,7 +45,11 @@ class HomeTabsState {
     return i < 0 ? 0 : i + 1;
   }
 
-  String labelOf(HomeTabEntry tab) => labels[tab.key] ?? kUnnamedListTabLabel;
+  String labelOf(HomeTabEntry tab) =>
+      labels[tab.key] ??
+      (tab.kind == HomeTabKind.community
+          ? kUnnamedCommunityTabLabel
+          : kUnnamedListTabLabel);
 
   HomeTabsState copyWith({
     List<HomeTabEntry>? tabs,

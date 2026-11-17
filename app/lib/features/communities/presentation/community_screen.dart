@@ -29,6 +29,9 @@ import '../../timeline/domain/feed_key.dart';
 import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/bloc/timeline_state.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
+import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
+import '../../../gen/dzeroth/communities/v1/communities.pbenum.dart'
+    show CommunityStatus;
 import '../data/communities_repository.dart';
 import '../domain/communities_feature_flag.dart';
 import '../domain/community_role.dart';
@@ -36,6 +39,7 @@ import 'bloc/community_detail_cubit.dart';
 import 'bloc/community_detail_state.dart';
 import 'bloc/community_moderation_cubit.dart';
 import 'communities_error_messages.dart';
+import 'create_community_screen.dart';
 import 'widgets/community_about.dart';
 import 'widgets/community_cover_band.dart';
 import 'widgets/community_header.dart';
@@ -259,6 +263,32 @@ class _CommunityScreenState extends State<CommunityScreen> {
     thankForReport(messenger, outcome);
   }
 
+  /// The owner's Edit community form (the create form, prefilled), over the
+  /// page. A saved edit reloads the header, rules and moderators.
+  Future<void> _edit() async {
+    final community = _detail.state.community;
+    if (community == null) return;
+    final saved = await Navigator.of(context, rootNavigator: true)
+        .push<pb.Community>(
+          MaterialPageRoute(
+            builder: (_) => CreateCommunityScreen(
+              existing: community,
+              existingRules: _detail.state.rules,
+            ),
+          ),
+        );
+    if (saved != null && mounted) await _detail.load();
+  }
+
+  /// Whether the Edit entry is offered: the owner of a community that is
+  /// not archived (the server refuses anyone else and an archived one).
+  bool _canEdit(CommunityDetailState state) {
+    final community = state.community;
+    return community != null &&
+        community.role.isOwner &&
+        community.status != CommunityStatus.COMMUNITY_STATUS_ARCHIVED;
+  }
+
   Future<void> _togglePin() async {
     final error = await _detail.togglePin();
     if (error != null && mounted) _say(communitiesErrorMessage(error));
@@ -367,7 +397,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         !state.community!.role.isOwner;
                     // The options menu: on the cover band's navy a pearl circle,
                     // on the tablet and desktop bar a plain icon.
-                    Widget? options({required bool onBand}) => showReport
+                    final canEdit = _canEdit(state);
+                    Widget? options({required bool onBand}) =>
+                        showReport || canEdit
                         ? PopupMenuButton<String>(
                             tooltip: 'Community options',
                             padding: EdgeInsets.zero,
@@ -380,15 +412,25 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     foregroundColor: AppPalette.pearl,
                                   )
                                 : null,
-                            onSelected: (_) => _report(),
-                            itemBuilder: (context) => const [
-                              PopupMenuItem(
-                                value: 'report',
-                                child: AppMenuItemRow(
-                                  icon: Icons.flag_outlined,
-                                  label: 'Report Community',
+                            onSelected: (value) =>
+                                value == 'edit' ? _edit() : _report(),
+                            itemBuilder: (context) => [
+                              if (canEdit)
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: AppMenuItemRow(
+                                    icon: Icons.edit_outlined,
+                                    label: 'Edit community',
+                                  ),
                                 ),
-                              ),
+                              if (showReport)
+                                const PopupMenuItem(
+                                  value: 'report',
+                                  child: AppMenuItemRow(
+                                    icon: Icons.flag_outlined,
+                                    label: 'Report Community',
+                                  ),
+                                ),
                             ],
                           )
                         : null;
@@ -415,6 +457,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           onCompose: _canCompose(context, state)
                               ? _composeHere
                               : null,
+                          onEdit: canEdit ? _edit : null,
                           onModerationLog:
                               state.community?.role.canModerate == true
                               ? _openModerationLog

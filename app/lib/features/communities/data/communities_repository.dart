@@ -87,7 +87,9 @@ class CommunitiesRepository {
     required ApiClient apiClient,
     required ServiceFeatureGate gate,
     SessionEpoch? epoch,
+    void Function(pb.Community community)? onCommunitySeen,
   }) : _apiClient = apiClient,
+       _onCommunitySeen = onCommunitySeen,
        _gate = gate,
        _epoch = epoch,
        _seenEpoch = epoch?.value ?? 0;
@@ -95,6 +97,9 @@ class CommunitiesRepository {
   final ApiClient _apiClient;
   final ServiceFeatureGate _gate;
   final SessionEpoch? _epoch;
+
+  /// Receives every community header an answer carries (the Home tab label).
+  final void Function(pb.Community community)? _onCommunitySeen;
   int _seenEpoch;
   MyCommunities? _mine;
   Future<MyCommunities>? _mineInFlight;
@@ -203,7 +208,12 @@ class CommunitiesRepository {
     if (name != null) request.name = name;
     if (description != null) request.description = description;
     if (rules != null) request.rules = pb.CommunityRuleList(rules: rules);
-    return _call(() => _apiClient.communities.updateCommunity(request));
+    return _call(() => _apiClient.communities.updateCommunity(request))
+        .then((r) {
+          _noteJoined(r.community);
+          _seen(r.community);
+          return r;
+        });
   }
 
   Future<pb.GetCommunityResponse> getCommunity(String communityId) {
@@ -211,7 +221,18 @@ class CommunitiesRepository {
       () => _apiClient.communities.getCommunity(
         pb.GetCommunityRequest(communityId: communityId),
       ),
-    );
+    ).then((r) {
+      _seen(r.community);
+      return r;
+    });
+  }
+
+  /// Hands [community] to the header listener (also for headers other
+  /// repositories saw, e.g. a community feed answer).
+  void noteCommunity(pb.Community community) => _seen(community);
+
+  void _seen(pb.Community community) {
+    if (community.communityId.isNotEmpty) _onCommunitySeen?.call(community);
   }
 
   /// The directory (at most 50, by member count; not paged at Stage 0).
@@ -241,6 +262,7 @@ class CommunitiesRepository {
         pb.ListMyCommunitiesRequest(pageSize: pageSize, pageToken: pageToken),
       ),
     );
+    r.communities.forEach(_seen);
     final mine = MyCommunities(
       communities: r.communities.toList(),
       canCreate: r.canCreate,
@@ -265,6 +287,7 @@ class CommunitiesRepository {
       ),
     );
     _noteJoined(r.community);
+    _seen(r.community);
     return r.community;
   }
 
@@ -281,6 +304,7 @@ class CommunitiesRepository {
       ),
     );
     forgetCommunity(communityId);
+    _seen(r.community);
     return r.community;
   }
 
