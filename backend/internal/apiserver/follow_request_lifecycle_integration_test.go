@@ -135,14 +135,13 @@ func TestW335b_FollowRequestsThroughAccountLifecycle(t *testing.T) {
 	if !ok {
 		t.Fatalf("the export has no follow_requests section: %s", rawP)
 	}
+	// Rows name the other party by handle (and public id, which this env does not mint), never by uid (exportVersion 2).
 	var lower struct {
 		Sent []struct {
-			UserID      string    `json:"userId"`
 			Handle      string    `json:"handle"`
 			RequestedAt time.Time `json:"requestedAt"`
 		} `json:"sent"`
 		Received []struct {
-			UserID      string    `json:"userId"`
 			Handle      string    `json:"handle"`
 			RequestedAt time.Time `json:"requestedAt"`
 		} `json:"received"`
@@ -150,13 +149,16 @@ func TestW335b_FollowRequestsThroughAccountLifecycle(t *testing.T) {
 	if err := json.Unmarshal(section, &lower); err != nil {
 		t.Fatalf("section: %v: %s", err, section)
 	}
-	if len(lower.Sent) != 1 || lower.Sent[0].UserID != q.uid || len(lower.Received) != 2 {
+	qHandle, _ := e.profileOf(t, q)
+	r1Handle, _ := e.profileOf(t, r1)
+	r2Handle, _ := e.profileOf(t, r2)
+	if len(lower.Sent) != 1 || lower.Sent[0].Handle != qHandle || len(lower.Received) != 2 {
 		t.Fatalf("P's section = %s, want sent [Q] and received [R1 R2]", section)
 	}
 	if lower.Received[0].RequestedAt.Before(lower.Received[1].RequestedAt) {
 		t.Errorf("received is not newest first: %v then %v", lower.Received[0].RequestedAt, lower.Received[1].RequestedAt)
 	}
-	if got := []string{lower.Received[0].UserID, lower.Received[1].UserID}; !slices.Contains(got, r1.uid) || !slices.Contains(got, r2.uid) {
+	if got := []string{lower.Received[0].Handle, lower.Received[1].Handle}; !slices.Contains(got, r1Handle) || !slices.Contains(got, r2Handle) {
 		t.Errorf("received = %v, want R1 and R2", got)
 	}
 
@@ -171,7 +173,7 @@ func TestW335b_FollowRequestsThroughAccountLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rows := range shaped { // the two requests to P were made in one run: order them by role for a stable golden
-		sort.SliceStable(rows, func(i, j int) bool { return rows[i]["userId"].(string) < rows[j]["userId"].(string) })
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i]["handle"].(string) < rows[j]["handle"].(string) })
 	}
 	var gbuf bytes.Buffer
 	enc := json.NewEncoder(&gbuf)
@@ -195,6 +197,12 @@ func TestW335b_FollowRequestsThroughAccountLifecycle(t *testing.T) {
 		t.Errorf("follow_requests section differs from %s:\n got: %s\nwant: %s", path, golden, want)
 	}
 
+	for _, other := range []string{q.uid, r1.uid, r2.uid} {
+		if strings.Contains(string(section), other) {
+			t.Errorf("P's follow_requests section names a counterpart by uid: %s", section)
+		}
+	}
+
 	// Nobody's export lists a request they are not a party to: R2's has P and nothing of R1, Q or P's other requests.
 	_, rawR2 := e.exportOf(t, r2, "w335b-export-r2-0001")
 	for _, other := range []string{r1.uid, q.uid} {
@@ -202,13 +210,14 @@ func TestW335b_FollowRequestsThroughAccountLifecycle(t *testing.T) {
 			t.Errorf("R2's export names %s, a party to none of R2's requests", other)
 		}
 	}
+	pHandle, _ := e.profileOf(t, p)
 	var envR2 map[string]json.RawMessage
 	_ = json.Unmarshal(rawR2, &envR2)
 	var r2Section struct {
 		Sent     []map[string]any `json:"sent"`
 		Received []map[string]any `json:"received"`
 	}
-	if err := json.Unmarshal(envR2["follow_requests"], &r2Section); err != nil || len(r2Section.Sent) != 1 || len(r2Section.Received) != 0 || r2Section.Sent[0]["userId"] != p.uid {
+	if err := json.Unmarshal(envR2["follow_requests"], &r2Section); err != nil || len(r2Section.Sent) != 1 || len(r2Section.Received) != 0 || r2Section.Sent[0]["handle"] != pHandle {
 		t.Errorf("R2's section = %s (%v), want sent [P] only", envR2["follow_requests"], err)
 	}
 
