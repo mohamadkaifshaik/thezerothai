@@ -114,6 +114,7 @@ class PendingPost {
       uploading && photosTotal > 0 ? photosDone / photosTotal : null;
 
   PendingPost copyWith({
+    common.AuthorSnapshot? author,
     PendingPostStatus? status,
     int? photosDone,
     int? photosTotal,
@@ -132,7 +133,7 @@ class PendingPost {
   }) => PendingPost(
     localId: localId,
     text: text,
-    author: author,
+    author: author ?? this.author,
     createdAt: createdAt,
     thumbnails: thumbnails ?? this.thumbnails,
     status: status ?? this.status,
@@ -166,6 +167,14 @@ class PendingPostsCubit extends Cubit<List<PendingPost>> {
   void update(String localId, PendingPost Function(PendingPost) change) {
     if (isClosed || state.every((p) => p.localId != localId)) return;
     emit([for (final p in state) p.localId == localId ? change(p) : p]);
+  }
+
+  /// `public_ids` flipped: the viewer's own snapshot in every row (they are
+  /// all the viewer's own posts) is replaced by [author], which carries the
+  /// user id of the new kind.
+  void restampAuthor(common.AuthorSnapshot author) {
+    if (state.isEmpty) return;
+    emit([for (final p in state) p.copyWith(author: author)]);
   }
 
   void remove(String localId) {

@@ -90,7 +90,7 @@ class SuggestionsRepository {
        _database = database,
        _now = now ?? DateTime.now,
        _onUnexpectedError = onUnexpectedError,
-       _epoch = database.sessionEpoch.value;
+       _epoch = database.sessionEpoch.cacheValue;
 
   final ApiClient _apiClient;
   final GraphRepository _graph;
@@ -121,7 +121,7 @@ class SuggestionsRepository {
   DateTime? _retryNotBefore;
 
   /// The `AppSettingEntries` key of [uid].
-  static String key(String uid) => '${kAccountSettingPrefix}suggestions:$uid';
+  static String key(String uid) => '$kIdBearingSettingPrefix$uid';
 
   /// The suggestions for [uid] that may be shown now: cached for the entry's
   /// own lifetime (48 h, 6 h when empty, 24 h after a limit; see the class
@@ -237,13 +237,13 @@ class SuggestionsRepository {
 
   /// Forgets everything held in memory (sign-out). The disk entry is wiped by
   /// [AppDatabase.clearAll]; the epoch check keeps a late response out.
-  void clearSession() => _reset(_database.sessionEpoch.value);
+  void clearSession() => _reset(_database.sessionEpoch.cacheValue);
 
   bool _isCurrent(int epoch) =>
-      _epoch == epoch && _database.sessionEpoch.allows(epoch);
+      _epoch == epoch && _database.sessionEpoch.allowsCache(epoch);
 
   void _syncEpoch() {
-    final current = _database.sessionEpoch.value;
+    final current = _database.sessionEpoch.cacheValue;
     if (current != _epoch) _reset(current);
   }
 
@@ -424,7 +424,7 @@ class SuggestionsRepository {
     // Best effort: a failed write only costs one more RPC after a restart.
     unawaited(
       _database
-          .writeAccountSetting(key(uid), value, epoch: epoch)
+          .writeIdBearingSetting(key(uid), value, epoch: epoch)
           .catchError((Object _) {}),
     );
   }

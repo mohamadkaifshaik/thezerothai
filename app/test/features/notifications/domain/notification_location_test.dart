@@ -211,4 +211,43 @@ void main() {
       '/plans/$id',
     );
   });
+
+  group('an actor that is gone', () {
+    const tombstone = 'uzzzzzzzzzzzzzzzzzzzzzzzzzz';
+
+    test('a follow with the tombstone or an empty actor opens nothing', () {
+      for (final actor in [tombstone, '']) {
+        expect(
+          notificationLocation(
+            type: kNotificationTypeFollow,
+            postId: '',
+            actorId: actor,
+          ),
+          isNull,
+        );
+      }
+    });
+
+    test('a like falls back to the post, never to /u/<tombstone>', () {
+      expect(
+        notificationLocation(type: 'like', postId: '123', actorId: tombstone),
+        '/post/123',
+      );
+      expect(
+        notificationLocation(type: 'like', postId: '', actorId: tombstone),
+        isNull,
+      );
+    });
+
+    test('a public id actor opens its profile', () {
+      expect(
+        notificationLocation(
+          type: kNotificationTypeFollow,
+          postId: '',
+          actorId: 'u0abcdefghijklmnopqrstuvw2',
+        ),
+        '/u/u0abcdefghijklmnopqrstuvw2',
+      );
+    });
+  });
 }

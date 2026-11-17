@@ -221,3 +221,23 @@ StreamSubscription<AuthState> wireAuthSession({
     }
   });
 }
+
+/// `public_ids` flipped for the signed-in account (`PublicIdTransition`): the
+/// cached ids are of the other kind. Clears the id-bearing disk cache
+/// ([AppDatabase.clearIdBearingCache]) and the in-memory state of the
+/// timeline, notifications and messaging repositories (unsent messages of
+/// threads that do not exist yet are dropped: their key is a recipient id), so
+/// the next load refetches. Not a sign-out: the session epoch is not ended
+/// (writes of requests started before are invalidated by the caller), drafts
+/// and unsent posts stay.
+Future<void> wipeIdBearingData({
+  required AppDatabase database,
+  required TimelineRepository timelineRepository,
+  NotificationsRepository? notificationsRepository,
+  MessagingRepository? messagingRepository,
+}) async {
+  timelineRepository.forgetIdKinds();
+  notificationsRepository?.forgetIdKinds();
+  messagingRepository?.forgetIdKinds();
+  await database.clearIdBearingCache();
+}

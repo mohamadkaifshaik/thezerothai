@@ -67,7 +67,7 @@ class _ThreadList extends StatelessWidget {
     final communitiesEnabled = isFeatureEnabled(context, kFeatureCommunities);
     final moderation = context.read<ThreadModerationCubit>();
     final moderationState = context.watch<ThreadModerationCubit>().state;
-    final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
+    final viewerUserId = context.read<OnboardingBloc>().state.myUserId;
     return BlocBuilder<ThreadCubit, ThreadState>(
       builder: (context, state) {
         final focal = state.focal;

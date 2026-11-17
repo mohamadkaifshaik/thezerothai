@@ -22,6 +22,7 @@ import '../domain/posts_feature_flag.dart';
 import 'bloc/post_detail_cubit.dart';
 import 'thread_screen.dart';
 import 'widgets/post_unavailable_view.dart';
+import '../../../core/session/user_ids.dart';
 
 /// `/post/:id`: one post via `GetPost`. A missing, deleted or hidden
 /// post shows "This post isn't available" with no retry; a post of an author
@@ -146,7 +147,7 @@ class _ReadyPost extends StatelessWidget {
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
     final author = view.post.author;
-    final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
+    final viewerUserId = context.read<OnboardingBloc>().state.myUserId;
 
     return SingleChildScrollView(
       padding: shellBottomInsets(context),

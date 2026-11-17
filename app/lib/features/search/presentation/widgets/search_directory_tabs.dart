@@ -27,6 +27,7 @@ import '../../data/search_repository.dart';
 import '../bloc/search_communities_cubit.dart';
 import '../bloc/search_results_cubit.dart' show searchErrorToApp;
 import 'search_status_views.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// Spoken name of the posts filter row.
 const kSearchFollowingFilterLabel = 'Filter posts by author';
@@ -223,7 +224,7 @@ class _SearchListsBodyState extends State<SearchListsBody> {
     final cubit = _cubit;
     if (cubit == null) return _noQuery('Lists');
     final viewer = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     return BlocBuilder<ListFeedCubit, ListFeedState>(
       bloc: cubit,

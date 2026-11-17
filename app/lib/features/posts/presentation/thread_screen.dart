@@ -47,6 +47,7 @@ import 'composer_screen.dart';
 import 'post_error_messages.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/post_unavailable_view.dart';
+import '../../../core/session/user_ids.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 part 'thread_context.dart';

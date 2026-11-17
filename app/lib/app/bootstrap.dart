@@ -18,6 +18,7 @@ import '../core/network/api_client.dart';
 import '../core/network/auth_token_provider.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/service_paused_cubit.dart';
+import '../core/session/public_id_transition.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/cache_database_open.dart';
 import '../core/telemetry/telemetry_bootstrap.dart';
@@ -488,6 +489,21 @@ Future<void> bootstrap() async {
     onUnexpectedError: reportUnexpectedError,
   );
 
+  // `public_ids` appearing or disappearing for the signed-in account: the ids
+  // cached so far are of the other kind (wiped once per transition, before the
+  // GetMe answer that carries the flag is cached or shown).
+  final publicIdTransition = PublicIdTransition(
+    database: database,
+    wipe: () => wipeIdBearingData(
+      database: database,
+      timelineRepository: timelineRepository,
+      notificationsRepository: notificationsRepository,
+      messagingRepository: messagingRepository,
+    ),
+    onError: reportUnexpectedError,
+  );
+  identityRepository.flagSetHook = publicIdTransition.onFlagSet;
+
   // Bridge auth into the session: wipe on sign-out or a change of user, claim
   // the cache for the new user before onboarding starts (L-4).
   wireAuthSession(
@@ -502,6 +518,7 @@ Future<void> bootstrap() async {
 
   runApp(
     AppWidget(
+      publicIdTransition: publicIdTransition,
       authBloc: authBloc,
       onboardingBloc: onboardingBloc,
       identityRepository: identityRepository,

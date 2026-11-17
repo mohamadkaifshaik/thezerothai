@@ -41,7 +41,7 @@ class _FocalAuthorLines extends StatelessWidget {
   });
 
   final String displayName;
-  final String handle;
+  final String? handle;
   final bool verified;
   final bool protected;
 
@@ -62,14 +62,15 @@ class _FocalAuthorLines extends StatelessWidget {
             style: theme.textTheme.titleSmall?.copyWith(fontSize: 16),
           ),
         ),
-        Text(
-          '@$handle',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+        if (handle != null)
+          Text(
+            '@$handle',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
       ],
     );
   }
@@ -85,7 +86,7 @@ class _AuthorLine extends StatelessWidget {
   });
 
   final String displayName;
-  final String handle;
+  final String? handle;
   final bool verified;
   final bool protected;
   final String time;
@@ -102,15 +103,17 @@ class _AuthorLine extends StatelessWidget {
           verified: verified,
           protected: protected,
         ),
-        const SizedBox(width: AppSpacing.xs),
-        Flexible(
-          child: Text(
-            '@$handle',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+        if (handle != null) ...[
+          const SizedBox(width: AppSpacing.xs),
+          Flexible(
+            child: Text(
+              '@$handle',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+            ),
           ),
-        ),
+        ],
         if (time.isNotEmpty) ...[
           Text(
             ' · ',

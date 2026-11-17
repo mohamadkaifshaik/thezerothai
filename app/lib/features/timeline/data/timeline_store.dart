@@ -84,7 +84,7 @@ class TimelineStore {
   /// is dropped when the epoch ended since, so an in-flight request of a
   /// signed-out user can never write back after the cache was wiped
   /// (privacy, the privacy rule).
-  int get session => _db.sessionEpoch.value;
+  int get session => _db.sessionEpoch.cacheValue;
 
   /// Ends the shared epoch; the one entry point is
   /// `TimelineRepository.clearSession`, called by `wipeSessionData`.
@@ -92,7 +92,7 @@ class TimelineStore {
 
   Future<void> _tx(int session, Future<void> Function() body) {
     return _db.transaction(() async {
-      if (!_db.sessionEpoch.allows(session)) return;
+      if (!_db.sessionEpoch.allowsCache(session)) return;
       await body();
     });
   }

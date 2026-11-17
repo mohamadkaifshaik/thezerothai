@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/session/user_ids.dart';
 import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -117,9 +118,19 @@ class UserListRow extends StatelessWidget {
     final onFollowed = this.onFollowed;
     final onGone = this.onGone;
     final onDismiss = this.onDismiss;
-    final control =
-        trailing ??
-        BlocProvider(
+    // An account that is gone (the tombstone id): not openable and nothing to
+    // do to it, so no follow, no managing action and no profile tap.
+    final gone = isUnavailableUserId(user.userId);
+    final onProfileTap = gone ? null : this.onProfileTap;
+    final name = user.displayName.isNotEmpty
+        ? user.displayName
+        : (user.handle.isNotEmpty
+              ? '@${user.handle}'
+              : (gone ? kUnavailableAccountName : '@'));
+    final Widget? control = gone
+        ? null
+        : trailing ??
+              BlocProvider(
           create: (context) => RelationshipCubit(
             graphRepository: context.read<GraphRepository>(),
             userId: user.userId,
@@ -191,9 +202,7 @@ class UserListRow extends StatelessWidget {
                           children: [
                             Flexible(
                               child: Text(
-                                user.displayName.isEmpty
-                                    ? '@${user.handle}'
-                                    : user.displayName,
+                                name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.titleSmall,
@@ -207,14 +216,17 @@ class UserListRow extends StatelessWidget {
                         );
                       },
                     ),
-                    Text(
-                      '@${user.handle}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant)
-                          .merge(handleStyle),
-                    ),
+                    if (!gone || user.handle.isNotEmpty)
+                      Text(
+                        '@${user.handle}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            )
+                            .merge(handleStyle),
+                      ),
                     if (subtitle != null && subtitle!.trim().isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: AppSpacing.xs / 2),
@@ -250,17 +262,18 @@ class UserListRow extends StatelessWidget {
                 actions: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (extraAction == null)
-                      control
-                    else
-                      Flexible(
-                        child: Wrap(
-                          spacing: AppSpacing.sm,
-                          runSpacing: AppSpacing.sm,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [control, extraAction!],
+                    if (control != null)
+                      if (extraAction == null)
+                        control
+                      else
+                        Flexible(
+                          child: Wrap(
+                            spacing: AppSpacing.sm,
+                            runSpacing: AppSpacing.sm,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [control, extraAction!],
+                          ),
                         ),
-                      ),
                     if (onDismiss != null)
                       IconButton(
                         tooltip: 'Dismiss @${user.handle}',

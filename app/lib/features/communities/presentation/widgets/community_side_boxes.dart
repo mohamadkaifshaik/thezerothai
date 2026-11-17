@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/session/user_ids.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/context_pane.dart';
 import '../../../graph/presentation/widgets/user_list_row.dart';
@@ -54,9 +55,13 @@ class CommunitySideBoxes extends StatelessWidget {
                 title: 'Moderators',
                 child: Column(
                   children: [
-                    for (final person in people)
+                    for (final (i, person) in people.indexed)
                       UserListRow(
-                        key: ValueKey('side-mod-${person.user.userId}'),
+                        key: userRowKey(
+                          person.user.userId,
+                          i,
+                          prefix: 'side-mod-',
+                        ),
                         item: person,
                       ),
                   ],

@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
+import '../../../../core/session/user_ids.dart';
 import '../../../../core/storage/app_database.dart';
 import '../../../../shared/widgets/primitives/settings_group.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
@@ -29,15 +30,19 @@ class MessagePrivacyScope extends StatelessWidget {
     final store = context.read<OwnPrivacyStore?>();
     final identity = context.read<IdentityRepository?>();
     final uid = context.select((AuthBloc bloc) => bloc.state.user?.uid);
+    // The cubit compares the own-privacy row with the server-issued API user
+    // id (what GetMe sent), not with the Firebase uid; unknown = ''.
+    final apiUserId =
+        context.select((OnboardingBloc bloc) => bloc.state.myUserId) ?? '';
     if (store == null || identity == null || uid == null || uid.isEmpty) {
       return child;
     }
     return BlocProvider<MessagePrivacyCubit>(
-      key: ValueKey(uid),
+      key: ValueKey((uid, apiUserId)),
       create: (context) => MessagePrivacyCubit(
         identityRepository: identity,
         store: store,
-        uid: uid,
+        uid: apiUserId,
         onProfileUpdated: (profile) => context.read<OnboardingBloc>().add(
           OnboardingProfileUpdated(profile),
         ),

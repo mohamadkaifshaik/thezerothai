@@ -91,12 +91,20 @@ void main() {
     await onboardingStates.close();
   });
 
-  OnboardingState ready(Set<String> flags, {bool refreshFailed = false}) =>
-      OnboardingState(
-        status: OnboardingStatus.ready,
-        enabledFeatures: flags,
-        refreshFailed: refreshFailed,
-      );
+  /// GetMe has answered. [me] is the id it sent for the caller: with
+  /// `public_ids` off it is the Firebase uid of the signed-in account (these
+  /// tests sign in as `uid-a`); the message-privacy rows compare the own
+  /// privacy row with it, never with the Firebase uid.
+  OnboardingState ready(
+    Set<String> flags, {
+    bool refreshFailed = false,
+    String me = 'uid-a',
+  }) => OnboardingState(
+    status: OnboardingStatus.ready,
+    enabledFeatures: flags,
+    refreshFailed: refreshFailed,
+    profile: identity.Profile(userId: me, handle: 'me'),
+  );
 
   Future<void> pump(
     WidgetTester tester,

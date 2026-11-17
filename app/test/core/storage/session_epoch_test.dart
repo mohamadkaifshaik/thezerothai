@@ -66,4 +66,35 @@ void main() {
 
     expect(seen, [1, 2]);
   });
+
+  test('invalidateWrites drops cache writes only: the account session, its '
+      'writes and `ended` are untouched', () async {
+    final epoch = SessionEpoch();
+    final session = epoch.value;
+    final cache = epoch.cacheValue;
+    var ended = 0;
+    final sub = epoch.ended.listen((_) => ended++);
+    addTearDown(sub.cancel);
+
+    epoch.invalidateWrites();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(epoch.allows(session), isTrue);
+    expect(epoch.value, session);
+    expect(epoch.allowsCache(cache), isFalse);
+    expect(epoch.allowsCache(epoch.cacheValue), isTrue);
+    expect(ended, 0);
+  });
+
+  test('end() drops both the session and the cache writes', () {
+    final epoch = SessionEpoch();
+    final session = epoch.value;
+    final cache = epoch.cacheValue;
+
+    epoch.end();
+
+    expect(epoch.allows(session), isFalse);
+    expect(epoch.allowsCache(cache), isFalse);
+    expect(epoch.allowsCache(SessionEpoch.unguarded), isTrue);
+  });
 }

@@ -28,6 +28,7 @@ import '../../timeline/presentation/timeline_feed_view.dart';
 import 'widgets/home_composer_entry.dart';
 import 'widgets/home_tabs_view.dart';
 import 'widgets/home_top_bar.dart';
+import '../../../core/session/user_ids.dart';
 
 /// The Home timeline (section 7): the cached feed renders at
 /// once, then one throttled refresh with `since_token`; pull-to-refresh,
@@ -47,7 +48,7 @@ class HomeScreen extends StatelessWidget {
       return const _HomePlaceholder();
     }
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     // The same rule as the shell's "New post" button.
     final canCompose = canComposeAt(context, AppRouter.homePath);
@@ -145,10 +146,10 @@ class _FollowingFeed extends StatelessWidget {
             // The profile can load after the cubit was created: without the
             // viewer id the user's own new posts would be held behind the pill.
             listenWhen: (before, after) =>
-                before.profile?.userId != after.profile?.userId,
+                before.myUserId != after.myUserId,
             listener: (context, state) =>
                 context.read<TimelineCubit>().viewerUserId =
-                    state.profile?.userId,
+                    state.myUserId,
           ),
         ],
         child: TimelineFeedView(
