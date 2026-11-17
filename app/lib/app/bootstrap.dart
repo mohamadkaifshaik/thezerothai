@@ -68,6 +68,7 @@ import '../features/notifications/domain/notifications_feature_flag.dart';
 import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
+import '../core/widgets/privacy_policy_link.dart' show staticPagesOrigin;
 import '../features/settings/data/own_privacy_store.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -97,6 +98,8 @@ Future<void> bootstrap() async {
   final AppConfig config;
   try {
     config = AppConfig.fromEnvironment();
+    // Privacy/terms/rules links follow the build: dev builds open the dev copy.
+    staticPagesOrigin = config.shareOrigin;
   } on AppConfigError catch (e) {
     // Fail loudly but legibly: a release mobile build with no API_BASE_URL
     // dart-define is a broken CI/release configuration, not a runtime

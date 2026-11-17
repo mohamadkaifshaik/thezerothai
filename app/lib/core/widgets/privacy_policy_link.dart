@@ -2,12 +2,18 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../app/app_config.dart' show kProdShareOrigin;
 import '../theme/app_theme.dart';
 
 /// Production URL of the privacy policy, used on every platform except web
 /// (web opens the copy hosted on the current origin — see [privacyPolicyUri]
 /// — so local/dev Hosting previews link to their own build).
 const String privacyPolicyUrl = 'https://dzeroth.com/privacy.html';
+
+/// Origin that serves the static legal pages (privacy, terms, rules, about,
+/// help) outside web. Defaults to production; bootstrap sets it to the build's
+/// `AppConfig.shareOrigin`, so a dev build opens the dev copy of the pages.
+String staticPagesOrigin = kProdShareOrigin;
 
 /// Resolves the privacy policy URL for the current platform: `/privacy.html`
 /// relative to the current origin on web (a static file, served by Firebase
@@ -16,7 +22,7 @@ const String privacyPolicyUrl = 'https://dzeroth.com/privacy.html';
 Uri privacyPolicyUri() {
   return kIsWeb
       ? Uri.base.resolve('/privacy.html')
-      : Uri.parse(privacyPolicyUrl);
+      : Uri.parse('$staticPagesOrigin/privacy.html');
 }
 
 /// Opens the privacy policy in the system browser (a new tab on web, so
@@ -33,7 +39,7 @@ Future<void> launchPrivacyPolicy(BuildContext context) => launchStaticPage(
 Uri communityRulesUri() {
   return kIsWeb
       ? Uri.base.resolve('/rules.html#polls')
-      : Uri.parse('https://dzeroth.com/rules.html#polls');
+      : Uri.parse('$staticPagesOrigin/rules.html#polls');
 }
 
 /// Opens the community rules in the system browser.
@@ -48,7 +54,7 @@ Future<void> launchCommunityRules(BuildContext context) => launchStaticPage(
 Uri sitePageUri(String name) {
   return kIsWeb
       ? Uri.base.resolve('/$name.html')
-      : Uri.parse('https://dzeroth.com/$name.html');
+      : Uri.parse('$staticPagesOrigin/$name.html');
 }
 
 /// Opens the Terms of Service in the system browser.
@@ -81,9 +87,8 @@ class SiteLinksRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final baseStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
-      color: colorScheme.onSurfaceVariant,
-    );
+    final baseStyle = Theme.of(context).textTheme.bodySmall
+        ?.copyWith(color: colorScheme.onSurfaceVariant);
     final accentText = context.appColors.accentText;
     final linkStyle = baseStyle?.copyWith(
       color: accentText,
