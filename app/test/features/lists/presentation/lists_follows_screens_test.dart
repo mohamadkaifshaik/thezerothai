@@ -298,6 +298,38 @@ void main() {
     textScales: _scales,
   );
 
+  testWidgets('Discover: the search field filters the loaded Lists', (
+    tester,
+  ) async {
+    stubDiscover([
+      _list('1', name: 'Coffee club'),
+      _list('2', name: 'Night owls'),
+    ]);
+    await openDiscover(tester);
+    expect(find.text('Coffee club'), findsOneWidget);
+    expect(find.text('Night owls'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('discover-lists-search')),
+      'owl',
+    );
+    await tester.pump();
+    expect(find.text('Coffee club'), findsNothing);
+    expect(find.text('Night owls'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('discover-lists-search')),
+      'zzz',
+    );
+    await tester.pump();
+    expect(find.text('No Lists match your search'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Clear search'));
+    await tester.pump();
+    expect(find.text('Coffee club'), findsOneWidget);
+    expect(find.text('Night owls'), findsOneWidget);
+  });
+
   testWidgets('Discover: Follow calls FollowList once and flips the row', (
     tester,
   ) async {
