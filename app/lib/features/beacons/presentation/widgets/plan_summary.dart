@@ -113,7 +113,12 @@ class PlanSummary extends StatelessWidget {
                     ),
                     if (!open) ...[
                       const SizedBox(width: AppSpacing.sm),
-                      AppChip(label: statusLabel(b.status), onDark: true),
+                      AppChip(
+                        label: statusLabel(b.status),
+                        onDark: true,
+                        danger:
+                            b.status == pb.BeaconStatus.BEACON_STATUS_ENDED,
+                      ),
                     ],
                   ],
                 ),

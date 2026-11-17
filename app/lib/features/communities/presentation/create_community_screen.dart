@@ -34,8 +34,20 @@ import 'widgets/community_preview.dart';
 /// - The route needs the `communities` flag. The entry on `/communities` is
 ///   shown only with the server's `can_create`; a direct visit by someone who
 ///   is not a creator gets the server's FORBIDDEN text on Create.
+///
+/// With [existing] it is the Edit community form (opened from the page's
+/// owner menu): the same fields prefilled, "Save" instead of "Create", one
+/// `UpdateCommunity` of the changed fields, and it pops with the saved
+/// community instead of opening a page.
 class CreateCommunityScreen extends StatefulWidget {
-  const CreateCommunityScreen({super.key});
+  const CreateCommunityScreen({
+    super.key,
+    this.existing,
+    this.existingRules = const [],
+  });
+
+  final pb.Community? existing;
+  final List<pb.CommunityRule> existingRules;
 
   @override
   State<CreateCommunityScreen> createState() => _CreateCommunityScreenState();
@@ -58,9 +70,14 @@ class _RuleFields {
 class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   late final CreateCommunityCubit _cubit = CreateCommunityCubit(
     repository: context.read<CommunitiesRepository>(),
+    existing: widget.existing,
+    existingRules: widget.existingRules,
   );
-  final _name = TextEditingController();
-  final _description = TextEditingController();
+  bool get _editing => widget.existing != null;
+  late final _name = TextEditingController(text: widget.existing?.name ?? '');
+  late final _description = TextEditingController(
+    text: widget.existing?.description ?? '',
+  );
   final List<_RuleFields> _rules = [];
   var _nextRuleId = 0;
 
@@ -71,8 +88,17 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   @override
   void initState() {
     super.initState();
+    for (final r in widget.existingRules) {
+      final fields = _RuleFields(_nextRuleId++);
+      fields.title.text = r.title;
+      fields.text.text = r.text;
+      fields.title.addListener(_changed);
+      fields.text.addListener(_changed);
+      _rules.add(fields);
+    }
     _name.addListener(_changed);
     _description.addListener(_changed);
+    _syncDraft();
   }
 
   @override
@@ -161,7 +187,9 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   }
 
   void _cancel() {
-    if (context.canPop()) {
+    if (_editing) {
+      Navigator.of(context).pop();
+    } else if (context.canPop()) {
       context.pop();
     } else {
       context.go(AppRouter.communitiesPath);
@@ -189,7 +217,25 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
       if (communityRuleTitleIssue(r.title.text) != null) return false;
       if (communityRuleTextIssue(r.text.text) != null) return false;
     }
-    return true;
+    // As the Lists editor: Save waits for a difference from what is stored.
+    return !_editing || _differsFromExisting;
+  }
+
+  bool get _differsFromExisting {
+    final before = widget.existing!;
+    final old = widget.existingRules;
+    if (_name.text.trim() != before.name ||
+        _description.text.trim() != before.description ||
+        _rules.length != old.length) {
+      return true;
+    }
+    for (var i = 0; i < old.length; i++) {
+      if (_rules[i].title.text.trim() != old[i].title ||
+          _rules[i].text.text.trim() != old[i].text) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void _create() => _cubit.create(
@@ -231,18 +277,22 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
           child: BlocConsumer<CreateCommunityCubit, CreateCommunityState>(
             bloc: _cubit,
             listenWhen: (a, b) => a.created != b.created && b.created != null,
-            listener: (context, state) => context.pushReplacement(
-              AppRouter.communityPath(state.created!.communityId),
-            ),
+            listener: (context, state) => _editing
+                ? Navigator.of(context).pop(state.created)
+                : context.pushReplacement(
+                    AppRouter.communityPath(state.created!.communityId),
+                  ),
             builder: (context, state) {
               final busy = state.busy;
               return Column(
                 children: [
                   AppFormHeader(
-                    title: 'Create a community',
-                    actionLabel: 'Create',
+                    title: _editing ? 'Edit community' : 'Create a community',
+                    actionLabel: _editing ? 'Save' : 'Create',
                     busy: busy,
-                    busySemanticsLabel: 'Creating community',
+                    busySemanticsLabel: _editing
+                        ? 'Saving community'
+                        : 'Creating community',
                     onCancel: _cancel,
                     onAction: _canCreate && !busy ? _create : null,
                     secondaryLabel: wide && !beside ? _previewTitle : null,

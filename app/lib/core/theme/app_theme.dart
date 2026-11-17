@@ -214,18 +214,17 @@ abstract final class AppSize {
   /// swipe: a bled media row starts its scroll area here, not at the edge.
   static const double iosBackSwipeEdge = 20;
 
-  /// The article card in a feed: the cover fills the card at 4:5
-  /// ([postMediaDefaultAspect]) up to [postMediaMaxSingleHeight]; the text
-  /// overlay covers at least this fraction of the card, and the tint of its
-  /// gradient is this opaque at the bottom.
-  static const double articleCardOverlayFraction = 0.55;
-  static const double articleCardOverlayOpacity = 0.9;
+  /// The article card in a feed: a 16:9 cover over the text on a phone;
+  /// from [articleCardWideWidth] the cover moves to the start (4:3, this
+  /// fraction of the width) and the text sits beside it. A card never grows
+  /// taller than [articleCardMaxCoverHeight] of cover.
+  static const double articleCardCoverAspect = 16 / 9;
+  static const double articleCardWideWidth = 520;
+  static const double articleCardWideCoverFraction = 0.38;
+  static const double articleCardMaxCoverHeight = 280;
 
-  /// A card without a cover is never shorter than this.
-  static const double articleCardMinHeight = 200;
-
-  /// The transparent lead-in of the overlay gradient, above its text.
-  static const double articleCardFadeHeight = 56;
+  /// A wide card (cover beside the text) is never shorter than this.
+  static const double articleCardWideMinHeight = 150;
 
   /// One row of a header: the top bar row, and the tab row below it.
   static const double headerRow = 53;
@@ -1230,20 +1229,6 @@ abstract final class AppGradients {
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [AppPalette.navy2, AppPalette.navy],
-  );
-
-  /// The article card's text overlay: transparent at the top to [tint] at
-  /// [AppSize.articleCardOverlayOpacity] from 45 % down (the tint is the
-  /// cover's average colour, darkened so white text passes AA).
-  static LinearGradient articleOverlay(Color tint) => LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [
-      tint.withValues(alpha: 0),
-      tint.withValues(alpha: AppSize.articleCardOverlayOpacity),
-      tint.withValues(alpha: AppSize.articleCardOverlayOpacity),
-    ],
-    stops: const [0, 0.45, 1],
   );
 
   /// The community cover band (Community.dc.html `.cover`): a diagonal

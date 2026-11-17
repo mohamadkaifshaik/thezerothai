@@ -12,6 +12,7 @@ import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../../gen/dzeroth/lists/v1/lists.pb.dart' show ListInfo;
 import '../data/lists_repository.dart';
 import '../domain/list_follow_rules.dart';
 import '../domain/lists_feature_flag.dart';
@@ -53,7 +54,84 @@ class _DiscoverListsScreenState extends State<DiscoverListsScreen> {
   @override
   void dispose() {
     _cubit.close();
+    _search.dispose();
     super.dispose();
+  }
+
+  final TextEditingController _search = TextEditingController();
+  String _query = '';
+
+  /// The query as typed, trimmed and lower-cased; empty shows every List.
+  void _onQuery(String text) => setState(() => _query = text.trim());
+
+  /// Client-side filter over the Lists loaded so far: there is no List
+  /// search RPC (the Lists service has Discover, not search), so Lists on
+  /// pages not yet loaded are matched as the next pages arrive.
+  List<ListInfo> _filter(List<ListInfo> all) {
+    final q = _query.toLowerCase();
+    if (q.isEmpty) return all;
+    return [
+      for (final l in all)
+        if (l.name.toLowerCase().contains(q) ||
+            l.description.toLowerCase().contains(q) ||
+            l.owner.handle.toLowerCase().contains(q) ||
+            l.owner.displayName.toLowerCase().contains(q))
+          l,
+    ];
+  }
+
+  Widget _searchField(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    OutlineInputBorder border(Color c) => OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.pill),
+      borderSide: BorderSide(color: c),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.xs,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: TextField(
+        key: const ValueKey('discover-lists-search'),
+        controller: _search,
+        onChanged: _onQuery,
+        textInputAction: TextInputAction.search,
+        style: Theme.of(context).textTheme.bodyLarge,
+        decoration: InputDecoration(
+          hintText: 'Search Lists',
+          isDense: true,
+          prefixIcon: Icon(
+            Icons.search,
+            size: AppIconSize.md,
+            color: context.appColors.secondaryOnRaised,
+          ),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: AppSpacing.xxl,
+            minHeight: AppSpacing.xxl,
+          ),
+          suffixIcon: _query.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Clear search',
+                  icon: const Icon(Icons.cancel, size: 20),
+                  constraints: const BoxConstraints(
+                    minWidth: AppSpacing.minTapTarget,
+                    minHeight: AppSpacing.minTapTarget,
+                  ),
+                  onPressed: () {
+                    _search.clear();
+                    _onQuery('');
+                  },
+                ),
+          border: border(scheme.outlineVariant),
+          enabledBorder: border(scheme.outlineVariant),
+          focusedBorder: border(scheme.primary),
+          contentPadding: const EdgeInsets.symmetric(vertical: AppSpacing.smd),
+        ),
+      ),
+    );
   }
 
   void _back() {
@@ -94,8 +172,17 @@ class _DiscoverListsScreenState extends State<DiscoverListsScreen> {
               Expanded(
                 child: BlocBuilder<ListFeedCubit, ListFeedState>(
                   bloc: _cubit,
-                  builder: (context, state) =>
-                      _body(context, state, viewerUserId),
+                  builder: (context, state) {
+                    final searchable =
+                        state.status == ListFeedStatus.ready &&
+                        (state.lists.isNotEmpty || _query.isNotEmpty);
+                    return Column(
+                      children: [
+                        if (searchable) _searchField(context),
+                        Expanded(child: _body(context, state, viewerUserId)),
+                      ],
+                    );
+                  },
                 ),
               ),
             ],
@@ -142,21 +229,33 @@ class _DiscoverListsScreenState extends State<DiscoverListsScreen> {
             ),
           );
         }
+        final shown = _filter(state.lists);
+        final tail = state.hasMore || state.loadMoreFailed ? 1 : 0;
+        if (shown.isEmpty && tail == 0) {
+          return const Center(
+            child: SingleChildScrollView(
+              child: AppEmptyView(
+                icon: Icons.search_off,
+                title: 'No Lists match your search',
+                subtitle: 'Try a different word.',
+              ),
+            ),
+          );
+        }
         final style = listsPageRowStyle(context);
         final gutter = style == ListRowStyle.wide
             ? AppListsLayout.wideGutter
             : AppListsLayout.phoneGutter;
         final stacked = MediaQuery.textScalerOf(context).scale(1) > 1.3;
-        final tail = state.hasMore || state.loadMoreFailed ? 1 : 0;
         return RefreshIndicator(
           onRefresh: _cubit.load,
           child: CustomScrollView(
             slivers: [
               SliverList.builder(
-                itemCount: state.lists.length + tail,
+                itemCount: shown.length + tail,
                 itemBuilder: (context, i) {
-                  if (i >= state.lists.length) return _tail(context, state);
-                  final list = state.lists[i];
+                  if (i >= shown.length) return _tail(context, state);
+                  final list = shown[i];
                   final follow = canFollowList(list, viewer)
                       ? ListFollowButton(
                           listName: list.name,
