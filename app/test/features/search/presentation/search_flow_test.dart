@@ -359,9 +359,10 @@ void main() {
               } else {
                 expect(path(), '/explore');
                 // The "Trending" tab shows with People (follow_suggestions);
-                // with `trends` on its heading is folded into the tab.
+                // with `trends` on its heading is folded into the tab. With
+                // no tab bar the section's own title is "Popular".
                 expect(
-                  find.text('Trending'),
+                  find.text(f ? 'Trending' : 'Popular'),
                   t || f ? findsOneWidget : findsNothing,
                 );
                 expect(

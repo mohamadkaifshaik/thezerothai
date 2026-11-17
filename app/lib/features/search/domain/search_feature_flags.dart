@@ -12,3 +12,8 @@ const kFeatureSearchLists = 'search_lists';
 /// `search_filters` (`FEATURE_SEARCH_FILTERS`): `SearchPostsRequest.from_following`,
 /// the "People you follow" filter of the Latest and Media tabs.
 const kFeatureSearchFilters = 'search_filters';
+
+/// `trending_media` (`FEATURE_TRENDING_MEDIA`): the global media feed on the
+/// Trending page (`ExploreMedia`). The server also needs `search` on for the
+/// caller; the page mounts the section only when both are on.
+const kFeatureTrendingMedia = 'trending_media';

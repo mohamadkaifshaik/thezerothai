@@ -59,6 +59,23 @@ void main() {
     expect(find.text('.'), findsOneWidget);
   });
 
+  test('static pages follow the build origin outside web', () {
+    addTearDown(() => staticPagesOrigin = 'https://dzeroth.com');
+    staticPagesOrigin = 'https://dzeroth-dev.web.app';
+    expect(
+      privacyPolicyUri().toString(),
+      'https://dzeroth-dev.web.app/privacy.html',
+    );
+    expect(
+      sitePageUri('terms').toString(),
+      'https://dzeroth-dev.web.app/terms.html',
+    );
+    expect(
+      communityRulesUri().toString(),
+      'https://dzeroth-dev.web.app/rules.html#polls',
+    );
+  });
+
   testWidgets('tapping the link opens the production privacy policy URL', (
     tester,
   ) async {

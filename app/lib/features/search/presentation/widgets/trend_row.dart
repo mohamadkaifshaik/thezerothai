@@ -20,6 +20,7 @@ class TrendRow extends StatelessWidget {
     required this.onTap,
     this.ranked = false,
     this.last = false,
+    this.kicker,
   });
 
   final Trend trend;
@@ -28,6 +29,10 @@ class TrendRow extends StatelessWidget {
 
   /// The last row of a ranked list: no hairline under it.
   final bool last;
+
+  /// The Latest row's small label above the tag ("Latest", "Just posted"). With it the row has no rank
+  /// and no post count (a newest hashtag has no count yet).
+  final String? kicker;
 
   /// "1.2K posts", "1 post".
   static String postsLabel(int count) =>
@@ -38,10 +43,18 @@ class TrendRow extends StatelessWidget {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final count = trend.postCount.toInt();
+    final kicked = kicker;
     final texts = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (!ranked)
+        if (kicked != null)
+          Text(
+            kicked,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+        if (kicked == null && !ranked)
           Text(
             '${trend.rank} · Trending',
             maxLines: 1,
@@ -56,12 +69,13 @@ class TrendRow extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-        Text(
-          postsLabel(count),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall?.copyWith(color: muted),
-        ),
+        if (kicked == null)
+          Text(
+            postsLabel(count),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
       ],
     );
     final side = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile
@@ -69,8 +83,9 @@ class TrendRow extends StatelessWidget {
         : AppExplorePeopleLayout.trendPaddingWide;
     return Semantics(
       button: true,
-      label:
-          'Trending number ${trend.rank}, #${trend.tag}, ${postsLabel(count)}',
+      label: kicked != null
+          ? '$kicked, #${trend.tag}'
+          : 'Trending number ${trend.rank}, #${trend.tag}, ${postsLabel(count)}',
       excludeSemantics: true,
       onTap: onTap,
       child: Material(
@@ -100,21 +115,25 @@ class TrendRow extends StatelessWidget {
                     ? Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(
-                              minWidth: AppExplorePeopleLayout.trendRankWidth,
-                            ),
-                            child: Text(
-                              trend.rank.toString(),
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
+                          if (kicked != null)
+                            Expanded(child: texts)
+                          else ...[
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                minWidth: AppExplorePeopleLayout.trendRankWidth,
+                              ),
+                              child: Text(
+                                trend.rank.toString(),
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(
-                            width: AppExplorePeopleLayout.trendRankGap,
-                          ),
-                          Expanded(child: texts),
+                            const SizedBox(
+                              width: AppExplorePeopleLayout.trendRankGap,
+                            ),
+                            Expanded(child: texts),
+                          ],
                         ],
                       )
                     : texts,

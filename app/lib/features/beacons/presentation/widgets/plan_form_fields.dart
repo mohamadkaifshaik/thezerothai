@@ -505,10 +505,14 @@ class PlanReadOnlyBox extends StatelessWidget {
 const kPlanAreaTitle = 'Area (optional)';
 const kPlanAreaChoose = 'Choose an area';
 const kPlanAreaClear = 'Clear area';
+const kPlanAreaUseMine = 'Use my area';
 const kPlanAreaHint =
     'Pick the area of the meeting point, not where you live. Everyone who can '
     'see the plan sees this area, and people who choose it see the plan in '
     'Nearby.';
+
+/// The one-line hint of the compact (create) area field.
+const kPlanAreaHintShort = "The meeting point's area, not where you live.";
 
 /// Opens the area picker (`/area-picker`); null when dismissed.
 Future<AreaRef?> pickPlanArea(BuildContext context) =>
@@ -525,7 +529,17 @@ class PlanAreaField extends StatelessWidget {
     required this.enabled,
     required this.onPick,
     required this.onClear,
+    this.onUseMine,
+    this.compact = false,
   });
+
+  /// Fills the caller's saved area (a button while no area is chosen); null
+  /// when there is none to offer.
+  final VoidCallback? onUseMine;
+
+  /// Compact: no title and a one-line hint (the create form, where the
+  /// essentials must fit a phone without scrolling).
+  final bool compact;
 
   /// The chosen area's label; null when none.
   final String? label;
@@ -537,63 +551,71 @@ class PlanAreaField extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final has = label != null && label!.isNotEmpty;
-    return PlanFormSection(
-      title: kPlanAreaTitle,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Semantics(
-                  button: true,
-                  label: has ? 'Area: $label' : kPlanAreaChoose,
-                  excludeSemantics: true,
-                  child: InkWell(
-                    key: const ValueKey('plan-area-field'),
-                    onTap: enabled ? onPick : null,
-                    borderRadius: BorderRadius.circular(AppRadius.card),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        minHeight: AppSpacing.minTapTarget,
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Semantics(
+                button: true,
+                label: has ? 'Area: $label' : kPlanAreaChoose,
+                excludeSemantics: true,
+                child: InkWell(
+                  key: const ValueKey('plan-area-field'),
+                  onTap: enabled ? onPick : null,
+                  borderRadius: BorderRadius.circular(AppRadius.card),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minHeight: AppSpacing.minTapTarget,
+                    ),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.place_outlined),
                       ),
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.place_outlined),
-                        ),
-                        child: Text(
-                          has ? label! : kPlanAreaChoose,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: has
-                              ? theme.textTheme.bodyLarge
-                              : theme.textTheme.bodyLarge?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                        ),
+                      child: Text(
+                        has ? label! : kPlanAreaChoose,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: has
+                            ? theme.textTheme.bodyLarge
+                            : theme.textTheme.bodyLarge?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                       ),
                     ),
                   ),
                 ),
               ),
-              if (has)
-                IconButton(
-                  key: const ValueKey('plan-area-clear'),
-                  tooltip: kPlanAreaClear,
-                  icon: const Icon(Icons.close),
-                  onPressed: enabled ? onClear : null,
-                ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            kPlanAreaHint,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
             ),
+            if (has)
+              IconButton(
+                key: const ValueKey('plan-area-clear'),
+                tooltip: kPlanAreaClear,
+                icon: const Icon(Icons.close),
+                onPressed: enabled ? onClear : null,
+              )
+            else if (onUseMine != null)
+              TextButton(
+                key: const ValueKey('plan-area-use-mine'),
+                onPressed: enabled ? onUseMine : null,
+                child: const Text(kPlanAreaUseMine),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          compact ? kPlanAreaHintShort : kPlanAreaHint,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+    if (!compact) return PlanFormSection(title: kPlanAreaTitle, child: body);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: body,
     );
   }
 }

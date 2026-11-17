@@ -249,6 +249,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceListSuggestedUsersProcedure:               rlSuggestions,
 			searchv1connect.SearchServiceSearchPeopleProcedure:                   rlSearchPeople,
 			searchv1connect.SearchServiceSearchPostsProcedure:                    rlSearchPosts,
+			searchv1connect.SearchServiceExploreMediaProcedure:                   rlSearchPosts,
 			searchv1connect.SearchServiceSearchListsProcedure:                    rlSearchDirectory,
 			searchv1connect.SearchServiceSearchCommunitiesProcedure:              rlSearchDirectory,
 			messagingv1connect.MessagingServiceSendMessageProcedure:              rlMessagesSend,

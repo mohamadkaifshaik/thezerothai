@@ -410,7 +410,7 @@ void main() {
         )
         .opacity;
 
-    testWidgets('Explore shows the top 3 rows and a See all link', (
+    testWidgets('Explore shows the top 5 rows and a See all link', (
       tester,
     ) async {
       final search = repo(30);
@@ -419,9 +419,9 @@ void main() {
       // The end of the page clears the floating bar, which is still up.
       expect(barOpacity(tester), 1);
       expect(find.text('#tag3'), findsOneWidget);
-      expect(find.text('#tag4', skipOffstage: false), findsNothing);
+      expect(find.text('#tag6', skipOffstage: false), findsNothing);
       expect(find.text('Show more'), findsNothing);
-      expect(find.text('Trending'), findsOneWidget);
+      expect(find.text('Popular'), findsOneWidget);
       expect(find.text('See all'), findsOneWidget);
       expect(search.calls, ['trends:'], reason: 'one call for all 30');
     });
@@ -572,7 +572,7 @@ void main() {
       expect(find.text('#tag6'), findsNothing);
       await tester.tap(find.text('Show more'));
       await tester.pumpAndSettle();
-      expect(find.text('Trending'), findsOneWidget);
+      expect(find.text('Popular'), findsOneWidget);
     });
 
     testWidgets('card flag off: no card, no call', (tester) async {
@@ -599,7 +599,7 @@ void main() {
       );
       // The page lists the trends itself: no second list beside it.
       expect(find.text("Talked about today"), findsNothing);
-      expect(find.text('Trending'), findsOneWidget);
+      expect(find.text('Popular'), findsOneWidget);
       expect(search.calls, ['trends:']);
     });
 

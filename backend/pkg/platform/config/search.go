@@ -18,12 +18,16 @@ type SearchConfig struct {
 	// TagCacheEntries is the size of the per-instance hashtag cache holding the newest 30 posts per tag
 	// (CACHE_SEARCH_TAG_ENTRIES, default 500; 60 s TTL).
 	TagCacheEntries int
-	// TrendsMinAuthors is the fewest distinct authors a tag needs to trend (TRENDS_MIN_AUTHORS, default 3).
+	// TrendsMinAuthors is the fewest distinct authors a tag needs to trend (TRENDS_MIN_AUTHORS, default 1: a tag used by a
+	// single established account trends on a cold-start app; raise it once there are enough users).
 	TrendsMinAuthors int
+	// TrendsMaxPostsPerAuthor caps how many posts one author adds to one tag's count (TRENDS_MAX_POSTS_PER_AUTHOR,
+	// default 5), so one account cannot make a tag beyond that many uses.
+	TrendsMaxPostsPerAuthor int
 	// TrendsMaxPostsPerRun caps the posts one refresh run scans (TRENDS_MAX_POSTS_PER_RUN, default 2,000).
 	TrendsMaxPostsPerRun int
 	// TrendsMinInterval is the shortest time between two refreshes: a run within it of the last list is skipped as
-	// "fresh" (TRENDS_MIN_INTERVAL, default 12h; 50m with the hourly option). Must be > 0.
+	// "fresh" (TRENDS_MIN_INTERVAL, default 45m, so the hourly trends-refresh Scheduler job is never skipped as fresh; the daily-maintenance step and a retry shortly after a good run still are). Must be > 0.
 	TrendsMinInterval time.Duration
 	// TrendsMinAccountAge is the age an author account needs before its posts count towards a trend (TRENDS_MIN_ACCOUNT_AGE,
 	// default 72h). Must be > 0.
@@ -47,7 +51,8 @@ func loadSearch() (SearchConfig, error) {
 	}{
 		{&c.PrefixCacheEntries, "CACHE_SEARCH_PREFIX_ENTRIES", 2000},
 		{&c.TagCacheEntries, "CACHE_SEARCH_TAG_ENTRIES", 500},
-		{&c.TrendsMinAuthors, "TRENDS_MIN_AUTHORS", 3},
+		{&c.TrendsMinAuthors, "TRENDS_MIN_AUTHORS", 1},
+		{&c.TrendsMaxPostsPerAuthor, "TRENDS_MAX_POSTS_PER_AUTHOR", 5},
 		{&c.TrendsMaxPostsPerRun, "TRENDS_MAX_POSTS_PER_RUN", 2000},
 		{&c.TrendsMaxAuthorChecks, "TRENDS_MAX_AUTHOR_CHECKS", 500},
 	} {
@@ -60,7 +65,7 @@ func loadSearch() (SearchConfig, error) {
 		}
 		*f.dst = v
 	}
-	d, err := getDuration("TRENDS_MIN_INTERVAL", 12*time.Hour)
+	d, err := getDuration("TRENDS_MIN_INTERVAL", 45*time.Minute)
 	if err != nil {
 		return SearchConfig{}, err
 	}

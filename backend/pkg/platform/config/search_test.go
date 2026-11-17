@@ -20,9 +20,9 @@ func TestLoad_SearchDefaults(t *testing.T) {
 		t.Errorf("search limits = %d/%d, want 30/20", rl.SearchPeoplePerUserPerMinute, rl.SearchPostsPerUserPerMinute)
 	}
 	s := cfg.Search
-	if s.PrefixCacheEntries != 2000 || s.TagCacheEntries != 500 || s.TrendsMinAuthors != 3 || s.TrendsMaxPostsPerRun != 2000 || s.TrendsMinInterval != 12*time.Hour ||
+	if s.PrefixCacheEntries != 2000 || s.TagCacheEntries != 500 || s.TrendsMinAuthors != 1 || s.TrendsMaxPostsPerAuthor != 5 || s.TrendsMaxPostsPerRun != 2000 || s.TrendsMinInterval != 45*time.Minute ||
 		s.TrendsMinAccountAge != 72*time.Hour || s.TrendsMaxAuthorChecks != 500 || len(s.TrendsDenylist) != 0 {
-		t.Errorf("search config = %+v, want 2000/500/3/2000/12h/72h/500/none", s)
+		t.Errorf("search config = %+v, want 2000/500/1/5/2000/45m/72h/500/none", s)
 	}
 	for _, f := range []struct {
 		spec flags.Spec
@@ -47,6 +47,7 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 		t.Setenv("CACHE_SEARCH_PREFIX_ENTRIES", "10")
 		t.Setenv("CACHE_SEARCH_TAG_ENTRIES", "11")
 		t.Setenv("TRENDS_MIN_AUTHORS", "4")
+		t.Setenv("TRENDS_MAX_POSTS_PER_AUTHOR", "3")
 		t.Setenv("TRENDS_MAX_POSTS_PER_RUN", "12")
 		t.Setenv("TRENDS_MIN_INTERVAL", "50m")
 		t.Setenv("TRENDS_MIN_ACCOUNT_AGE", "96h")
@@ -64,7 +65,7 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 			t.Errorf("rate limit override = %d/%d", rl.SearchPeoplePerUserPerMinute, rl.SearchPostsPerUserPerMinute)
 		}
 		s := cfg.Search
-		if s.PrefixCacheEntries != 10 || s.TagCacheEntries != 11 || s.TrendsMinAuthors != 4 || s.TrendsMaxPostsPerRun != 12 || s.TrendsMinInterval != 50*time.Minute ||
+		if s.PrefixCacheEntries != 10 || s.TagCacheEntries != 11 || s.TrendsMinAuthors != 4 || s.TrendsMaxPostsPerAuthor != 3 || s.TrendsMaxPostsPerRun != 12 || s.TrendsMinInterval != 50*time.Minute ||
 			s.TrendsMinAccountAge != 96*time.Hour || s.TrendsMaxAuthorChecks != 77 {
 			t.Errorf("search override = %+v", s)
 		}
@@ -85,7 +86,7 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 
 	for _, key := range []string{
 		"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", "RATE_LIMIT_SEARCH_POSTS_PER_MIN", "RATE_LIMIT_SEARCH_DIRECTORY_PER_MIN", "CACHE_SEARCH_PREFIX_ENTRIES",
-		"CACHE_SEARCH_TAG_ENTRIES", "TRENDS_MIN_AUTHORS", "TRENDS_MAX_POSTS_PER_RUN", "TRENDS_MAX_AUTHOR_CHECKS",
+		"CACHE_SEARCH_TAG_ENTRIES", "TRENDS_MIN_AUTHORS", "TRENDS_MAX_POSTS_PER_AUTHOR", "TRENDS_MAX_POSTS_PER_RUN", "TRENDS_MAX_AUTHOR_CHECKS",
 	} {
 		for _, val := range []string{"0", "-1", "many"} {
 			t.Run(key+"="+val, func(t *testing.T) {

@@ -955,13 +955,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries, Plans: plans,
 		}),
 		search.WithTrends(trendsStore, nil),
+		// The Latest row: the newest-first posts scan, the same protected set as the sweep and the ACTIVE check.
+		search.WithTrendsLatest(postsSvc.(posts.RecentReader), protectedAuthors, searchAuthors),
 		// F20/F21: SearchLists and SearchCommunities read through the two modules' search methods (their visibility rules).
 		search.WithDirectory(search.DirectoryDeps{Lists: listsSvc, Communities: communitiesSvc}),
 		// The denylist also applies at serve time, so a deploy takes effect within the 10 min copy.
 		search.WithTrendsDenylist(cfg.Search.TrendsDenylist)))
 	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, identitySvc.(identity.Directory), featureFlags, search.RefresherConfig{
 		MinAuthors: cfg.Search.TrendsMinAuthors, MaxPosts: cfg.Search.TrendsMaxPostsPerRun, MinInterval: cfg.Search.TrendsMinInterval,
-		MinAccountAge: cfg.Search.TrendsMinAccountAge, MaxAuthorChecks: cfg.Search.TrendsMaxAuthorChecks,
+		MaxPostsPerAuthor: cfg.Search.TrendsMaxPostsPerAuthor,
+		MinAccountAge:     cfg.Search.TrendsMinAccountAge, MaxAuthorChecks: cfg.Search.TrendsMaxAuthorChecks,
 		Denylist: cfg.Search.TrendsDenylist, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,
 	})
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {

@@ -381,6 +381,147 @@ class SearchPostsResponse extends $pb.GeneratedMessage {
   void clearUnsupportedQuery() => $_clearField(4);
 }
 
+class ExploreMediaRequest extends $pb.GeneratedMessage {
+  factory ExploreMediaRequest({
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = ExploreMediaRequest._();
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ExploreMediaRequest._();
+
+  factory ExploreMediaRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ExploreMediaRequest()..mergeFromBuffer(data, registry);
+  factory ExploreMediaRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ExploreMediaRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ExploreMediaRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.search.v1'),
+      createEmptyInstance: ExploreMediaRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(2, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ExploreMediaRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ExploreMediaRequest copyWith(void Function(ExploreMediaRequest) updates) =>
+      super.copyWith((message) => updates(message as ExploreMediaRequest))
+          as ExploreMediaRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use ExploreMediaRequest() / ExploreMediaRequest.new instead')
+  static ExploreMediaRequest create() => ExploreMediaRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ExploreMediaRequest._();
+  @$core.override
+  ExploreMediaRequest createEmptyInstance() => ExploreMediaRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ExploreMediaRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ExploreMediaRequest>(
+          ExploreMediaRequest.$_createMessage);
+  static ExploreMediaRequest? _defaultInstance;
+
+  /// 0 => 20; max 50 (clamped); negative => VALIDATION "page_size".
+  @$pb.TagNumber(1)
+  $core.int get pageSize => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set pageSize($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPageSize() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPageSize() => $_clearField(1);
+
+  /// next_page_token of the previous page (any page of this RPC for this caller).
+  @$pb.TagNumber(2)
+  $core.String get pageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageToken() => $_clearField(2);
+}
+
+class ExploreMediaResponse extends $pb.GeneratedMessage {
+  factory ExploreMediaResponse({
+    $core.Iterable<$1.PostView>? posts,
+    $core.String? nextPageToken,
+  }) {
+    final result = ExploreMediaResponse._();
+    if (posts != null) result.posts.addAll(posts);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  ExploreMediaResponse._();
+
+  factory ExploreMediaResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ExploreMediaResponse()..mergeFromBuffer(data, registry);
+  factory ExploreMediaResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ExploreMediaResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ExploreMediaResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.search.v1'),
+      createEmptyInstance: ExploreMediaResponse.$_createMessage)
+    ..pPM<$1.PostView>(1, _omitFieldNames ? '' : 'posts',
+        subBuilder: $1.PostView.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ExploreMediaResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ExploreMediaResponse copyWith(void Function(ExploreMediaResponse) updates) =>
+      super.copyWith((message) => updates(message as ExploreMediaResponse))
+          as ExploreMediaResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ExploreMediaResponse() / ExploreMediaResponse.new instead')
+  static ExploreMediaResponse create() => ExploreMediaResponse._();
+  static $pb.GeneratedMessage $_createMessage() => ExploreMediaResponse._();
+  @$core.override
+  ExploreMediaResponse createEmptyInstance() => ExploreMediaResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ExploreMediaResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ExploreMediaResponse>(
+          ExploreMediaResponse.$_createMessage);
+  static ExploreMediaResponse? _defaultInstance;
+
+  /// Newest first. May be short or empty while next_page_token is set.
+  @$pb.TagNumber(1)
+  $pb.PbList<$1.PostView> get posts => $_getList(0);
+
+  /// "" => no more.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
 class GetTrendsRequest extends $pb.GeneratedMessage {
   factory GetTrendsRequest({
     $core.int? limit,
@@ -542,10 +683,12 @@ class GetTrendsResponse extends $pb.GeneratedMessage {
   factory GetTrendsResponse({
     $core.Iterable<Trend>? trends,
     $2.Timestamp? computedAt,
+    Trend? latest,
   }) {
     final result = GetTrendsResponse._();
     if (trends != null) result.trends.addAll(trends);
     if (computedAt != null) result.computedAt = computedAt;
+    if (latest != null) result.latest = latest;
     return result;
   }
 
@@ -567,6 +710,8 @@ class GetTrendsResponse extends $pb.GeneratedMessage {
         subBuilder: Trend.$_createMessage)
     ..aOM<$2.Timestamp>(2, _omitFieldNames ? '' : 'computedAt',
         subBuilder: $2.Timestamp.$_createMessage)
+    ..aOM<Trend>(3, _omitFieldNames ? '' : 'latest',
+        subBuilder: Trend.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -606,6 +751,20 @@ class GetTrendsResponse extends $pb.GeneratedMessage {
   void clearComputedAt() => $_clearField(2);
   @$pb.TagNumber(2)
   $2.Timestamp ensureComputedAt() => $_ensure(1);
+
+  /// The newest hashtag, read when the answer is loaded (a tag used by an ACTIVE account's newest visible post, not denied
+  /// or hidden; no minimum author count, no account-age rule). Unset when there is none, and unset for a prefix answer.
+  /// post_count is 0 here. Not counted in limit.
+  @$pb.TagNumber(3)
+  Trend get latest => $_getN(2);
+  @$pb.TagNumber(3)
+  set latest(Trend value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasLatest() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearLatest() => $_clearField(3);
+  @$pb.TagNumber(3)
+  Trend ensureLatest() => $_ensure(2);
 }
 
 class SearchListsRequest extends $pb.GeneratedMessage {
@@ -1031,6 +1190,22 @@ class SearchServiceApi {
           $pb.ClientContext? ctx, SearchCommunitiesRequest request) =>
       _client.invoke<SearchCommunitiesResponse>(ctx, 'SearchService',
           'SearchCommunities', request, SearchCommunitiesResponse());
+
+  /// The global media feed (Trending): posts from every public author that carry their own images, newest first. Rows:
+  /// root posts and quotes with images (a reply, a REPOST and a quote's embedded images do not count); the SearchPosts
+  /// MEDIA rules per caller: hidden posts, blocked or muted authors (either way), a protected author's post the caller
+  /// does not follow (a quote of one is kept with embed_viewer_state = PROTECTED), and an author that is not ACTIVE are
+  /// dropped. A page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+  /// Flags: "search", then "trending_media" (FEATURE_TRENDING_MEDIA), both before any read. The feed reads posts.hasMedia
+  /// (the composite index posts(hasMedia ASC, createdAt DESC)); a legacy post written before the hasMedia backfill is
+  /// missing from it until `opsctl backfill-has-media` has run. page_size 0 => 20, max 50 (clamped); negative =>
+  /// VALIDATION "page_size". page_token: opaque, sealed, bound to the caller, 24 h TTL; expired, foreign or tampered =>
+  /// VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call; every filter runs per
+  /// call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per instance). Writes nothing.
+  $async.Future<ExploreMediaResponse> exploreMedia(
+          $pb.ClientContext? ctx, ExploreMediaRequest request) =>
+      _client.invoke<ExploreMediaResponse>(ctx, 'SearchService', 'ExploreMedia',
+          request, ExploreMediaResponse());
 }
 
 const $core.bool _omitFieldNames =

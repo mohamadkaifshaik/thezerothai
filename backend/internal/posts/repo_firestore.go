@@ -40,6 +40,8 @@ type Repo interface {
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error)
 	// ByHashtag is Q-T (existing composite index) and CreatedAfter is Q-W (projected, ascending, automatic indexes).
 	ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error)
+	// ByMediaFeed is the global media feed (Trending): hasMedia == true, newest first, on posts(hasMedia ASC, createdAt DESC).
+	ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error)
 	// ByCommunity is the community feed query (repo_community.go): its own `communityId == C ORDER BY __name__ DESC` shape, never run().
 	ByCommunity(ctx context.Context, cid string, w Window, limit int) ([]*Post, error)
 	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
@@ -494,8 +496,35 @@ func (r *FirestoreRepo) ByHashtag(ctx context.Context, tag string, w Window, lim
 	return r.run(ctx, q, w, limit)
 }
 
-// createdAfterFields is the projection of CreatedAfter.
+// ByMediaFeed implements Repo (the global media feed): `hasMedia == true ORDER BY createdAt DESC, __name__ DESC`, served by
+// the composite index posts(hasMedia ASC, createdAt DESC) that firebase/firestore.indexes.json declares.
+func (r *FirestoreRepo) ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error) {
+	q := r.client.Collection(postsCollection).Where("hasMedia", "==", true)
+	return r.run(ctx, q, w, limit)
+}
+
+// createdAfterFields is the projection of CreatedAfter (and of Recent: the same fields).
 var createdAfterFields = []string{"hashtags", "authorId", "moderation", "createdAt", "kind"}
+
+// Recent returns the newest posts, newest first (createdAt DESC, __name__ DESC), projected like CreatedAfter. It runs on
+// the automatic single-field index of createdAt, with no composite index and no filter in the query.
+func (r *FirestoreRepo) Recent(ctx context.Context, limit int) ([]*Post, error) {
+	q := r.client.Collection(postsCollection).Select(createdAfterFields...).
+		OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
+	docs, err := q.Limit(limit).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("posts: query recent: %w", err)
+	}
+	out := make([]*Post, 0, len(docs))
+	for _, s := range docs {
+		var d postDoc
+		if err := s.DataTo(&d); err != nil {
+			return nil, fmt.Errorf("posts: decode post %s: %w", s.Ref.ID, err)
+		}
+		out = append(out, d.toPost(s.Ref.ID))
+	}
+	return out, nil
+}
 
 // CreatedAfter implements Repo (Q-W): `createdAt > after ORDER BY createdAt ASC, __name__ ASC` with the projection
 // above, on the automatic single-field indexes (no composite). With an empty after.ID the bound is createdAt only;

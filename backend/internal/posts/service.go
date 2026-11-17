@@ -288,6 +288,20 @@ func (s *service) ByHashtag(ctx context.Context, tag string, w Window, limit int
 	return out, nil
 }
 
+// ByMediaFeed implements Reader (the global media feed).
+func (s *service) ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error) {
+	if err := w.validate(); err != nil {
+		return nil, err
+	}
+	readAt := s.now()
+	out, err := s.repo.ByMediaFeed(ctx, w, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	s.fill(out, readAt)
+	return out, nil
+}
+
 // CreatedAfter implements Reader (Q-W). Results are projected (partial) posts and are
 // deliberately NOT put in the posts cache or the author-recent cache.
 func (s *service) CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error) {
@@ -301,6 +315,26 @@ func (s *service) CreatedAfter(ctx context.Context, after Position, limit int) (
 		limit = MaxCreatedAfterLimit
 	}
 	return s.repo.CreatedAfter(ctx, after, limit)
+}
+
+// recentRepo is the newest-first query; FirestoreRepo has it. A Repo without it refuses Recent.
+type recentRepo interface {
+	Recent(ctx context.Context, limit int) ([]*Post, error)
+}
+
+// Recent implements RecentReader. The posts are PROJECTED (see RecentReader) and are never cached.
+func (s *service) Recent(ctx context.Context, limit int) ([]*Post, error) {
+	r, ok := s.repo.(recentRepo)
+	if !ok {
+		return nil, fmt.Errorf("posts: Recent needs the newest-first query")
+	}
+	if limit <= 0 {
+		limit = MaxRecentLimit
+	}
+	if limit > MaxRecentLimit {
+		limit = MaxRecentLimit
+	}
+	return r.Recent(ctx, limit)
 }
 
 // fill puts results of a read that started at readAt in the posts cache (every read path fills it),

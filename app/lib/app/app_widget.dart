@@ -37,6 +37,8 @@ import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/domain/impression_tracker.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/beacons/data/beacons_repository.dart';
+import '../features/beacons/data/database_plan_form_store.dart';
+import '../features/beacons/domain/plan_quick_start.dart';
 import '../features/location/data/location_repository.dart';
 import '../features/beacons/presentation/bloc/happening_nearby_session.dart';
 import '../features/beacons/presentation/bloc/plans_session.dart';
@@ -493,12 +495,21 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   void _endAccountSession() =>
       _accountReset.run(onError: reportUnexpectedError);
 
+  late final StreamSubscription<int> _planMemorySub;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _accountUid = widget.authBloc.state.user?.uid;
     _registerAccountState();
+    // The create-plan form's remembered choices live in the account-scoped
+    // settings; a sign-out or an account switch ends the epoch and forgets
+    // them in memory too.
+    PlanFormMemory.session.bind(DatabasePlanFormStore(widget.database));
+    _planMemorySub = widget.database.sessionEpoch.ended.listen(
+      (_) => PlanFormMemory.session.forget(),
+    );
     unawaited(_themeMode.load());
     unawaited(_textSize.load());
     unawaited(_dataUsage.load());
@@ -672,6 +683,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.impressionTracker?.dispose();
+    unawaited(_planMemorySub.cancel());
+    PlanFormMemory.session.unbind();
     _screenViews.dispose();
     _authSub.cancel();
     _onboardingSub.cancel();

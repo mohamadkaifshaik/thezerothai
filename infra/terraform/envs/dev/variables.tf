@@ -986,16 +986,67 @@ variable "feature_trends_percent" {
   }
 }
 
-variable "trends_min_authors" {
-  description = "TRENDS_MIN_AUTHORS (ADR-0028 note 2026-10-31, W4-26): the fewest distinct established authors (ACTIVE, account at least TRENDS_MIN_ACCOUNT_AGE, 72 h, old) a hashtag needs to trend. Read at the daily sweep. Dev stays 3: the dev smoke has 3 test authors, which must be older than 72 h."
+variable "feature_trending_media" {
+  description = "FEATURE_TRENDING_MEDIA rollout mode for the Trending page's global media feed (ExploreMedia; gates it per caller, after search; never ramps ahead of search): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_trending_media)
+    error_message = "feature_trending_media must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_trending_media_allowlist" {
+  description = "FEATURE_TRENDING_MEDIA_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_trending_media_percent" {
+  description = "FEATURE_TRENDING_MEDIA_PERCENT: 0-100, only meaningful when feature_trending_media = percent."
   type        = number
-  default     = 3
+  default     = 0
+
+  validation {
+    condition     = var.feature_trending_media_percent >= 0 && var.feature_trending_media_percent <= 100 && floor(var.feature_trending_media_percent) == var.feature_trending_media_percent
+    error_message = "feature_trending_media_percent must be an integer 0-100."
+  }
+}
+
+variable "trends_min_authors" {
+  description = "TRENDS_MIN_AUTHORS (ADR-0028 note 2026-10-31, W4-26): the fewest distinct established authors (ACTIVE, account at least TRENDS_MIN_ACCOUNT_AGE, 72 h, old) a hashtag needs to trend. Read at every trends refresh (hourly). Default 1 is the cold-start value for a fresh environment (a tag used by one established account trends). The owner-held terraform.tfvars overrides it: a `trends_min_authors = N` line there wins, so raise it there once there are enough users, and set it to 1 there to get cold-start behaviour in an environment whose tfvars still pins a higher value."
+  type        = number
+  default     = 1
 
   validation {
     condition     = var.trends_min_authors >= 1 && floor(var.trends_min_authors) == var.trends_min_authors
     error_message = "trends_min_authors must be an integer >= 1."
   }
 }
+
+variable "trends_max_posts_per_author" {
+  description = "TRENDS_MAX_POSTS_PER_AUTHOR: the most posts one author adds to one hashtag's count in a refresh, so one account cannot make a tag trend by repetition. Default 5 (matches the backend default)."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.trends_max_posts_per_author >= 1 && floor(var.trends_max_posts_per_author) == var.trends_max_posts_per_author
+    error_message = "trends_max_posts_per_author must be an integer >= 1."
+  }
+}
+
+variable "trends_min_interval" {
+  description = "TRENDS_MIN_INTERVAL: the shortest time between two trends refreshes; a run within it of the last list is skipped as fresh. Default 45m, below the hourly trends-refresh Scheduler cadence so a tick is never skipped, while a Scheduler retry or the 03:00 daily-maintenance step right after a good run still is. A Go duration (for example 45m). Keep it under the job interval (1 h)."
+  type        = string
+  default     = "45m"
+
+  validation {
+    condition     = can(regex("^[0-9]+(s|m|h)$", var.trends_min_interval))
+    error_message = "trends_min_interval must be a Go duration such as 45m."
+  }
+}
+
 variable "trends_denylist" {
   description = "TRENDS_DENYLIST (ADR-0028 note 2026-10-31, W4-25): comma-separated hashtag bodies (no leading #) that never trend. GetTrends drops them at serve time (live on the new revision within the 10 min instance copy) and the sweep drops them too. Entries are matched after NFKC, lower-casing and removing U+200C, U+200D and underscores, so one entry covers its variants. Not a secret. Default empty. To remove a tag at once without a deploy use `opsctl trends hide`.3)."
   type        = string

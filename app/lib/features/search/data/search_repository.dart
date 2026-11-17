@@ -119,12 +119,16 @@ class SearchCommunitiesPage {
 }
 
 class TrendsResult {
-  const TrendsResult({this.trends = const [], this.computedAt});
+  const TrendsResult({this.trends = const [], this.computedAt, this.latest});
 
   final List<Trend> trends;
 
   /// When the server computed the list; null when there is no list yet.
   final DateTime? computedAt;
+
+  /// The newest hashtag (the Latest row), null when the server has none or the
+  /// answer is for a prefix.
+  final Trend? latest;
 }
 
 /// The only caller of SearchService. Read-only: no idempotency
@@ -145,6 +149,11 @@ abstract class SearchRepository {
     int pageSize = 20,
     bool fromFollowing = false,
   });
+
+  /// The global media feed (Trending): the newest photos of every public
+  /// author, paged. A page can be short or empty while the token is set. The
+  /// caller checks `search` and `trending_media`.
+  Future<SearchPostsPage> exploreMedia({String? pageToken, int pageSize = 20});
 
   /// Public Lists whose name starts with [query] (1-30 code points, the
   /// caller checks `search_lists` and `lists`).
@@ -246,6 +255,24 @@ class ConnectSearchRepository implements SearchRepository {
   }
 
   @override
+  Future<SearchPostsPage> exploreMedia({
+    String? pageToken,
+    int pageSize = 20,
+  }) async {
+    final response = await _read(
+      () => _apiClient.search.exploreMedia(
+        pb.ExploreMediaRequest(pageSize: pageSize, pageToken: pageToken ?? ''),
+      ),
+    );
+    return SearchPostsPage(
+      posts: response.posts,
+      nextPageToken: response.nextPageToken.isEmpty
+          ? null
+          : response.nextPageToken,
+    );
+  }
+
+  @override
   Future<SearchListsPage> searchLists(
     String query, {
     String? pageToken,
@@ -303,6 +330,7 @@ class ConnectSearchRepository implements SearchRepository {
       computedAt: response.hasComputedAt()
           ? response.computedAt.toDateTime()
           : null,
+      latest: response.hasLatest() ? response.latest : null,
     );
   }
 }

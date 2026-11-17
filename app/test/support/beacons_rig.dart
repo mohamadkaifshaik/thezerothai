@@ -1,9 +1,11 @@
+import 'package:dzeroth/features/beacons/domain/plan_quick_start.dart';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/communities/data/communities_repository.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/location/data/location_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -49,6 +51,7 @@ Future<GoRouter> pumpPlansRouter(
   WidgetTester tester, {
   required BeaconsRepository beacons,
   CommunitiesRepository? communities,
+  LocationRepository? location,
   GraphRepository? graph,
   ModerationRepository? moderation,
   MessagingRepository? messaging,
@@ -58,6 +61,7 @@ Future<GoRouter> pumpPlansRouter(
   String initialLocation = '/plans',
   MatrixEnv? env,
 }) async {
+  PlanFormMemory.session.reset();
   final router = GoRouter(initialLocation: initialLocation, routes: routes);
   addTearDown(router.dispose);
   tester.view.devicePixelRatio = 1;
@@ -80,6 +84,8 @@ Future<GoRouter> pumpPlansRouter(
         RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         if (communities != null)
           RepositoryProvider<CommunitiesRepository>.value(value: communities),
+        if (location != null)
+          RepositoryProvider<LocationRepository?>.value(value: location),
         if (graph != null)
           RepositoryProvider<GraphRepository>.value(value: graph),
         if (moderation != null)

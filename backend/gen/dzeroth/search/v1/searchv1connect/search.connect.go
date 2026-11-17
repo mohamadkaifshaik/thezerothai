@@ -97,6 +97,9 @@ const (
 	// SearchServiceSearchCommunitiesProcedure is the fully-qualified name of the SearchService's
 	// SearchCommunities RPC.
 	SearchServiceSearchCommunitiesProcedure = "/dzeroth.search.v1.SearchService/SearchCommunities"
+	// SearchServiceExploreMediaProcedure is the fully-qualified name of the SearchService's
+	// ExploreMedia RPC.
+	SearchServiceExploreMediaProcedure = "/dzeroth.search.v1.SearchService/ExploreMedia"
 )
 
 // SearchServiceClient is a client for the dzeroth.search.v1.SearchService service.
@@ -189,6 +192,18 @@ type SearchServiceClient interface {
 	// Flags: "search", "search_lists", "communities". Rate limit: the SearchLists bucket. Cost: one query of at most
 	// page_size documents and the caller's memberships (cached 60 s). Writes nothing.
 	SearchCommunities(context.Context, *connect.Request[v1.SearchCommunitiesRequest]) (*connect.Response[v1.SearchCommunitiesResponse], error)
+	// The global media feed (Trending): posts from every public author that carry their own images, newest first. Rows:
+	// root posts and quotes with images (a reply, a REPOST and a quote's embedded images do not count); the SearchPosts
+	// MEDIA rules per caller: hidden posts, blocked or muted authors (either way), a protected author's post the caller
+	// does not follow (a quote of one is kept with embed_viewer_state = PROTECTED), and an author that is not ACTIVE are
+	// dropped. A page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+	// Flags: "search", then "trending_media" (FEATURE_TRENDING_MEDIA), both before any read. The feed reads posts.hasMedia
+	// (the composite index posts(hasMedia ASC, createdAt DESC)); a legacy post written before the hasMedia backfill is
+	// missing from it until `opsctl backfill-has-media` has run. page_size 0 => 20, max 50 (clamped); negative =>
+	// VALIDATION "page_size". page_token: opaque, sealed, bound to the caller, 24 h TTL; expired, foreign or tampered =>
+	// VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call; every filter runs per
+	// call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per instance). Writes nothing.
+	ExploreMedia(context.Context, *connect.Request[v1.ExploreMediaRequest]) (*connect.Response[v1.ExploreMediaResponse], error)
 }
 
 // NewSearchServiceClient constructs a client for the dzeroth.search.v1.SearchService service. By
@@ -237,6 +252,13 @@ func NewSearchServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		exploreMedia: connect.NewClient[v1.ExploreMediaRequest, v1.ExploreMediaResponse](
+			httpClient,
+			baseURL+SearchServiceExploreMediaProcedure,
+			connect.WithSchema(searchServiceMethods.ByName("ExploreMedia")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -247,6 +269,7 @@ type searchServiceClient struct {
 	getTrends         *connect.Client[v1.GetTrendsRequest, v1.GetTrendsResponse]
 	searchLists       *connect.Client[v1.SearchListsRequest, v1.SearchListsResponse]
 	searchCommunities *connect.Client[v1.SearchCommunitiesRequest, v1.SearchCommunitiesResponse]
+	exploreMedia      *connect.Client[v1.ExploreMediaRequest, v1.ExploreMediaResponse]
 }
 
 // SearchPeople calls dzeroth.search.v1.SearchService.SearchPeople.
@@ -272,6 +295,11 @@ func (c *searchServiceClient) SearchLists(ctx context.Context, req *connect.Requ
 // SearchCommunities calls dzeroth.search.v1.SearchService.SearchCommunities.
 func (c *searchServiceClient) SearchCommunities(ctx context.Context, req *connect.Request[v1.SearchCommunitiesRequest]) (*connect.Response[v1.SearchCommunitiesResponse], error) {
 	return c.searchCommunities.CallUnary(ctx, req)
+}
+
+// ExploreMedia calls dzeroth.search.v1.SearchService.ExploreMedia.
+func (c *searchServiceClient) ExploreMedia(ctx context.Context, req *connect.Request[v1.ExploreMediaRequest]) (*connect.Response[v1.ExploreMediaResponse], error) {
+	return c.exploreMedia.CallUnary(ctx, req)
 }
 
 // SearchServiceHandler is an implementation of the dzeroth.search.v1.SearchService service.
@@ -364,6 +392,18 @@ type SearchServiceHandler interface {
 	// Flags: "search", "search_lists", "communities". Rate limit: the SearchLists bucket. Cost: one query of at most
 	// page_size documents and the caller's memberships (cached 60 s). Writes nothing.
 	SearchCommunities(context.Context, *connect.Request[v1.SearchCommunitiesRequest]) (*connect.Response[v1.SearchCommunitiesResponse], error)
+	// The global media feed (Trending): posts from every public author that carry their own images, newest first. Rows:
+	// root posts and quotes with images (a reply, a REPOST and a quote's embedded images do not count); the SearchPosts
+	// MEDIA rules per caller: hidden posts, blocked or muted authors (either way), a protected author's post the caller
+	// does not follow (a quote of one is kept with embed_viewer_state = PROTECTED), and an author that is not ACTIVE are
+	// dropped. A page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+	// Flags: "search", then "trending_media" (FEATURE_TRENDING_MEDIA), both before any read. The feed reads posts.hasMedia
+	// (the composite index posts(hasMedia ASC, createdAt DESC)); a legacy post written before the hasMedia backfill is
+	// missing from it until `opsctl backfill-has-media` has run. page_size 0 => 20, max 50 (clamped); negative =>
+	// VALIDATION "page_size". page_token: opaque, sealed, bound to the caller, 24 h TTL; expired, foreign or tampered =>
+	// VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call; every filter runs per
+	// call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per instance). Writes nothing.
+	ExploreMedia(context.Context, *connect.Request[v1.ExploreMediaRequest]) (*connect.Response[v1.ExploreMediaResponse], error)
 }
 
 // NewSearchServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -408,6 +448,13 @@ func NewSearchServiceHandler(svc SearchServiceHandler, opts ...connect.HandlerOp
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	searchServiceExploreMediaHandler := connect.NewUnaryHandler(
+		SearchServiceExploreMediaProcedure,
+		svc.ExploreMedia,
+		connect.WithSchema(searchServiceMethods.ByName("ExploreMedia")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.search.v1.SearchService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SearchServiceSearchPeopleProcedure:
@@ -420,6 +467,8 @@ func NewSearchServiceHandler(svc SearchServiceHandler, opts ...connect.HandlerOp
 			searchServiceSearchListsHandler.ServeHTTP(w, r)
 		case SearchServiceSearchCommunitiesProcedure:
 			searchServiceSearchCommunitiesHandler.ServeHTTP(w, r)
+		case SearchServiceExploreMediaProcedure:
+			searchServiceExploreMediaHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -447,4 +496,8 @@ func (UnimplementedSearchServiceHandler) SearchLists(context.Context, *connect.R
 
 func (UnimplementedSearchServiceHandler) SearchCommunities(context.Context, *connect.Request[v1.SearchCommunitiesRequest]) (*connect.Response[v1.SearchCommunitiesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.search.v1.SearchService.SearchCommunities is not implemented"))
+}
+
+func (UnimplementedSearchServiceHandler) ExploreMedia(context.Context, *connect.Request[v1.ExploreMediaRequest]) (*connect.Response[v1.ExploreMediaResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.search.v1.SearchService.ExploreMedia is not implemented"))
 }

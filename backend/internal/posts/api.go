@@ -308,6 +308,11 @@ type Reader interface {
 	// moderator hid come back with Hidden() true and protected authors' posts come back too, so the caller (search)
 	// must drop !Visible and decide each post through posts.Audience with SurfaceList.
 	ByHashtag(ctx context.Context, tag string, window Window, limit int) ([]*Post, error)
+	// ByMediaFeed returns the posts that carry their own images (hasMedia == true; a REPOST stores false), newest first,
+	// inside window, at most limit (clamped). Query: hasMedia == true ORDER BY createdAt DESC, __name__ DESC, served by the
+	// composite index posts(hasMedia ASC, createdAt DESC). Unfiltered like ByHashtag: the caller drops !Visible rows,
+	// replies and every per-viewer rule. Needs that index READY and `opsctl backfill-has-media` run in the project.
+	ByMediaFeed(ctx context.Context, window Window, limit int) ([]*Post, error)
 	// ByCommunity returns the posts listed in community cid (communityId == cid: root posts and quotes, never a reply or a REPOST; a
 	// moderator hide removes the key), newest first, inside window, at most limit (clamped to 1..50). It is its own query, `communityId == cid
 	// ORDER BY __name__ DESC` with id-bound windows (automatic single-field index, proven on dzeroth-dev), never the createdAt
@@ -355,6 +360,15 @@ type Removals interface {
 }
 
 // Service is the Connect handler's dependency: the Reader plus CreatePost, DeletePost and GetPost.
+// RecentReader is the newest-first scan of GetTrends' latest-hashtag rule. The service satisfies it (apiserver asserts it,
+// as for Engagement); it is kept off Reader so no other module's fake changes. Recent returns the newest posts, newest
+// first, at most limit (clamped to MaxRecentLimit). The result is PROJECTED like CreatedAfter (ID, AuthorID, Hashtags,
+// Moderation, CreatedAt, Kind only) and is never stored in any cache. Unfiltered: the caller drops !Visible(), reposts,
+// protected and inactive authors, denied or hidden tags.
+type RecentReader interface {
+	Recent(ctx context.Context, limit int) ([]*Post, error)
+}
+
 type Service interface {
 	Reader
 	// Create writes one root post for uid. It returns the stored post, or, for a replayed
@@ -790,6 +804,8 @@ const (
 	MaxLimit = 50
 	// MaxCreatedAfterLimit is the largest Reader.CreatedAfter page (trends sweep).
 	MaxCreatedAfterLimit = 500
+	// MaxRecentLimit is the largest RecentReader.Recent page (GetTrends' latest-hashtag rule).
+	MaxRecentLimit = 50
 	// MaxRecent is how many newest root posts one author-recent entry holds.
 	MaxRecent = 20
 	// MaxMedia is the most images one post carries.

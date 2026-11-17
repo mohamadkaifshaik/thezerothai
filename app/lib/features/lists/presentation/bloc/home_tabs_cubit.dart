@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../communities/data/communities_repository.dart';
 import '../../data/home_tabs_repository.dart';
 import '../../data/lists_repository.dart';
 import '../../domain/home_tab_entry.dart';
@@ -14,6 +15,8 @@ import 'home_tabs_state.dart';
 /// - Mirrors the repository's `changes` (0 RPCs); the selected tab is kept by
 ///   key, so a reorder never changes what is shown, and an unpinned or hidden
 ///   selected tab falls back to Following.
+/// - A community tab with no known name (the server sends none) costs one
+///   `GetCommunity`, once per community per cubit, likewise.
 /// - A list tab with no known name (another user's list on a new device) costs
 ///   one `GetList`, once per list per cubit; the name then arrives through the
 ///   repository's own header feed. A failed call leaves the neutral label.
@@ -23,8 +26,10 @@ class HomeTabsCubit extends Cubit<HomeTabsState> {
   HomeTabsCubit({
     required HomeTabsRepository tabs,
     required ListsRepository lists,
+    CommunitiesRepository? communities,
   }) : _tabs = tabs,
        _lists = lists,
+       _communities = communities,
        super(const HomeTabsState()) {
     _sub = _tabs.changes.listen((_) => _sync());
     _sync();
@@ -32,6 +37,7 @@ class HomeTabsCubit extends Cubit<HomeTabsState> {
 
   final HomeTabsRepository _tabs;
   final ListsRepository _lists;
+  final CommunitiesRepository? _communities;
   late final StreamSubscription<List<HomeTabEntry>> _sub;
   final Set<String> _asked = {};
 
@@ -40,7 +46,11 @@ class HomeTabsCubit extends Cubit<HomeTabsState> {
     final tabs = _tabs.tabs;
     final labels = {
       for (final t in tabs)
-        t.key: _tabs.needsLabel(t) ? kUnnamedListTabLabel : _tabs.labelFor(t),
+        t.key: _tabs.needsLabel(t)
+            ? (t.kind == HomeTabKind.community
+                  ? kUnnamedCommunityTabLabel
+                  : kUnnamedListTabLabel)
+            : _tabs.labelFor(t),
     };
     var selected = state.selectedKey;
     if (selected != kFollowingTabKey && !tabs.any((t) => t.key == selected)) {
@@ -63,7 +73,12 @@ class HomeTabsCubit extends Cubit<HomeTabsState> {
 
   Future<void> _askLabel(HomeTabEntry tab) async {
     try {
-      await _lists.getList(tab.id);
+      if (tab.kind == HomeTabKind.community) {
+        // The header feed names the tab (HomeTabsRepository.noteCommunityInfo).
+        await _communities?.getCommunity(tab.id);
+      } else {
+        await _lists.getList(tab.id);
+      }
     } on AppException {
       // The neutral label stays; the tab itself shows the real state.
     }
