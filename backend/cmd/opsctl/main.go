@@ -130,6 +130,7 @@ type opener func(ctx context.Context, project string) (*backends, error)
 func main() {
 	// Ctrl-C cancels the context so a long suspend-user wait ends with the re-run hint instead of a hard kill.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	installLogKeyFromEnv()
 	code := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, openFirestore, time.Now)
 	stop()
 	os.Exit(code)

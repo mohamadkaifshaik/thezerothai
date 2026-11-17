@@ -26,8 +26,9 @@ func communityHashForAudit(cid string) string {
 
 // communityLogHash is `opsctl community loghash [--community CID] [--post ID] [--user UID]`: no Firestore, no project. It prints
 // the keyed pseudonyms the API puts on its Communities moderation request lines so an operator can filter Logs Explorer by them:
-// community_hash for a community id, post_hash for a post id, and for a uid both target_hash (the SetMemberRole target) and the
-// plain uid_hash (that user's own request lines). Needs CURSOR_HMAC_KEY of the project whose logs are read; a secret rotation
+// community_hash for a community id, post_hash for a post id, and for a uid both target_hash (the SetMemberRole target, the
+// purge_missing_counterpart counterpart_hash) and uid_hash (that user's own request lines, keyed like the others). It is the uid
+// mode of the loghash commands: the way to find a user's lines now that uid_hash is no longer the plain SHA-256 of the uid. Needs CURSOR_HMAC_KEY of the project whose logs are read; a secret rotation
 // changes every hash, so use the version that was live when the lines were written.
 func communityLogHash(args []string, key string, out, errOut io.Writer) error {
 	fs := flag.NewFlagSet("community loghash", flag.ContinueOnError)

@@ -194,7 +194,7 @@ func TestPurgePollVotes_RedactsDocIDsKeyed(t *testing.T) {
 				if strings.Contains(msg, p) {
 					t.Fatalf("plain post id in %q", msg)
 				}
-				if strings.Contains(msg, logger.HashUID(p)) {
+				if strings.Contains(msg, plainDigest(p)) {
 					t.Fatalf("unkeyed post hash in %q", msg)
 				}
 				if !strings.Contains(msg, logger.HashPost(p)+"_"+logger.HashUID(uid)) {

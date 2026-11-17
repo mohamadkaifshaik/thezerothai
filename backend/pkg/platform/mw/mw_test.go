@@ -105,7 +105,7 @@ func TestRecover_PassesThroughOnSuccess(t *testing.T) {
 // TestReportError_IncludesApierrCauseInMessage (M3): apierr.Error.Error() deliberately hides the wrapped
 // cause (client-safe by design), so reportError's message must surface it explicitly or Error Reporting
 // would group every internal error from an interceptor under the single indistinguishable text
-// "internal error". Exercised indirectly through mw.Recover here since causeChain itself is unexported;
+// "internal error". Exercised indirectly through mw.Recover here since reportError itself is unexported;
 // see also the more end-to-end assertions in the TestLogging_* tests below.
 func TestReportError_IncludesApierrCauseInMessage(t *testing.T) {
 	var buf bytes.Buffer

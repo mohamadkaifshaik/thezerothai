@@ -227,6 +227,7 @@ func (l LogSender) Send(ctx context.Context, token string, p Push) error {
 	if log == nil {
 		log = slog.Default()
 	}
-	log.InfoContext(ctx, "notification_push_local", "type", string(p.Type), "notification_id", p.NotificationID, "token_hash", logger.HashUID(token))
+	// The row id embeds the actor's uid (follow_<actorUid>), so it is logged as row_hash, the pseudonym repo_firestore uses for rows.
+	log.InfoContext(ctx, "notification_push_local", "type", string(p.Type), "row_hash", logger.HashUID(p.NotificationID), "token_hash", logger.HashUID(token))
 	return nil
 }
