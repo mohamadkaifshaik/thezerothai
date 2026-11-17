@@ -244,6 +244,11 @@ const kAccountSettingPrefix = 'account:';
 /// setting, so [AppDatabase.clearAll] removes it with the data it describes.
 const kCacheOwnerKey = '${kAccountSettingPrefix}owner';
 
+/// The user id the server sent for the caller in the last `GetMe` (the own
+/// profile row of the cache is keyed by it; the Firebase uid is not that key
+/// once `public_ids` is on). An account setting: wiped with the cache.
+const kOwnUserIdKey = '${kAccountSettingPrefix}own_user_id';
+
 /// What the cache holds ids of: `1` the server-issued ids were public ids
 /// (`public_ids` on), `0` they were Firebase uids (off), `-` the cache was just
 /// claimed (nothing id-bearing in it yet). Absent on a cache older than this
