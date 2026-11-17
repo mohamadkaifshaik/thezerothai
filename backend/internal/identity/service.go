@@ -17,6 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/handle"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/publicid"
 )
 
 // service is the default Service implementation: business rules + validation over a Repo, backed by an
@@ -193,11 +194,12 @@ func (s *service) loadProfile(ctx context.Context, uid string, useNegative bool)
 // No extra Firestore operation.
 func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle, displayName string) (Profile, error) {
 	// Backstop that keeps the uid and public id spaces disjoint, whatever FEATURE_PUBLIC_IDS says: the edge
-	// (pkg/platform/publicid) passes an unknown public id to handlers as if it were an unknown uid, which is only safe
-	// while no account can have a uid shaped like one. A Firebase uid (28 mixed-case characters) never is; this refuses
-	// one that would be, before any read, write or Auth call, in authn's invalid-uid shape.
-	if ValidPublicID(uid) {
-		return Profile{}, apierr.New(connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "invalid or expired sign-in, please sign in again")
+	// (pkg/platform/publicid) passes an unknown public id and the tombstone to handlers as if they were unknown uids,
+	// which is only safe while no account can have such a uid. A Firebase uid (28 mixed-case characters) never does;
+	// this refuses one that would, before any read, write or Auth call, with the terminal signup refusal (not a
+	// sign-in-again answer the app would loop on).
+	if ValidPublicID(uid) || uid == publicid.Tombstone {
+		return Profile{}, apierr.New(connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "this account cannot be used to sign up")
 	}
 	if idempotencyKeyIssue(idempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")

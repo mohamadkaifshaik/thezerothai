@@ -14,6 +14,7 @@ import (
 	moderationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/publicid"
@@ -284,4 +285,12 @@ func TestPublicIDParity_CoversEveryInboundRPC(t *testing.T) {
 		}
 	}
 	t.Logf("%d inbound-translating RPCs, %d excluded from unknown-id parity: %v", len(rpcs), len(publicIDParityExcluded), rpcs)
+}
+
+// TestTombstoneIsOneID: the edge's tombstone and the one notifications puts in push payloads and exports are the same
+// id, so a client sees one "account unavailable" id whatever path it came by.
+func TestTombstoneIsOneID(t *testing.T) {
+	if notifications.TombstonePublicID != publicid.Tombstone {
+		t.Fatalf("notifications.TombstonePublicID = %q, publicid.Tombstone = %q", notifications.TombstonePublicID, publicid.Tombstone)
+	}
 }
