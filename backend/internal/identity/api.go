@@ -239,14 +239,16 @@ type Repo interface {
 	// CreateProfile runs the signup transaction: read users/{uid}+handles/{h}; on first call,
 	// create users, handles, and (via graphInit) graph. A replay (users/{uid} already exists) returns the
 	// existing profile and performs no writes. authorize (nil = none) runs only on the not-found path, inside the
-	// transaction after the users/{uid} read and before any other read or write;
+	// transaction after the users/{uid} read (and, when minting, the publicIds/{publicID} read) and before any other read
+	// or write;
 	// its error aborts the transaction unchanged and nothing is written. It never runs on a replay.
-	// publicID "" mints nothing; otherwise users/{uid}.publicId is set and publicIds/{publicID} is created (create-only) in
-	// the same transaction, and a lost create-only write is ErrCreateConflict with nothing written.
+	// publicID "" mints nothing and reads nothing more; otherwise publicIds/{publicID} is read first (present:
+	// ErrPublicIDCollision, no Auth call), users/{uid}.publicId is set and the lookup is created (create-only) in the same
+	// transaction. Any other lost create-only write is ErrCreateConflict (not a collision). Nothing is written on either.
 	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName, publicID string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (profile Profile, replay bool, err error)
 	// EnsurePublicID is the lazy mint (one transaction): an ACTIVE users/{uid} without publicId gets publicID and its
-	// publicIds lookup; any other document is returned as read with no write. ErrNotFound when absent, ErrCreateConflict
-	// when the lookup already exists.
+	// publicIds lookup; any other document is returned as read with no write. ErrNotFound when absent,
+	// ErrPublicIDCollision (which wraps ErrCreateConflict) when the lookup already exists.
 	EnsurePublicID(ctx context.Context, uid, publicID string, now time.Time) (Profile, error)
 	// ResolvePublicIDs batch-reads publicIds/{id} via one GetAll and maps id -> uid; absent ids are absent.
 	ResolvePublicIDs(ctx context.Context, publicIDs []string) (map[string]string, error)

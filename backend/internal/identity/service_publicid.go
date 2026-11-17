@@ -47,9 +47,10 @@ func (s *service) drawPublicID() (string, error) {
 }
 
 // createProfileMinting runs the signup transaction. While public_ids is not globally off each run carries a fresh public
-// id, and a run that lost a create-only write (ErrCreateConflict: an id collision, or a racing signup that the next run
-// resolves as a replay or a taken handle) is retried, at most maxPublicIDAttempts runs in all. Globally off it is the
-// one run it always was, with no id.
+// id, and only a run whose id was already taken (ErrPublicIDCollision: the transaction read publicIds/{id} before any
+// Auth call or write) is retried, at most maxPublicIDAttempts runs in all. Any other conflict (a pre-existing graph/{uid},
+// say) is deterministic and returned after one run. Globally off it is the one run it always was, with no id and no
+// extra read. Every error leaves with the uid and the drawn id redacted (Firestore's text names document paths).
 func (s *service) createProfileMinting(ctx context.Context, uid, handle, handleLower, displayName string, authorize func(context.Context) (*AuthBaseline, error)) (Profile, error) {
 	minting := s.publicIDsMinting()
 	var lastErr error
@@ -62,10 +63,13 @@ func (s *service) createProfileMinting(ctx context.Context, uid, handle, handleL
 			}
 		}
 		profile, _, err := s.repo.CreateProfile(ctx, uid, handle, handleLower, displayName, publicID, s.now().UTC(), authorize)
-		if err == nil || !minting || !errors.Is(err, ErrCreateConflict) {
-			return profile, err
+		if err == nil {
+			return profile, nil
 		}
-		lastErr = err
+		if !minting || !errors.Is(err, ErrPublicIDCollision) {
+			return Profile{}, logger.RedactErr(err, uid, publicID)
+		}
+		lastErr = logger.RedactErr(err, uid, publicID)
 		logger.SetRequestField(ctx, "public_id_mint_conflicts", true)
 	}
 	return Profile{}, fmt.Errorf("identity: public id still conflicting after %d attempts: %w", maxPublicIDAttempts, lastErr)
@@ -92,7 +96,7 @@ func (s *service) ensurePublicID(ctx context.Context, p Profile) Profile {
 			logger.SetRequestField(ctx, "public_id_minted", minted.PublicID == publicID)
 			return minted
 		}
-		if !errors.Is(err, ErrCreateConflict) {
+		if !errors.Is(err, ErrPublicIDCollision) {
 			err = logger.RedactErr(err, p.UserID, publicID)
 			break
 		}

@@ -26,10 +26,12 @@ const (
 	// see SetProfile) is never masked by a stale negative result for long.
 	notFoundTTL = 10 * time.Second
 	// publicIDTTL bounds the two public id maps. The mapping is immutable (an id is never reissued or reused), so the TTL
-	// is only a memory refresh, not a correctness bound. Erasure: the erasing instance evicts both directions at once;
-	// on any other instance a public id -> uid entry of an erased account can live up to this TTL, which is safe because
-	// every consumer re-checks users/{uid} (GetProfile's status check answers the uniform NOT_FOUND for a DELETING or
-	// absent account, exactly as for an unknown id). The uid -> public id direction only names the id the account had.
+	// is only a memory refresh, not a correctness bound. Erasure: the erasing instance evicts both directions, but that
+	// is not reliable (a later SetProfile of the DELETING profile, from any read of it, re-adds both entries), and every
+	// other instance keeps its entries; so a public id -> uid entry of an erased account can live up to this TTL on any
+	// instance. That is safe only because every consumer re-checks users/{uid} (GetProfile's status check answers the
+	// uniform NOT_FOUND for a DELETING or absent account, exactly as for an unknown id). The uid -> public id direction
+	// only names the id the account had.
 	publicIDTTL = time.Hour
 )
 
