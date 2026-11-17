@@ -73,6 +73,7 @@ var wantAnnotated = map[protoreflect.FullName]commonv1.UserRefKind{
 	"dzeroth.lists.v1.RemoveListMemberRequest.user_id":                 translate,
 	"dzeroth.messaging.v1.SendMessageRequest.recipient_user_id":        translate,
 	"dzeroth.moderation.v1.ReportContentRequest.target_id":             conditional,
+	"dzeroth.notifications.v1.Notification.id":                         conditional,
 	"dzeroth.posts.v1.Mention.user_id":                                 translate,
 	"dzeroth.timeline.v1.GetUserTimelineRequest.user_id":               translate,
 }

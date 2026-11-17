@@ -2,8 +2,10 @@ package apiserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,10 +13,13 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	moderationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1"
+	notificationsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/publicid"
@@ -159,24 +164,60 @@ func TestPublicIDsInterceptor_OffAllocatesNothing(t *testing.T) {
 	}
 }
 
-// TestPublicIDsInterceptor_ReportTargetPassesThrough: ReportContentRequest.target_id is CONDITIONAL with no rule yet
-// (PR 4c), so with the flag on it is left untouched whatever it holds.
-func TestPublicIDsInterceptor_ReportTargetPassesThrough(t *testing.T) {
+// TestPublicIDsInterceptor_ReportTarget: with the flag on, an ACCOUNT report's target_id gets the edge semantics (known
+// public id -> uid, so moderation's self-report check and ReportID see the uid; unknown well-formed id and the
+// placeholder pass through; a raw uid is VALIDATION "target_id" before the handler), and every other target type is
+// left exactly as sent, even when it happens to look like a public id or a uid.
+func TestPublicIDsInterceptor_ReportTarget(t *testing.T) {
 	ic, err := publicIDsInterceptor(publicIDsRegistry(flags.On), &fakePublicIDs{}, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var seen string
-	h := ic.WrapUnary(func(_ context.Context, r connect.AnyRequest) (connect.AnyResponse, error) {
-		seen = r.Any().(*moderationv1.ReportContentRequest).GetTargetId()
-		return connect.NewResponse(&moderationv1.ReportContentResponse{}), nil
-	})
-	for _, v := range []string{pidUID(1), pidPub(1)} {
-		if _, err := h(callerCtx(pidUID(2)), connect.NewRequest(&moderationv1.ReportContentRequest{
-			TargetType: moderationv1.ReportTargetType_REPORT_TARGET_TYPE_ACCOUNT, TargetId: v,
-		})); err != nil || seen != v {
-			t.Errorf("target %q: handler saw %q, err %v", v, seen, err)
-		}
+	const (
+		account = moderationv1.ReportTargetType_REPORT_TARGET_TYPE_ACCOUNT
+		post    = moderationv1.ReportTargetType_REPORT_TARGET_TYPE_POST
+		message = moderationv1.ReportTargetType_REPORT_TARGET_TYPE_MESSAGE
+	)
+	msgTarget := strings.Repeat("a", 32) + ":" + strings.Repeat("b", 32)
+	for _, tc := range []struct {
+		name    string
+		typ     moderationv1.ReportTargetType
+		sent    string
+		handler string // what the handler sees
+		field   string // non-empty: VALIDATION naming this field, and the handler must not run
+	}{
+		{"account, known public id", account, pidPub(1), pidUID(1), ""},
+		{"account, the caller's own public id (self-report check sees the uid)", account, pidPub(2), pidUID(2), ""},
+		{"account, unknown public id passes through", account, pidPub(9), pidPub(9), ""},
+		{"account, placeholder passes through", account, publicid.Tombstone, publicid.Tombstone, ""},
+		{"account, raw uid", account, pidUID(1), "", "target_id"},
+		{"account, empty stays empty", account, "", "", ""},
+		{"post id", post, "1234567890123456789", "1234567890123456789", ""},
+		{"post type with a public-id-shaped value", post, pidPub(1), pidPub(1), ""},
+		{"message target", message, msgTarget, msgTarget, ""},
+		{"unspecified type with a uid", moderationv1.ReportTargetType_REPORT_TARGET_TYPE_UNSPECIFIED, pidUID(1), pidUID(1), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ran, seen := false, ""
+			h := ic.WrapUnary(func(_ context.Context, r connect.AnyRequest) (connect.AnyResponse, error) {
+				ran, seen = true, r.Any().(*moderationv1.ReportContentRequest).GetTargetId()
+				return connect.NewResponse(&moderationv1.ReportContentResponse{ReportId: "r1"}), nil
+			})
+			res, err := h(callerCtx(pidUID(2)), connect.NewRequest(&moderationv1.ReportContentRequest{TargetType: tc.typ, TargetId: tc.sent}))
+			if tc.field != "" {
+				var ae *apierr.Error
+				if ran || !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION || ae.Metadata["field"] != tc.field {
+					t.Fatalf("ran=%v err=%v, want VALIDATION %s before the handler", ran, err, tc.field)
+				}
+				return
+			}
+			if err != nil || !ran || seen != tc.handler {
+				t.Fatalf("handler saw %q (ran=%v, err %v), want %q", seen, ran, err, tc.handler)
+			}
+			if got := res.Any().(*moderationv1.ReportContentResponse).GetReportId(); got != "r1" {
+				t.Errorf("report_id = %q, want it untouched", got)
+			}
+		})
 	}
 }
 
@@ -293,4 +334,130 @@ func TestTombstoneIsOneID(t *testing.T) {
 	if notifications.TombstonePublicID != publicid.Tombstone {
 		t.Fatalf("notifications.TombstonePublicID = %q, publicid.Tombstone = %q", notifications.TombstonePublicID, publicid.Tombstone)
 	}
+}
+
+// pidStoredNotificationID is a stored row id of the shape the fan-out builds (notifications.notificationID) for every
+// listed type, with actor as the actor's uid; "" for a type no row has.
+func pidStoredNotificationID(ty notifications.Type, actor string) string {
+	const post, beacon = "1234567890123456789", "9876543210987654321"
+	switch ty {
+	case notifications.TypeFollow, notifications.TypeFollowRequest, notifications.TypeFollowAccepted:
+		return string(ty) + "_" + actor
+	case notifications.TypeRepost:
+		return "repost_" + post + "_" + actor
+	case notifications.TypeBeaconRequest:
+		return "beacon_request_" + beacon + "_" + actor
+	case notifications.TypeMention, notifications.TypeReply, notifications.TypeQuote:
+		return string(ty) + "_" + post
+	case notifications.TypeLike:
+		return "like_" + post + "_2026111812"
+	case notifications.TypeBeaconAccepted, notifications.TypeBeaconCancelled:
+		return string(ty) + "_" + beacon
+	case notifications.TypeBeaconUpdated:
+		return string(ty) + "_" + beacon + "_1763460000000"
+	}
+	return ""
+}
+
+// TestPublicIDRules_RealPlans: the plans Build serves, with the registered rules, through the Translator (fake
+// resolver). Every NotificationType value on a listed row: the row id equals notifications.WireNotificationID (the push's
+// notificationId) for an actor with a public id and for one without (placeholder segment), only the actor-keyed types
+// change, and no uid survives. Every ReportTargetType value: only ACCOUNT translates target_id.
+func TestPublicIDRules_RealPlans(t *testing.T) {
+	plans, err := publicIDPlans()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := publicid.NewTranslator(plans, &fakePublicIDs{}, identity.ValidPublicID, identity.MaxPublicIDLookups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	t.Run("notification ids", func(t *testing.T) {
+		values := notificationsv1.NotificationType(0).Descriptor().Values()
+		keyed := 0
+		for i := range values.Len() {
+			p := notificationsv1.NotificationType(values.Get(i).Number())
+			ty := notifications.TypeFromProto(p)
+			for _, actor := range []struct {
+				uid, pub string
+			}{{pidUID(1), pidPub(1)}, {pidUID(9), ""}} { // user 9 has no public id
+				stored := pidStoredNotificationID(ty, actor.uid)
+				if stored == "" {
+					// UNSPECIFIED and the push-only MESSAGE: never a listed row; a uid-shaped id stays as sent.
+					stored = "follow_" + actor.uid
+				}
+				resp := &notificationsv1.ListNotificationsResponse{Notifications: []*notificationsv1.Notification{{
+					Id: stored, Type: p, Actor: &commonv1.AuthorSnapshot{UserId: actor.uid},
+				}}}
+				if _, err := tr.TranslateResponse(ctx, nil, resp); err != nil {
+					t.Fatalf("%v: %v", p, err)
+				}
+				got := resp.GetNotifications()[0].GetId()
+				if ty == "" {
+					if got != stored {
+						t.Errorf("%v: id %q -> %q, want untouched", p, stored, got)
+					}
+					continue
+				}
+				if want := notifications.WireNotificationID(stored, ty, actor.pub); got != want {
+					t.Errorf("%v: listed id %q, push id %q", p, got, want)
+				}
+				if ty.ActorKeyedID() {
+					keyed++
+					if strings.Contains(got, actor.uid) {
+						t.Errorf("%v: the actor's uid survived in %q", p, got)
+					}
+				} else if got != stored {
+					t.Errorf("%v: a row id naming no actor changed: %q -> %q", p, stored, got)
+				}
+			}
+		}
+		if keyed != 2*5 {
+			t.Errorf("actor-keyed cases = %d, want the 5 actor-keyed types twice", keyed)
+		}
+	})
+
+	// The "handler-set public_id wins" rule: notifications never sets AuthorSnapshot.public_id, but if a handler did, the
+	// row id's actor segment would take the same value as the actor's user_id (one id per uid within a response).
+	t.Run("notification id follows a handler-set public_id", func(t *testing.T) {
+		stored := "follow_" + pidUID(1)
+		resp := &notificationsv1.ListNotificationsResponse{Notifications: []*notificationsv1.Notification{{
+			Id: stored, Type: notificationsv1.NotificationType_NOTIFICATION_TYPE_FOLLOW,
+			Actor: &commonv1.AuthorSnapshot{UserId: pidUID(1), PublicId: pidPub(3)},
+		}}}
+		if _, err := tr.TranslateResponse(ctx, nil, resp); err != nil {
+			t.Fatal(err)
+		}
+		n := resp.GetNotifications()[0]
+		if n.GetId() != "follow_"+pidPub(3) || n.GetActor().GetUserId() != pidPub(3) || n.GetActor().GetPublicId() != pidPub(3) {
+			t.Errorf("row = (%q, %q, %q), want the handler's public id in all three", n.GetId(), n.GetActor().GetUserId(), n.GetActor().GetPublicId())
+		}
+	})
+
+	t.Run("report targets", func(t *testing.T) {
+		values := moderationv1.ReportTargetType(0).Descriptor().Values()
+		for i := range values.Len() {
+			p := moderationv1.ReportTargetType(values.Get(i).Number())
+			for _, sent := range []string{pidPub(1), "1234567890123456789", strings.Repeat("a", 32) + ":" + strings.Repeat("b", 32)} {
+				req := &moderationv1.ReportContentRequest{TargetType: p, TargetId: sent}
+				_, err := tr.TranslateRequest(ctx, req)
+				switch {
+				case p != moderationv1.ReportTargetType_REPORT_TARGET_TYPE_ACCOUNT:
+					if err != nil || req.GetTargetId() != sent {
+						t.Errorf("%v %q: -> %q, %v; want untouched", p, sent, req.GetTargetId(), err)
+					}
+				case sent == pidPub(1):
+					if err != nil || req.GetTargetId() != pidUID(1) {
+						t.Errorf("%v %q: -> %q, %v; want the uid", p, sent, req.GetTargetId(), err)
+					}
+				default:
+					if err == nil {
+						t.Errorf("%v %q: accepted a non-public id as an account target", p, sent)
+					}
+				}
+			}
+		}
+	})
 }

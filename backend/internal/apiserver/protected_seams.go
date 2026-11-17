@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
@@ -26,6 +27,9 @@ type buildOpts struct {
 	// inlineBeaconEvents wraps the Events the beacons service calls inline (never the outbox sweep's beacon_cancelled
 	// handler), so a test can lose the inline cancellation notices and watch the sweep deliver them.
 	inlineBeaconEvents func(beacons.Events) beacons.Events
+	// inlineNotifications receives the inline emitter (NOTIFICATIONS_DELIVERY=inline only), so a test can Wait for every
+	// delivery an RPC started instead of polling for the rows.
+	inlineNotifications func(*notifications.InlineEmitter)
 }
 
 // protectedSeam is one place the protected-author set (or the Audience built on it) is wired into a module.

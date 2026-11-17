@@ -16,6 +16,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/publicid"
 )
 
 // FlagName is the wire name RPCs, producers and the handler check (FEATURE_NOTIFICATIONS).
@@ -104,11 +105,9 @@ func (t Type) ActorKeyedID() bool {
 	return false
 }
 
-// TombstonePublicID is the wire id of an account that has no public id (not minted yet, or erased). It can never be
-// minted (a real id's first body character is 0-7), so it names nobody. It is the same literal as the edge's
-// publicid.Tombstone (PR 4a); notifications cannot import that package yet, so the literal is duplicated and pinned by
-// TestTombstonePublicID here and, once both are on main, by an equality test in apiserver.
-const TombstonePublicID = "uzzzzzzzzzzzzzzzzzzzzzzzzzz"
+// TombstonePublicID is the wire id of an account that has no public id (not minted yet, or erased): the edge's
+// publicid.Tombstone, so the push, the export and every listed row use the one "account unavailable" id.
+const TombstonePublicID = publicid.Tombstone
 
 // NotificationIDActorSpan is where the actor's uid sits in a stored row id of type t, storedID[start:end], and so where
 // WireNotificationID writes the public id: everything after the last "_" (the whole id when it has none; end is always
