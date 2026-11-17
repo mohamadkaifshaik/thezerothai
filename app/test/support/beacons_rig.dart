@@ -1,3 +1,4 @@
+import 'package:dzeroth/features/beacons/domain/plan_quick_start.dart';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -58,6 +59,7 @@ Future<GoRouter> pumpPlansRouter(
   String initialLocation = '/plans',
   MatrixEnv? env,
 }) async {
+  PlanFormMemory.session.reset();
   final router = GoRouter(initialLocation: initialLocation, routes: routes);
   addTearDown(router.dispose);
   tester.view.devicePixelRatio = 1;
