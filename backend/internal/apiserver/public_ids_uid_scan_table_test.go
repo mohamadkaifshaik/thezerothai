@@ -75,6 +75,8 @@ type uidScanWorld struct {
 	E  *uidScanUser // banned from F's community
 	S1 *uidScanUser // spare: Follow / Mute targets
 	S2 *uidScanUser // spare: Block target
+	G1 *uidScanUser // F follows it (with A and G2, so F follows three accounts and the suggester runs)
+	G2 *uidScanUser // F follows it
 
 	FPost, APost, AReply, AQuote, AMention, APoll, BPost, KFPost, SparePost string
 	FList, BList, BList2, SpareList                                         string
@@ -89,15 +91,15 @@ type uidScanWorld struct {
 func newUidScanWorld() *uidScanWorld {
 	w := &uidScanWorld{AreaID: "in.blr.indiranagar", Tag: fmt.Sprintf("uidscan%d", rand.Int63n(1_000_000_000))}
 	mk := func(role string) *uidScanUser { return &uidScanUser{Role: role} }
-	w.F, w.A, w.B, w.C, w.D, w.Y, w.P, w.E, w.S1, w.S2 = mk("F (the scanner)"), mk("A (mutual follow)"), mk("B (requester, DM peer, list and beacon member)"),
-		mk("C (blocked by F)"), mk("D (muted by F)"), mk("Y (blocks F)"), mk("P (private, accepted F)"), mk("E (banned from F's community)"), mk("S1 (spare)"), mk("S2 (spare)")
+	w.F, w.A, w.B, w.C, w.D, w.Y, w.P, w.E, w.S1, w.S2, w.G1, w.G2 = mk("F (the scanner)"), mk("A (mutual follow)"), mk("B (requester, DM peer, list and beacon member)"),
+		mk("C (blocked by F)"), mk("D (muted by F)"), mk("Y (blocks F)"), mk("P (private, accepted F)"), mk("E (banned from F's community)"), mk("S1 (spare)"), mk("S2 (spare)"), mk("G1 (followed by F)"), mk("G2 (followed by F)")
 	w.ArticleNew = fmt.Sprintf("uidscan-article-new-%d", rand.Int63())
 	return w
 }
 
 // Users is every seeded account, F first.
 func (w *uidScanWorld) Users() []*uidScanUser {
-	return []*uidScanUser{w.F, w.A, w.B, w.C, w.D, w.Y, w.P, w.E, w.S1, w.S2}
+	return []*uidScanUser{w.F, w.A, w.B, w.C, w.D, w.Y, w.P, w.E, w.S1, w.S2, w.G1, w.G2}
 }
 
 // uidScanView is the caller's id form: the flagged scanner names people by public id, the control by uid.
@@ -363,7 +365,8 @@ func uidScanCaseTable() map[string]uidScanCase {
 		}},
 
 		// ---- identity ----
-		identityv1connect.IdentityServiceCreateProfileProcedure: {Phase: uidScanWrite, Want: "error", Why: "the scanner already has a profile; the refusal is scanned",
+		identityv1connect.IdentityServiceCreateProfileProcedure: {Phase: uidScanWrite, Want: "ok", // replaying CreateProfile for an existing profile is an idempotent success; the Profile in the response is scanned
+
 			Build: func(w *uidScanWorld, v uidScanView) proto.Message {
 				return &identityv1.CreateProfileRequest{IdempotencyKey: uidScanKey("cprof"), Handle: uidScanHandle("sc"), DisplayName: "Scan"}
 			}},
@@ -422,7 +425,7 @@ func uidScanCaseTable() map[string]uidScanCase {
 			return &listsv1.ListUserListsRequest{OwnerId: v.id(w.F), PageSize: 20}
 		}, Also: []uidScanBuild{
 			func(w *uidScanWorld, v uidScanView) proto.Message {
-				return &listsv1.ListUserListsRequest{OwnerId: v.id(w.B), ContainsUserId: v.id(w.A), PageSize: 20}
+				return &listsv1.ListUserListsRequest{OwnerId: v.id(w.F), ContainsUserId: v.id(w.A), PageSize: 20} // contains_user_id is accepted only with the caller's own lists
 			},
 		}},
 		listsv1connect.ListServiceAddListMemberProcedure: {Phase: uidScanWrite, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {

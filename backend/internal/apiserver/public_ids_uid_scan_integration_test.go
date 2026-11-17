@@ -32,7 +32,9 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -209,7 +211,7 @@ func (r *uidScanRig) newUser(w *uidScanUser, token, uid string) {
 func (r *uidScanRig) seed() {
 	ctx := context.Background()
 	w, e := r.w, r.e
-	F, A, B, C, D, Y, P, E, S1 := w.F, w.A, w.B, w.C, w.D, w.Y, w.P, w.E, w.S1
+	F, A, B, C, D, Y, P, E, S1, S2, G1, G2 := w.F, w.A, w.B, w.C, w.D, w.Y, w.P, w.E, w.S1, w.S2, w.G1, w.G2
 
 	follow := func(who, target *uidScanUser) *graphv1.FollowResponse {
 		resp, err := e.graph.Follow(ctx, authed(r.tok[who], &graphv1.FollowRequest{IdempotencyKey: uidScanKey("sfollow"), UserId: r.as(who, target)}))
@@ -227,6 +229,9 @@ func (r *uidScanRig) seed() {
 	follow(A, F)
 	follow(A, B)
 	follow(A, S1)
+	follow(A, S2)
+	follow(F, G1)
+	follow(F, G2)
 	resp, err := e.graph.Block(ctx, authed(r.tok[Y], &graphv1.BlockRequest{IdempotencyKey: uidScanKey("sblock"), UserId: F.UID}))
 	uidScanOK(r, "Y blocks F", resp, err)
 	resp2, err := e.graph.Block(ctx, authed(r.tok[F], &graphv1.BlockRequest{IdempotencyKey: uidScanKey("sblock"), UserId: C.Pub}))
@@ -289,7 +294,7 @@ func (r *uidScanRig) seed() {
 
 	// Lists: F's list holds A and B; B's list (which F follows) holds A; a spare list and a second B list for the writes.
 	mkList := func(who *uidScanUser, name, step string) string {
-		resp, err := r.lists.CreateList(ctx, authed(r.tok[who], &listsv1.CreateListRequest{IdempotencyKey: uidScanKey("slist"), Name: name}))
+		resp, err := r.lists.CreateList(ctx, authed(r.tok[who], &listsv1.CreateListRequest{IdempotencyKey: uidScanKey("slist"), Name: name, IsPrivate: uidScanPtr(false)}))
 		return uidScanOK(r, step, resp, err).GetList().GetListId()
 	}
 	addMember := func(owner *uidScanUser, list string, member *uidScanUser, step string) {
@@ -336,7 +341,7 @@ func (r *uidScanRig) seed() {
 
 	// Communities: A owns K and KJoin; F owns KF (A, B, E join; B moderator, E banned); F and B join K.
 	mkCommunity := func(who *uidScanUser, name, step string) string {
-		resp, err := r.comm.CreateCommunity(ctx, authed(r.tok[who], &communitiesv1.CreateCommunityRequest{IdempotencyKey: uidScanKey("scom"), Name: name + " " + w.Tag, Description: "scan"}))
+		resp, err := r.comm.CreateCommunity(ctx, authed(r.tok[who], &communitiesv1.CreateCommunityRequest{IdempotencyKey: uidScanKey("scom"), Name: name + " " + strings.TrimPrefix(w.Tag, "uidscan"), Description: "scan"}))
 		return uidScanOK(r, step, resp, err).GetCommunity().GetCommunityId()
 	}
 	cjoin := func(who *uidScanUser, community, step string) {
@@ -443,6 +448,77 @@ type uidScanState struct {
 	knownSeen map[int]bool
 	// uploadSeen: the allowlisted SignedUpload.url exception actually fired (the emulators may not sign uploads).
 	uploadSeen bool
+	// foreignRows counts placeholder rows whose author is not a seeded account and has no public id in Firestore (rows
+	// other integration tests left in the shared emulator project: global feeds read the whole collection). The edge is
+	// right to send the placeholder for them. foreignNotes holds one line per distinct such author.
+	foreignRows  int
+	foreignNotes map[string]bool
+}
+
+func (s *uidScanState) note(line string) {
+	if s.foreignNotes == nil {
+		s.foreignNotes = map[string]bool{}
+	}
+	s.foreignNotes[line] = true
+}
+
+var uidScanPathToken = regexp.MustCompile(`([^.\[\]]+)|\[(\d+)\]`)
+
+// uidScanAt follows a path produced by uidScanFind ("posts[12].post.author") in a decoded JSON document.
+func uidScanAt(doc any, path string) any {
+	cur := doc
+	for _, m := range uidScanPathToken.FindAllStringSubmatch(path, -1) {
+		switch x := cur.(type) {
+		case map[string]any:
+			cur = x[m[1]]
+		case []any:
+			i, err := strconv.Atoi(m[2])
+			if err != nil || i >= len(x) {
+				return nil
+			}
+			cur = x[i]
+		default:
+			return nil
+		}
+	}
+	return cur
+}
+
+// classifyPlaceholder decides whether a placeholder hit is a defect (keep = true) or a row of foreign data. The author
+// is read from the sibling "handle" of the hit's parent object. A seeded handle (every seeded account is minted) with a
+// placeholder is a defect. A handle that is not seeded is foreign: the shared emulator project holds accounts other
+// tests created with the flag off, and the placeholder is right for them, but only when users/{uid} really holds no
+// public id; one that does means the edge sent the placeholder for an account that has an id, a defect. Anything that
+// cannot be read (no handle, no users document) is kept as a defect, never waved through.
+func (s *uidScanState) classifyPlaceholder(body []byte, h uidScanHit) (keep bool, why string) {
+	i := strings.LastIndex(h.Path, ".")
+	if i < 0 || strings.HasSuffix(h.Path, "(base64)") {
+		return true, "no object around it"
+	}
+	var doc any
+	if json.Unmarshal(body, &doc) != nil {
+		return true, "body is not JSON"
+	}
+	parent, _ := uidScanAt(doc, h.Path[:i]).(map[string]any)
+	handle, _ := parent["handle"].(string)
+	if handle == "" {
+		return true, "the object has no handle to classify it by"
+	}
+	for _, u := range s.r.w.Users() {
+		if strings.EqualFold(u.Handle, handle) {
+			return true, "an author that IS a seeded account, role " + u.Role
+		}
+	}
+	docs, err := s.r.e.fs.Collection("users").Where("handleLower", "==", strings.ToLower(handle)).Limit(2).Documents(context.Background()).GetAll()
+	if err != nil || len(docs) != 1 {
+		return true, fmt.Sprintf("foreign handle with %d users documents (err %v): not provably foreign", len(docs), err)
+	}
+	pub, _ := docs[0].DataAt("publicId")
+	if p, _ := pub.(string); p != "" {
+		return true, "foreign handle whose users document HAS a public id, yet the edge sent the placeholder"
+	}
+	status, _ := docs[0].DataAt("status")
+	return false, fmt.Sprintf("foreign author @%s (not seeded), users document has no publicId, status %v: placeholder is correct", handle, status)
 }
 
 // ownUploadURL is the one allowlisted exception: the caller's own uid inside SignedUpload.url (object path u/<uid>/...).
@@ -456,9 +532,18 @@ func (s *uidScanState) ownUploadURL(proc string, h uidScanHit) bool {
 }
 
 // filter drops the allowlisted exception and the documented known leaks (recording the latter as still leaking).
-func (s *uidScanState) filter(proc string, hits []uidScanHit) []uidScanHit {
+func (s *uidScanState) filter(proc string, hits []uidScanHit, body []byte) []uidScanHit {
 	var out []uidScanHit
 	for _, h := range hits {
+		if h.Label == "placeholder" {
+			if keep, why := s.classifyPlaceholder(body, h); !keep {
+				s.foreignRows++
+				s.note(why)
+				continue
+			} else if why != "" {
+				h.Label += " (" + why + ")"
+			}
+		}
 		if s.ownUploadURL(proc, h) {
 			continue
 		}
@@ -482,7 +567,7 @@ func (s *uidScanState) check(t *testing.T, proc string, c uidScanCase, call int,
 	if status != http.StatusOK {
 		kind = "error"
 	}
-	for _, h := range s.filter(proc, uidScanFind(body, hdr, caller.needles)) {
+	for _, h := range s.filter(proc, uidScanFind(body, hdr, caller.needles), body) {
 		t.Errorf("LEAK in the %s of %s (call #%d, %s): %s found at %s", kind, strings.TrimPrefix(proc, "/dzeroth."), call, caller.name, h.Label, h.Path)
 	}
 	t.Logf("%s call #%d (%s): %d %s", uidScanShort(proc), call, caller.name, status, uidScanCode(body))
@@ -579,7 +664,7 @@ func TestUIDScan_EndToEnd(t *testing.T) {
 	// Minted first: public ids exist for everyone (the chain mints at signup while the flag is not globally off).
 	r.newUser(w.F, fTok, fUID)
 	r.newUser(w.A, aTok, aUID)
-	for _, u := range []*uidScanUser{w.B, w.C, w.D, w.Y, w.P, w.E, w.S1, w.S2} {
+	for _, u := range []*uidScanUser{w.B, w.C, w.D, w.Y, w.P, w.E, w.S1, w.S2, w.G1, w.G2} {
 		tok, uid := mintToken(t, "")
 		r.newUser(u, tok, uid)
 	}
@@ -656,6 +741,10 @@ func TestUIDScan_EndToEnd(t *testing.T) {
 		}
 		t.Logf("%d known leak(s) documented; the goal is none", len(uidScanKnownLeaks))
 	})
+	t.Logf("%d placeholder rows of foreign (non-seeded, no public id in Firestore) authors ignored: %d distinct authors", st.foreignRows, len(st.foreignNotes))
+	for n := range st.foreignNotes {
+		t.Logf("ignored placeholder: %s", n)
+	}
 	t.Logf("%d HTTP calls; the SignedUpload.url exception fired: %v (false means the emulator chain did not sign an upload, so it is unexercised)", uidScanSeq.Load(), st.uploadSeen)
 }
 
@@ -703,7 +792,7 @@ func uidScanErrors(t *testing.T, r *uidScanRig, st *uidScanState, flagged uidSca
 					if status != http.StatusOK {
 						kind = "error"
 					}
-					for _, h := range st.filter(proc, uidScanFind(out, hdr, needles)) {
+					for _, h := range st.filter(proc, uidScanFind(out, hdr, needles), out) {
 						t.Errorf("LEAK in the %s of %s for %q: %s found at %s", kind, uidScanShort(proc), ic.name, h.Label, h.Path)
 					}
 				}
