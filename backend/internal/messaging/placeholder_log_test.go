@@ -36,7 +36,7 @@ func TestRedactErr_KeysConversationIDsAndHashesUIDs(t *testing.T) {
 			t.Errorf("%q still holds %q", got, raw)
 		}
 	}
-	for _, plain := range []string{logger.HashUID(aliceBobConv), logger.HashUID(msgID)} {
+	for _, plain := range []string{plainDigest(aliceBobConv), plainDigest(msgID)} {
 		if strings.Contains(got, plain) {
 			t.Errorf("%q holds the plain hash %q of a conversation or message id", got, plain)
 		}

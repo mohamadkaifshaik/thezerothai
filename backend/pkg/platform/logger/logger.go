@@ -6,8 +6,6 @@ package logger
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"os"
@@ -101,14 +99,18 @@ func TraceFromRequestHeader(h http.Header, projectID string) string {
 	return ""
 }
 
-// HashUID returns a short, irreversible-enough (for log-grep, not crypto) identifier for a Firebase UID
-// so request logs can be correlated per user without logging PII directly.
+// HashUID is the log pseudonym of a Firebase uid (uid_hash on request lines, and the id inside redacted errors), so logs can
+// be correlated per user without logging the uid: the first 8 bytes (16 hex characters) of HMAC-SHA256(key, "uid|" + uid), with
+// the key from SetConversationKey (an HKDF derivation of CURSOR_HMAC_KEY; no new secret). It is keyed because a uid is effectively
+// public: the plain SHA-256 it used to be let anyone holding a uid find that user's log lines. `opsctl community loghash --user UID`
+// reproduces it. Before a key is installed (a test binary, a tool without CURSOR_HMAC_KEY, or a line written before apiserver
+// installs it, which it does first thing) the key is a random per-process value: stable inside that process, never the plain hash,
+// and not reproducible elsewhere. "" in, "" out.
 func HashUID(uid string) string {
 	if uid == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(uid))
-	return hex.EncodeToString(sum[:8])
+	return hashKeyed("uid|" + uid)
 }
 
 // RequestInfo is a small mutable struct attached to the request context once, by the Logging interceptor

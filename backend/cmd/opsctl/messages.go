@@ -9,7 +9,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // parseTakedownMessageArgs validates `opsctl messages takedown <convId:msgId> [--report R] [--note N]` before anything is
@@ -83,7 +82,7 @@ func takedownMessage(ctx context.Context, b *backends, project, convID, msgID st
 		report = a.report
 	}
 	fmt.Fprintf(out, "audit: messages takedown project=%s at=%s conversation_hash=%s message_hash=%s before=%s after=%s previews=%d wrote=%t dry_run=%t report=%s\n",
-		project, now().UTC().Format(time.RFC3339), conversationHashForAudit(convID), logger.HashUID(msgID), res.Before, res.After, res.Entries, res.Wrote, a.dryRun, report)
+		project, now().UTC().Format(time.RFC3339), conversationHashForAudit(convID), uidHashForAudit(msgID), res.Before, res.After, res.Entries, res.Wrote, a.dryRun, report)
 
 	if a.report != "" {
 		if a.dryRun {

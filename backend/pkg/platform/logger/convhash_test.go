@@ -20,8 +20,8 @@ func TestHashConversation(t *testing.T) {
 		t.Fatal("key not reported as set")
 	}
 	one := HashConversation(convID)
-	if len(one) != 16 || one == HashUID(convID) {
-		t.Fatalf("hash %q: want 16 hex characters, different from the plain hash %q", one, HashUID(convID))
+	if len(one) != 16 || one == plainHash(convID) || one == HashUID(convID) {
+		t.Fatalf("hash %q: want 16 hex characters, different from the plain hash %q and the uid hash", one, plainHash(convID))
 	}
 	if again := HashConversation(convID); again != one {
 		t.Errorf("not deterministic: %q then %q", one, again)
@@ -54,7 +54,7 @@ func TestRedactErrKeyed(t *testing.T) {
 	base := errors.New("sentinel")
 	err := RedactErrKeyed(errors.Join(base, errors.New("conv "+convID+" user uid-a")), []string{convID, ""}, "uid-a", "")
 	got := err.Error()
-	if strings.Contains(got, convID) || strings.Contains(got, "uid-a") || strings.Contains(got, HashUID(convID)) {
+	if strings.Contains(got, convID) || strings.Contains(got, "uid-a") || strings.Contains(got, plainHash(convID)) {
 		t.Errorf("not redacted: %q", got)
 	}
 	if !strings.Contains(got, HashConversation(convID)) || !strings.Contains(got, HashUID("uid-a")) {
@@ -74,7 +74,7 @@ func TestHashPost(t *testing.T) {
 	}
 	id := "1234567890123456789"
 	h := HashPost(id)
-	if len(h) != 16 || h == HashUID(id) || h == HashConversation(id) || HashPost("") != "" {
+	if len(h) != 16 || h == plainHash(id) || h == HashUID(id) || h == HashConversation(id) || HashPost("") != "" {
 		t.Errorf("HashPost = %q: want 16 hex, not the plain or conversation hash", h)
 	}
 	if err := SetConversationKey([]byte("k-two")); err != nil {
@@ -115,7 +115,7 @@ func TestRedactErrPostDocs(t *testing.T) {
 					continue
 				}
 				p := d[:i]
-				if strings.Contains(msg, p) || strings.Contains(msg, HashUID(p)) {
+				if strings.Contains(msg, p) || strings.Contains(msg, plainHash(p)) {
 					t.Fatalf("plain or unkeyed post id in %q", msg)
 				}
 				if !strings.Contains(msg, HashPost(p)+"_"+HashUID(uid)) {
@@ -136,7 +136,7 @@ func TestHashCommunityAndTarget(t *testing.T) {
 	}
 	id := "0000000000000000501"
 	c, tg := HashCommunity(id), HashTarget(id)
-	if len(c) != 16 || len(tg) != 16 || c == tg || c == HashUID(id) || tg == HashUID(id) || c == HashPost(id) || c == HashConversation(id) {
+	if len(c) != 16 || len(tg) != 16 || c == tg || c == plainHash(id) || tg == plainHash(id) || c == HashUID(id) || tg == HashUID(id) || c == HashPost(id) || c == HashConversation(id) {
 		t.Errorf("community %q target %q: want 16 hex, distinct from each other and from the plain and other keyed hashes", c, tg)
 	}
 	if HashCommunity("") != "" || HashTarget("") != "" {

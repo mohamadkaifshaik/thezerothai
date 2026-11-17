@@ -22,6 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // Server uses the existing posts capability and protected Connect interceptor
@@ -93,7 +94,8 @@ func (s *Server) withImages(ctx context.Context, out *av.Article, a *record, pos
 	}
 	refs, err := s.images.ResolveArticleImages(ctx, a.AuthorID, postID, ids)
 	if err != nil {
-		slog.WarnContext(ctx, "article_images_unresolved", "article_id", a.ID, "error", err.Error())
+		// The resolver's error can name media documents under the author's uid: scrubbed before it is logged.
+		slog.WarnContext(ctx, "article_images_unresolved", "article_id", a.ID, "error", logger.ScrubErr(err, a.AuthorID).Error())
 		return
 	}
 	for _, id := range ids {

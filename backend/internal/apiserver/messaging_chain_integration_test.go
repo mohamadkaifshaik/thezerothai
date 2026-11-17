@@ -8,6 +8,8 @@ package apiserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -443,8 +445,10 @@ func TestMessagingChain_RequestLineHasNoSecrets(t *testing.T) {
 	}
 	// L-7: the hash is the keyed one (CURSOR_HMAC_KEY via HKDF), never the plain SHA-256 of the guessable conversation id.
 	convID := r.GetConversation().GetId()
-	if last["conversation_hash"] != logger.HashConversation(convID) || last["conversation_hash"] == logger.HashUID(convID) {
-		t.Errorf("conversation_hash = %v, want the keyed %q and not the plain %q", last["conversation_hash"], logger.HashConversation(convID), logger.HashUID(convID))
+	plainSum := sha256.Sum256([]byte(convID))
+	plain := hex.EncodeToString(plainSum[:8])
+	if last["conversation_hash"] != logger.HashConversation(convID) || last["conversation_hash"] == plain {
+		t.Errorf("conversation_hash = %v, want the keyed %q and not the plain %q", last["conversation_hash"], logger.HashConversation(convID), plain)
 	}
 	raw := fmt.Sprint(last)
 	for _, secret := range []string{text, a.uid, b.uid, r.GetConversation().GetId(), r.GetMessage().GetId()} {

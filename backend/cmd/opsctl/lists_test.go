@@ -10,7 +10,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const testListID = "1234567890123456789"
@@ -88,10 +87,10 @@ func TestLists_UsageAndValidation(t *testing.T) {
 	}
 }
 
+// Not parallel: the printed list_hash is keyed by CURSOR_HMAC_KEY from the environment.
 func TestLists_HideRestoreAndOutput(t *testing.T) {
-	t.Parallel()
 	f := &fakeLists{exists: true}
-	hash := logger.HashUID(testListID)
+	hash := keyedAuditUIDHash(t, testListID)
 	steps := []struct {
 		name string
 		args []string

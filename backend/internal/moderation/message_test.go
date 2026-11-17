@@ -237,8 +237,8 @@ func TestReport_MessageInfrastructureErrorsAreRedacted(t *testing.T) {
 		}
 	}
 	// L-7: the conversation id is guessable from a uid pair, so its plain SHA-256 must not stand in for it either.
-	if got := err.Error(); strings.Contains(got, logger.HashUID(okConv)) || !strings.Contains(got, logger.HashConversation(okConv)) {
-		t.Errorf("error %q must carry the keyed conversation hash %q and not the plain one %q", got, logger.HashConversation(okConv), logger.HashUID(okConv))
+	if got := err.Error(); strings.Contains(got, plainDigest(okConv)) || !strings.Contains(got, logger.HashConversation(okConv)) {
+		t.Errorf("error %q must carry the keyed conversation hash %q and not the plain one %q", got, logger.HashConversation(okConv), plainDigest(okConv))
 	}
 }
 

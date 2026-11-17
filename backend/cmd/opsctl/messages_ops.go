@@ -46,6 +46,26 @@ func conversationHashForAudit(convID string) string {
 	return logger.HashConversation(convID)
 }
 
+// installLogKeyFromEnv installs the API's log-hash key from CURSOR_HMAC_KEY when the operator's shell has it, and reports
+// whether it did. main calls it once at start, so the uid_hash and redacted-error hashes that a command logs through the modules
+// (purge-graph, purge-posts, ...) match the API's lines for the same ids. Without the variable nothing is installed: those lines
+// then carry a random per-process hash (never the plain SHA-256) that matches nothing outside the run.
+func installLogKeyFromEnv() bool {
+	key := os.Getenv(cursorKeyEnv)
+	return key != "" && logger.SetConversationKey([]byte(key)) == nil
+}
+
+// uidHashForAudit is the pseudonym opsctl prints for an id on its audit lines (beacon_hash, list_hash, message_hash): the keyed
+// logger.HashUID the API logs for the same id when CURSOR_HMAC_KEY is set in the operator's shell, else a marker. Never a hash
+// under opsctl's random per-process fallback key, which would match nothing in the logs, and never the plain SHA-256.
+func uidHashForAudit(id string) string {
+	key := os.Getenv(cursorKeyEnv)
+	if key == "" || logger.SetConversationKey([]byte(key)) != nil {
+		return "unavailable(set-" + cursorKeyEnv + ")"
+	}
+	return logger.HashUID(id)
+}
+
 // migratePlaceholder is `opsctl messages migrate-placeholder --project P [--dry-run]` (L-2): a dev-only, one-off
 // rewrite of the legacy erased-user placeholder "deleted" to messaging.DeletedUID ("_deleted") in conversations
 // (participants, gone, requestFrom, requestTo), messages (senderId) and the surviving peer's entry (peerId). Run --dry-run
