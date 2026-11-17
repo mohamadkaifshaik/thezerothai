@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -268,7 +269,7 @@ func TestEraserAndExport_ReporterOnly(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := repo.ExportUser(context.Background(), "u-gone", &buf); err != nil {
+	if err := NewReportExporter(repo, exportPeople()).ExportUser(context.Background(), "u-gone", &buf); err != nil {
 		t.Fatal(err)
 	}
 	var exp struct {
@@ -316,11 +317,63 @@ func TestEraserAndExport_ReporterOnly(t *testing.T) {
 		t.Fatalf("report about the user = %+v err=%v", kept, err)
 	}
 	buf.Reset()
-	if err := repo.ExportUser(context.Background(), "u-gone", &buf); err != nil {
+	if err := NewReportExporter(repo, exportPeople()).ExportUser(context.Background(), "u-gone", &buf); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(buf.Bytes(), &exp); err != nil || len(exp.Reports) != 0 {
 		t.Fatalf("export after purge = %s", buf.String())
+	}
+}
+
+// TestExport_AccountTargetsByHandleAndPublicID: the reports a user filed name a reported ACCOUNT by public id and handle
+// (a suspended one too; an erased one by neither), never by its uid; a POST report keeps its post id.
+func TestExport_AccountTargetsByHandleAndPublicID(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client, quota.New(client))
+	now := time.Now()
+	reporter := fmt.Sprintf("u-exp-%d", now.UnixNano())
+	for _, r := range []Report{
+		sampleReport(reporter, TargetAccount, expUIDWithID, expUIDWithID, now),
+		sampleReport(reporter, TargetAccount, expUIDNoID, expUIDNoID, now),
+		sampleReport(reporter, TargetAccount, expUIDGone, expUIDGone, now),
+		sampleReport(reporter, TargetPost, pidN(40), expUIDWithID, now),
+	} {
+		if _, err := repo.Create(context.Background(), CreateParams{Report: r, QuotaLimit: 20}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	people := exportPeople()
+	var buf bytes.Buffer
+	if err := NewReportExporter(repo, people).ExportUser(context.Background(), reporter, &buf); err != nil {
+		t.Fatal(err)
+	}
+	var exp struct {
+		Reports []map[string]any `json:"reports"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &exp); err != nil || len(exp.Reports) != 4 {
+		t.Fatalf("export = %s err=%v", buf.String(), err)
+	}
+	got := map[string]string{}
+	for _, r := range exp.Reports {
+		got[fmt.Sprint(r["targetType"], "|", r["targetId"], "|", r["targetPublicId"], "|", r["targetHandle"])] = r["id"].(string)
+	}
+	for _, want := range []string{
+		"ACCOUNT|<nil>|" + expPubID + "|withid",
+		"ACCOUNT|<nil>|<nil>|noid",
+		"ACCOUNT|<nil>|<nil>|<nil>",
+		"POST|" + pidN(40) + "|<nil>|<nil>",
+	} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("no row %s in %v", want, got)
+		}
+	}
+	for _, uid := range []string{expUIDWithID, expUIDNoID, expUIDGone} {
+		if strings.Contains(buf.String(), uid) {
+			t.Errorf("the export carries the uid %s: %s", uid, buf.String())
+		}
+	}
+	if len(people.calls) != 1 || len(people.calls[0]) != 3 {
+		t.Errorf("profile batches = %v, want one batch of the 3 accounts", people.calls)
 	}
 }
 
