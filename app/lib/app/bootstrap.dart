@@ -68,6 +68,7 @@ import '../features/notifications/domain/notifications_feature_flag.dart';
 import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
+import '../core/widgets/privacy_policy_link.dart' show staticPagesOrigin;
 import '../features/settings/data/own_privacy_store.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -97,6 +98,8 @@ Future<void> bootstrap() async {
   final AppConfig config;
   try {
     config = AppConfig.fromEnvironment();
+    // Privacy/terms/rules links follow the build: dev builds open the dev copy.
+    staticPagesOrigin = config.shareOrigin;
   } on AppConfigError catch (e) {
     // Fail loudly but legibly: a release mobile build with no API_BASE_URL
     // dart-define is a broken CI/release configuration, not a runtime
@@ -400,10 +403,21 @@ Future<void> bootstrap() async {
   // communities are a session cache that ends with the shared SessionEpoch
   // (sign-out).
   final communitiesGate = buildServiceGate(onboardingBloc, kFeatureCommunities);
+  final homeTabsRepository = HomeTabsRepository(
+    apiClient: apiClient,
+    gate: listsGate,
+    communitiesGate: communitiesGate,
+    epoch: database.sessionEpoch,
+  );
+  identityRepository.addGetMeListener(
+    (response, epoch) =>
+        homeTabsRepository.adoptFromMe(response.homeTabs, epoch: epoch),
+  );
   final communitiesRepository = CommunitiesRepository(
     apiClient: apiClient,
     gate: communitiesGate,
     epoch: database.sessionEpoch,
+    onCommunitySeen: homeTabsRepository.noteCommunityInfo,
   );
   // Plans (beacons): the only `BeaconService` caller, 0 RPCs while `beacons`
   // is off for the caller.
@@ -421,16 +435,6 @@ Future<void> bootstrap() async {
       kFeatureCreatorInsights,
       onUnexpectedError: reportUnexpectedError,
     ),
-  );
-  final homeTabsRepository = HomeTabsRepository(
-    apiClient: apiClient,
-    gate: listsGate,
-    communitiesGate: communitiesGate,
-    epoch: database.sessionEpoch,
-  );
-  identityRepository.addGetMeListener(
-    (response, epoch) =>
-        homeTabsRepository.adoptFromMe(response.homeTabs, epoch: epoch),
   );
   // Read receipts and DM policy as the server answered (F3, F9), fed
   // before the first GetMe can run.
@@ -455,6 +459,7 @@ Future<void> bootstrap() async {
     listsGate: listsGate,
     onListSeen: listsRepository.noteListInfo,
     communitiesGate: communitiesGate,
+    onCommunitySeen: homeTabsRepository.noteCommunityInfo,
   );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,

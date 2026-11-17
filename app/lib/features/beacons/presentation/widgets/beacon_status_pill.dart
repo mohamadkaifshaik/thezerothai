@@ -18,9 +18,15 @@ class BeaconStatusPill extends StatelessWidget {
     }
     return AppStatusPill(
       label: statusLabel(status),
-      tone: status == pb.BeaconStatus.BEACON_STATUS_FULL
-          ? AppStatusTone.info
-          : AppStatusTone.neutral,
+      tone: beaconStatusTone(status),
     );
   }
 }
+
+/// The pill tone of a non-OPEN status: Full is info, Ended is the error red,
+/// the rest neutral.
+AppStatusTone beaconStatusTone(pb.BeaconStatus status) => switch (status) {
+  pb.BeaconStatus.BEACON_STATUS_FULL => AppStatusTone.info,
+  pb.BeaconStatus.BEACON_STATUS_ENDED => AppStatusTone.danger,
+  _ => AppStatusTone.neutral,
+};

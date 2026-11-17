@@ -18,7 +18,9 @@ import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/moderation/domain/reports_feature_flag.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/shared/format/scheduled_time.dart';
+
 import '../../../support/ui_tooltip_finder.dart';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
@@ -58,10 +60,20 @@ final String _editPath = AppRouter.planEditPath(kBeaconIdA);
 /// Fills the create form's text fields.
 Future<void> _fillCreate(WidgetTester tester) async {
   await tester.enterText(_inForm(_field('Title')), ('  Board games '));
+  // Details sit under "More options".
+  final more = _inForm(find.byKey(const ValueKey('plan-more-toggle')));
+  await tester.ensureVisible(more);
+  await tester.pumpAndSettle();
+  await tester.tap(more);
+  await tester.pumpAndSettle();
   await tester.enterText(_inForm(_field('Details')), 'Bring snacks');
   await tester.enterText(_inForm(_field('Meeting point')), 'Library hall');
   await tester.pumpAndSettle();
 }
+
+/// Create: "Custom" reveals the Date and Time fields.
+Future<void> _openCustomWhen(WidgetTester tester) =>
+    _tapInForm(tester, _inForm(find.widgetWithText(ChoiceChip, 'Custom')));
 
 /// Scrolls [f] into view in the form, then taps it.
 Future<void> _tapInForm(WidgetTester tester, Finder f) async {
@@ -274,6 +286,7 @@ void main() {
         );
       });
 
+      await _openCustomWhen(tester);
       await _tapInForm(tester, find.byUiTooltip('Pick a date'));
       await _tapInForm(tester, find.byUiTooltip('Pick a time'));
       String label(String tooltip) => tester
@@ -545,7 +558,7 @@ void main() {
         );
       });
 
-      await tester.tap(find.text('Create'));
+      await tester.tap(find.text('Post plan'));
       await tester.pumpAndSettle();
       final page = find.byType(BeaconScreen);
       expect(page, findsOneWidget);
@@ -685,13 +698,27 @@ void main() {
           );
           expect(find.text(kPlanTips.first), findsNothing);
           // Above the first field.
-          final firstField = location == AppRouter.planNewPath
-              ? _inForm(find.text('What'))
-              : _inForm(find.byType(TextField)).first;
-          expect(
-            tester.getBottomLeft(toggle).dy,
-            lessThan(tester.getTopLeft(firstField).dy),
-          );
+          if (location == AppRouter.planNewPath) {
+            // The create form is quick: the tips close it, below "More
+            // options".
+            expect(
+              tester.getTopLeft(toggle).dy,
+              greaterThan(
+                tester
+                    .getBottomLeft(
+                      find.byKey(const ValueKey('plan-more-toggle')),
+                    )
+                    .dy,
+              ),
+            );
+          } else {
+            expect(
+              tester.getBottomLeft(toggle).dy,
+              lessThan(
+                tester.getTopLeft(_inForm(find.byType(TextField)).first).dy,
+              ),
+            );
+          }
 
           // The hit area is the row, not only its label: tap near its corner.
           final rect = tester.getRect(toggle);
@@ -740,6 +767,7 @@ void main() {
             height: 1100,
             realForms: true,
           );
+          await _openCustomWhen(tester);
           await _tapInForm(tester, find.byUiTooltip(tooltip));
           expect(
             find.byType(name == 'date' ? DatePickerDialog : TimePickerDialog),
@@ -813,6 +841,7 @@ void main() {
         flags: kPlansFlagModes['ui_shell only']!,
         realForms: true,
       );
+      await _openCustomWhen(tester);
       await _tapInForm(tester, find.byUiTooltip('Pick a date'));
       expect(openDialogRect(tester).center.dx, closeTo(417, 1));
     });
@@ -829,6 +858,7 @@ void main() {
         flags: kPlansFlagModes['ui_shell only']!,
         realForms: true,
       );
+      await _openCustomWhen(tester);
       await _tapInForm(tester, find.byUiTooltip('Pick a date'));
       expect(openDialogRect(tester).center.dx, closeTo(600, 1));
     });
@@ -844,6 +874,7 @@ void main() {
         realForms: true,
       );
       final start = DateTime.now().add(const Duration(hours: 1));
+      await _openCustomWhen(tester);
       await _tapInForm(tester, find.byUiTooltip('Pick a date'));
       // Switch to typing the date and pick the day after the default start.
       await tester.tap(find.byIcon(Icons.edit_outlined).last);
@@ -1015,7 +1046,7 @@ void main() {
     });
 
     for (final w in <double>[744, 1024]) {
-      testWidgets('at ${w.toInt()}: Cancel, Preview, then the tips toggle', (
+      testWidgets('at ${w.toInt()}: Cancel, Preview, then the form', (
         tester,
       ) async {
         final rig = PlansTabletRig();
@@ -1040,7 +1071,10 @@ void main() {
         // Create is disabled until the form is valid, so it takes no focus.
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
-        expect(focused(find.text(kPlanTipsTitle)), isTrue, reason: 'tips');
+        // The tips close the form now (after "More options"), so the third
+        // stop is a field, not the tips.
+        expect(focused(find.text(kPlanTipsTitle)), isFalse);
+        expect(find.text(kPlanTipsTitle), findsOneWidget, reason: 'tips');
       });
     }
   });

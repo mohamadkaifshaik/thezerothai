@@ -59,3 +59,28 @@ class ComposerPollButton extends StatelessWidget {
     );
   }
 }
+
+/// The "Write an article" action in the composer bottom bar: opens the article
+/// editor library (/compose/articles) over the composer, so the unsent post
+/// (and its saved draft) is still here when the author comes back. The caller
+/// decides whether it exists (posts on, not a quote).
+class ComposerArticleButton extends StatelessWidget {
+  const ComposerArticleButton({
+    super.key,
+    required this.enabled,
+    this.onPressed,
+  });
+
+  /// False while the post is being sent.
+  final bool enabled;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Write an article',
+      icon: const Icon(Icons.article_outlined),
+      onPressed: enabled ? onPressed : null,
+    );
+  }
+}

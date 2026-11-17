@@ -57,6 +57,7 @@ import '../widgets/shell_side_column.dart';
 import '../widgets/splash_screen.dart';
 import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
+import 'back_to_home.dart';
 import 'compose_gate.dart';
 import 'page_below.dart';
 
@@ -294,7 +295,12 @@ class MainShell extends StatelessWidget {
     );
     if (pending) return const SplashScreen();
     // The pages under the shell offer their floating button here.
-    return ShellFabHost(child: Builder(builder: _build));
+    // Back from any destination other than Home goes Home; from Home it exits.
+    // (Not on the Messages split page: back there belongs to the thread.)
+    return BackToHome(
+      enabled: splitFolder == null && location != AppRouter.homePath,
+      child: ShellFabHost(child: Builder(builder: _build)),
+    );
   }
 
   /// The phone's floating button at [location]: Home's New post, else the
