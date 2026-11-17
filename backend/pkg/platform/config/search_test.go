@@ -20,9 +20,9 @@ func TestLoad_SearchDefaults(t *testing.T) {
 		t.Errorf("search limits = %d/%d, want 30/20", rl.SearchPeoplePerUserPerMinute, rl.SearchPostsPerUserPerMinute)
 	}
 	s := cfg.Search
-	if s.PrefixCacheEntries != 2000 || s.TagCacheEntries != 500 || s.TrendsMinAuthors != 1 || s.TrendsMaxPostsPerAuthor != 5 || s.TrendsMaxPostsPerRun != 2000 || s.TrendsMinInterval != 12*time.Hour ||
+	if s.PrefixCacheEntries != 2000 || s.TagCacheEntries != 500 || s.TrendsMinAuthors != 1 || s.TrendsMaxPostsPerAuthor != 5 || s.TrendsMaxPostsPerRun != 2000 || s.TrendsMinInterval != 45*time.Minute ||
 		s.TrendsMinAccountAge != 72*time.Hour || s.TrendsMaxAuthorChecks != 500 || len(s.TrendsDenylist) != 0 {
-		t.Errorf("search config = %+v, want 2000/500/1/5/2000/12h/72h/500/none", s)
+		t.Errorf("search config = %+v, want 2000/500/1/5/2000/45m/72h/500/none", s)
 	}
 	for _, f := range []struct {
 		spec flags.Spec
