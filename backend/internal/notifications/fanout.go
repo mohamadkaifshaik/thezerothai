@@ -340,7 +340,12 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		}
 		out.Created++
 		createdFor = append(createdFor, r)
-		toPush = append(toPush, pending{r, Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID, BeaconID: e.BeaconID}})
+		p := Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID, BeaconID: e.BeaconID}
+		if f.publicIDsOn(r) {
+			// The actor's public id comes from the profile loaded above: no extra read.
+			p.PublicIDs, p.ActorPublicID = true, ap.PublicID
+		}
+		toPush = append(toPush, pending{r, p})
 	}
 	// A concurrent GetMe on this instance may have re-cached the recipient's unread count between the status read
 	// above and this write (it would then serve the pre-write badge until the cache TTL). Evict only the unread
@@ -375,6 +380,12 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		out.Pruned += pruned
 	}
 	return out, errors.Join(errs...)
+}
+
+// publicIDsOn is FEATURE_PUBLIC_IDS for the recipient, from the in-memory flags registry (no read). An unwired checker
+// is off, so the push stays today's (unlike recipientFlagsOn, where nil allows everything for tests).
+func (f *Fanout) publicIDsOn(uid string) bool {
+	return f.d.Flags != nil && f.d.Flags.Enabled(uid, identity.PublicIDsFlag)
 }
 
 // prefsSuppress reports whether uid switched push off for the group of t (F6). It costs nothing unless FEATURE_NOTIFICATION_PREFS

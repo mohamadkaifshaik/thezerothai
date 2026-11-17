@@ -253,10 +253,10 @@ func TestProdConfirmation(t *testing.T) {
 func TestExport_NeverContainsBlockedBy(t *testing.T) {
 	fb := &fakeBackend{eraser: &fakeEraser{}, export: graph.Export{
 		UserID:    "u1",
-		Following: []graph.ExportUser{{UserID: "f1", Handle: "fone"}},
-		Followers: []graph.ExportUser{{UserID: "g1", Handle: "gone"}},
-		Blocked:   []graph.ExportUser{{UserID: "b1", Handle: "bone"}},
-		Muted:     []graph.ExportUser{{UserID: "m1"}},
+		Following: []graph.ExportUser{{PublicID: "u1aaaaaaaaaaaaaaaaaaaaaaaaa", Handle: "fone"}},
+		Followers: []graph.ExportUser{{Handle: "gone"}},
+		Blocked:   []graph.ExportUser{{Handle: "bone"}},
+		Muted:     []graph.ExportUser{{}},
 	}}
 	code, stdout, stderr := do(t, fb, "", "export-graph", "--project", "dzeroth-dev", "--uid", "u1")
 	if code != 0 {

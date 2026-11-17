@@ -176,7 +176,14 @@ func TestExportRequests_Integration(t *testing.T) {
 	seedRequest(t, w.client, "uid-c", "uid-u", 3*time.Hour, true)
 	seedRequest(t, w.client, "uid-d", "uid-u", 30*time.Minute, true)
 
-	// 4 request docs + 4 distinct handle lookups.
+	// a and d have public ids (b and c none): the row carries it from the same profile read.
+	for _, u := range []struct{ uid, pub string }{{"uid-a", "u1aaaaaaaaaaaaaaaaaaaaaaaaa"}, {"uid-d", "u1ddddddddddddddddddddddddd"}} {
+		if _, err := w.client.Doc("users/"+u.uid).Update(context.Background(), []firestore.Update{{Path: "publicId", Value: u.pub}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 4 request docs + 4 distinct profile lookups (handle and public id on the same read).
 	// ExportRequests 2 sent 2 received
 	{
 		ctx := context.Background()
@@ -187,14 +194,14 @@ func TestExportRequests_Integration(t *testing.T) {
 		ids := func(rows []graph.RequestExportRow) []string {
 			var out []string
 			for _, r := range rows {
-				out = append(out, r.UserID+":"+r.Handle)
+				out = append(out, r.PublicID+":"+r.Handle)
 			}
 			return out
 		}
-		if want := []string{"uid-b:user_b", "uid-a:user_a"}; !slices.Equal(ids(got.Sent), want) {
+		if want := []string{":user_b", "u1aaaaaaaaaaaaaaaaaaaaaaaaa:user_a"}; !slices.Equal(ids(got.Sent), want) {
 			t.Errorf("sent = %v, want %v (newest first)", ids(got.Sent), want)
 		}
-		if want := []string{"uid-d:user_d", "uid-c:user_c"}; !slices.Equal(ids(got.Received), want) {
+		if want := []string{"u1ddddddddddddddddddddddddd:user_d", ":user_c"}; !slices.Equal(ids(got.Received), want) {
 			t.Errorf("received = %v, want %v (newest first)", ids(got.Received), want)
 		}
 		if !got.Sent[0].RequestedAt.Equal(reqBase.Add(-time.Hour)) {

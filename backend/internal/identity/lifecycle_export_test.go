@@ -357,7 +357,7 @@ func TestExportJob(t *testing.T) {
 			t.Fatal("no object written")
 		}
 		e := parseExport(t, raw)
-		if e.ExportVersion != 1 || !e.GeneratedAt.Equal(h.clock.Now().UTC()) {
+		if e.ExportVersion != 2 || !e.GeneratedAt.Equal(h.clock.Now().UTC()) {
 			t.Errorf("envelope = %d %v", e.ExportVersion, e.GeneratedAt)
 		}
 		if e.Account["email"] != "alice@example.com" || e.Account["providers"].([]any)[0] != "google.com" {

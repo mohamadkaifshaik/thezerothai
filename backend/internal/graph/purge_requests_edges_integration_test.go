@@ -246,7 +246,8 @@ func TestW335b_RequestEraser_ConcurrentLoops(t *testing.T) {
 }
 
 // The export across its 500-row page: exactly 500 and 501 received requests (and sent), every row exactly once, newest
-// first, none dropped at the page boundary, both arrays present. Handles are not seeded (no profiles), so no lookup row.
+// first, none dropped at the page boundary, both arrays present. Handles are not seeded (no profiles), so no lookup row:
+// every row is {requestedAt} only (exportVersion 2 never falls back to the uid), and its time says which request it is.
 func TestW335b_ExportRequests_PageBoundaries(t *testing.T) {
 	for _, n := range []int{500, 501} {
 		t.Run(fmt.Sprintf("%d each way", n), func(t *testing.T) {
@@ -265,19 +266,15 @@ func TestW335b_ExportRequests_PageBoundaries(t *testing.T) {
 			if len(got.Sent) != n || len(got.Received) != n {
 				t.Fatalf("rows sent/received = %d/%d, want %d each", len(got.Sent), len(got.Received), n)
 			}
-			seen := map[string]bool{}
-			for i, r := range got.Received {
-				if seen[r.UserID] {
-					t.Fatalf("received row %s twice", r.UserID)
-				}
-				seen[r.UserID] = true
-				if want := fmt.Sprintf("uid-in%03d", i); r.UserID != want {
-					t.Fatalf("received[%d] = %s, want %s (newest first)", i, r.UserID, want)
-				}
-			}
-			for i, r := range got.Sent {
-				if want := fmt.Sprintf("uid-out%03d", i); r.UserID != want {
-					t.Fatalf("sent[%d] = %s, want %s (newest first)", i, r.UserID, want)
+			// Distinct times, one per seeded request: row i is request i exactly when its time is reqBase - i s.
+			for side, rows := range map[string][]graph.RequestExportRow{"received": got.Received, "sent": got.Sent} {
+				for i, r := range rows {
+					if want := reqBase.Add(-time.Duration(i) * time.Second); !r.RequestedAt.Equal(want) {
+						t.Fatalf("%s[%d] requestedAt = %v, want %v (newest first, each once)", side, i, r.RequestedAt, want)
+					}
+					if r.PublicID != "" || r.Handle != "" {
+						t.Fatalf("%s[%d] = %+v, want no profile data for a counterpart with no profile", side, i, r)
+					}
 				}
 			}
 		})

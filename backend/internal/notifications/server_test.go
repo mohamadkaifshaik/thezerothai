@@ -173,3 +173,24 @@ func TestToProto_ActorLeavesIsPrivateUnset(t *testing.T) {
 		t.Errorf("actor = %v, want user carried and is_private unset", got.GetActor())
 	}
 }
+
+// TypeFromProto inverts the wire mapping for every listed type (the edge's notification-id rule reads the enum from
+// the row); the push-only message type and UNSPECIFIED map to "".
+func TestTypeFromProto(t *testing.T) {
+	for _, ty := range allTypes {
+		p := typeToProto(ty)
+		want := ty
+		if p == notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED {
+			want = ""
+		}
+		if got := TypeFromProto(p); got != want {
+			t.Errorf("TypeFromProto(%v) = %q, want %q", p, got, want)
+		}
+	}
+	if got := TypeFromProto(notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED); got != "" {
+		t.Errorf("UNSPECIFIED = %q", got)
+	}
+	if got := TypeFromProto(notificationsv1.NotificationType(999)); got != "" {
+		t.Errorf("unknown enum = %q", got)
+	}
+}

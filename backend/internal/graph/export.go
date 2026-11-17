@@ -11,13 +11,18 @@ import (
 // exportEdgePage is the page size for walking follow edges (a batch job, not a request path).
 const exportEdgePage = 500
 
-// ExportUser is one row of an export: a uid and, when the profile still exists, its handle.
+// ExportUser is one row of an export: another person, named by public id and handle, never by uid (owner decision,
+// public ids: the archive leaves the account owner's hands). PublicID is omitted when the person has none (never
+// minted: public_ids was globally off, the prod state, or the account predates the backfill), Handle when the profile is
+// gone (erased); a row with neither is still written, so a list keeps one row per edge. Format change of exportVersion
+// 2: rows had {userId, handle} before.
 type ExportUser struct {
-	UserID string `json:"userId"`
-	Handle string `json:"handle,omitempty"`
+	PublicID string `json:"publicId,omitempty"`
+	Handle   string `json:"handle,omitempty"`
 }
 
-// Export is the subject's own graph data. By construction it has no field for who blocked the subject
+// Export is the subject's own graph data. UserID is the subject's own uid (their data); every listed person is an
+// ExportUser. By construction it has no field for who blocked the subject
 // ("data export should never list who blocked the user"); blockedBy is never read here.
 type Export struct {
 	UserID    string       `json:"userId"`
@@ -28,8 +33,9 @@ type Export struct {
 }
 
 // ExportUser walks the subject's follow edges (both sides, 500 per page, every query limited), reads blocked
-// and muted from graph/{uid}, and resolves handles through the ProfileReader in batches of 50. It reads
-// the edges, the graph doc and one profile per distinct listed user, and writes nothing.
+// and muted from graph/{uid}, and resolves handles and public ids through the ProfileReader in batches of 50. It reads
+// the edges, the graph doc and one profile per distinct listed user (the public id is on that same users/{uid} read:
+// no extra read), and writes nothing.
 func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string) (Export, error) {
 	if r.profiles == nil {
 		return Export{}, fmt.Errorf("graph: export: ProfileReader not wired (SetProfiles)")
@@ -48,14 +54,14 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string) (Export, err
 		return Export{}, err
 	}
 
-	handles, err := r.handlesFor(ctx, following, followers, d.Blocked, d.Muted)
+	people, err := r.peopleFor(ctx, following, followers, d.Blocked, d.Muted)
 	if err != nil {
 		return Export{}, err
 	}
-	out.Following = withHandles(following, handles)
-	out.Followers = withHandles(followers, handles)
-	out.Blocked = withHandles(d.Blocked, handles)
-	out.Muted = withHandles(d.Muted, handles)
+	out.Following = exportRows(following, people)
+	out.Followers = exportRows(followers, people)
+	out.Blocked = exportRows(d.Blocked, people)
+	out.Muted = exportRows(d.Muted, people)
 	return out, nil
 }
 
@@ -78,7 +84,11 @@ func (r *FirestoreRepo) exportEdges(ctx context.Context, uid string, followers b
 	}
 }
 
-func (r *FirestoreRepo) handlesFor(ctx context.Context, lists ...[]string) (map[string]string, error) {
+// peopleFor resolves every distinct uid of lists to its export row through the ProfileReader (identity's repo: all
+// account statuses, erased ones absent), one GetAll per profileGetAllCap uids. The public id is read from the same
+// users/{uid} document as the handle, whatever public_ids says now, like the subject's own public id in the profile
+// section (identity/lifecycle_export.go).
+func (r *FirestoreRepo) peopleFor(ctx context.Context, lists ...[]string) (map[string]ExportUser, error) {
 	seen := map[string]struct{}{}
 	var all []string
 	for _, l := range lists {
@@ -89,7 +99,7 @@ func (r *FirestoreRepo) handlesFor(ctx context.Context, lists ...[]string) (map[
 			}
 		}
 	}
-	handles := make(map[string]string, len(all))
+	people := make(map[string]ExportUser, len(all))
 	for start := 0; start < len(all); start += profileGetAllCap {
 		end := min(start+profileGetAllCap, len(all))
 		got, err := r.profiles.GetProfiles(ctx, all[start:end])
@@ -97,16 +107,17 @@ func (r *FirestoreRepo) handlesFor(ctx context.Context, lists ...[]string) (map[
 			return nil, fmt.Errorf("graph: export: profiles: %w", err)
 		}
 		for uid, p := range got {
-			handles[uid] = p.Handle
+			people[uid] = ExportUser{PublicID: p.PublicID, Handle: p.Handle}
 		}
 	}
-	return handles, nil
+	return people, nil
 }
 
-func withHandles(uids []string, handles map[string]string) []ExportUser {
+// exportRows is one row per uid, in order; an unresolved uid is an empty row (never the uid).
+func exportRows(uids []string, people map[string]ExportUser) []ExportUser {
 	out := make([]ExportUser, 0, len(uids))
 	for _, u := range uids {
-		out = append(out, ExportUser{UserID: u, Handle: handles[u]})
+		out = append(out, people[u])
 	}
 	return out
 }

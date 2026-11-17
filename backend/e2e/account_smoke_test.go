@@ -296,7 +296,7 @@ func TestE2E_AccountLifecycleSmoke(t *testing.T) {
 	if err := json.Unmarshal(exported, &doc); err != nil {
 		t.Fatalf("the export is not JSON: %v", err)
 	}
-	if doc.ExportVersion != 1 || len(doc.Posts.Posts) != 1 || doc.Posts.Posts[0].Text != text || len(doc.Graph.Following) != 1 || len(doc.Graph.Followers) != 1 {
+	if doc.ExportVersion != 2 || len(doc.Posts.Posts) != 1 || doc.Posts.Posts[0].Text != text || len(doc.Graph.Following) != 1 || len(doc.Graph.Followers) != 1 {
 		t.Errorf("export content wrong: %d posts, %d following, %d followers", len(doc.Posts.Posts), len(doc.Graph.Following), len(doc.Graph.Followers))
 	}
 
