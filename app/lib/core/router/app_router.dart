@@ -23,6 +23,7 @@ import '../feature_flags/ui_shell_feature_flag.dart';
 import 'routes/location_routes.dart';
 import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../session/user_ids.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
 import '../../features/posts/domain/posts_feature_flag.dart';
@@ -734,8 +735,11 @@ class AppRouter {
       return null;
     }
     final mine = _ownPrivacy?.value;
-    final uid = _authBloc.state.user?.uid;
-    if (mine != null && mine.userId == uid && ownPrivacyIsSet(mine)) {
+    // The cached privacy row carries the server-issued API user id, so it is
+    // compared with the id GetMe sent, never with the Firebase uid.
+    final myId = _onboardingBloc.state.myUserId;
+    if (mine != null && myId != null && mine.userId == myId &&
+        ownPrivacyIsSet(mine)) {
       return null;
     }
     return settingsPath;

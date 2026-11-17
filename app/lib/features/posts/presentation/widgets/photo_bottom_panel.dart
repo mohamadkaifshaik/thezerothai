@@ -26,6 +26,7 @@ import '../../domain/reply_audience.dart';
 import '../../domain/reply_pickers.dart';
 import '../../domain/reply_start.dart';
 import '../../data/posts_repository.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// The most of the screen's height the bottom panel may take; the photo keeps
 /// the rest, so it always has a box to be drawn in.
@@ -134,7 +135,7 @@ class _AuthorRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final author = post.author;
     final theme = Theme.of(context);
-    final viewerId = context.read<OnboardingBloc>().state.profile?.userId;
+    final viewerId = context.read<OnboardingBloc>().state.myUserId;
     final showFollow =
         isFeatureEnabled(context, kFeatureGraph) &&
         author.userId.isNotEmpty &&

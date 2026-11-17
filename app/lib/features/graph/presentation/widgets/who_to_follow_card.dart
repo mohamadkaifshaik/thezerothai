@@ -14,6 +14,7 @@ import '../bloc/suggestions_cubit.dart';
 import '../bloc/suggestions_state.dart';
 import '../graph_feature_flags.dart';
 import 'user_list_row.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// How many rows the card shows before "Show more".
 const kWhoToFollowCollapsedRows = 3;
@@ -49,7 +50,7 @@ class WhoToFollowCard extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!isFollowSuggestionsEnabled(context)) return const SizedBox.shrink();
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     if (viewerUserId == null || viewerUserId.isEmpty) {
       return const SizedBox.shrink();

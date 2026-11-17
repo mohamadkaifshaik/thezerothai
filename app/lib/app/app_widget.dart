@@ -15,6 +15,7 @@ import '../core/network/service_paused_cubit.dart';
 import '../core/router/app_router.dart';
 import '../core/router/screen_names.dart';
 import '../core/session/account_session_reset.dart';
+import '../core/session/user_ids.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_consent_cubit.dart';
@@ -641,14 +642,21 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     }
     // `messaging` off with no read-only answer drops the hoisted folders.
     if (flagsChanged) _onMessagingAccess();
-    final uid = state.profile?.userId;
+    // The subscription session is bound to the signed-in Firebase account
+    // (authentication identity: the billing transport and the repository check
+    // it against `currentUser.uid`), never to the server-issued API user id.
+    // It starts once this session's GetMe has answered for that account.
+    final accountUid = _accountUid;
+    final apiUserId = state.myUserId;
     // Onboarding starts only after the session cache/epoch has been claimed.
     // Do not start billing reads in the earlier auth notification race.
-    if (uid != null && uid == _accountUid && _subscription?.state.uid != uid) {
-      unawaited(_subscription?.setAccount(uid));
+    if (apiUserId != null &&
+        accountUid != null &&
+        _subscription?.state.uid != accountUid) {
+      unawaited(_subscription?.setAccount(accountUid));
     }
-    if (flagsChanged || uid != _probedUid) {
-      _probedUid = uid;
+    if (flagsChanged || apiUserId != _probedUid) {
+      _probedUid = apiUserId;
       unawaited(widget.messagingRepository.probeAccess());
     }
     final unreadChanged = _lastUnread != state.unreadNotificationCount;

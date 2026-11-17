@@ -48,6 +48,7 @@ import 'widgets/community_unavailable_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../core/widgets/shell_fab.dart';
+import '../../../core/session/user_ids.dart';
 
 /// `/communities/:id`: header, then Posts and About tabs.
 ///
@@ -84,7 +85,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     feed: FeedKey.community(widget.communityId),
     timeline: context.read<TimelineRepository>(),
     posts: context.read<PostsRepository>(),
-    viewerUserId: context.read<OnboardingBloc>().state.profile?.userId,
+    viewerUserId: context.read<OnboardingBloc>().state.myUserId,
   );
 
   late final CommunityModerationCubit _moderation;
@@ -307,7 +308,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     _timeline.viewerUserId = viewerUserId;
     return MultiBlocProvider(
