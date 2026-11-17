@@ -733,6 +733,9 @@ func refreshCfg(c *config.Config) {
 	// The chain test accounts are seconds old, so the 72 h established-author rule would leave nothing to trend.
 	// The age rule itself is covered by the search package tests (trends_authors*_test.go).
 	c.Search.TrendsMinAccountAge = time.Nanosecond
+	// These chain tests exercise the distinct-author rule, so they pin the old threshold of 3. The shipped default is 1
+	// (a single account can start a trend; see the search package cold-start tests).
+	c.Search.TrendsMinAuthors = 3
 }
 
 func TestSearchChain_TrendsRefreshEndToEnd(t *testing.T) {
