@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -17,6 +19,7 @@ import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pickers.dart';
 import '../../communities/data/communities_repository.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
+import '../../location/data/location_repository.dart';
 import '../../location/domain/location_models.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
@@ -25,6 +28,7 @@ import '../domain/beacon_text_rules.dart';
 import '../domain/beacons_feature_flag.dart';
 import '../domain/plan_preview.dart';
 import '../domain/plan_quick_start.dart';
+import '../domain/plan_title_suggestions.dart';
 import 'bloc/beacons_state.dart' show BeaconsAudience;
 import 'bloc/create_beacon_cubit.dart';
 import 'widgets/area_label.dart';
@@ -117,16 +121,19 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   late int _openSpots = _memory.openSpots;
   late pb.BeaconCost _cost = _memory.cost;
   late pb.ChatPreference _chat = _memory.chat;
-  late final int _initialDuration = _memory.durationMinutes;
-  late final int _initialSpots = _memory.openSpots;
-  late final pb.BeaconCost _initialCost = _memory.cost;
-  late final pb.ChatPreference _initialChat = _memory.chat;
+  late int _initialDuration = _memory.durationMinutes;
+  late int _initialSpots = _memory.openSpots;
+  late pb.BeaconCost _initialCost = _memory.cost;
+  late pb.ChatPreference _initialChat = _memory.chat;
   var _audiences = const [BeaconsAudience.public()];
   var _audience = const BeaconsAudience.public();
   var _initialAudience = const BeaconsAudience.public();
 
   /// The optional area of the meeting point (`location` on).
   AreaRef? _area;
+
+  /// The caller's saved area, offered as "Use my area" (null: not offered).
+  AreaRef? _myArea;
 
   /// The plan as typed, for the Preview dialog.
   late final ValueNotifier<pb.Beacon> _draft;
@@ -150,7 +157,58 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     _title.addListener(_changed);
     _details.addListener(_changed);
     _venue.addListener(_changed);
-    _loadAudiences();
+    unawaited(_loadMemoryThenAudiences());
+    unawaited(_loadMyArea());
+  }
+
+  /// The saved choices (a restart), then the audiences that may match one.
+  Future<void> _loadMemoryThenAudiences() async {
+    await _memory.ensureLoaded();
+    if (!mounted) return;
+    _applyLoadedMemory();
+    await _loadAudiences();
+  }
+
+  /// Applies the loaded choices to the fields the user has not touched yet,
+  /// moving their "initial" with them so Discard stays quiet.
+  void _applyLoadedMemory() {
+    setState(() {
+      if (_durationMinutes == _initialDuration) {
+        _durationMinutes = _initialDuration = _memory.durationMinutes;
+      }
+      if (_openSpots == _initialSpots) {
+        _openSpots = _initialSpots = _memory.openSpots;
+      }
+      if (_cost == _initialCost) _cost = _initialCost = _memory.cost;
+      if (_chat == _initialChat) _chat = _initialChat = _memory.chat;
+    });
+    _draft.value = _draftPlan();
+  }
+
+  /// The caller's saved area, when it can be used here: `location` on, a
+  /// valid consent and an area. Any failure or a slow answer shows nothing.
+  Future<void> _loadMyArea() async {
+    final repository = context.read<LocationRepository?>();
+    if (repository == null || !repository.enabled) return;
+    try {
+      final data = await repository.getSettings().timeout(
+        const Duration(seconds: 5),
+      );
+      if (!mounted || !data.consentValid || data.area == null) return;
+      setState(() => _myArea = data.area);
+    } on AppException {
+      // No shortcut; the picker stays.
+    } on TimeoutException {
+      // Same.
+    }
+  }
+
+  /// "Use my area": the area the caller already saved in Location settings
+  /// (the same coarse area the picker stores: an id, never coordinates).
+  void _useMyArea() {
+    final mine = _myArea;
+    if (mine == null) return;
+    setState(() => _area = mine);
   }
 
   @override
@@ -368,6 +426,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       cost: _cost,
       chat: _chat,
       communityId: _audience.isPublic ? null : _audience.id,
+      save: true,
     );
   }
 
@@ -492,6 +551,43 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 max: kBeaconTitleMaxLength,
                               ),
                             ),
+                            if (_title.text.isEmpty &&
+                                planTitleSuggestions(_activity).isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  bottom: AppSpacing.xs,
+                                ),
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      for (final s in planTitleSuggestions(
+                                        _activity,
+                                      ))
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: AppSpacing.sm,
+                                          ),
+                                          child: ActionChip(
+                                            key: ValueKey(
+                                              'title-suggestion-$s',
+                                            ),
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            label: Text(s),
+                                            onPressed: busy
+                                                ? null
+                                                : () {
+                                                    if (_title.text.isEmpty) {
+                                                      _title.text = s;
+                                                    }
+                                                  },
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             PlanFormSection(
                               title: 'When',
                               child: Column(
@@ -566,6 +662,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 label: _area?.label,
                                 enabled: !busy,
                                 onPick: _pickArea,
+                                onUseMine: _myArea == null ? null : _useMyArea,
                                 onClear: () => setState(() => _area = null),
                               ),
                             PlanMoreOptions(
