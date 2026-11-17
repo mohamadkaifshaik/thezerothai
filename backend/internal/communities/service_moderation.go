@@ -107,10 +107,13 @@ func errUserNotFound() *apierr.Error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, userNotFound)
 }
 
-// SetMemberRole implements Moderation. The 0-read checks come first (key, ids, action), then the target's profile through
-// the directory (cache-first, up to 60 s stale; missing or not ACTIVE is NOT_FOUND "user not found", whatever the blocks), then one
-// repository transaction. A write fills the caches from the written data: the community, the target's member state, and drops both
-// users' memberships entries.
+// SetMemberRole implements Moderation. The 0-read checks come first (key, ids, action), then the caller's right: one fresh read of the
+// community (never the cache: a stale entry would let a removed moderator through or refuse a new one; missing or SUSPENDED is NOT_FOUND,
+// then not_owner / not_moderator through authorizeRole), so an unauthorized caller gets an answer that is independent of the target and
+// the target is never looked up for them (no account-status or block oracle). Only then the target's profile through the directory
+// (cache-first, up to 60 s stale; missing or not ACTIVE is NOT_FOUND "user not found", whatever the blocks), then one repository
+// transaction that re-checks the role on its own fresh read (the authority). A write fills the caches from the written data: the
+// community, the target's member state, and drops both users' memberships entries.
 func (s *service) SetMemberRole(ctx context.Context, uid string, in RoleInput) (RoleResult, error) {
 	const op = "role"
 	begin(ctx, op)
@@ -131,6 +134,9 @@ func (s *service) SetMemberRole(ctx context.Context, uid string, in RoleInput) (
 	}
 	repo, err := s.modRepo()
 	if err != nil {
+		return RoleResult{}, mapErr(ctx, op, uid, in.CommunityID, err)
+	}
+	if err := s.authorizeRoleFresh(ctx, uid, in.CommunityID, in.Action); err != nil {
 		return RoleResult{}, mapErr(ctx, op, uid, in.CommunityID, err)
 	}
 	profiles, err := s.d.Directory.GetProfiles(ctx, []string{in.UserID})
@@ -158,6 +164,22 @@ func (s *service) SetMemberRole(ctx context.Context, uid string, in RoleInput) (
 		s.cache.forgetMemberships(uid)
 	}
 	return RoleResult{Role: roleAfter(c, in.UserID, res.TargetState), View: View{Community: c, Role: c.RoleOf(uid)}}, nil
+}
+
+// authorizeRoleFresh is SetMemberRole's pre-check of the caller, on a fresh read of the community outside any transaction: ErrNotFound
+// (missing or SUSPENDED), then authorizeRole. ARCHIVED is left to the repository so an authorized caller's answers keep their order.
+func (s *service) authorizeRoleFresh(ctx context.Context, uid, cid string, a RoleAction) error {
+	c, err := s.d.Repo.Get(ctx, cid)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("load community: %w", err)
+	}
+	if c.Status == StatusSuspended {
+		return ErrNotFound
+	}
+	return authorizeRole(c, uid, a)
 }
 
 func logBinding(uid, cid string) string { return logBindingLabel + "|" + uid + "|" + cid }
