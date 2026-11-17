@@ -11,6 +11,7 @@ import (
 	"firebase.google.com/go/v4/errorutils"
 	"firebase.google.com/go/v4/messaging"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -130,14 +131,28 @@ func buildMessage(token string, p Push) *messaging.Message {
 	title, body := pushText(p.Type)
 	ttl := fcmTTL
 	collapse := string(p.Type)
-	data := map[string]string{"type": string(p.Type), "notificationId": p.NotificationID, "postId": p.PostID, "actorId": p.ActorID}
+	notificationID, actorID := p.NotificationID, p.ActorID
+	if p.PublicIDs {
+		// FEATURE_PUBLIC_IDS on for the recipient: the actor is named by public id only. No public id = no actorId key
+		// (the app falls back to the notifications tab or the post), and the row id's uid segment is swapped the same
+		// way the edge swaps Notification.id, so the push and the listed row agree.
+		notificationID = WireNotificationID(p.NotificationID, p.Type, p.ActorPublicID)
+		actorID = ""
+		if identity.ValidPublicID(p.ActorPublicID) {
+			actorID = p.ActorPublicID
+		}
+	}
+	data := map[string]string{"type": string(p.Type), "notificationId": notificationID, "postId": p.PostID, "actorId": actorID}
 	switch {
 	case p.Type.pushOnly():
 		// A direct-message push names the conversation only: no actor id, no post, no notification id.
 		data = map[string]string{"type": string(p.Type), "conversationId": p.ConversationID}
 	case p.Type.needsBeacon():
 		// A beacon push names the beacon instead of a post (R26); the app deep-links to it.
-		data = map[string]string{"type": string(p.Type), "notificationId": p.NotificationID, "beaconId": p.BeaconID, "actorId": p.ActorID}
+		data = map[string]string{"type": string(p.Type), "notificationId": notificationID, "beaconId": p.BeaconID, "actorId": actorID}
+	}
+	if p.PublicIDs && actorID == "" {
+		delete(data, "actorId")
 	}
 	return &messaging.Message{
 		Token:        token, //nolint:staticcheck // SA1019: the client stores the FCM registration token (getToken()), which Token addresses; Fid is the installation id, a different identifier
@@ -228,6 +243,7 @@ func (l LogSender) Send(ctx context.Context, token string, p Push) error {
 		log = slog.Default()
 	}
 	// The row id embeds the actor's uid (follow_<actorUid>), so it is logged as row_hash, the pseudonym repo_firestore uses for rows.
+	// It is the STORED id's hash: the wire id and the actor's public id are never logged.
 	log.InfoContext(ctx, "notification_push_local", "type", string(p.Type), "row_hash", logger.HashUID(p.NotificationID), "token_hash", logger.HashUID(token))
 	return nil
 }
