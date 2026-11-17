@@ -67,7 +67,7 @@ func (r *FirestoreRepo) SearchHandles(ctx context.Context, prefix string, limit 
 		}
 		var d userDoc
 		if err := snap.DataTo(&d); err != nil {
-			return nil, fmt.Errorf("identity: decode profile %s: %w", snap.Ref.ID, err)
+			return nil, fmt.Errorf("identity: decode profile: %w", err)
 		}
 		out = append(out, d.toProfile(snap.Ref.ID))
 	}

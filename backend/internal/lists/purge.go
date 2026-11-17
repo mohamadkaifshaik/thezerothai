@@ -341,9 +341,11 @@ func (x *Exporter) resolvePeople(ctx context.Context, page []ExportedList, peopl
 		}
 	}
 	for i := 0; i < len(need); i += memberOfLookupChunk {
-		profs, err := x.people.GetProfiles(ctx, need[i:min(i+memberOfLookupChunk, len(need))])
+		chunk := need[i:min(i+memberOfLookupChunk, len(need))]
+		profs, err := x.people.GetProfiles(ctx, chunk)
 		if err != nil {
-			return fmt.Errorf("lists: export members: %w", err)
+			// The read names the members asked for (identity's error text, Firestore's document paths).
+			return logger.ScrubPairErr(fmt.Errorf("lists: export members: %w", err), "", chunk...)
 		}
 		for id, p := range profs {
 			people[id] = ExportedPerson{PublicID: p.PublicID, Handle: p.Handle}

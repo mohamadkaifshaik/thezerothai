@@ -75,10 +75,18 @@ func (r *FirestoreRepo) ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, err
 	if q.After != nil {
 		query = query.StartAfter(q.After.CreatedAt, r.client.Collection(coll).Doc(q.After.DocID))
 	}
-	return runEdgeQuery(ctx, query, "list edges "+q.UID)
+	return runEdgeQuery(ctx, query, "list edges")
 }
 
-// runEdgeQuery executes a follows query and decodes the documents. what names the caller in the error text.
+// edgeDecodeErr is the error of a follows document that does not decode. It carries no document id: the id is
+// "<follower>_<followee>", two uids, and this error is logged by whoever lists edges (a profile's followers, the
+// suggester, an account export), so it would name a follow between two people on a third person's log line.
+func edgeDecodeErr(err error) error {
+	return fmt.Errorf("graph: decode follow: %w", err)
+}
+
+// runEdgeQuery executes a follows query and decodes the documents. what names the calling query in the error text; it
+// never carries a uid (the caller hashes the uids it knows: logger.RedactErr in follows_list.go).
 func runEdgeQuery(ctx context.Context, query firestore.Query, what string) ([]Edge, error) {
 	docs, err := query.Documents(ctx).GetAll()
 	if err != nil {
@@ -88,7 +96,7 @@ func runEdgeQuery(ctx context.Context, query firestore.Query, what string) ([]Ed
 	for _, d := range docs {
 		var f followDoc
 		if err := d.DataTo(&f); err != nil {
-			return nil, fmt.Errorf("graph: decode follow %s: %w", d.Ref.ID, err)
+			return nil, edgeDecodeErr(err)
 		}
 		out = append(out, Edge{DocID: d.Ref.ID, FollowerID: f.FollowerID, FolloweeID: f.FolloweeID, CreatedAt: f.CreatedAt})
 	}

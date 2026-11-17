@@ -168,7 +168,9 @@ func (l *Lifecycle) runExport(ctx context.Context, msg JobMessage, res jobResult
 			logger.ScrubErr(fmt.Errorf("account_export_too_large: sections=%d bytes=%d: %w", cw.sections, cw.n, err), doc.UID))
 		return l.failExport(ctx, res, doc, "too_large")
 	case err != nil:
-		return retry(res, "error", logger.RedactErr(fmt.Errorf("identity: compose export: %w", err), doc.UID))
+		// ScrubErr, not RedactErr: hashing the subject first would turn an edge id "<subject>_<other>" into
+		// "<hash>_<other>", which the edge pattern of the ScrubErr in retry no longer matches, leaving <other> raw.
+		return retry(res, "error", logger.ScrubErr(fmt.Errorf("identity: compose export: %w", err), doc.UID))
 	}
 	switch err := l.repo.SetExportStatus(ctx, doc.ID, ExportReady, doc.UpdateTime); {
 	case err == nil:
@@ -211,6 +213,14 @@ func (l *Lifecycle) failExport(ctx context.Context, res jobResult, doc ExportDoc
 	}
 }
 
+// sectionErr is the error of a failing export section. A section reads other people's documents (the accounts the
+// subject follows, lists, reported), so its error can carry their uids in a Firestore document path or an edge id:
+// it is scrubbed here, where the compose step hands it on, before any caller hashes the subject's uid (which would hide
+// an edge id from the pattern). errors.Is/As still reach err (errPermanent, context.DeadlineExceeded).
+func sectionErr(name, uid string, err error) error {
+	return logger.ScrubErr(fmt.Errorf("identity: export section %s: %w", name, err), uid)
+}
+
 // composeExport streams the envelope to w. Sections are written in registration order after account and profile.
 func (l *Lifecycle) composeExport(ctx context.Context, w io.Writer, p Profile, t exportTarget) error {
 	_, sections := l.registered()
@@ -240,7 +250,7 @@ func (l *Lifecycle) composeExport(ctx context.Context, w io.Writer, p Profile, t
 	for _, s := range sections {
 		fmt.Fprintf(bw, `,%q:`, s.Name())
 		if err := s.WriteSection(ctx, p.UserID, bw); err != nil {
-			return fmt.Errorf("identity: export section %s: %w", s.Name(), err)
+			return sectionErr(s.Name(), p.UserID, err)
 		}
 	}
 	if _, err := bw.WriteString("}\n"); err != nil {
@@ -317,7 +327,7 @@ func (l *Lifecycle) composeZip(ctx context.Context, w io.Writer, p Profile, t ex
 	for _, s := range sections {
 		if err := zipEntry(zw, s.Name()+".json", now, func(bw io.Writer) error {
 			if err := s.WriteSection(ctx, p.UserID, bw); err != nil {
-				return fmt.Errorf("identity: export section %s: %w", s.Name(), err)
+				return sectionErr(s.Name(), p.UserID, err)
 			}
 			return nil
 		}); err != nil {
