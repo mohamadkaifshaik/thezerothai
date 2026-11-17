@@ -42,6 +42,9 @@ const Map<String, String> _allowlist = {
   'features/media/data/media_uploader_test.dart':
       'MediaUploader gets clock: () => now; upload expiry is compared only '
       'with that clock',
+  'features/beacons/domain/plan_quick_start_test.dart':
+      'quickStartFor is a pure function that takes now as an argument; every '
+      'comparison is between fixed values',
   'features/onboarding/presentation/bloc/onboarding_bloc_test.dart':
       'cachedAt is data on a mocked repository result; the bloc never '
       'compares it with the clock',
