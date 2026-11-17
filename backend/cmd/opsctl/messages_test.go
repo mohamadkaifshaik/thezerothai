@@ -304,13 +304,16 @@ func TestMessagesTakedown_ConversationHashIsKeyedNeverPlain(t *testing.T) {
 	t.Setenv(cursorKeyEnv, "test-cursor-hmac-key")
 	f := newMsgFixture()
 	_, out, _ := f.run("", "messages", "takedown", testMsgTarget, "--project", "dzeroth-dev")
-	if strings.Contains(out, "conversation_hash="+logger.HashUID(testConvID)) {
+	if strings.Contains(out, "conversation_hash="+plainHash(testConvID)) {
 		t.Errorf("the audit line carries the plain conversation hash:\n%s", out)
 	}
 	t.Setenv(cursorKeyEnv, "")
 	_, out, _ = f.run("", "messages", "takedown", testMsgTarget, "--project", "dzeroth-dev")
-	if strings.Contains(out, logger.HashUID(testConvID)) || !strings.Contains(out, "conversation_hash=unavailable(set-CURSOR_HMAC_KEY)") {
+	if strings.Contains(out, plainHash(testConvID)) || !strings.Contains(out, "conversation_hash=unavailable(set-CURSOR_HMAC_KEY)") {
 		t.Errorf("without a key the audit line must say so, never print the plain hash:\n%s", out)
+	}
+	if strings.Contains(out, plainHash(testMsgID)) || !strings.Contains(out, "message_hash=unavailable(set-CURSOR_HMAC_KEY)") {
+		t.Errorf("without a key the message_hash must be the marker, never a plain or random-key hash:\n%s", out)
 	}
 }
 
@@ -323,8 +326,8 @@ func TestMessagesLogHash(t *testing.T) {
 	if code != 0 || out != want+"\n" || stderr != "" {
 		t.Fatalf("code=%d out=%q stderr=%q, want exactly %q", code, out, stderr, want)
 	}
-	if len(want) != 16 || want == logger.HashUID(testConvID) {
-		t.Errorf("hash %q must be 16 hex characters and differ from the plain hash %q", want, logger.HashUID(testConvID))
+	if len(want) != 16 || want == plainHash(testConvID) {
+		t.Errorf("hash %q must be 16 hex characters and differ from the plain hash %q", want, plainHash(testConvID))
 	}
 	if len(f.mod.calls) != 0 {
 		t.Errorf("loghash touched the moderator: %+v", f.mod.calls)
@@ -434,7 +437,7 @@ func TestPostLogHash(t *testing.T) {
 	if err := postLogHash("1234567890123456789", "secret", &out); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.TrimSpace(out.String()), logger.HashPost("1234567890123456789"); got != want || got == logger.HashUID("1234567890123456789") {
+	if got, want := strings.TrimSpace(out.String()), logger.HashPost("1234567890123456789"); got != want || got == plainHash("1234567890123456789") {
 		t.Errorf("got %q, want the keyed %q", got, want)
 	}
 	if postLogHash("1234567890123456789", "", &out) == nil || postLogHash("not-a-post", "secret", &out) == nil {

@@ -23,6 +23,8 @@ const (
 	FlagTrends = "trends"
 	// FlagTrendingMedia is the wire name of FEATURE_TRENDING_MEDIA. It gates ExploreMedia per caller, after FlagSearch.
 	FlagTrendingMedia = "trending_media"
+	// FlagTrendingPosts is the wire name of FEATURE_TRENDING_POSTS. It gates ExplorePosts per caller, after FlagSearch.
+	FlagTrendingPosts = "trending_posts"
 )
 
 // FlagChecker is the seam to pkg/platform/flags.Registry (*flags.Registry satisfies it): Enabled answers "is the flag on
@@ -47,6 +49,9 @@ type Service interface {
 	Trends(ctx context.Context, uid string, limit int32, prefix string) (*searchv1.GetTrendsResponse, error)
 	// ExploreMedia answers ExploreMedia (flags search and trending_media): the global media feed, newest first, paged by a token.
 	ExploreMedia(ctx context.Context, uid string, pageSize int32, pageToken string) (*searchv1.ExploreMediaResponse, error)
+	// ExplorePosts answers ExplorePosts (flags search and trending_posts): the global newest-posts feed (root posts and
+	// quotes), newest first, paged by a token.
+	ExplorePosts(ctx context.Context, uid string, pageSize int32, pageToken string) (*searchv1.ExplorePostsResponse, error)
 	// Lists answers SearchLists (flags search, search_lists, lists): public lists by folded-name prefix, paged.
 	Lists(ctx context.Context, uid, query string, pageSize int32, pageToken string) (*searchv1.SearchListsResponse, error)
 	// Communities answers SearchCommunities (flags search, search_lists, communities): ACTIVE communities by folded-name prefix.

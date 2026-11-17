@@ -312,6 +312,10 @@ type Config struct {
 	// Trending page, per caller, after FEATURE_SEARCH. FEATURE_TRENDING_MEDIA[_ALLOWLIST|_PERCENT], default off in every
 	// environment; it never ramps ahead of FEATURE_SEARCH.
 	FeatureTrendingMedia flags.Spec
+	// FeatureTrendingPosts is the flag (wire name `trending_posts`) gating ExplorePosts, the global newest-posts feed of the
+	// Trending page, per caller, after FEATURE_SEARCH. FEATURE_TRENDING_POSTS[_ALLOWLIST|_PERCENT], default off in every
+	// environment; it never ramps ahead of FEATURE_SEARCH.
+	FeatureTrendingPosts flags.Spec
 	// FeaturePublicIDs is the flag (wire name `public_ids`) for the opaque public user id ("u" + 26 base32 characters)
 	// that replaces the Firebase uid on the wire. FEATURE_PUBLIC_IDS[_ALLOWLIST|_PERCENT], default off in every
 	// environment. Inert today: the proto contract (Profile.public_id, AuthorSnapshot.public_id, GetProfileRequest
@@ -1146,6 +1150,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureTrendingPosts, err := flags.LoadSpec("TRENDING_POSTS", "trending_posts", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featurePublicIDs, err := flags.LoadSpec("PUBLIC_IDS", "public_ids", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1312,6 +1320,7 @@ func Load() (Config, error) {
 		FeatureSearch:                featureSearch,
 		FeatureTrends:                featureTrends,
 		FeatureTrendingMedia:         featureTrendingMedia,
+		FeatureTrendingPosts:         featureTrendingPosts,
 		FeaturePublicIDs:             featurePublicIDs,
 		FeaturePolls:                 featurePolls,
 		FeatureDrafts:                featureDrafts,

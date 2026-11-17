@@ -40,22 +40,22 @@ import (
 // makes that pickup reliable instead of best-effort message sniffing).
 const reportedErrorType = "type.googleapis.com/google.devtools.clouderrorreporting.v1beta1.ReportedErrorEvent"
 
-// causeChain flattens err's full errors.Unwrap chain into one message. Most wrapped errors (fmt.Errorf's
-// %w) already fold their cause into Error()'s own string, but *apierr.Error deliberately does not — its
-// Error() returns only the client-safe Message, with the cause reachable solely via Unwrap/errors.Is/As
-// (apierr's doc comment: "wrapped for logs only"). reportError needs that cause to actually show up in the
-// log line it produces — Error Reporting groups/alerts on the message text, and errors.Is/As alone would
-// leave it invisible there — so this walks the chain and appends any cause not already present in the
-// accumulated message (avoiding redundant text for the fmt.Errorf case, where it already is).
-func causeChain(err error) string { return logger.CauseChain(err) }
-
-// reportError logs err (its full cause chain, via causeChain) plus a stack trace as an Error-Reporting-
-// shaped ERROR entry (M3). The stack trace is captured here, at the interceptor, not at the original
-// panic/error site — Go errors don't carry their origin's frames — so it points at this interceptor rather
-// than the failing repo/service call; still enough for Error Reporting to group and alert on the exception
+// reportError logs err plus a stack trace as an Error-Reporting-shaped ERROR entry (M3). The stack trace is captured here, at
+// the interceptor, not at the original panic/error site — Go errors don't carry their origin's frames — so it points at this
+// interceptor rather than the failing repo/service call; still enough for Error Reporting to group and alert on the exception
 // message, and strictly better than the cause being dropped entirely.
+//
+// The message is err's full errors.Unwrap chain (logger.CauseChain). Most wrapped errors (fmt.Errorf's %w) already fold their
+// cause into Error()'s own string, but *apierr.Error deliberately does not — its Error() returns only the client-safe Message,
+// with the cause reachable solely via Unwrap/errors.Is/As (apierr's doc comment: "wrapped for logs only") — and Error Reporting
+// groups/alerts on the message text, so the walk appends any cause not already present.
+//
+// The message goes through logger.ScrubErr as a safety net under callers that forgot to redact: a Firestore document path
+// ("documents/...") becomes "<redacted>", as do a composite "<uid>_<uid>" edge id and a 64-hex export id, so a raw uid in an
+// unredacted Internal error never reaches the ERROR line. Ids a caller already replaced with their hash (logger.RedactErr) are
+// short and survive outside a document path.
 func reportError(ctx context.Context, log *slog.Logger, rpc string, err error) {
-	log.ErrorContext(ctx, causeChain(err),
+	log.ErrorContext(ctx, logger.ScrubErr(err).Error(),
 		"@type", reportedErrorType,
 		"rpc", rpc,
 		"stack_trace", string(debug.Stack()),

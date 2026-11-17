@@ -236,12 +236,9 @@ func (r *FirestoreRepo) SetRole(ctx context.Context, p SetRoleParams) (SetRoleRe
 			return err
 		}
 		actor := c.RoleOf(p.UID)
-		ownerOnly := p.Action == RoleActionMakeModerator || p.Action == RoleActionRemoveModerator
-		switch {
-		case ownerOnly && actor != RoleOwner:
-			return ErrNotOwner
-		case actor == RoleNone:
-			return ErrNotModerator
+		ownerOnly := p.Action.ownerOnly()
+		if err := authorizeRole(c, p.UID, p.Action); err != nil {
+			return err
 		}
 		if c.Status == StatusArchived {
 			return ErrArchived

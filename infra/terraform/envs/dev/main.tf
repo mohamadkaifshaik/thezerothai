@@ -203,11 +203,15 @@ locals {
     { name = "FEATURE_TRENDING_MEDIA", value = var.feature_trending_media },
     { name = "FEATURE_TRENDING_MEDIA_ALLOWLIST", value = var.feature_trending_media_allowlist },
     { name = "FEATURE_TRENDING_MEDIA_PERCENT", value = tostring(var.feature_trending_media_percent) },
+    { name = "FEATURE_TRENDING_POSTS", value = var.feature_trending_posts },
+    { name = "FEATURE_TRENDING_POSTS_ALLOWLIST", value = var.feature_trending_posts_allowlist },
+    { name = "FEATURE_TRENDING_POSTS_PERCENT", value = tostring(var.feature_trending_posts_percent) },
     // Tags that never trend, applied at serve time and by the sweep. Operators hide a tag
     // at once with `opsctl trends hide`; this list is the deploy-time floor. Comma-separated tag bodies, no leading #.
     { name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) },
     { name = "TRENDS_MAX_POSTS_PER_AUTHOR", value = tostring(var.trends_max_posts_per_author) },
     { name = "TRENDS_MIN_INTERVAL", value = var.trends_min_interval },
+    { name = "TRENDS_MIN_ACCOUNT_AGE", value = var.trends_min_account_age },
     { name = "TRENDS_DENYLIST", value = var.trends_denylist },
     // Polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_POLLS", value = var.feature_polls },

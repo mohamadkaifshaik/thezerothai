@@ -33,7 +33,7 @@ func noRawIDs(t *testing.T, fields map[string]string, raw ...string) {
 	t.Helper()
 	for k, v := range fields {
 		for _, id := range raw {
-			if strings.Contains(v, id) || strings.Contains(v, logger.HashUID(id)) {
+			if strings.Contains(v, id) || strings.Contains(v, plainDigest(id)) {
 				t.Errorf("request line field %s=%q carries %q or its unkeyed hash", k, v, id)
 			}
 		}

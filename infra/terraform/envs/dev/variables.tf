@@ -1014,14 +1014,53 @@ variable "feature_trending_media_percent" {
   }
 }
 
+variable "feature_trending_posts" {
+  description = "FEATURE_TRENDING_POSTS rollout mode for the Trending page's global newest-posts feed (ExplorePosts; gates it per caller, after search; never ramps ahead of search): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_trending_posts)
+    error_message = "feature_trending_posts must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_trending_posts_allowlist" {
+  description = "FEATURE_TRENDING_POSTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_trending_posts_percent" {
+  description = "FEATURE_TRENDING_POSTS_PERCENT: 0-100, only meaningful when feature_trending_posts = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_trending_posts_percent >= 0 && var.feature_trending_posts_percent <= 100 && floor(var.feature_trending_posts_percent) == var.feature_trending_posts_percent
+    error_message = "feature_trending_posts_percent must be an integer 0-100."
+  }
+}
+
 variable "trends_min_authors" {
-  description = "TRENDS_MIN_AUTHORS (ADR-0028 note 2026-10-31, W4-26): the fewest distinct established authors (ACTIVE, account at least TRENDS_MIN_ACCOUNT_AGE, 72 h, old) a hashtag needs to trend. Read at every trends refresh (hourly). Default 1 is the cold-start value for a fresh environment (a tag used by one established account trends). The owner-held terraform.tfvars overrides it: a `trends_min_authors = N` line there wins, so raise it there once there are enough users, and set it to 1 there to get cold-start behaviour in an environment whose tfvars still pins a higher value."
+  description = "TRENDS_MIN_AUTHORS (ADR-0028 note 2026-10-31, W4-26): the fewest distinct established authors (ACTIVE, account at least TRENDS_MIN_ACCOUNT_AGE (trends_min_account_age) old) a hashtag needs to trend. Read at every trends refresh (hourly). Default 1 is the cold-start value for a fresh environment (a tag used by one established account trends). The owner-held terraform.tfvars overrides it: a `trends_min_authors = N` line there wins, so raise it there once there are enough users, and set it to 1 there to get cold-start behaviour in an environment whose tfvars still pins a higher value."
   type        = number
   default     = 1
 
   validation {
     condition     = var.trends_min_authors >= 1 && floor(var.trends_min_authors) == var.trends_min_authors
     error_message = "trends_min_authors must be an integer >= 1."
+  }
+}
+
+variable "trends_min_account_age" {
+  description = "TRENDS_MIN_ACCOUNT_AGE: how old an author account must be before its posts count towards a trend (the \"established account\" test of the trends refresh; younger accounts are not counted as authors). A Go duration greater than zero (for example 1h or 72h). The backend default is 72h. Dev default 1h is the launch value. Lowering it weakens the spam resistance of trends: a new account can create a trending tag sooner, so a batch of fresh accounts can push a tag into Popular. A low launch value is temporary (at launch every account is new, so with 72h the Popular list stays empty for three days): raise it back toward 72h once accounts have aged. The owner-held terraform.tfvars overrides the default: a `trends_min_account_age = \"72h\"` line there wins."
+  type        = string
+  default     = "1h"
+
+  validation {
+    condition     = can(regex("^0*[1-9][0-9]*(s|m|h)$", var.trends_min_account_age))
+    error_message = "trends_min_account_age must be a Go duration greater than zero, such as 1h or 72h."
   }
 }
 

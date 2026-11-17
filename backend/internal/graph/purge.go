@@ -161,7 +161,7 @@ func (r *FirestoreRepo) deleteEdges(ctx context.Context, uid string, edges []Edg
 		b.Delete(edgeRef, firestore.Exists)
 		if checkCounterparts && !userOK[other] && (outgoing || !graphOK[other]) {
 			skipped++
-			slog.Warn("purge_missing_counterpart", "uid_hash", logger.HashUID(uid), "counterpart_hash", logger.HashUID(other))
+			warnMissingCounterpart(slog.Default(), uid, other)
 			continue
 		}
 		if outgoing {
@@ -279,7 +279,7 @@ func (r *FirestoreRepo) removeFromCounterparts(ctx context.Context, uid string, 
 	for _, other := range chunk {
 		if checkExists && !exists[other] {
 			skipped++
-			slog.Warn("purge_missing_counterpart", "uid_hash", logger.HashUID(uid), "counterpart_hash", logger.HashUID(other))
+			warnMissingCounterpart(slog.Default(), uid, other)
 			continue
 		}
 		b.Update(r.graphRef(other), []firestore.Update{{Path: field, Value: firestore.ArrayRemove(uid)}})
@@ -351,4 +351,11 @@ func (r *FirestoreRepo) PlanPurge(ctx context.Context, uid string) (PurgePlan, e
 	}
 	plan.Blocked, plan.BlockedBy = len(d.Blocked), len(d.BlockedBy)
 	return plan, nil
+}
+
+// warnMissingCounterpart logs the purge_missing_counterpart WARN: the purged user as uid_hash and the counterpart as the keyed
+// target pseudonym (logger.HashTarget), never the same hash for both, so the line cannot be joined to the counterpart's own
+// request lines to confirm a follow edge between two users. extra adds fields such as the collection.
+func warnMissingCounterpart(log *slog.Logger, uid, other string, extra ...any) {
+	log.Warn("purge_missing_counterpart", append([]any{"uid_hash", logger.HashUID(uid), "counterpart_hash", logger.HashTarget(other)}, extra...)...)
 }

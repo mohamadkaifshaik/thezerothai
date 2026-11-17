@@ -5,6 +5,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
@@ -215,5 +216,45 @@ func TestFeatureRegistry_IncludesBeaconQuickJoin(t *testing.T) {
 	reg := featureRegistry(cfg)
 	if !reg.Enabled("uid-a", beacons.QuickJoinFlagName) || reg.Enabled("uid-z", beacons.QuickJoinFlagName) {
 		t.Error("beacon_quick_join should be on for uid-a only")
+	}
+}
+
+// TestFeatureRegistry_IncludesTrendingPosts: every mode of FEATURE_TRENDING_POSTS reaches the registry Build wires, so
+// ExplorePosts is gated by it and GetMe.enabled_features can report `trending_posts`; unset is off for everyone.
+func TestFeatureRegistry_IncludesTrendingPosts(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		env         map[string]string
+		inA, inZ    bool
+		globallyOff bool
+	}{
+		{"unset is off", nil, false, false, true},
+		{"off", map[string]string{"FEATURE_TRENDING_POSTS": "off"}, false, false, true},
+		{"allowlist", map[string]string{"FEATURE_TRENDING_POSTS": "allowlist", "FEATURE_TRENDING_POSTS_ALLOWLIST": "uid-a"}, true, false, false},
+		{"percent 100", map[string]string{"FEATURE_TRENDING_POSTS": "percent", "FEATURE_TRENDING_POSTS_PERCENT": "100"}, true, true, false},
+		{"on", map[string]string{"FEATURE_TRENDING_POSTS": "on"}, true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"FEATURE_TRENDING_POSTS", "FEATURE_TRENDING_POSTS_ALLOWLIST", "FEATURE_TRENDING_POSTS_PERCENT"} {
+				t.Setenv(k, tc.env[k])
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("config.Load: %v", err)
+			}
+			if cfg.FeatureTrendingPosts.Name != search.FlagTrendingPosts {
+				t.Fatalf("config wire name %q != search.FlagTrendingPosts %q", cfg.FeatureTrendingPosts.Name, search.FlagTrendingPosts)
+			}
+			reg := featureRegistry(cfg)
+			if got := reg.Enabled("uid-a", search.FlagTrendingPosts); got != tc.inA {
+				t.Errorf("uid-a enabled = %v, want %v", got, tc.inA)
+			}
+			if got := reg.Enabled("uid-z", search.FlagTrendingPosts); got != tc.inZ {
+				t.Errorf("uid-z enabled = %v, want %v", got, tc.inZ)
+			}
+			if got := reg.GloballyOff(search.FlagTrendingPosts); got != tc.globallyOff {
+				t.Errorf("globally off = %v, want %v", got, tc.globallyOff)
+			}
+		})
 	}
 }

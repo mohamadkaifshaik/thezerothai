@@ -239,7 +239,7 @@ func (r *FirestoreRepo) readViewsBefore(ctx context.Context, refs []*firestore.D
 			ViewCount int64  `firestore:"viewCount"`
 		}
 		if err := s.DataTo(&d); err != nil {
-			slog.WarnContext(ctx, "posts_fold_views_stats_decode_failed", "post_hash", logger.HashUID(s.Ref.ID), "error", err.Error())
+			slog.WarnContext(ctx, "posts_fold_views_stats_decode_failed", "post_hash", logger.HashPost(s.Ref.ID), "error", err.Error())
 			continue
 		}
 		out[i] = viewBefore{author: d.AuthorID, views: d.ViewCount}

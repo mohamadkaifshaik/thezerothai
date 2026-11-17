@@ -37,10 +37,10 @@ func TestCommunityLogHash_RoundTripAndKeyDependence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if other == "community_hash="+logger.HashUID(testCommunityID)+"\n" || strings.Contains(out, strings.TrimSpace(other)) {
+	if other == "community_hash="+plainHash(testCommunityID)+"\n" || strings.Contains(out, strings.TrimSpace(other)) {
 		t.Errorf("another key printed the same community_hash: %q vs %q", other, out)
 	}
-	if strings.Contains(out, testCommunityID) || strings.Contains(out, logger.HashUID(testCommunityID)) {
+	if strings.Contains(out, testCommunityID) || strings.Contains(out, plainHash(testCommunityID)) || strings.Contains(out, plainHash("u1")) {
 		t.Errorf("output carries the raw or unkeyed id:\n%s", out)
 	}
 }
@@ -76,7 +76,7 @@ func TestCommunityHashForAudit_KeyedOrMarker(t *testing.T) {
 		t.Errorf("no key: %q, want the marker", got)
 	}
 	t.Setenv(cursorKeyEnv, "key-one")
-	if got := communityHashForAudit(testCommunityID); got != logger.HashCommunity(testCommunityID) || got == logger.HashUID(testCommunityID) {
+	if got := communityHashForAudit(testCommunityID); got != logger.HashCommunity(testCommunityID) || got == plainHash(testCommunityID) {
 		t.Errorf("keyed: %q", got)
 	}
 }

@@ -100,6 +100,9 @@ const (
 	// SearchServiceExploreMediaProcedure is the fully-qualified name of the SearchService's
 	// ExploreMedia RPC.
 	SearchServiceExploreMediaProcedure = "/dzeroth.search.v1.SearchService/ExploreMedia"
+	// SearchServiceExplorePostsProcedure is the fully-qualified name of the SearchService's
+	// ExplorePosts RPC.
+	SearchServiceExplorePostsProcedure = "/dzeroth.search.v1.SearchService/ExplorePosts"
 )
 
 // SearchServiceClient is a client for the dzeroth.search.v1.SearchService service.
@@ -204,6 +207,20 @@ type SearchServiceClient interface {
 	// VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call; every filter runs per
 	// call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per instance). Writes nothing.
 	ExploreMedia(context.Context, *connect.Request[v1.ExploreMediaRequest]) (*connect.Response[v1.ExploreMediaResponse], error)
+	// The global newest-posts feed (Trending, Posts section): posts from every public author, newest first, as standard
+	// post cards (the viewer's liked / reposted / bookmarked flags, plan cards and wire visibility as on the other post
+	// lists). Rows: root posts and quotes, with or without images; a reply and a REPOST never list (a REPOST would repeat
+	// an older post as new). The ExploreMedia rules per caller: hidden posts, blocked or muted authors (either way, a
+	// quote's embedded author too), a protected author's post the caller does not follow (a quote of one is kept with
+	// embed_viewer_state = PROTECTED), and an author that is not ACTIVE are dropped. A page may be SHORT or EMPTY while
+	// next_page_token is non-empty: keep following it until it is "". Flags: "search", then "trending_posts"
+	// (FEATURE_TRENDING_POSTS), both before any read. The feed reads posts ORDER BY createdAt DESC on the automatic
+	// single-field index (no composite index). page_size 0 => 20, max 50 (clamped); negative => VALIDATION "page_size".
+	// page_token: opaque, sealed, bound to the caller and to this RPC, 24 h TTL; expired, foreign, tampered or an
+	// ExploreMedia token => VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call;
+	// every filter runs per call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per
+	// instance). Writes nothing.
+	ExplorePosts(context.Context, *connect.Request[v1.ExplorePostsRequest]) (*connect.Response[v1.ExplorePostsResponse], error)
 }
 
 // NewSearchServiceClient constructs a client for the dzeroth.search.v1.SearchService service. By
@@ -259,6 +276,13 @@ func NewSearchServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		explorePosts: connect.NewClient[v1.ExplorePostsRequest, v1.ExplorePostsResponse](
+			httpClient,
+			baseURL+SearchServiceExplorePostsProcedure,
+			connect.WithSchema(searchServiceMethods.ByName("ExplorePosts")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -270,6 +294,7 @@ type searchServiceClient struct {
 	searchLists       *connect.Client[v1.SearchListsRequest, v1.SearchListsResponse]
 	searchCommunities *connect.Client[v1.SearchCommunitiesRequest, v1.SearchCommunitiesResponse]
 	exploreMedia      *connect.Client[v1.ExploreMediaRequest, v1.ExploreMediaResponse]
+	explorePosts      *connect.Client[v1.ExplorePostsRequest, v1.ExplorePostsResponse]
 }
 
 // SearchPeople calls dzeroth.search.v1.SearchService.SearchPeople.
@@ -300,6 +325,11 @@ func (c *searchServiceClient) SearchCommunities(ctx context.Context, req *connec
 // ExploreMedia calls dzeroth.search.v1.SearchService.ExploreMedia.
 func (c *searchServiceClient) ExploreMedia(ctx context.Context, req *connect.Request[v1.ExploreMediaRequest]) (*connect.Response[v1.ExploreMediaResponse], error) {
 	return c.exploreMedia.CallUnary(ctx, req)
+}
+
+// ExplorePosts calls dzeroth.search.v1.SearchService.ExplorePosts.
+func (c *searchServiceClient) ExplorePosts(ctx context.Context, req *connect.Request[v1.ExplorePostsRequest]) (*connect.Response[v1.ExplorePostsResponse], error) {
+	return c.explorePosts.CallUnary(ctx, req)
 }
 
 // SearchServiceHandler is an implementation of the dzeroth.search.v1.SearchService service.
@@ -404,6 +434,20 @@ type SearchServiceHandler interface {
 	// VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call; every filter runs per
 	// call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per instance). Writes nothing.
 	ExploreMedia(context.Context, *connect.Request[v1.ExploreMediaRequest]) (*connect.Response[v1.ExploreMediaResponse], error)
+	// The global newest-posts feed (Trending, Posts section): posts from every public author, newest first, as standard
+	// post cards (the viewer's liked / reposted / bookmarked flags, plan cards and wire visibility as on the other post
+	// lists). Rows: root posts and quotes, with or without images; a reply and a REPOST never list (a REPOST would repeat
+	// an older post as new). The ExploreMedia rules per caller: hidden posts, blocked or muted authors (either way, a
+	// quote's embedded author too), a protected author's post the caller does not follow (a quote of one is kept with
+	// embed_viewer_state = PROTECTED), and an author that is not ACTIVE are dropped. A page may be SHORT or EMPTY while
+	// next_page_token is non-empty: keep following it until it is "". Flags: "search", then "trending_posts"
+	// (FEATURE_TRENDING_POSTS), both before any read. The feed reads posts ORDER BY createdAt DESC on the automatic
+	// single-field index (no composite index). page_size 0 => 20, max 50 (clamped); negative => VALIDATION "page_size".
+	// page_token: opaque, sealed, bound to the caller and to this RPC, 24 h TTL; expired, foreign, tampered or an
+	// ExploreMedia token => VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call;
+	// every filter runs per call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per
+	// instance). Writes nothing.
+	ExplorePosts(context.Context, *connect.Request[v1.ExplorePostsRequest]) (*connect.Response[v1.ExplorePostsResponse], error)
 }
 
 // NewSearchServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -455,6 +499,13 @@ func NewSearchServiceHandler(svc SearchServiceHandler, opts ...connect.HandlerOp
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	searchServiceExplorePostsHandler := connect.NewUnaryHandler(
+		SearchServiceExplorePostsProcedure,
+		svc.ExplorePosts,
+		connect.WithSchema(searchServiceMethods.ByName("ExplorePosts")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.search.v1.SearchService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SearchServiceSearchPeopleProcedure:
@@ -469,6 +520,8 @@ func NewSearchServiceHandler(svc SearchServiceHandler, opts ...connect.HandlerOp
 			searchServiceSearchCommunitiesHandler.ServeHTTP(w, r)
 		case SearchServiceExploreMediaProcedure:
 			searchServiceExploreMediaHandler.ServeHTTP(w, r)
+		case SearchServiceExplorePostsProcedure:
+			searchServiceExplorePostsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -500,4 +553,8 @@ func (UnimplementedSearchServiceHandler) SearchCommunities(context.Context, *con
 
 func (UnimplementedSearchServiceHandler) ExploreMedia(context.Context, *connect.Request[v1.ExploreMediaRequest]) (*connect.Response[v1.ExploreMediaResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.search.v1.SearchService.ExploreMedia is not implemented"))
+}
+
+func (UnimplementedSearchServiceHandler) ExplorePosts(context.Context, *connect.Request[v1.ExplorePostsRequest]) (*connect.Response[v1.ExplorePostsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.search.v1.SearchService.ExplorePosts is not implemented"))
 }

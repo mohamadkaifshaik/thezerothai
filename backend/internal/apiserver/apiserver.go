@@ -112,6 +112,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	for _, o := range opts {
 		o(&bo)
 	}
+	// L-7: every log pseudonym (uid_hash, conversation_hash, post_hash, community_hash, target_hash, and the ids inside redacted
+	// errors) is an HMAC keyed by an HKDF derivation of CURSOR_HMAC_KEY (no new secret), so a log holder cannot recompute a
+	// hash from a public uid or confirm a guessed id. Installed first, before anything in this process can log a hash; a line
+	// written earlier would carry the random per-process fallback key, never the plain SHA-256. `opsctl community loghash
+	// --user`, `opsctl messages loghash` and `opsctl polls loghash` reproduce the hashes.
+	if len(cfg.CursorHMACKey) == 0 {
+		log.Warn("cursor key empty: uid_hash and the other log hashes use a per-process random key")
+	} else if err := logger.SetConversationKey(cfg.CursorHMACKey); err != nil {
+		return nil, nil, fmt.Errorf("apiserver: log hash key: %w", err)
+	}
 	fsClient, err := fsclient.New(ctx, cfg.ProjectID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("firestore client: %w", err)
@@ -786,13 +796,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
 	})
 
-	// L-7: conversation_hash in logs and error lines is an HMAC keyed by an HKDF derivation of CURSOR_HMAC_KEY (no new
-	// secret), so a log holder cannot confirm a guessed uid pair against the plain hash. `opsctl messages loghash` reproduces it.
-	if len(cfg.CursorHMACKey) == 0 {
-		log.Warn("cursor key empty: conversation_hash uses a per-process random key")
-	} else if err := logger.SetConversationKey(cfg.CursorHMACKey); err != nil {
-		return nil, nil, fmt.Errorf("apiserver: conversation hash key: %w", err)
-	}
 	// Messaging: SendMessage behind FEATURE_MESSAGING, per caller and per recipient; ListConversations
 	// is not globally off; the other three RPCs check the flag and answer Unimplemented until it ships. Badge evicts identity's cached
 	// unread_conversation_count; the push event is adapted to notifications.Emitter (a no-op until it ships adds the type).

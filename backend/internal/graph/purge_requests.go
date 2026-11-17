@@ -169,7 +169,7 @@ func (r *FirestoreRepo) commitRequestBatch(ctx context.Context, uid string, docs
 			continue
 		}
 		if exists != nil && !exists[d.FollowerID] {
-			slog.Warn("purge_missing_counterpart", "uid_hash", logger.HashUID(uid), "counterpart_hash", logger.HashUID(d.FollowerID), "collection", followRequestsCollection)
+			warnMissingCounterpart(slog.Default(), uid, d.FollowerID, "collection", followRequestsCollection)
 			continue
 		}
 		b.Update(r.graphRef(d.FollowerID), []firestore.Update{{Path: "requested", Value: firestore.ArrayRemove(uid)}})
