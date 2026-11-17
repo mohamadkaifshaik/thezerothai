@@ -208,6 +208,7 @@ locals {
     { name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) },
     { name = "TRENDS_MAX_POSTS_PER_AUTHOR", value = tostring(var.trends_max_posts_per_author) },
     { name = "TRENDS_MIN_INTERVAL", value = var.trends_min_interval },
+    { name = "TRENDS_MIN_ACCOUNT_AGE", value = var.trends_min_account_age },
     { name = "TRENDS_DENYLIST", value = var.trends_denylist },
     // Polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_POLLS", value = var.feature_polls },
