@@ -327,19 +327,20 @@ void main() {
   for (final MapEntry(key: name, value: size) in _sizes.entries) {
     final desktop = size.width >= 1200;
     group('$name (${size.width.toInt()} dp)', () {
-      testWidgets('top 3 trends, no tab bar, Media row, one fetch', (
+      testWidgets('top 5 popular, no tab bar, Media row, one fetch', (
         tester,
       ) async {
         final repo = _repo();
         final rig = await _open(tester, size, repo: repo);
-        // The header's one-tab "Trending" bar is gone; the section is the
-        // only "Trending" title.
+        // The People tab is on here, so the tab bar names the list "Trending"
+        // and the section title is hidden (the title is "Popular" only when
+        // no tab bar says it).
         expect(find.text('Trending'), findsOneWidget);
         expect(find.byType(Tab), findsNothing);
-        for (final i in [1, 2, 3]) {
+        for (final i in [1, 2, 3, 4, 5]) {
           expect(find.text('#tag$i'), findsOneWidget);
         }
-        expect(find.text('#tag4'), findsNothing);
+        expect(find.text('#tag6'), findsNothing);
         expect(find.text('6K posts'), findsOneWidget);
         expect(find.text('Trending today'), findsNothing);
         expect(find.text('Media'), findsOneWidget);
@@ -411,7 +412,10 @@ void main() {
         if (desktop) {
           expect(side, findsOneWidget);
           expect(
-            find.descendant(of: side, matching: find.text("Talked about today")),
+            find.descendant(
+              of: side,
+              matching: find.text("Talked about today"),
+            ),
             findsNothing,
           );
           expect(

@@ -69,6 +69,8 @@ type RefresherConfig struct {
 	MinAuthors  int
 	MaxPosts    int
 	MinInterval time.Duration
+	// MaxPostsPerAuthor is TRENDS_MAX_POSTS_PER_AUTHOR: the most posts one author adds to one tag's count (default 5).
+	MaxPostsPerAuthor int
 	// MinAccountAge is TRENDS_MIN_ACCOUNT_AGE: an author counts only when the account is at least this old (default 72h).
 	// MaxAuthorChecks is TRENDS_MAX_AUTHOR_CHECKS: the most distinct authors one run reads profiles for (default 500).
 	MinAccountAge   time.Duration
@@ -106,7 +108,10 @@ func NewRefresher(store TrendsStore, scan PostScanner, protected identity.Protec
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
 	if cfg.MinAuthors < 1 {
-		cfg.MinAuthors = 3
+		cfg.MinAuthors = 1
+	}
+	if cfg.MaxPostsPerAuthor < 1 {
+		cfg.MaxPostsPerAuthor = 5
 	}
 	if cfg.MaxPosts < 1 {
 		cfg.MaxPosts = 2000
@@ -266,7 +271,10 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 					c = &tagCount{authors: map[string]int64{}}
 					tags[t] = c
 				}
-				c.authors[p.AuthorID]++
+				// Each author counts up to MaxPostsPerAuthor uses of a tag, so one account cannot make it alone.
+				if c.authors[p.AuthorID] < int64(r.cfg.MaxPostsPerAuthor) {
+					c.authors[p.AuthorID]++
+				}
 			}
 		}
 		if len(page) < want {

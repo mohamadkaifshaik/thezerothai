@@ -68,6 +68,7 @@ class TrendsCubit extends Cubit<TrendsState> {
           status: TrendsStatus.ready,
           trends: result.trends,
           computedAt: result.computedAt,
+          latest: result.latest,
         ),
       );
     } on SearchUnavailableException {

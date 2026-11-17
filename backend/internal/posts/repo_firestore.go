@@ -494,8 +494,28 @@ func (r *FirestoreRepo) ByHashtag(ctx context.Context, tag string, w Window, lim
 	return r.run(ctx, q, w, limit)
 }
 
-// createdAfterFields is the projection of CreatedAfter.
+// createdAfterFields is the projection of CreatedAfter (and of Recent: the same fields).
 var createdAfterFields = []string{"hashtags", "authorId", "moderation", "createdAt", "kind"}
+
+// Recent returns the newest posts, newest first (createdAt DESC, __name__ DESC), projected like CreatedAfter. It runs on
+// the automatic single-field index of createdAt, with no composite index and no filter in the query.
+func (r *FirestoreRepo) Recent(ctx context.Context, limit int) ([]*Post, error) {
+	q := r.client.Collection(postsCollection).Select(createdAfterFields...).
+		OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
+	docs, err := q.Limit(limit).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("posts: query recent: %w", err)
+	}
+	out := make([]*Post, 0, len(docs))
+	for _, s := range docs {
+		var d postDoc
+		if err := s.DataTo(&d); err != nil {
+			return nil, fmt.Errorf("posts: decode post %s: %w", s.Ref.ID, err)
+		}
+		out = append(out, d.toPost(s.Ref.ID))
+	}
+	return out, nil
+}
 
 // CreatedAfter implements Repo (Q-W): `createdAt > after ORDER BY createdAt ASC, __name__ ASC` with the projection
 // above, on the automatic single-field indexes (no composite). With an empty after.ID the bound is createdAt only;
