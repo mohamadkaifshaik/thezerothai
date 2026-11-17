@@ -24,8 +24,11 @@ enum TrendingSection { posts, media }
 /// - A section whose cubit answers FEATURE_DISABLED is switched off
 ///   ([postsOff], [mediaOff]) for the session.
 class TrendingSectionsModel extends ChangeNotifier {
-  TrendingSectionsModel({required SearchRepository repository})
-    : _repository = repository;
+  TrendingSectionsModel({
+    required SearchRepository repository,
+    String? initialTag,
+  }) : _repository = repository,
+       _tag = initialTag;
 
   final SearchRepository _repository;
 

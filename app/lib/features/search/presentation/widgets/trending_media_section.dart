@@ -97,9 +97,8 @@ class TrendingMediaSection {
     final state = cubit.state;
     Widget one(Widget child) => wrap(SliverToBoxAdapter(child: child));
     return switch (state.status) {
-      ExploreMediaStatus.initial || ExploreMediaStatus.loading => [
-        one(const ExploreMediaGridSkeleton()),
-      ],
+      ExploreMediaStatus.initial ||
+      ExploreMediaStatus.loading => [one(const ExploreMediaGridSkeleton())],
       ExploreMediaStatus.unavailable => [
         const SliverToBoxAdapter(child: SizedBox.shrink()),
       ],

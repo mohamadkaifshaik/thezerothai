@@ -38,6 +38,7 @@ import '../../../features/notifications/presentation/notifications_screen.dart';
 import '../../../features/search/presentation/bloc/explore_media_cubit.dart';
 import '../../../features/search/presentation/explore_media_screen.dart';
 import '../../../features/search/domain/explore_tab.dart';
+import '../../../features/search/domain/search_routes.dart';
 import '../../../features/search/presentation/explore_screen.dart';
 import '../../../features/search/presentation/explore_trending_screen.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
@@ -83,6 +84,10 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
           initialTab: state.uri.queryParameters['tab'] == 'nearby'
               ? ExploreTab.nearby
               : null,
+          // `?tag=go`: Trending filtered to a hashtag. A new navigation to
+          // the same link has a new `extra` or `uri`, so it applies again.
+          initialTag: exploreTagOfLink(state.uri.queryParameters['tag']),
+          linkKey: state.extra ?? state.uri,
         ),
       ),
     ),

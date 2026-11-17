@@ -47,9 +47,8 @@ class TrendingPostsSection {
     final state = cubit.state;
     Widget one(Widget child) => wrap(SliverToBoxAdapter(child: child));
     return switch (state.status) {
-      PagedStatus.initial || PagedStatus.loading => [
-        one(const PostListSkeleton(rows: 4)),
-      ],
+      PagedStatus.initial ||
+      PagedStatus.loading => [one(const PostListSkeleton(rows: 4))],
       PagedStatus.unavailable => [
         const SliverToBoxAdapter(child: SizedBox.shrink()),
       ],

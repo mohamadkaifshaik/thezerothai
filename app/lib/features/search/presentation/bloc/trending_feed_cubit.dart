@@ -68,21 +68,19 @@ class TrendingFeedCubit extends PagedTrendingCubit<TrendingFeedState> {
   int visibleCount(List<List<PostView>> pages) => _rows(pages).length;
 
   @override
-  TrendingFeedState buildState(
-    PagedSnapshot s,
-    List<List<PostView>> pages,
-  ) => TrendingFeedState(
-    status: s.status,
-    rows: _rows(pages),
-    refreshing: s.refreshing,
-    loadingMore: s.loadingMore,
-    pagingFailed: s.pagingFailed,
-    stalled: s.stalled,
-    hasMore: s.hasMore,
-    notice: s.notice,
-    error: s.error,
-    resetSerial: s.resetSerial,
-  );
+  TrendingFeedState buildState(PagedSnapshot s, List<List<PostView>> pages) =>
+      TrendingFeedState(
+        status: s.status,
+        rows: _rows(pages),
+        refreshing: s.refreshing,
+        loadingMore: s.loadingMore,
+        pagingFailed: s.pagingFailed,
+        stalled: s.stalled,
+        hasMore: s.hasMore,
+        notice: s.notice,
+        error: s.error,
+        resetSerial: s.resetSerial,
+      );
 
   /// The caller blocked or muted [userId]: their rows leave at once.
   void hideAuthor(String userId) {

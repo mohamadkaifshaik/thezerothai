@@ -113,17 +113,29 @@ class ExploreTrendsSection extends StatelessWidget {
 
 /// One ranked trend row that opens the tag's results (Explore's section and
 /// the Trending page share it).
+///
+/// With [inExplore] (the Trending tab has Posts or Media sections) the row
+/// opens the hashtag in that tab (`/explore?tag=`) instead of the results.
 Widget exploreTrendRow(
   BuildContext context,
   Trend trend, {
   bool last = false,
+  bool inExplore = false,
 }) => TrendRow(
   key: ValueKey(trend.tag),
   trend: trend,
   ranked: true,
   last: last,
-  onTap: () => context.push(searchResultsLocation('#${trend.tag}')),
+  onTap: () => _openTag(context, trend.tag, inExplore: inExplore),
 );
+
+void _openTag(BuildContext context, String tag, {required bool inExplore}) =>
+    inExplore
+    ? context.go(
+        exploreTagLocation(tag),
+        extra: DateTime.now().microsecondsSinceEpoch,
+      )
+    : context.push(searchResultsLocation('#$tag'));
 
 /// The newest hashtag row ("Latest", or "Just posted" when Popular is empty). It opens the tag's
 /// results like any other row.
@@ -131,13 +143,14 @@ Widget exploreLatestRow(
   BuildContext context,
   Trend latest, {
   required String kicker,
+  bool inExplore = false,
 }) => TrendRow(
   key: ValueKey('latest-${latest.tag}'),
   trend: latest,
   ranked: true,
   last: true,
   kicker: kicker,
-  onTap: () => context.push(searchResultsLocation('#${latest.tag}')),
+  onTap: () => _openTag(context, latest.tag, inExplore: inExplore),
 );
 
 /// The honest one-liner under the Trending title: "Couldn't refresh" while a

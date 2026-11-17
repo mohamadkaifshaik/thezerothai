@@ -53,29 +53,26 @@ class TrendingMediaCubit extends PagedTrendingCubit<ExploreMediaState> {
         );
 
   @override
-  int visibleCount(List<List<PostView>> pages) =>
-      mergeMediaTiles(pages).length;
+  int visibleCount(List<List<PostView>> pages) => mergeMediaTiles(pages).length;
 
   @override
-  ExploreMediaState buildState(
-    PagedSnapshot s,
-    List<List<PostView>> pages,
-  ) => ExploreMediaState(
-    status: switch (s.status) {
-      PagedStatus.initial => ExploreMediaStatus.initial,
-      PagedStatus.loading => ExploreMediaStatus.loading,
-      PagedStatus.ready => ExploreMediaStatus.ready,
-      PagedStatus.failed => ExploreMediaStatus.failed,
-      PagedStatus.unavailable => ExploreMediaStatus.unavailable,
-    },
-    tiles: mergeMediaTiles(pages),
-    loadingMore: s.loadingMore,
-    hasMore: s.hasMore,
-    pagingFailed: s.pagingFailed,
-    error: s.error,
-    refreshing: s.refreshing,
-    stalled: s.stalled,
-    notice: s.notice,
-    resetSerial: s.resetSerial,
-  );
+  ExploreMediaState buildState(PagedSnapshot s, List<List<PostView>> pages) =>
+      ExploreMediaState(
+        status: switch (s.status) {
+          PagedStatus.initial => ExploreMediaStatus.initial,
+          PagedStatus.loading => ExploreMediaStatus.loading,
+          PagedStatus.ready => ExploreMediaStatus.ready,
+          PagedStatus.failed => ExploreMediaStatus.failed,
+          PagedStatus.unavailable => ExploreMediaStatus.unavailable,
+        },
+        tiles: mergeMediaTiles(pages),
+        loadingMore: s.loadingMore,
+        hasMore: s.hasMore,
+        pagingFailed: s.pagingFailed,
+        error: s.error,
+        refreshing: s.refreshing,
+        stalled: s.stalled,
+        notice: s.notice,
+        resetSerial: s.resetSerial,
+      );
 }

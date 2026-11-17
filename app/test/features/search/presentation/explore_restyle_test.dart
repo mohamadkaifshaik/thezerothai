@@ -332,10 +332,10 @@ void main() {
       ) async {
         final repo = _repo();
         final rig = await _open(tester, size, repo: repo);
-        // The People tab is on here, so the tab bar names the list "Trending"
-        // and the section title is hidden (the title is "Popular" only when
-        // no tab bar says it).
+        // The People tab is on here, so the tab bar names the tab "Trending";
+        // the list under it is titled "Popular" in every layout.
         expect(find.text('Trending'), findsOneWidget);
+        expect(find.text('Popular'), findsOneWidget);
         expect(find.byType(Tab), findsNothing);
         for (final i in [1, 2, 3, 4, 5]) {
           expect(find.text('#tag$i'), findsOneWidget);

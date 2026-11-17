@@ -51,7 +51,20 @@ double searchFieldHeightFor(TextScaler scaler) {
 }
 
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key, this.initialTab});
+  const ExploreScreen({
+    super.key,
+    this.initialTab,
+    this.initialTag,
+    this.linkKey,
+  });
+
+  /// The hashtag a link's `?tag=` names (validated, no `#`): Trending opens
+  /// filtered to it. Null leaves the filter as it is.
+  final String? initialTag;
+
+  /// Changes with every navigation to a link (the route's `extra`, else its
+  /// uri), so the same `?tag=` applies again after the filter was cleared.
+  final Object? linkKey;
 
   /// The tab to open on (a link's `?tab=`); null keeps the open tab, or
   /// Trending on first open. Falls back to Trending if the tab is not offered.
@@ -83,11 +96,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
   bool _nearbyOff = false;
   late ExploreTab _tab = widget.initialTab ?? ExploreTab.trending;
 
+  /// A link's hashtag not yet given to the Trending model (made lazily).
+  late String? _pendingTag = widget.initialTag;
+
   @override
   void didUpdateWidget(ExploreScreen old) {
     super.didUpdateWidget(old);
     final tab = widget.initialTab;
     if (tab != null && tab != old.initialTab) _tab = tab;
+    final tag = widget.initialTag;
+    if (tag != null && !identical(widget.linkKey, old.linkKey)) {
+      // A link to a hashtag opens Trending with it selected.
+      _tab = tab ?? ExploreTab.trending;
+      final model = _trending;
+      if (model != null) {
+        model.openTag(tag);
+      } else {
+        _pendingTag = tag;
+      }
+    }
   }
 
   /// A Trending section switched itself off (FEATURE_DISABLED): the layout
@@ -232,7 +259,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (newTrending) {
       final model = _trending ??= TrendingSectionsModel(
         repository: context.read<SearchRepository>(),
+        initialTag: _pendingTag,
       )..addListener(_onTrending);
+      _pendingTag = null;
       return Scaffold(
         body: _ClosesSuggestionsOnScroll(
           child: ExploreTrendingBody(

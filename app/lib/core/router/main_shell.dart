@@ -47,6 +47,7 @@ import '../widgets/app_account_chip.dart';
 import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/explore_retap_signal.dart';
 import '../widgets/home_retap_signal.dart';
 import '../widgets/app_more_menu.dart';
 import '../widgets/context_pane_slots.dart';
@@ -508,7 +509,18 @@ class MainShell extends StatelessWidget {
             context.go('/home');
           }
         case _Tab.explore:
-          context.go(AppRouter.explorePath);
+          // Explore again, with Explore itself on top (no page pushed over
+          // it): the Trending tab scrolls to the top, or refreshes when it is
+          // there already.
+          final retap = context.read<ExploreRetapSignal?>();
+          if (selected == _Tab.explore &&
+              location == AppRouter.explorePath &&
+              (_shellTopLocation(context) ?? location) == location &&
+              retap != null) {
+            retap.retap();
+          } else {
+            context.go(AppRouter.explorePath);
+          }
         case _Tab.notifications:
           context.go(AppRouter.notificationsPath);
         case _Tab.messages:

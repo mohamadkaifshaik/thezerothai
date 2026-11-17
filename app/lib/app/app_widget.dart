@@ -25,6 +25,7 @@ import '../core/theme/text_size_cubit.dart';
 import '../core/theme/theme_mode_cubit.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/usage_reporter.dart';
+import '../core/widgets/explore_retap_signal.dart';
 import '../core/widgets/home_retap_signal.dart';
 import '../core/widgets/service_paused_view.dart';
 import '../core/widgets/tablet_modal.dart';
@@ -349,6 +350,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   // and 5.3). Created on first read only, while Messages is available; the
   // account reset and access turning `hidden` drop them.
   final HomeRetapSignal _homeRetap = HomeRetapSignal();
+  final ExploreRetapSignal _exploreRetap = ExploreRetapSignal();
 
   late final ConversationsSession _conversations = ConversationsSession(
     repository: widget.messagingRepository,
@@ -700,6 +702,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     widget.messagingRepository.gate.removeListener(_onMessagingAccess);
     _conversations.dispose();
     _homeRetap.dispose();
+    _exploreRetap.dispose();
     _themeMode.close();
     _textSize.close();
     _dataUsage.close();
@@ -795,6 +798,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
           RepositoryProvider<HappeningNearbySession>.value(value: happening),
         RepositoryProvider<ConversationsSession>.value(value: _conversations),
         RepositoryProvider<HomeRetapSignal>.value(value: _homeRetap),
+        RepositoryProvider<ExploreRetapSignal>.value(value: _exploreRetap),
       ],
       child: MultiBlocProvider(
         providers: [

@@ -1,4 +1,7 @@
+import 'package:dzeroth/core/widgets/explore_retap_signal.dart';
+import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/search/data/search_repository.dart';
+import 'package:dzeroth/features/search/domain/search_routes.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
 import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -9,6 +12,7 @@ import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:fixnum/fixnum.dart' show Int64;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter_bloc/flutter_bloc.dart' show RepositoryProvider;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart';
 
 import '../../../support/context_pane_rig.dart';
@@ -16,6 +20,7 @@ import '../../../support/failing_image_cache.dart';
 import '../../../support/fake_search_repository.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/search_field_rig.dart';
+import '../../../support/ui_tooltip_finder.dart';
 
 pb.PostView _photo(String id, int seconds) => pb.PostView(
   post: pb.Post(
@@ -58,6 +63,8 @@ Future<ContextPaneRig> _open(
   Set<String> remove = const {},
   double width = 390,
   double height = 844,
+  ExploreRetapSignal? retap,
+  ValueNotifier<(String?, Object?)>? link,
 }) async {
   useFailingImageCache();
   final rig = ContextPaneRig(search: repo ?? _repo());
@@ -67,8 +74,21 @@ Future<ContextPaneRig> _open(
     width: width,
     height: height,
     flags: {..._base, ...extra}.difference(remove),
-    page: (path) =>
-        path == '/explore' ? const ExploreScreen() : Text('$path body'),
+    wrap: retap == null
+        ? null
+        : (app) => RepositoryProvider<ExploreRetapSignal>.value(
+            value: retap,
+            child: app,
+          ),
+    page: (path) => path == '/explore'
+        ? (link == null
+              ? const ExploreScreen()
+              : ValueListenableBuilder<(String?, Object?)>(
+                  valueListenable: link,
+                  builder: (_, v, _) =>
+                      ExploreScreen(initialTag: v.$1, linkKey: v.$2),
+                ))
+        : Text('$path body'),
   );
   await tester.pumpAndSettle();
   return rig;
@@ -172,7 +192,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(_selected(tester, 'tag2'), isTrue);
       expect(repo.calls, contains('posts:#tag2:SEARCH_TAB_LATEST'));
-      expect(find.byKey(ValueKey('trending-post-${postId(77)}')), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('trending-post-${postId(77)}')),
+        findsOneWidget,
+      );
       expect(find.byType(FeedPostRow), findsOneWidget);
       // Media is hidden: not asked for the tag until it is shown.
       expect(repo.calls, isNot(contains('posts:#tag2:SEARCH_TAB_MEDIA')));
@@ -280,13 +303,15 @@ void main() {
         ..exploreMediaResult = SearchPostsPage(
           posts: [for (var i = 0; i < 30; i++) _photo('m$i', i)],
         );
-      await _open(tester, repo: repo, extra: const {'trending_posts', 'trending_media'});
+      await _open(
+        tester,
+        repo: repo,
+        extra: const {'trending_posts', 'trending_media'},
+      );
       final scroll = find.byType(CustomScrollView).first;
       await tester.drag(scroll, const Offset(0, -900));
       await tester.pumpAndSettle();
-      final controller = tester
-          .widget<CustomScrollView>(scroll)
-          .controller!;
+      final controller = tester.widget<CustomScrollView>(scroll).controller!;
       final postsOffset = controller.offset;
       expect(postsOffset, greaterThan(500));
       // Both pinned bars are on screen, one under the other.
@@ -314,6 +339,128 @@ void main() {
       expect(controller.offset, closeTo(mediaOffset, 1));
       expect(repo.explorePostsTokens, [null]);
       expect(repo.exploreMediaTokens, [null]);
+    });
+  });
+
+  group('around the sections', () {
+    testWidgets('no inline Who to follow card in the new layout; the legacy '
+        'layout keeps it', (tester) async {
+      await _open(tester);
+      expect(find.byType(WhoToFollowCard), findsNothing);
+      await _open(tester, extra: const {});
+      expect(find.byType(WhoToFollowCard), findsOneWidget);
+    });
+
+    testWidgets('exactly one GetTrends at 1200 and up', (tester) async {
+      final rig = await _open(tester, width: 1280, height: 800);
+      expect(rig.trendCalls, 1);
+    });
+  });
+
+  group('Explore tapped again', () {
+    FakeSearchRepository manyPosts() => _repo()
+      ..explorePostsResult = SearchPostsPage(
+        posts: [for (var i = 1; i <= 30; i++) postView(i)],
+      );
+
+    testWidgets('scrolled down: to the top, no call; at the top: a refresh '
+        'of the section on screen', (tester) async {
+      final retap = ExploreRetapSignal();
+      addTearDown(retap.dispose);
+      final repo = manyPosts();
+      await _open(tester, repo: repo, retap: retap);
+      final scroll = tester.widget<CustomScrollView>(
+        find.byType(CustomScrollView).first,
+      );
+      // Not a user scroll: the floating bottom bar stays up to be tapped.
+      scroll.controller!.jumpTo(900);
+      await tester.pumpAndSettle();
+      expect(scroll.controller!.offset, greaterThan(500));
+      await tester.tap(find.byUiTooltip('Explore'));
+      await tester.pumpAndSettle();
+      expect(scroll.controller!.offset, 0);
+      expect(repo.explorePostsTokens, [null]);
+      // At the top: a refresh (Posts only; Media was never shown).
+      await tester.tap(find.byUiTooltip('Explore'));
+      await tester.pumpAndSettle();
+      expect(repo.explorePostsTokens, [null, null]);
+      expect(repo.exploreMediaTokens, isEmpty);
+    });
+
+    testWidgets('on the desktop panes: each scrolled pane goes to its top', (
+      tester,
+    ) async {
+      final retap = ExploreRetapSignal();
+      addTearDown(retap.dispose);
+      final repo = manyPosts();
+      await _open(tester, repo: repo, retap: retap, width: 1280, height: 700);
+      final postsPane = find.byType(CustomScrollView).at(1);
+      final controller = tester.widget<CustomScrollView>(postsPane).controller!;
+      await tester.drag(postsPane, const Offset(0, -900));
+      await tester.pumpAndSettle();
+      expect(controller.offset, greaterThan(500));
+      retap.retap();
+      await tester.pumpAndSettle();
+      expect(controller.offset, 0);
+      // The pane at the top (Media) refreshed, the scrolled one did not.
+      expect(repo.exploreMediaTokens, [null, null]);
+      expect(repo.explorePostsTokens, [null]);
+    });
+  });
+
+  group('?tag= links', () {
+    test('exploreTagOfLink accepts one hashtag and nothing else', () {
+      expect(exploreTagOfLink('go'), 'go');
+      expect(exploreTagOfLink('Go'), 'go');
+      expect(exploreTagOfLink(null), isNull);
+      expect(exploreTagOfLink(''), isNull);
+      expect(exploreTagOfLink('two words'), isNull);
+      expect(exploreTagOfLink('@bob'), isNull);
+      expect(exploreTagLocation('go'), '/explore?tag=go');
+    });
+
+    testWidgets('opens Trending with the tag selected, and applies the same '
+        'link again after the filter was cleared', (tester) async {
+      final repo = _repo();
+      final link = ValueNotifier<(String?, Object?)>(('tag2', Object()));
+      addTearDown(link.dispose);
+      await _open(tester, repo: repo, link: link);
+      expect(_selected(tester, 'tag2'), isTrue);
+      expect(repo.calls, contains('posts:#tag2:SEARCH_TAB_LATEST'));
+      await tester.tap(_chip('tag2'));
+      await tester.pumpAndSettle();
+      expect(_selected(tester, 'tag2'), isFalse);
+      // The same link again (a new navigation): selected again.
+      link.value = ('tag2', Object());
+      await tester.pumpAndSettle();
+      expect(_selected(tester, 'tag2'), isTrue);
+    });
+
+    testWidgets('a rebuild of the same link does not undo a cleared filter', (
+      tester,
+    ) async {
+      final repo = _repo();
+      final key = Object();
+      final link = ValueNotifier<(String?, Object?)>(('tag2', key));
+      addTearDown(link.dispose);
+      await _open(tester, repo: repo, link: link);
+      await tester.tap(_chip('tag2'));
+      await tester.pumpAndSettle();
+      link.value = ('tag2', key);
+      await tester.pumpAndSettle();
+      expect(_selected(tester, 'tag2'), isFalse);
+    });
+
+    testWidgets('a tag the list does not have shows as a leading selected '
+        'chip', (tester) async {
+      final link = ValueNotifier<(String?, Object?)>(('obscure', Object()));
+      addTearDown(link.dispose);
+      await _open(tester, link: link);
+      expect(_selected(tester, 'obscure'), isTrue);
+      expect(
+        tester.getTopLeft(_chip('obscure')).dx,
+        lessThan(tester.getTopLeft(_chip('tag1')).dx),
+      );
     });
   });
 

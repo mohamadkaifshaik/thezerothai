@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/explore_retap_signal.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
@@ -14,7 +15,7 @@ import 'bloc/trends_cubit.dart';
 import 'trending_sections_model.dart';
 import 'widgets/trending_media_section.dart';
 import 'widgets/trending_posts_section.dart';
-import 'widgets/trending_media_sliver.dart' show ExploreSubsectionHeading;
+import 'widgets/explore_subsection_heading.dart' show ExploreSubsectionHeading;
 import 'widgets/trending_section_scroll.dart';
 import 'widgets/trending_sliver_marker.dart';
 import 'widgets/trending_tag_header.dart';
@@ -78,10 +79,13 @@ class _ExploreTrendingBodyState extends State<ExploreTrendingBody> {
   /// The offset into each section's own list when it was last on screen.
   final Map<TrendingSection, double> _inner = {};
 
+  ExploreRetapSignal? _retap;
+
   @override
   void initState() {
     super.initState();
     widget.model.addListener(_onModel);
+    _retap = context.read<ExploreRetapSignal?>()?..addListener(_onRetap);
   }
 
   @override
@@ -95,6 +99,7 @@ class _ExploreTrendingBodyState extends State<ExploreTrendingBody> {
 
   @override
   void dispose() {
+    _retap?.removeListener(_onRetap);
     widget.model.removeListener(_onModel);
     _scroll.dispose();
     _postsScroll.dispose();
@@ -104,6 +109,46 @@ class _ExploreTrendingBodyState extends State<ExploreTrendingBody> {
 
   void _onModel() {
     if (mounted) setState(() {});
+  }
+
+  /// Explore tapped again while it is on top: each list on screen scrolls to
+  /// its top, or, when it is there already, refreshes as a pull does.
+  void _onRetap() {
+    if (!mounted) return;
+    final desktop = MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
+    if (!desktop) {
+      if (!_toTop(_scroll)) unawaited(_refresh(_section));
+      return;
+    }
+    final refreshed = <Future<void>>[];
+    if (widget.postsOn && !_toTop(_postsScroll)) {
+      refreshed.add(widget.model.posts().refresh());
+    }
+    if (widget.mediaOn && !_toTop(_mediaScroll)) {
+      refreshed.add(widget.model.media().refresh());
+    }
+    if (refreshed.isNotEmpty && widget.trendsOn) {
+      refreshed.add(context.read<TrendsCubit>().ensureLoaded(force: true));
+    }
+    unawaited(Future.wait(refreshed));
+  }
+
+  /// Scrolls [controller] to the top (a jump with reduced motion) and says
+  /// so; false when it is at the top already.
+  bool _toTop(ScrollController controller) {
+    if (!controller.hasClients || controller.offset <= 1) return false;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      controller.jumpTo(0);
+    } else {
+      unawaited(
+        controller.animateTo(
+          0,
+          duration: AppMotion.expoOutShort,
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    }
+    return true;
   }
 
   /// The section to show: the model's, or the one that remains.
@@ -324,7 +369,10 @@ class _ExploreTrendingBodyState extends State<ExploreTrendingBody> {
       children: [
         // The header never scrolls here: the bars as boxes and the hashtag
         // chips as a shrink-wrapped view of their slivers.
-        SizedBox(height: widget.topBarBox.preferredSize.height, child: widget.topBarBox),
+        SizedBox(
+          height: widget.topBarBox.preferredSize.height,
+          child: widget.topBarBox,
+        ),
         ?widget.exploreTabBar,
         Flexible(
           flex: 0,

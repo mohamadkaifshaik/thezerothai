@@ -1,6 +1,6 @@
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
-import 'package:dzeroth/features/search/presentation/widgets/trending_media_sliver.dart';
+import 'package:dzeroth/features/search/presentation/widgets/explore_subsection_heading.dart';
 import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
