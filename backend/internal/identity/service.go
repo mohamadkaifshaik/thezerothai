@@ -192,6 +192,13 @@ func (s *service) loadProfile(ctx context.Context, uid string, useNegative bool)
 // disabled Auth user is PERMISSION_DENIED, an Auth outage UNAVAILABLE (fail closed), nothing written either way.
 // No extra Firestore operation.
 func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle, displayName string) (Profile, error) {
+	// Backstop that keeps the uid and public id spaces disjoint, whatever FEATURE_PUBLIC_IDS says: the edge
+	// (pkg/platform/publicid) passes an unknown public id to handlers as if it were an unknown uid, which is only safe
+	// while no account can have a uid shaped like one. A Firebase uid (28 mixed-case characters) never is; this refuses
+	// one that would be, before any read, write or Auth call, in authn's invalid-uid shape.
+	if ValidPublicID(uid) {
+		return Profile{}, apierr.New(connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "invalid or expired sign-in, please sign in again")
+	}
 	if idempotencyKeyIssue(idempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
