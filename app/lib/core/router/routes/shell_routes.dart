@@ -84,10 +84,10 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
           initialTab: state.uri.queryParameters['tab'] == 'nearby'
               ? ExploreTab.nearby
               : null,
-          // `?tag=go`: Trending filtered to a hashtag. A new navigation to
-          // the same link has a new `extra` or `uri`, so it applies again.
+          // `?tag=go`: Trending filtered to a hashtag. An in-app navigation
+          // to the same link carries a new `extra`, so it applies again.
           initialTag: exploreTagOfLink(state.uri.queryParameters['tag']),
-          linkKey: state.extra ?? state.uri,
+          linkKey: state.extra,
         ),
       ),
     ),

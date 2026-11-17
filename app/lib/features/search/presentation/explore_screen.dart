@@ -62,8 +62,9 @@ class ExploreScreen extends StatefulWidget {
   /// filtered to it. Null leaves the filter as it is.
   final String? initialTag;
 
-  /// Changes with every navigation to a link (the route's `extra`, else its
-  /// uri), so the same `?tag=` applies again after the filter was cleared.
+  /// Changes with every in-app navigation to the link (the route's `extra`),
+  /// so the same `?tag=` applies again after the filter was cleared; a link
+  /// with none applies when the tag itself changes.
   final Object? linkKey;
 
   /// The tab to open on (a link's `?tab=`); null keeps the open tab, or
@@ -105,7 +106,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     final tab = widget.initialTab;
     if (tab != null && tab != old.initialTab) _tab = tab;
     final tag = widget.initialTag;
-    if (tag != null && !identical(widget.linkKey, old.linkKey)) {
+    if (tag != null &&
+        (tag != old.initialTag ||
+            (widget.linkKey != null && widget.linkKey != old.linkKey))) {
       // A link to a hashtag opens Trending with it selected.
       _tab = tab ?? ExploreTab.trending;
       final model = _trending;

@@ -58,6 +58,9 @@ class TrendingSectionScroll extends StatefulWidget {
 class _TrendingSectionScrollState extends State<TrendingSectionScroll> {
   BuildContext? _probe;
 
+  /// The restarts of the list (expired token) already answered with a jump.
+  late int _lastSerial = widget.cubit.snapshot.resetSerial;
+
   @override
   void initState() {
     super.initState();
@@ -67,6 +70,9 @@ class _TrendingSectionScrollState extends State<TrendingSectionScroll> {
   @override
   void didUpdateWidget(TrendingSectionScroll old) {
     super.didUpdateWidget(old);
+    if (old.cubit != widget.cubit) {
+      _lastSerial = widget.cubit.snapshot.resetSerial;
+    }
     if (!old.active && widget.active) _checkAfterFrame();
   }
 
@@ -167,6 +173,4 @@ class _TrendingSectionScrollState extends State<TrendingSectionScroll> {
       ),
     );
   }
-
-  int _lastSerial = 0;
 }

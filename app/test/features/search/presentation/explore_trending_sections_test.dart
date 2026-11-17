@@ -1,4 +1,5 @@
 import 'package:dzeroth/core/widgets/explore_retap_signal.dart';
+import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/domain/search_routes.dart';
@@ -16,6 +17,7 @@ import 'package:flutter_bloc/flutter_bloc.dart' show RepositoryProvider;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart';
 
 import '../../../support/context_pane_rig.dart';
+import '../../../support/fake_beacons_server.dart';
 import '../../../support/failing_image_cache.dart';
 import '../../../support/fake_search_repository.dart';
 import '../../../support/posts_fixtures.dart';
@@ -65,6 +67,8 @@ Future<ContextPaneRig> _open(
   double height = 844,
   ExploreRetapSignal? retap,
   ValueNotifier<(String?, Object?)>? link,
+  double textScale = 1,
+  bool beacons = false,
 }) async {
   useFailingImageCache();
   final rig = ContextPaneRig(search: repo ?? _repo());
@@ -73,13 +77,17 @@ Future<ContextPaneRig> _open(
     location: '/explore',
     width: width,
     height: height,
-    flags: {..._base, ...extra}.difference(remove),
-    wrap: retap == null
-        ? null
-        : (app) => RepositoryProvider<ExploreRetapSignal>.value(
-            value: retap,
-            child: app,
-          ),
+    textScale: textScale,
+    flags: {..._base, ...extra, if (beacons) 'beacons'}.difference(remove),
+    wrap: (app) => RepositoryProvider<BeaconsRepository>.value(
+      value: FakeBeaconsServer(),
+      child: retap == null
+          ? app
+          : RepositoryProvider<ExploreRetapSignal>.value(
+              value: retap,
+              child: app,
+            ),
+    ),
     page: (path) => path == '/explore'
         ? (link == null
               ? const ExploreScreen()
@@ -234,24 +242,88 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('chips are 48 dp tall targets and the row scrolls sideways at '
-        'large text', (tester) async {
-      await _open(tester);
-      expect(
-        tester
-            .getSize(
-              find.descendant(
+    testWidgets(
+      'chips are 48 dp tall targets, and at 200% text the row scrolls '
+      'sideways without wrapping',
+      (tester) async {
+        await _open(tester, textScale: 2);
+        expect(tester.takeException(), isNull);
+        final row = tester.widget<SingleChildScrollView>(
+          find
+              .ancestor(
                 of: _chip('tag1'),
-                matching: find.byType(InkWell),
-              ),
-            )
-            .height,
-        greaterThanOrEqualTo(48),
-      );
-    });
+                matching: find.byType(SingleChildScrollView),
+              )
+              .first,
+        );
+        expect(row.scrollDirection, Axis.horizontal);
+        expect(
+          tester
+              .state<ScrollableState>(
+                find
+                    .descendant(
+                      of: find.byWidget(row),
+                      matching: find.byType(Scrollable),
+                    )
+                    .first,
+              )
+              .position
+              .maxScrollExtent,
+          greaterThan(0),
+        );
+        // One line: the chips share a top edge.
+        expect(
+          tester.getTopLeft(_chip('tag1')).dy,
+          tester.getTopLeft(_chip('tag2')).dy,
+        );
+        expect(
+          tester
+              .getSize(
+                find.descendant(
+                  of: _chip('tag1'),
+                  matching: find.byType(InkWell),
+                ),
+              )
+              .height,
+          greaterThanOrEqualTo(48),
+        );
+      },
+    );
   });
 
   group('sections', () {
+    testWidgets('a new tag starts its list at the top; clearing it brings the '
+        'untagged list back where it was left', (tester) async {
+      final repo = _repo()
+        ..explorePostsResult = SearchPostsPage(
+          posts: [for (var i = 1; i <= 30; i++) postView(i)],
+        )
+        ..postsHandler = (query, tab, token) => SearchPostsPage(
+          posts: [for (var i = 100; i < 130; i++) postView(i)],
+        );
+      final link = ValueNotifier<(String?, Object?)>((null, null));
+      addTearDown(link.dispose);
+      await _open(tester, repo: repo, link: link);
+      final controller = tester
+          .widget<CustomScrollView>(find.byType(CustomScrollView).first)
+          .controller!;
+      controller.jumpTo(1500);
+      await tester.pumpAndSettle();
+      // A link names a tag while the list is scrolled: the tagged list
+      // starts at its top, under the pinned bars.
+      link.value = ('tag2', Object());
+      await tester.pumpAndSettle();
+      expect(controller.offset, lessThan(600));
+      // Back at the chips, clearing the tag returns to the untagged list
+      // where it was left.
+      controller.jumpTo(0);
+      await tester.pumpAndSettle();
+      await tester.tap(_chip('tag2'));
+      await tester.pumpAndSettle();
+      expect(controller.offset, greaterThan(1000));
+      expect(repo.explorePostsTokens, [null]);
+    });
+
     testWidgets('Media loads when first shown; switching back asks nothing', (
       tester,
     ) async {
@@ -339,6 +411,71 @@ void main() {
       expect(controller.offset, closeTo(mediaOffset, 1));
       expect(repo.explorePostsTokens, [null]);
       expect(repo.exploreMediaTokens, [null]);
+    });
+  });
+
+  group('a section that turns itself off', () {
+    testWidgets('Posts unavailable: Media alone, no control; both: today\'s '
+        'tab', (tester) async {
+      final repo = _repo()
+        ..explorePostsHandler = (_) =>
+            throw const SearchUnavailableException('trending_posts');
+      await _open(tester, repo: repo);
+      expect(find.byType(FeedPostRow), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is AppTabBar && w.semanticLabel == 'Trending sections',
+        ),
+        findsNothing,
+      );
+      // Media shows in its place (the section left is the one on screen).
+      expect(find.byKey(const ValueKey('trending-media-a')), findsOneWidget);
+      expect(repo.explorePostsTokens, [null]);
+    });
+
+    testWidgets('both unavailable: the legacy tab', (tester) async {
+      final repo = _repo()
+        ..explorePostsHandler = (_) {
+          throw const SearchUnavailableException('trending_posts');
+        }
+        ..exploreMediaHandler = (_) {
+          throw const SearchUnavailableException('trending_media');
+        };
+      await _open(tester, repo: repo);
+      // Posts left; Media is asked once it is the section on screen.
+      await tester.pumpAndSettle();
+      expect(_chip('tag1'), findsNothing);
+      expect(find.text('#tag1'), findsOneWidget);
+    });
+  });
+
+  group('Explore tabs', () {
+    testWidgets('away and back keeps the section and the filter and asks '
+        'nothing', (tester) async {
+      final repo = _repo();
+      await _open(tester, repo: repo, beacons: true);
+      await tester.tap(find.text('Media'));
+      await tester.pumpAndSettle();
+      await tester.tap(_chip('tag3'));
+      await tester.pumpAndSettle();
+      final calls = repo.calls.length;
+      await tester.tap(find.text('Plans'));
+      await tester.pumpAndSettle();
+      expect(_chip('tag3'), findsNothing);
+      await tester.tap(find.text('Trending'));
+      await tester.pumpAndSettle();
+      expect(_selected(tester, 'tag3'), isTrue);
+      expect(
+        tester
+            .widgetList<AppTabBar>(find.byType(AppTabBar))
+            .firstWhere((b) => b.semanticLabel == 'Trending sections')
+            .selectedIndex,
+        1,
+      );
+      expect(
+        repo.calls.skip(calls).where((c) => !c.startsWith('trends')),
+        isEmpty,
+      );
     });
   });
 

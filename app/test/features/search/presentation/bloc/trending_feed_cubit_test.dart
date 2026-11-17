@@ -120,6 +120,24 @@ void main() {
       await cubit.close();
     });
 
+    test(
+      'a rate-limited refresh keeps the rows and holds automatic paging',
+      () async {
+        final repo = FakeSearchRepository()
+          ..explorePostsResult = _page([_post('a')], 'p2');
+        final cubit = TrendingFeedCubit(repository: repo);
+        await cubit.start();
+        repo.error = const SearchRateLimitedException();
+        await cubit.refresh();
+        expect(cubit.state.notice, isA<SearchRateLimitedException>());
+        expect(cubit.snapshot.canAutoLoad, isFalse);
+        repo.error = null;
+        await cubit.loadMore();
+        expect(repo.explorePostsTokens, [null, null]);
+        await cubit.close();
+      },
+    );
+
     test('an expired token restarts from page one without an error', () async {
       var expired = true;
       final repo = FakeSearchRepository()

@@ -38,14 +38,17 @@ class PagedSnapshot {
   /// the top when it changes).
   final int resetSerial;
 
-  /// Whether a scroll or a short list may ask for the next page by itself.
+  /// Whether a scroll or a short list may ask for the next page by itself:
+  /// not while stalled, after a failed page, or while a failed refresh says
+  /// the rate limit is on.
   bool get canAutoLoad =>
       status == PagedStatus.ready &&
       hasMore &&
       !loadingMore &&
       !refreshing &&
       !stalled &&
-      !pagingFailed;
+      !pagingFailed &&
+      notice is! SearchRateLimitedException;
 
   PagedSnapshot copyWith({
     bool? refreshing,

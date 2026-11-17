@@ -76,14 +76,23 @@ class _ExploreTrendingBodyState extends State<ExploreTrendingBody> {
   /// (the header's end under the pinned bars), as laid out last.
   double _listTop = 0;
 
-  /// The offset into each section's own list when it was last on screen.
-  final Map<TrendingSection, double> _inner = {};
+  /// The offset into each list (a section's, for one hashtag or none) when it
+  /// was last on screen. Clearing a hashtag brings the untagged list back at
+  /// the place it was left; a new hashtag starts at the top.
+  final Map<(TrendingSection, String?), double> _inner = {};
+
+  /// The same for the desktop panes, which scroll on their own.
+  final Map<(TrendingSection, String?), double> _paneOffsets = {};
+
+  /// The hashtag the lists on screen are for.
+  String? _shownTag;
 
   ExploreRetapSignal? _retap;
 
   @override
   void initState() {
     super.initState();
+    _shownTag = widget.model.tag;
     widget.model.addListener(_onModel);
     _retap = context.read<ExploreRetapSignal?>()?..addListener(_onRetap);
   }
@@ -108,7 +117,41 @@ class _ExploreTrendingBodyState extends State<ExploreTrendingBody> {
   }
 
   void _onModel() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (widget.model.tag != _shownTag) _tagChanged();
+    setState(() {});
+  }
+
+  /// The filter changed (a chip, Clear filter or a link): the lists on screen
+  /// are other lists now. Remember where the old ones were and put the new
+  /// ones where they were left (the top, when never shown).
+  void _tagChanged() {
+    final old = _shownTag;
+    final tag = widget.model.tag;
+    _shownTag = tag;
+    final section = _section;
+    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+    _inner[(section, old)] = math.max(0.0, offset - _listTop);
+    final header = math.min(offset, _listTop);
+    final panes = {
+      TrendingSection.posts: _postsScroll,
+      TrendingSection.media: _mediaScroll,
+    };
+    for (final MapEntry(:key, :value) in panes.entries) {
+      if (value.hasClients) _paneOffsets[(key, old)] = value.offset;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_scroll.hasClients) {
+        final target = header + (_inner[(section, tag)] ?? 0);
+        _scroll.jumpTo(target.clamp(0.0, _scroll.position.maxScrollExtent));
+      }
+      for (final MapEntry(:key, :value) in panes.entries) {
+        if (!value.hasClients) continue;
+        final target = _paneOffsets[(key, tag)] ?? 0;
+        value.jumpTo(target.clamp(0.0, value.position.maxScrollExtent));
+      }
+    });
   }
 
   /// Explore tapped again while it is on top: each list on screen scrolls to
@@ -166,8 +209,6 @@ class _ExploreTrendingBodyState extends State<ExploreTrendingBody> {
   void _selectTag(String tag) {
     final clearing = widget.model.tag == tag;
     widget.model.selectTag(tag);
-    // A new list starts at its top, under the pinned bars.
-    _toListTop();
     unawaited(
       SemanticsService.sendAnnouncement(
         View.of(context),
@@ -182,26 +223,17 @@ class _ExploreTrendingBodyState extends State<ExploreTrendingBody> {
     _selectTag(widget.model.tag!);
   }
 
-  void _toListTop() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scroll.hasClients) return;
-      final target = math.min(_scroll.offset, _listTop);
-      if (target != _scroll.offset) _scroll.jumpTo(target);
-      _postsScroll.hasClients ? _postsScroll.jumpTo(0) : null;
-      _mediaScroll.hasClients ? _mediaScroll.jumpTo(0) : null;
-    });
-  }
-
   void _switchTo(TrendingSection next) {
     final current = _section;
     if (next == current) return;
     final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-    _inner[current] = math.max(0.0, offset - _listTop);
+    final tag = widget.model.tag;
+    _inner[(current, tag)] = math.max(0.0, offset - _listTop);
     final header = math.min(offset, _listTop);
     widget.model.section = next;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) return;
-      final target = header + (_inner[next] ?? 0);
+      final target = header + (_inner[(next, tag)] ?? 0);
       _scroll.jumpTo(target.clamp(0.0, _scroll.position.maxScrollExtent));
     });
   }
