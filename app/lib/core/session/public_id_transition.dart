@@ -35,6 +35,7 @@ class PublicIdTransition {
   );
 
   Future<void> _tail = Future<void>.value();
+  bool _invalidated = false;
 
   /// Fires after each wipe, so holders of in-memory state (the hoisted cubits)
   /// forget too.
@@ -42,8 +43,8 @@ class PublicIdTransition {
 
   /// Called with every fresh `GetMe` flag set, before its answer is cached or
   /// shown, and the session epoch the request started under. Returns the new
-  /// session epoch when it wiped (the answer must then be cached under it),
-  /// else null. Never throws: a failed wipe is reported and tried again with
+  /// cache generation ([SessionEpoch.cacheValue]) when it wiped (the answer
+  /// must then be cached under it), else null. Never throws: a failed wipe is reported and tried again with
   /// the next `GetMe` (the marker is not advanced).
   Future<int?> onFlagSet(Set<String> enabledFeatures, int epoch) {
     final next = _tail.then((_) => _evaluate(enabledFeatures, epoch));
@@ -62,6 +63,7 @@ class PublicIdTransition {
       // the flag was off ('0').
       final last = stored == '-' ? null : (stored ?? '0') == '1';
       if (last == enabled) {
+        _invalidated = false;
         if (stored == null) await _remember(now, epoch);
         return null;
       }
@@ -69,11 +71,17 @@ class PublicIdTransition {
         await _remember(now, epoch);
         return null;
       }
-      // Writes of requests that started before the flip carry old-kind ids.
-      _database.sessionEpoch.invalidateWrites();
+      // Id-bearing cache writes of requests that started before the flip carry
+      // old-kind ids. Once per transition: a wipe that keeps failing is retried
+      // without invalidating again; the account session is not touched.
+      if (!_invalidated) {
+        _database.sessionEpoch.invalidateWrites();
+        _invalidated = true;
+      }
       await _wipe();
-      final fresh = _database.sessionEpoch.value;
-      await _remember(now, fresh);
+      _invalidated = false;
+      final fresh = _database.sessionEpoch.cacheValue;
+      await _remember(now, epoch);
       _wiped.add(null);
       return fresh;
     } on Object catch (error, stack) {

@@ -111,24 +111,47 @@ void main() {
     expect(wipes, 0);
   });
 
-  test(
-    'a wipe invalidates earlier writes without ending the session',
-    () async {
-      await see(off);
-      final before = db.sessionEpoch.value;
-      var ended = 0;
-      final sub = db.sessionEpoch.ended.listen((_) => ended++);
-      addTearDown(sub.cancel);
+  test('a wipe drops earlier id-bearing cache writes and leaves the account '
+      'session (composer, sender, subscriptions, drafts) alone', () async {
+    await see(off);
+    final session = db.sessionEpoch.value;
+    final cache = db.sessionEpoch.cacheValue;
+    var ended = 0;
+    final sub = db.sessionEpoch.ended.listen((_) => ended++);
+    addTearDown(sub.cancel);
 
-      final fresh = await see(on);
+    final fresh = await see(on);
 
-      expect(fresh, db.sessionEpoch.value);
-      expect(db.sessionEpoch.allows(before), isFalse);
-      expect(db.sessionEpoch.allows(fresh!), isTrue);
-      await Future<void>.delayed(Duration.zero);
-      expect(ended, 0, reason: 'the composer and the post sender stay');
-    },
-  );
+    expect(fresh, db.sessionEpoch.cacheValue);
+    expect(db.sessionEpoch.allowsCache(cache), isFalse);
+    expect(db.sessionEpoch.allowsCache(fresh!), isTrue);
+    expect(db.sessionEpoch.value, session);
+    expect(db.sessionEpoch.allows(session), isTrue);
+    await Future<void>.delayed(Duration.zero);
+    expect(ended, 0);
+  });
+
+  test('a profile write started before the flip is dropped, an account '
+      'setting write is not', () async {
+    await see(off);
+    final session = db.sessionEpoch.value;
+    final cache = db.sessionEpoch.cacheValue;
+
+    await see(on);
+    await db.upsertProfile(
+      ProfileCacheEntriesCompanion.insert(
+        userId: 'old-kind',
+        handle: 'h',
+        displayName: 'N',
+        cachedAt: DateTime.now(),
+      ),
+      epoch: cache,
+    );
+    await db.writeAccountSetting('account:x', 'kept', epoch: session);
+
+    expect(await db.profileByUserId('old-kind'), isNull);
+    expect(await db.readSetting('account:x'), 'kept');
+  });
 
   test('announces a wipe to the holders of in-memory state', () async {
     await see(off);
@@ -165,6 +188,25 @@ void main() {
     wipeBody = () async => db.clearIdBearingCache();
     expect(await see(on), isNotNull);
     expect(await marker(), '1');
+  });
+
+  test('a wipe that keeps failing invalidates the cache writes once, not '
+      'on every GetMe', () async {
+    await see(off);
+    final before = db.sessionEpoch.cacheValue;
+    wipeBody = () async => throw StateError('disk');
+
+    await see(on);
+    final afterFirst = db.sessionEpoch.cacheValue;
+    await see(on);
+    await see(on);
+
+    expect(afterFirst, before + 1);
+    expect(db.sessionEpoch.cacheValue, afterFirst);
+    expect(errors, hasLength(3));
+    wipeBody = () async => db.clearIdBearingCache();
+    expect(await see(on), db.sessionEpoch.cacheValue);
+    expect(wipes, 4);
   });
 
   group('what the wipe clears and keeps', () {

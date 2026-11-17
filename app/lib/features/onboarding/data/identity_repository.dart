@@ -105,9 +105,9 @@ class IdentityRepository {
 
   /// Awaited with each fresh flag set and the session epoch the request
   /// started in, before the answer is cached or handed to the listeners
-  /// (`PublicIdTransition.onFlagSet`). Returns the session epoch the answer
-  /// must be cached under when the hook invalidated the earlier one, else
-  /// null. Must not throw.
+  /// (`PublicIdTransition.onFlagSet`). Returns the cache generation
+  /// (`SessionEpoch.cacheValue`) the answer must be cached under when the hook
+  /// invalidated the earlier one, else null. Must not throw.
   Future<int?> Function(Set<String> enabledFeatures, int epoch)? flagSetHook;
 
   /// Calls [listener] with every fresh `GetMe` answer and the session epoch
@@ -121,14 +121,17 @@ class IdentityRepository {
   /// a Firebase account but hasn't called [createProfile] yet.
   Future<identity.GetMeResponse> getMe() {
     return guardApiCall(() async {
-      var epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.value;
+      var cacheEpoch = _database.sessionEpoch.cacheValue;
       final response = await _apiClient.identity.getMe(identity.GetMeRequest());
       // The flag set is known before anything of this answer is cached or
       // shown: `public_ids` flipping wipes the id-bearing caches first, and
-      // this answer (of the new kind) is then cached under the new epoch.
+      // this answer (of the new kind) is then cached under the new cache
+      // generation.
       final hook = flagSetHook;
       if (hook != null) {
-        epoch = await hook(response.enabledFeatures.toSet(), epoch) ?? epoch;
+        cacheEpoch =
+            await hook(response.enabledFeatures.toSet(), epoch) ?? cacheEpoch;
       }
       // A fresh flag set decides again, not an earlier refusal.
       _profileExtrasRefused = false;
@@ -136,7 +139,7 @@ class IdentityRepository {
       for (final listener in List.of(_getMeListeners)) {
         listener(response, epoch);
       }
-      await _cacheProfile(response.profile, epoch);
+      await _cacheProfile(response.profile, cacheEpoch);
       await _database.writeAccountSetting(
         kOwnUserIdKey,
         response.profile.userId,
@@ -156,7 +159,7 @@ class IdentityRepository {
       'getProfile takes exactly one of userId or handle',
     );
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.cacheValue;
       final request = userId != null
           ? identity.GetProfileRequest(userId: userId)
           : identity.GetProfileRequest(handle: handle);
@@ -202,7 +205,7 @@ class IdentityRepository {
     required String idempotencyKey,
   }) {
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.cacheValue;
       final response = await _apiClient.identity.createProfile(
         identity.CreateProfileRequest(
           idempotencyKey: idempotencyKey,
@@ -248,7 +251,7 @@ class IdentityRepository {
     identity.DmPolicy? dmPolicy,
   }) {
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.cacheValue;
       final request = buildUpdateProfileRequest(
         idempotencyKey: idempotencyKey,
         displayName: displayName,
@@ -296,7 +299,7 @@ class IdentityRepository {
     required String newHandle,
   }) {
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.cacheValue;
       final response = await _apiClient.identity.changeHandle(
         identity.ChangeHandleRequest(
           idempotencyKey: idempotencyKey,

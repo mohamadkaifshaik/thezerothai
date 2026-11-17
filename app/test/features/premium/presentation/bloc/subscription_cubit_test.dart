@@ -288,4 +288,31 @@ void main() {
       expect(cubit.state.phase, SubscriptionPhase.ready);
     },
   );
+
+  test('a status refresh crossing a public_ids flip completes (the account '
+      'session is not the id-bearing cache)', () async {
+    final delayed = Completer<SubscriptionAccess>();
+    repo.access = (_) => delayed.future;
+    final loading = cubit.setAccount('a');
+    epoch.invalidateWrites();
+    delayed.complete(_free('a'));
+    await loading;
+    expect(cubit.state.phase, SubscriptionPhase.ready);
+    expect(cubit.state.access?.uid, 'a');
+  });
+
+  test('a purchase finishing across a public_ids flip is not left '
+      'purchasing', () async {
+    repo.access = (uid) async => _free(uid, sales: true);
+    await cubit.setAccount('a');
+    final finish = Completer<SubscriptionPurchaseResult>();
+    repo.transaction = () => finish.future;
+    final buying = cubit.purchase(_offering);
+    epoch.invalidateWrites();
+    finish.complete(
+      const SubscriptionPurchaseResult(PurchaseDisposition.verifying),
+    );
+    await buying;
+    expect(cubit.state.phase, SubscriptionPhase.verifying);
+  });
 }

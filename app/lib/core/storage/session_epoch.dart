@@ -24,16 +24,30 @@ class SessionEpoch {
   /// sign-out, before wiping the database.
   void end() {
     _value++;
+    _cache++;
     _ended.add(_value);
   }
 
-  /// Drops every write started under an earlier [value] WITHOUT announcing a
-  /// session end: the account is still signed in, so holders that close or
-  /// reset on [ended] (the composer, the post sender, the plan-form memory)
-  /// keep going. Used when only the cached ids became the wrong kind
-  /// (`public_ids` flipped); the lazily epoch-aware repositories still see the
-  /// new [value] and drop their memory.
-  void invalidateWrites() => _value++;
+  int _cache = 0;
+
+  /// Generation of the id-bearing local cache (timelines, notifications,
+  /// messages, profiles, follows, suggestions). Advances on every [end] and
+  /// also on [invalidateWrites]. Only the stores of that cache capture it and
+  /// check [allowsCache]; the account session ([value], [allows], [ended]:
+  /// composer, post sender, subscriptions, drafts, unsent posts, recent
+  /// searches, plan memory) is untouched by [invalidateWrites].
+  int get cacheValue => _cache;
+
+  /// Drops every id-bearing cache write started under an earlier
+  /// [cacheValue], and nothing else: the account is still signed in, so
+  /// in-flight user work keeps its [value]. Used when the cached ids became
+  /// the wrong kind (`public_ids` flipped).
+  void invalidateWrites() => _cache++;
+
+  /// Whether a cache write that started under [cacheEpoch] ([cacheValue]) is
+  /// still allowed.
+  bool allowsCache(int cacheEpoch) =>
+      cacheEpoch == unguarded || cacheEpoch == _cache;
 
   /// Passed by a write that intentionally bypasses the guard. Every guarded
   /// write takes a required epoch, so skipping the check is always explicit.

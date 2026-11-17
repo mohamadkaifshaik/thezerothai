@@ -658,7 +658,7 @@ class AppDatabase extends _$AppDatabase {
     required int epoch,
   }) {
     return transaction(() async {
-      if (!sessionEpoch.allows(epoch)) return;
+      if (!sessionEpoch.allowsCache(epoch)) return;
       await into(profileCacheEntries).insertOnConflictUpdate(entry);
     });
   }
@@ -679,7 +679,7 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> upsertFollowing(String userId, {required int epoch}) {
     return transaction(() async {
-      if (!sessionEpoch.allows(epoch)) return;
+      if (!sessionEpoch.allowsCache(epoch)) return;
       await into(followingCacheEntries).insertOnConflictUpdate(
         FollowingCacheEntriesCompanion.insert(
           userId: userId,
@@ -691,7 +691,7 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> removeFollowing(String userId, {required int epoch}) {
     return transaction(() async {
-      if (!sessionEpoch.allows(epoch)) return;
+      if (!sessionEpoch.allowsCache(epoch)) return;
       await (delete(
         followingCacheEntries,
       )..where((t) => t.userId.equals(userId))).go();
@@ -721,6 +721,24 @@ class AppDatabase extends _$AppDatabase {
     return (delete(
       appSettingEntries,
     )..where((t) => t.settingKey.equals(key))).go();
+  }
+
+  /// Sets an id-bearing account setting ([key] starts with
+  /// [kIdBearingSettingPrefix]). Guarded by the cache generation
+  /// ([SessionEpoch.cacheValue]), so it is dropped by a sign-out and by a
+  /// `public_ids` flip alike.
+  Future<void> writeIdBearingSetting(
+    String key,
+    String value, {
+    required int epoch,
+  }) {
+    assert(key.startsWith(kIdBearingSettingPrefix));
+    return transaction(() async {
+      if (!sessionEpoch.allowsCache(epoch)) return;
+      await into(appSettingEntries).insertOnConflictUpdate(
+        AppSettingEntriesCompanion.insert(settingKey: key, settingValue: value),
+      );
+    });
   }
 
   /// Sets an account-derived setting ([key] starts with
@@ -773,6 +791,11 @@ class AppDatabase extends _$AppDatabase {
   /// unsent posts and their photos, the opened-posts history, the saved data
   /// export, recent searches, the plan form memory, the notification `seen_at`
   /// and push device id, the cache owner stamp and every device setting. Unlike [clearAll] this is not a sign-out.
+  ///
+  /// Nothing to neutralise in the kept tables: the opened-posts history holds
+  /// only `{uid, postId, openedAt}` (the History tab hydrates posts afresh),
+  /// drafts hold text, and the unsent posts' own author snapshot is re-stamped
+  /// by `PostSender.restampAuthor` after the flip.
   Future<void> clearIdBearingCache() async {
     await transaction(() async {
       await delete(profileCacheEntries).go();
