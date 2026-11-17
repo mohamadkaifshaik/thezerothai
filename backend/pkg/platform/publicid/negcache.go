@@ -28,7 +28,10 @@ type NegativeCache struct {
 	none *cache.LRU[string, time.Time]
 }
 
-var _ Resolver = (*NegativeCache)(nil)
+var (
+	_ Resolver = (*NegativeCache)(nil)
+	_ Learner  = (*NegativeCache)(nil)
+)
 
 // NewNegativeCache wraps inner. now is time.Now in production.
 func NewNegativeCache(inner Resolver, size int, ttl time.Duration, now func() time.Time) (*NegativeCache, error) {
@@ -45,7 +48,9 @@ func NewNegativeCache(inner Resolver, size int, ttl time.Duration, now func() ti
 	return &NegativeCache{inner: inner, ttl: ttl, now: now, none: cache.New[string, time.Time](size, 0)}, nil
 }
 
-// known reports whether uid has a live "no public id" entry, dropping an expired one.
+// known reports whether uid has a live "no public id" entry, dropping an expired one. The Get and the Delete are two
+// locked steps, so a concurrent Set between them can be dropped with the expired entry: that only costs one extra
+// lookup later, never a wrong answer.
 func (c *NegativeCache) known(uid string, now time.Time) bool {
 	exp, ok := c.none.Get(uid)
 	if !ok {
@@ -91,9 +96,24 @@ func (c *NegativeCache) PublicIDsForUIDs(ctx context.Context, uids []string) (ma
 	return got, nil
 }
 
-// UIDsForPublicIDs is inner's, uncached.
+// UIDsForPublicIDs is inner's, uncached; every uid it finds is no longer "without a public id".
 func (c *NegativeCache) UIDsForPublicIDs(ctx context.Context, publicIDs []string) (map[string]string, error) {
-	return c.inner.UIDsForPublicIDs(ctx, publicIDs)
+	got, err := c.inner.UIDsForPublicIDs(ctx, publicIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, uid := range got {
+		c.none.Delete(uid)
+	}
+	return got, nil
+}
+
+// LearnPublicIDs implements Learner: a uid the walker saw with a public id (a handler that just minted it, say) loses
+// its "no public id" entry at once, so later responses on this instance stop sending it as Tombstone.
+func (c *NegativeCache) LearnPublicIDs(pairs map[string]string) {
+	for uid := range pairs {
+		c.none.Delete(uid)
+	}
 }
 
 // Len is the number of entries held, expired ones not yet dropped included.

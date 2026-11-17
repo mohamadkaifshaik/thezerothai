@@ -36,3 +36,10 @@ type Resolver interface {
 	PublicIDsForUIDs(ctx context.Context, uids []string) (map[string]string, error)
 	UIDsForPublicIDs(ctx context.Context, publicIDs []string) (map[string]string, error)
 }
+
+// Learner is an optional Resolver extension: the walker reports the uid -> public id pairs it learned outside the
+// resolver (a handler that set the PUBLIC_ID field itself), so a cache in front of identity can drop what it believed
+// about those uids. pairs must not be retained or modified.
+type Learner interface {
+	LearnPublicIDs(pairs map[string]string)
+}
