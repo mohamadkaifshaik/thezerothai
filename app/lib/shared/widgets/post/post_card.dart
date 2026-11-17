@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/session/user_ids.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../features/beacons/presentation/widgets/post_beacon_embed.dart';
 import '../../../features/communities/domain/communities_feature_flag.dart';
@@ -278,9 +279,17 @@ class PostCard extends StatelessWidget {
     final spokenTime = created == null
         ? ''
         : formatRelativeTimeSpoken(created, reference);
-    final displayName = author.displayName.isEmpty
-        ? '@${author.handle}'
-        : author.displayName;
+    // An author that is gone (the tombstone id) is not openable and, with no
+    // name of its own, reads "Deleted account".
+    final authorGone = isUnavailableUserId(author.userId);
+    final displayName = author.displayName.isNotEmpty
+        ? author.displayName
+        : (author.handle.isEmpty && authorGone
+              ? kUnavailableAccountName
+              : '@${author.handle}');
+    final authorHandle = authorGone && author.handle.isEmpty
+        ? ''
+        : author.handle;
 
     // The viewer may see this post only because the author protects their
     // posts and the viewer is the author or an approved follower.
@@ -332,17 +341,19 @@ class PostCard extends StatelessWidget {
       displayName,
       if (protectedAuthor) 'protected account',
       if (author.verified) 'verified',
-      '@${author.handle}',
+      if (authorHandle.isNotEmpty) '@$authorHandle',
       // The open post reads its full time from the line below instead.
       if (spokenTime.isNotEmpty && !asFocal) spokenTime,
     ].join(', ');
 
     final avatar = Semantics(
-      button: true,
-      label: 'Open profile of @${author.handle}',
+      button: !authorGone,
+      label: authorGone
+          ? 'Deleted account'
+          : 'Open profile of @${author.handle}',
       excludeSemantics: true,
       child: InkResponse(
-        onTap: () => _openProfile(context, author.userId),
+        onTap: authorGone ? null : () => _openProfile(context, author.userId),
         radius: avatarBox / 2,
         child: SizedBox(
           width: avatarBox,
@@ -365,11 +376,11 @@ class PostCard extends StatelessWidget {
       ),
     );
     final authorButton = Semantics(
-      button: true,
+      button: !authorGone,
       label: authorLabel,
       excludeSemantics: true,
       child: InkWell(
-        onTap: () => _openProfile(context, author.userId),
+        onTap: authorGone ? null : () => _openProfile(context, author.userId),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
           child: Align(
@@ -377,13 +388,13 @@ class PostCard extends StatelessWidget {
             child: asFocal
                 ? _FocalAuthorLines(
                     displayName: displayName,
-                    handle: author.handle,
+                    handle: authorHandle,
                     verified: author.verified,
                     protected: protectedAuthor,
                   )
                 : _AuthorLine(
                     displayName: displayName,
-                    handle: author.handle,
+                    handle: authorHandle,
                     verified: author.verified,
                     protected: protectedAuthor,
                     time: shortTime,

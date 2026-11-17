@@ -2,6 +2,7 @@ import 'package:fixnum/fixnum.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/session/user_ids.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../graph/data/graph_repository.dart';
@@ -45,6 +46,12 @@ class ProfileCubit extends Cubit<ProfileState> {
   final String? _ownUserId;
 
   Future<void> load() async {
+    // A link to an account that is gone (the tombstone id) is the same as any
+    // unknown account, without asking the server.
+    if (isUnavailableUserId(_userId)) {
+      emit(const ProfileState(status: ProfileStatus.notFound));
+      return;
+    }
     emit(state.copyWith(status: ProfileStatus.loading, error: null));
     try {
       final profile = _userId != null

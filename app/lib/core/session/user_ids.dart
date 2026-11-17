@@ -5,6 +5,10 @@ import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 /// public id can never equal it (its first body character is always 0-7).
 const kUnavailableUserId = 'uzzzzzzzzzzzzzzzzzzzzzzzzzz';
 
+/// What an unavailable account is called where it has no name of its own (the
+/// moderation log and a deleted peer in Messages say the same).
+const kUnavailableAccountName = 'Deleted account';
+
 /// Whether [userId] names an account that is gone (the tombstone id). Such an
 /// id is never navigable, never actionable and never "me".
 bool isUnavailableUserId(String? userId) => userId == kUnavailableUserId;

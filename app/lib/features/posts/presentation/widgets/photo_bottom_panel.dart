@@ -127,7 +127,10 @@ class _AuthorRow extends StatelessWidget {
   final pb.Post post;
 
   void _openProfile(BuildContext context) {
-    if (post.author.userId.isEmpty) return;
+    if (post.author.userId.isEmpty ||
+        isUnavailableUserId(post.author.userId)) {
+      return;
+    }
     context.push(AppRouter.profileByIdPath(post.author.userId));
   }
 
@@ -139,12 +142,15 @@ class _AuthorRow extends StatelessWidget {
     final showFollow =
         isFeatureEnabled(context, kFeatureGraph) &&
         author.userId.isNotEmpty &&
+        !isUnavailableUserId(author.userId) &&
         author.userId != viewerId;
     final name = author.displayName.isEmpty
         ? '@${author.handle}'
         : author.displayName;
     final who = InkWell(
-      onTap: () => _openProfile(context),
+      onTap: isUnavailableUserId(author.userId)
+          ? null
+          : () => _openProfile(context),
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
         child: Row(

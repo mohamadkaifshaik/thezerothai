@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/session/user_ids.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_back_header.dart';
@@ -340,8 +341,10 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
     );
   }
 
-  void _openProfile(pb.Participant p) =>
-      context.push(AppRouter.profileByIdPath(p.user.userId));
+  void _openProfile(pb.Participant p) {
+    if (isUnavailableUserId(p.user.userId)) return;
+    context.push(AppRouter.profileByIdPath(p.user.userId));
+  }
 
   /// A request's Decline and Accept, side by side under the row (the
   /// designs' PlanPeople): halves of the row, never cut at large text.
