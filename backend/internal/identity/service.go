@@ -392,6 +392,9 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 			return Profile{}, notFoundErr()
 		case err != nil:
 			return Profile{}, logger.RedactErr(fmt.Errorf("identity: resolve public id: %w", err), callerUID, target.PublicID)
+		case userIDIssue(resolved):
+			// A corrupt lookup (empty or malformed uid) is the unknown-id NOT_FOUND, never VALIDATION or INTERNAL.
+			return Profile{}, notFoundErr()
 		}
 		uid = resolved
 	}

@@ -106,6 +106,10 @@ func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, 
 	if existing, ok := f.profiles[uid]; ok {
 		return existing, true, nil
 	}
+	// Like the repo: the drawn id's lookup is read before the Auth call.
+	if _, taken := f.publicIDs[publicID]; publicID != "" && taken {
+		return Profile{}, false, ErrPublicIDCollision // nothing committed, no Auth call
+	}
 	var baseline *AuthBaseline
 	if authorize != nil {
 		var err error
@@ -115,9 +119,6 @@ func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, 
 	}
 	if _, taken := f.handles[handleLower]; taken {
 		return Profile{}, false, ErrHandleTaken
-	}
-	if _, taken := f.publicIDs[publicID]; publicID != "" && taken {
-		return Profile{}, false, ErrCreateConflict // the create-only lookup lost: nothing committed
 	}
 	p := Profile{
 		UserID: uid, Handle: handle, HandleLower: handleLower, DisplayName: displayName,
@@ -215,7 +216,7 @@ func (f *fakeRepo) EnsurePublicID(_ context.Context, uid, publicID string, _ tim
 		return p, nil
 	}
 	if _, taken := f.publicIDs[publicID]; taken {
-		return Profile{}, ErrCreateConflict
+		return Profile{}, ErrPublicIDCollision
 	}
 	f.ensureWrites++
 	p.PublicID = publicID

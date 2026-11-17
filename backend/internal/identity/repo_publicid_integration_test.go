@@ -87,9 +87,14 @@ func TestPublicID_Integration_CreateCollisionWritesNothing(t *testing.T) {
 	if _, err := client.Doc("publicIds/"+pubA).Set(ctx, map[string]any{"uid": "someone-else", "createdAt": time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := repo.CreateProfile(ctx, "uid-c1", "Carol", "carol", "Carol", pubA, time.Now().UTC(), nil)
-	if !errors.Is(err, identity.ErrCreateConflict) {
-		t.Fatalf("err = %v, want ErrCreateConflict", err)
+	authorized := 0
+	authorize := func(context.Context) (*identity.AuthBaseline, error) { authorized++; return nil, nil }
+	_, _, err := repo.CreateProfile(ctx, "uid-c1", "Carol", "carol", "Carol", pubA, time.Now().UTC(), authorize)
+	if !errors.Is(err, identity.ErrPublicIDCollision) || !errors.Is(err, identity.ErrCreateConflict) {
+		t.Fatalf("err = %v, want ErrPublicIDCollision (an ErrCreateConflict)", err)
+	}
+	if authorized != 0 {
+		t.Errorf("a collision ran the Auth check %d times, want 0 (the lookup is read first)", authorized)
 	}
 	for _, path := range []string{"users/uid-c1", "handles/carol", "graph/uid-c1"} {
 		if _, ok := docData(t, client, path); ok {
@@ -102,6 +107,25 @@ func TestPublicID_Integration_CreateCollisionWritesNothing(t *testing.T) {
 	p, _, err := repo.CreateProfile(ctx, "uid-c1", "Carol", "carol", "Carol", pubB, time.Now().UTC(), nil)
 	if err != nil || p.PublicID != pubB {
 		t.Fatalf("rerun = %+v, %v", p, err)
+	}
+}
+
+// TestPublicID_Integration_CreateOtherConflictIsNotACollision: a pre-existing graph/{uid} fails the signup commit with
+// ErrCreateConflict that is NOT ErrPublicIDCollision (the service does not retry it), and writes nothing.
+func TestPublicID_Integration_CreateOtherConflictIsNotACollision(t *testing.T) {
+	repo, client := lifecycleRepo(t)
+	ctx := context.Background()
+	if _, err := client.Doc("graph/uid-c2").Set(ctx, map[string]any{"updatedAt": time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := repo.CreateProfile(ctx, "uid-c2", "Cyril", "cyril", "Cyril", pubC, time.Now().UTC(), nil)
+	if !errors.Is(err, identity.ErrCreateConflict) || errors.Is(err, identity.ErrPublicIDCollision) {
+		t.Fatalf("err = %v, want ErrCreateConflict and not ErrPublicIDCollision", err)
+	}
+	for _, path := range []string{"users/uid-c2", "handles/cyril", "publicIds/" + pubC} {
+		if _, ok := docData(t, client, path); ok {
+			t.Errorf("%s was written by the failed transaction", path)
+		}
 	}
 }
 
