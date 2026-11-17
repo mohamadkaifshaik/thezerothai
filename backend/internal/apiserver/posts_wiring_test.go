@@ -124,6 +124,10 @@ func (emptyReader) ByCommunity(context.Context, string, posts.Window, int) ([]*p
 	return nil, nil
 }
 
+func (emptyReader) ByMediaFeed(context.Context, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
 func (emptyReader) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }
