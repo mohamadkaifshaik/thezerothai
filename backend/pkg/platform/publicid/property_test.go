@@ -45,15 +45,8 @@ var (
 func realAPI(t testing.TB) (*Translator, []protoreflect.MessageDescriptor) {
 	t.Helper()
 	realOnce.Do(func() {
-		r := NewRules()
-		for name, reason := range pendingRules {
-			if err := r.PassThroughUntilRuleLands(name, reason); err != nil {
-				realErr = err
-				return
-			}
-		}
 		services := DzerothServices(protoregistry.GlobalFiles)
-		plans, err := BuildPlans(services, r)
+		plans, err := BuildPlans(services, realRuleSet)
 		if err != nil {
 			realErr = err
 			return
@@ -98,8 +91,9 @@ func compareNames(a, b protoreflect.FullName) int {
 }
 
 // populator fills a message through protoreflect: every TRANSLATE string gets a uid from uids (round robin), every
-// other string a value outside the uid set, every scalar a non-zero value, and messages, lists (2 elements) and maps
-// (2 entries) recurse to maxDepth. variant picks the arm of each oneof (arm variant mod n); with r set, fields are
+// CONDITIONAL string (set after its siblings) a uid in the span its stand-in rule (realRuleSet) names, or a value
+// outside the uid set when the rule says it holds no user id, every other string a value outside the uid set, every
+// scalar a non-zero value, and messages, lists (2 elements) and maps (2 entries) recurse to maxDepth. variant picks the arm of each oneof (arm variant mod n); with r set, fields are
 // skipped and arms picked at random instead. A PUBLIC_ID field next to a set singular TRANSLATE field (both outside
 // oneofs) is pre-filled with the public id the walker will write, so the oracle can leave PUBLIC_ID alone.
 type populator struct {
@@ -151,10 +145,23 @@ func (p *populator) fill(m protoreflect.Message, depth int) {
 		if p.r != nil && p.r.IntN(4) == 0 {
 			continue
 		}
-		if k, _ := userref.Kind(fd); k == commonv1.UserRefKind_USER_REF_KIND_PUBLIC_ID {
+		if k, _ := userref.Kind(fd); k == commonv1.UserRefKind_USER_REF_KIND_PUBLIC_ID || k == commonv1.UserRefKind_USER_REF_KIND_CONDITIONAL {
 			continue // after the loop
 		}
 		p.field(m, fd, depth)
+	}
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		if k, _ := userref.Kind(fd); k != commonv1.UserRefKind_USER_REF_KIND_CONDITIONAL {
+			continue
+		}
+		if o := realOneof(fd); o != nil && o.Fields().Get(arms[o.FullName()]) != fd {
+			continue
+		}
+		if p.r != nil && p.r.IntN(4) == 0 {
+			continue
+		}
+		p.conditional(m, fd)
 	}
 	for i := range fields.Len() {
 		fd := fields.Get(i)
@@ -173,6 +180,31 @@ func (p *populator) fill(m protoreflect.Message, depth int) {
 			m.Set(fd, protoreflect.ValueOfString("literal-public-id-"+string(fd.Name())))
 		}
 	}
+}
+
+// conditional sets a CONDITIONAL field once its siblings are set: a probe value tells where the stand-in rule puts the
+// user id, and a uid goes there; a value outside the uid set when the rule says the field holds none.
+func (p *populator) conditional(m protoreflect.Message, fd protoreflect.FieldDescriptor) {
+	if p.populated != nil {
+		p.populated[fd.FullName()] = true
+	}
+	rule := realRuleSet.rules[fd.FullName()]
+	value := func() string {
+		probe := "s-" + string(fd.Name()) + "_probe"
+		if rule != nil {
+			if sp, ok := rule(m, probe); ok && sp.Start < sp.End {
+				return probe[:sp.Start] + p.uid() + probe[sp.End:]
+			}
+		}
+		return "s-" + string(fd.Name()) + "-0"
+	}
+	if fd.IsList() {
+		l := m.Mutable(fd).List()
+		l.Append(protoreflect.ValueOfString(value()))
+		l.Append(protoreflect.ValueOfString(""))
+		return
+	}
+	m.Set(fd, protoreflect.ValueOfString(value()))
 }
 
 func soleTranslateSibling(md protoreflect.MessageDescriptor) protoreflect.FieldDescriptor {
@@ -289,7 +321,9 @@ func (p *populator) scalar(fd protoreflect.FieldDescriptor, i int) protoreflect.
 }
 
 // oracle is the independent reference translation: it reads user_ref on every set field (no plan) and replaces every
-// TRANSLATE value by pubOf. PUBLIC_ID fields are left alone (the populator pre-fills them).
+// TRANSLATE value by pubOf, and in every CONDITIONAL value the span its stand-in rule names (realRuleSet: the rules
+// themselves are tested in apiserver and notifications; here the walker's mechanics are). PUBLIC_ID fields are left
+// alone (the populator pre-fills them).
 func oracle(m protoreflect.Message, pubOf func(string) string) {
 	var set []protoreflect.FieldDescriptor
 	m.Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
@@ -319,6 +353,22 @@ func oracle(m protoreflect.Message, pubOf func(string) string) {
 			}
 		case userref.Translate(fd):
 			m.Set(fd, protoreflect.ValueOfString(pubOf(m.Get(fd).String())))
+		case realRuleSet.rules[fd.FullName()] != nil:
+			rule := realRuleSet.rules[fd.FullName()]
+			swap := func(v string) string {
+				if sp, ok := rule(m, v); ok && v != "" && sp.Start < sp.End {
+					return v[:sp.Start] + pubOf(v[sp.Start:sp.End]) + v[sp.End:]
+				}
+				return v
+			}
+			if fd.IsList() {
+				l := m.Mutable(fd).List()
+				for i := range l.Len() {
+					l.Set(i, protoreflect.ValueOfString(swap(l.Get(i).String())))
+				}
+				continue
+			}
+			m.Set(fd, protoreflect.ValueOfString(swap(m.Get(fd).String())))
 		}
 	}
 }

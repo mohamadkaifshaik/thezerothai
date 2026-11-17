@@ -269,8 +269,8 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 //   cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Still set; it holds the Firebase uid until the
-	// edge translates user ids to public ids (options.proto, user_ref).
+	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Always set. With FEATURE_PUBLIC_IDS off for the
+	// caller it holds the Firebase uid; with it on, the edge translates it to the public id (options.proto, user_ref).
 	UserId      string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Handle      string `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
 	DisplayName string `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
@@ -288,8 +288,10 @@ type AuthorSnapshot struct {
 	// for an account, and `posts.v1.Post.visibility` / `posts.v1.EmbedViewerState` for a post.
 	IsPrivate bool `protobuf:"varint,6,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
 	// The user's public id (FEATURE_PUBLIC_IDS): "u" + 26 lower-case base32 characters, random and immutable, never
-	// derived from the uid or a time. Not set by any server yet: always "" until the public id rollout; clients must
-	// fall back to user_id while it is "".
+	// derived from the uid or a time. With FEATURE_PUBLIC_IDS on for the caller, user_id and public_id both hold the
+	// public id; an account that has none (erased, or not yet given one) is sent as the placeholder id
+	// "uzzzzzzzzzzzzzzzzzzzzzzzzzz" in both, which names nobody (render it as an unavailable account). With the flag off
+	// for the caller it is "" and clients use user_id.
 	PublicId      string `protobuf:"bytes,7,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

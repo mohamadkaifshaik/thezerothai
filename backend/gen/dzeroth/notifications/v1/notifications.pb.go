@@ -198,6 +198,11 @@ func (DevicePlatform) EnumDescriptor() ([]byte, []int) {
 type Notification struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Stable per logical notification (rewritten in place when a LIKE row collapses another like).
+	// For FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED, REPOST and BEACON_REQUEST rows the last `_` segment names the actor; on
+	// the wire it is the actor's public id once FEATURE_PUBLIC_IDS is on for the caller (the placeholder id
+	// "uzzzzzzzzzzzzzzzzzzzzzzzzzz" when the actor has none). Treat the id as opaque either way. The push's
+	// notificationId is built by the same rule, so a pushed row and the listed row carry the same id, except when the
+	// actor had no public id at one of the two moments (that side carries the placeholder).
 	Id   string           `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Type NotificationType `protobuf:"varint,2,opt,name=type,proto3,enum=dzeroth.notifications.v1.NotificationType" json:"type,omitempty"`
 	// The most recent actor, snapshotted when the notification was written (may be up to a profile refresh stale).
@@ -995,9 +1000,9 @@ var File_dzeroth_notifications_v1_notifications_proto protoreflect.FileDescripto
 
 const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\n" +
-	",dzeroth/notifications/v1/notifications.proto\x12\x18dzeroth.notifications.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe4\x02\n" +
-	"\fNotification\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12>\n" +
+	",dzeroth/notifications/v1/notifications.proto\x12\x18dzeroth.notifications.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x02\n" +
+	"\fNotification\x12\x14\n" +
+	"\x02id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x02R\x02id\x12>\n" +
 	"\x04type\x18\x02 \x01(\x0e2*.dzeroth.notifications.v1.NotificationTypeR\x04type\x127\n" +
 	"\x05actor\x18\x03 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x05actor\x12\x1f\n" +
 	"\vactor_count\x18\x04 \x01(\x05R\n" +

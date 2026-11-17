@@ -305,7 +305,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 	switch cfg.NotificationsDelivery {
 	case "inline":
-		notifSlot.em = notifications.NewInlineEmitter(notifFanout, featureFlags, log).WithRecipientCap(recipientCap)
+		inline := notifications.NewInlineEmitter(notifFanout, featureFlags, log).WithRecipientCap(recipientCap)
+		if bo.inlineNotifications != nil {
+			bo.inlineNotifications(inline)
+		}
+		notifSlot.em = inline
 	default:
 		notifPublisher, perr := pubsubpublish.New(cfg.ProjectID, cfg.NotificationsTopic)
 		if perr != nil {
