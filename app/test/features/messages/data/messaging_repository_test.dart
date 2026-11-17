@@ -7,6 +7,7 @@ import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/message_composer_cubit.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
@@ -1089,6 +1090,19 @@ void main() {
       repo.clearSession();
       expect(repo.outbox.draftOf('c1'), isEmpty);
       expect(repo.outbox.isEmpty, isTrue);
+    });
+
+    test('forgetIdKinds (public_ids flipped) drops the unsent messages of '
+        'threads that do not exist yet and keeps the others', () {
+      final draftScope = MessageOutbox.draftScope('old-kind-user-id');
+      repo.outbox
+        ..save(draftScope, draft: 'hello there', rows: const [])
+        ..save('c1', draft: 'my reply', rows: const []);
+
+      expect(repo.forgetIdKinds(), 1);
+
+      expect(repo.outbox.draftOf(draftScope), isEmpty);
+      expect(repo.outbox.draftOf('c1'), 'my reply');
     });
 
     test('clearSession releases the read hold', () {

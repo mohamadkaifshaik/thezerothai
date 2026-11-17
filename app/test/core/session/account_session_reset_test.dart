@@ -31,4 +31,36 @@ void main() {
     expect(ran, isTrue);
     expect(errors, hasLength(1));
   });
+
+  test('runIdBearing runs only the id-bearing steps (the account stays '
+      'signed in)', () {
+    final calls = <String>[];
+    AccountSessionReset()
+      ..register('push', () => calls.add('push'))
+      ..register('graph', () => calls.add('graph'), idBearing: true)
+      ..register('lists', () => calls.add('lists'), idBearing: true)
+      ..register('snackbars', () => calls.add('snackbars'))
+      ..runIdBearing();
+    expect(calls, ['graph', 'lists']);
+  });
+
+  test('run still runs every step, id-bearing or not', () {
+    final calls = <String>[];
+    AccountSessionReset()
+      ..register('push', () => calls.add('push'))
+      ..register('graph', () => calls.add('graph'), idBearing: true)
+      ..run();
+    expect(calls, ['push', 'graph']);
+  });
+
+  test('a failing id-bearing step is reported and the others still run', () {
+    final errors = <Object>[];
+    var ran = false;
+    AccountSessionReset()
+      ..register('bad', () => throw StateError('x'), idBearing: true)
+      ..register('good', () => ran = true, idBearing: true)
+      ..runIdBearing(onError: (e, _) => errors.add(e));
+    expect(errors, hasLength(1));
+    expect(ran, isTrue);
+  });
 }

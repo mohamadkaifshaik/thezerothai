@@ -96,6 +96,13 @@ class IdentityRepository {
   final List<void Function(identity.GetMeResponse response, int epoch)>
   _getMeListeners = [];
 
+  /// Awaited with each fresh flag set and the session epoch the request
+  /// started in, before the answer is cached or handed to the listeners
+  /// (`PublicIdTransition.onFlagSet`). Returns the session epoch the answer
+  /// must be cached under when the hook invalidated the earlier one, else
+  /// null. Must not throw.
+  Future<int?> Function(Set<String> enabledFeatures, int epoch)? flagSetHook;
+
   /// Calls [listener] with every fresh `GetMe` answer and the session epoch
   /// the request started in (for repositories that mirror a part of it, e.g.
   /// the pinned Home tabs). 0 extra RPCs; a listener must not throw.
@@ -107,8 +114,15 @@ class IdentityRepository {
   /// a Firebase account but hasn't called [createProfile] yet.
   Future<identity.GetMeResponse> getMe() {
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      var epoch = _database.sessionEpoch.value;
       final response = await _apiClient.identity.getMe(identity.GetMeRequest());
+      // The flag set is known before anything of this answer is cached or
+      // shown: `public_ids` flipping wipes the id-bearing caches first, and
+      // this answer (of the new kind) is then cached under the new epoch.
+      final hook = flagSetHook;
+      if (hook != null) {
+        epoch = await hook(response.enabledFeatures.toSet(), epoch) ?? epoch;
+      }
       // A fresh flag set decides again, not an earlier refusal.
       _profileExtrasRefused = false;
       _suggestGate.reset();

@@ -71,6 +71,16 @@ class NotificationsRepository {
     _attemptedAt = null;
   }
 
+  /// `public_ids` flipped: forget in-flight work and the throttles so the next
+  /// load refetches (the account stays signed in; the caller invalidates the
+  /// writes of requests started before the flip).
+  void forgetIdKinds() {
+    _inflight.clear();
+    _tail = Future<void>.value();
+    _refreshedAt = null;
+    _attemptedAt = null;
+  }
+
   /// Time since the last successful [refresh] in this session; null if none.
   Duration? get sinceRefresh {
     final at = _refreshedAt;

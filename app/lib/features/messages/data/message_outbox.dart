@@ -77,7 +77,10 @@ class MessageOutbox {
   final Map<String, _Box> _boxes = {};
 
   /// The scope of a thread that does not exist yet (first message to a person).
-  static String draftScope(String recipientUserId) => 'draft:$recipientUserId';
+  static String draftScope(String recipientUserId) =>
+      '$_draftPrefix$recipientUserId';
+
+  static const _draftPrefix = 'draft:';
 
   _Box _box(String scope) => _boxes.putIfAbsent(scope, _Box.new);
 
@@ -159,6 +162,19 @@ class MessageOutbox {
 
   /// Forgets [scope] (the draft thread turned into a real conversation).
   void drop(String scope) => _boxes.remove(scope);
+
+  /// Drops the boxes of threads that do not exist yet: their scope names the
+  /// recipient's user id ([draftScope]), which is the wrong kind once
+  /// `public_ids` flipped. Boxes of real conversations (keyed by the
+  /// conversation id) stay. Returns how many boxes were dropped.
+  int dropDraftThreads() {
+    final scopes = [
+      for (final scope in _boxes.keys)
+        if (scope.startsWith(_draftPrefix)) scope,
+    ];
+    scopes.forEach(_boxes.remove);
+    return scopes.length;
+  }
 
   /// Sign-out and account switch: nothing of the previous user stays.
   void clear() {

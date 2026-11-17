@@ -15,6 +15,7 @@ import '../core/network/service_paused_cubit.dart';
 import '../core/router/app_router.dart';
 import '../core/router/screen_names.dart';
 import '../core/session/account_session_reset.dart';
+import '../core/session/public_id_transition.dart';
 import '../core/session/user_ids.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
@@ -102,6 +103,7 @@ import 'session_wiring.dart';
 class AppWidget extends StatefulWidget {
   const AppWidget({
     super.key,
+    this.publicIdTransition,
     required this.authBloc,
     required this.onboardingBloc,
     required this.identityRepository,
@@ -224,6 +226,9 @@ class AppWidget extends StatefulWidget {
   /// (F3, F9). Bootstrap creates it and feeds it every GetMe before the first
   /// one can run; null (tests) makes one fed from `initState` on.
   final OwnPrivacyStore? ownPrivacyStore;
+
+  /// Wipes the id-bearing caches when `public_ids` flips (null in tests).
+  final PublicIdTransition? publicIdTransition;
 
   /// The share origin and native share sheet for the post Share action,
   /// from `AppConfig.shareOrigin`. Null (tests) means no Share action.
@@ -436,6 +441,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     widget.database,
   );
   late final StreamSubscription<OnboardingState> _onboardingSub;
+  StreamSubscription<void>? _publicIdsSub;
   Set<String>? _lastFeatures;
 
   /// The user the Messages access probe last ran for.
@@ -470,19 +476,23 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         widget.impressionTracker?.reset();
       })
       ..register('polls', () => _polls?.reset())
-      ..register('bookmarks', _bookmarks.reset)
-      ..register('suggestions', _suggestions.reset)
+      ..register('bookmarks', _bookmarks.reset, idBearing: true)
+      ..register('suggestions', _suggestions.reset, idBearing: true)
       ..register('trends', () => _trends?.reset())
-      ..register('graph', widget.graphRepository.clearCache)
-      ..register('likes', widget.likesRepository.clearSession)
+      ..register('graph', widget.graphRepository.clearCache, idBearing: true)
+      ..register('likes', widget.likesRepository.clearSession, idBearing: true)
       ..register('posts', () => widget.postsRepository.clearSession())
       ..register('search', () => widget.searchRepository?.clearSession())
       ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
-      ..register('lists', () => widget.listsRepository?.clearSession())
-      ..register('plans', () => _plans?.reset())
-      ..register('happening nearby', () => _happening?.reset())
-      ..register('conversations', _conversations.reset)
-      ..register('message privacy', _ownPrivacy.clear)
+      ..register(
+        'lists',
+        () => widget.listsRepository?.clearSession(),
+        idBearing: true,
+      )
+      ..register('plans', () => _plans?.reset(), idBearing: true)
+      ..register('happening nearby', () => _happening?.reset(), idBearing: true)
+      ..register('conversations', _conversations.reset, idBearing: true)
+      ..register('message privacy', _ownPrivacy.clear, idBearing: true)
       ..register('badges', () {
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
@@ -499,6 +509,21 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
       _accountReset.run(onError: reportUnexpectedError);
 
   late final StreamSubscription<int> _planMemorySub;
+
+  /// `public_ids` flipped for the signed-in account and the id-bearing caches
+  /// were wiped (`PublicIdTransition`): the hoisted state that holds ids of
+  /// other users is dropped too, and a screen that was already open (it holds
+  /// ids of the old kind, e.g. `/u/<old id>`) is left for Home, which loads
+  /// afresh. The first `GetMe` of a session (the cached profile is showing,
+  /// [OnboardingState.flagsPending]: nothing is open yet beyond what launch or
+  /// a link opened) keeps the location.
+  void _onPublicIdsFlipped() {
+    _accountReset.runIdBearing(onError: reportUnexpectedError);
+    final session = widget.onboardingBloc.state;
+    if (session.status == OnboardingStatus.ready && !session.flagsPending) {
+      _appRouter.router.go(AppRouter.homePath);
+    }
+  }
 
   @override
   void initState() {
@@ -562,6 +587,9 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     // starts push once the notifications flag is on. Never a GetMe of its
     // own: the badge costs 0 extra reads.
     _onboardingSub = widget.onboardingBloc.stream.listen(_onOnboarding);
+    _publicIdsSub = widget.publicIdTransition?.wiped.listen(
+      (_) => _onPublicIdsFlipped(),
+    );
     _onOnboarding(widget.onboardingBloc.state);
     // The probe answering, or messaging turning out to be globally off.
     widget.messagingRepository.gate.addListener(_onMessagingAccess);
@@ -698,6 +726,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _screenViews.dispose();
     _authSub.cancel();
     _onboardingSub.cancel();
+    _publicIdsSub?.cancel();
     unawaited(_postSender.dispose());
     _pendingPosts.close();
     _engagement.close();

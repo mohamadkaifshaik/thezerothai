@@ -27,6 +27,14 @@ class SessionEpoch {
     _ended.add(_value);
   }
 
+  /// Drops every write started under an earlier [value] WITHOUT announcing a
+  /// session end: the account is still signed in, so holders that close or
+  /// reset on [ended] (the composer, the post sender, the plan-form memory)
+  /// keep going. Used when only the cached ids became the wrong kind
+  /// (`public_ids` flipped); the lazily epoch-aware repositories still see the
+  /// new [value] and drop their memory.
+  void invalidateWrites() => _value++;
+
   /// Passed by a write that intentionally bypasses the guard. Every guarded
   /// write takes a required epoch, so skipping the check is always explicit.
   static const int unguarded = -1;

@@ -121,7 +121,7 @@ class SuggestionsRepository {
   DateTime? _retryNotBefore;
 
   /// The `AppSettingEntries` key of [uid].
-  static String key(String uid) => '${kAccountSettingPrefix}suggestions:$uid';
+  static String key(String uid) => '$kIdBearingSettingPrefix$uid';
 
   /// The suggestions for [uid] that may be shown now: cached for the entry's
   /// own lifetime (48 h, 6 h when empty, 24 h after a limit; see the class
