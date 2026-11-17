@@ -505,6 +505,7 @@ class PlanReadOnlyBox extends StatelessWidget {
 const kPlanAreaTitle = 'Area (optional)';
 const kPlanAreaChoose = 'Choose an area';
 const kPlanAreaClear = 'Clear area';
+const kPlanAreaUseMine = 'Use my area';
 const kPlanAreaHint =
     'Pick the area of the meeting point, not where you live. Everyone who can '
     'see the plan sees this area, and people who choose it see the plan in '
@@ -528,8 +529,13 @@ class PlanAreaField extends StatelessWidget {
     required this.enabled,
     required this.onPick,
     required this.onClear,
+    this.onUseMine,
     this.compact = false,
   });
+
+  /// Fills the caller's saved area (a button while no area is chosen); null
+  /// when there is none to offer.
+  final VoidCallback? onUseMine;
 
   /// Compact: no title and a one-line hint (the create form, where the
   /// essentials must fit a phone without scrolling).
@@ -588,6 +594,12 @@ class PlanAreaField extends StatelessWidget {
                 tooltip: kPlanAreaClear,
                 icon: const Icon(Icons.close),
                 onPressed: enabled ? onClear : null,
+              )
+            else if (onUseMine != null)
+              TextButton(
+                key: const ValueKey('plan-area-use-mine'),
+                onPressed: enabled ? onUseMine : null,
+                child: const Text(kPlanAreaUseMine),
               ),
           ],
         ),

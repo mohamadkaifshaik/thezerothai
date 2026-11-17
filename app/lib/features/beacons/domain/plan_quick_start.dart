@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'beacons_feature_flag.dart';
 
@@ -45,13 +48,35 @@ DateTime? quickStartFor(PlanQuickStart quick, DateTime now) {
   }
 }
 
-/// The optional choices of the last plan this session created, applied as the
-/// next form's defaults (kept in memory only: nothing is stored).
+/// Where [PlanFormMemory] keeps its choices between launches. The app's
+/// implementation is the drift settings table (`DatabasePlanFormStore`).
+abstract class PlanFormStore {
+  /// The saved JSON text; null when nothing was saved.
+  Future<String?> read();
+
+  /// Saves [json] for the signed-in account.
+  Future<void> write(String json);
+}
+
+/// The settings key of the saved choices. Versioned in the key and in the
+/// payload; the `account:` prefix makes sign-out and an account switch wipe it.
+const kPlanFormMemoryKey = 'account:plans.form_memory.v1';
+const _kVersion = 1;
+
+/// The optional choices of the last plan created, applied as the next form's
+/// defaults. Kept in memory and, with a [PlanFormStore] bound, across app
+/// restarts (duration, spots, cost, chat and community audience only: never
+/// the activity, title, place or time).
 class PlanFormMemory {
-  PlanFormMemory();
+  PlanFormMemory({PlanFormStore? store}) : _store = store;
 
   /// The one the create screen uses.
   static final session = PlanFormMemory();
+
+  PlanFormStore? _store;
+  Future<void>? _loading;
+  var _generation = 0;
+  var _loadDone = false;
 
   int durationMinutes = 60;
   int openSpots = 3;
@@ -61,6 +86,85 @@ class PlanFormMemory {
   /// A community id; null for Public.
   String? communityId;
 
+  /// Whether the saved choices were read (true when there is no store).
+  bool get loaded => _store == null || _loadDone;
+
+  /// Starts keeping choices in [store]; forgets what an earlier one loaded.
+  void bind(PlanFormStore store) {
+    _store = store;
+    forget();
+  }
+
+  /// Stops keeping choices (app teardown); memory only again.
+  void unbind() {
+    _store = null;
+    forget();
+  }
+
+  /// Back to the defaults and not loaded: the next [ensureLoaded] reads the
+  /// store again. For sign-out and an account switch.
+  void forget() {
+    _generation++;
+    _loading = null;
+    _loadDone = false;
+    reset();
+  }
+
+  /// Reads the saved choices once. Corrupt, missing or foreign-version data
+  /// leaves the defaults; it never throws. A [forget] while it reads drops
+  /// the result.
+  Future<void> ensureLoaded() {
+    final store = _store;
+    if (store == null) return Future.value();
+    return _loading ??= _load(store, _generation);
+  }
+
+  Future<void> _load(PlanFormStore store, int generation) async {
+    String? raw;
+    try {
+      raw = await store.read();
+    } on Object {
+      raw = null;
+    }
+    if (generation != _generation) return;
+    _loadDone = true;
+    if (raw == null) return;
+    try {
+      final json = jsonDecode(raw);
+      if (json is! Map || json['v'] != _kVersion) return;
+      final costValue = json['cost'];
+      final chatValue = json['chat'];
+      final parsedCost = costValue is int
+          ? pb.BeaconCost.valueOf(costValue)
+          : null;
+      final parsedChat = chatValue is int
+          ? pb.ChatPreference.valueOf(chatValue)
+          : null;
+      final duration = json['duration'];
+      final spots = json['spots'];
+      final community = json['community'];
+      remember(
+        durationMinutes: duration is int ? duration : durationMinutes,
+        openSpots: spots is int ? spots : openSpots,
+        cost:
+            parsedCost == null ||
+                parsedCost == pb.BeaconCost.BEACON_COST_UNSPECIFIED
+            ? cost
+            : parsedCost,
+        chat:
+            parsedChat == null ||
+                parsedChat == pb.ChatPreference.CHAT_PREFERENCE_UNSPECIFIED
+            ? chat
+            : parsedChat,
+        communityId: community is String && community.isNotEmpty
+            ? community
+            : null,
+      );
+    } on Object {
+      // Corrupt: keep the defaults.
+    }
+  }
+
   void reset() {
     durationMinutes = 60;
     openSpots = 3;
@@ -69,13 +173,15 @@ class PlanFormMemory {
     communityId = null;
   }
 
-  /// Keeps in-range values only.
+  /// Keeps in-range values only, and with [save] writes them to the bound
+  /// store (not awaited; a failed save is dropped).
   void remember({
     required int durationMinutes,
     required int openSpots,
     required pb.BeaconCost cost,
     required pb.ChatPreference chat,
     required String? communityId,
+    bool save = false,
   }) {
     if (kBeaconDurations.contains(durationMinutes)) {
       this.durationMinutes = durationMinutes;
@@ -86,5 +192,23 @@ class PlanFormMemory {
     this.cost = cost;
     this.chat = chat;
     this.communityId = communityId;
+    final store = _store;
+    if (!save || store == null) return;
+    final json = jsonEncode({
+      'v': _kVersion,
+      'duration': this.durationMinutes,
+      'spots': this.openSpots,
+      'cost': this.cost.value,
+      'chat': this.chat.value,
+      'community': this.communityId,
+    });
+    // A save the user made counts as loaded: later reads must not overwrite.
+    _loadDone = true;
+    _loading ??= Future.value();
+    unawaited(
+      store.write(json).catchError((Object _) {
+        // Not remembered; the plan itself is unaffected.
+      }),
+    );
   }
 }
