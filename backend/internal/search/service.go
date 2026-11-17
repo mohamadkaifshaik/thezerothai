@@ -99,6 +99,21 @@ func (s *service) Posts(ctx context.Context, uid, query string, tab searchv1.Sea
 	return s.PostsWith(ctx, uid, PostsRequest{Query: query, Tab: tab, PageSize: pageSize, PageToken: pageToken})
 }
 
+// ExploreMedia is the global media feed. Flags: search, then trending_media, both before any read. Without WithPosts:
+// Unimplemented. The rules are postsRuntime.exploreMedia.
+func (s *service) ExploreMedia(ctx context.Context, uid string, pageSize int32, pageToken string) (*searchv1.ExploreMediaResponse, error) {
+	if err := s.guard(ctx, uid, FlagSearch); err != nil {
+		return nil, err
+	}
+	if err := s.guard(ctx, uid, FlagTrendingMedia); err != nil {
+		return nil, err
+	}
+	if s.pr == nil {
+		return nil, errNotImplemented()
+	}
+	return s.pr.exploreMedia(ctx, uid, pageSize, pageToken)
+}
+
 // PostsWith is SearchPosts with every request field. Flags: search, then search_filters when FromFollowing is set (a request
 // without it never checks that flag), both before any read.
 func (s *service) PostsWith(ctx context.Context, uid string, req PostsRequest) (*searchv1.SearchPostsResponse, error) {

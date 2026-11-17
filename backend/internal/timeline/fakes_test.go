@@ -245,6 +245,10 @@ func (f *fakePosts) ByCommunity(context.Context, string, posts.Window, int) ([]*
 	return nil, nil
 }
 
+func (f *fakePosts) ByMediaFeed(context.Context, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
 func (f *fakePosts) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }

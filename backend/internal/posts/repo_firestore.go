@@ -40,6 +40,8 @@ type Repo interface {
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error)
 	// ByHashtag is Q-T (existing composite index) and CreatedAfter is Q-W (projected, ascending, automatic indexes).
 	ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error)
+	// ByMediaFeed is the global media feed (Trending): hasMedia == true, newest first, on posts(hasMedia ASC, createdAt DESC).
+	ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error)
 	// ByCommunity is the community feed query (repo_community.go): its own `communityId == C ORDER BY __name__ DESC` shape, never run().
 	ByCommunity(ctx context.Context, cid string, w Window, limit int) ([]*Post, error)
 	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
@@ -491,6 +493,13 @@ func (r *FirestoreRepo) ByAuthorKind(ctx context.Context, authorID string, kind 
 // field's direction). A REPOST stores hashtags [] so it never matches.
 func (r *FirestoreRepo) ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error) {
 	q := r.client.Collection(postsCollection).Where("hashtags", "array-contains", tag)
+	return r.run(ctx, q, w, limit)
+}
+
+// ByMediaFeed implements Repo (the global media feed): `hasMedia == true ORDER BY createdAt DESC, __name__ DESC`, served by
+// the composite index posts(hasMedia ASC, createdAt DESC) that firebase/firestore.indexes.json declares.
+func (r *FirestoreRepo) ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error) {
+	q := r.client.Collection(postsCollection).Where("hasMedia", "==", true)
 	return r.run(ctx, q, w, limit)
 }
 

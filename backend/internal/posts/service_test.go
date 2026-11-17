@@ -105,6 +105,10 @@ func (r *fakeRepo) ByAuthorMedia(ctx context.Context, authorID string, w Window,
 	return r.query(ctx, w, limit)
 }
 
+func (r *fakeRepo) ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error) {
+	return r.query(ctx, w, limit)
+}
+
 func (r *fakeRepo) ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error) {
 	r.lastTag = tag
 	return r.query(ctx, w, limit)

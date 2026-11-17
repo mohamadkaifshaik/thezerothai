@@ -131,4 +131,23 @@ abstract final class SearchService {
     dzerothsearchv1search.SearchCommunitiesResponse.new,
     idempotency: connect.Idempotency.noSideEffects,
   );
+
+  /// The global media feed (Trending): posts from every public author that carry their own images, newest first. Rows:
+  /// root posts and quotes with images (a reply, a REPOST and a quote's embedded images do not count); the SearchPosts
+  /// MEDIA rules per caller: hidden posts, blocked or muted authors (either way), a protected author's post the caller
+  /// does not follow (a quote of one is kept with embed_viewer_state = PROTECTED), and an author that is not ACTIVE are
+  /// dropped. A page may be SHORT or EMPTY while next_page_token is non-empty: keep following it until it is "".
+  /// Flags: "search", then "trending_media" (FEATURE_TRENDING_MEDIA), both before any read. The feed reads posts.hasMedia
+  /// (the composite index posts(hasMedia ASC, createdAt DESC)); a legacy post written before the hasMedia backfill is
+  /// missing from it until `opsctl backfill-has-media` has run. page_size 0 => 20, max 50 (clamped); negative =>
+  /// VALIDATION "page_size". page_token: opaque, sealed, bound to the caller, 24 h TTL; expired, foreign or tampered =>
+  /// VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call; every filter runs per
+  /// call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per instance). Writes nothing.
+  static const exploreMedia = connect.Spec(
+    '/$name/ExploreMedia',
+    connect.StreamType.unary,
+    dzerothsearchv1search.ExploreMediaRequest.new,
+    dzerothsearchv1search.ExploreMediaResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
 }

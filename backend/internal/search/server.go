@@ -75,6 +75,13 @@ func (s *Server) SearchCommunities(ctx context.Context, req *connect.Request[sea
 	})
 }
 
+// ExploreMedia implements the RPC; the rules are Service.ExploreMedia.
+func (s *Server) ExploreMedia(ctx context.Context, req *connect.Request[searchv1.ExploreMediaRequest]) (*connect.Response[searchv1.ExploreMediaResponse], error) {
+	return call(ctx, req, func(ctx context.Context, uid string, m *searchv1.ExploreMediaRequest) (*searchv1.ExploreMediaResponse, error) {
+		return s.svc.ExploreMedia(ctx, uid, m.GetPageSize(), m.GetPageToken())
+	})
+}
+
 // GetTrends implements the RPC; the rules are Service.Trends.
 func (s *Server) GetTrends(ctx context.Context, req *connect.Request[searchv1.GetTrendsRequest]) (*connect.Response[searchv1.GetTrendsResponse], error) {
 	return call(ctx, req, func(ctx context.Context, uid string, m *searchv1.GetTrendsRequest) (*searchv1.GetTrendsResponse, error) {

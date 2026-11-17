@@ -308,6 +308,10 @@ type Config struct {
 	// (which honours only a globally-off flag). FEATURE_TRENDS[_ALLOWLIST|_PERCENT], default off in every environment;
 	// it never ramps ahead of FEATURE_SEARCH.
 	FeatureTrends flags.Spec
+	// FeatureTrendingMedia is the flag (wire name `trending_media`) gating ExploreMedia, the global media feed of the
+	// Trending page, per caller, after FEATURE_SEARCH. FEATURE_TRENDING_MEDIA[_ALLOWLIST|_PERCENT], default off in every
+	// environment; it never ramps ahead of FEATURE_SEARCH.
+	FeatureTrendingMedia flags.Spec
 	// FeaturePolls is the flag (wire name `polls`) gating CREATING a poll per caller (CreatePost with `poll`,
 	// FEATURE_DISABLED feature=polls, rejected before any lookup). VotePoll needs engagement on for the caller and polls NOT globally off.
 	// It never ramps ahead of FEATURE_ENGAGEMENT and leaves off only once 100% of traffic is on a revision that stores
@@ -1133,6 +1137,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureTrendingMedia, err := flags.LoadSpec("TRENDING_MEDIA", "trending_media", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featurePolls, err := flags.LoadSpec("POLLS", "polls", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1294,6 +1302,7 @@ func Load() (Config, error) {
 		FeaturePrivateAccounts:       featurePrivateAccounts,
 		FeatureSearch:                featureSearch,
 		FeatureTrends:                featureTrends,
+		FeatureTrendingMedia:         featureTrendingMedia,
 		FeaturePolls:                 featurePolls,
 		FeatureDrafts:                featureDrafts,
 		FeatureGif:                   featureGif,
