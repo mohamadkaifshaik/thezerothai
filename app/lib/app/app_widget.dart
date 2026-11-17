@@ -15,6 +15,9 @@ import '../core/network/service_paused_cubit.dart';
 import '../core/router/app_router.dart';
 import '../core/router/screen_names.dart';
 import '../core/session/account_session_reset.dart';
+import '../core/session/public_id_transition.dart';
+import '../core/session/user_ids.dart';
+import '../features/posts/domain/viewer_author_snapshot.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_consent_cubit.dart';
@@ -101,6 +104,7 @@ import 'session_wiring.dart';
 class AppWidget extends StatefulWidget {
   const AppWidget({
     super.key,
+    this.publicIdTransition,
     required this.authBloc,
     required this.onboardingBloc,
     required this.identityRepository,
@@ -223,6 +227,9 @@ class AppWidget extends StatefulWidget {
   /// (F3, F9). Bootstrap creates it and feeds it every GetMe before the first
   /// one can run; null (tests) makes one fed from `initState` on.
   final OwnPrivacyStore? ownPrivacyStore;
+
+  /// Wipes the id-bearing caches when `public_ids` flips (null in tests).
+  final PublicIdTransition? publicIdTransition;
 
   /// The share origin and native share sheet for the post Share action,
   /// from `AppConfig.shareOrigin`. Null (tests) means no Share action.
@@ -435,6 +442,16 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     widget.database,
   );
   late final StreamSubscription<OnboardingState> _onboardingSub;
+  StreamSubscription<void>? _publicIdsSub;
+
+  /// The id of the profile that was showing when the account last changed
+  /// (null once the onboarding state was reset): it is never taken for the new
+  /// account's.
+  String? _previousAccountProfile;
+
+  /// A `public_ids` flip wiped the caches: the next profile carries the new
+  /// user id for the viewer's own unsent posts.
+  bool _restampAuthor = false;
   Set<String>? _lastFeatures;
 
   /// The user the Messages access probe last ran for.
@@ -469,19 +486,23 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         widget.impressionTracker?.reset();
       })
       ..register('polls', () => _polls?.reset())
-      ..register('bookmarks', _bookmarks.reset)
-      ..register('suggestions', _suggestions.reset)
+      ..register('bookmarks', _bookmarks.reset, idBearing: true)
+      ..register('suggestions', _suggestions.reset, idBearing: true)
       ..register('trends', () => _trends?.reset())
-      ..register('graph', widget.graphRepository.clearCache)
-      ..register('likes', widget.likesRepository.clearSession)
+      ..register('graph', widget.graphRepository.clearCache, idBearing: true)
+      ..register('likes', widget.likesRepository.clearSession, idBearing: true)
       ..register('posts', () => widget.postsRepository.clearSession())
       ..register('search', () => widget.searchRepository?.clearSession())
       ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
-      ..register('lists', () => widget.listsRepository?.clearSession())
-      ..register('plans', () => _plans?.reset())
-      ..register('happening nearby', () => _happening?.reset())
-      ..register('conversations', _conversations.reset)
-      ..register('message privacy', _ownPrivacy.clear)
+      ..register(
+        'lists',
+        () => widget.listsRepository?.clearSession(),
+        idBearing: true,
+      )
+      ..register('plans', () => _plans?.reset(), idBearing: true)
+      ..register('happening nearby', () => _happening?.reset(), idBearing: true)
+      ..register('conversations', _conversations.reset, idBearing: true)
+      ..register('message privacy', _ownPrivacy.clear, idBearing: true)
       ..register('badges', () {
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
@@ -498,6 +519,26 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
       _accountReset.run(onError: reportUnexpectedError);
 
   late final StreamSubscription<int> _planMemorySub;
+
+  /// `public_ids` flipped for the signed-in account and the id-bearing caches
+  /// were wiped (`PublicIdTransition`): the hoisted state that holds ids of
+  /// other users is dropped too, and a screen that was already open (it holds
+  /// ids of the old kind, e.g. `/u/<old id>`) is left for Home, which loads
+  /// afresh. The first `GetMe` of a session (the cached profile is showing,
+  /// [OnboardingState.flagsPending]: nothing is open yet beyond what launch or
+  /// a link opened) keeps the location.
+  void _onPublicIdsFlipped() {
+    _restampAuthor = true;
+    _accountReset.runIdBearing(onError: reportUnexpectedError);
+    final session = widget.onboardingBloc.state;
+    final here = _appRouter.router.routeInformationProvider.value.uri.path;
+    // Someone who is writing keeps their place (and their text).
+    if (session.status == OnboardingStatus.ready &&
+        !session.flagsPending &&
+        !AppRouter.isComposerPath(here)) {
+      _appRouter.router.go(AppRouter.homePath);
+    }
+  }
 
   @override
   void initState() {
@@ -539,6 +580,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
       // failure shown, then dismissed, on the sign-in/up screen) must not
       // run the reset: it clears the snackbars and hid the error itself.
       if (previousUid != null && _accountUid != previousUid) {
+        _previousAccountProfile = widget.onboardingBloc.state.profile?.userId;
         _endAccountSession();
       }
       // The new account's unsent posts come back as "Not sent" rows.
@@ -561,6 +603,9 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     // starts push once the notifications flag is on. Never a GetMe of its
     // own: the badge costs 0 extra reads.
     _onboardingSub = widget.onboardingBloc.stream.listen(_onOnboarding);
+    _publicIdsSub = widget.publicIdTransition?.wiped.listen(
+      (_) => _onPublicIdsFlipped(),
+    );
     _onOnboarding(widget.onboardingBloc.state);
     // The probe answering, or messaging turning out to be globally off.
     widget.messagingRepository.gate.addListener(_onMessagingAccess);
@@ -641,14 +686,37 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     }
     // `messaging` off with no read-only answer drops the hoisted folders.
     if (flagsChanged) _onMessagingAccess();
-    final uid = state.profile?.userId;
+    // The subscription session is bound to the signed-in Firebase account
+    // (authentication identity: the billing transport and the repository check
+    // it against `currentUser.uid`), never to the server-issued API user id.
+    // It starts as soon as a profile is showing (the cached one on a warm
+    // start, as before), without needing the API id.
+    final accountUid = _accountUid;
+    final apiUserId = state.myUserId;
+    final shown = state.profile?.userId;
+    if (shown == null) _previousAccountProfile = null;
     // Onboarding starts only after the session cache/epoch has been claimed.
-    // Do not start billing reads in the earlier auth notification race.
-    if (uid != null && uid == _accountUid && _subscription?.state.uid != uid) {
-      unawaited(_subscription?.setAccount(uid));
+    // Defence against the auth notification race: the old check compared the
+    // profile id with the Firebase uid, which only holds with the flag off. In
+    // both flag states the equivalent is that the profile is not the one that
+    // was showing when the account changed (an id of any kind differs between
+    // two accounts); the marker clears once the state is reset.
+    if (shown != null &&
+        shown != _previousAccountProfile &&
+        accountUid != null &&
+        _subscription?.state.uid != accountUid) {
+      unawaited(_subscription?.setAccount(accountUid));
     }
-    if (flagsChanged || uid != _probedUid) {
-      _probedUid = uid;
+    // After a `public_ids` flip, the viewer's own unsent posts take the new id.
+    if (_restampAuthor && apiUserId != null && accountUid != null) {
+      _restampAuthor = false;
+      _postSender.restampAuthor(
+        accountUid,
+        viewerAuthorSnapshot(state.profile),
+      );
+    }
+    if (flagsChanged || apiUserId != _probedUid) {
+      _probedUid = apiUserId;
       unawaited(widget.messagingRepository.probeAccess());
     }
     final unreadChanged = _lastUnread != state.unreadNotificationCount;
@@ -690,6 +758,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _screenViews.dispose();
     _authSub.cancel();
     _onboardingSub.cancel();
+    _publicIdsSub?.cancel();
     unawaited(_postSender.dispose());
     _pendingPosts.close();
     _engagement.close();

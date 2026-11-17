@@ -22,6 +22,7 @@ import 'lists_error_messages.dart';
 import 'widgets/list_follow_button.dart';
 import 'widgets/list_row.dart';
 import 'widgets/lists_page_chrome.dart';
+import '../../../core/session/user_ids.dart';
 
 /// `/lists/discover`: public Lists to follow, most followed first.
 ///
@@ -154,7 +155,7 @@ class _DiscoverListsScreenState extends State<DiscoverListsScreen> {
   @override
   Widget build(BuildContext context) {
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     final phone = isListsPhone(context);
     return Scaffold(

@@ -15,6 +15,7 @@ import '../bloc/list_feed_state.dart';
 import '../lists_error_messages.dart';
 import 'list_follow_button.dart';
 import 'list_row.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// How many Lists the card shows.
 const kDiscoverListsRows = 3;
@@ -85,7 +86,7 @@ class _DiscoverListsCardState extends State<DiscoverListsCard> {
     final cubit = _cubit;
     if (cubit == null) return const SizedBox.shrink();
     final viewer = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     return BlocBuilder<ListFeedCubit, ListFeedState>(
       bloc: cubit,

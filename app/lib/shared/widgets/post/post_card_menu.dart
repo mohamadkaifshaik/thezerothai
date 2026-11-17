@@ -226,8 +226,12 @@ class _PostMenuState extends State<_PostMenu> {
     final handle = target.handle;
     final scope = _PostMenuScope.maybeOf(context);
     final canDelete = widget.isOwn && widget.onDelete != null;
+    // Nothing to follow, block or mute on an account that is gone.
     final canGraph =
-        !target.isOwn && widget.graphActionsEnabled && target.userId.isNotEmpty;
+        !target.isOwn &&
+        widget.graphActionsEnabled &&
+        target.userId.isNotEmpty &&
+        !isUnavailableUserId(target.userId);
     final canReport =
         !target.isOwn &&
         widget.reportsEnabled &&

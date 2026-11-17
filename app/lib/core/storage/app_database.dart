@@ -244,6 +244,24 @@ const kAccountSettingPrefix = 'account:';
 /// setting, so [AppDatabase.clearAll] removes it with the data it describes.
 const kCacheOwnerKey = '${kAccountSettingPrefix}owner';
 
+/// The user id the server sent for the caller in the last `GetMe` (the own
+/// profile row of the cache is keyed by it; the Firebase uid is not that key
+/// once `public_ids` is on). An account setting: wiped with the cache.
+const kOwnUserIdKey = '${kAccountSettingPrefix}own_user_id';
+
+/// What the cache holds ids of: `1` the server-issued ids were public ids
+/// (`public_ids` on), `0` they were Firebase uids (off), `-` the cache was just
+/// claimed (nothing id-bearing in it yet). Absent on a cache older than this
+/// marker: it was filled while the flag was off. An account setting, so
+/// [AppDatabase.clearAll] removes it with the data it describes. See
+/// `PublicIdTransition`.
+const kPublicIdsSeenKey = '${kAccountSettingPrefix}public_ids';
+
+/// Prefix of the account settings that hold ids of other users ("Who to
+/// follow"). The other account settings (recent searches, the plan form
+/// memory) are the user's own content and survive a `public_ids` flip.
+const kIdBearingSettingPrefix = '${kAccountSettingPrefix}suggestions:';
+
 /// A device-level setting (key -> value text), e.g. the appearance choice.
 ///
 /// Unlike every other table this one is **not** wiped on sign-out
@@ -640,7 +658,7 @@ class AppDatabase extends _$AppDatabase {
     required int epoch,
   }) {
     return transaction(() async {
-      if (!sessionEpoch.allows(epoch)) return;
+      if (!sessionEpoch.allowsCache(epoch)) return;
       await into(profileCacheEntries).insertOnConflictUpdate(entry);
     });
   }
@@ -661,7 +679,7 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> upsertFollowing(String userId, {required int epoch}) {
     return transaction(() async {
-      if (!sessionEpoch.allows(epoch)) return;
+      if (!sessionEpoch.allowsCache(epoch)) return;
       await into(followingCacheEntries).insertOnConflictUpdate(
         FollowingCacheEntriesCompanion.insert(
           userId: userId,
@@ -673,7 +691,7 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> removeFollowing(String userId, {required int epoch}) {
     return transaction(() async {
-      if (!sessionEpoch.allows(epoch)) return;
+      if (!sessionEpoch.allowsCache(epoch)) return;
       await (delete(
         followingCacheEntries,
       )..where((t) => t.userId.equals(userId))).go();
@@ -703,6 +721,24 @@ class AppDatabase extends _$AppDatabase {
     return (delete(
       appSettingEntries,
     )..where((t) => t.settingKey.equals(key))).go();
+  }
+
+  /// Sets an id-bearing account setting ([key] starts with
+  /// [kIdBearingSettingPrefix]). Guarded by the cache generation
+  /// ([SessionEpoch.cacheValue]), so it is dropped by a sign-out and by a
+  /// `public_ids` flip alike.
+  Future<void> writeIdBearingSetting(
+    String key,
+    String value, {
+    required int epoch,
+  }) {
+    assert(key.startsWith(kIdBearingSettingPrefix));
+    return transaction(() async {
+      if (!sessionEpoch.allowsCache(epoch)) return;
+      await into(appSettingEntries).insertOnConflictUpdate(
+        AppSettingEntriesCompanion.insert(settingKey: key, settingValue: value),
+      );
+    });
   }
 
   /// Sets an account-derived setting ([key] starts with
@@ -738,9 +774,51 @@ class AppDatabase extends _$AppDatabase {
     sessionEpoch.end();
     await transaction(() async {
       await clearAll();
-      if (uid != null) await writeSetting(kCacheOwnerKey, uid);
+      if (uid != null) {
+        await writeSetting(kCacheOwnerKey, uid);
+        // Nothing id-bearing is cached yet: the first flag set seen is not a
+        // transition (`PublicIdTransition`).
+        await writeSetting(kPublicIdsSeenKey, '-');
+      }
     });
     return true;
+  }
+
+  /// Wipes what holds ids of the wrong kind after `public_ids` flipped for the
+  /// signed-in account, and nothing else: cached profiles and follows,
+  /// timelines, notifications, conversations and messages (all rows and their
+  /// paging tokens) and the "Who to follow" setting. Kept on purpose: drafts,
+  /// unsent posts and their photos, the opened-posts history, the saved data
+  /// export, recent searches, the plan form memory, the notification `seen_at`
+  /// and push device id, the cache owner stamp and every device setting. Unlike [clearAll] this is not a sign-out.
+  ///
+  /// Nothing to neutralise in the kept tables: the opened-posts history holds
+  /// only `{uid, postId, openedAt}` (the History tab hydrates posts afresh),
+  /// drafts hold text, and the unsent posts' own author snapshot is re-stamped
+  /// by `PostSender.restampAuthor` after the flip.
+  Future<void> clearIdBearingCache() async {
+    await transaction(() async {
+      await delete(profileCacheEntries).go();
+      await delete(followingCacheEntries).go();
+      await delete(timelineItemEntries).go();
+      await delete(timelineStateEntries).go();
+      await delete(notificationEntries).go();
+      // The paging tokens go with the rows they point into; `seen_at` and the
+      // push device id are not ids of users and stay (a new device id would
+      // register this installation twice).
+      await update(notificationStateEntries).write(
+        const NotificationStateEntriesCompanion(
+          sinceToken: Value(''),
+          olderPageToken: Value(''),
+        ),
+      );
+      await delete(conversationEntries).go();
+      await delete(messageEntries).go();
+      await delete(messagingStateEntries).go();
+      await (delete(
+        appSettingEntries,
+      )..where((t) => t.settingKey.like('$kIdBearingSettingPrefix%'))).go();
+    });
   }
 
   /// Wipes all cached data. Called on sign-out so the next user on a shared

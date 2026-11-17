@@ -13,6 +13,7 @@ import '../../../graph/presentation/bloc/suggestions_cubit.dart';
 import '../../../graph/presentation/bloc/suggestions_state.dart';
 import '../../../graph/presentation/widgets/user_list_row.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// The People tab of Explore, as a sliver: the shared "Who to follow" list
 /// ([SuggestionsCubit], at most 5, no cursor: `ListSuggestedUsers` has no
@@ -27,7 +28,7 @@ class ExplorePeopleSection extends StatefulWidget {
   /// Loads the list for the signed-in viewer (a warm call reads memory); also
   /// the screen's pull to refresh.
   static Future<void> reload(BuildContext context) async {
-    final uid = context.read<OnboardingBloc>().state.profile?.userId;
+    final uid = context.read<OnboardingBloc>().state.myUserId;
     if (uid == null || uid.isEmpty) return;
     await context.read<SuggestionsCubit>().ensureLoaded(uid);
   }

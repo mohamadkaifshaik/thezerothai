@@ -57,6 +57,7 @@ import '../../../features/settings/presentation/message_settings_screen.dart';
 import '../../../features/settings/presentation/settings_screen.dart';
 import '../main_shell.dart';
 import '../app_router.dart';
+import '../../session/user_ids.dart';
 
 /// The ShellRoute with every route that renders inside the navigation chrome.
 RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
@@ -304,7 +305,7 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
             userId: known?.userId,
             displayName: known?.displayName,
             initialTab: GraphListTab.followers,
-            viewerUserId: onboardingBloc.state.profile?.userId,
+            viewerUserId: onboardingBloc.state.myUserId,
           ),
         );
       },
@@ -320,7 +321,7 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
             userId: known?.userId,
             displayName: known?.displayName,
             initialTab: GraphListTab.following,
-            viewerUserId: onboardingBloc.state.profile?.userId,
+            viewerUserId: onboardingBloc.state.myUserId,
           ),
         );
       },

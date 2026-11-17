@@ -22,6 +22,7 @@ import '../../domain/engagement_feature_flag.dart';
 import '../bloc/bookmarks_cubit.dart';
 import '../bloc/engagement_cubit.dart';
 import '../../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// The scrolling list of one History tab (/): live
 /// [PostCard] rows over a `CustomScrollView` with pull to refresh, a skeleton
@@ -250,7 +251,7 @@ class _HistoryPostListState extends State<HistoryPostList> {
   @override
   Widget build(BuildContext context) {
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     final engagementEnabled = isFeatureEnabled(context, kFeatureEngagement);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);

@@ -84,11 +84,11 @@ class NotificationsStore {
 
   final AppDatabase _db;
 
-  int get session => _db.sessionEpoch.value;
+  int get session => _db.sessionEpoch.cacheValue;
 
   Future<void> _tx(int session, Future<void> Function() body) {
     return _db.transaction(() async {
-      if (!_db.sessionEpoch.allows(session)) return;
+      if (!_db.sessionEpoch.allowsCache(session)) return;
       await body();
     });
   }

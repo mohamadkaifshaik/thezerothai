@@ -33,6 +33,7 @@ import '../bloc/engagement_cubit.dart';
 import '../bloc/engagement_state.dart';
 import '../engagement_error_messages.dart';
 import 'repost_sheet.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// The frozen snapshot a quote of [view] previews: the original for a REPOST
 /// row (quoting a repost quotes its original), else the post.
@@ -239,7 +240,7 @@ class PostEngagementBar extends StatelessWidget {
   /// decides and the picker shows its answer.
   bool _canSendInMessage(BuildContext context) {
     if (!sharePostInMessageAllowed(context)) return false;
-    final viewerId = context.read<OnboardingBloc>().state.profile?.userId;
+    final viewerId = context.read<OnboardingBloc>().state.myUserId;
     final protectedByOther =
         view.post.kind != PostKind.POST_KIND_REPOST &&
         view.post.visibility == pbenum.Visibility.VISIBILITY_FOLLOWERS &&
@@ -261,7 +262,7 @@ class PostEngagementBar extends StatelessWidget {
     // Another user's followers-only post (a protected account's):
     // the server refuses Repost and Quote with PROTECTED_ACCOUNT, so the sheet
     // shows them disabled. Advisory; the server stays authoritative.
-    final viewerId = context.read<OnboardingBloc>().state.profile?.userId;
+    final viewerId = context.read<OnboardingBloc>().state.myUserId;
     final restricted =
         view.post.kind != PostKind.POST_KIND_REPOST &&
         view.post.visibility == pbenum.Visibility.VISIBILITY_FOLLOWERS &&

@@ -117,6 +117,18 @@ class TimelineRepository {
     _hold.clear();
   }
 
+  /// `public_ids` flipped: the ids in memory are of the other kind. Forgets the
+  /// per-feed work, throttles and protected-author ids so the next load
+  /// refetches, without ending the session (the account is still signed in;
+  /// the caller invalidates writes of requests started before the flip).
+  void forgetIdKinds() {
+    _inflight.clear();
+    _lockTails.clear();
+    _refreshedAt.clear();
+    _attemptedAt.clear();
+    _protectedAuthors.clear();
+  }
+
   /// Time since the last successful [refresh] of [feed] in this session, or
   /// null when it was never refreshed. Screens use it to throttle automatic
   /// refreshes (at most one per 60 s) across screen re-creations.

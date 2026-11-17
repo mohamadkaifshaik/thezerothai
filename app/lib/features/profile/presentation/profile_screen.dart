@@ -56,6 +56,7 @@ import 'widgets/profile_media_strip.dart';
 import '../../../shared/widgets/post/protected_posts_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/widgets/shell_geometry.dart';
+import '../../../core/session/user_ids.dart';
 
 /// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
 /// relationship, rendered as [ProfileHeader], then (posts flag on) the Posts
@@ -91,7 +92,7 @@ class ProfileScreen extends StatelessWidget {
         handle: handle,
         userId: userId,
         graphEnabled: graphEnabledSnapshot(context),
-        ownUserId: context.read<OnboardingBloc>().state.profile?.userId,
+        ownUserId: context.read<OnboardingBloc>().state.myUserId,
       )..load(),
       child: _ProfileView(
         requestedUserId: userId,
@@ -808,7 +809,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
       _profileTabSpecs(showProfileTabs: true)
           .firstWhere((spec) => spec.id == _mediaTabId),
       userId: profile.userId,
-      viewerUserId: context.read<OnboardingBloc>().state.profile?.userId,
+      viewerUserId: context.read<OnboardingBloc>().state.myUserId,
     );
     return BlocConsumer<TimelineCubit, TimelineState>(
       bloc: media,
@@ -929,7 +930,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   Widget build(BuildContext context) {
     final state = widget.state;
     final profile = state.profile!;
-    final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
+    final viewerUserId = context.read<OnboardingBloc>().state.myUserId;
     final header = _header(
       context,
       state,

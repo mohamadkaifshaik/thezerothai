@@ -26,6 +26,7 @@ import 'widgets/list_suggested_members_card.dart';
 import 'widgets/lists_page_chrome.dart';
 import 'widgets/list_unavailable_view.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../core/session/user_ids.dart';
 
 /// `/lists/:id/members`: the people on a List, newest first, each
 /// with a Follow button; the owner also gets Remove.
@@ -138,7 +139,7 @@ class _ListMembersScreenState extends State<ListMembersScreen> {
   @override
   Widget build(BuildContext context) {
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     // The owner is known from the header the detail screen already holds.
     final isOwner =

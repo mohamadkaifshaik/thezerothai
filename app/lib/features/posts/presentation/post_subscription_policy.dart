@@ -1,14 +1,17 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../premium/domain/subscription_models.dart';
 import '../../premium/presentation/bloc/subscription_cubit.dart';
 
 // UI hints only. Each mutation is independently authorized by the Go API.
 int subscriptionPostLimit(BuildContext context) {
   final state = context.read<SubscriptionCubit?>()?.state;
-  final uid = context.read<OnboardingBloc>().state.profile?.userId;
+  // The subscription session is bound to the signed-in Firebase account
+  // (authentication identity), not to the API user id, which is a
+  // server-issued opaque string that can change kind with `public_ids`.
+  final uid = context.read<AuthBloc?>()?.state.user?.uid;
   if (uid == null ||
       uid.isEmpty ||
       state?.uid != uid ||

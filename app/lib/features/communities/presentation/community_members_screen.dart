@@ -36,6 +36,7 @@ import 'widgets/community_search_field.dart';
 import 'widgets/community_tabs.dart';
 import 'widgets/community_unavailable_view.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../core/session/user_ids.dart';
 
 /// The members search found no one (F36: the search reads only the top 20
 /// handles of the whole platform, so it never says "not a member"). One
@@ -628,7 +629,7 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
   @override
   Widget build(BuildContext context) {
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     final moderates = _viewerRole.canModerate;
     final tab = _shownTab;
