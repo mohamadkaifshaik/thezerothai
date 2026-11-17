@@ -16,8 +16,8 @@ const RefreshRunDeadline = 25 * time.Second
 // NewRefreshHandler is the `/internal/cron/trends-refresh` route: POST only, a 25 s deadline, panic
 // recovery, and 204 unless Refresh returns an error (the document read, the first page or the protected set failed;
 // nothing was written), which is 500. The refresher writes the trends_refresh line and the
-// Error Reporting entry. Mount it behind the OIDC verifier. It serves dev (a direct OIDC call; dev has no Scheduler
-// jobs) and the hourly option (F1 A); prod runs the same step inside daily-maintenance (F1 B).
+// Error Reporting entry. Mount it behind the OIDC verifier. It is called hourly by the `trends-refresh` Cloud Scheduler job in dev and prod
+// (the TRENDS_MIN_INTERVAL guard, default 45m, lets each tick run); daily-maintenance also runs the same step (F1 B).
 func NewRefreshHandler(r TrendsRefresher, log *slog.Logger, projectID string) http.Handler {
 	return mw.RecoverHTTP(log, projectID, refreshOp, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
