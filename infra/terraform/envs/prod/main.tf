@@ -196,6 +196,8 @@ locals {
     // Tags that never trend, applied at serve time and by the sweep. Operators hide a tag
     // at once with `opsctl trends hide`; this list is the deploy-time floor. Comma-separated tag bodies, no leading #.
     { name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) },
+    { name = "TRENDS_MAX_POSTS_PER_AUTHOR", value = tostring(var.trends_max_posts_per_author) },
+    { name = "TRENDS_MIN_INTERVAL", value = var.trends_min_interval },
     { name = "TRENDS_DENYLIST", value = var.trends_denylist },
     // Polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_POLLS", value = var.feature_polls },
@@ -522,12 +524,12 @@ module "scheduler" {
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
 
   # Cloud Scheduler's free tier is 3 jobs PER BILLING ACCOUNT, shared by dev and prod. Count today:
-  #   prod: 2  (daily-maintenance, publish-scheduled)
-  #   dev : 0  (envs/dev has jobs = {})
-  #   total: 2 of 3 free. Keep the third slot free as headroom; any job beyond the third on the billing account is
+  #   prod: 3  (daily-maintenance, publish-scheduled, trends-refresh)
+  #   dev : 1  (trends-refresh)
+  #   total: 4, one over the 3 free; the fourth is paid (owner-approved with the hourly trends work). Any job beyond the third on the billing account is
   #   paid (about $0.10/month) and needs an ADR. This also assumes (founder decision) no Scheduler job lives
   #   outside dzeroth-dev and dzeroth-prod: confirm that before every prod apply that adds a job.
-  # Dev stays empty on purpose: exercise a cron route in dev by calling it directly.
+  # Dev carries only trends-refresh; exercise other cron routes in dev by calling them directly.
   jobs = {
     "daily-maintenance" = {
       schedule = "0 3 * * *"
@@ -545,6 +547,17 @@ module "scheduler" {
     "publish-scheduled" = {
       schedule                 = var.publish_scheduled_schedule
       path                     = "/internal/cron/publish-scheduled"
+      attempt_deadline_seconds = 60
+    }
+
+    # Hourly trends refresh (cold start: Popular hashtags within about an hour, not at the 03:00 daily step). Same OIDC
+    # and route as the daily step's trends part; the sweep reads only posts newer than its watermark (at most
+    # TRENDS_MAX_POSTS_PER_RUN 2000 posts and TRENDS_MAX_AUTHOR_CHECKS 500 profiles per run), writes one document, and a
+    # run within TRENDS_MIN_INTERVAL (45m) of the last list is skipped, so retries and overlaps are safe. Minute 7 keeps it
+    # off the 03:00 daily-maintenance tick. Deadlines: handler 25 s < Cloud Run 30 s < attempt deadline 60 s.
+    "trends-refresh" = {
+      schedule                 = "7 * * * *"
+      path                     = "/internal/cron/trends-refresh"
       attempt_deadline_seconds = 60
     }
   }
