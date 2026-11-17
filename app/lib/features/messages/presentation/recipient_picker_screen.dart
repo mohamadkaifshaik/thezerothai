@@ -41,6 +41,7 @@ import 'open_conversation.dart';
 import 'share_post_error_messages.dart' show sharePostRowReason;
 import 'widgets/not_encrypted_note.dart';
 import 'widgets/share_post_bar.dart';
+import '../../../core/session/user_ids.dart';
 
 /// The "To:" field's key.
 const kRecipientFieldKey = ValueKey('recipient-field');
@@ -281,7 +282,7 @@ class _PickerViewState extends State<_PickerView> {
   @override
   void initState() {
     super.initState();
-    final ownUserId = context.read<OnboardingBloc>().state.profile?.userId;
+    final ownUserId = context.read<OnboardingBloc>().state.myUserId;
     _ownUserId = ownUserId;
     final target = widget.share;
     if (target != null) {

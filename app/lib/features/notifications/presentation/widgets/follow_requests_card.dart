@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/router/app_router.dart';
+import '../../../../core/session/user_ids.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_drawer.dart'
     show followRequestBadgeSpoken, followRequestBadgeText;
@@ -139,9 +140,13 @@ class FollowRequestsCard extends StatelessWidget {
     return _CardFrame(
       count: settledEmpty ? null : count,
       children: [
-        for (final item in items)
+        for (final (i, item) in items.indexed)
           UserListRow(
-            key: ValueKey('follow-request-card-${item.user.userId}'),
+            key: userRowKey(
+              item.user.userId,
+              i,
+              prefix: 'follow-request-card-',
+            ),
             item: item,
             onProfileTap: item.user.userId.isEmpty
                 ? null

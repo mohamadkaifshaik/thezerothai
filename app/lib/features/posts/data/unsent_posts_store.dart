@@ -295,6 +295,17 @@ class UnsentPostsStore {
     });
   }
 
+  /// `public_ids` flipped: replaces the author snapshot of every stored post
+  /// of [uid] (their own posts) with [author], whose user id is of the new
+  /// kind. The text, key and photos are untouched.
+  Future<void> restampAuthor(String uid, common.AuthorSnapshot author) {
+    return (_db.update(
+      _db.unsentPostEntries,
+    )..where((t) => t.uid.equals(uid))).write(
+      UnsentPostEntriesCompanion(authorBytes: Value(author.writeToBuffer())),
+    );
+  }
+
   /// [uid]'s stored posts, oldest first, with each photo's thumbnail and
   /// metadata but NOT its full bytes (see [loadFull]). Rows whose key or
   /// creation is older than the idempotency window are swept first.

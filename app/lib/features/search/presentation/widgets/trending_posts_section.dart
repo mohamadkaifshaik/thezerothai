@@ -17,6 +17,7 @@ import '../bloc/trending_feed_state.dart';
 import '../bloc/trending_paged_cubit.dart';
 import 'trending_section_scroll.dart';
 import 'trending_section_views.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// The Posts section of the Trending tab: the newest public posts (or the
 /// newest of the selected hashtag) as feed rows, with the loading, empty,
@@ -42,7 +43,7 @@ class TrendingPostsSection {
       context,
       kFeatureEngagement,
     );
-    final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
+    final viewerUserId = context.read<OnboardingBloc>().state.myUserId;
     final posts = context.read<PostsRepository>;
     final state = cubit.state;
     Widget one(Widget child) => wrap(SliverToBoxAdapter(child: child));

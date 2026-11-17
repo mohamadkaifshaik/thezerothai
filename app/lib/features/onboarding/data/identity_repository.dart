@@ -89,12 +89,26 @@ class IdentityRepository {
 
   /// The cached copy of the caller's own profile, if any. Renders instantly
   /// while [getMe] refreshes in the background (cache-first).
-  Future<CachedProfile?> cachedOwnProfile(String userId) {
-    return _database.profileByUserId(userId);
+  ///
+  /// [accountUid] is the signed-in Firebase uid. The profile row is keyed by
+  /// the user id the server sent (the Firebase uid while `public_ids` is off,
+  /// the public id once it is on), so the id of the last `GetMe` is remembered
+  /// beside the cache ([kOwnUserIdKey]) and looked up through it; before any
+  /// `GetMe` the row can only be keyed by the uid.
+  Future<CachedProfile?> cachedOwnProfile(String accountUid) async {
+    final remembered = await _database.readSetting(kOwnUserIdKey);
+    return _database.profileByUserId(remembered ?? accountUid);
   }
 
   final List<void Function(identity.GetMeResponse response, int epoch)>
   _getMeListeners = [];
+
+  /// Awaited with each fresh flag set and the session epoch the request
+  /// started in, before the answer is cached or handed to the listeners
+  /// (`PublicIdTransition.onFlagSet`). Returns the cache generation
+  /// (`SessionEpoch.cacheValue`) the answer must be cached under when the hook
+  /// invalidated the earlier one, else null. Must not throw.
+  Future<int?> Function(Set<String> enabledFeatures, int epoch)? flagSetHook;
 
   /// Calls [listener] with every fresh `GetMe` answer and the session epoch
   /// the request started in (for repositories that mirror a part of it, e.g.
@@ -108,14 +122,29 @@ class IdentityRepository {
   Future<identity.GetMeResponse> getMe() {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
+      var cacheEpoch = _database.sessionEpoch.cacheValue;
       final response = await _apiClient.identity.getMe(identity.GetMeRequest());
+      // The flag set is known before anything of this answer is cached or
+      // shown: `public_ids` flipping wipes the id-bearing caches first, and
+      // this answer (of the new kind) is then cached under the new cache
+      // generation.
+      final hook = flagSetHook;
+      if (hook != null) {
+        cacheEpoch =
+            await hook(response.enabledFeatures.toSet(), epoch) ?? cacheEpoch;
+      }
       // A fresh flag set decides again, not an earlier refusal.
       _profileExtrasRefused = false;
       _suggestGate.reset();
       for (final listener in List.of(_getMeListeners)) {
         listener(response, epoch);
       }
-      await _cacheProfile(response.profile, epoch);
+      await _cacheProfile(response.profile, cacheEpoch);
+      await _database.writeAccountSetting(
+        kOwnUserIdKey,
+        response.profile.userId,
+        epoch: epoch,
+      );
       return response;
     });
   }
@@ -130,7 +159,7 @@ class IdentityRepository {
       'getProfile takes exactly one of userId or handle',
     );
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.cacheValue;
       final request = userId != null
           ? identity.GetProfileRequest(userId: userId)
           : identity.GetProfileRequest(handle: handle);
@@ -176,7 +205,7 @@ class IdentityRepository {
     required String idempotencyKey,
   }) {
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.cacheValue;
       final response = await _apiClient.identity.createProfile(
         identity.CreateProfileRequest(
           idempotencyKey: idempotencyKey,
@@ -222,7 +251,7 @@ class IdentityRepository {
     identity.DmPolicy? dmPolicy,
   }) {
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.cacheValue;
       final request = buildUpdateProfileRequest(
         idempotencyKey: idempotencyKey,
         displayName: displayName,
@@ -270,7 +299,7 @@ class IdentityRepository {
     required String newHandle,
   }) {
     return guardApiCall(() async {
-      final epoch = _database.sessionEpoch.value;
+      final epoch = _database.sessionEpoch.cacheValue;
       final response = await _apiClient.identity.changeHandle(
         identity.ChangeHandleRequest(
           idempotencyKey: idempotencyKey,

@@ -23,6 +23,7 @@ import '../feature_flags/ui_shell_feature_flag.dart';
 import 'routes/location_routes.dart';
 import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../session/user_ids.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
 import '../../features/posts/domain/posts_feature_flag.dart';
@@ -86,6 +87,11 @@ class AppRouter {
   static const homePath = '/home';
   static const composePath = '/compose';
   static const articlesPath = '/compose/articles';
+
+  /// Whether [path] is a route where the user is writing something (compose,
+  /// reply, article editor): never torn down by a background event.
+  static bool isComposerPath(String path) =>
+      path == composePath || path.startsWith('$composePath/');
   static String articlePath(String id) =>
       '/articles/${Uri.encodeComponent(id)}';
   static String articleEditPath(String id) =>
@@ -733,9 +739,17 @@ class AppRouter {
         features.contains(kFeatureDmPolicy)) {
       return null;
     }
+    // The own id is unknown until GetMe answers (a reload on this page shows
+    // the cached profile first): decide once it is known, not before.
+    if (_onboardingBloc.state.flagsPending) return null;
     final mine = _ownPrivacy?.value;
-    final uid = _authBloc.state.user?.uid;
-    if (mine != null && mine.userId == uid && ownPrivacyIsSet(mine)) {
+    // The cached privacy row carries the server-issued API user id, so it is
+    // compared with the id GetMe sent, never with the Firebase uid.
+    final myId = _onboardingBloc.state.myUserId;
+    if (mine != null &&
+        myId != null &&
+        mine.userId == myId &&
+        ownPrivacyIsSet(mine)) {
       return null;
     }
     return settingsPath;

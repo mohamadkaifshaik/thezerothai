@@ -44,7 +44,8 @@ extension _PostCardOps on PostCard {
   }
 
   void _openProfile(BuildContext context, String userId) {
-    if (userId.isEmpty) return;
+    // An account that is gone (the tombstone id) has no profile to open.
+    if (userId.isEmpty || isUnavailableUserId(userId)) return;
     final handler = onOpenProfile;
     if (handler != null) {
       handler(userId);

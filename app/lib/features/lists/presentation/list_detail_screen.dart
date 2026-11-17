@@ -31,6 +31,7 @@ import 'widgets/list_detail_header.dart';
 import 'widgets/list_editor_sheet.dart';
 import 'widgets/list_unavailable_view.dart';
 import 'widgets/lists_page_chrome.dart';
+import '../../../core/session/user_ids.dart';
 
 /// `/lists/:id`: the List's header and its timeline.
 ///
@@ -70,7 +71,7 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
     feed: FeedKey.list(widget.listId),
     timeline: context.read<TimelineRepository>(),
     posts: context.read<PostsRepository>(),
-    viewerUserId: context.read<OnboardingBloc>().state.profile?.userId,
+    viewerUserId: context.read<OnboardingBloc>().state.myUserId,
   );
 
   @override
@@ -146,7 +147,7 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
         isFeatureEnabled(context, kFeatureLists);
     final followsOn = isFeatureEnabled(context, kFeatureListFollows);
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     _timeline.viewerUserId = viewerUserId;
     return MultiBlocProvider(

@@ -160,11 +160,11 @@ class MessagingStore {
 
   final AppDatabase _db;
 
-  int get session => _db.sessionEpoch.value;
+  int get session => _db.sessionEpoch.cacheValue;
 
   Future<T?> _tx<T>(int session, Future<T> Function() body) {
     return _db.transaction<T?>(() async {
-      if (!_db.sessionEpoch.allows(session)) return null;
+      if (!_db.sessionEpoch.allowsCache(session)) return null;
       return body();
     });
   }

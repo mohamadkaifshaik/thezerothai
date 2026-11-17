@@ -119,6 +119,18 @@ class MessagingRepository {
     _tail = Future<void>.value();
   }
 
+  /// `public_ids` flipped: forget in-flight work and the unsent messages of
+  /// threads that do not exist yet (their box is keyed by the recipient's user
+  /// id, now of the wrong kind). Unsent messages of existing conversations
+  /// stay: their key is the conversation id, which never changes. The account
+  /// stays signed in; the caller invalidates the writes of requests started
+  /// before the flip. Returns how many unsent threads were dropped.
+  int forgetIdKinds() {
+    _inflight.clear();
+    _tail = Future<void>.value();
+    return outbox.dropDraftThreads();
+  }
+
   /// The RATE_LIMITED answer list calls are held back for, with the time
   /// left; null when nothing is held.
   RateLimitedException? rateLimitedFor() => _hold.check();

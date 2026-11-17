@@ -17,6 +17,7 @@ import '../../../timeline/presentation/timeline_feed_view.dart';
 import '../../../../shared/widgets/primitives/app_tab_bar.dart';
 import 'home_tab_bar.dart';
 import 'home_top_bar.dart';
+import '../../../../core/session/user_ids.dart';
 
 /// One pinned List or community as a Home tab: its own `TimelineCubit`
 /// (`FeedKey.list` or `FeedKey.community`, by the tab's kind), created when the tab is first shown and closed with it,
@@ -45,7 +46,7 @@ class _HomeListTabState extends State<HomeListTab> {
         : FeedKey.list(widget.tab.id),
     timeline: context.read<TimelineRepository>(),
     posts: context.read<PostsRepository>(),
-    viewerUserId: context.read<OnboardingBloc>().state.profile?.userId,
+    viewerUserId: context.read<OnboardingBloc>().state.myUserId,
   )..load();
 
   @override
@@ -66,7 +67,7 @@ class _HomeListTabState extends State<HomeListTab> {
   @override
   Widget build(BuildContext context) {
     final viewerUserId = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+      (OnboardingBloc bloc) => bloc.state.myUserId,
     );
     _timeline.viewerUserId = viewerUserId;
     return BlocProvider<TimelineCubit>.value(

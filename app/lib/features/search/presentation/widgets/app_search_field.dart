@@ -9,6 +9,7 @@ import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/telemetry/usage_reporter.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_avatar.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../data/recent_searches_store.dart';
 import '../../data/search_repository.dart';
@@ -110,7 +111,9 @@ class _AppSearchFieldState extends State<AppSearchField> {
     final cubit = _cubit = SearchSuggestionsCubit(
       repository: context.read<SearchRepository>(),
       store: context.read<RecentSearchesStore>(),
-      uid: onboarding.profile?.userId ?? '',
+      // Recent searches are device storage keyed by the signed-in account
+      // (the Firebase uid), never by the server-issued API user id.
+      uid: context.read<AuthBloc?>()?.state.user?.uid ?? '',
       trendsEnabled: onboarding.enabledFeatures.contains(kFeatureTrends),
       debounce: widget.debounce,
     );

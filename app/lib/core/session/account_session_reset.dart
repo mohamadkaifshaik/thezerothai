@@ -48,17 +48,43 @@
 ///   every fresh `GetMe`).
 class AccountSessionReset {
   final Map<String, void Function()> _steps = {};
+  final Set<String> _idBearing = {};
 
   /// Adds the step [name] (a later registration of the same name replaces
-  /// it, so a rebuilt owner never runs twice).
-  void register(String name, void Function() step) => _steps[name] = step;
+  /// it, so a rebuilt owner never runs twice). [idBearing] marks a holder of
+  /// ids of other users or serialized snapshots of them: [runIdBearing]
+  /// (`public_ids` flipped for the signed-in account) runs only those.
+  void register(
+    String name,
+    void Function() step, {
+    bool idBearing = false,
+  }) {
+    _steps[name] = step;
+    if (idBearing) {
+      _idBearing.add(name);
+    } else {
+      _idBearing.remove(name);
+    }
+  }
 
   /// Runs every step. One failing step never stops the others: the error is
   /// handed to [onError] (unexpected-error reporter) and the run goes on.
-  void run({void Function(Object error, StackTrace stack)? onError}) {
-    for (final step in _steps.values.toList()) {
+  void run({void Function(Object error, StackTrace stack)? onError}) =>
+      _run(_steps.keys, onError);
+
+  /// Runs only the steps registered as `idBearing`: the account stays signed
+  /// in, so the others (background sends, push, subscriptions, snackbars,
+  /// badges) are not touched.
+  void runIdBearing({void Function(Object error, StackTrace stack)? onError}) =>
+      _run(_idBearing, onError);
+
+  void _run(
+    Iterable<String> names,
+    void Function(Object error, StackTrace stack)? onError,
+  ) {
+    for (final name in names.toList()) {
       try {
-        step();
+        _steps[name]?.call();
       } on Object catch (error, stack) {
         onError?.call(error, stack);
       }

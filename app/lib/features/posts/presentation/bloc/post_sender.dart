@@ -53,6 +53,26 @@ class PostSendJob {
   final common.AuthorSnapshot author;
   final ReplyPolicy policy;
 
+  /// This job with [author] replaced (everything else the same).
+  PostSendJob withAuthor(common.AuthorSnapshot author) => PostSendJob(
+    text: text,
+    author: author,
+    policy: policy,
+    replyAudience: replyAudience,
+    poll: poll,
+    communityId: communityId,
+    beaconId: beaconId,
+    attachments: attachments,
+    thumbnails: thumbnails,
+    gif: gif,
+    uid: uid,
+    draftId: draftId,
+    deleteDraftId: deleteDraftId,
+    claimKey: claimKey,
+    claimReused: claimReused,
+    claimStartedAt: claimStartedAt,
+  );
+
   /// The audience as the composer chose it (what Edit puts back).
   final ReplyAudience replyAudience;
   final DraftPoll? poll;
@@ -138,7 +158,7 @@ class _Entry {
   ) : held = job.claimKey,
       attachments = job.attachments;
   final String localId;
-  final PostSendJob job;
+  PostSendJob job;
   final int generation;
   final int openedSession;
 
@@ -338,6 +358,26 @@ class PostSender {
 
   bool _dead(_Entry e) =>
       e.generation != _generation || _session.value != e.openedSession;
+
+  /// The viewer's snapshot after a `public_ids` flip, once known; rows restored
+  /// later take it instead of the stored one.
+  common.AuthorSnapshot? _viewer;
+
+  /// `public_ids` flipped: the author of every post of the viewer that is
+  /// still held here (undo window, queue, "Not sent" rows) and every stored
+  /// one is replaced by [author] (the new user id), so none keeps an id of the
+  /// other kind. Text, keys and photos are untouched.
+  void restampAuthor(String uid, common.AuthorSnapshot author) {
+    _viewer = author;
+    for (final e in _entries.values) {
+      e.job = e.job.withAuthor(author);
+    }
+    _pending.restampAuthor(author);
+    final store = _unsent;
+    if (store != null && uid.isNotEmpty) {
+      unawaited(store.restampAuthor(uid, author).catchError((Object _) {}));
+    }
+  }
 
   /// Adds the status row and runs the send. Returns when the send stops.
   Future<void> start(PostSendJob job) {
@@ -559,7 +599,7 @@ class PostSender {
     final alts = [for (final p in record.photos) p.altText];
     final job = PostSendJob(
       text: record.text,
-      author: record.author,
+      author: _viewer ?? record.author,
       policy: record.policy,
       replyAudience: record.replyAudience,
       poll: record.poll,
@@ -622,7 +662,7 @@ class PostSender {
       PendingPost(
         localId: entry.localId,
         text: record.text,
-        author: record.author,
+        author: _viewer ?? record.author,
         createdAt: record.createdAt,
         thumbnails: job.thumbnails,
         photosTotal: record.totalPhotos,

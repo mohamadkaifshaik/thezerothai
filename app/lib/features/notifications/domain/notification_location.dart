@@ -1,4 +1,5 @@
 import '../../../core/router/app_router.dart';
+import '../../../core/session/user_ids.dart';
 import '../../beacons/domain/beacon_text_rules.dart' show isBeaconId;
 import '../../messages/domain/conversation_id.dart';
 
@@ -67,6 +68,10 @@ String? notificationLocation({
       postId.isNotEmpty) {
     return AppRouter.postPath(postId);
   }
-  if (actorId.isNotEmpty) return AppRouter.profileByIdPath(actorId);
+  // An actor that is gone arrives as the tombstone id (or as nothing): there
+  // is no profile to open.
+  if (actorId.isNotEmpty && !isUnavailableUserId(actorId)) {
+    return AppRouter.profileByIdPath(actorId);
+  }
   return null;
 }

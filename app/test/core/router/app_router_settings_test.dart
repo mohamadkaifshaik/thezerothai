@@ -161,6 +161,46 @@ void main() {
     }
   });
 
+  testWidgets('/settings/messages on a reload with the cached profile only '
+      '(GetMe pending): not redirected, decided once the own id is known', (
+    tester,
+  ) async {
+    final store = OwnPrivacyStore()
+      ..record(
+        identity.Profile(
+          userId: 'u0abcdefghijklmnopqrstuvw2',
+          readReceipts: true,
+        ),
+      );
+    appRouter = AppRouter(
+      authBloc: auth,
+      onboardingBloc: onboarding,
+      ownPrivacy: store,
+    );
+    setStates(
+      signedIn,
+      OnboardingState(
+        status: OnboardingStatus.ready,
+        flagsPending: true,
+        profile: identity.Profile(userId: 'u0abcdefghijklmnopqrstuvw2'),
+      ),
+    );
+    expect(await resolve(tester, '/settings/messages'), '/settings/messages');
+
+    setStates(
+      signedIn,
+      OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'u0abcdefghijklmnopqrstuvw2'),
+      ),
+    );
+    expect(
+      await resolve(tester, '/settings/messages'),
+      '/settings/messages',
+      reason: 'the own row (public id) matches the GetMe id',
+    );
+  });
+
   testWidgets('typed in a ready session: c is kept', (tester) async {
     setStates(signedIn, ready);
     expect(await resolve(tester, '/settings?c=account'), '/settings?c=account');

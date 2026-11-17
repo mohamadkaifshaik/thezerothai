@@ -94,9 +94,9 @@ class GraphRepository {
   /// profile/list screen renders, so warm starts show "Following" without
   /// waiting on the network.
   Future<void> primeFromDatabase() async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final ids = await _database.cachedFollowingIds();
-    if (!_database.sessionEpoch.allows(epoch)) return;
+    if (!_database.sessionEpoch.allowsCache(epoch)) return;
     for (final id in ids) {
       _relationships.putIfAbsent(
         id,
@@ -113,7 +113,7 @@ class GraphRepository {
 
   void _cache(graph.Relationship relationship, int epoch) {
     if (relationship.userId.isEmpty) return;
-    if (!_database.sessionEpoch.allows(epoch)) return;
+    if (!_database.sessionEpoch.allowsCache(epoch)) return;
     _relationships[relationship.userId] = relationship;
   }
 
@@ -142,7 +142,7 @@ class GraphRepository {
   Future<Map<String, graph.Relationship>> relationshipsFor(
     List<String> userIds,
   ) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final ids = userIds.toSet().toList();
     final misses = ids.where((id) => !_relationships.containsKey(id)).toList();
     for (var i = 0; i < misses.length; i += _maxRelationshipsPerCall) {
@@ -186,7 +186,7 @@ class GraphRepository {
   /// switches a whole service off, while every other graph RPC works while this
   /// one is a skeleton.
   Future<ProfileRelationship> profileRelationshipFor(String userId) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final now = _now();
     final until = _profileRelationshipUnavailableUntil;
     final unavailable = until != null && now.isBefore(until);
@@ -206,7 +206,7 @@ class GraphRepository {
         );
         final relationship = _withUserId(response.relationship, userId);
         _cache(relationship, epoch);
-        if (_database.sessionEpoch.allows(epoch)) {
+        if (_database.sessionEpoch.allowsCache(epoch)) {
           _followedBy[userId] = (response.followedBy, _now());
         }
         return ProfileRelationship(
@@ -247,7 +247,7 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final response = await guardApiCall(
       () => _apiClient.graph.follow(
         graph.FollowRequest(userId: userId, idempotencyKey: idempotencyKey),
@@ -270,7 +270,7 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final response = await guardApiCall(
       () => _apiClient.graph.unfollow(
         graph.UnfollowRequest(userId: userId, idempotencyKey: idempotencyKey),
@@ -286,7 +286,7 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final response = await guardApiCall(
       () => _apiClient.graph.block(
         graph.BlockRequest(userId: userId, idempotencyKey: idempotencyKey),
@@ -297,7 +297,7 @@ class GraphRepository {
     // Block always cuts both follow directions: drop it from
     // the local following cache too so a warm start never shows "Following"
     // for someone the caller just blocked, and they no longer follow back.
-    if (_database.sessionEpoch.allows(epoch)) {
+    if (_database.sessionEpoch.allowsCache(epoch)) {
       _followedBy[userId] = (false, _now());
     }
     await _database.removeFollowing(userId, epoch: epoch);
@@ -308,7 +308,7 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final response = await guardApiCall(
       () => _apiClient.graph.unblock(
         graph.UnblockRequest(userId: userId, idempotencyKey: idempotencyKey),
@@ -323,7 +323,7 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final response = await guardApiCall(
       () => _apiClient.graph.mute(
         graph.MuteRequest(userId: userId, idempotencyKey: idempotencyKey),
@@ -338,7 +338,7 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final response = await guardApiCall(
       () => _apiClient.graph.unmute(
         graph.UnmuteRequest(userId: userId, idempotencyKey: idempotencyKey),
@@ -479,7 +479,7 @@ class GraphRepository {
     required bool accept,
     required String idempotencyKey,
   }) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final response = await guardApiCall(
       () => _apiClient.graph.respondToFollowRequest(
         graph.RespondToFollowRequestRequest(
@@ -491,7 +491,7 @@ class GraphRepository {
     );
     final relationship = _withUserId(response.relationship, requesterUserId);
     _cache(relationship, epoch);
-    if (_database.sessionEpoch.allows(epoch)) {
+    if (_database.sessionEpoch.allowsCache(epoch)) {
       _followedBy[requesterUserId] = (accept, _now());
     }
     return relationship;
@@ -516,7 +516,7 @@ class GraphRepository {
     Future<T> Function() call,
     (Iterable<graph.UserListItem>, String) Function(T) unwrap,
   ) async {
-    final epoch = _database.sessionEpoch.value;
+    final epoch = _database.sessionEpoch.cacheValue;
     final response = await guardApiCall(call);
     final (users, nextPageToken) = unwrap(response);
     final items = users.toList(growable: false);
