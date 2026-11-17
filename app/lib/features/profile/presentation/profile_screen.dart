@@ -1,6 +1,8 @@
 import 'dart:async';
+
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import 'widgets/profile_skeleton.dart';
+
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
@@ -11,6 +13,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/router/profile_url_sync.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/context_pane_slots.dart';
@@ -58,11 +61,18 @@ import '../../../core/widgets/shell_geometry.dart';
 /// relationship, rendered as [ProfileHeader], then (posts flag on) the Posts
 /// tab (the posts plan owns the body below the header).
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key, this.handle, this.userId})
-    : assert(
-        (handle == null) != (userId == null),
-        'ProfileScreen takes exactly one of handle or userId',
-      );
+  const ProfileScreen({
+    super.key,
+    this.handle,
+    this.userId,
+    this.urlSync = const ProfileUrlSync(),
+  }) : assert(
+         (handle == null) != (userId == null),
+         'ProfileScreen takes exactly one of handle or userId',
+       );
+
+  /// Swaps the uid in the web address bar for the handle (injectable).
+  final ProfileUrlSync urlSync;
 
   /// Opens the profile by `@handle` (typed links, own profile tab).
   final String? handle;
@@ -84,6 +94,8 @@ class ProfileScreen extends StatelessWidget {
         ownUserId: context.read<OnboardingBloc>().state.profile?.userId,
       )..load(),
       child: _ProfileView(
+        requestedUserId: userId,
+        urlSync: urlSync,
         location: handle != null
             ? AppRouter.profilePath(handle!)
             : AppRouter.profileByIdPath(userId!),
@@ -93,7 +105,14 @@ class ProfileScreen extends StatelessWidget {
 }
 
 class _ProfileView extends StatefulWidget {
-  const _ProfileView({required this.location});
+  const _ProfileView({
+    required this.location,
+    required this.urlSync,
+    this.requestedUserId,
+  });
+
+  final String? requestedUserId;
+  final ProfileUrlSync urlSync;
 
   /// This page's route: the context pane's sections are lent under it.
   final String location;
@@ -302,53 +321,69 @@ class _ProfileViewState extends State<_ProfileView> {
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
     _barBottom = topInset + kToolbarHeight;
-    return _ProfileChrome(
-      topInset: topInset,
-      barBottom: _barBottom,
-      child: Scaffold(
-        extendBodyBehindAppBar: true,
-        appBar: _appBar(context),
-        body: SafeArea(
-          top: false,
-          // The floating bar overlays the page: the scroll view runs behind it
-          // and ends with the bar's inset (ShellBottomInsetSliver).
-          bottom: false,
-          child: SizedBox.expand(
-            key: _bodyKey,
-            child: BlocBuilder<ProfileCubit, ProfileState>(
-              builder: (context, state) {
-                // The states without a hero start under the app bar.
-                Widget belowBar(Widget child) => Padding(
-                  padding: EdgeInsets.only(top: _barBottom),
-                  child: child,
-                );
-                return switch (state.status) {
-                  ProfileStatus.loading => belowBar(
-                    const ProfileSkeleton(),
-                  ),
-                  ProfileStatus.notFound => belowBar(
-                    const AppErrorView(
-                      error: NotFoundException("This account doesn't exist."),
+    return BlocListener<ProfileCubit, ProfileState>(
+      listenWhen: (a, b) => a.profile?.handle != b.profile?.handle,
+      listener: _syncUrl,
+      child: _ProfileChrome(
+        topInset: topInset,
+        barBottom: _barBottom,
+        child: Scaffold(
+          extendBodyBehindAppBar: true,
+          appBar: _appBar(context),
+          body: SafeArea(
+            top: false,
+            // The floating bar overlays the page: the scroll view runs behind it
+            // and ends with the bar's inset (ShellBottomInsetSliver).
+            bottom: false,
+            child: SizedBox.expand(
+              key: _bodyKey,
+              child: BlocBuilder<ProfileCubit, ProfileState>(
+                builder: (context, state) {
+                  // The states without a hero start under the app bar.
+                  Widget belowBar(Widget child) => Padding(
+                    padding: EdgeInsets.only(top: _barBottom),
+                    child: child,
+                  );
+                  return switch (state.status) {
+                    ProfileStatus.loading => belowBar(const ProfileSkeleton()),
+                    ProfileStatus.notFound => belowBar(
+                      const AppErrorView(
+                        error: NotFoundException("This account doesn't exist."),
+                      ),
                     ),
-                  ),
-                  ProfileStatus.error => belowBar(
-                    AppErrorView(
-                      error: state.error!,
-                      onRetry: () => context.read<ProfileCubit>().load(),
+                    ProfileStatus.error => belowBar(
+                      AppErrorView(
+                        error: state.error!,
+                        onRetry: () => context.read<ProfileCubit>().load(),
+                      ),
                     ),
-                  ),
-                  ProfileStatus.ready => _ReadyProfile(
-                    state: state,
-                    outer: _outer,
-                    nameKey: _nameKey,
-                    location: widget.location,
-                  ),
-                };
-              },
+                    ProfileStatus.ready => _ReadyProfile(
+                      state: state,
+                      outer: _outer,
+                      nameKey: _nameKey,
+                      location: widget.location,
+                    ),
+                  };
+                },
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// Web: once the profile opened by id has loaded, shows its handle in the
+  /// address bar (replace, no history entry). Only the top route acts.
+  void _syncUrl(BuildContext context, ProfileState state) {
+    final requested = widget.requestedUserId;
+    final profile = state.profile;
+    if (requested == null || profile == null) return;
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    widget.urlSync.showHandle(
+      requestedUserId: requested,
+      loadedUserId: profile.userId,
+      handle: profile.handle,
     );
   }
 }
