@@ -327,7 +327,12 @@ class BeaconRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: AppSpacing.sm),
-        AppStatusPill(label: end, tone: AppStatusTone.info),
+        AppStatusPill(
+          label: end,
+          tone: b.status == pb.BeaconStatus.BEACON_STATUS_ENDED
+              ? AppStatusTone.danger
+              : AppStatusTone.info,
+        ),
       ],
     );
   }

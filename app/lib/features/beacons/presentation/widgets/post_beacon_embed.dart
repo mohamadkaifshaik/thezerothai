@@ -250,7 +250,9 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
                   statusText,
                   key: const ValueKey('post-plan-status'),
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: AppPalette.pearl,
+                    color: status == beacons.BeaconStatus.BEACON_STATUS_ENDED
+                        ? AppPalette.dangerOnDark
+                        : AppPalette.pearl,
                   ),
                 ),
               ],
