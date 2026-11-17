@@ -139,3 +139,38 @@ func TestNotificationIDActor(t *testing.T) {
 		}
 	}
 }
+
+// The span is the edge's contract (publicid.Rule answers a span inside the value): writing the public id, or the
+// tombstone, over storedID[start:end] must give exactly WireNotificationID, for every type and every id shape.
+func TestNotificationIDActorSpan_IsWireNotificationID(t *testing.T) {
+	t.Parallel()
+	ids := []string{"follow_" + wireActorUID, "repost_" + postA + "_" + wireActorUID, "beacon_request_" + beaconA + "_" + wireActorUID,
+		"like_" + postA + "_2026101012", "mention_" + postA, wireActorUID, "follow_", ""}
+	for _, ty := range append(append([]Type(nil), allTypes...), Type("poke")) {
+		for _, id := range ids {
+			for _, pub := range []string{wirePubID, "", wireActorUID} {
+				start, end, ok := NotificationIDActorSpan(id, ty)
+				if ok != ty.ActorKeyedID() {
+					t.Fatalf("%s %q: ok = %v", ty, id, ok)
+				}
+				want := WireNotificationID(id, ty, pub)
+				if !ok {
+					if want != id {
+						t.Errorf("%s %q: no span but WireNotificationID rewrote it to %q", ty, id, want)
+					}
+					continue
+				}
+				if start < 0 || start > end || end != len(id) {
+					t.Fatalf("%s %q: span [%d,%d) outside the value", ty, id, start, end)
+				}
+				written := pub
+				if !identity.ValidPublicID(written) {
+					written = TombstonePublicID
+				}
+				if got := id[:start] + written + id[end:]; got != want {
+					t.Errorf("%s %q pub %q: span write = %q, WireNotificationID = %q", ty, id, pub, got, want)
+				}
+			}
+		}
+	}
+}

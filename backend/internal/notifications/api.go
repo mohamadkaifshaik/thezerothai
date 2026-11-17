@@ -110,17 +110,25 @@ func (t Type) ActorKeyedID() bool {
 // TestTombstonePublicID here and, once both are on main, by an equality test in apiserver.
 const TombstonePublicID = "uzzzzzzzzzzzzzzzzzzzzzzzzzz"
 
-// NotificationIDActor returns the actor uid a stored row id of type t ends in (ok=false for a type whose id names no
-// actor, or an id with no non-empty last segment). The edge uses it to collect the uids to resolve for a page.
-func NotificationIDActor(storedID string, t Type) (string, bool) {
+// NotificationIDActorSpan is where the actor's uid sits in a stored row id of type t, storedID[start:end], and so where
+// WireNotificationID writes the public id: everything after the last "_" (the whole id when it has none; end is always
+// len(storedID)). ok=false for a type whose id names no actor. It is the edge's rule (publicid.Rule answers a span), and
+// WireNotificationID is defined by it, so the push and the listed row get the same wire id.
+func NotificationIDActorSpan(storedID string, t Type) (start, end int, ok bool) {
 	if !t.ActorKeyedID() {
+		return 0, 0, false
+	}
+	return strings.LastIndexByte(storedID, '_') + 1, len(storedID), true
+}
+
+// NotificationIDActor returns the actor uid a stored row id of type t ends in (ok=false for a type whose id names no
+// actor, or an id with no "_" or an empty last segment). The edge uses it to collect the uids to resolve for a page.
+func NotificationIDActor(storedID string, t Type) (string, bool) {
+	start, end, ok := NotificationIDActorSpan(storedID, t)
+	if !ok || start == 0 || start == end {
 		return "", false
 	}
-	i := strings.LastIndexByte(storedID, '_')
-	if i < 0 || i == len(storedID)-1 {
-		return "", false
-	}
-	return storedID[i+1:], true
+	return storedID[start:end], true
 }
 
 // WireNotificationID is the form of a stored row id sent to a caller or device with FEATURE_PUBLIC_IDS on: for the
@@ -130,13 +138,14 @@ func NotificationIDActor(storedID string, t Type) (string, bool) {
 // is returned unchanged. Stored ids, dedupe and cursors keep the stored form; the result is stable for one actor and,
 // because a public id is unique, unique per row. Pure: no read, no flag.
 func WireNotificationID(storedID string, t Type, actorPublicID string) string {
-	if !t.ActorKeyedID() {
+	start, end, ok := NotificationIDActorSpan(storedID, t)
+	if !ok {
 		return storedID
 	}
 	if !identity.ValidPublicID(actorPublicID) {
 		actorPublicID = TombstonePublicID
 	}
-	return storedID[:strings.LastIndexByte(storedID, '_')+1] + actorPublicID
+	return storedID[:start] + actorPublicID + storedID[end:]
 }
 
 // needsPost reports whether events of type t must name a post.
