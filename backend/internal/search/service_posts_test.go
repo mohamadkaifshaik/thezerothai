@@ -35,13 +35,37 @@ type fakeReader struct {
 	mu    sync.Mutex
 	byTag map[string][]*posts.Post
 	calls []int // the limit of each call
-	reads int
-	err   error
-	gate  chan struct{} // when set, ByHashtag blocks until it is closed
+	// media is the global media feed fixture (newest first) and mediaCalls the limit of each ByMediaFeed call.
+	media      []*posts.Post
+	mediaCalls []int
+	reads      int
+	err        error
+	gate       chan struct{} // when set, ByHashtag blocks until it is closed
 }
 
 func (f *fakeReader) ByCommunity(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
+}
+
+// ByMediaFeed serves the global media feed fixture (media, newest first): rows strictly older than Before, cut at limit.
+func (f *fakeReader) ByMediaFeed(_ context.Context, w posts.Window, limit int) ([]*posts.Post, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mediaCalls = append(f.mediaCalls, limit)
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []*posts.Post
+	for _, p := range f.media {
+		if w.Before != nil && !p.CreatedAt.Before(w.Before.CreatedAt) && (!p.CreatedAt.Equal(w.Before.CreatedAt) || p.ID >= w.Before.ID) {
+			continue
+		}
+		out = append(out, p)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeReader) ByHashtag(_ context.Context, tag string, w posts.Window, limit int) ([]*posts.Post, error) {

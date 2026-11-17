@@ -31,6 +31,8 @@ abstract class SearchServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $6.SearchListsRequest request);
   $async.Future<$6.SearchCommunitiesResponse> searchCommunities(
       $pb.ServerContext ctx, $6.SearchCommunitiesRequest request);
+  $async.Future<$6.ExploreMediaResponse> exploreMedia(
+      $pb.ServerContext ctx, $6.ExploreMediaRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -44,6 +46,8 @@ abstract class SearchServiceBase extends $pb.GeneratedService {
         return $6.SearchListsRequest();
       case 'SearchCommunities':
         return $6.SearchCommunitiesRequest();
+      case 'ExploreMedia':
+        return $6.ExploreMediaRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -62,6 +66,8 @@ abstract class SearchServiceBase extends $pb.GeneratedService {
         return searchLists(ctx, request as $6.SearchListsRequest);
       case 'SearchCommunities':
         return searchCommunities(ctx, request as $6.SearchCommunitiesRequest);
+      case 'ExploreMedia':
+        return exploreMedia(ctx, request as $6.ExploreMediaRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

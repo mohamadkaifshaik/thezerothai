@@ -986,6 +986,34 @@ variable "feature_trends_percent" {
   }
 }
 
+variable "feature_trending_media" {
+  description = "FEATURE_TRENDING_MEDIA rollout mode for the Trending page's global media feed (ExploreMedia; gates it per caller, after search; never ramps ahead of search): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_trending_media)
+    error_message = "feature_trending_media must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_trending_media_allowlist" {
+  description = "FEATURE_TRENDING_MEDIA_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_trending_media_percent" {
+  description = "FEATURE_TRENDING_MEDIA_PERCENT: 0-100, only meaningful when feature_trending_media = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_trending_media_percent >= 0 && var.feature_trending_media_percent <= 100 && floor(var.feature_trending_media_percent) == var.feature_trending_media_percent
+    error_message = "feature_trending_media_percent must be an integer 0-100."
+  }
+}
+
 variable "trends_min_authors" {
   description = "TRENDS_MIN_AUTHORS (ADR-0028 note 2026-10-31, W4-26): the fewest distinct established authors (ACTIVE, account at least TRENDS_MIN_ACCOUNT_AGE, 72 h, old) a hashtag needs to trend. Read at the daily sweep. Dev stays 3: the dev smoke has 3 test authors, which must be older than 72 h."
   type        = number
