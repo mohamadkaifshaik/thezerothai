@@ -1170,6 +1170,17 @@ class _ComposerViewState extends State<_ComposerView> {
                                             ? _questionFocus.requestFocus
                                             : cubit.pollAdded,
                                       ),
+                                    if (!isQuote &&
+                                        isFeatureEnabled(
+                                          context,
+                                          kFeaturePosts,
+                                        ))
+                                      ComposerArticleButton(
+                                        enabled: !state.isSubmitting,
+                                        onPressed: () => context.push(
+                                          AppRouter.articlesPath,
+                                        ),
+                                      ),
                                     if (cubit.canSchedule)
                                       ScheduleButton(
                                         scheduled: scheduling,
