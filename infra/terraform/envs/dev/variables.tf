@@ -1014,6 +1014,34 @@ variable "feature_trending_media_percent" {
   }
 }
 
+variable "feature_trending_posts" {
+  description = "FEATURE_TRENDING_POSTS rollout mode for the Trending page's global newest-posts feed (ExplorePosts; gates it per caller, after search; never ramps ahead of search): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_trending_posts)
+    error_message = "feature_trending_posts must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_trending_posts_allowlist" {
+  description = "FEATURE_TRENDING_POSTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_trending_posts_percent" {
+  description = "FEATURE_TRENDING_POSTS_PERCENT: 0-100, only meaningful when feature_trending_posts = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_trending_posts_percent >= 0 && var.feature_trending_posts_percent <= 100 && floor(var.feature_trending_posts_percent) == var.feature_trending_posts_percent
+    error_message = "feature_trending_posts_percent must be an integer 0-100."
+  }
+}
+
 variable "trends_min_authors" {
   description = "TRENDS_MIN_AUTHORS (ADR-0028 note 2026-10-31, W4-26): the fewest distinct established authors (ACTIVE, account at least TRENDS_MIN_ACCOUNT_AGE, 72 h, old) a hashtag needs to trend. Read at every trends refresh (hourly). Default 1 is the cold-start value for a fresh environment (a tag used by one established account trends). The owner-held terraform.tfvars overrides it: a `trends_min_authors = N` line there wins, so raise it there once there are enough users, and set it to 1 there to get cold-start behaviour in an environment whose tfvars still pins a higher value."
   type        = number

@@ -102,16 +102,34 @@ func (s *service) Posts(ctx context.Context, uid, query string, tab searchv1.Sea
 // ExploreMedia is the global media feed. Flags: search, then trending_media, both before any read. Without WithPosts:
 // Unimplemented. The rules are postsRuntime.exploreMedia.
 func (s *service) ExploreMedia(ctx context.Context, uid string, pageSize int32, pageToken string) (*searchv1.ExploreMediaResponse, error) {
-	if err := s.guard(ctx, uid, FlagSearch); err != nil {
+	if err := s.exploreGate(ctx, uid, FlagTrendingMedia); err != nil {
 		return nil, err
-	}
-	if err := s.guard(ctx, uid, FlagTrendingMedia); err != nil {
-		return nil, err
-	}
-	if s.pr == nil {
-		return nil, errNotImplemented()
 	}
 	return s.pr.exploreMedia(ctx, uid, pageSize, pageToken)
+}
+
+// ExplorePosts is the global newest-posts feed. Flags: search, then trending_posts, both before any read. Without
+// WithPosts: Unimplemented. The rules are postsRuntime.explorePosts.
+func (s *service) ExplorePosts(ctx context.Context, uid string, pageSize int32, pageToken string) (*searchv1.ExplorePostsResponse, error) {
+	if err := s.exploreGate(ctx, uid, FlagTrendingPosts); err != nil {
+		return nil, err
+	}
+	return s.pr.explorePosts(ctx, uid, pageSize, pageToken)
+}
+
+// exploreGate is the gate of the Trending feeds: FlagSearch, then the feed's own flag, both before any read; then
+// Unimplemented when WithPosts was not wired (nil error means s.pr is set).
+func (s *service) exploreGate(ctx context.Context, uid, feedFlag string) error {
+	if err := s.guard(ctx, uid, FlagSearch); err != nil {
+		return err
+	}
+	if err := s.guard(ctx, uid, feedFlag); err != nil {
+		return err
+	}
+	if s.pr == nil {
+		return errNotImplemented()
+	}
+	return nil
 }
 
 // PostsWith is SearchPosts with every request field. Flags: search, then search_filters when FromFollowing is set (a request

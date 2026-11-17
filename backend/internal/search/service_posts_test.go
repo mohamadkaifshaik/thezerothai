@@ -38,9 +38,12 @@ type fakeReader struct {
 	// media is the global media feed fixture (newest first) and mediaCalls the limit of each ByMediaFeed call.
 	media      []*posts.Post
 	mediaCalls []int
-	reads      int
-	err        error
-	gate       chan struct{} // when set, ByHashtag blocks until it is closed
+	// latest is the global newest-posts feed fixture (newest first) and latestCalls the limit of each ByLatestFeed call.
+	latest      []*posts.Post
+	latestCalls []int
+	reads       int
+	err         error
+	gate        chan struct{} // when set, ByHashtag blocks until it is closed
 }
 
 func (f *fakeReader) ByCommunity(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
@@ -55,8 +58,24 @@ func (f *fakeReader) ByMediaFeed(_ context.Context, w posts.Window, limit int) (
 	if f.err != nil {
 		return nil, f.err
 	}
+	return windowOf(f.media, w, limit), nil
+}
+
+// ByLatestFeed serves the global newest-posts fixture (latest, newest first): rows strictly older than Before, cut at limit.
+func (f *fakeReader) ByLatestFeed(_ context.Context, w posts.Window, limit int) ([]*posts.Post, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.latestCalls = append(f.latestCalls, limit)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return windowOf(f.latest, w, limit), nil
+}
+
+// windowOf is the (createdAt DESC, id DESC) StartAfter + Limit of the Firestore query over a newest-first fixture.
+func windowOf(rows []*posts.Post, w posts.Window, limit int) []*posts.Post {
 	var out []*posts.Post
-	for _, p := range f.media {
+	for _, p := range rows {
 		if w.Before != nil && !p.CreatedAt.Before(w.Before.CreatedAt) && (!p.CreatedAt.Equal(w.Before.CreatedAt) || p.ID >= w.Before.ID) {
 			continue
 		}
@@ -65,7 +84,7 @@ func (f *fakeReader) ByMediaFeed(_ context.Context, w posts.Window, limit int) (
 			break
 		}
 	}
-	return out, nil
+	return out
 }
 
 func (f *fakeReader) ByHashtag(_ context.Context, tag string, w posts.Window, limit int) ([]*posts.Post, error) {

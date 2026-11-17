@@ -202,4 +202,34 @@ extension type SearchServiceClient (connect.Transport _transport) {
       onTrailer: onTrailer,
     );
   }
+
+  /// The global newest-posts feed (Trending, Posts section): posts from every public author, newest first, as standard
+  /// post cards (the viewer's liked / reposted / bookmarked flags, plan cards and wire visibility as on the other post
+  /// lists). Rows: root posts and quotes, with or without images; a reply and a REPOST never list (a REPOST would repeat
+  /// an older post as new). The ExploreMedia rules per caller: hidden posts, blocked or muted authors (either way, a
+  /// quote's embedded author too), a protected author's post the caller does not follow (a quote of one is kept with
+  /// embed_viewer_state = PROTECTED), and an author that is not ACTIVE are dropped. A page may be SHORT or EMPTY while
+  /// next_page_token is non-empty: keep following it until it is "". Flags: "search", then "trending_posts"
+  /// (FEATURE_TRENDING_POSTS), both before any read. The feed reads posts ORDER BY createdAt DESC on the automatic
+  /// single-field index (no composite index). page_size 0 => 20, max 50 (clamped); negative => VALIDATION "page_size".
+  /// page_token: opaque, sealed, bound to the caller and to this RPC, 24 h TTL; expired, foreign, tampered or an
+  /// ExploreMedia token => VALIDATION "page_token" before any lookup. Staleness: the feed reads Firestore on every call;
+  /// every filter runs per call. Rate limit: the SearchPosts bucket (RATE_LIMIT_SEARCH_POSTS_PER_MIN per uid per
+  /// instance). Writes nothing.
+  Future<dzerothsearchv1search.ExplorePostsResponse> explorePosts(
+    dzerothsearchv1search.ExplorePostsRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.SearchService.explorePosts,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
 }

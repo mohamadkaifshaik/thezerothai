@@ -49,6 +49,15 @@ func searchViolations(rl ratelimit.Config) []string {
 			out = append(out, "search procedure "+p+" must not be on a daily cap")
 		}
 	}
+	// The Trending feeds (ExploreMedia, ExplorePosts) share the SearchPosts bucket and are on no daily cap.
+	for _, p := range []string{searchv1connect.SearchServiceExploreMediaProcedure, searchv1connect.SearchServiceExplorePostsProcedure} {
+		if b := rl.PerProcedure[p]; b == nil || b != rl.PerProcedure[searchv1connect.SearchServiceSearchPostsProcedure] {
+			out = append(out, "trending feed "+p+" must share the SearchPosts bucket")
+		}
+		if _, ok := rl.DailyCaps[p]; ok {
+			out = append(out, "search procedure "+p+" must not be on a daily cap")
+		}
+	}
 	return out
 }
 
@@ -77,6 +86,12 @@ func TestSearchWiring_Guard(t *testing.T) {
 		{"lists loses its bucket", func(c *ratelimit.Config) {
 			delete(c.PerProcedure, searchv1connect.SearchServiceSearchListsProcedure)
 		}, "one shared bucket"},
+		{"explore posts loses its bucket", func(c *ratelimit.Config) {
+			delete(c.PerProcedure, searchv1connect.SearchServiceExplorePostsProcedure)
+		}, "trending feed " + searchv1connect.SearchServiceExplorePostsProcedure},
+		{"explore posts on another bucket", func(c *ratelimit.Config) {
+			c.PerProcedure[searchv1connect.SearchServiceExplorePostsProcedure] = c.PerProcedure[people]
+		}, "trending feed " + searchv1connect.SearchServiceExplorePostsProcedure},
 		{"communities on another bucket", func(c *ratelimit.Config) {
 			c.PerProcedure[searchv1connect.SearchServiceSearchCommunitiesProcedure] = c.PerProcedure[posts]
 		}, "one shared bucket"},

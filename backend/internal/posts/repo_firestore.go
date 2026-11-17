@@ -42,6 +42,8 @@ type Repo interface {
 	ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error)
 	// ByMediaFeed is the global media feed (Trending): hasMedia == true, newest first, on posts(hasMedia ASC, createdAt DESC).
 	ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error)
+	// ByLatestFeed is the global newest-posts feed (Trending): no filter, newest first, on the automatic createdAt index.
+	ByLatestFeed(ctx context.Context, w Window, limit int) ([]*Post, error)
 	// ByCommunity is the community feed query (repo_community.go): its own `communityId == C ORDER BY __name__ DESC` shape, never run().
 	ByCommunity(ctx context.Context, cid string, w Window, limit int) ([]*Post, error)
 	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
@@ -501,6 +503,15 @@ func (r *FirestoreRepo) ByHashtag(ctx context.Context, tag string, w Window, lim
 func (r *FirestoreRepo) ByMediaFeed(ctx context.Context, w Window, limit int) ([]*Post, error) {
 	q := r.client.Collection(postsCollection).Where("hasMedia", "==", true)
 	return r.run(ctx, q, w, limit)
+}
+
+// ByLatestFeed implements Repo (the global newest-posts feed): `ORDER BY createdAt DESC, __name__ DESC` over the whole
+// collection with no filter. No equality filter means no composite index: the automatic single-field index of createdAt
+// serves it (as it serves Recent), and firebase/firestore.indexes.json exempts no posts.createdAt field. An equality filter
+// such as isReply == false would need a composite posts(isReply, createdAt DESC) that does not exist, so the caller drops
+// replies in memory instead.
+func (r *FirestoreRepo) ByLatestFeed(ctx context.Context, w Window, limit int) ([]*Post, error) {
+	return r.run(ctx, r.client.Collection(postsCollection).Query, w, limit)
 }
 
 // createdAfterFields is the projection of CreatedAfter (and of Recent: the same fields).

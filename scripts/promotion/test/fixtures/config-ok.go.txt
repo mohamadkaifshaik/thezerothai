@@ -32,6 +32,7 @@
 	featureSearch, err := flags.LoadSpec("SEARCH", "search", flags.Off)
 	featureTrends, err := flags.LoadSpec("TRENDS", "trends", flags.Off)
 	featureTrendingMedia, err := flags.LoadSpec("TRENDING_MEDIA", "trending_media", flags.Off)
+	featureTrendingPosts, err := flags.LoadSpec("TRENDING_POSTS", "trending_posts", flags.Off)
 	featurePolls, err := flags.LoadSpec("POLLS", "polls", flags.Off)
 	featureDrafts, err := flags.LoadSpec("DRAFTS", "drafts", flags.Off)
 	featureGif, err := flags.LoadSpec("GIF", "gif", flags.Off)

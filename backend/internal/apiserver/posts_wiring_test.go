@@ -128,6 +128,10 @@ func (emptyReader) ByMediaFeed(context.Context, posts.Window, int) ([]*posts.Pos
 	return nil, nil
 }
 
+func (emptyReader) ByLatestFeed(context.Context, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
 func (emptyReader) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }
