@@ -6,7 +6,6 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../data/search_repository.dart' show Trend;
-import '../../domain/explore_media.dart' show kExploreTopTrends;
 import '../../domain/search_routes.dart';
 import '../bloc/trends_cubit.dart';
 import '../bloc/trends_state.dart';
@@ -17,6 +16,9 @@ import 'trends_status_views.dart';
 
 /// Rows the Trending page lists, at most: the one `GetTrends` asks for 30.
 const kExploreTrendsMaxRows = kTrendsFetchLimit;
+
+/// Rows of the "Popular" list on Explore: the top five.
+const kExplorePopularRows = 5;
 
 /// The "Trending" section of Explore, as a sliver: a header with "See all >"
 /// (the full list, [AppRouter.exploreTrendingPath]) over the top
@@ -51,7 +53,8 @@ class ExploreTrendsSection extends StatelessWidget {
                 );
               }
             case TrendsStatus.ready:
-              if (trends.isEmpty) {
+              // With a Latest row to show, an empty Popular list is not an empty state.
+              if (trends.isEmpty && state.latest == null) {
                 body = const Padding(
                   padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
                   child: AppEmptyView(
@@ -64,7 +67,8 @@ class ExploreTrendsSection extends StatelessWidget {
                 );
               }
           }
-          final shown = trends.take(kExploreTopTrends).toList();
+          final shown = trends.take(kExplorePopularRows).toList();
+          final latest = state.latest;
           return SliverMainAxisGroup(
             slivers: [
               SliverToBoxAdapter(
@@ -73,7 +77,7 @@ class ExploreTrendsSection extends StatelessWidget {
                     top: AppExplorePeopleLayout.sectionGap,
                   ),
                   child: ExploreSectionHeader(
-                    title: 'Trending',
+                    title: 'Popular',
                     showTitle: showTitle,
                     onSeeAll: () => context.push(AppRouter.exploreTrendingPath),
                   ),
@@ -89,6 +93,14 @@ class ExploreTrendsSection extends StatelessWidget {
                     context,
                     shown[i],
                     last: i == shown.length - 1,
+                  ),
+                ),
+              if (body == null && latest != null)
+                SliverToBoxAdapter(
+                  child: exploreLatestRow(
+                    context,
+                    latest,
+                    kicker: shown.isEmpty ? 'Just posted' : 'Latest',
                   ),
                 ),
             ],
@@ -111,6 +123,21 @@ Widget exploreTrendRow(
   ranked: true,
   last: last,
   onTap: () => context.push(searchResultsLocation('#${trend.tag}')),
+);
+
+/// The newest hashtag row ("Latest", or "Just posted" when Popular is empty). It opens the tag's
+/// results like any other row.
+Widget exploreLatestRow(
+  BuildContext context,
+  Trend latest, {
+  required String kicker,
+}) => TrendRow(
+  key: ValueKey('latest-${latest.tag}'),
+  trend: latest,
+  ranked: true,
+  last: true,
+  kicker: kicker,
+  onTap: () => context.push(searchResultsLocation('#${latest.tag}')),
 );
 
 /// The honest one-liner under the Trending title: "Couldn't refresh" while a

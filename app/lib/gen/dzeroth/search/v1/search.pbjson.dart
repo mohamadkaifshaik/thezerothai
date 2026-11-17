@@ -188,6 +188,14 @@ const GetTrendsResponse$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'computedAt'
     },
+    {
+      '1': 'latest',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.search.v1.Trend',
+      '10': 'latest'
+    },
   ],
 };
 
@@ -195,7 +203,8 @@ const GetTrendsResponse$json = {
 final $typed_data.Uint8List getTrendsResponseDescriptor = $convert.base64Decode(
     'ChFHZXRUcmVuZHNSZXNwb25zZRIwCgZ0cmVuZHMYASADKAsyGC5kemVyb3RoLnNlYXJjaC52MS'
     '5UcmVuZFIGdHJlbmRzEjsKC2NvbXB1dGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRp'
-    'bWVzdGFtcFIKY29tcHV0ZWRBdA==');
+    'bWVzdGFtcFIKY29tcHV0ZWRBdBIwCgZsYXRlc3QYAyABKAsyGC5kemVyb3RoLnNlYXJjaC52MS'
+    '5UcmVuZFIGbGF0ZXN0');
 
 @$core.Deprecated('Use searchListsRequestDescriptor instead')
 const SearchListsRequest$json = {

@@ -50,8 +50,12 @@ class ExploreTrendingScreen extends StatelessWidget {
   }
 
   Widget _body(BuildContext context, TrendsState state) {
+    // Pull to refresh asks the shared cubit again, past its 5 minute reuse window.
+    Future<void> refresh() =>
+        context.read<TrendsCubit>().ensureLoaded(force: true);
     final trends = state.trends.take(kExploreTrendsMaxRows).toList();
-    if (trends.isEmpty) {
+    final latest = state.latest;
+    if (trends.isEmpty && latest == null) {
       switch (state.status) {
         case TrendsStatus.initial:
         case TrendsStatus.loading:
@@ -60,32 +64,63 @@ class ExploreTrendingScreen extends StatelessWidget {
             child: TrendsSkeleton(rows: 8),
           );
         case TrendsStatus.failed:
-          return SingleChildScrollView(
-            primary: false,
-            child: TrendsErrorNotice(
-              error: state.error,
-              onRetry: () =>
-                  context.read<TrendsCubit>().ensureLoaded(force: true),
+          return RefreshIndicator(
+            onRefresh: refresh,
+            child: SingleChildScrollView(
+              primary: false,
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: TrendsErrorNotice(
+                error: state.error,
+                onRetry: () =>
+                    context.read<TrendsCubit>().ensureLoaded(force: true),
+              ),
             ),
           );
         case TrendsStatus.unavailable:
         case TrendsStatus.ready:
-          return const AppEmptyView(
-            icon: Icons.trending_up,
-            title: 'Nothing is trending yet',
-            subtitle:
-                'Popular hashtags show up here once enough people use them.',
+          return RefreshIndicator(
+            onRefresh: refresh,
+            child: ListView(
+              primary: false,
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                AppEmptyView(
+                  icon: Icons.trending_up,
+                  title: 'Nothing is trending yet',
+                  subtitle:
+                      'Hashtags show up here as people use them. '
+                      'The newest one is always shown.',
+                ),
+              ],
+            ),
           );
       }
     }
-    return ListView.builder(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.paddingOf(context).bottom + AppSpacing.md,
+    return RefreshIndicator(
+      onRefresh: refresh,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.paddingOf(context).bottom + AppSpacing.md,
+        ),
+        itemCount: trends.length + 1 + (latest == null ? 0 : 1),
+        itemBuilder: (context, i) {
+          if (i == 0) return ExploreTrendsNote(state: state);
+          if (i <= trends.length) {
+            return exploreTrendRow(
+              context,
+              trends[i - 1],
+              last: i == trends.length && latest == null,
+            );
+          }
+          // The Latest row closes the list (or is the only row, "Just posted").
+          return exploreLatestRow(
+            context,
+            latest!,
+            kicker: trends.isEmpty ? 'Just posted' : 'Latest',
+          );
+        },
       ),
-      itemCount: trends.length + 1,
-      itemBuilder: (context, i) => i == 0
-          ? ExploreTrendsNote(state: state)
-          : exploreTrendRow(context, trends[i - 1], last: i == trends.length),
     );
   }
 }

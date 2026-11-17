@@ -542,10 +542,12 @@ class GetTrendsResponse extends $pb.GeneratedMessage {
   factory GetTrendsResponse({
     $core.Iterable<Trend>? trends,
     $2.Timestamp? computedAt,
+    Trend? latest,
   }) {
     final result = GetTrendsResponse._();
     if (trends != null) result.trends.addAll(trends);
     if (computedAt != null) result.computedAt = computedAt;
+    if (latest != null) result.latest = latest;
     return result;
   }
 
@@ -567,6 +569,8 @@ class GetTrendsResponse extends $pb.GeneratedMessage {
         subBuilder: Trend.$_createMessage)
     ..aOM<$2.Timestamp>(2, _omitFieldNames ? '' : 'computedAt',
         subBuilder: $2.Timestamp.$_createMessage)
+    ..aOM<Trend>(3, _omitFieldNames ? '' : 'latest',
+        subBuilder: Trend.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -606,6 +610,20 @@ class GetTrendsResponse extends $pb.GeneratedMessage {
   void clearComputedAt() => $_clearField(2);
   @$pb.TagNumber(2)
   $2.Timestamp ensureComputedAt() => $_ensure(1);
+
+  /// The newest hashtag, read when the answer is loaded (a tag used by an ACTIVE account's newest visible post, not denied
+  /// or hidden; no minimum author count, no account-age rule). Unset when there is none, and unset for a prefix answer.
+  /// post_count is 0 here. Not counted in limit.
+  @$pb.TagNumber(3)
+  Trend get latest => $_getN(2);
+  @$pb.TagNumber(3)
+  set latest(Trend value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasLatest() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearLatest() => $_clearField(3);
+  @$pb.TagNumber(3)
+  Trend ensureLatest() => $_ensure(2);
 }
 
 class SearchListsRequest extends $pb.GeneratedMessage {

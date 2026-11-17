@@ -355,6 +355,15 @@ type Removals interface {
 }
 
 // Service is the Connect handler's dependency: the Reader plus CreatePost, DeletePost and GetPost.
+// RecentReader is the newest-first scan of GetTrends' latest-hashtag rule. The service satisfies it (apiserver asserts it,
+// as for Engagement); it is kept off Reader so no other module's fake changes. Recent returns the newest posts, newest
+// first, at most limit (clamped to MaxRecentLimit). The result is PROJECTED like CreatedAfter (ID, AuthorID, Hashtags,
+// Moderation, CreatedAt, Kind only) and is never stored in any cache. Unfiltered: the caller drops !Visible(), reposts,
+// protected and inactive authors, denied or hidden tags.
+type RecentReader interface {
+	Recent(ctx context.Context, limit int) ([]*Post, error)
+}
+
 type Service interface {
 	Reader
 	// Create writes one root post for uid. It returns the stored post, or, for a replayed
@@ -790,6 +799,8 @@ const (
 	MaxLimit = 50
 	// MaxCreatedAfterLimit is the largest Reader.CreatedAfter page (trends sweep).
 	MaxCreatedAfterLimit = 500
+	// MaxRecentLimit is the largest RecentReader.Recent page (GetTrends' latest-hashtag rule).
+	MaxRecentLimit = 50
 	// MaxRecent is how many newest root posts one author-recent entry holds.
 	MaxRecent = 20
 	// MaxMedia is the most images one post carries.

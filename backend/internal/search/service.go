@@ -9,6 +9,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	searchv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -19,10 +20,12 @@ type service struct {
 	people *people // nil until WithPeople: SearchPeople then answers Unimplemented (the skeleton)
 	// pr is the SearchPosts runtime (WithPosts); nil leaves SearchPosts Unimplemented for an enabled caller.
 	pr         *postsRuntime
-	trends     *trendsCache  // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
-	trendsDeny []string      // TRENDS_DENYLIST (WithTrendsDenylist), folded into trendsCache.deny by New
-	dir        DirectoryDeps // SearchLists and SearchCommunities (WithDirectory); a nil seam is Unimplemented
-	now        func() time.Time
+	trends     *trendsCache // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
+	trendsDeny []string     // TRENDS_DENYLIST (WithTrendsDenylist), folded into trendsCache.deny by New
+	// trendsLatest is the latest-hashtag rule (WithTrendsLatest), handed to trendsCache by New.
+	trendsLatest *latestRule
+	dir          DirectoryDeps // SearchLists and SearchCommunities (WithDirectory); a nil seam is Unimplemented
+	now          func() time.Time
 }
 
 // WithPeople wires SearchPeople: the identity handle reader, the graph snapshot and the prefix cache.
@@ -44,6 +47,12 @@ func WithTrends(store TrendsStore, now func() time.Time) Option {
 // does not matter.
 func WithTrendsDenylist(deny []string) Option { return func(s *service) { s.trendsDeny = deny } }
 
+// WithTrendsLatest wires the Latest row of GetTrends: the newest-first scan, the protected-set loader and the author
+// directory (ACTIVE check) that decide which newest hashtag may be shown. Order among options does not matter.
+func WithTrendsLatest(src LatestSource, protected identity.ProtectedAuthors, dir AuthorDirectory) Option {
+	return func(s *service) { s.trendsLatest = &latestRule{src: src, prot: protected, dir: dir} }
+}
+
 // New builds the Service: the flag gate of each RPC, then the rules of each RPC whose option is given (WithPeople:;
 // WithPosts:; WithTrends:). A nil FlagChecker is off for everyone; an RPC whose option is missing
 // answers Unimplemented to a caller its flag lets through.
@@ -54,6 +63,7 @@ func New(fc FlagChecker, opts ...Option) Service {
 	}
 	if s.trends != nil {
 		s.trends.deny = trendKeySet(s.trendsDeny)
+		s.trends.latest = s.trendsLatest
 	}
 	return s
 }

@@ -34,6 +34,9 @@ abstract class TrendsState with _$TrendsState {
 
     /// When the server computed the list; null when there is no list yet.
     DateTime? computedAt,
+
+    /// The newest hashtag, shown as the Latest row; null when there is none.
+    Trend? latest,
     Object? error,
   }) = _TrendsState;
 }

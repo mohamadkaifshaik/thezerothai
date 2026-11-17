@@ -87,6 +87,28 @@ void main() {
     expect(repo.calls.length, 2);
   });
 
+  test(
+    'the Latest row comes with the list, even when Popular is empty',
+    () async {
+      repo.trendsResult = TrendsResult(
+        latest: Trend(tag: 'justnow', rank: 0),
+        computedAt: DateTime.now(),
+      );
+      await cubit.ensureLoaded();
+      expect(cubit.state.trends, isEmpty);
+      expect(cubit.state.latest?.tag, 'justnow');
+      expect(cubit.state.status, TrendsStatus.ready);
+    },
+  );
+
+  test(
+    'a list without a Latest row has none (a prefix answer, or no post yet)',
+    () async {
+      await cubit.ensureLoaded();
+      expect(cubit.state.latest, isNull);
+    },
+  );
+
   test('reset forgets the list and an answer still in flight', () async {
     final gate = repo.trendsGate = Completer<void>();
     final pending = cubit.ensureLoaded();

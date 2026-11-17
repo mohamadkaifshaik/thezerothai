@@ -16,7 +16,8 @@ T _$identity<T>(T value) => value;
 mixin _$TrendsState {
 
  TrendsStatus get status; List<Trend> get trends;/// When the server computed the list; null when there is no list yet.
- DateTime? get computedAt; Object? get error;
+ DateTime? get computedAt;/// The newest hashtag, shown as the Latest row; null when there is none.
+ Trend? get latest; Object? get error;
 /// Create a copy of TrendsState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,20 +29,20 @@ $TrendsStateCopyWith<TrendsState> get copyWith => _$TrendsStateCopyWithImpl<Tren
 @override
 bool operator ==(Object other) {
   final _this = this as TrendsState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is TrendsState&&(identical(other.status, _this.status) || other.status == _this.status)&&const DeepCollectionEquality().equals(other.trends, _this.trends)&&(identical(other.computedAt, _this.computedAt) || other.computedAt == _this.computedAt)&&const DeepCollectionEquality().equals(other.error, _this.error));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is TrendsState&&(identical(other.status, _this.status) || other.status == _this.status)&&const DeepCollectionEquality().equals(other.trends, _this.trends)&&(identical(other.computedAt, _this.computedAt) || other.computedAt == _this.computedAt)&&(identical(other.latest, _this.latest) || other.latest == _this.latest)&&const DeepCollectionEquality().equals(other.error, _this.error));
 }
 
 
 @override
 int get hashCode {
   final _this = this as TrendsState;
-  return Object.hash(runtimeType,_this.status,const DeepCollectionEquality().hash(_this.trends),_this.computedAt,const DeepCollectionEquality().hash(_this.error));
+  return Object.hash(runtimeType,_this.status,const DeepCollectionEquality().hash(_this.trends),_this.computedAt,_this.latest,const DeepCollectionEquality().hash(_this.error));
 }
 
 @override
 String toString() {
   final _this = this as TrendsState;
-  return 'TrendsState(status: ${_this.status}, trends: ${_this.trends}, computedAt: ${_this.computedAt}, error: ${_this.error})';
+  return 'TrendsState(status: ${_this.status}, trends: ${_this.trends}, computedAt: ${_this.computedAt}, latest: ${_this.latest}, error: ${_this.error})';
 }
 
 
@@ -52,7 +53,7 @@ abstract mixin class $TrendsStateCopyWith<$Res>  {
   factory $TrendsStateCopyWith(TrendsState value, $Res Function(TrendsState) _then) = _$TrendsStateCopyWithImpl;
 @useResult
 $Res call({
- TrendsStatus status, List<Trend> trends, DateTime? computedAt, Object? error
+ TrendsStatus status, List<Trend> trends, DateTime? computedAt, Trend? latest, Object? error
 });
 
 
@@ -69,12 +70,13 @@ class _$TrendsStateCopyWithImpl<$Res>
 
 /// Create a copy of TrendsState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? trends = null,Object? computedAt = freezed,Object? error = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? trends = null,Object? computedAt = freezed,Object? latest = freezed,Object? error = freezed,}) {
   return _then(TrendsState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as TrendsStatus,trends: null == trends ? _self.trends : trends // ignore: cast_nullable_to_non_nullable
 as List<Trend>,computedAt: freezed == computedAt ? _self.computedAt : computedAt // ignore: cast_nullable_to_non_nullable
-as DateTime?,error: freezed == error ? _self.error : error ,
+as DateTime?,latest: freezed == latest ? _self.latest : latest // ignore: cast_nullable_to_non_nullable
+as Trend?,error: freezed == error ? _self.error : error ,
   ));
 }
 
@@ -159,10 +161,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( TrendsStatus status,  List<Trend> trends,  DateTime? computedAt,  Object? error)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( TrendsStatus status,  List<Trend> trends,  DateTime? computedAt,  Trend? latest,  Object? error)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _TrendsState() when $default != null:
-return $default(_that.status,_that.trends,_that.computedAt,_that.error);case _:
+return $default(_that.status,_that.trends,_that.computedAt,_that.latest,_that.error);case _:
   return orElse();
 
 }
@@ -180,10 +182,10 @@ return $default(_that.status,_that.trends,_that.computedAt,_that.error);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( TrendsStatus status,  List<Trend> trends,  DateTime? computedAt,  Object? error)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( TrendsStatus status,  List<Trend> trends,  DateTime? computedAt,  Trend? latest,  Object? error)  $default,) {final _that = this;
 switch (_that) {
 case _TrendsState():
-return $default(_that.status,_that.trends,_that.computedAt,_that.error);case _:
+return $default(_that.status,_that.trends,_that.computedAt,_that.latest,_that.error);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -200,10 +202,10 @@ return $default(_that.status,_that.trends,_that.computedAt,_that.error);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( TrendsStatus status,  List<Trend> trends,  DateTime? computedAt,  Object? error)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( TrendsStatus status,  List<Trend> trends,  DateTime? computedAt,  Trend? latest,  Object? error)?  $default,) {final _that = this;
 switch (_that) {
 case _TrendsState() when $default != null:
-return $default(_that.status,_that.trends,_that.computedAt,_that.error);case _:
+return $default(_that.status,_that.trends,_that.computedAt,_that.latest,_that.error);case _:
   return null;
 
 }
@@ -215,7 +217,7 @@ return $default(_that.status,_that.trends,_that.computedAt,_that.error);case _:
 
 
 class _TrendsState implements TrendsState {
-  const _TrendsState({this.status = TrendsStatus.initial,  List<Trend> trends = const <Trend>[], this.computedAt, this.error}): _trends = trends;
+  const _TrendsState({this.status = TrendsStatus.initial,  List<Trend> trends = const <Trend>[], this.computedAt, this.latest, this.error}): _trends = trends;
   
 
 @override@JsonKey() final  TrendsStatus status;
@@ -228,6 +230,8 @@ class _TrendsState implements TrendsState {
 
 /// When the server computed the list; null when there is no list yet.
 @override final  DateTime? computedAt;
+/// The newest hashtag, shown as the Latest row; null when there is none.
+@override final  Trend? latest;
 @override final  Object? error;
 
 /// Create a copy of TrendsState
@@ -240,18 +244,18 @@ _$TrendsStateCopyWith<_TrendsState> get copyWith => __$TrendsStateCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TrendsState&&(identical(other.status, status) || other.status == status)&&const DeepCollectionEquality().equals(other.trends, _trends)&&(identical(other.computedAt, computedAt) || other.computedAt == computedAt)&&const DeepCollectionEquality().equals(other.error, error));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TrendsState&&(identical(other.status, status) || other.status == status)&&const DeepCollectionEquality().equals(other.trends, _trends)&&(identical(other.computedAt, computedAt) || other.computedAt == computedAt)&&(identical(other.latest, latest) || other.latest == latest)&&const DeepCollectionEquality().equals(other.error, error));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,const DeepCollectionEquality().hash(_trends),computedAt,const DeepCollectionEquality().hash(error));
+    return Object.hash(runtimeType,status,const DeepCollectionEquality().hash(_trends),computedAt,latest,const DeepCollectionEquality().hash(error));
 }
 
 @override
 String toString() {
-    return 'TrendsState(status: $status, trends: $trends, computedAt: $computedAt, error: $error)';
+    return 'TrendsState(status: $status, trends: $trends, computedAt: $computedAt, latest: $latest, error: $error)';
 }
 
 
@@ -262,7 +266,7 @@ abstract mixin class _$TrendsStateCopyWith<$Res> implements $TrendsStateCopyWith
   factory _$TrendsStateCopyWith(_TrendsState value, $Res Function(_TrendsState) _then) = __$TrendsStateCopyWithImpl;
 @override @useResult
 $Res call({
- TrendsStatus status, List<Trend> trends, DateTime? computedAt, Object? error
+ TrendsStatus status, List<Trend> trends, DateTime? computedAt, Trend? latest, Object? error
 });
 
 
@@ -279,12 +283,13 @@ class __$TrendsStateCopyWithImpl<$Res>
 
 /// Create a copy of TrendsState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? trends = null,Object? computedAt = freezed,Object? error = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? trends = null,Object? computedAt = freezed,Object? latest = freezed,Object? error = freezed,}) {
   return _then(_TrendsState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as TrendsStatus,trends: null == trends ? _self._trends : trends // ignore: cast_nullable_to_non_nullable
 as List<Trend>,computedAt: freezed == computedAt ? _self.computedAt : computedAt // ignore: cast_nullable_to_non_nullable
-as DateTime?,error: freezed == error ? _self.error : error ,
+as DateTime?,latest: freezed == latest ? _self.latest : latest // ignore: cast_nullable_to_non_nullable
+as Trend?,error: freezed == error ? _self.error : error ,
   ));
 }
 
