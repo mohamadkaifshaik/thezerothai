@@ -348,4 +348,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Join'), findsOneWidget);
   });
+
+  group('Edit community', () {
+    Future<void> openAs(WidgetTester tester, pb.CommunityRole role) async {
+      when(() => communities.getCommunity('77'))
+          .thenAnswer((_) async => _answer(role: role));
+      await open(tester);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the owner has Edit in the header and the menu', (
+      tester,
+    ) async {
+      await openAs(tester, pb.CommunityRole.COMMUNITY_ROLE_OWNER);
+      expect(find.text('Edit community'), findsOneWidget);
+      await tester.tap(find.byTooltip('Community options'));
+      await tester.pumpAndSettle();
+      // The menu entry and the header button.
+      expect(find.text('Edit community'), findsNWidgets(2));
+    });
+
+    for (final role in [
+      pb.CommunityRole.COMMUNITY_ROLE_MODERATOR,
+      pb.CommunityRole.COMMUNITY_ROLE_MEMBER,
+      pb.CommunityRole.COMMUNITY_ROLE_NONE,
+    ]) {
+      testWidgets('${role.name} cannot edit', (tester) async {
+        await openAs(tester, role);
+        expect(find.text('Edit community'), findsNothing);
+      });
+    }
+  });
 }

@@ -241,6 +241,12 @@ void main() {
             lessThanOrEqualTo(tester.getRect(_field('Title')).top),
           );
           // Cost and Open spots share a row where there is room.
+          // The optional fields sit under "More options".
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('plan-more-toggle')),
+          );
+          await tester.tap(find.byKey(const ValueKey('plan-more-toggle')));
+          await tester.pumpAndSettle();
           await tester.ensureVisible(find.text('Open spots'));
           await tester.pumpAndSettle();
           final cost = tester.getRect(find.text('Cost'));
@@ -265,7 +271,7 @@ void main() {
           );
           await tester.tap(find.text('Close'));
           await tester.pumpAndSettle();
-          await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
+          await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
           await tester.pumpAndSettle();
           expect(rig.server.lastCreate?.title, _planTitle);
         });

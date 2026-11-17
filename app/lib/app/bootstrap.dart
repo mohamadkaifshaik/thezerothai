@@ -403,10 +403,21 @@ Future<void> bootstrap() async {
   // communities are a session cache that ends with the shared SessionEpoch
   // (sign-out).
   final communitiesGate = buildServiceGate(onboardingBloc, kFeatureCommunities);
+  final homeTabsRepository = HomeTabsRepository(
+    apiClient: apiClient,
+    gate: listsGate,
+    communitiesGate: communitiesGate,
+    epoch: database.sessionEpoch,
+  );
+  identityRepository.addGetMeListener(
+    (response, epoch) =>
+        homeTabsRepository.adoptFromMe(response.homeTabs, epoch: epoch),
+  );
   final communitiesRepository = CommunitiesRepository(
     apiClient: apiClient,
     gate: communitiesGate,
     epoch: database.sessionEpoch,
+    onCommunitySeen: homeTabsRepository.noteCommunityInfo,
   );
   // Plans (beacons): the only `BeaconService` caller, 0 RPCs while `beacons`
   // is off for the caller.
@@ -424,16 +435,6 @@ Future<void> bootstrap() async {
       kFeatureCreatorInsights,
       onUnexpectedError: reportUnexpectedError,
     ),
-  );
-  final homeTabsRepository = HomeTabsRepository(
-    apiClient: apiClient,
-    gate: listsGate,
-    communitiesGate: communitiesGate,
-    epoch: database.sessionEpoch,
-  );
-  identityRepository.addGetMeListener(
-    (response, epoch) =>
-        homeTabsRepository.adoptFromMe(response.homeTabs, epoch: epoch),
   );
   // Read receipts and DM policy as the server answered (F3, F9), fed
   // before the first GetMe can run.
@@ -458,6 +459,7 @@ Future<void> bootstrap() async {
     listsGate: listsGate,
     onListSeen: listsRepository.noteListInfo,
     communitiesGate: communitiesGate,
+    onCommunitySeen: homeTabsRepository.noteCommunityInfo,
   );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,

@@ -8,6 +8,8 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/storage/session_epoch.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import '../../../gen/dzeroth/communities/v1/communities.pb.dart'
+    as communities_pb;
 import '../../../gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import '../../../gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
 import '../../communities/domain/communities_feature_flag.dart';
@@ -42,6 +44,11 @@ import '../domain/lists_feature_flag.dart';
 ///   ([noteListInfo], fed from every `ListInfo` the lists repository
 ///   returns), else the server title. [needsLabel] says when the screen must
 ///   call `GetList` once.
+/// - **Community titles.** The server title is always empty for a COMMUNITY
+///   tab. Its label is the latest community header the client holds
+///   ([noteCommunityInfo], fed by `GetCommunity`, `GetCommunityTimeline`,
+///   Join/Leave and `UpdateCommunity`), else the name given at pin time;
+///   [needsLabel] says when the screen must call `GetCommunity` once.
 class HomeTabsRepository {
   HomeTabsRepository({
     required ApiClient apiClient,
@@ -71,6 +78,7 @@ class HomeTabsRepository {
   List<HomeTabEntry> _confirmed = const [];
   List<HomeTabEntry> _current = const [];
   final Map<String, String> _titleOverrides = {};
+  final Map<String, String> _communityTitles = {};
   Future<void>? _inFlight;
   List<HomeTabEntry>? _wanted;
   String? _key;
@@ -135,22 +143,43 @@ class HomeTabsRepository {
     }
   }
 
+  /// The latest header of community [community] the client holds. Its name is
+  /// the label of that community's tab (the server never sends one).
+  void noteCommunityInfo(communities_pb.Community community) {
+    _sync();
+    if (community.communityId.isEmpty || community.name.isEmpty) return;
+    if (_communityTitles[community.communityId] == community.name) return;
+    _communityTitles[community.communityId] = community.name;
+    if (_current.any(
+      (t) => t.kind == HomeTabKind.community && t.id == community.communityId,
+    )) {
+      _emit();
+    }
+  }
+
   /// The label of [tab]: the local header title, else the server's; empty
   /// when neither is known (see [needsLabel]).
   String labelFor(HomeTabEntry tab) {
-    if (tab.kind != HomeTabKind.list) return tab.title;
-    final override = _titleOverrides[tab.id];
+    final override = switch (tab.kind) {
+      HomeTabKind.list => _titleOverrides[tab.id],
+      HomeTabKind.community => _communityTitles[tab.id],
+    };
     return (override != null && override.isNotEmpty) ? override : tab.title;
   }
 
-  /// A LIST tab with no label: the screen calls `GetList` once for it.
-  bool needsLabel(HomeTabEntry tab) =>
-      tab.kind == HomeTabKind.list && labelFor(tab).isEmpty;
+  /// A tab with no label: the screen calls `GetList` / `GetCommunity` once
+  /// for it.
+  bool needsLabel(HomeTabEntry tab) => labelFor(tab).isEmpty;
 
   /// Appends a tab at the end (the "Pin" button). A no-op when already pinned.
   Future<void> pin(HomeTabKind kind, String id, {String title = ''}) {
     _sync();
     if (isPinned(kind, id)) return Future<void>.value();
+    // The server never echoes a community's name back; remember the one the
+    // caller pinned with so the tab keeps its label after the write settles.
+    if (kind == HomeTabKind.community && title.isNotEmpty) {
+      _communityTitles[id] = title;
+    }
     return setTabs([
       ..._current,
       HomeTabEntry(kind: kind, id: id, title: title),
@@ -397,6 +426,7 @@ class HomeTabsRepository {
     _key = null;
     _keyFor = null;
     _titleOverrides.clear();
+    _communityTitles.clear();
     _writeUnavailable = false;
     _communityTabsRefused = false;
     if (had) _emit();

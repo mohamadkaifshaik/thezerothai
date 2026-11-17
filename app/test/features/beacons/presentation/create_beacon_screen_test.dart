@@ -7,7 +7,9 @@ import 'package:dzeroth/features/communities/data/communities_repository.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as cpb;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+
 import '../../../support/ui_tooltip_finder.dart';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +18,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/beacons_rig.dart';
 import '../../../support/fake_beacons_server.dart';
 import '../../../support/geometry.dart';
+import '../../../support/theme_harness.dart';
 
 class _MockCommunities extends Mock implements CommunitiesRepository {}
 
@@ -39,9 +42,13 @@ void main() {
     WidgetTester tester, {
     CommunitiesRepository? communities,
     DateTime Function()? clock,
+    Set<String>? features,
+    MatrixEnv? env,
   }) => pumpPlansRouter(
     tester,
     beacons: server,
+    features: features,
+    env: env,
     communities: communities,
     initialLocation: '/plans/new',
     routes: [
@@ -77,9 +84,19 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// "More options" holds the optional fields: open it.
+  Future<void> openMore(WidgetTester tester) async {
+    await tapVisible(tester, find.byKey(const ValueKey('plan-more-toggle')));
+  }
+
+  /// "Custom" reveals the Date and Time pickers.
+  Future<void> openCustomWhen(WidgetTester tester) async {
+    await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Custom'));
+  }
+
   bool createEnabled(WidgetTester tester) {
     final button = tester.widget<AppPillButton>(
-      find.widgetWithText(AppPillButton, 'Create'),
+      find.widgetWithText(AppPillButton, 'Post plan'),
     );
     return button.onPressed != null;
   }
@@ -91,11 +108,15 @@ void main() {
   }
 
   testWidgets('defaults: Coffee, 60 min, 3 spots, Free, Quiet, Public, and '
-      'Create waits for a title and a meeting point', (tester) async {
+      'Post plan waits for a title and a meeting point', (tester) async {
     await open(tester);
 
     expectNoOverflow(tester);
     expect(find.text('New plan'), findsOneWidget);
+    // Closed, the optional choices show as one line.
+    expect(find.text('60 min · 3 spots · Free'), findsOneWidget);
+    expect(find.text('Details'), findsNothing);
+    await openMore(tester);
     expect(find.text('60 min'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
     for (final label in ['Coffee', 'Free', 'Quiet', 'Public']) {
@@ -142,6 +163,7 @@ void main() {
     await open(tester);
     await fillValid(tester);
 
+    await openCustomWhen(tester);
     pickedDate = now;
     pickedTime = TimeOfDay.fromDateTime(now.add(const Duration(minutes: 4)));
     await tapVisible(tester, find.byUiTooltip('Pick a date'));
@@ -165,17 +187,19 @@ void main() {
   ) async {
     final router = await open(tester);
     await fillValid(tester);
+    await openMore(tester);
     await tester.enterText(field('Details'), ' Bring a book ');
     await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Study'));
     await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Split evenly'));
     await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Open to chat'));
     await tapVisible(tester, find.byUiTooltip('More spots'));
+    await openCustomWhen(tester);
     pickedDate = now.add(const Duration(days: 2));
     pickedTime = const TimeOfDay(hour: 18, minute: 30);
     await tapVisible(tester, find.byUiTooltip('Pick a date'));
     await tapVisible(tester, find.byUiTooltip('Pick a time'));
 
-    await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
     await tester.pumpAndSettle();
 
     final sent = server.lastCreate!;
@@ -218,8 +242,9 @@ void main() {
     await open(tester, communities: communities);
     await fillValid(tester);
 
+    await openMore(tester);
     await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Gardeners'));
-    await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
     await tester.pumpAndSettle();
 
     expect(server.lastCreate!.communityId, 'c1');
@@ -233,7 +258,7 @@ void main() {
     final router = await open(tester);
     await fillValid(tester);
 
-    await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
     await tester.pumpAndSettle();
 
     expect(
@@ -253,6 +278,7 @@ void main() {
     var clock = now;
     await open(tester, clock: () => clock);
     await fillValid(tester);
+    await openCustomWhen(tester);
     pickedDate = now;
     pickedTime = TimeOfDay.fromDateTime(now.add(const Duration(minutes: 6)));
     await tapVisible(tester, find.byUiTooltip('Pick a date'));
@@ -261,7 +287,7 @@ void main() {
 
     // Two minutes pass before the tap: the start is now 4 minutes out.
     clock = now.add(const Duration(minutes: 2));
-    await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
     await tester.pumpAndSettle();
 
     expect(
@@ -270,6 +296,95 @@ void main() {
     );
     expect(server.calls, isEmpty);
     expect(createEnabled(tester), isFalse);
+  });
+
+  testWidgets('the essentials fit a 393x830 phone without scrolling', (
+    tester,
+  ) async {
+    await open(
+      tester,
+      features: const {'beacons', 'location'},
+      env: const MatrixEnv(
+        brightness: Brightness.light,
+        size: Size(393, 830),
+        textScale: 1.0,
+      ),
+    );
+    expectNoOverflow(tester);
+    final screen = tester.getRect(find.byType(Scaffold));
+    for (final f in [
+      field('Title'),
+      field('Meeting point'),
+      find.widgetWithText(ChoiceChip, 'Tomorrow'),
+      find.byKey(const ValueKey('plan-more-toggle')),
+    ]) {
+      expect(
+        screen.contains(tester.getBottomLeft(f)),
+        isTrue,
+        reason: '${f.toString()} at ${tester.getBottomLeft(f)} in $screen',
+      );
+    }
+  });
+
+  testWidgets('an over-long Details stays open and visible', (tester) async {
+    await open(tester);
+    await fillValid(tester);
+    await openMore(tester);
+    await tester.enterText(
+      field('Details'),
+      'x' * (kBeaconDetailsMaxLength + 1),
+    );
+    await tester.pump();
+    // Collapsing is refused while the error would be hidden.
+    await tapVisible(tester, find.byKey(const ValueKey('plan-more-toggle')));
+    expect(field('Details'), findsOneWidget);
+    expect(createEnabled(tester), isFalse);
+  });
+
+  testWidgets('a quick When chip sets the start and Post plan sends it', (
+    tester,
+  ) async {
+    await open(tester);
+    await fillValid(tester);
+    await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Tomorrow'));
+    expect(find.textContaining('10:00'), findsOneWidget);
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
+    await tester.pumpAndSettle();
+    expect(
+      server.lastCreate!.startAt.toDateTime().toLocal(),
+      DateTime(now.year, now.month, now.day + 1, 10),
+    );
+  });
+
+  testWidgets('Now starts ten minutes out; Tonight is offered before 18:45 '
+      'only', (tester) async {
+    await open(tester);
+    expect(find.widgetWithText(ChoiceChip, 'Tonight'), findsOneWidget);
+    await fillValid(tester);
+    await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Now'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
+    await tester.pumpAndSettle();
+    expect(
+      server.lastCreate!.startAt.toDateTime().toLocal(),
+      DateTime(now.year, now.month, now.day, 12, 10),
+    );
+  });
+
+  testWidgets('the last optional choices are the next form defaults', (
+    tester,
+  ) async {
+    final router = await open(tester);
+    await fillValid(tester);
+    await openMore(tester);
+    await tapVisible(tester, find.widgetWithText(ChoiceChip, '90 min'));
+    await tapVisible(tester, find.widgetWithText(ChoiceChip, 'Split evenly'));
+    await tapVisible(tester, find.byUiTooltip('More spots'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
+    await tester.pumpAndSettle();
+
+    router.go('/plans/new');
+    await tester.pumpAndSettle();
+    expect(find.text('90 min · 4 spots · Split evenly'), findsOneWidget);
   });
 
   group('leaving with edits (C03)', () {
@@ -324,6 +439,7 @@ void main() {
 
     testWidgets('a changed chip counts as an edit', (tester) async {
       await openPushed(tester);
+      await openMore(tester);
       await tapVisible(tester, find.widgetWithText(ChoiceChip, '30 min'));
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
@@ -335,7 +451,7 @@ void main() {
     ) async {
       final router = await openPushed(tester);
       await fillValid(tester);
-      await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Post plan'));
       await tester.pumpAndSettle();
       expect(find.text('Discard this plan?'), findsNothing);
       expect(router.state.uri.path, startsWith('/plans/'));

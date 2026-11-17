@@ -7,183 +7,151 @@ import 'package:go_router/go_router.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
-import 'article_cover_tint.dart';
 
 /// A bounded feed snapshot; full content is fetched only in the reader.
 ///
-/// The Substack look: the cover fills the whole card (4:5, capped in height on
-/// wide layouts, center-cropped) and the lower part carries a gradient from
-/// transparent to a dark tint of the cover's own average colour, with the
-/// "ARTICLE" label, the title and the excerpt in white on it. The card looks
-/// the same in light and dark mode (it is a picture). Without a cover the same
-/// layout sits on the dark brand gradient. Until the tint is known, or when
-/// it cannot be computed, the overlay is a near-black scrim.
-class ArticlePreviewCard extends StatefulWidget {
-  const ArticlePreviewCard({
-    super.key,
-    required this.article,
-    this.tintLoader = loadArticleCoverTint,
-  });
+/// An outlined card on the theme surface (light and dark follow the theme):
+/// the cover, then the "ARTICLE · n MIN READ" meta line, the title (at most
+/// 2 lines) and the excerpt (at most 3). The author and the date are in the
+/// post header above the card, so they are not repeated here.
+///
+/// Phone (narrower than [AppSize.articleCardWideWidth]): a 16:9 cover over the
+/// text. Tablet and desktop columns: the cover (4:3) beside the text. A
+/// missing or failed cover is a brand placeholder (with a cover URL) or no
+/// image at all (no URL: a text card, so a feed of cover-less articles stays
+/// compact). Every text is bounded, so long titles, long unbroken words and a
+/// missing excerpt never overflow.
+class ArticlePreviewCard extends StatelessWidget {
+  const ArticlePreviewCard({super.key, required this.article});
 
   final pb.ArticlePreview article;
-
-  /// How the overlay tint is found; tests pass a fake (the default decodes
-  /// the cover through the image cache).
-  final ArticleTintLoader tintLoader;
-
-  @override
-  State<ArticlePreviewCard> createState() => _ArticlePreviewCardState();
-}
-
-class _ArticlePreviewCardState extends State<ArticlePreviewCard> {
-  Color? _tint;
-  String? _tintFor;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTint();
-  }
-
-  @override
-  void didUpdateWidget(ArticlePreviewCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.article.coverUrl != widget.article.coverUrl) _loadTint();
-  }
-
-  void _loadTint() {
-    final url = widget.article.coverUrl;
-    _tintFor = url;
-    _tint = null;
-    if (url.isEmpty) return;
-    widget.tintLoader(url).then((tint) {
-      // A late answer for a cover the card no longer shows is dropped.
-      if (!mounted || _tintFor != url || tint == null) return;
-      setState(() => _tint = tint);
-    }, onError: (_) {});
-  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final article = widget.article;
-    final hasCover = article.coverUrl.isNotEmpty;
+    final title = article.title.trim();
     return Semantics(
       button: true,
-      label: 'Read article: ${article.title}',
+      label: 'Read article: ${title.isEmpty ? articleCardUntitled : title}',
       child: Card(
         margin: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
+        elevation: 0,
+        color: theme.colorScheme.surface,
         shape: RoundedRectangleBorder(
           side: BorderSide(color: theme.colorScheme.outlineVariant),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.card),
         ),
         child: InkWell(
           onTap: () => context.push(AppRouter.articlePath(article.articleId)),
-          child: hasCover
-              ? LayoutBuilder(
-                  builder: (context, constraints) {
-                    // 4:5 of the card's width, never taller than a single
-                    // post image may grow (tablet and desktop).
-                    final height = math.min(
-                      constraints.maxWidth / AppSize.postMediaDefaultAspect,
-                      AppSize.postMediaMaxSingleHeight,
-                    );
-                    return SizedBox(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= AppSize.articleCardWideWidth;
+              final hasCover = article.coverUrl.isNotEmpty;
+              final text = _ArticleText(article: article);
+              if (!hasCover) return text;
+              if (!wide) {
+                final height = math.min(
+                  constraints.maxWidth / AppSize.articleCardCoverAspect,
+                  AppSize.articleCardMaxCoverHeight,
+                );
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
                       height: height,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          CachedNetworkImage(
-                            imageUrl: article.coverUrl,
-                            fit: BoxFit.cover,
-                            alignment: Alignment.center,
-                            placeholder: (_, _) =>
-                                const ColoredBox(color: AppPalette.navy2),
-                            errorWidget: (_, _, _) => const ColoredBox(
-                              color: AppPalette.navy2,
-                              child: Center(
-                                child: Icon(
-                                  Icons.article_outlined,
-                                  color: AppPalette.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Align(
-                            alignment: Alignment.bottomCenter,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                minHeight:
-                                    height * AppSize.articleCardOverlayFraction,
-                                maxHeight: height,
-                              ),
-                              child: _Overlay(
-                                key: const ValueKey('article-card-overlay'),
-                                article: article,
-                                tint: _tint ?? AppPalette.navyDeep,
-                                fadeHeight: AppSize.articleCardFadeHeight,
-                              ),
-                            ),
-                          ),
-                        ],
+                      child: _Cover(url: article.coverUrl),
+                    ),
+                    text,
+                  ],
+                );
+              }
+              return ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: AppSize.articleCardWideMinHeight,
+                ),
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width:
+                            constraints.maxWidth *
+                            AppSize.articleCardWideCoverFraction,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [_Cover(url: article.coverUrl)],
+                        ),
                       ),
-                    );
-                  },
-                )
-              : ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minHeight: AppSize.articleCardMinHeight,
-                  ),
-                  child: DecoratedBox(
-                    key: const ValueKey('article-card-surface'),
-                    decoration: const BoxDecoration(
-                      gradient: AppGradients.communityCover,
-                    ),
-                    child: _Overlay(
-                      article: article,
-                      tint: null,
-                      fadeHeight: 0,
-                    ),
+                      Expanded(child: Center(child: text)),
+                    ],
                   ),
                 ),
+              );
+            },
+          ),
         ),
       ),
     );
   }
 }
 
-/// The card's small caps label: "ARTICLE", with the read time when the
-/// preview carries one ("ARTICLE · 5 MIN READ"). Older posts have 0 (unknown)
-/// and show the bare label.
+/// Shown instead of a title that is empty.
+const articleCardUntitled = 'Untitled article';
+
+/// The card's small caps label: "ARTICLE", or with the read time when the
+/// preview carries one ("ARTICLE · 5 MIN READ"). Older posts have 0
+/// (unknown) and show the bare label.
 String articleCardLabel(int readMinutes) =>
     readMinutes > 0 ? 'ARTICLE · $readMinutes MIN READ' : 'ARTICLE';
 
-/// The text block: label, title, excerpt, bottom-left in white, on a gradient
-/// from transparent to [tint] (null: no gradient, the surface is behind it).
-class _Overlay extends StatelessWidget {
-  const _Overlay({
-    super.key,
-    required this.article,
-    required this.tint,
-    required this.fadeHeight,
-  });
+/// The cover, center-cropped to its box; the placeholder while it loads and
+/// when it fails.
+class _Cover extends StatelessWidget {
+  const _Cover({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) => CachedNetworkImage(
+    imageUrl: url,
+    fit: BoxFit.cover,
+    alignment: Alignment.center,
+    placeholder: (_, _) => const ArticleCoverFallback(),
+    errorWidget: (_, _, _) => const ArticleCoverFallback(showIcon: true),
+  );
+}
+
+/// The brand placeholder for a cover that is loading or failed.
+class ArticleCoverFallback extends StatelessWidget {
+  const ArticleCoverFallback({super.key, this.showIcon = false});
+
+  final bool showIcon;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(gradient: AppGradients.communityCover),
+    child: showIcon
+        ? const Center(
+            child: Icon(Icons.article_outlined, color: AppPalette.white),
+          )
+        : null,
+  );
+}
+
+class _ArticleText extends StatelessWidget {
+  const _ArticleText({required this.article});
 
   final pb.ArticlePreview article;
-  final Color? tint;
-  final double fadeHeight;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tint = this.tint;
-    final text = Padding(
-      padding: EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        fadeHeight == 0 ? AppSpacing.md : fadeHeight,
-        AppSpacing.md,
-        AppSpacing.md,
-      ),
+    final title = article.title.trim();
+    final excerpt = article.excerpt.trim();
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,44 +161,36 @@ class _Overlay extends StatelessWidget {
             semanticsLabel: article.readMinutes > 0
                 ? 'Article, ${article.readMinutes} minute read'
                 : 'Article',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.labelSmall?.copyWith(
-              color: AppPalette.white.withValues(alpha: 0.7),
+              color: theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.4,
             ),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            article.title,
-            maxLines: 3,
+            title.isEmpty ? articleCardUntitled : title,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleLarge?.copyWith(
-              color: AppPalette.white,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.w700,
             ),
           ),
-          if (article.excerpt.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.sm),
+          if (excerpt.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xs),
             Text(
-              article.excerpt,
-              maxLines: 2,
+              excerpt,
+              maxLines: 3,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: AppPalette.white.withValues(alpha: 0.8),
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ],
         ],
-      ),
-    );
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: tint == null ? null : AppGradients.articleOverlay(tint),
-      ),
-      child: Align(
-        alignment: Alignment.bottomLeft,
-        heightFactor: 1,
-        child: text,
       ),
     );
   }
