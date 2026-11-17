@@ -206,10 +206,13 @@ func loadBulkCheckpoint(path string) (bulkCheckpointFile, error) {
 	return c, nil
 }
 
-// saveBulkCheckpoint writes the file atomically: a temp file in the same directory (0600), synced, closed, then renamed over
-// the target, so a crash leaves the old checkpoint or the new one, never a torn file.
-func saveBulkCheckpoint(path string, c bulkCheckpointFile) (err error) {
-	data, err := json.MarshalIndent(c, "", "  ")
+// saveBulkCheckpoint writes the file atomically (writeCheckpointFile).
+func saveBulkCheckpoint(path string, c bulkCheckpointFile) error { return writeCheckpointFile(path, c) }
+
+// writeCheckpointFile writes v as indented JSON atomically: a temp file in the same directory (0600), synced, closed, then
+// renamed over the target, so a crash leaves the old checkpoint or the new one, never a torn file.
+func writeCheckpointFile(path string, v any) (err error) {
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode checkpoint: %w", err)
 	}

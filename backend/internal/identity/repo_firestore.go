@@ -27,10 +27,13 @@ var (
 	ErrNotFound    = errors.New("identity: not found")
 	ErrHandleTaken = errors.New("identity: handle taken")
 	// ErrCreateConflict means a transaction's create-only write found its document already there, so nothing
-	// committed. With a public id in the transaction the usual cause is a racing signup of the same uid or handle (a rerun
-	// resolves it as a replay or ErrHandleTaken) and, in principle, a public id collision; the service reruns with a
-	// fresh id either way (at most maxPublicIDAttempts runs).
+	// committed. Without a more specific cause (ErrPublicIDCollision) it is deterministic, a pre-existing graph/{uid}
+	// for instance, and is never retried.
 	ErrCreateConflict = errors.New("identity: create-only write conflicted")
+	// ErrPublicIDCollision means the drawn public id already has its publicIds/{id} lookup (the transaction read it, or
+	// the lazy mint's create-only write lost), so nothing committed. It wraps ErrCreateConflict. It is the only conflict a
+	// mint retries, with a fresh id (at most maxPublicIDAttempts runs).
+	ErrPublicIDCollision = fmt.Errorf("%w: public id taken", ErrCreateConflict)
 )
 
 // ErrHandleChangeCooldown is returned by FirestoreRepo.ChangeHandle when uid's HandleChangedAt, read
@@ -311,8 +314,9 @@ func (r *FirestoreRepo) resolveOwners(ctx context.Context, collection string, ke
 // CreateProfile writes users, handles and the graph doc in one transaction; a replay (users/{uid} already exists)
 // writes nothing. authorize adds no Firestore operations; the baseline it returns (nil = none) is stored on the new
 // users document. A non-empty publicID is stored on the users document and its publicIds/{publicID} lookup is created
-// (create-only) in the same transaction: one more write, no read. A commit that loses a create-only write (the lookup
-// already exists, or a racing signup created users/{uid} or the handle) is ErrCreateConflict and writes nothing.
+// (create-only) in the same transaction: one more read (the lookup, before the Auth call) and one more write. A lookup
+// that already exists is ErrPublicIDCollision (nothing written, no Auth call); a commit that loses any other create-only
+// write (a pre-existing graph/{uid}, say) is ErrCreateConflict and writes nothing.
 func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName, publicID string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (Profile, bool, error) {
 	var result Profile
 	replay := false
@@ -331,6 +335,16 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 			return nil
 		case status.Code(err) != codes.NotFound:
 			return fmt.Errorf("identity: get user %s: %w", uid, err)
+		}
+
+		// The drawn id's lookup is read before the Auth call and any write, so a collision is told apart from every
+		// other conflict (only it is retried) and costs no Auth lookup. Only while minting: no id, no read.
+		if publicID != "" {
+			if _, perr := tx.Get(r.publicIDRef(publicID)); perr == nil {
+				return ErrPublicIDCollision
+			} else if status.Code(perr) != codes.NotFound {
+				return fmt.Errorf("identity: get public id lookup: %w", perr)
+			}
 		}
 
 		var baseline *AuthBaseline
@@ -400,7 +414,7 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 // rewrite). Two concurrent calls serialise on the users read: the loser reruns, finds the winner's id and writes
 // nothing, so a user never gets two ids or an orphan lookup. Cost: 1 read, plus 2 writes only when it mints.
 // It returns the profile as read (with the new id when it minted). ErrNotFound when the document is absent;
-// ErrCreateConflict when the lookup already exists (nothing written).
+// ErrPublicIDCollision (wrapping ErrCreateConflict) when the lookup already exists (nothing written).
 func (r *FirestoreRepo) EnsurePublicID(ctx context.Context, uid, publicID string, now time.Time) (Profile, error) {
 	var out Profile
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -434,7 +448,7 @@ func (r *FirestoreRepo) EnsurePublicID(ctx context.Context, uid, publicID string
 	case errors.Is(err, ErrNotFound):
 		return Profile{}, ErrNotFound
 	case status.Code(err) == codes.AlreadyExists:
-		return Profile{}, ErrCreateConflict
+		return Profile{}, ErrPublicIDCollision // the lookup is the transaction's only create
 	}
 	return Profile{}, fmt.Errorf("identity: ensure public id: %w", err)
 }

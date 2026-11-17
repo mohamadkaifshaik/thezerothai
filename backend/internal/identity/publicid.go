@@ -12,8 +12,9 @@ import (
 // the uid, the time or a counter, so it reveals nothing about either; it is immutable, never reissued and never reused
 // after erasure. It is stored as users/{uid}.publicId plus the lookup document publicIds/{publicId} -> {uid, createdAt}.
 //
-// Alphabet: Crockford base32 in lowercase, "0123456789abcdefghjkmnpqrstvwxyz". It leaves out i, l, o and u, so a
-// read-aloud or hand-copied id has no 1/l/i or 0/o ambiguity and the body never contains the prefix letter. 26
+// Alphabet: Crockford base32 in lowercase, "0123456789abcdefghjkmnpqrstvwxyz". It leaves out i, l, o and u, so the
+// body never contains the prefix letter. The id is meant to be copied, not typed: ValidPublicID is strict (no uppercase,
+// no Crockford i/l/o substitution), so a hand-retyped id with any of those is rejected, not corrected. 26
 // characters carry 130 bits; the 128-bit value is big-endian, so the first body character holds only the top 3 bits
 // and is always one of 0-7. ValidPublicID enforces that, so every valid id decodes to exactly one 128-bit value.
 //
