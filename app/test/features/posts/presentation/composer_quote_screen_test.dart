@@ -157,6 +157,40 @@ void main() {
     handle.dispose();
   });
 
+  testWidgets('with the keyboard open the input is above the quote and '
+      'on screen', (tester) async {
+    features({'engagement', 'quotes'});
+    await open(
+      tester,
+      quote: quoted,
+      withPreview: pb.EmbeddedPost(
+        postId: postId(5),
+        text: List.filled(30, 'a long quoted line').join(' '),
+        author: common.AuthorSnapshot(
+          userId: 'u-orig',
+          handle: 'orig',
+          displayName: 'Original Author',
+        ),
+      ),
+    );
+    // A tall on-screen keyboard on an 800 dp phone.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 420);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+
+    final field = tester.getRect(find.byType(TextField));
+    final card = tester.getRect(find.text('Original Author'));
+    final visible = 800 - 420.0;
+    expect(field.top, lessThan(card.top));
+    expect(field.top, greaterThanOrEqualTo(0));
+    expect(field.bottom, lessThanOrEqualTo(visible));
+    expect(field.height, greaterThanOrEqualTo(48));
+
+    await tester.enterText(find.byType(TextField), 'my take');
+    await tester.pump();
+    expect(find.text('my take'), findsOneWidget);
+  });
+
   testWidgets('without a preview (page reload) it still quotes', (
     tester,
   ) async {
@@ -333,33 +367,32 @@ void main() {
   for (final dark in [false, true]) {
     for (final width in const [360.0, 600.0, 1200.0]) {
       for (final scale in const [1.0, 1.3, 2.0]) {
-        testWidgets(
-          'W2-13 matrix: quote composer ${dark ? 'dark' : 'light'} '
-          '${width.toInt()}dp x$scale: preview, field and Post fit',
-          (tester) async {
-            features({'engagement', 'quotes'});
-            await open(
-              tester,
-              quote: quoted,
-              withPreview: preview,
-              textScale: scale,
-              width: width,
-              theme: dark ? appDarkTheme : appLightTheme,
-            );
+        testWidgets('W2-13 matrix: quote composer ${dark ? 'dark' : 'light'} '
+            '${width.toInt()}dp x$scale: preview, field and Post fit', (
+          tester,
+        ) async {
+          features({'engagement', 'quotes'});
+          await open(
+            tester,
+            quote: quoted,
+            withPreview: preview,
+            textScale: scale,
+            width: width,
+            theme: dark ? appDarkTheme : appLightTheme,
+          );
 
-            expect(tester.takeException(), isNull);
-            expect(find.text('the quoted words'), findsOneWidget);
-            final post = tester.getRect(
-              find.widgetWithText(AppPillButton, 'Post'),
-            );
-            expect(post.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
-            expect(post.left, greaterThanOrEqualTo(0));
-            expect(post.right, lessThanOrEqualTo(width));
-            final field = tester.getRect(find.byType(TextField));
-            expect(field.left, greaterThanOrEqualTo(0));
-            expect(field.right, lessThanOrEqualTo(width));
-          },
-        );
+          expect(tester.takeException(), isNull);
+          expect(find.text('the quoted words'), findsOneWidget);
+          final post = tester.getRect(
+            find.widgetWithText(AppPillButton, 'Post'),
+          );
+          expect(post.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+          expect(post.left, greaterThanOrEqualTo(0));
+          expect(post.right, lessThanOrEqualTo(width));
+          final field = tester.getRect(find.byType(TextField));
+          expect(field.left, greaterThanOrEqualTo(0));
+          expect(field.right, lessThanOrEqualTo(width));
+        });
       }
     }
   }
