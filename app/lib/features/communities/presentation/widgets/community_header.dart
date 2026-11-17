@@ -57,6 +57,7 @@ class CommunityHeader extends StatelessWidget {
     this.wide = false,
     this.onCompose,
     this.onModerationLog,
+    this.onEdit,
   });
 
   final CommunityDetailState state;
@@ -75,6 +76,10 @@ class CommunityHeader extends StatelessWidget {
   /// Opens the moderation log; null hides the entry. The screen passes
   /// it only when the server's `viewer_role` is owner or moderator.
   final VoidCallback? onModerationLog;
+
+  /// Opens the Edit community form; null hides the entry. The screen passes
+  /// it only for the owner of a community that is not archived.
+  final VoidCallback? onEdit;
 
   /// Whether the "Post" entry is offered for [state]: the caller is a
   /// member by the server's `viewer_role` (a banned or non-member viewer is
@@ -248,7 +253,10 @@ class CommunityHeader extends StatelessWidget {
     final actions = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (compose != null || onModerationLog != null || !banned) ...[
+        if (compose != null ||
+            onModerationLog != null ||
+            onEdit != null ||
+            !banned) ...[
           // Clear air under the members / Joined row, and between wrapped
           // rows, so the pills do not stack on each other.
           const SizedBox(height: AppSpacing.smd),
@@ -274,6 +282,14 @@ class CommunityHeader extends StatelessWidget {
                   compact: true,
                   variant: AppButtonVariant.outline,
                   onPressed: onModerationLog,
+                ),
+              if (onEdit != null)
+                AppPillButton(
+                  label: 'Edit community',
+                  icon: Icons.edit_note_outlined,
+                  compact: true,
+                  variant: AppButtonVariant.outline,
+                  onPressed: onEdit,
                 ),
               if (!banned)
                 PinToHomeButton(
