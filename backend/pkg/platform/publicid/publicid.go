@@ -3,17 +3,20 @@
 // dzeroth.common.v1.user_ref field option through pkg/platform/userref once, at plan construction, and never on the hot
 // path.
 //
-// Three parts:
+// Four parts:
 //   - Plans (BuildPlans): for every method of every dzeroth service, a flat list of steps for the input and the output
 //     message type, memoised by full name and safe for recursive types. A type with no user reference in its
 //     transitive closure has a nil plan. Construction fails closed on anything the walker cannot translate safely.
 //   - Rules: the registry of per-field rules for USER_REF_KIND_CONDITIONAL fields.
 //   - Translator: the walker. TranslateRequest (wire -> internal) and TranslateResponse (internal -> wire) each make at
 //     most one batched resolver call per chunk of distinct ids and mutate the message in place.
+//   - NewInterceptor: the Connect unary interceptor that runs the Translator for a caller with FEATURE_PUBLIC_IDS on,
+//     innermost in the chain (after mw.ErrorMapping); NegativeCache, the bounded "uid has no public id" Resolver
+//     decorator in front of identity.
 //
-// Not wired: nothing in production imports this package yet. The interceptor (PR 4b) will build the plans from
-// protoregistry.GlobalFiles at startup and call the Translator for callers with FEATURE_PUBLIC_IDS on. This package
-// must not import backend/internal/*; the identity lookups and the id validator are injected.
+// internal/apiserver (public_ids_wiring.go) builds the plans from protoregistry.GlobalFiles at startup (a bad
+// annotation refuses to start the process) and installs the interceptor. This package must not import
+// backend/internal/*; the identity lookups, the id validator and the per-caller flag check are injected.
 package publicid
 
 import "context"
@@ -32,4 +35,11 @@ const Tombstone = "uzzzzzzzzzzzzzzzzzzzzzzzzzz"
 type Resolver interface {
 	PublicIDsForUIDs(ctx context.Context, uids []string) (map[string]string, error)
 	UIDsForPublicIDs(ctx context.Context, publicIDs []string) (map[string]string, error)
+}
+
+// Learner is an optional Resolver extension: the walker reports the uid -> public id pairs it learned outside the
+// resolver (a handler that set the PUBLIC_ID field itself), so a cache in front of identity can drop what it believed
+// about those uids. pairs must not be retained or modified.
+type Learner interface {
+	LearnPublicIDs(pairs map[string]string)
 }

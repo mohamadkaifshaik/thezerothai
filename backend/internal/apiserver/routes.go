@@ -15,8 +15,10 @@ import (
 // fixed path and a constructor that always installs signature verification.
 //
 //	connect   a generated Connect service. The full interceptor chain (logging, recover, App Check, ID
-//	          token, verified identity, rate limit, degraded mode, account status, error mapping) and the decompressed
-//	          read cap are applied by the table, so a new service cannot be registered without them.
+//	          token, verified identity, rate limit, degraded mode, account status, error mapping, then the public id
+//	          translation: error mapping is the innermost error layer, the translation a codec step that behaves as
+//	          part of the handler) and the decompressed read cap are applied by the table, so a new service cannot be
+//	          registered without them.
 //	internal  a Pub/Sub push or Scheduler endpoint behind the OIDC verifier (outside ENV=local the verifier is always
 //	          configured: config.Load fails closed, M8).
 //	public    served with no authentication. Only the patterns in publicRoutes are accepted; any other pattern panics at

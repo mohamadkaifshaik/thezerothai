@@ -320,8 +320,9 @@ type Config struct {
 	// that replaces the Firebase uid on the wire. FEATURE_PUBLIC_IDS[_ALLOWLIST|_PERCENT], default off in every
 	// environment. Not globally off (on or any rollout): identity mints an id for every account at signup and lazily on
 	// its GetMe, and its PublicIDs lookups answer. On for the caller: GetMe/GetProfile carry Profile.public_id and
-	// GetProfile serves the public_id target. Globally off: nothing is minted, read or returned. AuthorSnapshot.public_id
-	// and the user_ref translation are not wired yet (the edge interceptor).
+	// GetProfile serves the public_id target, and the edge interceptor (pkg/platform/publicid, wired innermost in
+	// apiserver) translates every user_ref field of that caller's requests and responses (AuthorSnapshot.public_id
+	// filled). Globally off: nothing is minted, read, translated or returned; the interceptor is the identity.
 	FeaturePublicIDs flags.Spec
 	// FeaturePolls is the flag (wire name `polls`) gating CREATING a poll per caller (CreatePost with `poll`,
 	// FEATURE_DISABLED feature=polls, rejected before any lookup). VotePoll needs engagement on for the caller and polls NOT globally off.

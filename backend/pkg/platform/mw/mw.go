@@ -5,7 +5,15 @@
 // unauthenticated Firestore reads; degraded mode moved with it since it is also a free, in-memory check;
 // N5: logging moved outermost, ahead of recover, so a panicking request still gets its one log line):
 //
-//	logging -> recover -> App Check -> ID token -> rate limit -> degraded mode -> account status -> errorMapping
+//	logging -> recover -> App Check -> ID token -> verified identity -> rate limit -> degraded mode -> account status
+//	  -> errorMapping -> publicIDs -> handler
+//
+// errorMapping is the innermost ERROR layer. publicIDs (pkg/platform/publicid, FEATURE_PUBLIC_IDS) sits inside it as a
+// codec step that behaves as part of the handler: it rewrites user ids in the request and response messages for a
+// flagged caller, its Firestore lookups run behind the rate limiter and account status, and its errors (VALIDATION
+// for a malformed id, Internal for a failed lookup) are shaped and reported by errorMapping like a handler's. No
+// interceptor above it reads the request or response body (they key on procedure, headers, the verified uid and the
+// client IP), so none of them ever sees the wire form of an id. Globally off it is the identity.
 //
 // N5/M3: Logging must be outermost. Every other interceptor either calls next() and passes errors through
 // unchanged, or short-circuits without ever reaching ErrorMapping (which sits innermost, next to the
@@ -177,8 +185,10 @@ func Logging(log *slog.Logger, projectID string) connect.UnaryInterceptorFunc {
 
 // ErrorMapping is the place a service/handler error becomes a *connect.Error with an attached
 // dzeroth.common.v1.ErrorDetail (project rule: map errors to Connect codes at the handler boundary only).
-// It must be the innermost interceptor (closest to the handler) so every interceptor above it — and the
-// client — only ever sees fully-shaped Connect errors for anything that actually reaches the handler.
+// It must be the innermost error layer (closest to the handler) so every interceptor above it — and the
+// client — only ever sees fully-shaped Connect errors for anything that actually reaches the handler. The one
+// interceptor inside it, publicid's edge translation, is a codec step that counts as part of the handler: it returns
+// raw *apierr.Error values for this function to shape and report, exactly as a handler does.
 // (An interceptor positioned *before* ErrorMapping that short-circuits without calling next — e.g.
 // authn.AccountStatusInterceptor — never reaches this function at all; Logging's doc comment explains the
 // fallback that covers that case.)

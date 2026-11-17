@@ -84,6 +84,8 @@ type slot struct {
 	span Span
 	// fill marks a StepFillPublicID slot: orig is the uid of the sibling TRANSLATE field and the whole value is set.
 	fill bool
+	// cur is, for a fill slot, the value the handler already put in the PUBLIC_ID field ("" when unset).
+	cur string
 }
 
 func (s *slot) id() string { return s.orig[s.span.Start:s.span.End] }
@@ -188,6 +190,7 @@ func (t *Translator) TranslateResponse(ctx context.Context, st *State, msg proto
 	if st == nil {
 		st = &State{}
 	}
+	t.trustHandlerPublicIDs(st, slots)
 	var lookup []string
 	seen := map[string]struct{}{}
 	for i := range slots {
@@ -230,6 +233,42 @@ func (t *Translator) TranslateResponse(ctx context.Context, st *State, msg proto
 		slots[i].write(st.uidToPub[id])
 	}
 	return st.Stats(), nil
+}
+
+// trustHandlerPublicIDs seeds st with the pairs a handler already wrote: a fill slot whose PUBLIC_ID field holds a
+// valid public id (GetMe and GetProfile set Profile.public_id themselves, GetMe right after its lazy mint). That value
+// is authoritative: it is never overwritten, every other field of the response carrying the same uid gets it, the
+// resolver is not asked for that uid, and when the resolver (or an earlier lookup in this request) would answer
+// differently the handler's value wins, being the fresher of the two. Should two handler values disagree for one uid
+// within a response, the first in walk order wins. The learned pairs are reported to a resolver that implements
+// Learner (the NegativeCache drops a "no public id" entry it may hold for that uid). A value the validator rejects is
+// ignored and overwritten like an unset field.
+func (t *Translator) trustHandlerPublicIDs(st *State, slots []slot) {
+	var learned map[string]string
+	for i := range slots {
+		sl := &slots[i]
+		if !sl.fill || sl.cur == "" || !t.valid(sl.cur) {
+			continue
+		}
+		uid := sl.id()
+		if _, pass := st.passThrough[uid]; pass {
+			continue
+		}
+		if _, dup := learned[uid]; dup {
+			continue
+		}
+		if learned == nil {
+			learned = map[string]string{}
+		}
+		if st.uidToPub == nil {
+			st.uidToPub = map[string]string{}
+		}
+		learned[uid] = sl.cur
+		st.uidToPub[uid] = sl.cur
+	}
+	if l, ok := t.resolver.(Learner); ok && len(learned) > 0 {
+		l.LearnPublicIDs(learned)
+	}
 }
 
 func (s *State) pass(id string) {
@@ -338,7 +377,7 @@ func appendWhole(slots []slot, m protoreflect.Message, fd protoreflect.FieldDesc
 
 func fillSlot(m protoreflect.Message, s *step) slot {
 	uid := m.Get(s.src).String()
-	return slot{m: m, fd: s.fd, idx: -1, orig: uid, span: WholeValue(uid), fill: true}
+	return slot{m: m, fd: s.fd, idx: -1, orig: uid, span: WholeValue(uid), fill: true, cur: m.Get(s.fd).String()}
 }
 
 func appendConditional(slots []slot, m protoreflect.Message, s *step) ([]slot, error) {
