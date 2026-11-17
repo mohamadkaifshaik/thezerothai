@@ -18,7 +18,7 @@ class _MockGraphRepository extends Mock implements GraphRepository {}
 
 const _firebaseUid = 'q7Zk3mV9aXb2LcD8eF1gH4iJ5kL6';
 const _publicId = 'u0abcdefghijklmnopqrstuvw2';
-final _now = DateTime.utc(2026, 5, 1, 12);
+final _now = DateTime.now().toUtc();
 
 pb.PostView _view(String authorId) => pb.PostView(
   post: pb.Post(

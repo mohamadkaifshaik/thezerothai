@@ -12,6 +12,8 @@ import 'package:drift/native.dart';
 import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/app/app_widget.dart';
+import 'package:dzeroth/core/feature_flags/public_ids_feature_flag.dart';
+import 'package:dzeroth/core/session/public_id_transition.dart';
 import 'package:dzeroth/core/network/service_paused_cubit.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/service_paused_view.dart';
@@ -284,6 +286,93 @@ void main() {
     authStates.add(const AuthState(status: AuthStatus.unauthenticated));
     await tester.pump();
     verify(billing.clearSession).called(1);
+  });
+
+  testWidgets('billing is bound to the Firebase account, not to the API user '
+      'id: with public_ids on GetMe sends a public id and billing still '
+      'starts', (tester) async {
+    final billing = MockSubscriptionRepository();
+    when(() => billing.getAccess(any())).thenAnswer(
+      (call) async => SubscriptionAccess(
+        uid: call.positionalArguments.first as String,
+        tier: SubscriptionTier.free,
+        verification: SubscriptionVerification.noSubscription,
+      ),
+    );
+    await pump(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(status: OnboardingStatus.loading),
+      subscriptionRepository: billing,
+    );
+    onboardingStates.add(
+      ready(flags: {kFeaturePublicIds}).copyWith(
+        profile: identity_pb.Profile(userId: 'u0abcdefghijklmnopqrstuvw2'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    verify(() => billing.getAccess(user.uid)).called(1);
+    verifyNever(() => billing.getAccess('u0abcdefghijklmnopqrstuvw2'));
+  });
+
+  testWidgets('public_ids flipping forgets the id-bearing state (and only '
+      'that: the badge keeps its count)', (tester) async {
+    final likes = MockLikesRepository();
+    final transition = PublicIdTransition(
+      database: database,
+      wipe: () async {},
+    );
+    addTearDown(transition.dispose);
+    await tester.pumpWidget(const SizedBox());
+    whenListen(authBloc, authStates.stream, initialState: const AuthState(
+      status: AuthStatus.authenticated,
+      user: user,
+    ));
+    whenListen(
+      onboardingBloc,
+      onboardingStates.stream,
+      initialState: ready(flags: {'graph', 'notifications'}, unread: 4),
+    );
+    await tester.pumpWidget(
+      AppWidget(
+        publicIdTransition: transition,
+        networkTypeService: FakeNetworkTypeService(),
+        authBloc: authBloc,
+        onboardingBloc: onboardingBloc,
+        identityRepository: MockIdentityRepository(),
+        graphRepository: MockGraphRepository(),
+        suggestionsRepository: suggestions,
+        accountRepository: MockAccountRepository(),
+        authRepository: MockAuthRepository(),
+        database: database,
+        postsRepository: MockPostsRepository(),
+        timelineRepository: MockTimelineRepository(),
+        postsGate: PostsFeatureGate(isPostsEnabled: () => false),
+        mediaRepository: MockMediaRepository(),
+        notificationsRepository: notifications,
+        messagingRepository: MockMessagingRepository(),
+        moderationRepository: MockModerationRepository(),
+        engagementRepository: MockEngagementRepository(),
+        bookmarksRepository: MockBookmarksRepository()..stubEvents(),
+        likesRepository: likes,
+        pushCubit: push,
+        unreadBadgeCubit: badge,
+      ),
+    );
+    await tester.pump();
+    verifyNever(likes.clearSession);
+
+    await tester.runAsync(() async {
+      final epoch = database.sessionEpoch.value;
+      await transition.onFlagSet({'graph'}, epoch);
+      await transition.onFlagSet({'graph', kFeaturePublicIds}, epoch);
+    });
+    await tester.pump();
+
+    verify(likes.clearSession).called(1);
+    expect(badge.state, 4, reason: 'badges are not an id-bearing holder');
   });
 
   testWidgets('a ready GetMe with the flag on seeds the badge and starts push '

@@ -14,7 +14,7 @@ import '../../../support/posts_fixtures.dart';
 
 class _MockGraphRepository extends Mock implements GraphRepository {}
 
-final _now = DateTime.utc(2026, 5, 1, 12);
+final _now = DateTime.now().toUtc();
 
 pb.PostView _view({String handle = '', String name = ''}) => pb.PostView(
   post: pb.Post(
