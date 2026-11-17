@@ -25,6 +25,12 @@ const (
 	// uid, while staying short enough that a real CreateProfile (which also actively clears this entry,
 	// see SetProfile) is never masked by a stale negative result for long.
 	notFoundTTL = 10 * time.Second
+	// publicIDTTL bounds the two public id maps. The mapping is immutable (an id is never reissued or reused), so the TTL
+	// is only a memory refresh, not a correctness bound. Erasure: the erasing instance evicts both directions at once;
+	// on any other instance a public id -> uid entry of an erased account can live up to this TTL, which is safe because
+	// every consumer re-checks users/{uid} (GetProfile's status check answers the uniform NOT_FOUND for a DELETING or
+	// absent account, exactly as for an unknown id). The uid -> public id direction only names the id the account had.
+	publicIDTTL = time.Hour
 )
 
 // Cache is identity's instance cache (users/{uid} cached 60s; project rule: "update the instance cache from written data instead of re-reading").
@@ -40,7 +46,11 @@ type Cache struct {
 	// notFoundTTL. Only a hint: CreateProfile/ChangeHandle stay transactional (handles Create), so a stale
 	// "free" answer can never produce a duplicate handle.
 	handleFree *cache.LRU[string, struct{}]
-	now        func() time.Time // overridable for tests
+	// pubToUID and uidToPub are the public id maps (publicIDTTL); pubFree is the 10 s negative cache of unknown public ids.
+	pubToUID *cache.LRU[string, string]
+	uidToPub *cache.LRU[string, string]
+	pubFree  *cache.LRU[string, struct{}]
+	now      func() time.Time // overridable for tests
 }
 
 // handleEntry is a positive handle-cache entry. at lets ResolveHandles honour a shorter bound than the 60 s
@@ -60,7 +70,45 @@ func NewCache(ttl time.Duration) *Cache {
 		convBadge:  cache.New[string, int64](cacheCapacity, convBadgeTTL),
 		notFound:   cache.New[string, struct{}](cacheCapacity, notFoundTTL),
 		handleFree: cache.New[string, struct{}](cacheCapacity, notFoundTTL),
+		pubToUID:   cache.New[string, string](cacheCapacity, publicIDTTL),
+		uidToPub:   cache.New[string, string](cacheCapacity, publicIDTTL),
+		pubFree:    cache.New[string, struct{}](cacheCapacity, notFoundTTL),
 		now:        time.Now,
+	}
+}
+
+// SetPublicID records the immutable pair in both directions and clears a negative entry for the id.
+func (c *Cache) SetPublicID(uid, publicID string) {
+	if uid == "" || publicID == "" {
+		return
+	}
+	c.pubToUID.Set(publicID, uid)
+	c.uidToPub.Set(uid, publicID)
+	c.pubFree.Delete(publicID)
+}
+
+// UIDForPublicID returns the cached owner of publicID.
+func (c *Cache) UIDForPublicID(publicID string) (string, bool) { return c.pubToUID.Get(publicID) }
+
+// PublicIDForUID returns the cached public id of uid.
+func (c *Cache) PublicIDForUID(uid string) (string, bool) { return c.uidToPub.Get(uid) }
+
+// GetPublicIDFree reports whether publicID was confirmed unknown within the last notFoundTTL.
+func (c *Cache) GetPublicIDFree(publicID string) bool {
+	_, ok := c.pubFree.Get(publicID)
+	return ok
+}
+
+// SetPublicIDFree records that publicID has no lookup document, for notFoundTTL.
+func (c *Cache) SetPublicIDFree(publicID string) { c.pubFree.Set(publicID, struct{}{}) }
+
+// InvalidatePublicID drops both directions (the account's erasure removed the lookup).
+func (c *Cache) InvalidatePublicID(uid, publicID string) {
+	if publicID != "" {
+		c.pubToUID.Delete(publicID)
+	}
+	if uid != "" {
+		c.uidToPub.Delete(uid)
 	}
 }
 
@@ -78,6 +126,7 @@ func (c *Cache) SetProfile(p Profile) {
 		c.handles.Set(p.HandleLower, handleEntry{uid: p.UserID, at: c.now()})
 		c.handleFree.Delete(p.HandleLower)
 	}
+	c.SetPublicID(p.UserID, p.PublicID)
 	c.notFound.Delete(p.UserID)
 }
 

@@ -318,8 +318,10 @@ type Config struct {
 	FeatureTrendingPosts flags.Spec
 	// FeaturePublicIDs is the flag (wire name `public_ids`) for the opaque public user id ("u" + 26 base32 characters)
 	// that replaces the Firebase uid on the wire. FEATURE_PUBLIC_IDS[_ALLOWLIST|_PERCENT], default off in every
-	// environment. Inert today: the proto contract (Profile.public_id, AuthorSnapshot.public_id, GetProfileRequest
-	// public_id, the user_ref field option) exists, but nothing reads the flag yet.
+	// environment. Not globally off (on or any rollout): identity mints an id for every account at signup and lazily on
+	// its GetMe, and its PublicIDs lookups answer. On for the caller: GetMe/GetProfile carry Profile.public_id and
+	// GetProfile serves the public_id target. Globally off: nothing is minted, read or returned. AuthorSnapshot.public_id
+	// and the user_ref translation are not wired yet (the edge interceptor).
 	FeaturePublicIDs flags.Spec
 	// FeaturePolls is the flag (wire name `polls`) gating CREATING a poll per caller (CreatePost with `poll`,
 	// FEATURE_DISABLED feature=polls, rejected before any lookup). VotePoll needs engagement on for the caller and polls NOT globally off.

@@ -135,6 +135,7 @@ type fakeLCRepo struct {
 	users         map[string]*fakeUser
 	exports       map[string]*ExportDoc
 	handles       map[string]string
+	publicIDs     map[string]string // publicIds/{id} -> uid
 	quotas        map[string]int64
 	private       map[string]int
 	// failOnce injects one error for the named method (consumed on use).
@@ -156,7 +157,7 @@ type fakeUser struct {
 
 func newFakeLCRepo(log *opLog) *fakeLCRepo {
 	return &fakeLCRepo{
-		log: log, users: map[string]*fakeUser{}, exports: map[string]*ExportDoc{}, handles: map[string]string{},
+		log: log, users: map[string]*fakeUser{}, exports: map[string]*ExportDoc{}, handles: map[string]string{}, publicIDs: map[string]string{},
 		quotas: map[string]int64{}, private: map[string]int{}, failOnce: map[string]error{}, failFor: map[string]int{}, calls: map[string]int{},
 	}
 }
@@ -403,6 +404,26 @@ func (f *fakeLCRepo) DeleteHandleIfOwned(_ context.Context, handleLower, uid str
 	delete(f.handles, handleLower)
 	f.deletes++
 	f.log.add("repo.DeleteHandle")
+	return HandleDeleted, nil
+}
+
+func (f *fakeLCRepo) DeletePublicIDIfOwned(_ context.Context, publicID, uid string) (HandleOutcome, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("DeletePublicIDIfOwned"); err != nil {
+		return HandleAbsent, err
+	}
+	f.reads++
+	owner, ok := f.publicIDs[publicID]
+	switch {
+	case !ok:
+		return HandleAbsent, nil
+	case owner != uid:
+		return HandleOwnerMismatch, nil
+	}
+	delete(f.publicIDs, publicID)
+	f.deletes++
+	f.log.add("repo.DeletePublicID")
 	return HandleDeleted, nil
 }
 

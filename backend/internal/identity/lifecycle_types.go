@@ -230,7 +230,7 @@ type DeletionStart struct {
 	Replay  bool
 }
 
-// HandleOutcome is DeleteHandleIfOwned's result.
+// HandleOutcome is DeleteHandleIfOwned's result, and DeletePublicIDIfOwned's (the same lookup shape).
 type HandleOutcome int
 
 const (
@@ -293,6 +293,9 @@ type LifecycleRepo interface {
 	DeletePrivate(ctx context.Context, uid string, limit int) (int, error)
 	// DeleteHandleIfOwned deletes handles/{handleLower} only when it points at uid.
 	DeleteHandleIfOwned(ctx context.Context, handleLower, uid string) (HandleOutcome, error)
+	// DeletePublicIDIfOwned deletes publicIds/{publicID} only when it points at uid ("" = nothing to do, HandleAbsent).
+	// It runs in the identity step, so the lookup is gone before users/{uid} is.
+	DeletePublicIDIfOwned(ctx context.Context, publicID, uid string) (HandleOutcome, error)
 	// RemoveFromProtectedSet removes uid from privacy/protectedAuthors (a
 	// field-level ArrayRemove; a missing set doc is success and is never created). Idempotent and unconditional.
 	RemoveFromProtectedSet(ctx context.Context, uid string) error

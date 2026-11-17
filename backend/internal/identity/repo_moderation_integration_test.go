@@ -20,7 +20,7 @@ func TestSetAccountStatus_Integration(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	now := time.Now().UTC()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-s", "Sam", "sam", "Sam", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-s", "Sam", "sam", "Sam", "", now, nil); err != nil {
 		t.Fatal(err)
 	}
 	stored := func() string {

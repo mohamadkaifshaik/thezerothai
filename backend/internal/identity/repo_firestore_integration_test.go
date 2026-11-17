@@ -44,7 +44,7 @@ func TestCreateProfile_Integration_Replay(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	profile, replay, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil)
+	profile, replay, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil)
 	if err != nil {
 		t.Fatalf("CreateProfile() error = %v", err)
 	}
@@ -63,7 +63,7 @@ func TestCreateProfile_Integration_Replay(t *testing.T) {
 	// Replay: same uid, any handle/displayName -> returns the existing profile, no new writes: the
 	// replay stops at users/{uid} and never claims handles/bob.
 	ctx2 := context.Background()
-	replayed, isReplay, err := repo.CreateProfile(ctx2, "uid-1", "Bob", "bob", "Bob B.", now, nil)
+	replayed, isReplay, err := repo.CreateProfile(ctx2, "uid-1", "Bob", "bob", "Bob B.", "", now, nil)
 	if err != nil {
 		t.Fatalf("CreateProfile() replay error = %v", err)
 	}
@@ -97,7 +97,7 @@ func TestCreateProfile_Integration_HandleRace(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			ctx := context.Background()
-			p, _, err := repo.CreateProfile(ctx, fmt.Sprintf("uid-race-%d", i), "Racer", "racer", fmt.Sprintf("Racer %d", i), now, nil)
+			p, _, err := repo.CreateProfile(ctx, fmt.Sprintf("uid-race-%d", i), "Racer", "racer", fmt.Sprintf("Racer %d", i), "", now, nil)
 			results[i] = err
 			profiles[i] = p
 		}(i)
@@ -133,12 +133,12 @@ func TestCreateProfile_Integration_HandleTaken(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("first CreateProfile: %v", err)
 	}
 
 	ctx2 := context.Background()
-	if _, _, err := repo.CreateProfile(ctx2, "uid-2", "Alice", "alice", "Someone Else", now, nil); err != identity.ErrHandleTaken {
+	if _, _, err := repo.CreateProfile(ctx2, "uid-2", "Alice", "alice", "Someone Else", "", now, nil); err != identity.ErrHandleTaken {
 		t.Fatalf("expected ErrHandleTaken, got %v", err)
 	}
 }
@@ -152,7 +152,7 @@ func TestChangeHandle_Integration_FreesOldHandle(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestChangeHandle_Integration_FreesOldHandle(t *testing.T) {
 
 	// The old handle must be free again.
 	ctx3 := context.Background()
-	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", "", now, nil); err != nil {
 		t.Fatalf("expected old handle 'alice' to be free after rename: %v", err)
 	}
 }
@@ -183,7 +183,7 @@ func TestChangeHandle_Integration_TrueNoOp(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -209,7 +209,7 @@ func TestChangeHandle_Integration_CaseOnlyRename(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -237,7 +237,7 @@ func TestChangeHandle_Integration_CooldownBlocksBeforeSecondRead(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 	if _, _, err := repo.ChangeHandle(ctx, "uid-1", "Alicia", "alicia", now, changeHandleCooldown); err != nil {
@@ -267,7 +267,7 @@ func TestChangeHandle_Integration_IdempotentRetryOwnedHandle(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 	// Simulate a prior attempt that reserved handles/bob for uid-1 without users/uid-1 reflecting it yet.
@@ -285,7 +285,7 @@ func TestChangeHandle_Integration_IdempotentRetryOwnedHandle(t *testing.T) {
 	}
 
 	ctx3 := context.Background()
-	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", "", now, nil); err != nil {
 		t.Fatalf("expected old handle 'alice' to be free after rename: %v", err)
 	}
 }
@@ -297,7 +297,7 @@ func TestGetProfile_Integration(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func TestResolveHandle_Integration(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -349,7 +349,7 @@ func TestUpdateProfile_Integration(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -376,7 +376,7 @@ func TestUnreadNotificationCount_Integration(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx := context.Background()
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", "", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -422,7 +422,7 @@ func TestCreateProfile_Integration_AuthorizeSeam(t *testing.T) {
 
 	calls := 0
 	ctx := context.Background()
-	_, _, err := repo.CreateProfile(ctx, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, refuse })
+	_, _, err := repo.CreateProfile(ctx, "uid-m2", "Zed", "zed", "Zed", "", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, refuse })
 	if !errors.Is(err, refuse) {
 		t.Fatalf("err = %v, want the authorize error", err)
 	}
@@ -436,14 +436,14 @@ func TestCreateProfile_Integration_AuthorizeSeam(t *testing.T) {
 	}
 
 	ctx2 := context.Background()
-	if _, _, err := repo.CreateProfile(ctx2, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, nil }); err != nil {
+	if _, _, err := repo.CreateProfile(ctx2, "uid-m2", "Zed", "zed", "Zed", "", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, nil }); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 {
 		t.Fatalf("authorize calls = %d, want 2 (once per not-found attempt)", calls)
 	}
 
-	_, isReplay, err := repo.CreateProfile(context.Background(), "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, refuse })
+	_, isReplay, err := repo.CreateProfile(context.Background(), "uid-m2", "Zed", "zed", "Zed", "", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, refuse })
 	if err != nil || !isReplay {
 		t.Fatalf("replay err = %v replay = %v", err, isReplay)
 	}
