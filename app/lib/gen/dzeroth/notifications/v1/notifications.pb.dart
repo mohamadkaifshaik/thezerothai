@@ -98,6 +98,11 @@ class Notification extends $pb.GeneratedMessage {
   static Notification? _defaultInstance;
 
   /// Stable per logical notification (rewritten in place when a LIKE row collapses another like).
+  /// For FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED, REPOST and BEACON_REQUEST rows the last `_` segment names the actor; on
+  /// the wire it is the actor's public id once FEATURE_PUBLIC_IDS is on for the caller (the placeholder id
+  /// "uzzzzzzzzzzzzzzzzzzzzzzzzzz" when the actor has none). Treat the id as opaque either way. The push's
+  /// notificationId is built by the same rule, so a pushed row and the listed row carry the same id, except when the
+  /// actor had no public id at one of the two moments (that side carries the placeholder).
   @$pb.TagNumber(1)
   $core.String get id => $_getSZ(0);
   @$pb.TagNumber(1)

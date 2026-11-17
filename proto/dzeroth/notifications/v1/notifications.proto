@@ -21,6 +21,7 @@ syntax = "proto3";
 package dzeroth.notifications.v1;
 
 import "dzeroth/common/v1/common.proto";
+import "dzeroth/common/v1/options.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1;notificationsv1";
@@ -125,7 +126,12 @@ enum DevicePlatform {
 
 message Notification {
   // Stable per logical notification (rewritten in place when a LIKE row collapses another like).
-  string id = 1;
+  // For FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED, REPOST and BEACON_REQUEST rows the last `_` segment names the actor; on
+  // the wire it is the actor's public id once FEATURE_PUBLIC_IDS is on for the caller (the placeholder id
+  // "uzzzzzzzzzzzzzzzzzzzzzzzzzz" when the actor has none). Treat the id as opaque either way. The push's
+  // notificationId is built by the same rule, so a pushed row and the listed row carry the same id, except when the
+  // actor had no public id at one of the two moments (that side carries the placeholder).
+  string id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_CONDITIONAL];
   NotificationType type = 2;
   // The most recent actor, snapshotted when the notification was written (may be up to a profile refresh stale).
   dzeroth.common.v1.AuthorSnapshot actor = 3;

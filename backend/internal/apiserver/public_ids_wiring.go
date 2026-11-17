@@ -10,7 +10,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
+	moderationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/publicid"
 )
@@ -24,24 +26,46 @@ const (
 	publicIDNoneEntries = 10_000
 )
 
-// publicIDPassThrough lists the CONDITIONAL user_ref fields whose rule has not landed: the edge leaves them untouched
-// in both directions. Each entry names the change that replaces it with a rule (Rules.Register).
-//
-// OPEN GAPS UNTIL PR 4c. FEATURE_PUBLIC_IDS must not be enabled for any caller (allowlist included) before PR 4c lands:
-//   - dzeroth.moderation.v1.ReportContentRequest.target_id (below): untouched, so an ACCOUNT report from a flagged
-//     client, which sends a public id, reaches moderation as an unknown uid and fails NOT_FOUND until the rule lands.
-//   - dzeroth.notifications.v1.Notification.id: NOT annotated yet, so neither this list nor the plan guard tracks it.
-//     For FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED, REPOST and BEACON_REQUEST rows its last "_" segment is the actor's
-//     raw uid, which a flagged caller still receives until PR 4c annotates it (make proto) and registers its rule.
-var publicIDPassThrough = map[protoreflect.FullName]string{
-	"dzeroth.moderation.v1.ReportContentRequest.target_id": "rule (translate when target_type == ACCOUNT) lands in PR 4c",
+// publicIDConditionalRules is the rule of every CONDITIONAL user_ref field of the API; both are registered, none is
+// passed through untranslated. BuildPlans refuses to start the process when a CONDITIONAL field reachable from an RPC
+// has no rule here (or a rule names a field that is not one), so a new CONDITIONAL field cannot ship without a rule.
+//   - ReportContentRequest.target_id: a user id only for an ACCOUNT report (reportTargetRule).
+//   - Notification.id: the actor's uid as the last "_" segment of an actor-keyed row (notifications.NotificationIDRule,
+//     the same span WireNotificationID rewrites in the push).
+var publicIDConditionalRules = map[protoreflect.FullName]publicid.Rule{
+	reportTargetField:                 reportTargetRule,
+	notifications.NotificationIDField: notifications.NotificationIDRule,
+}
+
+// reportTargetField is ReportContentRequest.target_id.
+const reportTargetField protoreflect.FullName = "dzeroth.moderation.v1.ReportContentRequest.target_id"
+
+// reportTargetTypeNumber is ReportContentRequest.target_type's field number.
+var reportTargetTypeNumber = (&moderationv1.ReportContentRequest{}).ProtoReflect().Descriptor().Fields().ByName("target_type").Number()
+
+// reportTargetRule: target_id is a user id, as a whole, exactly when target_type is REPORT_TARGET_TYPE_ACCOUNT. Every
+// other target (a post, list, community or beacon Snowflake, a "<convId>:<msgId>" message, an unset or unknown type)
+// is not a user id and is left untouched. The edge's usual semantics apply to an ACCOUNT target: a known public id
+// becomes the uid, so moderation's self-report check and ReportID see the uid exactly as without the flag; an unknown
+// well-formed one reaches the handler unchanged (its NOT_FOUND); anything else is VALIDATION "target_id". The response
+// (report_id, already_reported) echoes no target.
+func reportTargetRule(parent protoreflect.Message, value string) (publicid.Span, bool) {
+	md := parent.Descriptor()
+	if md.FullName() != reportTargetField.Parent() {
+		return publicid.Span{}, false
+	}
+	fd := md.Fields().ByNumber(reportTargetTypeNumber)
+	if fd == nil || fd.Kind() != protoreflect.EnumKind {
+		return publicid.Span{}, false
+	}
+	return publicid.WholeValue(value), parent.Get(fd).Enum() == protoreflect.EnumNumber(moderationv1.ReportTargetType_REPORT_TARGET_TYPE_ACCOUNT)
 }
 
 // publicIDRules is the conditional-rule registry the edge is built with.
 func publicIDRules() (*publicid.Rules, error) {
 	r := publicid.NewRules()
-	for field, reason := range publicIDPassThrough {
-		if err := r.PassThroughUntilRuleLands(field, reason); err != nil {
+	for field, rule := range publicIDConditionalRules {
+		if err := r.Register(field, rule); err != nil {
 			return nil, fmt.Errorf("public ids: %w", err)
 		}
 	}

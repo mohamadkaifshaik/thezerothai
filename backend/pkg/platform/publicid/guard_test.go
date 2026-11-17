@@ -33,11 +33,49 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/userref"
 )
 
-// pendingRules are the CONDITIONAL fields of the real API whose rule has not landed yet: plans leave them untouched.
-// PR 4c registers the real rules and must empty this list (the guard fails while an entry has a rule or is gone).
-var pendingRules = map[protoreflect.FullName]string{
-	"dzeroth.moderation.v1.ReportContentRequest.target_id": "rule (translate when target_type == ACCOUNT) lands in PR 4c",
+// pendingRules are the CONDITIONAL fields of the real API whose rule has not landed yet: plans leave them untouched,
+// so they would carry raw uids to a flagged caller. Empty since PR 4c, and the guard requires it to stay empty: an
+// entry is a known uid leak and needs an explicit, reviewed change to this table and to the count check below.
+var pendingRules = map[protoreflect.FullName]string{}
+
+// wantConditional is the exact set of CONDITIONAL fields of the real API. Each has a production rule registered by
+// internal/apiserver (public_ids_wiring.go, tested there over the real plans); this package cannot import those, so
+// the guard builds the real plans with standInRules, which mirror them by enum number. A new CONDITIONAL field fails
+// the guard until it is added here, given a stand-in, and given a real rule in apiserver.
+var wantConditional = []protoreflect.FullName{
+	"dzeroth.moderation.v1.ReportContentRequest.target_id",
+	"dzeroth.notifications.v1.Notification.id",
 }
+
+// standInRules mirrors the production rules for wantConditional: target_id is a user id exactly when target_type is
+// REPORT_TARGET_TYPE_ACCOUNT (2); Notification.id's last "_" segment is the actor's id for the actor-keyed types
+// FOLLOW (1), REPOST (5), FOLLOW_REQUEST (7), FOLLOW_ACCEPTED (8) and BEACON_REQUEST (10), the whole id when it has no
+// "_". Panics on a registration error (a bug in this table).
+func standInRules() *Rules {
+	r := NewRules()
+	enumIs := func(parent protoreflect.Message, field string, nums ...protoreflect.EnumNumber) bool {
+		fd := parent.Descriptor().Fields().ByName(protoreflect.Name(field))
+		return fd != nil && slices.Contains(nums, parent.Get(fd).Enum())
+	}
+	must := func(err error) {
+		if err != nil {
+			panic(err)
+		}
+	}
+	must(r.Register(wantConditional[0], func(parent protoreflect.Message, v string) (Span, bool) {
+		return WholeValue(v), enumIs(parent, "target_type", 2)
+	}))
+	must(r.Register(wantConditional[1], func(parent protoreflect.Message, v string) (Span, bool) {
+		if !enumIs(parent, "type", 1, 5, 7, 8, 10) {
+			return Span{}, false
+		}
+		return Span{Start: strings.LastIndexByte(v, '_') + 1, End: len(v)}, true
+	}))
+	return r
+}
+
+// realRuleSet is the stand-in registry shared by the real-API tests, the populator and the oracle.
+var realRuleSet = standInRules()
 
 // unreachableAnnotated are annotated fields no RPC reaches, each with the reason. Empty today; an entry is a finding
 // to report, not a way to quiet the guard.
@@ -49,20 +87,9 @@ var wantFill = []protoreflect.FullName{
 	"dzeroth.identity.v1.Profile.public_id",
 }
 
-func realRules(t testing.TB) *Rules {
-	t.Helper()
-	r := NewRules()
-	for name, reason := range pendingRules {
-		if err := r.PassThroughUntilRuleLands(name, reason); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return r
-}
-
 func realPlans(t testing.TB) *Plans {
 	t.Helper()
-	plans, err := BuildPlans(DzerothServices(protoregistry.GlobalFiles), realRules(t))
+	plans, err := BuildPlans(DzerothServices(protoregistry.GlobalFiles), realRuleSet)
 	if err != nil {
 		t.Fatalf("BuildPlans over the real API: %v", err)
 	}
@@ -173,7 +200,7 @@ func TestGuard_RealAPIPlans(t *testing.T) {
 			}
 		case commonv1.UserRefKind_USER_REF_KIND_CONDITIONAL:
 			conditional = append(conditional, name)
-			if _, pending := pendingRules[name]; !pending && covered[name] != StepConditional {
+			if covered[name] != StepConditional {
 				t.Errorf("%s: CONDITIONAL without a conditional step", name)
 			}
 		case commonv1.UserRefKind_USER_REF_KIND_PUBLIC_ID:
@@ -186,13 +213,14 @@ func TestGuard_RealAPIPlans(t *testing.T) {
 			}
 		}
 	})
-	for name := range pendingRules {
-		if !slices.Contains(conditional, name) {
-			t.Errorf("pending rule %s is not a CONDITIONAL field any more; remove it", name)
-		}
+	// Zero pending CONDITIONAL fields: every one has a rule. Raising this number is a reviewed decision to ship a field
+	// that carries raw uids to flagged callers; it must name the field and the change that closes it.
+	if len(pendingRules) != 0 {
+		t.Errorf("pendingRules has %d entries %v; every CONDITIONAL field must have a rule", len(pendingRules), pendingRules)
 	}
-	if len(pendingRules) != 1 {
-		t.Errorf("pendingRules has %d entries; 4a expects exactly ReportContentRequest.target_id", len(pendingRules))
+	slices.Sort(conditional)
+	if !slices.Equal(conditional, wantConditional) {
+		t.Errorf("CONDITIONAL fields = %v, want %v (a new one needs a stand-in here and a real rule in apiserver)", conditional, wantConditional)
 	}
 
 	var fill []protoreflect.FullName
@@ -215,10 +243,19 @@ func TestGuard_RealAPIPlans(t *testing.T) {
 		rpcs, len(plans.Messages()), nonNil, withSteps, len(covered), conditional)
 }
 
-// TestGuard_RealAPINoRulesFails: without the pending mark the real API does not build (fail closed), so dropping the
-// entry without registering the rule cannot slip through.
-func TestGuard_RealAPINoRulesFails(t *testing.T) {
-	if _, err := BuildPlans(DzerothServices(protoregistry.GlobalFiles), nil); err == nil || !strings.Contains(err.Error(), "ReportContentRequest.target_id") {
-		t.Fatalf("BuildPlans without rules = %v, want the missing-rule error for target_id", err)
+// TestGuard_RealAPIMissingRuleFails: the real API does not build (fail closed) when any CONDITIONAL field lacks a rule,
+// so dropping a registration cannot slip through.
+func TestGuard_RealAPIMissingRuleFails(t *testing.T) {
+	if _, err := BuildPlans(DzerothServices(protoregistry.GlobalFiles), nil); err == nil || !strings.Contains(err.Error(), "has no registered rule") {
+		t.Fatalf("BuildPlans without rules = %v, want a missing-rule error", err)
+	}
+	for _, keep := range wantConditional {
+		r := NewRules()
+		if err := r.Register(keep, realRuleSet.rules[keep]); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := BuildPlans(DzerothServices(protoregistry.GlobalFiles), r); err == nil || !strings.Contains(err.Error(), "has no registered rule") {
+			t.Errorf("BuildPlans with only %s = %v, want the missing-rule error for the other field", keep, err)
+		}
 	}
 }

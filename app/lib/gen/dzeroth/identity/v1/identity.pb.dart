@@ -128,8 +128,9 @@ class Profile extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<Profile>(Profile.$_createMessage);
   static Profile? _defaultInstance;
 
-  /// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Still set; it holds the Firebase uid until the
-  /// edge translates user ids to public ids (common/v1/options.proto, user_ref).
+  /// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Always set. With FEATURE_PUBLIC_IDS off for the
+  /// caller it holds the Firebase uid; with it on, the edge translates it to the public id (common/v1/options.proto,
+  /// user_ref).
   @$pb.TagNumber(1)
   $core.String get userId => $_getSZ(0);
   @$pb.TagNumber(1)
@@ -324,8 +325,9 @@ class Profile extends $pb.GeneratedMessage {
   void clearReadReceipts() => $_clearField(20);
 
   /// The user's public id (FEATURE_PUBLIC_IDS): "u" + 26 lower-case base32 characters, random and immutable, never
-  /// derived from the uid or a time. Not set by any server yet: always "" until the public id rollout; clients must
-  /// fall back to user_id while it is "". "Is this me" compares it with GetMe's profile.public_id once it is set.
+  /// derived from the uid or a time. With FEATURE_PUBLIC_IDS on for the caller, user_id and public_id both hold the
+  /// public id; an account that has none is sent as the placeholder id "uzzzzzzzzzzzzzzzzzzzzzzzzzz" in both. With the
+  /// flag off for the caller it is "" and clients use user_id. "Is this me" compares it with GetMe's profile.public_id.
   @$pb.TagNumber(21)
   $core.String get publicId => $_getSZ(18);
   @$pb.TagNumber(21)
@@ -1029,8 +1031,9 @@ class GetProfileRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearHandle() => $_clearField(2);
 
-  /// A public id (FEATURE_PUBLIC_IDS, see Profile.public_id). Not served yet: today it answers INVALID_ARGUMENT +
-  /// VALIDATION "target", exactly like an empty target.
+  /// A public id (FEATURE_PUBLIC_IDS, see Profile.public_id). Served for a caller with the flag on: an unknown or
+  /// erased id answers the same NOT_FOUND as an unknown handle, a malformed one VALIDATION "public_id". For a caller
+  /// with the flag off it answers INVALID_ARGUMENT + VALIDATION "target", exactly like an empty target.
   @$pb.TagNumber(3)
   $core.String get publicId => $_getSZ(2);
   @$pb.TagNumber(3)

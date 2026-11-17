@@ -4,7 +4,8 @@ package apiserver
 
 // The public id edge (FEATURE_PUBLIC_IDS) through the real Build chain.
 //
-// Parity: for every RPC whose request carries a translated user id (driven from the plans, publicIDInboundRPCs), a
+// Parity: for every RPC whose request carries a translated user id (driven from the plans, publicIDInboundRPCs; a
+// CONDITIONAL field such as ReportContentRequest.target_id counts, with pubBase setting the sibling that makes it one), a
 // well-formed but unknown public id from a flagged caller gets exactly the answer an unknown uid gets with the flag
 // off (status, content type, body with its ErrorDetail; the echoed id, the caller's own id, page tokens and
 // timestamps masked), and a malformed id (the caller's raw uid, as an old client would send) gets VALIDATION naming
@@ -17,8 +18,9 @@ package apiserver
 //
 // Shared messages: two callers on one allowlist chain, one flagged and one not, fetch the same pages concurrently;
 // the unflagged one never sees a public id, the flagged one never a uid and never the tombstone (every seeded account is
-// live and minted, so a tombstone would mean a message translated twice). Notification.id is removed before the scan:
-// it is NOT annotated yet and still carries the actor's raw uid for flagged callers, a known gap that PR 4c closes.
+// live and minted, so a tombstone would mean a message translated twice). Notification.id is scanned like every other
+// field: a FOLLOW row (actor A, delivered before the pages are read) is listed as follow_<A's public id> to the flagged
+// caller and follow_<A's uid> to the other.
 
 import (
 	"bytes"
@@ -55,6 +57,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	listsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
+	moderationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1"
 	notificationsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
@@ -63,6 +66,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/publicid"
@@ -83,6 +87,7 @@ func pubChainCfg(mode flags.Mode, allow, creators []string) func(*config.Config)
 		c.FeatureChatSharedPlans = flags.Spec{Name: "chat_shared_plans", Mode: flags.On} // ListSharedBeacons' gate
 		c.FeatureQuotes = flags.Spec{Name: "quotes", Mode: flags.On}
 		c.FeatureReplies = flags.Spec{Name: "replies", Mode: flags.On}
+		c.FeatureReports = flags.Spec{Name: "reports", Mode: flags.On} // ReportContent's gate (an ACCOUNT target is a user id)
 		c.Communities.Creators = creators
 		pubRelaxAllLimits(c)
 		spec := flags.Spec{Name: identity.PublicIDsFlag, Mode: mode, Allowlist: map[string]struct{}{}}
@@ -176,8 +181,10 @@ func (f pubField) String() string {
 	return strings.Join(parts, ".")
 }
 
-// pubTranslateFields lists every TRANSLATE field reachable from md through singular message fields, read from the
-// user_ref option independently of the plan builder.
+// pubTranslateFields lists every TRANSLATE or CONDITIONAL field reachable from md through singular message fields, read
+// from the user_ref option independently of the plan builder. A CONDITIONAL field holds a user id only when a sibling
+// says so: pubBase sets that sibling for its RPC (ReportContent: target_type = ACCOUNT); without it the malformed half
+// of the case fails, so a new CONDITIONAL request field cannot join the suite unreviewed.
 func pubTranslateFields(md protoreflect.MessageDescriptor, prefix pubField, seen map[protoreflect.FullName]bool) []pubField {
 	if seen[md.FullName()] {
 		return nil
@@ -189,7 +196,7 @@ func pubTranslateFields(md protoreflect.MessageDescriptor, prefix pubField, seen
 	for i := range fields.Len() {
 		fd := fields.Get(i)
 		path := append(append(pubField{}, prefix...), fd)
-		if k, ok := userref.Kind(fd); ok && k == commonv1.UserRefKind_USER_REF_KIND_TRANSLATE {
+		if k, ok := userref.Kind(fd); ok && (k == commonv1.UserRefKind_USER_REF_KIND_TRANSLATE || k == commonv1.UserRefKind_USER_REF_KIND_CONDITIONAL) {
 			out = append(out, path)
 			continue
 		}
@@ -244,6 +251,11 @@ var pubBase = map[string]func(m protoreflect.Message, fx pubFixtures){
 	},
 	"/dzeroth.beacons.v1.BeaconService/RemoveParticipant": func(m protoreflect.Message, fx pubFixtures) { pubSetStr(m, "beacon_id", fx.beaconID) },
 	"/dzeroth.messaging.v1.MessagingService/SendMessage":  func(m protoreflect.Message, _ pubFixtures) { pubSetStr(m, "text", "hello there") },
+	// target_id is a user id only for an ACCOUNT report; reason is validated before the target.
+	"/dzeroth.moderation.v1.ModerationService/ReportContent": func(m protoreflect.Message, _ pubFixtures) {
+		pubSetEnum(m, "target_type", protoreflect.EnumNumber(moderationv1.ReportTargetType_REPORT_TARGET_TYPE_ACCOUNT))
+		pubSetEnum(m, "reason", protoreflect.EnumNumber(moderationv1.ReportReason_REPORT_REASON_SPAM))
+	},
 }
 
 // pubRequest builds the request of proc with the user id field at path set to v and a fresh idempotency key.
@@ -388,7 +400,7 @@ func TestPublicIDs_ParityUnknownAndMalformed(t *testing.T) {
 			}
 			fields := pubTranslateFields(md.Input(), nil, map[protoreflect.FullName]bool{})
 			if len(fields) == 0 {
-				t.Fatal("plans translate its request but the test's own walk finds no TRANSLATE field")
+				t.Fatal("plans translate its request but the test's own walk finds no TRANSLATE or CONDITIONAL field")
 			}
 			for _, path := range fields {
 				t.Run(path.String(), func(t *testing.T) {
@@ -397,7 +409,51 @@ func TestPublicIDs_ParityUnknownAndMalformed(t *testing.T) {
 			}
 		})
 	}
+	t.Run("report targets that are not accounts are untouched", func(t *testing.T) { pubReportOtherTargets(t, env) })
 	t.Run("no side effects", func(t *testing.T) { pubNoSideEffects(t, env) })
+}
+
+// pubReportOtherTargets: with the flag on, ReportContent's target_id for a POST or MESSAGE target is never read as a
+// user id: the flag-on chain answers exactly what the flag-off chain answers (the handler's own NOT_FOUND or its own
+// VALIDATION wording), never the edge's "target_id must be a public id", even for a value shaped like a public id.
+func pubReportOtherTargets(t *testing.T, e *pubParityEnv) {
+	const proc = "/dzeroth.moderation.v1.ModerationService/ReportContent"
+	for _, tc := range []struct {
+		name string
+		typ  moderationv1.ReportTargetType
+		id   string
+	}{
+		{"post id", moderationv1.ReportTargetType_REPORT_TARGET_TYPE_POST, "1234567890123456789"},
+		{"post type, public-id-shaped value", moderationv1.ReportTargetType_REPORT_TARGET_TYPE_POST, pubUnknown()},
+		{"message target", moderationv1.ReportTargetType_REPORT_TARGET_TYPE_MESSAGE, strings.Repeat("a", 32) + ":" + strings.Repeat("b", 32)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := func() string {
+				b, err := protojson.Marshal(&moderationv1.ReportContentRequest{IdempotencyKey: contractKey("pubid-rep"), TargetType: tc.typ,
+					TargetId: tc.id, Reason: moderationv1.ReportReason_REPORT_REASON_SPAM})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(b)
+			}
+			ost, _, obody, err := pubPost(e.off.url, e.tok, proc, body())
+			if err != nil {
+				t.Fatalf("flag-off chain: %v", err)
+			}
+			nst, _, nbody, err := pubPost(e.on.url, e.tok, proc, body())
+			if err != nil {
+				t.Fatalf("flag-on chain: %v", err)
+			}
+			masks := map[string]string{e.uid: "<ME>", e.me: "<ME>"}
+			if ost != nst || pubNormalize(obody, masks) != pubNormalize(nbody, masks) {
+				t.Errorf("a %v target differs with the flag on (the edge touched it)\n  flag-off chain: %d %s\n  flag-on chain:  %d %s", tc.typ, ost, obody, nst, nbody)
+			}
+			if strings.Contains(nbody, "must be a public id") {
+				t.Errorf("the edge validated a %v target as a user id: %s", tc.typ, nbody)
+			}
+			t.Logf("answers %d %s", nst, pubNormalize(nbody, masks))
+		})
+	}
 }
 
 // pubParityEnv is what every parity case shares: both chains, the caller and its fixtures, and every unknown id sent.
@@ -459,6 +515,9 @@ var pubUnknownAnswer = map[string]pubAnswer{
 	"/dzeroth.beacons.v1.BeaconService/ListSharedBeacons peer_user_id": pubOK,
 	// messaging/service_send.go: a recipient without an ACTIVE profile is the one CANNOT_MESSAGE refusal.
 	"/dzeroth.messaging.v1.MessagingService/SendMessage recipient_user_id": {code: "failed_precondition", reason: commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE},
+	// moderation/service.go Report, ACCOUNT target: Accounts.GetProfile (identity GetProfile) answers notFoundErr()
+	// before anything is written (target_type ACCOUNT, reason SPAM set by pubBase).
+	"/dzeroth.moderation.v1.ModerationService/ReportContent target_id": pubNotFound,
 }
 
 // pubCheckAnswer asserts the flag-off baseline is the documented unknown-user answer.
@@ -583,7 +642,16 @@ func TestPublicIDs_SharedPagesRace(t *testing.T) {
 	ctx := context.Background()
 	fTok, fUID := mintToken(t, "")
 	nTok, nUID := mintToken(t, "")
-	env := newChain(t, pubChainCfg(flags.Allowlist, []string{fUID}, nil))
+	// Inline delivery, with the emitter handed back so the FOLLOW rows can be awaited (Wait) rather than polled for.
+	var inline *notifications.InlineEmitter
+	cfg := pubChainCfg(flags.Allowlist, []string{fUID}, nil)
+	env := newChainWith(t, func(c *config.Config) {
+		cfg(c)
+		c.NotificationsDelivery = "inline"
+	}, nil, func(o *buildOpts) { o.inlineNotifications = func(e *notifications.InlineEmitter) { inline = e } })
+	if inline == nil {
+		t.Fatal("the chain did not wire the inline emitter")
+	}
 	w := newW320BM(env)
 	env.createProfile(t, fTok)
 	env.createProfile(t, nTok)
@@ -604,6 +672,14 @@ func TestPublicIDs_SharedPagesRace(t *testing.T) {
 		t.Fatalf("quote: %v", err)
 	}
 	quote := q.Msg.GetPost().GetPost().GetPostId()
+	// Every delivery the calls above started (A's follows of F and N among them) is done: the FOLLOW rows exist.
+	inline.Wait()
+	followRow := "follow_" + a.uid // the stored id: A, the actor, is its last "_" segment
+	for _, u := range []string{fUID, nUID} {
+		if !fsDocExists(t, env.fs, "users/"+u+"/notifications/"+followRow) {
+			t.Fatalf("no FOLLOW row from A for a caller after the deliveries; rows = %v", notifIDs(t, env.fs, u))
+		}
+	}
 
 	type page struct {
 		proc string
@@ -673,15 +749,21 @@ func TestPublicIDs_SharedPagesRace(t *testing.T) {
 	// timeline is pull-on-read, so it holds A's posts as soon as they are written).
 	mustCarry := map[string]bool{timelinev1connect.TimelineServiceGetHomeTimelineProcedure: true}
 	quoteSeen := map[bool]bool{}
+	notifSeen := map[bool]bool{}
 	for r := range results {
 		if r.err != nil || r.status != http.StatusOK {
 			t.Errorf("%s (flagged=%v): %d %v %s", r.proc, r.flagged, r.status, r.err, r.body)
 			continue
 		}
 		body := r.body
+		isNotifs := r.proc == notificationsv1connect.NotificationServiceListNotificationsProcedure
 		if r.flagged {
-			if r.proc == notificationsv1connect.NotificationServiceListNotificationsProcedure {
-				body = pubDropNotificationIDs(t, body)
+			if isNotifs {
+				// The FOLLOW row's id carries A's public id in place of A's uid (the uid scan below covers the rest).
+				if !strings.Contains(body, `"follow_`+aPub+`"`) {
+					t.Errorf("the flagged caller's FOLLOW row id is not follow_<A's public id>: %s", body)
+				}
+				notifSeen[true] = true
 			}
 			for _, u := range uids {
 				if strings.Contains(body, u) {
@@ -706,32 +788,15 @@ func TestPublicIDs_SharedPagesRace(t *testing.T) {
 			}
 		}
 		sawUID = sawUID || strings.Contains(body, a.uid)
-	}
-	if !sawUID || !quoteSeen[true] || !quoteSeen[false] {
-		t.Errorf("the asserted pages were not seen (unflagged saw A's uid %v, flagged quote %v, flagged home %v): the scan proved nothing", sawUID, quoteSeen[true], quoteSeen[false])
-	}
-}
-
-// pubDropNotificationIDs removes Notification.id from a ListNotifications body before the uid scan. Known gap, not a
-// pass: the field is not annotated yet, so flagged callers still receive the actor's raw uid in it for FOLLOW,
-// FOLLOW_REQUEST, FOLLOW_ACCEPTED, REPOST and BEACON_REQUEST rows until PR 4c annotates it and registers its rule
-// (see publicIDPassThrough). PR 4c removes this helper.
-func pubDropNotificationIDs(t *testing.T, body string) string {
-	t.Helper()
-	var v map[string]any
-	if err := json.Unmarshal([]byte(body), &v); err != nil {
-		t.Fatalf("notifications body: %v", err)
-	}
-	if ns, ok := v["notifications"].([]any); ok {
-		for _, n := range ns {
-			if m, ok := n.(map[string]any); ok {
-				delete(m, "id")
+		if isNotifs {
+			if !strings.Contains(body, `"`+followRow+`"`) {
+				t.Errorf("the unflagged caller's FOLLOW row id is not the stored id: %s", body)
 			}
+			notifSeen[false] = true
 		}
 	}
-	out, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
+	if !sawUID || !quoteSeen[true] || !quoteSeen[false] || !notifSeen[true] || !notifSeen[false] {
+		t.Errorf("the asserted pages were not seen (unflagged saw A's uid %v, flagged quote %v, flagged home %v, notifications flagged %v unflagged %v): the scan proved nothing",
+			sawUID, quoteSeen[true], quoteSeen[false], notifSeen[true], notifSeen[false])
 	}
-	return string(out)
 }
