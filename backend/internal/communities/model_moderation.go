@@ -131,6 +131,25 @@ type ModeratePostResult struct {
 	Reply     bool
 }
 
+// ownerOnly reports whether only the owner may take the action (MAKE_MODERATOR, REMOVE_MODERATOR); BAN and UNBAN are open to moderators.
+func (a RoleAction) ownerOnly() bool {
+	return a == RoleActionMakeModerator || a == RoleActionRemoveModerator
+}
+
+// authorizeRole is the caller's right to take action a in c, decided from c alone (never from the target): ErrNotOwner when the
+// action is owner-only and uid is not the owner, ErrNotModerator when uid is neither the owner nor a moderator. The caller checks that
+// c exists and is not SUSPENDED first. Shared by SetMemberRole's pre-check and ModerationRepo.SetRole's transaction (the authority).
+func authorizeRole(c Community, uid string, a RoleAction) error {
+	actor := c.RoleOf(uid)
+	switch {
+	case a.ownerOnly() && actor != RoleOwner:
+		return ErrNotOwner
+	case actor == RoleNone:
+		return ErrNotModerator
+	}
+	return nil
+}
+
 // SetRoleParams is one SetMemberRole write.
 type SetRoleParams struct {
 	UID, ID, Target, IdemKey, RequestHash string
