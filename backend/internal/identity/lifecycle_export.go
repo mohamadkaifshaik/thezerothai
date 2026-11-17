@@ -1,6 +1,6 @@
 // lifecycle_export.go is the export job and composer: one delivery of {account_export, id}
 // streams a single JSON object to the private exports bucket and sets exports/{id} READY. The envelope is
-// {"exportVersion":1,"generatedAt":...,"account":...,"profile":...,<registered sections: graph, posts, ...>}.
+// {"exportVersion":2,"generatedAt":...,"account":...,"profile":...,<registered sections: graph, posts, ...>}.
 // The object path is deterministic, so a retry overwrites the same object; the Writer is aborted on error, so a
 // crash or failure never leaves a truncated object. A DELETING or missing user gets FAILED and no object.
 package identity
@@ -48,8 +48,10 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// exportVersion is the envelope's schema version; bump it with any incompatible change to a built-in section.
-const exportVersion = 1
+// exportVersion is the envelope's schema version; bump it with any incompatible change to a built-in section or to
+// a registered section's row shape. 2 (public ids): the graph and follow_requests rows name other people by
+// {publicId, handle} instead of {userId, handle}.
+const exportVersion = 2
 
 // errPermanent marks an export failure that a retry cannot fix.
 var errPermanent = errors.New("permanent export failure")

@@ -271,6 +271,16 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed profile extras: %v", err)
 	}
+	// Other people are exported by handle and public id, never by uid (exportVersion 2): f (followed) and x (blocked)
+	// have one, fixed literals like A's; g (follower) and z (muted) have none, so their rows carry the handle only.
+	for _, u := range []struct {
+		who testUser
+		pub string
+	}{{f, "u1fffffffffffffffffffffffff"}, {x, "u2xxxxxxxxxxxxxxxxxxxxxxxxx"}} {
+		if _, err := e.fs.Doc("users/"+u.who.uid).Update(ctx, []firestore.Update{{Path: "publicId", Value: u.pub}}); err != nil {
+			t.Fatalf("seed public id: %v", err)
+		}
+	}
 
 	_, raw := e.exportOf(t, a, key("export"))
 
@@ -319,6 +329,8 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		{"the handle of an unrelated user", wHandle},
 		{"an unrelated user's email", wEmail},
 		{"the uid of someone the stranger blocks", v.uid},
+		{"the uid of a blocked user (exported by handle and public id)", x.uid},
+		{"the uid of a muted user (exported by handle only)", z.uid},
 		{"the handle of someone the stranger blocks", vHandle},
 		{"the email of a followed user", fEmail},
 		{"the email of a blocked user", xEmail},
@@ -356,7 +368,8 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	if m := regexp.MustCompile(`"status"\s*:\s*"(ACTIVE|SUSPENDED|DELETING)"`).Find(raw); m != nil {
 		t.Errorf("the export contains the account status (%s)", m)
 	}
-	// The subject's OWN relationships are in it: the blocked and muted users by uid and handle.
+	// The subject's OWN relationships are in it: the blocked and muted users by public id (when they have one) and
+	// handle, never by uid.
 	var doc struct {
 		Graph struct {
 			Blocked   []map[string]any `json:"blocked"`
@@ -368,10 +381,22 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Graph.Blocked) != 1 || doc.Graph.Blocked[0]["userId"] != x.uid ||
-		len(doc.Graph.Muted) != 1 || doc.Graph.Muted[0]["userId"] != z.uid ||
+	xHandle, _ := e.profileOf(t, x)
+	zHandle, _ := e.profileOf(t, z)
+	if len(doc.Graph.Blocked) != 1 || doc.Graph.Blocked[0]["publicId"] != "u2xxxxxxxxxxxxxxxxxxxxxxxxx" || doc.Graph.Blocked[0]["handle"] != xHandle ||
+		len(doc.Graph.Muted) != 1 || doc.Graph.Muted[0]["handle"] != zHandle ||
 		len(doc.Graph.Following) != 1 || len(doc.Graph.Followers) != 1 {
 		t.Errorf("the subject's own graph is wrong: %+v", doc.Graph)
+	}
+	for _, rows := range [][]map[string]any{doc.Graph.Blocked, doc.Graph.Muted, doc.Graph.Following, doc.Graph.Followers} {
+		for _, r := range rows {
+			if _, has := r["userId"]; has {
+				t.Errorf("a graph row names a person by uid: %v", r)
+			}
+			if _, has := r["publicId"]; has && r["publicId"] == "" {
+				t.Errorf("an empty publicId is written instead of omitted: %v", r)
+			}
+		}
 	}
 }
 

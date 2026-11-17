@@ -219,6 +219,21 @@ func platformFromProto(p notificationsv1.DevicePlatform) Platform {
 	return ""
 }
 
+// TypeFromProto is the inverse of the wire mapping, for code outside the module that holds a wire Notification (the
+// edge's notification-id rule, with WireNotificationID / NotificationIDActorSpan). "" for UNSPECIFIED, an unknown
+// value and the push-only message type (never listed). Derived from typeToProto over allTypes, so the two cannot drift.
+func TypeFromProto(p notificationsv1.NotificationType) Type {
+	if p == notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED {
+		return ""
+	}
+	for _, t := range allTypes {
+		if typeToProto(t) == p {
+			return t
+		}
+	}
+	return ""
+}
+
 func typeToProto(t Type) notificationsv1.NotificationType {
 	switch t {
 	case TypeFollow:

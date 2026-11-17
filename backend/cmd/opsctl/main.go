@@ -124,7 +124,9 @@ type backends struct {
 	communityNameKeys nameKeyBackfiller
 	// publicIDBackfill serves backfill-public-ids: identity's walk, mint and repair transactions.
 	publicIDBackfill identity.PublicIDBackfillStore
-	close            func()
+	// publicIDLookup serves public-id: identity's repo reads of users/{uid} and publicIds/{id} (read-only).
+	publicIDLookup publicIDStore
+	close          func()
 }
 
 type opener func(ctx context.Context, project string) (*backends, error)
@@ -232,6 +234,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		listNameKeys:      lists.NewFirestoreRepo(client, nil, nil),
 		communityNameKeys: communitiesRepo,
 		publicIDBackfill:  identityRepo,
+		publicIDLookup:    identityRepo,
 		close:             func() { _ = client.Close() },
 	}, nil
 }
@@ -252,7 +255,7 @@ const usage = `usage:
   opsctl media-orphan-sweep --project P --profile-retire off|all [--dry-run]   (drains the daily orphan sweep's
                           backlog in delete mode whatever MEDIA_ORPHAN_SWEEP says; --profile-retire has no default and the
                           shell's PROFILE_MEDIA_RETIRE is not read; --dry-run computes one page and writes nothing)
-` + backfillPublicIDsUsage + recountSharesUsage + recountListFollowsUsage + recountChildrenUsage + recountChildrenBulkUsage + nameKeysUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
+` + backfillPublicIDsUsage + publicIDUsage + recountSharesUsage + recountListFollowsUsage + recountChildrenUsage + recountChildrenBulkUsage + nameKeysUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -279,7 +282,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.BoolVar(&bulk.resume, "resume", false, "recount-children, backfill-public-ids: continue the checkpoint file (recount-children: same --before and mode)")
 	fs.BoolVar(&bulk.force, "force", false, "recount-children, backfill-public-ids: start over, replacing an existing checkpoint file")
 	var ma modArgs
-	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
+	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id; public-id: the public id to resolve")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post, recount-shares, recount-replies, recount-quotes: post id")
 	fs.StringVar(&ma.list, "list", "", "recount-list-follows: list id")
 	allMissing := fs.Bool("all-missing", false, "recount-list-follows: scan every list and repair those with no followerCount field (instead of --list)")
@@ -298,7 +301,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
 		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
 		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep", "recount-shares", "recount-list-follows", "recount-replies", "recount-quotes", "recount-children", "search",
-		"backfill-public-ids":
+		"backfill-public-ids", "public-id":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -512,7 +515,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
 	// report or post id.
-	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community" && cmd != "search" && cmd != "backfill-public-ids"
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "recount-shares" && cmd != "recount-list-follows" && cmd != "recount-replies" && cmd != "recount-quotes" && cmd != "recount-children" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community" && cmd != "search" && cmd != "backfill-public-ids" && cmd != "public-id"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -520,6 +523,13 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	if needUID && !identity.ValidUserID(*uid) {
 		fmt.Fprintln(errOut, "--uid is not a valid user id")
 		return 2
+	}
+	if cmd == "public-id" {
+		// Exactly one of --uid / --id, each well-formed, before anything is opened or confirmed.
+		if err := parsePublicIDArgs(*uid, ma.id); err != nil {
+			fmt.Fprintf(errOut, "%v\n%s", err, usage)
+			return 2
+		}
 	}
 	if cmd == "media-orphan-sweep" {
 		// Printed before the prod prompt, so the operator confirms while reading the effective switches and clock.
@@ -567,6 +577,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = mediaOrphanSweep(ctx, b, sweepRetire, *dryRun, out, now)
 	case "backfill-public-ids":
 		err = backfillPublicIDs(ctx, b, pubArgs, out, now)
+	case "public-id":
+		err = publicIDLookup(ctx, b.publicIDLookup, *uid, ma.id, out)
 	case "purge-graph":
 		err = purge(ctx, b, *uid, *dryRun, *skipGate, out, now)
 	case "purge-posts":

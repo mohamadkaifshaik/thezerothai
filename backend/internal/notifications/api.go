@@ -10,6 +10,8 @@ package notifications
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
@@ -81,14 +83,69 @@ const (
 // through the apiserver wiring.
 const MessagingFlagName = "messaging"
 
+// allTypes is every known type: the one list Valid reads and the wire-id guard test walks, so a new type cannot skip
+// the decision of how its row id goes on the wire.
+var allTypes = []Type{
+	TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage,
+	TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled, TypeBeaconUpdated,
+}
+
 // Valid reports whether t is a known type.
-func (t Type) Valid() bool {
+func (t Type) Valid() bool { return slices.Contains(allTypes, t) }
+
+// ActorKeyedID reports whether the stored row id of type t ends in the actor's uid as its last "_" segment
+// (follow_<uid>, follow_request_<uid>, follow_accepted_<uid>, repost_<postId>_<uid>, beacon_request_<beaconId>_<uid>).
+// A uid never contains "_", so that segment is exactly the uid.
+func (t Type) ActorKeyedID() bool {
 	switch t {
-	case TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage,
-		TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled, TypeBeaconUpdated:
+	case TypeFollow, TypeFollowRequest, TypeFollowAccepted, TypeRepost, TypeBeaconRequest:
 		return true
 	}
 	return false
+}
+
+// TombstonePublicID is the wire id of an account that has no public id (not minted yet, or erased). It can never be
+// minted (a real id's first body character is 0-7), so it names nobody. It is the same literal as the edge's
+// publicid.Tombstone (PR 4a); notifications cannot import that package yet, so the literal is duplicated and pinned by
+// TestTombstonePublicID here and, once both are on main, by an equality test in apiserver.
+const TombstonePublicID = "uzzzzzzzzzzzzzzzzzzzzzzzzzz"
+
+// NotificationIDActorSpan is where the actor's uid sits in a stored row id of type t, storedID[start:end], and so where
+// WireNotificationID writes the public id: everything after the last "_" (the whole id when it has none; end is always
+// len(storedID)). ok=false for a type whose id names no actor. It is the edge's rule (publicid.Rule answers a span), and
+// WireNotificationID is defined by it, so the push and the listed row get the same wire id.
+func NotificationIDActorSpan(storedID string, t Type) (start, end int, ok bool) {
+	if !t.ActorKeyedID() {
+		return 0, 0, false
+	}
+	return strings.LastIndexByte(storedID, '_') + 1, len(storedID), true
+}
+
+// NotificationIDActor returns the actor uid a stored row id of type t ends in (ok=false for a type whose id names no
+// actor, or an id with no "_" or an empty last segment). The edge uses it to collect the uids to resolve for a page.
+func NotificationIDActor(storedID string, t Type) (string, bool) {
+	start, end, ok := NotificationIDActorSpan(storedID, t)
+	if !ok || start == 0 || start == end {
+		return "", false
+	}
+	return storedID[start:end], true
+}
+
+// WireNotificationID is the form of a stored row id sent to a caller or device with FEATURE_PUBLIC_IDS on: for the
+// actor-keyed types (ActorKeyedID) the last "_" segment, the actor's uid, is replaced by actorPublicID, or by
+// TombstonePublicID when that is empty or not a well-formed public id. The swap is unconditional (it never compares the
+// segment with a uid), so a wire id can never carry a uid; an id with no "_" at all is replaced whole. Every other type
+// is returned unchanged. Stored ids, dedupe and cursors keep the stored form; the result is stable for one actor and,
+// because a public id is unique, unique per row. Pure: no read, no flag.
+func WireNotificationID(storedID string, t Type, actorPublicID string) string {
+	start, end, ok := NotificationIDActorSpan(storedID, t)
+	if !ok {
+		return storedID
+	}
+	if !identity.ValidPublicID(actorPublicID) {
+		actorPublicID = TombstonePublicID
+	}
+	return storedID[:start] + actorPublicID + storedID[end:]
 }
 
 // needsPost reports whether events of type t must name a post.
@@ -202,6 +259,13 @@ type Push struct {
 	ConversationID string
 	// BeaconID replaces PostID on a beacon-type push (ids only, no title or venue).
 	BeaconID string
+	// PublicIDs is FEATURE_PUBLIC_IDS for the recipient. When set, the FCM payload carries ActorPublicID as actorId
+	// (omitted when it is empty) and WireNotificationID as notificationId; ActorID and NotificationID stay the stored
+	// values (the row and its log pseudonym) and never reach the device. When false the payload is today's, and
+	// ActorPublicID is ignored.
+	PublicIDs bool
+	// ActorPublicID is the actor's public id from the profile the delivery already loaded ("" = none).
+	ActorPublicID string
 }
 
 // ErrTokenUnregistered is returned by PushSender.Send when FCM says the token is no longer valid: the device is

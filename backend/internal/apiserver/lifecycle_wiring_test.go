@@ -132,7 +132,7 @@ func (fakePostsExporter) ExportUser(_ context.Context, uid string, w io.Writer) 
 func TestExportSections(t *testing.T) {
 	ctx := context.Background()
 	t.Run("graph is one JSON value and never carries blockedBy", func(t *testing.T) {
-		s := graphSection{fakeGraphExporter{out: graph.Export{UserID: "u1", Following: []graph.ExportUser{{UserID: "u2", Handle: "bob"}}}}}
+		s := graphSection{fakeGraphExporter{out: graph.Export{UserID: "u1", Following: []graph.ExportUser{{PublicID: "u0123456789abcdefghjkmnpqrs", Handle: "bob"}}}}}
 		if s.Name() != "graph" {
 			t.Errorf("name = %q", s.Name())
 		}
@@ -392,9 +392,9 @@ func TestFollowRequestsSection(t *testing.T) {
 	}{
 		{"empty is arrays, not null", graph.RequestsExport{Sent: []graph.RequestExportRow{}, Received: []graph.RequestExportRow{}}, "{\"sent\":[],\"received\":[]}\n", false},
 		{"rows keep their order", graph.RequestsExport{
-			Sent:     []graph.RequestExportRow{{UserID: "u2", Handle: "bob", RequestedAt: at}},
-			Received: []graph.RequestExportRow{{UserID: "u3", RequestedAt: at}},
-		}, "{\"sent\":[{\"userId\":\"u2\",\"handle\":\"bob\",\"requestedAt\":\"2026-10-28T09:00:00Z\"}],\"received\":[{\"userId\":\"u3\",\"requestedAt\":\"2026-10-28T09:00:00Z\"}]}\n", false},
+			Sent:     []graph.RequestExportRow{{PublicID: "u0123456789abcdefghjkmnpqrs", Handle: "bob", RequestedAt: at}},
+			Received: []graph.RequestExportRow{{Handle: "carol", RequestedAt: at}},
+		}, "{\"sent\":[{\"publicId\":\"u0123456789abcdefghjkmnpqrs\",\"handle\":\"bob\",\"requestedAt\":\"2026-10-28T09:00:00Z\"}],\"received\":[{\"handle\":\"carol\",\"requestedAt\":\"2026-10-28T09:00:00Z\"}]}\n", false},
 		{"source error", graph.RequestsExport{}, "", true},
 	}
 	for _, tt := range tests {

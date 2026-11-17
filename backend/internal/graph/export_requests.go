@@ -1,5 +1,5 @@
 // export_requests.go builds the `follow_requests` export section: the requests the
-// subject sent and received, newest first, as {userId, handle, requestedAt}. The graph section and its golden are
+// subject sent and received, newest first, as {publicId, handle, requestedAt} (exportVersion 2; {userId, ...} before). The graph section and its golden are
 // unchanged and the privacy/protectedAuthors set doc is never exported (it lists other users).
 package graph
 
@@ -12,9 +12,10 @@ import (
 	"cloud.google.com/go/firestore"
 )
 
-// RequestExportRow is one row of the `follow_requests` section: the other party and when the request was made.
+// RequestExportRow is one row of the `follow_requests` section: the other party, by public id and handle (never the
+// uid; each omitted when absent, as in ExportUser), and when the request was made.
 type RequestExportRow struct {
-	UserID      string    `json:"userId"`
+	PublicID    string    `json:"publicId,omitempty"`
 	Handle      string    `json:"handle,omitempty"`
 	RequestedAt time.Time `json:"requestedAt"`
 }
@@ -27,9 +28,9 @@ type RequestsExport struct {
 
 const requestExportPage = 500
 
-// ExportRequests pages both sides (every query has a Limit of 500) and resolves handles through the ProfileReader in
-// batches of 50, as ExportUser does. It runs one query per side, plus the handle
-// lookups for the distinct counterparts (cache-first through the ProfileReader), and writes nothing. Sent requests are capped
+// ExportRequests pages both sides (every query has a Limit of 500) and resolves handles and public ids through the
+// ProfileReader in batches of 50, as ExportUser does. It runs one query per side, plus the profile
+// lookups for the distinct counterparts (the public id is on the same read), and writes nothing. Sent requests are capped
 // at 500 by graph/{uid}.requested.
 func (r *FirestoreRepo) ExportRequests(ctx context.Context, uid string) (RequestsExport, error) {
 	if r.profiles == nil {
@@ -50,16 +51,18 @@ func (r *FirestoreRepo) ExportRequests(ctx context.Context, uid string) (Request
 	for _, d := range received {
 		receivedUIDs = append(receivedUIDs, d.FollowerID)
 	}
-	handles, err := r.handlesFor(ctx, sentUIDs, receivedUIDs)
+	people, err := r.peopleFor(ctx, sentUIDs, receivedUIDs)
 	if err != nil {
 		return RequestsExport{}, err
 	}
 	out := RequestsExport{Sent: make([]RequestExportRow, 0, len(sent)), Received: make([]RequestExportRow, 0, len(received))}
 	for _, d := range sent {
-		out.Sent = append(out.Sent, RequestExportRow{UserID: d.FolloweeID, Handle: handles[d.FolloweeID], RequestedAt: d.CreatedAt})
+		p := people[d.FolloweeID]
+		out.Sent = append(out.Sent, RequestExportRow{PublicID: p.PublicID, Handle: p.Handle, RequestedAt: d.CreatedAt})
 	}
 	for _, d := range received {
-		out.Received = append(out.Received, RequestExportRow{UserID: d.FollowerID, Handle: handles[d.FollowerID], RequestedAt: d.CreatedAt})
+		p := people[d.FollowerID]
+		out.Received = append(out.Received, RequestExportRow{PublicID: p.PublicID, Handle: p.Handle, RequestedAt: d.CreatedAt})
 	}
 	return out, nil
 }
