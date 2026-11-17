@@ -182,7 +182,7 @@ func (s *Server) GetProfile(ctx context.Context, req *connect.Request[identityv1
 	if err != nil {
 		return nil, err
 	}
-	target := ProfileTarget{UserID: req.Msg.GetUserId(), Handle: req.Msg.GetHandle()}
+	target := ProfileTarget{UserID: req.Msg.GetUserId(), Handle: req.Msg.GetHandle(), PublicID: req.Msg.GetPublicId()}
 	profile, err := s.svc.GetProfile(ctx, uid, target)
 	if err != nil {
 		return nil, err
@@ -404,6 +404,7 @@ func dmPolicyFromProto(p identityv1.DmPolicy) (DMPolicy, bool) {
 func toProtoProfile(p Profile) *identityv1.Profile {
 	return &identityv1.Profile{
 		UserId:               p.UserID,
+		PublicId:             p.PublicID,
 		Handle:               p.Handle,
 		DisplayName:          p.DisplayName,
 		Bio:                  p.Bio,

@@ -307,26 +307,50 @@ func (r *FirestoreRepo) DeleteHandleIfOwned(ctx context.Context, handleLower, ui
 	if handleLower == "" {
 		return HandleAbsent, nil
 	}
+	outcome, err := r.deleteIfOwned(ctx, r.handleRef(handleLower), uid)
+	if err != nil {
+		return HandleAbsent, fmt.Errorf("identity: delete handle: %w", err)
+	}
+	return outcome, nil
+}
+
+// DeletePublicIDIfOwned reads publicIds/{publicID} and deletes it only when it is uid's, in one transaction. No
+// tombstone is kept: the id is 128 random bits, so it is never drawn again in practice, and a create-only mint would
+// refuse it while any document held it. The errors never carry the id.
+func (r *FirestoreRepo) DeletePublicIDIfOwned(ctx context.Context, publicID, uid string) (HandleOutcome, error) {
+	if publicID == "" {
+		return HandleAbsent, nil
+	}
+	outcome, err := r.deleteIfOwned(ctx, r.publicIDRef(publicID), uid)
+	if err != nil {
+		return HandleAbsent, logger.RedactErr(fmt.Errorf("identity: delete public id: %w", err), publicID)
+	}
+	return outcome, nil
+}
+
+// deleteIfOwned is one transaction over a handleDoc-shaped lookup (handles/*, publicIds/*): absent is HandleAbsent,
+// another owner is HandleOwnerMismatch (left alone), uid's own is deleted.
+func (r *FirestoreRepo) deleteIfOwned(ctx context.Context, ref *firestore.DocumentRef, uid string) (HandleOutcome, error) {
 	outcome := HandleAbsent
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		snap, err := tx.Get(r.handleRef(handleLower))
+		outcome = HandleAbsent
+		snap, err := tx.Get(ref)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
-				outcome = HandleAbsent
 				return nil
 			}
-			return fmt.Errorf("identity: get handle for deletion: %w", err)
+			return fmt.Errorf("get lookup for deletion: %w", err)
 		}
 		var hd handleDoc
 		if err := snap.DataTo(&hd); err != nil {
-			return fmt.Errorf("identity: decode handle for deletion: %w", err)
+			return fmt.Errorf("decode lookup for deletion: %w", err)
 		}
 		if hd.UID != uid {
 			outcome = HandleOwnerMismatch
 			return nil
 		}
 		b := store.NewFirestoreTxBatch(tx)
-		b.Delete(r.handleRef(handleLower))
+		b.Delete(ref)
 		if b.Err() != nil {
 			return b.Err()
 		}

@@ -31,7 +31,10 @@ const (
 
 // Profile is the identity module's domain representation of users/{uid}.
 type Profile struct {
-	UserID               string
+	UserID string
+	// PublicID is users/{uid}.publicId (publicid.go), "" until minted. Always carried internally (cache, Directory,
+	// whole-document rewrites); a response carries it only from GetMe and GetProfile to a caller with public_ids on.
+	PublicID             string
 	Handle               string
 	HandleLower          string
 	DisplayName          string
@@ -93,10 +96,41 @@ const (
 // response, and messaging ignores a stored FOLLOWING_ONLY (it applies only to a recipient with the flag on).
 const DMPolicyFlag = "dm_policy"
 
-// ProfileTarget is the GetProfile oneof: exactly one of UserID/Handle is set.
+// ProfileTarget is the GetProfile oneof: exactly one of UserID/Handle/PublicID is set. PublicID is served only to a
+// caller with public_ids on; for anyone else the target counts as empty (VALIDATION field=target, as before the arm).
 type ProfileTarget struct {
-	UserID string
-	Handle string
+	UserID   string
+	Handle   string
+	PublicID string
+}
+
+// PublicIDsFlag is the wire name of FEATURE_PUBLIC_IDS. Two answers of the same flag are used:
+//   - not globally off (on, or any allowlist or percent rollout): every account gets a public id, at signup (CreateProfile)
+//     and lazily on its own GetMe, whether or not that account is in the cohort, so ids exist before they are shown.
+//     The PublicIDs lookups answer only then.
+//   - on for the caller: GetMe and GetProfile carry Profile.public_id, and GetProfile serves its public_id target.
+//
+// Globally off (prod today) nothing changes: no write at signup, no lazy mint, no lookup read, no field on the wire.
+const PublicIDsFlag = "public_ids"
+
+// MaxPublicIDLookups is the most distinct ids one PublicIDs call takes (a caller bug beyond it); the misses are read in
+// GetAll chunks of publicIDChunk.
+const MaxPublicIDLookups = 500
+
+// PublicIDs translates between uids and public ids for the edge (the public-id interceptor, PR 4). Both directions are
+// cache-first, then one GetAll per chunk of misses; never one read per row. Every method answers empty, with no read,
+// while public_ids is globally off. *service implements it.
+type PublicIDs interface {
+	// PublicIDsForUIDs maps uid -> public id, reading users/{uid} for cache misses (which also warms the profile cache).
+	// A uid whose account has no id yet (not minted: no GetMe since the flag came on and no backfill) or no document
+	// (erased) is absent. Account status is not filtered: a SUSPENDED or DELETING account still has its id.
+	PublicIDsForUIDs(ctx context.Context, uids []string) (map[string]string, error)
+	// UIDsForPublicIDs maps public id -> uid from publicIds/{id}. Malformed ids are skipped without a read; unknown and
+	// erased ids are absent. A hit says nothing about the account's status: callers must still apply the usual
+	// status, block and visibility checks to the uid (GetProfile does, so NOT_FOUND stays uniform).
+	UIDsForPublicIDs(ctx context.Context, publicIDs []string) (map[string]string, error)
+	// UIDForPublicID is UIDsForPublicIDs for one id: ErrNotFound when it is malformed, unknown or erased.
+	UIDForPublicID(ctx context.Context, publicID string) (string, error)
 }
 
 // MeResult is everything GetMe needs beyond the ID token claims (email_verified comes from the token).
@@ -207,7 +241,15 @@ type Repo interface {
 	// existing profile and performs no writes. authorize (nil = none) runs only on the not-found path, inside the
 	// transaction after the users/{uid} read and before any other read or write;
 	// its error aborts the transaction unchanged and nothing is written. It never runs on a replay.
-	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (profile Profile, replay bool, err error)
+	// publicID "" mints nothing; otherwise users/{uid}.publicId is set and publicIds/{publicID} is created (create-only) in
+	// the same transaction, and a lost create-only write is ErrCreateConflict with nothing written.
+	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName, publicID string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (profile Profile, replay bool, err error)
+	// EnsurePublicID is the lazy mint (one transaction): an ACTIVE users/{uid} without publicId gets publicID and its
+	// publicIds lookup; any other document is returned as read with no write. ErrNotFound when absent, ErrCreateConflict
+	// when the lookup already exists.
+	EnsurePublicID(ctx context.Context, uid, publicID string, now time.Time) (Profile, error)
+	// ResolvePublicIDs batch-reads publicIds/{id} via one GetAll and maps id -> uid; absent ids are absent.
+	ResolvePublicIDs(ctx context.Context, publicIDs []string) (map[string]string, error)
 	// UpdateProfile reads users/{uid}, applies mutate, writes the result back and returns the new Profile. When mutate
 	// leaves the profile unchanged (the caller must not touch UpdatedAt then) nothing is written.
 	UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error)

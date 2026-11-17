@@ -185,7 +185,7 @@ func TestAccountStatus_Integration_NegativeCache(t *testing.T) {
 
 	// The profile appears behind this instance's back (written through the repo, not the service): the second answer
 	// still comes from the negative cache, which proves the repo was not asked again.
-	if _, _, err := repo.CreateProfile(ctx, "ghost", "Ghost", "ghost", "Ghost", time.Now().UTC(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "ghost", "Ghost", "ghost", "Ghost", "", time.Now().UTC(), nil); err != nil {
 		t.Fatalf("repo.CreateProfile: %v", err)
 	}
 	exists2, _, err := svc.AccountStatus(ctx, "ghost")

@@ -57,7 +57,10 @@ var errPermanent = errors.New("permanent export failure")
 // exportProfile is the profile section: user-facing fields only. By construction it has no status,
 // snapshotVersion, deletionJob or any other internal field.
 type exportProfile struct {
-	UserID      string `json:"userId"`
+	UserID string `json:"userId"`
+	// PublicID is the account's own public id (users/{uid}.publicId), omitted when none was minted. It is the user's
+	// data, so it is exported whatever public_ids says now.
+	PublicID    string `json:"publicId,omitempty"`
 	Handle      string `json:"handle"`
 	DisplayName string `json:"displayName"`
 	Bio         string `json:"bio"`
@@ -82,7 +85,7 @@ type exportProfile struct {
 
 func profileSection(p Profile) exportProfile {
 	return exportProfile{
-		UserID: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, Bio: p.Bio, AvatarURL: p.AvatarURL,
+		UserID: p.UserID, PublicID: p.PublicID, Handle: p.Handle, DisplayName: p.DisplayName, Bio: p.Bio, AvatarURL: p.AvatarURL,
 		IsPrivate: p.IsPrivate, Verified: p.Verified, FollowersCount: p.FollowersCount, FollowingCount: p.FollowingCount,
 		Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, ReadReceipts: p.ReadReceipts,
 		DMPolicy: string(p.DMPolicy), HomeTabs: exportHomeTabs(p),

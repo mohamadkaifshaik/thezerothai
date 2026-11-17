@@ -265,6 +265,8 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		{Path: "bannerThumbUrl", Value: "https://media.example/m/0000000000000000601_t.webp"},
 		{Path: "location", Value: "Pune"}, {Path: "website", Value: "https://example.com/me"},
 		{Path: "pinnedPostId", Value: "0000000000000000602"},
+		// The account's own public id is exported in the profile section (a fixed literal; this env mints none).
+		{Path: "publicId", Value: "u0123456789abcdefghjkmnpqrs"},
 		{Path: "homeTabs", Value: []map[string]any{{"kind": "LIST", "id": "0000000000000000603", "title": "Golden list"}}},
 	}); err != nil {
 		t.Fatalf("seed profile extras: %v", err)

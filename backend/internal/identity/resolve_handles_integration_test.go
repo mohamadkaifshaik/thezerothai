@@ -71,7 +71,7 @@ func TestResolveHandles_Integration(t *testing.T) {
 		t.Fatalf("unknown handle: got=%v err=%v", got, err)
 	}
 	// The handle gets claimed behind this instance's back: for 10 s the negative entry still answers "free".
-	if _, _, err := repo.CreateProfile(ctx, "uid-new", "NoSuchPerson", "nosuchperson", "New", time.Now().UTC(), nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-new", "NoSuchPerson", "nosuchperson", "New", "", time.Now().UTC(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if got, err = dir.ResolveHandles(ctx, []string{"nosuchperson"}); err != nil || len(got) != 0 {

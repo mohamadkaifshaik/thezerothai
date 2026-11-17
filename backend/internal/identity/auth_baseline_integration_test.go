@@ -24,7 +24,7 @@ func TestCreateProfile_Integration_AuthBaseline(t *testing.T) {
 		Subjects: map[string][]string{"google.com": {"hash-g"}, "apple.com": {"hash-a"}},
 	}
 
-	if _, _, err := repo.CreateProfile(ctx, "uid-ab", "Ann", "ann", "Ann", now, func(context.Context) (*identity.AuthBaseline, error) { return want, nil }); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-ab", "Ann", "ann", "Ann", "", now, func(context.Context) (*identity.AuthBaseline, error) { return want, nil }); err != nil {
 		t.Fatal(err)
 	}
 	snap, err := client.Doc("users/uid-ab").Get(ctx)
@@ -61,7 +61,7 @@ func TestCreateProfile_Integration_AuthBaseline(t *testing.T) {
 	// attack's victim: a later federated link must read back as "known baseline, no subjects" so the sign-in warns,
 	// which only holds if the empty map survives the Firestore round trip (not collapsed to an absent field / nil).
 	empty := &identity.AuthBaseline{}
-	if _, _, err := repo.CreateProfile(ctx, "uid-eb", "Em", "em", "Em", now, func(context.Context) (*identity.AuthBaseline, error) { return empty, nil }); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-eb", "Em", "em", "Em", "", now, func(context.Context) (*identity.AuthBaseline, error) { return empty, nil }); err != nil {
 		t.Fatal(err)
 	}
 	eb, err := repo.GetProfile(ctx, "uid-eb")
@@ -74,7 +74,7 @@ func TestCreateProfile_Integration_AuthBaseline(t *testing.T) {
 	}
 
 	// No authorize (or a nil baseline) stores no field at all.
-	if _, _, err := repo.CreateProfile(ctx, "uid-nb", "Bo", "bo", "Bo", now, nil); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-nb", "Bo", "bo", "Bo", "", now, nil); err != nil {
 		t.Fatal(err)
 	}
 	nb, err := repo.GetProfile(ctx, "uid-nb")
