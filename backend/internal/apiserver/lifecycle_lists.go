@@ -1,6 +1,6 @@
 // lifecycle_lists.go joins lists to the account-lifecycle registry: the `lists` Eraser step (the user's own
 // lists, then the uid inside other users' lists; none of it is removed by deleting users/{uid}) and the `lists` export
-// section (the user's own lists with their member ids). Both are registered whether or not FEATURE_LISTS is on, because
+// section (the user's own lists, members named by public id and handle, never by uid). Both are registered whether or not FEATURE_LISTS is on, because
 // documents outlive the flag. The step is appended after `messaging`: its name is persisted in deletionJob.step, so it never
 // joins another module's checkpoint.
 package apiserver
@@ -28,10 +28,11 @@ func (s listsSection) WriteSection(ctx context.Context, uid string, w io.Writer)
 }
 
 // registerListsLifecycle registers the lists step and export section on l. Call it after registerMessagingLifecycle
-// (Lifecycle always runs the identity step last). handles and social feed the `lists_member_of` part: owner handles and the user's own follows.
-func registerListsLifecycle(l *identity.Lifecycle, repo *lists.FirestoreRepo, handles lists.HandleSource, social lists.SocialSource) error {
+// (Lifecycle always runs the identity step last). people names the members of the user's own lists (identity's repo: every
+// account status). handles and social feed the `lists_member_of` part: owner handles and the user's own follows.
+func registerListsLifecycle(l *identity.Lifecycle, repo *lists.FirestoreRepo, people lists.PeopleSource, handles lists.HandleSource, social lists.SocialSource) error {
 	if err := l.RegisterEraser(identity.BeforeIdentity, listsEraserStep(lists.NewEraser(repo))); err != nil {
 		return err
 	}
-	return l.RegisterExportSection(listsSection{lists.NewExporter(repo).WithMembership(repo, handles, social).WithFollows(repo)})
+	return l.RegisterExportSection(listsSection{lists.NewExporter(repo, people).WithMembership(repo, handles, social).WithFollows(repo)})
 }

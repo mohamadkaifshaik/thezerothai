@@ -78,9 +78,14 @@
         "description": "",
         "isPrivate": true,
         "listId": "0000000000000000604",
-        "memberIds": [
-          "<uid:f>",
-          "<uid:g>"
+        "members": [
+          {
+            "handle": "<handle:f>",
+            "publicId": "u1fffffffffffffffffffffffff"
+          },
+          {
+            "handle": "<handle:g>"
+          }
         ],
         "name": "list 604",
         "updatedAt": "<time>"
@@ -237,7 +242,18 @@
     "website": "https://example.com/me"
   },
   "reports": {
-    "reports": [],
+    "reports": [
+      {
+        "createdAt": "<time>",
+        "id": "00000000000000000000000000000609",
+        "note": "golden report",
+        "reason": "HARASSMENT",
+        "status": "OPEN",
+        "targetHandle": "<handle:x>",
+        "targetPublicId": "u2xxxxxxxxxxxxxxxxxxxxxxxxx",
+        "targetType": "ACCOUNT"
+      }
+    ],
     "userId": "<uid:A>"
   },
   "scheduled": {
