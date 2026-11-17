@@ -639,6 +639,18 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// log line and trace field instead of the panic unwinding past Logging's post-call code entirely.
 	// See pkg/platform/mw's package doc comment for the exact final order and the M3 fallback-reporting
 	// rationale.
+	// Public ids (FEATURE_PUBLIC_IDS): the edge translation runs innermost, after errorMapping, so its lookups sit
+	// behind the rate limiter and account status and its errors are shaped and reported like a handler's. No
+	// interceptor above it reads the request or response body. Plans are built on every start; a bad annotation
+	// refuses to start.
+	identityPublicIDs, ok := identitySvc.(identity.PublicIDs)
+	if !ok {
+		return nil, nil, errors.New("public ids: the identity service does not implement identity.PublicIDs")
+	}
+	publicIDs, err := publicIDsInterceptor(featureFlags, identityPublicIDs, time.Now)
+	if err != nil {
+		return nil, nil, err
+	}
 	interceptors := connect.WithInterceptors(
 		mw.Logging(log, cfg.ProjectID),
 		mw.Recover(log),
@@ -652,6 +664,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		degraded.Interceptor(cfg.Degraded, mediaProcedures()),
 		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt, authn.AllowRestricted(RestrictedAllowedProcedures()...)),
 		mw.ErrorMapping(log),
+		publicIDs,
 	)
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and

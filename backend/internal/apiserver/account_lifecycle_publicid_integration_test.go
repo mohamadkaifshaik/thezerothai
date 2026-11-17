@@ -56,7 +56,8 @@ func TestAccountLifecycle_PublicIDMintedAndErased(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProfile by public id: %v", err)
 	}
-	if p := got.Msg.GetProfile(); p.GetUserId() != a.uid || p.GetPublicId() != pub {
+	// The edge translation (on for B) sends A's public id in user_id too; A's uid never reaches B.
+	if p := got.Msg.GetProfile(); p.GetUserId() != pub || p.GetPublicId() != pub {
 		t.Fatalf("GetProfile by public id = %v", p)
 	}
 

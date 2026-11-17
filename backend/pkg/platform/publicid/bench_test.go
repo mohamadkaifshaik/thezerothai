@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"testing"
 
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // warmResolver answers from memory with no bookkeeping: a stand-in for identity's warm pair cache.
@@ -105,6 +107,55 @@ func BenchmarkTimelinePage50(b *testing.B) {
 		}
 		b.StartTimer()
 		if _, err := tr.TranslateResponse(ctx, nil, page); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkInterceptorFlagOff: a caller outside the cohort costs one Enabled call (budget: 0 allocs, < 100 ns).
+func BenchmarkInterceptorFlagOff(b *testing.B) {
+	tr := benchTranslator(b)
+	ic, err := NewInterceptor(tr, func(context.Context) bool { return false }, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	resp := connect.NewResponse(timelinePage())
+	h := ic(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) { return resp, nil })
+	req := connect.NewRequest(&timelinev1.GetHomeTimelineRequest{PageSize: 50})
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := h(ctx, req); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkInterceptorTimelinePage50: a flagged caller's 50-post home timeline page through the interceptor (request
+// with a nil plan, response walked, stats recorded on a request log line), warm resolver.
+func BenchmarkInterceptorTimelinePage50(b *testing.B) {
+	tr := benchTranslator(b)
+	ic, err := NewInterceptor(tr, func(context.Context) bool { return true }, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	base := timelinePage()
+	var page *timelinev1.GetHomeTimelineResponse
+	h := ic(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
+		return connect.NewResponse(page), nil
+	})
+	req := connect.NewRequest(&timelinev1.GetHomeTimelineRequest{PageSize: 50})
+	ctx, _ := logger.WithRequestInfo(context.Background())
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		b.StopTimer()
+		var ok bool
+		if page, ok = proto.Clone(base).(*timelinev1.GetHomeTimelineResponse); !ok {
+			b.Fatal("clone type")
+		}
+		b.StartTimer()
+		if _, err := h(ctx, req); err != nil {
 			b.Fatal(err)
 		}
 	}
