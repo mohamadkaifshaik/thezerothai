@@ -15,6 +15,7 @@ class AppChip extends StatelessWidget {
     required this.label,
     this.showDot = false,
     this.onDark = false,
+    this.danger = false,
     this.onPressed,
     this.semanticsLabel,
   });
@@ -26,6 +27,9 @@ class AppChip extends StatelessWidget {
 
   /// Use the teal-electric colours (a navy surface in a light theme).
   final bool onDark;
+
+  /// The error colour (danger text on dark, the theme's error on light).
+  final bool danger;
   final VoidCallback? onPressed;
 
   /// Spoken label when it differs from [label].
@@ -37,7 +41,9 @@ class AppChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = onDark
+    final color = danger
+        ? (onDark ? AppPalette.dangerOnDark : theme.colorScheme.error)
+        : onDark
         ? AppPalette.tealElectric
         : context.appColors.selectedIndicator;
     final visual = Container(
