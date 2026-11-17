@@ -146,15 +146,16 @@ void main() {
       tester,
     ) async {
       await open(tester, const {'beacons', 'location'});
-      await tester.ensureVisible(find.text(kPlanAreaTitle));
-      expect(find.text(kPlanAreaHint), findsOneWidget);
+      // The create form's area field is compact: no title, a one-line hint.
+      await tester.ensureVisible(find.text(kPlanAreaHintShort));
+      expect(find.text(kPlanAreaHintShort), findsOneWidget);
       await tapVisible(tester, find.byKey(const ValueKey('plan-area-field')));
       await tester.tap(find.text('pick alpha'));
       await tester.pumpAndSettle();
       expect(find.text('Alpha Nagar, Testville'), findsOneWidget);
 
       await fill(tester);
-      await tapVisible(tester, find.widgetWithText(AppPillButton, 'Create'));
+      await tapVisible(tester, find.widgetWithText(AppPillButton, 'Post plan'));
 
       expect(server.lastCreate?.areaId, 'in.tcity.alpha');
     });
@@ -170,7 +171,7 @@ void main() {
       expect(find.text(kPlanAreaChoose), findsOneWidget);
 
       await fill(tester);
-      await tapVisible(tester, find.widgetWithText(AppPillButton, 'Create'));
+      await tapVisible(tester, find.widgetWithText(AppPillButton, 'Post plan'));
 
       expect(server.lastCreate?.areaId, isEmpty);
     });

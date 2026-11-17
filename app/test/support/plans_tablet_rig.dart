@@ -1,3 +1,5 @@
+import 'package:dzeroth/features/beacons/domain/plan_quick_start.dart';
+
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
@@ -98,6 +100,7 @@ const kRigMine = <(String, String)>[
 /// set, the real pickers otherwise) and `EditBeaconScreen` (T8d).
 class PlansTabletRig {
   PlansTabletRig() {
+    PlanFormMemory.session.reset();
     final now = DateTime.now();
     var hour = 1;
     for (final (id, title) in kRigPlans) {

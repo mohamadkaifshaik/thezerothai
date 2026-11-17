@@ -24,13 +24,16 @@ import '../domain/beacon_labels.dart';
 import '../domain/beacon_text_rules.dart';
 import '../domain/beacons_feature_flag.dart';
 import '../domain/plan_preview.dart';
+import '../domain/plan_quick_start.dart';
 import 'bloc/beacons_state.dart' show BeaconsAudience;
 import 'bloc/create_beacon_cubit.dart';
 import 'widgets/area_label.dart';
 import 'widgets/discard_plan_dialog.dart';
 import 'widgets/plan_form_fields.dart';
+import 'widgets/plan_more_options.dart';
 import 'widgets/plan_preview.dart';
 import 'widgets/plan_tips.dart';
+import '../../../shared/format/scheduled_time.dart';
 
 export 'widgets/plan_form_fields.dart' show BeaconPickDate, BeaconPickTime;
 
@@ -84,11 +87,15 @@ class CreateBeaconScreen extends StatefulWidget {
     this.now,
     this.pickDate = _platformPickDate,
     this.pickTime = _platformPickTime,
+    this.memory,
   });
 
   final DateTime Function()? now;
   final BeaconPickDate pickDate;
   final BeaconPickTime pickTime;
+
+  /// The last plan's optional choices (defaults to this session's).
+  final PlanFormMemory? memory;
 
   @override
   State<CreateBeaconScreen> createState() => _CreateBeaconScreenState();
@@ -105,12 +112,18 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   late DateTime _startAt;
   late final DateTime _initialStart;
   var _discarded = false;
-  var _durationMinutes = 60;
-  var _openSpots = 3;
-  var _cost = pb.BeaconCost.BEACON_COST_FREE;
-  var _chat = pb.ChatPreference.CHAT_PREFERENCE_QUIET;
+  late final PlanFormMemory _memory = widget.memory ?? PlanFormMemory.session;
+  late int _durationMinutes = _memory.durationMinutes;
+  late int _openSpots = _memory.openSpots;
+  late pb.BeaconCost _cost = _memory.cost;
+  late pb.ChatPreference _chat = _memory.chat;
+  late final int _initialDuration = _memory.durationMinutes;
+  late final int _initialSpots = _memory.openSpots;
+  late final pb.BeaconCost _initialCost = _memory.cost;
+  late final pb.ChatPreference _initialChat = _memory.chat;
   var _audiences = const [BeaconsAudience.public()];
   var _audience = const BeaconsAudience.public();
+  var _initialAudience = const BeaconsAudience.public();
 
   /// The optional area of the meeting point (`location` on).
   AreaRef? _area;
@@ -120,6 +133,12 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
 
   /// The inline tips, open or closed.
   var _tipsOpen = false;
+
+  /// "More options", open or closed.
+  var _moreOpen = false;
+
+  /// The quick "when" choice; null while the start is the default.
+  PlanQuickStart? _quick;
 
   DateTime _now() => (widget.now ?? DateTime.now)();
 
@@ -163,6 +182,12 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
           for (final c in mine.communities)
             BeaconsAudience.community(c.communityId, c.name),
         ];
+        // The last plan's audience, when it is still one of mine.
+        for (final a in _audiences) {
+          if (!a.isPublic && a.id == _memory.communityId) {
+            _audience = _initialAudience = a;
+          }
+        }
       });
     } on AppException {
       // Public stays the only audience.
@@ -240,11 +265,11 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       _venue.text.trim().isNotEmpty ||
       _startAt != _initialStart ||
       _activity != pb.BeaconActivity.BEACON_ACTIVITY_COFFEE ||
-      _durationMinutes != 60 ||
-      _openSpots != 3 ||
-      _cost != pb.BeaconCost.BEACON_COST_FREE ||
-      _chat != pb.ChatPreference.CHAT_PREFERENCE_QUIET ||
-      !_audience.isPublic ||
+      _durationMinutes != _initialDuration ||
+      _openSpots != _initialSpots ||
+      _cost != _initialCost ||
+      _chat != _initialChat ||
+      _audience != _initialAudience ||
       _area != null;
 
   /// Toolbar Cancel, platform back and the back gesture all end here. A clean
@@ -287,6 +312,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     );
     if (picked == null || !mounted) return;
     _update(() {
+      _quick = PlanQuickStart.custom;
       _startAt = DateTime(
         picked.year,
         picked.month,
@@ -304,6 +330,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     );
     if (picked == null || !mounted) return;
     _update(() {
+      _quick = PlanQuickStart.custom;
       _startAt = DateTime(
         _startAt.year,
         _startAt.month,
@@ -314,10 +341,34 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     });
   }
 
+  void _chooseQuick(PlanQuickStart quick) {
+    final start = quickStartFor(quick, _now());
+    _update(() {
+      _quick = quick;
+      if (start != null) _startAt = start;
+    });
+  }
+
+  /// "60 min · 3 spots · Free": the optional choices at a glance.
+  String get _moreSummary =>
+      '$_durationMinutes min · $_openSpots '
+      '${_openSpots == 1 ? 'spot' : 'spots'} · ${costLabel(_cost)}'
+      '${_audience.isPublic ? '' : ' · ${_audience.name}'}';
+
   Future<void> _pickArea() async {
     final picked = await pickPlanArea(context);
     if (picked == null || !mounted) return;
     setState(() => _area = picked);
+  }
+
+  void _remember() {
+    _memory.remember(
+      durationMinutes: _durationMinutes,
+      openSpots: _openSpots,
+      cost: _cost,
+      chat: _chat,
+      communityId: _audience.isPublic ? null : _audience.id,
+    );
   }
 
   void _create() {
@@ -364,9 +415,12 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
           child: BlocConsumer<CreateBeaconCubit, CreateBeaconState>(
             bloc: _cubit,
             listenWhen: (a, b) => a.created != b.created && b.created != null,
-            listener: (context, state) => context.pushReplacement(
-              AppRouter.planPath(state.created!.beacon.beaconId),
-            ),
+            listener: (context, state) {
+              _remember();
+              context.pushReplacement(
+                AppRouter.planPath(state.created!.beacon.beaconId),
+              );
+            },
             builder: (context, state) {
               final busy = state.busy;
               return PopScope(
@@ -379,7 +433,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                   children: [
                     AppFormHeader(
                       title: 'New plan',
-                      actionLabel: 'Create',
+                      actionLabel: 'Post plan',
                       busy: busy,
                       busySemanticsLabel: 'Creating plan',
                       onCancel: _requestExit,
@@ -395,27 +449,36 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            PlanTipsSection(
-                              expanded: _tipsOpen,
-                              onToggle: () =>
-                                  setState(() => _tipsOpen = !_tipsOpen),
-                            ),
                             PlanFormSection(
                               title: 'What',
-                              child: PlanChoiceChips<pb.BeaconActivity>(
-                                values: pb.BeaconActivity.values
-                                    .where(
-                                      (a) =>
-                                          a !=
-                                          pb
-                                              .BeaconActivity
-                                              .BEACON_ACTIVITY_UNSPECIFIED,
-                                    )
-                                    .toList(),
-                                selected: _activity,
-                                label: activityLabel,
-                                enabled: !busy,
-                                onSelected: (a) => _update(() => _activity = a),
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    for (final a
+                                        in pb.BeaconActivity.values.where(
+                                          (a) =>
+                                              a !=
+                                              pb
+                                                  .BeaconActivity
+                                                  .BEACON_ACTIVITY_UNSPECIFIED,
+                                        ))
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          right: AppSpacing.sm,
+                                        ),
+                                        child: ChoiceChip(
+                                          label: Text(activityLabel(a)),
+                                          selected: a == _activity,
+                                          onSelected: busy
+                                              ? null
+                                              : (_) => _update(
+                                                  () => _activity = a,
+                                                ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
                             AppLabeledField(
@@ -429,39 +492,60 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 max: kBeaconTitleMaxLength,
                               ),
                             ),
-                            AppLabeledField(
-                              label: 'Details',
-                              controller: _details,
-                              enabled: !busy,
-                              minLines: 2,
-                              maxLines: 4,
-                              remaining: _left(
-                                _details,
-                                kBeaconDetailsMaxLength,
-                              ),
-                              error: beaconFieldError(
-                                beaconDetailsIssue(_details.text),
-                                max: kBeaconDetailsMaxLength,
-                              ),
-                            ),
-                            PlanWhenFields(
-                              start: _startAt,
-                              enabled: !busy,
-                              onPickDate: _pickDate,
-                              onPickTime: _pickTime,
-                              error: beaconTimeError(_timeIssue),
-                            ),
-                            // F34: Duration and Chat stay, though the
-                            // desktop design dropped them (a regression).
                             PlanFormSection(
-                              title: 'Duration',
-                              child: PlanChoiceChips<int>(
-                                values: kBeaconDurations,
-                                selected: _durationMinutes,
-                                label: (m) => '$m min',
-                                enabled: !busy,
-                                onSelected: (m) =>
-                                    _update(() => _durationMinutes = m),
+                              title: 'When',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    spacing: AppSpacing.sm,
+                                    runSpacing: AppSpacing.xs,
+                                    children: [
+                                      for (final q in PlanQuickStart.values)
+                                        if (q == PlanQuickStart.custom ||
+                                            quickStartFor(q, _now()) != null)
+                                          ChoiceChip(
+                                            label: Text(q.label),
+                                            selected: _quick == q,
+                                            onSelected: busy
+                                                ? null
+                                                : (_) => _chooseQuick(q),
+                                          ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: AppSpacing.sm),
+                                  Semantics(
+                                    liveRegion: true,
+                                    child: Text(
+                                      'Starts ${formatScheduledDate(_startAt)}'
+                                      ' at ${formatScheduledClock(_startAt)}',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                  if (_timeIssue != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: AppSpacing.xs,
+                                      ),
+                                      child: Text(
+                                        beaconTimeError(_timeIssue)!,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: theme.colorScheme.error,
+                                            ),
+                                      ),
+                                    ),
+                                  if (_quick == PlanQuickStart.custom)
+                                    PlanWhenFields(
+                                      start: _startAt,
+                                      enabled: !busy,
+                                      onPickDate: _pickDate,
+                                      onPickTime: _pickTime,
+                                    ),
+                                ],
                               ),
                             ),
                             AppLabeledField(
@@ -478,57 +562,110 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                             ),
                             if (areaLabelsEnabled(context))
                               PlanAreaField(
+                                compact: true,
                                 label: _area?.label,
                                 enabled: !busy,
                                 onPick: _pickArea,
                                 onClear: () => setState(() => _area = null),
                               ),
-                            PlanPair(
-                              first: PlanFormSection(
-                                title: 'Cost',
-                                child: PlanChoiceChips<pb.BeaconCost>(
-                                  values: kPlanCosts,
-                                  selected: _cost,
-                                  label: costLabel,
-                                  enabled: !busy,
-                                  onSelected: (c) => _update(() => _cost = c),
-                                ),
-                              ),
-                              second: PlanSpotsStepper(
-                                value: _openSpots,
-                                min: kBeaconMinSpots,
-                                max: kBeaconMaxSpots,
-                                enabled: !busy,
-                                onChanged: (n) => _update(() => _openSpots = n),
-                              ),
-                            ),
-                            PlanFormSection(
-                              title: 'Chat',
-                              child: PlanChoiceChips<pb.ChatPreference>(
-                                values: const [
-                                  pb.ChatPreference.CHAT_PREFERENCE_QUIET,
-                                  pb
-                                      .ChatPreference
-                                      .CHAT_PREFERENCE_TASK_FOCUSED,
-                                  pb
-                                      .ChatPreference
-                                      .CHAT_PREFERENCE_OPEN_TO_CHAT,
+                            PlanMoreOptions(
+                              // Held open while Details has an error, so it is never hidden.
+                              expanded:
+                                  _moreOpen ||
+                                  beaconDetailsIssue(_details.text) != null,
+                              onToggle: () =>
+                                  setState(() => _moreOpen = !_moreOpen),
+                              summary: _moreSummary,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  AppLabeledField(
+                                    label: 'Details',
+                                    controller: _details,
+                                    enabled: !busy,
+                                    minLines: 2,
+                                    maxLines: 4,
+                                    remaining: _left(
+                                      _details,
+                                      kBeaconDetailsMaxLength,
+                                    ),
+                                    error: beaconFieldError(
+                                      beaconDetailsIssue(_details.text),
+                                      max: kBeaconDetailsMaxLength,
+                                    ),
+                                  ),
+                                  // F34: Duration and Chat stay, though the
+                                  // desktop design dropped them (a regression).
+                                  PlanFormSection(
+                                    title: 'Duration',
+                                    child: PlanChoiceChips<int>(
+                                      values: kBeaconDurations,
+                                      selected: _durationMinutes,
+                                      label: (m) => '$m min',
+                                      enabled: !busy,
+                                      onSelected: (m) =>
+                                          _update(() => _durationMinutes = m),
+                                    ),
+                                  ),
+                                  PlanPair(
+                                    first: PlanFormSection(
+                                      title: 'Cost',
+                                      child: PlanChoiceChips<pb.BeaconCost>(
+                                        values: kPlanCosts,
+                                        selected: _cost,
+                                        label: costLabel,
+                                        enabled: !busy,
+                                        onSelected: (c) =>
+                                            _update(() => _cost = c),
+                                      ),
+                                    ),
+                                    second: PlanSpotsStepper(
+                                      value: _openSpots,
+                                      min: kBeaconMinSpots,
+                                      max: kBeaconMaxSpots,
+                                      enabled: !busy,
+                                      onChanged: (n) =>
+                                          _update(() => _openSpots = n),
+                                    ),
+                                  ),
+                                  PlanFormSection(
+                                    title: 'Chat',
+                                    child: PlanChoiceChips<pb.ChatPreference>(
+                                      values: const [
+                                        pb.ChatPreference.CHAT_PREFERENCE_QUIET,
+                                        pb
+                                            .ChatPreference
+                                            .CHAT_PREFERENCE_TASK_FOCUSED,
+                                        pb
+                                            .ChatPreference
+                                            .CHAT_PREFERENCE_OPEN_TO_CHAT,
+                                      ],
+                                      selected: _chat,
+                                      label: chatPreferenceLabel,
+                                      enabled: !busy,
+                                      onSelected: (c) =>
+                                          _update(() => _chat = c),
+                                    ),
+                                  ),
+                                  PlanFormSection(
+                                    title: 'Who can see it',
+                                    child: PlanChoiceChips<BeaconsAudience>(
+                                      values: _audiences,
+                                      selected: _audience,
+                                      label: (a) => a.name,
+                                      enabled: !busy,
+                                      onSelected: (a) =>
+                                          _update(() => _audience = a),
+                                    ),
+                                  ),
                                 ],
-                                selected: _chat,
-                                label: chatPreferenceLabel,
-                                enabled: !busy,
-                                onSelected: (c) => _update(() => _chat = c),
                               ),
                             ),
-                            PlanFormSection(
-                              title: 'Who can see it',
-                              child: PlanChoiceChips<BeaconsAudience>(
-                                values: _audiences,
-                                selected: _audience,
-                                label: (a) => a.name,
-                                enabled: !busy,
-                                onSelected: (a) => _update(() => _audience = a),
-                              ),
+                            // After the optional fields, built always so the tips stay one tap away.
+                            PlanTipsSection(
+                              expanded: _tipsOpen,
+                              onToggle: () =>
+                                  setState(() => _tipsOpen = !_tipsOpen),
                             ),
                             if (state.error != null) ...[
                               const SizedBox(height: AppSpacing.md),
