@@ -55,7 +55,7 @@ func (r *FirestoreRepo) exportRef(id string) *firestore.DocumentRef {
 func decodeExport(snap *firestore.DocumentSnapshot) (ExportDoc, error) {
 	var d exportDocFS
 	if err := snap.DataTo(&d); err != nil {
-		return ExportDoc{}, fmt.Errorf("identity: decode export %s: %w", snap.Ref.ID, err)
+		return ExportDoc{}, fmt.Errorf("identity: decode export: %w", err)
 	}
 	return d.toDomain(snap.Ref.ID, snap.UpdateTime), nil
 }

@@ -78,9 +78,12 @@ func resolveAccountTargets(ctx context.Context, reader ProfileReader, docs []rep
 		}
 	}
 	for i := 0; i < len(need); i += profileGetAllCap {
-		got, err := reader.GetProfiles(ctx, need[i:min(i+profileGetAllCap, len(need))])
+		chunk := need[i:min(i+profileGetAllCap, len(need))]
+		got, err := reader.GetProfiles(ctx, chunk)
 		if err != nil {
-			return fmt.Errorf("moderation: export: profiles: %w", err)
+			// The read names the reported accounts (identity's error text, Firestore's document paths): who reported
+			// whom never leaves here.
+			return logger.ScrubPairErr(fmt.Errorf("moderation: export: profiles: %w", err), "", chunk...)
 		}
 		for uid, p := range got {
 			people[uid] = exportedPerson{PublicID: p.PublicID, Handle: p.Handle}
@@ -127,7 +130,7 @@ func (x reportExporter) ExportUser(ctx context.Context, uid string, w io.Writer)
 		docs := make([]reportDoc, len(snaps))
 		for i, s := range snaps {
 			if err := s.DataTo(&docs[i]); err != nil {
-				return fmt.Errorf("moderation: export decode %s: %w", s.Ref.ID, err)
+				return fmt.Errorf("moderation: export decode: %w", err) // no report id: it is an unkeyed hash of reporter and target
 			}
 		}
 		if err := resolveAccountTargets(ctx, x.people, docs, people); err != nil {
