@@ -41,7 +41,7 @@ class _FocalAuthorLines extends StatelessWidget {
   });
 
   final String displayName;
-  final String handle;
+  final String? handle;
   final bool verified;
   final bool protected;
 
@@ -62,7 +62,7 @@ class _FocalAuthorLines extends StatelessWidget {
             style: theme.textTheme.titleSmall?.copyWith(fontSize: 16),
           ),
         ),
-        if (handle.isNotEmpty)
+        if (handle != null)
           Text(
             '@$handle',
             maxLines: 1,
@@ -86,7 +86,7 @@ class _AuthorLine extends StatelessWidget {
   });
 
   final String displayName;
-  final String handle;
+  final String? handle;
   final bool verified;
   final bool protected;
   final String time;
@@ -103,7 +103,7 @@ class _AuthorLine extends StatelessWidget {
           verified: verified,
           protected: protected,
         ),
-        if (handle.isNotEmpty) ...[
+        if (handle != null) ...[
           const SizedBox(width: AppSpacing.xs),
           Flexible(
             child: Text(

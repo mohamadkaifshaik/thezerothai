@@ -288,6 +288,35 @@ void main() {
     verify(billing.clearSession).called(1);
   });
 
+  testWidgets('billing starts at the cached-profile emit of a warm start '
+      '(flags still pending), with either id kind', (tester) async {
+    final billing = MockSubscriptionRepository();
+    when(() => billing.getAccess(any())).thenAnswer(
+      (call) async => SubscriptionAccess(
+        uid: call.positionalArguments.first as String,
+        tier: SubscriptionTier.free,
+        verification: SubscriptionVerification.noSubscription,
+      ),
+    );
+    await pump(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(status: OnboardingStatus.loading),
+      subscriptionRepository: billing,
+    );
+    onboardingStates.add(
+      OnboardingState(
+        status: OnboardingStatus.ready,
+        flagsPending: true,
+        profile: identity_pb.Profile(userId: 'u0abcdefghijklmnopqrstuvw2'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    verify(() => billing.getAccess(user.uid)).called(1);
+  });
+
   testWidgets('billing is bound to the Firebase account, not to the API user '
       'id: with public_ids on GetMe sends a public id and billing still '
       'starts', (tester) async {
@@ -326,10 +355,14 @@ void main() {
     );
     addTearDown(transition.dispose);
     await tester.pumpWidget(const SizedBox());
-    whenListen(authBloc, authStates.stream, initialState: const AuthState(
-      status: AuthStatus.authenticated,
-      user: user,
-    ));
+    whenListen(
+      authBloc,
+      authStates.stream,
+      initialState: const AuthState(
+        status: AuthStatus.authenticated,
+        user: user,
+      ),
+    );
     whenListen(
       onboardingBloc,
       onboardingStates.stream,

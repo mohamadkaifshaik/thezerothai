@@ -17,6 +17,7 @@ import '../core/router/screen_names.dart';
 import '../core/session/account_session_reset.dart';
 import '../core/session/public_id_transition.dart';
 import '../core/session/user_ids.dart';
+import '../features/posts/domain/viewer_author_snapshot.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_consent_cubit.dart';
@@ -442,6 +443,15 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   );
   late final StreamSubscription<OnboardingState> _onboardingSub;
   StreamSubscription<void>? _publicIdsSub;
+
+  /// The id of the profile that was showing when the account last changed
+  /// (null once the onboarding state was reset): it is never taken for the new
+  /// account's.
+  String? _previousAccountProfile;
+
+  /// A `public_ids` flip wiped the caches: the next profile carries the new
+  /// user id for the viewer's own unsent posts.
+  bool _restampAuthor = false;
   Set<String>? _lastFeatures;
 
   /// The user the Messages access probe last ran for.
@@ -518,9 +528,14 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   /// [OnboardingState.flagsPending]: nothing is open yet beyond what launch or
   /// a link opened) keeps the location.
   void _onPublicIdsFlipped() {
+    _restampAuthor = true;
     _accountReset.runIdBearing(onError: reportUnexpectedError);
     final session = widget.onboardingBloc.state;
-    if (session.status == OnboardingStatus.ready && !session.flagsPending) {
+    final here = _appRouter.router.routeInformationProvider.value.uri.path;
+    // Someone who is writing keeps their place (and their text).
+    if (session.status == OnboardingStatus.ready &&
+        !session.flagsPending &&
+        !AppRouter.isComposerPath(here)) {
       _appRouter.router.go(AppRouter.homePath);
     }
   }
@@ -565,6 +580,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
       // failure shown, then dismissed, on the sign-in/up screen) must not
       // run the reset: it clears the snackbars and hid the error itself.
       if (previousUid != null && _accountUid != previousUid) {
+        _previousAccountProfile = widget.onboardingBloc.state.profile?.userId;
         _endAccountSession();
       }
       // The new account's unsent posts come back as "Not sent" rows.
@@ -673,15 +689,31 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     // The subscription session is bound to the signed-in Firebase account
     // (authentication identity: the billing transport and the repository check
     // it against `currentUser.uid`), never to the server-issued API user id.
-    // It starts once this session's GetMe has answered for that account.
+    // It starts as soon as a profile is showing (the cached one on a warm
+    // start, as before), without needing the API id.
     final accountUid = _accountUid;
     final apiUserId = state.myUserId;
+    final shown = state.profile?.userId;
+    if (shown == null) _previousAccountProfile = null;
     // Onboarding starts only after the session cache/epoch has been claimed.
-    // Do not start billing reads in the earlier auth notification race.
-    if (apiUserId != null &&
+    // Defence against the auth notification race: the old check compared the
+    // profile id with the Firebase uid, which only holds with the flag off. In
+    // both flag states the equivalent is that the profile is not the one that
+    // was showing when the account changed (an id of any kind differs between
+    // two accounts); the marker clears once the state is reset.
+    if (shown != null &&
+        shown != _previousAccountProfile &&
         accountUid != null &&
         _subscription?.state.uid != accountUid) {
       unawaited(_subscription?.setAccount(accountUid));
+    }
+    // After a `public_ids` flip, the viewer's own unsent posts take the new id.
+    if (_restampAuthor && apiUserId != null && accountUid != null) {
+      _restampAuthor = false;
+      _postSender.restampAuthor(
+        accountUid,
+        viewerAuthorSnapshot(state.profile),
+      );
     }
     if (flagsChanged || apiUserId != _probedUid) {
       _probedUid = apiUserId;

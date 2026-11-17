@@ -25,7 +25,9 @@ pb.PostView _view({String handle = '', String name = ''}) => pb.PostView(
       handle: handle,
       displayName: name,
     ),
-    createdAt: Timestamp.fromDateTime(_now.subtract(const Duration(minutes: 5))),
+    createdAt: Timestamp.fromDateTime(
+      _now.subtract(const Duration(minutes: 5)),
+    ),
   ),
 );
 
@@ -106,5 +108,14 @@ void main() {
     await tester.pump();
 
     expect(opened, ['u1abcdefghijklmnopqrstuvw3']);
+  });
+
+  testWidgets('a normal author with an empty handle keeps the old output '
+      '("@" under the name)', (tester) async {
+    final view = _view(name: 'Anon');
+    view.post.author.userId = 'u1abcdefghijklmnopqrstuvw3';
+    await open(tester, view);
+
+    expect(find.text('@'), findsOneWidget);
   });
 }

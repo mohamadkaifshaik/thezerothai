@@ -49,4 +49,15 @@ void main() {
       expect(_me(kUnavailableUserId).myUserId, isNull);
     });
   });
+
+  test('a real public id can never equal the placeholder: its first body '
+      'character is 0-7, the placeholder starts with z', () {
+    // Public id: `u` + 26 base32 characters, the first of which is 0-7.
+    expect(kUnavailableUserId[1], 'z');
+    expect(
+      RegExp(r'^u[0-7][a-z2-7]{25}$').hasMatch(kUnavailableUserId),
+      isFalse,
+    );
+    expect(RegExp(r'^u[0-7][a-z2-7]{25}$').hasMatch('u0abcdefghijklmnopqrstuvwx2'), isTrue);
+  });
 }

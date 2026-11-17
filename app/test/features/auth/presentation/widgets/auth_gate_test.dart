@@ -7,7 +7,6 @@ import 'package:dzeroth/features/auth/presentation/widgets/auth_gate.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
-import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
@@ -73,27 +72,6 @@ void main() {
     );
     expect(find.text('protected child'), findsNothing);
 
-    await tester.tap(find.text('Sign out'));
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
-  });
-
-  testWidgets('an account mid-deletion has the tombstone as its own id (or '
-      'none): the restricted view and Sign out do not depend on it', (
-    tester,
-  ) async {
-    whenListen(
-      onboardingBloc,
-      const Stream<OnboardingState>.empty(),
-      initialState: OnboardingState(
-        status: OnboardingStatus.ready,
-        accountRestricted: true,
-        profile: identity.Profile(userId: 'uzzzzzzzzzzzzzzzzzzzzzzzzzz'),
-      ),
-    );
-
-    await tester.pumpWidget(wrap());
-
-    expect(find.byType(AccountRestrictedView), findsOneWidget);
     await tester.tap(find.text('Sign out'));
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
   });

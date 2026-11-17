@@ -49,6 +49,20 @@ class _NoThemeStore implements ThemeModeStore {
 }
 
 void main() {
+  test('composer paths (never torn down by a public_ids flip)', () {
+    for (final path in [
+      '/compose',
+      '/compose/reply/123',
+      '/compose/articles',
+      '/compose/articles/edit/abc/focus',
+    ]) {
+      expect(AppRouter.isComposerPath(path), isTrue, reason: path);
+    }
+    for (final path in ['/home', '/composer', '/u/abc', '/articles/abc']) {
+      expect(AppRouter.isComposerPath(path), isFalse, reason: path);
+    }
+  });
+
   late MockAuthBloc authBloc;
   late MockOnboardingBloc onboardingBloc;
 

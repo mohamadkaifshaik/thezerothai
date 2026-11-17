@@ -287,8 +287,10 @@ class PostCard extends StatelessWidget {
         : (author.handle.isEmpty && authorGone
               ? kUnavailableAccountName
               : '@${author.handle}');
-    final authorHandle = authorGone && author.handle.isEmpty
-        ? ''
+    // Null hides the handle line: only for the unavailable placeholder with no
+    // handle. Any other author keeps the old output (`@` + handle, even empty).
+    final String? authorHandle = authorGone && author.handle.isEmpty
+        ? null
         : author.handle;
 
     // The viewer may see this post only because the author protects their
@@ -341,7 +343,7 @@ class PostCard extends StatelessWidget {
       displayName,
       if (protectedAuthor) 'protected account',
       if (author.verified) 'verified',
-      if (authorHandle.isNotEmpty) '@$authorHandle',
+      if (authorHandle != null) '@$authorHandle',
       // The open post reads its full time from the line below instead.
       if (spokenTime.isNotEmpty && !asFocal) spokenTime,
     ].join(', ');
