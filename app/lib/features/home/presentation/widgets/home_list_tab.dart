@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/widgets/home_retap_signal.dart';
+import '../../../communities/presentation/widgets/community_unavailable_view.dart';
 import '../../../lists/domain/home_tab_entry.dart';
 import '../../../lists/presentation/bloc/home_tabs_cubit.dart';
 import '../../../lists/presentation/bloc/home_tabs_state.dart';
@@ -17,14 +18,14 @@ import '../../../../shared/widgets/primitives/app_tab_bar.dart';
 import 'home_tab_bar.dart';
 import 'home_top_bar.dart';
 
-/// One pinned List as a Home tab: its own `TimelineCubit`
-/// (`FeedKey.list`), created when the tab is first shown and closed with it,
+/// One pinned List or community as a Home tab: its own `TimelineCubit`
+/// (`FeedKey.list` or `FeedKey.community`, by the tab's kind), created when the tab is first shown and closed with it,
 /// over the same [TimelineFeedView] as Following. `HomeTabsView` keeps it
 /// alive (scroll and cache) while another tab is shown; [active] stops its
 /// refresh tick meanwhile.
 ///
-/// A List the server answers NOT_FOUND shows the calm unavailable state with
-/// "Unpin from Home".
+/// A List or community the server answers NOT_FOUND shows the calm unavailable
+/// state with "Unpin from Home".
 class HomeListTab extends StatefulWidget {
   const HomeListTab({super.key, required this.tab, required this.active});
 
@@ -36,8 +37,12 @@ class HomeListTab extends StatefulWidget {
 }
 
 class _HomeListTabState extends State<HomeListTab> {
+  bool get _isCommunity => widget.tab.kind == HomeTabKind.community;
+
   late final TimelineCubit _timeline = TimelineCubit(
-    feed: FeedKey.list(widget.tab.id),
+    feed: _isCommunity
+        ? FeedKey.community(widget.tab.id)
+        : FeedKey.list(widget.tab.id),
     timeline: context.read<TimelineRepository>(),
     posts: context.read<PostsRepository>(),
     viewerUserId: context.read<OnboardingBloc>().state.profile?.userId,
@@ -71,14 +76,17 @@ class _HomeListTabState extends State<HomeListTab> {
         active: widget.active,
         retapSignal: context.read<HomeRetapSignal?>(),
         emptyTitle: 'No posts yet',
-        emptySubtitle: 'Posts from people on this List will show up here.',
+        emptySubtitle: _isCommunity
+            ? 'Posts in this community will show up here.'
+            : 'Posts from people on this List will show up here.',
         fillViewport: true,
         showPending: false,
         newPostsPillTop: HomeTopBar.belowHeaders(context),
         unavailableView: BlocSelector<HomeTabsCubit, HomeTabsState, bool>(
           selector: (state) => state.saving,
-          builder: (context, saving) =>
-              ListUnavailableView(onUnpin: _unpin, busy: saving),
+          builder: (context, saving) => _isCommunity
+              ? CommunityUnavailableView(onUnpin: _unpin, busy: saving)
+              : ListUnavailableView(onUnpin: _unpin, busy: saving),
         ),
         headerSlivers: [
           HomeTopBar.sliver(context, phoneTitle: 'Home', pinned: true),
