@@ -428,7 +428,9 @@ func (in sendInput) addressedConv() string {
 
 // isTxOp reports the ops of failure that run a Firestore transaction (the ops whose busy answer is safe to retry: they carry an
 // idempotency key or are idempotent by state). Any other op, ListMessages above all, is a read path.
-func isTxOp(op string) bool { return op == "send" || op == "accept" || op == "delete" }
+func isTxOp(op string) bool {
+	return op == "send" || op == "accept" || op == "delete" || op == "commit"
+}
 
 // failure is the tail every RPC's error mapper shares (mapErr, messagesErr, lifecycleErr), reached after the mapper's own
 // sentinels. In this order: an *apierr.Error is already a wire answer; ErrNotFound is the one byte-identical NOT_FOUND of an

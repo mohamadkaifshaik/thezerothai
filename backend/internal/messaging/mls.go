@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -61,6 +62,12 @@ var errWelcomeDevices = errors.New("messaging: welcome devices are not active de
 // id both users registered (device ids are client-chosen) is taken as the recipient's, so the rule "at least one of the
 // recipient's" cannot be met by a device of the caller alone and the welcome is stored once.
 func welcomeTargets(ids []string, caller, recipient string, callerActive, recipientActive []string) (targets []welcomeTarget, ok bool) {
+	return assignWelcomeTargets(ids, caller, recipient, callerActive, recipientActive, true)
+}
+
+// assignWelcomeTargets is welcomeTargets with the "at least one of the recipient's" rule optional (needPeer): an mls_init
+// and a reset need it, an ordinary commit does not (it may add only the caller's own devices).
+func assignWelcomeTargets(ids []string, caller, recipient string, callerActive, recipientActive []string, needPeer bool) (targets []welcomeTarget, ok bool) {
 	targets = make([]welcomeTarget, 0, len(ids))
 	peerHas := false
 	for _, id := range ids {
@@ -73,7 +80,7 @@ func welcomeTargets(ids []string, caller, recipient string, callerActive, recipi
 			return nil, false
 		}
 	}
-	if !peerHas {
+	if needPeer && !peerHas {
 		return nil, false
 	}
 	return targets, true
@@ -213,4 +220,70 @@ func wirePair(v int64) uint64 {
 		return 0
 	}
 	return uint64(v)
+}
+
+// The pure rules of CommitConversation (proto, the RPC's numbered order), shared by the Firestore transaction (commitTx)
+// and the unit tests' fake repo so both answer in the same order.
+
+// errNotEncrypted is a CommitConversation on a plaintext (NONE) conversation: VALIDATION conversation_id (encryption starts
+// with SendMessage mls_init).
+var errNotEncrypted = errors.New("messaging: commit on a conversation that is not encrypted")
+
+// commitConvRefusal is step 2 on the conversation the transaction read (nil: missing): missing or not a participant (or
+// not a two-person conversation) is ErrNotFound, a NONE conversation errNotEncrypted, a peer who is gone ErrCannotMessage
+// (the CANNOT_MESSAGE of a send). It returns the peer otherwise.
+func commitConvRefusal(conv *ConvDoc, uid string) (peer string, err error) {
+	if conv == nil || !conv.hasParticipant(uid) {
+		return "", ErrNotFound
+	}
+	if peer = peerOf(conv.Participants, uid); peer == "" {
+		return "", ErrNotFound
+	}
+	switch {
+	case !conv.encrypted():
+		return "", errNotEncrypted
+	case len(conv.Gone) > 0:
+		return "", ErrCannotMessage
+	}
+	return peer, nil
+}
+
+// commitRecordPair is the pair of the record a commit creates: the pair it is built on, or (gen + 1, 0) for a reset of gen
+// (step 1 bounds gen to 2^63 - 2, so gen + 1 cannot overflow). Welcomes carry the same pair.
+func commitRecordPair(p CommitParams) (gen, epoch int64) {
+	if p.Reset {
+		return p.Gen + 1, 0
+	}
+	return p.Gen, p.Epoch
+}
+
+// commitNextPair is the conversation's pair after an accepted commit, (gen, epoch + 1), or (gen + 1, 1) after a reset.
+func commitNextPair(p CommitParams) (gen, epoch int64) {
+	if p.Reset {
+		return p.Gen + 1, 1
+	}
+	return p.Gen, p.Epoch + 1
+}
+
+// pairAfter reports whether (g1, e1) is strictly later than (g2, e2).
+func pairAfter(g1, e1, g2, e2 int64) bool {
+	return g1 > g2 || (g1 == g2 && e1 > e2)
+}
+
+// isCommitRetry is step 3: the record of the target pair (rec, nil when absent) exists from the same user with identical
+// bytes AND the conversation has moved past that pair. Within one incarnation of a conversation a record only exists for a
+// pair the conversation has left (the record and the move are one transaction), so the last condition only excludes a
+// record left over from an earlier conversation with the same id (both participants erased, conversation recreated):
+// such a record is never answered as this request's success.
+func isCommitRetry(conv ConvDoc, rec *CommitDoc, uid string, commit []byte, gen, epoch int64) bool {
+	return rec != nil && rec.SenderID == uid && bytes.Equal(rec.Data, commit) && pairAfter(conv.MlsGen, conv.MlsEpoch, gen, epoch)
+}
+
+// commitPairStale is step 5: a commit must be built on the current pair, a reset must name the current generation; else a
+// *staleEpochError with the current pair.
+func commitPairStale(conv ConvDoc, p CommitParams) error {
+	if conv.MlsGen == p.Gen && (p.Reset || conv.MlsEpoch == p.Epoch) {
+		return nil
+	}
+	return &staleEpochError{Gen: conv.MlsGen, Epoch: conv.MlsEpoch}
 }

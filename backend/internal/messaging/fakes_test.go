@@ -72,6 +72,9 @@ type fakeRepo struct {
 	commits   map[string]CommitDoc
 	welcomes  []fakeWelcome
 	dmNewUsed map[string]int64
+	// commitCalls counts Commit calls; commitErr fails them.
+	commitCalls int
+	commitErr   error
 }
 
 func (f *fakeRepo) findEntry(uid, folder, convID string) (int, bool) {
@@ -458,10 +461,8 @@ func (f *fakeRepo) sendInit(ctx context.Context, p SendParams, conv *ConvDoc, de
 	now := stampAfterClear(wireTime(p.Now), conv)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// putInit writes the record with Set: a (1, 0) record found here is a leftover of an earlier conversation and is replaced.
 	commitKey := p.ConvID + "/" + commitDocID(initGen, initEpoch)
-	if _, ok := f.commits[commitKey]; ok {
-		return SendResult{}, errors.New("fake: commit record already exists")
-	}
 	var next ConvDoc
 	if dec.CreateConv {
 		next = ConvDoc{Kind: kindDirect, Participants: sortedPair(p.UID, p.PeerUID), State: dec.State, CreatedAt: now, UpdatedAt: now}
@@ -506,6 +507,88 @@ func (f *fakeRepo) sendInit(ctx context.Context, p SendParams, conv *ConvDoc, de
 	f.msgs[p.ConvID] = append(f.msgs[p.ConvID], MessageRow{ID: p.MsgID, MsgDoc: msg})
 	res.Msg, res.Conv = msg, next
 	f.lastRes = res
+	return res, nil
+}
+
+// Commit runs commitTx's order over the in-memory documents: the conversation refusals (commitConvRefusal), the peer's
+// in-transaction graph then the caller's cached block, the record of the target pair and retry recognition, the field
+// verdict, the welcome-device check (only with device ids), the pair; then the conversation moves, the record is stored
+// (an existing one is replaced, as commitTx's Set of a leftover) and each device's earlier welcome is replaced. commitErr
+// fails the call before anything when set; commitCalls counts the calls.
+func (f *fakeRepo) Commit(ctx context.Context, p CommitParams) (CommitResult, error) {
+	f.mu.Lock()
+	f.commitCalls++
+	var conv *ConvDoc
+	if c, ok := f.convs[p.ConvID]; ok {
+		conv = &c
+	}
+	f.mu.Unlock()
+	if f.commitErr != nil {
+		return CommitResult{}, f.commitErr
+	}
+	peer, err := commitConvRefusal(conv, p.UID)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	res := CommitResult{Conv: *conv}
+	theirs, err := p.RecipientGraphInTx(ctx, nil, peer)
+	if err != nil {
+		return res, err
+	}
+	if theirs.Blocked[p.UID] {
+		return res, errBlocked
+	}
+	blocks, err := p.CallerBlocks(ctx, peer)
+	if err != nil {
+		return res, err
+	}
+	if blocks {
+		return res, errBlocked
+	}
+	gen, epoch := commitRecordPair(p)
+	key := p.ConvID + "/" + commitDocID(gen, epoch)
+	f.mu.Lock()
+	var rec *CommitDoc
+	if c, ok := f.commits[key]; ok {
+		rec = &c
+	}
+	f.mu.Unlock()
+	if isCommitRetry(*conv, rec, p.UID, p.Commit, gen, epoch) {
+		res.Retry = true
+		return res, nil
+	}
+	if p.FieldErr != nil {
+		return res, p.FieldErr
+	}
+	var targets []welcomeTarget
+	if len(p.DeviceIDs) > 0 {
+		if targets, err = p.WelcomeTargets(ctx, peer); err != nil {
+			return res, err
+		}
+	}
+	if err := commitPairStale(*conv, p); err != nil {
+		return res, err
+	}
+	now := wireTime(p.Now)
+	next := *conv
+	next.MlsGen, next.MlsEpoch = commitNextPair(p)
+	next.UpdatedAt = notBefore(now, conv.UpdatedAt)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.convs[p.ConvID] = next
+	if f.commits == nil {
+		f.commits = map[string]CommitDoc{}
+	}
+	f.commits[key] = CommitDoc{Data: p.Commit, SenderID: p.UID, Gen: gen, Epoch: epoch, CreatedAt: now, ExpireAt: now.Add(CommitRetention)}
+	for _, t := range targets {
+		f.welcomes = slices.DeleteFunc(f.welcomes, func(w fakeWelcome) bool {
+			return w.Owner == t.Owner && w.ConvID == p.ConvID && w.DeviceID == t.DeviceID
+		})
+		f.welcomes = append(f.welcomes, fakeWelcome{Owner: t.Owner, ID: welcomeDocID(p.ConvID, gen, epoch, t.DeviceID), WelcomeDoc: WelcomeDoc{
+			DeviceID: t.DeviceID, ConvID: p.ConvID, Gen: gen, Epoch: epoch, Data: p.Welcome, CreatedAt: now, ExpireAt: now.Add(WelcomeRetention),
+		}})
+	}
+	res.Conv = next
 	return res, nil
 }
 

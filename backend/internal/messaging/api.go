@@ -50,6 +50,9 @@ type Service interface {
 	Delete(ctx context.Context, uid string, req *messagingv1.DeleteConversationRequest) (*messagingv1.DeleteConversationResponse, error)
 	// ListSuggestions answers ListMessageSuggestions (F30): messaging and dm_suggestions on for the caller; nothing stored.
 	ListSuggestions(ctx context.Context, uid string, req *messagingv1.ListMessageSuggestionsRequest) (*messagingv1.ListMessageSuggestionsResponse, error)
+	// Commit answers CommitConversation (a commit or a reset of an encrypted conversation): messaging on for the caller
+	// (perCaller, as Send), verified email; see service_mls.go and the RPC comment for the order of answers.
+	Commit(ctx context.Context, uid string, req *messagingv1.CommitConversationRequest) (*messagingv1.CommitConversationResponse, error)
 }
 
 // Permission is the messaging send rules as a yes/no question for another module (the key directory,
@@ -131,8 +134,9 @@ func (b *UnreadBadge) UnreadConversations(ctx context.Context, uid string) (int6
 
 // Devices is the seam to the key directory (keys.DeviceDirectory, adapted by the composition root; messaging does not
 // call the keys service): the ACTIVE encryption device ids of a user, at most 5, from one bounded query, without any
-// permission or e2ee_dm check (messaging applies its own rules first). It is read before the send transaction of an
-// mls_init only (the welcome-device check); a read failure is an error, never "no devices". Device ids are never logged.
+// permission or e2ee_dm check (messaging applies its own rules first). It is read for the welcome-device check only:
+// before the send transaction of an mls_init, and during the CommitConversation transaction (after its conversation read
+// names the peer; not a transactional read). A read failure is an error, never "no devices". Device ids are never logged.
 type Devices interface {
 	ActiveDeviceIDs(ctx context.Context, uid string) ([]string, error)
 }

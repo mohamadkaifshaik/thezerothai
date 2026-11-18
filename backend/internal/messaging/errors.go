@@ -123,6 +123,12 @@ func welcomeDevicesInvalid() *apierr.Error {
 	return apierr.Validation("welcome_device_ids", "welcome_device_ids must be active encryption devices of this conversation's participants, at least one of the recipient's")
 }
 
+// commitWelcomeDevicesInvalid is the VALIDATION welcome_device_ids answer of CommitConversation's active-device check: one
+// text for every cause, naming no id.
+func commitWelcomeDevicesInvalid() *apierr.Error {
+	return apierr.Validation("welcome_device_ids", "welcome_device_ids must be active encryption devices of this conversation's participants, and a reset must address one of the peer's")
+}
+
 func keyReused() *apierr.Error {
 	return apierr.Validation("idempotency_key", "this idempotency_key was already used for a different message")
 }
