@@ -18,9 +18,10 @@ import 'package:dzeroth/core/crypto/crypto_types.dart';
 ///
 /// Known differences from the real engine: ids and keys are derived from the
 /// device id; the blob encoding is a simple length-prefixed format; epochs
-/// and message counters are 32-bit; there are no update paths or
-/// Update proposals, so the real engine's refusal of a commit that changes a
-/// member's device id has no counterpart here.
+/// and message counters are 32-bit; there are no leaf keys, update paths or
+/// Update proposals, so selfUpdate is an empty commit that only advances the
+/// epoch, and the real engine's refusal of a commit that changes a member's
+/// device id has no counterpart here.
 class FakeCryptoEngine implements CryptoEngine {
   static const int _maxPlaintext = 4096;
   static const int _maxWire = 65536;
@@ -167,6 +168,41 @@ class FakeCryptoEngine implements CryptoEngine {
       groupState: group.encode(),
       commit: commit,
       welcome: welcome,
+      epoch: epoch,
+    );
+  }
+
+  /// The fake has no leaf keys to renew: a self-update is an empty commit
+  /// through the same pending/confirm/discard path, with the same checks in
+  /// the same order as [commitChange], and receivers see an empty commit.
+  @override
+  Future<CommitResult> selfUpdate(
+    Uint8List deviceState,
+    Uint8List groupState,
+  ) async {
+    final device = _Device.decode(deviceState);
+    final group = _Group.decode(groupState);
+    _checkOwner(group, device);
+    if (group.pending != null) {
+      throw const MlsException(
+        MlsErrorCode.pendingCommit,
+        'a commit is already pending',
+      );
+    }
+    if (!group.active) throw _evicted();
+    final epoch = group.epoch;
+    final commit = _Wire.commit(
+      groupId: group.groupId,
+      epoch: epoch,
+      sender: device.id,
+      adds: const [],
+      removes: const [],
+    );
+    group.pending = _Pending(const [], const []);
+    return CommitResult(
+      groupState: group.encode(),
+      commit: commit,
+      welcome: null,
       epoch: epoch,
     );
   }

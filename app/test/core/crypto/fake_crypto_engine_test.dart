@@ -674,6 +674,142 @@ void main() {
     expect(describeEvent(second.event), 'commit:2:1');
   });
 
+  group('selfUpdate', () {
+    // Lists, not records: a record compares its Uint8List fields by identity.
+    List<List<Uint8List>> membersOf(GroupDescription info) => [
+      for (final m in info.members) [m.deviceId, m.signaturePublicKey],
+    ];
+
+    test('is pending, then confirms to the next epoch', () async {
+      final alice = await device(1);
+      final bob = await device(2);
+      final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+      final before = membersOf(await engine.describe(states[0]));
+
+      final c = await engine.selfUpdate(alice.state, states[0]);
+      expect(c.epoch, 1);
+      expect(c.welcome, isNull);
+      final pending = await engine.describe(c.groupState);
+      expect(pending.hasPendingCommit, isTrue);
+      expect(pending.epoch, 1);
+
+      final a2 = await engine.confirmCommit(alice.state, c.groupState);
+      final info = await engine.describe(a2);
+      expect(info.epoch, 2);
+      expect(info.hasPendingCommit, isFalse);
+      expect(membersOf(info), before);
+      expect(before, [
+        [alice.id, alice.signatureKey],
+        [bob.id, bob.signatureKey],
+      ]);
+    });
+
+    test('receivers see an empty commit and keep talking', () async {
+      final alice = await device(1);
+      final bob = await device(2);
+      final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+      final c = await engine.selfUpdate(alice.state, states[0]);
+      var a = await engine.confirmCommit(alice.state, c.groupState);
+
+      final p = await engine.process(bob.state, states[1], c.commit);
+      final event = p.event as MlsCommitEvent;
+      expect(event.epoch, 2);
+      expect(event.added, isEmpty);
+      expect(event.removed, isEmpty);
+      expect(event.selfRemoved, isFalse);
+      var b = p.groupState;
+      expect(
+        membersOf(await engine.describe(b)),
+        membersOf(await engine.describe(a)),
+      );
+
+      final toBob = await engine.encrypt(alice.state, a, _utf8('renewed'));
+      a = toBob.groupState;
+      final got = await engine.process(bob.state, b, toBob.ciphertext);
+      b = got.groupState;
+      expect((got.event as MlsMessageEvent).plaintext, _utf8('renewed'));
+      final toAlice = await engine.encrypt(bob.state, b, _utf8('answer'));
+      final back = await engine.process(alice.state, a, toAlice.ciphertext);
+      expect((back.event as MlsMessageEvent).plaintext, _utf8('answer'));
+      expect(toAlice.epoch, 2);
+    });
+
+    test('follows the commit rules', () async {
+      final alice = await device(1);
+      final bob = await device(2);
+      final carol = await device(3);
+      final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+      final c = await engine.selfUpdate(alice.state, states[0]);
+
+      await _fails(
+        engine.selfUpdate(alice.state, c.groupState),
+        MlsErrorCode.pendingCommit,
+      );
+      await _fails(
+        engine.commitChange(
+          alice.state,
+          c.groupState,
+          addKeyPackages: [await keyPackage(carol)],
+        ),
+        MlsErrorCode.pendingCommit,
+      );
+      await _fails(
+        engine.encrypt(alice.state, c.groupState, _utf8('x')),
+        MlsErrorCode.pendingCommit,
+      );
+
+      // Discarded: back at epoch 1 with the same members, and usable.
+      final g = await engine.discardCommit(alice.state, c.groupState);
+      final info = await engine.describe(g);
+      expect(info.epoch, 1);
+      expect(info.hasPendingCommit, isFalse);
+      expect(membersOf(info), membersOf(await engine.describe(states[0])));
+      final sent = await engine.encrypt(alice.state, g, _utf8('after'));
+      final got = await engine.process(bob.state, states[1], sent.ciphertext);
+      expect((got.event as MlsMessageEvent).plaintext, _utf8('after'));
+
+      // Another device's blob: corruptState, before the pending-commit rule.
+      for (final other in [bob, carol]) {
+        await _fails(
+          engine.selfUpdate(other.state, states[0]),
+          MlsErrorCode.corruptState,
+        );
+        await _fails(
+          engine.selfUpdate(other.state, c.groupState),
+          MlsErrorCode.corruptState,
+        );
+      }
+
+      // Evicted: alice removes bob; bob's processed state refuses.
+      final r = await engine.commitChange(
+        alice.state,
+        states[0],
+        removeDeviceIds: [bob.id],
+      );
+      final gone = await engine.process(bob.state, states[1], r.commit);
+      await _fails(
+        engine.selfUpdate(bob.state, gone.groupState),
+        MlsErrorCode.evicted,
+      );
+    });
+
+    test('racing self-updates: the loser processes the winner', () async {
+      final alice = await device(1);
+      final bob = await device(2);
+      final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+      final ca = await engine.selfUpdate(alice.state, states[0]);
+      final cb = await engine.selfUpdate(bob.state, states[1]);
+      expect((ca.epoch, cb.epoch), (1, 1));
+      await engine.confirmCommit(alice.state, ca.groupState);
+      final p = await engine.process(bob.state, cb.groupState, ca.commit);
+      final info = await engine.describe(p.groupState);
+      expect(info.epoch, 2);
+      expect(info.hasPendingCommit, isFalse);
+      final retry = await engine.selfUpdate(bob.state, p.groupState);
+      expect(retry.epoch, 2);
+    });
+  });
+
   test('MlsErrorCode.parse maps wire strings and unknown to internal', () {
     expect(MlsErrorCode.parse('wrong_epoch'), MlsErrorCode.wrongEpoch);
     expect(

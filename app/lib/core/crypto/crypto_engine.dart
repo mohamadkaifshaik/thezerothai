@@ -49,6 +49,14 @@ abstract interface class CryptoEngine {
     List<Uint8List> removeDeviceIds = const [],
   });
 
+  /// Replaces this device's own leaf keys in the group. Pending like [commitChange].
+  ///
+  /// The commit changes no membership (its welcome is null); the device id
+  /// and signature key stay the same and only the leaf encryption key is new.
+  /// Fails like [commitChange]: corruptState for another device's group
+  /// state, then pendingCommit, then evicted.
+  Future<CommitResult> selfUpdate(Uint8List deviceState, Uint8List groupState);
+
   /// The server accepted the pending commit: merge it, moving to the next
   /// epoch.
   Future<Uint8List> confirmCommit(Uint8List deviceState, Uint8List groupState);
