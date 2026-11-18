@@ -139,6 +139,7 @@ pub(crate) fn credential(header: &Header) -> CredentialWithKey {
 /// The leaf capabilities every key package of this device advertises: our one cipher suite, and the last-resort
 /// extension, which RFC 9420 requires a leaf to list before a key package may carry it (receivers refuse the
 /// package otherwise).
+// One-time and last-resort packages, and every group leaf, share these capabilities on purpose.
 pub(crate) fn capabilities() -> Capabilities {
     Capabilities::builder()
         .ciphersuites(vec![CIPHERSUITE])

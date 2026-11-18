@@ -12,11 +12,19 @@ use openmls::prelude::Ciphersuite;
 
 mod device;
 mod error;
+mod group;
 mod state;
 
 pub use device::{DeviceCreated, KeyPackages, create_device, generate_key_packages};
 pub use error::{ErrorCode, MlsError};
+pub use group::{
+    Commit, GroupInfo, Joined, Member, commit_change, confirm_commit, create_group, describe,
+    discard_commit, join_from_welcome,
+};
 
 /// The one cipher suite this engine speaks.
 pub(crate) const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+
+/// Largest wire input (key package, Welcome, message) accepted before parsing.
+pub(crate) const MAX_WIRE_LEN: usize = 65536;

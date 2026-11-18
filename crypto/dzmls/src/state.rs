@@ -14,6 +14,7 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 use openmls::prelude::OpenMlsProvider as _;
 use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -35,13 +36,10 @@ type Entries = BTreeMap<Vec<u8>, Vec<u8>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Partition {
     Device,
-    // Constructed by group.rs (Task 2).
-    #[allow(dead_code)]
     Group,
 }
 
 /// What the blobs say about themselves, handed to the [`with_provider`] closure.
-#[derive(Debug)]
 pub(crate) struct Header {
     device_id: Vec<u8>,
     signature_public_key: Vec<u8>,
@@ -60,8 +58,6 @@ impl Header {
     }
 
     /// The group id from the group blob, or the one set by [`Header::set_group_id`].
-    // Read by group.rs and message.rs (Tasks 2 and 3).
-    #[allow(dead_code)]
     pub(crate) fn group_id(&self) -> Option<Vec<u8>> {
         self.group_id.borrow().clone()
     }
@@ -69,8 +65,6 @@ impl Header {
     /// Names the group whose blob this call produces. Needed when the call starts without a group blob (create,
     /// join), since the new group blob's header must carry its id. Write-once: setting a different id than the one
     /// already present is an internal error.
-    // Called by group.rs (Task 2).
-    #[allow(dead_code)]
     pub(crate) fn set_group_id(&self, group_id: &[u8]) -> Result<(), MlsError> {
         if !ID_LEN.contains(&group_id.len()) {
             return Err(MlsError::bad_input(format!(
@@ -89,6 +83,20 @@ impl Header {
                 Ok(())
             }
         }
+    }
+}
+
+// Debug prints lengths only: the crate never puts ids or keys in Debug output.
+impl fmt::Debug for Header {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Header")
+            .field("device_id_len", &self.device_id.len())
+            .field("signature_public_key_len", &self.signature_public_key.len())
+            .field(
+                "group_id_len",
+                &self.group_id.borrow().as_ref().map(Vec::len),
+            )
+            .finish()
     }
 }
 
@@ -175,6 +183,24 @@ pub(crate) fn with_provider<T>(
     };
     let device_blob = encode_device(&header.device_id, &header.signature_public_key, &device_out)?;
     Ok((value, device_blob, group_blob))
+}
+
+/// Loads a group blob alone into a fresh OpenMLS memory storage and runs `f` with the storage and the blob's group
+/// id. Read-only: whatever `f` writes is thrown away, and no blob is returned. For calls that need no device key,
+/// such as `describe`.
+pub(crate) fn with_group_storage<T>(
+    group_state: &[u8],
+    f: impl FnOnce(&OpenMlsRustCrypto, &[u8]) -> Result<T, MlsError>,
+) -> Result<T, MlsError> {
+    let group = decode_group(group_state)?;
+    let provider = OpenMlsRustCrypto::default();
+    provider
+        .storage()
+        .values
+        .write()
+        .map_err(|_| MlsError::internal("storage lock poisoned"))?
+        .extend(group.entries);
+    f(&provider, &group.group_id)
 }
 
 /// A device blob with no storage entries yet, the starting point of `create_device`.
@@ -467,6 +493,37 @@ mod tests {
         assert_eq!(
             seen,
             (DEVICE_ID.to_vec(), PK.to_vec(), Some(GROUP_ID.to_vec()))
+        );
+    }
+
+    #[test]
+    fn group_storage_alone_sees_the_group_entries_and_id() {
+        let group = group_blob(&[(b"g", b"2")]);
+        let (id, value) = with_group_storage(&group, |p, id| {
+            let value = p.storage().values.read().unwrap().get(&b"g"[..]).cloned();
+            Ok((id.to_vec(), value))
+        })
+        .unwrap();
+        assert_eq!(id, GROUP_ID);
+        assert_eq!(value, Some(b"2".to_vec()));
+        assert_eq!(
+            code(with_group_storage(&device_blob(&[]), |_, _| Ok(()))),
+            ErrorCode::CorruptState
+        );
+    }
+
+    #[test]
+    fn header_debug_prints_lengths_only() {
+        let (printed, _, _) = with_provider(
+            &device_blob(&[]),
+            Some(&group_blob(&[])),
+            Partition::Group,
+            |_, h| Ok(format!("{h:?}")),
+        )
+        .unwrap();
+        assert_eq!(
+            printed,
+            "Header { device_id_len: 16, signature_public_key_len: 32, group_id_len: Some(20) }"
         );
     }
 
