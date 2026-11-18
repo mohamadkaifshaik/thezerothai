@@ -465,3 +465,37 @@ func TestSendEnc_SendRacingAnEpochMove(t *testing.T) {
 	}
 	t.Logf("outcomes: %v", tally)
 }
+
+// The unanswered-request cap is an existing refusal, so it answers before the encryption rule: a requester at the cap
+// gets LIMIT_REACHED request_unanswered for a plaintext send into an MLS request, and for an encrypted one on a stale or
+// on the current pair, writing nothing.
+func TestSendEnc_RequestCapAnswersBeforeTheGate(t *testing.T) {
+	e := newIT(t, nil)
+	base := e.now().Add(-time.Hour)
+	convID := e.seedConversation(alice, bob, stateRequest, base, [2]string{alice, "one"}, [2]string{alice, "two"}, [2]string{alice, "three"})
+	e.makeConvMLSForTest(convID, 1, 4)
+	paths := []string{"conversations/" + convID, "users/" + alice + "/dmInbox/" + convID, "users/" + bob + "/dmRequests/" + convID}
+	before := map[string]time.Time{}
+	for _, p := range paths {
+		before[p] = e.docSnap(p).UpdateTime
+	}
+	msgs := len(e.msgs(convID))
+	for name, req := range map[string]*messagingv1.SendMessageRequest{
+		"plaintext":    toConv(skey(70), convID, "four"),
+		"stale pair":   encByConv(skey(71), convID, 1, 3, "ct"),
+		"current pair": encByConv(skey(72), convID, 1, 4, "ct"),
+	} {
+		_, err := e.send(alice, req)
+		if code, reason, meta := reasonOf(t, err); code != connect.CodeFailedPrecondition || reason != commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED || meta["limit"] != "request_unanswered" {
+			t.Errorf("%s: %v %v %v (%v), want LIMIT_REACHED request_unanswered", name, code, reason, meta, err)
+		}
+	}
+	for _, p := range paths {
+		if got := e.docSnap(p).UpdateTime; !got.Equal(before[p]) {
+			t.Errorf("%s was written", shortPath(p))
+		}
+	}
+	if n := len(e.msgs(convID)); n != msgs {
+		t.Errorf("messages = %d, want %d", n, msgs)
+	}
+}
