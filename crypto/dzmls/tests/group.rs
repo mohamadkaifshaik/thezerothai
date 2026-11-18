@@ -207,18 +207,19 @@ fn discard_restores_a_usable_pre_commit_group() {
     let fresh = dzmls::commit_change(&alice.state, &g, &[kp(&mut dave)], &[]).unwrap();
     assert_eq!(fresh.epoch, before.epoch);
 
-    // encrypt on g succeeds and the other member decrypts it. `encrypt` and `process` arrive in Task 3, which
-    // uncomments this block. Until then the same assertion runs on raw OpenMLS in the unit test
-    // `group::tests::discarded_group_still_encrypts_to_the_other_member`.
-    // let e = dzmls::encrypt(&alice.state, &g, b"after discard").unwrap();
-    // let p = dzmls::process(&bob.state, &states[1], &e.ciphertext).unwrap();
-    // match p.event {
-    //     dzmls::Event::Message { plaintext, sender_device_id } => {
-    //         assert_eq!(plaintext, b"after discard");
-    //         assert_eq!(sender_device_id, alice.id);
-    //     }
-    //     _ => panic!("expected an application message"),
-    // }
+    // encrypt on g succeeds and the other member decrypts it.
+    let e = dzmls::encrypt(&alice.state, &g, b"after discard").unwrap();
+    let p = dzmls::process(&bob.state, &states[1], &e.ciphertext).unwrap();
+    match p.event {
+        dzmls::Event::Message {
+            plaintext,
+            sender_device_id,
+        } => {
+            assert_eq!(plaintext, b"after discard");
+            assert_eq!(sender_device_id, alice.id);
+        }
+        _ => panic!("expected an application message"),
+    }
 }
 
 #[test]
@@ -274,34 +275,32 @@ fn garbage_key_package_and_welcome_are_bad_input() {
 }
 
 #[test]
-#[ignore = "needs process() from Task 3"]
 fn racing_commits_loser_recovers() {
-    // Review Focus 4. The body needs `dzmls::process`, which Task 3 adds; Task 3 uncomments it and drops the
-    // `#[ignore]`. Until then this test is empty and ignored.
-    //
-    // let alice = device(1);
-    // let mut bob = device(2);
-    // let mut carol = device(3);
-    // let mut dave = device(4);
-    // let states = group_of(&alice, &mut [&mut bob], &gid(1));
-    // assert_eq!(dzmls::describe(&states[0]).unwrap().epoch, 1);
-    // assert_eq!(dzmls::describe(&states[1]).unwrap().epoch, 1);
-    //
-    // // Both commit on epoch 1.
-    // let ca = dzmls::commit_change(&alice.state, &states[0], &[kp(&mut carol)], &[]).unwrap();
-    // let dave_kp = kp(&mut dave);
-    // let cb = dzmls::commit_change(&bob.state, &states[1], std::slice::from_ref(&dave_kp), &[]).unwrap();
-    // assert_eq!(ca.epoch, 1);
-    // assert_eq!(cb.epoch, 1);
-    //
-    // // The "server" accepts alice's commit and refuses bob's.
-    // let a2 = dzmls::confirm_commit(&alice.state, &ca.group_state).unwrap();
-    // assert_eq!(dzmls::describe(&a2).unwrap().epoch, 2);
-    // let b1 = dzmls::discard_commit(&bob.state, &cb.group_state).unwrap();
-    // let p = dzmls::process(&bob.state, &b1, &ca.commit).unwrap();
-    // assert_eq!(dzmls::describe(&p.group_state).unwrap().epoch, 2);
-    //
-    // // Bob retries his add on epoch 2.
-    // let retry = dzmls::commit_change(&bob.state, &p.group_state, &[dave_kp], &[]).unwrap();
-    // assert_eq!(retry.epoch, 2);
+    // Review Focus 4.
+    let alice = device(1);
+    let mut bob = device(2);
+    let mut carol = device(3);
+    let mut dave = device(4);
+    let states = group_of(&alice, &mut [&mut bob], &gid(1));
+    assert_eq!(dzmls::describe(&states[0]).unwrap().epoch, 1);
+    assert_eq!(dzmls::describe(&states[1]).unwrap().epoch, 1);
+
+    // Both commit on epoch 1.
+    let ca = dzmls::commit_change(&alice.state, &states[0], &[kp(&mut carol)], &[]).unwrap();
+    let dave_kp = kp(&mut dave);
+    let cb =
+        dzmls::commit_change(&bob.state, &states[1], std::slice::from_ref(&dave_kp), &[]).unwrap();
+    assert_eq!(ca.epoch, 1);
+    assert_eq!(cb.epoch, 1);
+
+    // The "server" accepts alice's commit and refuses bob's.
+    let a2 = dzmls::confirm_commit(&alice.state, &ca.group_state).unwrap();
+    assert_eq!(dzmls::describe(&a2).unwrap().epoch, 2);
+    let b1 = dzmls::discard_commit(&bob.state, &cb.group_state).unwrap();
+    let p = dzmls::process(&bob.state, &b1, &ca.commit).unwrap();
+    assert_eq!(dzmls::describe(&p.group_state).unwrap().epoch, 2);
+
+    // Bob retries his add on epoch 2.
+    let retry = dzmls::commit_change(&bob.state, &p.group_state, &[dave_kp], &[]).unwrap();
+    assert_eq!(retry.epoch, 2);
 }

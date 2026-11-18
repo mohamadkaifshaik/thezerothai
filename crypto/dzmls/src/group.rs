@@ -80,6 +80,9 @@ pub struct Commit {
 
 /// Stages one commit that adds the devices behind `add_key_packages` (TLS-serialized `KeyPackage`s, at most 100)
 /// and removes `remove_device_ids`. The group keeps its epoch until [`confirm_commit`] or [`discard_commit`].
+///
+/// A device id cannot be removed and re-added in the same commit (adding a current member is `bad_input`): a
+/// device that lost its state returns under a new device id.
 pub fn commit_change(
     device_state: &[u8],
     group_state: &[u8],
@@ -240,6 +243,7 @@ pub fn join_from_welcome(device_state: &[u8], welcome: &[u8]) -> Result<Joined, 
             let staged =
                 StagedWelcome::new_from_welcome(provider, config.join_config(), welcome, None)
                     .map_err(map_welcome_error)?;
+            check_member_identities(&staged)?;
             let group_id = staged.group_context().group_id().as_slice().to_vec();
             header.set_group_id(&group_id)?;
             let group = staged.into_group(provider).map_err(map_welcome_error)?;
@@ -307,7 +311,7 @@ pub(crate) fn load_group(
 
 /// Only `join_from_welcome` may change the device blob. Every other group call checks that it did not, so a device
 /// write can never be silently dropped.
-fn device_unchanged(before: &[u8], after: &[u8]) -> Result<(), MlsError> {
+pub(crate) fn device_unchanged(before: &[u8], after: &[u8]) -> Result<(), MlsError> {
     if before == after {
         Ok(())
     } else {
@@ -336,6 +340,20 @@ fn parse_key_package(provider: &OpenMlsRustCrypto, bytes: &[u8]) -> Result<KeyPa
         )));
     }
     Ok(kp)
+}
+
+/// Every member of a group being joined carries a 16 to 64 byte device id; otherwise the Welcome is refused
+/// before the group is accepted.
+fn check_member_identities(staged: &StagedWelcome) -> Result<(), MlsError> {
+    for member in staged.members() {
+        let len = member.credential.serialized_content().len();
+        if !state::ID_LEN.contains(&len) {
+            return Err(MlsError::bad_input(format!(
+                "welcome has a member identity of {len} bytes"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Each added device appears once and is not already a member. OpenMLS would silently drop a duplicate add.

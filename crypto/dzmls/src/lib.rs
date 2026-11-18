@@ -13,6 +13,8 @@ use openmls::prelude::Ciphersuite;
 mod device;
 mod error;
 mod group;
+mod message;
+mod padding;
 mod state;
 
 pub use device::{DeviceCreated, KeyPackages, create_device, generate_key_packages};
@@ -21,6 +23,7 @@ pub use group::{
     Commit, GroupInfo, Joined, Member, commit_change, confirm_commit, create_group, describe,
     discard_commit, join_from_welcome,
 };
+pub use message::{Encrypted, Event, Processed, encrypt, process, wire_epoch};
 
 /// The one cipher suite this engine speaks.
 pub(crate) const CIPHERSUITE: Ciphersuite =
