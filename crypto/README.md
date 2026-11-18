@@ -19,6 +19,27 @@ The toolchain is pinned to Rust `1.100.0` in `rust-toolchain.toml`. On Windows, 
 once, both succeed and one result is lost. Run calls that take or return a device state one at a time per device,
 and calls on a group state one at a time per group.
 
+## Browser tests
+
+Both need Chrome and a ChromeDriver of the same major version (download it from Chrome for Testing). Set
+`CHROMEDRIVER` to its path for the wasm test; start it yourself on a port for the Flutter test.
+
+```
+# The wasm binding, in headless Chrome (uses CHROMEDRIVER)
+cd crypto && CHROMEDRIVER=/path/to/chromedriver cargo test -p dzmls_web --target wasm32-unknown-unknown
+
+# The Dart WebCryptoEngine over the worker, in real Chrome. First: make crypto-web (builds app/web/mls/).
+/path/to/chromedriver --port=4455 &        # stop it afterwards
+cd app && flutter drive --driver=test_driver/integration_test.dart   --target=integration_test/crypto_engine_test.dart -d web-server --browser-name=chrome --driver-port=4455 --headless
+# the same against a wasm (dart2wasm) build:
+cd app && flutter drive --driver=test_driver/integration_test.dart   --target=integration_test/crypto_engine_test.dart -d web-server --browser-name=chrome --driver-port=4455 --headless --wasm
+```
+
+`flutter test integration_test -d chrome` is not supported on Flutter 3.50 ("Web devices are not supported for
+integration tests yet"), hence `flutter drive`. The driver serves `app/integration_test/assets/mls/vectors-v1.json`
+(a byte-identical copy of the frozen vectors, checked by `test/core/crypto/vectors_copy_test.dart`) on
+127.0.0.1:8089 for the run, so the file is not an app asset and release builds do not ship it.
+
 ## Test vectors (frozen)
 
 `../testdata/mls/vectors-v1.json` records one scripted run (device states, group states, wire messages, expected
