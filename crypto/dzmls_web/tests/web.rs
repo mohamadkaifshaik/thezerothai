@@ -293,3 +293,65 @@ fn fresh_devices_talk_through_the_exported_functions() {
     .unwrap();
     assert!(get(&none, "welcome").is_null());
 }
+
+#[wasm_bindgen_test]
+fn self_update_confirms_on_one_side_and_processes_on_the_other() {
+    let alice = web::create_device(&[1u8; 16]).unwrap();
+    let bob = web::create_device(&[2u8; 16]).unwrap();
+    let alice_dev = js_bytes(&get(&alice, "deviceState"));
+    let kps = web::generate_key_packages(&js_bytes(&get(&bob, "deviceState")), 1, false).unwrap();
+    let bob_dev = js_bytes(&get(&kps, "deviceState"));
+    let kp = js_bytes_list(&get(&kps, "keyPackages"));
+    let group = js_bytes(&get(
+        &web::create_group(&alice_dev, &[9u8; 16]).unwrap(),
+        "groupState",
+    ));
+    let add = web::commit_change(&alice_dev, &group, &to_js_list(&kp), &to_js_list(&[])).unwrap();
+    let alice_group = js_bytes(&get(
+        &web::confirm_commit(&alice_dev, &js_bytes(&get(&add, "groupState"))).unwrap(),
+        "groupState",
+    ));
+    let joined = web::join_from_welcome(&bob_dev, &js_bytes(&get(&add, "welcome"))).unwrap();
+    let (bob_dev, bob_group) = (
+        js_bytes(&get(&joined, "deviceState")),
+        js_bytes(&get(&joined, "groupState")),
+    );
+
+    // Same object shape as commitChange: groupState, commit, welcome (null), epoch.
+    let update = web::self_update(&alice_dev, &alice_group).unwrap();
+    assert_eq!(js_u64(&get(&update, "epoch")), 1);
+    assert!(get(&update, "welcome").is_null());
+    let pending = js_bytes(&get(&update, "groupState"));
+    assert!(
+        get(&web::describe(&pending).unwrap(), "hasPendingCommit")
+            .as_bool()
+            .unwrap()
+    );
+    let e = web::self_update(&alice_dev, &pending).expect_err("already pending");
+    assert_eq!(err_code(&e), "pending_commit");
+    let alice_group = js_bytes(&get(
+        &web::confirm_commit(&alice_dev, &pending).unwrap(),
+        "groupState",
+    ));
+    assert_eq!(
+        js_u64(&get(&web::describe(&alice_group).unwrap(), "epoch")),
+        2
+    );
+
+    let p = web::process(&bob_dev, &bob_group, &js_bytes(&get(&update, "commit"))).unwrap();
+    let event = get(&p, "event");
+    assert_eq!(get(&event, "kind").as_string().unwrap(), "commit");
+    assert_eq!(js_u64(&get(&event, "epoch")), 2);
+    assert!(js_bytes_list(&get(&event, "added")).is_empty());
+    assert!(js_bytes_list(&get(&event, "removed")).is_empty());
+    assert!(!get(&event, "selfRemoved").as_bool().unwrap());
+
+    let sent = web::encrypt(&alice_dev, &alice_group, b"renewed").unwrap();
+    let got = web::process(
+        &bob_dev,
+        &js_bytes(&get(&p, "groupState")),
+        &js_bytes(&get(&sent, "ciphertext")),
+    )
+    .unwrap();
+    assert_eq!(js_bytes(&get(&get(&got, "event"), "plaintext")), b"renewed");
+}

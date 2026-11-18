@@ -325,6 +325,80 @@ void main() {
     expect([for (final m in info.members) m.deviceId], [aliceId, carolId]);
   });
 
+  testWidgets('self-update: confirm, process, then a message both ways', (
+    tester,
+  ) async {
+    final engine = newEngine();
+    final aliceId = _bytes(1, 16);
+    final bobId = _bytes(2, 16);
+    final alice = await engine.createDevice(aliceId);
+    final bob = await engine.createDevice(bobId);
+    final bobKp = await engine.generateKeyPackages(
+      bob.deviceState,
+      count: 1,
+      lastResort: false,
+    );
+    var aliceGroup = await engine.createGroup(alice.deviceState, _bytes(9, 32));
+    final add = await engine.commitChange(
+      alice.deviceState,
+      aliceGroup,
+      addKeyPackages: [bobKp.keyPackages.single],
+    );
+    aliceGroup = await engine.confirmCommit(alice.deviceState, add.groupState);
+    final joined = await engine.joinFromWelcome(
+      bobKp.deviceState,
+      add.welcome!,
+    );
+    final bobDevice = joined.deviceState;
+    var bobGroup = joined.groupState;
+
+    final update = await engine.selfUpdate(alice.deviceState, aliceGroup);
+    expect(update.epoch, 1);
+    expect(update.welcome, isNull);
+    expect((await engine.describe(update.groupState)).hasPendingCommit, isTrue);
+    await _fails(
+      engine.selfUpdate(alice.deviceState, update.groupState),
+      MlsErrorCode.pendingCommit,
+    );
+    aliceGroup = await engine.confirmCommit(
+      alice.deviceState,
+      update.groupState,
+    );
+    final aliceInfo = await engine.describe(aliceGroup);
+    expect(aliceInfo.epoch, 2);
+    expect(
+      [for (final m in aliceInfo.members) m.signaturePublicKey],
+      [alice.signaturePublicKey, bob.signaturePublicKey],
+    );
+
+    final p = await engine.process(bobDevice, bobGroup, update.commit);
+    bobGroup = p.groupState;
+    final event = p.event as MlsCommitEvent;
+    expect(event.epoch, 2);
+    expect(event.added, isEmpty);
+    expect(event.removed, isEmpty);
+    expect(event.selfRemoved, isFalse);
+
+    final toBob = await engine.encrypt(
+      alice.deviceState,
+      aliceGroup,
+      _utf8('renewed'),
+    );
+    aliceGroup = toBob.groupState;
+    final got = await engine.process(bobDevice, bobGroup, toBob.ciphertext);
+    bobGroup = got.groupState;
+    expect(utf8.decode((got.event as MlsMessageEvent).plaintext), 'renewed');
+    final toAlice = await engine.encrypt(bobDevice, bobGroup, _utf8('back'));
+    final back = await engine.process(
+      alice.deviceState,
+      aliceGroup,
+      toAlice.ciphertext,
+    );
+    final m = back.event as MlsMessageEvent;
+    expect(utf8.decode(m.plaintext), 'back');
+    expect(m.senderDeviceId, bobId);
+  });
+
   testWidgets('garbage input fails with an MlsException', (tester) async {
     final engine = newEngine();
     final garbage = Uint8List.fromList([0xde, 0xad, 0xbe, 0xef]);

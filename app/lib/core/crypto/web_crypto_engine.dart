@@ -291,13 +291,27 @@ class WebCryptoEngine implements CryptoEngine {
       'addKeyPackages': _jsList(addKeyPackages),
       'removeDeviceIds': _jsList(removeDeviceIds),
     });
-    return CommitResult(
-      groupState: _bytes(r, 'groupState'),
-      commit: _bytes(r, 'commit'),
-      welcome: _bytesOrNull(r, 'welcome'),
-      epoch: _int(r, 'epoch'),
-    );
+    return _commitResult(r);
   }
+
+  @override
+  Future<CommitResult> selfUpdate(
+    Uint8List deviceState,
+    Uint8List groupState,
+  ) async {
+    final r = await _call('selfUpdate', {
+      'deviceState': _js(deviceState),
+      'groupState': _js(groupState),
+    });
+    return _commitResult(r);
+  }
+
+  static CommitResult _commitResult(JSObject r) => CommitResult(
+    groupState: _bytes(r, 'groupState'),
+    commit: _bytes(r, 'commit'),
+    welcome: _bytesOrNull(r, 'welcome'),
+    epoch: _int(r, 'epoch'),
+  );
 
   @override
   Future<Uint8List> confirmCommit(
