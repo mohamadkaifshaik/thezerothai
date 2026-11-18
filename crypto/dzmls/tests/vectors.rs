@@ -4,6 +4,9 @@
 // test proves that the current build still reads it and gets the same answers. Regenerating it would defeat that.
 // A format or library change adds `testdata/mls/vectors-v2.json` beside it (via `dzmls_vectors`), and this test
 // replays every `vectors-v*.json` it finds. Web, Android and iOS replay the same files.
+//
+// OpenMLS checks key package and leaf lifetimes against the wall clock. The key packages in `vectors-v1.json` are valid
+// until 2031-11-17 07:11:12 UTC (five years, see `LIFETIME_SECONDS`); after that its join steps fail by design.
 
 use dzmls::{Event, Party};
 use serde_json::Value;

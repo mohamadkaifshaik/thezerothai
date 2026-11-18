@@ -5,14 +5,14 @@ use std::fmt;
 use openmls::prelude::OpenMlsProvider as _;
 use openmls::prelude::tls_codec::Serialize as _;
 use openmls::prelude::{
-    BasicCredential, Capabilities, CredentialWithKey, ExtensionType, KeyPackage,
+    BasicCredential, Capabilities, CredentialWithKey, ExtensionType, KeyPackage, Lifetime,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 
-use crate::CIPHERSUITE;
 use crate::error::MlsError;
 use crate::state::{self, Header, Partition, with_provider};
+use crate::{CIPHERSUITE, LIFETIME_SECONDS};
 
 /// Most one-time key packages one call may generate (the last-resort package is extra).
 pub(crate) const MAX_KEY_PACKAGES: u32 = 100;
@@ -147,13 +147,21 @@ pub(crate) fn capabilities() -> Capabilities {
         .build()
 }
 
+/// A fresh [`LIFETIME_SECONDS`] lifetime starting now (OpenMLS backdates `not_before` by one hour). Built per call,
+/// since it stamps the current time.
+pub(crate) fn lifetime() -> Lifetime {
+    Lifetime::new(LIFETIME_SECONDS)
+}
+
 fn build_key_package(
     provider: &OpenMlsRustCrypto,
     signer: &SignatureKeyPair,
     credential: &CredentialWithKey,
     last_resort: bool,
 ) -> Result<Vec<u8>, MlsError> {
-    let mut builder = KeyPackage::builder().leaf_node_capabilities(capabilities());
+    let mut builder = KeyPackage::builder()
+        .leaf_node_capabilities(capabilities())
+        .key_package_lifetime(lifetime());
     if last_resort {
         builder = builder.mark_as_last_resort();
     }
@@ -204,6 +212,23 @@ mod tests {
             leaf.signature_key().as_slice(),
             d.signature_public_key.as_slice()
         );
+    }
+
+    /// OpenMLS sets `not_before` this far before the moment of creation, to allow for skewed clocks.
+    const OPENMLS_NOT_BEFORE_MARGIN_SECONDS: u64 = 60 * 60;
+
+    #[test]
+    fn key_packages_live_five_years_one_time_and_last_resort() {
+        assert_eq!(LIFETIME_SECONDS, 5 * 365 * 24 * 60 * 60);
+        let d = create_device(&[7u8; 16]).unwrap();
+        let k = generate_key_packages(&d.device_state, 1, true).unwrap();
+        for bytes in &k.key_packages {
+            let lifetime = *parse(bytes).life_time();
+            assert_eq!(
+                lifetime.not_after() - lifetime.not_before(),
+                LIFETIME_SECONDS + OPENMLS_NOT_BEFORE_MARGIN_SECONDS
+            );
+        }
     }
 
     #[test]

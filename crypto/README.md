@@ -80,13 +80,32 @@ integration tests yet"), hence `flutter drive`. The driver serves `app/integrati
 (a byte-identical copy of the frozen vectors, checked by `test/core/crypto/vectors_copy_test.dart`) on
 127.0.0.1:8089 for the run, so the file is not an app asset and release builds do not ship it.
 
+## Key package and leaf lifetime
+
+Every key package (one-time and last-resort) and a group creator's leaf carry a lifetime of five years
+(`LIFETIME_SECONDS` = 157,680,000 s in `dzmls/src/lib.rs`). OpenMLS sets `not_before` one hour before creation and
+`not_after` five years after it. OpenMLS checks the lifetime against the device clock when a key package is added to a
+group, and when a device joins from a Welcome, for every leaf that still carries its key package lifetime. Add-only
+commits do not refresh leaves, so a leaf keeps its key package lifetime until it commits with an update path (a
+removal does). OpenMLS 0.9.2 enforces no maximum range (`Lifetime::has_acceptable_range` has no caller).
+
+Consequences:
+
+- A key package, including the last-resort one, cannot be used after five years; republish before then.
+- A device whose clock is more than one hour behind the clock of the device that made a key package (or created the
+  group) refuses it as "not valid yet", so joins and adds fail between devices whose clocks are that far apart.
+- A conversation whose members never commit with an update path stops accepting joins five years after its oldest
+  leaf was made. A periodic leaf self-update is planned in a later plan.
+
 ## Test vectors (frozen)
 
 `../testdata/mls/vectors-v1.json` records one scripted run (device states, group states, wire messages, expected
 events, two security codes). Web, Android and iOS replay it to prove every platform reads the same bytes, and
 `cargo test -p dzmls` replays every `testdata/mls/vectors-v*.json`.
 
-**`vectors-v1.json` is frozen once committed.** State blobs live on users' devices across OpenMLS upgrades, so this
+**`vectors-v1.json` is frozen once committed.** Its key packages expire on 2031-11-17 07:11:12 UTC (their
+`not_after`; the creator's leaf was made in the same run). After that date its join and add steps no longer validate
+and the replay fails; that is expected, and the fix is a new vectors file, not a regenerated one. State blobs live on users' devices across OpenMLS upgrades, so this
 file is the guard that a newer build still reads state written by an older one. Never regenerate it. A format or
 library change adds `vectors-v2.json` beside it:
 `cargo run -p dzmls --features vectors --bin dzmls_vectors -- ../testdata/mls/vectors-v2.json`. The keys are random, so every

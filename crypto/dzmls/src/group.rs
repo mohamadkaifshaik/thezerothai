@@ -33,11 +33,13 @@ const MAXIMUM_FORWARD_DISTANCE: u32 = 1000;
 
 /// The one OpenMLS group configuration, used to create groups and (through its join part) to join them, so creator
 /// and joiners run identical settings. `past_epoch_deletion_policy` and padding stay at OpenMLS's defaults
-/// (`MaxEpochs(0)`, none; dzmls pads plaintext itself).
+/// (`MaxEpochs(0)`, none; dzmls pads plaintext itself). The creator's leaf gets the same five-year lifetime as a key
+/// package ([`crate::LIFETIME_SECONDS`]), since OpenMLS checks it whenever someone joins.
 fn create_config() -> MlsGroupCreateConfig {
     MlsGroupCreateConfig::builder()
         .ciphersuite(CIPHERSUITE)
         .capabilities(device::capabilities())
+        .lifetime(device::lifetime())
         .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
         .use_ratchet_tree_extension(true)
         .sender_ratchet_configuration(SenderRatchetConfiguration::new(
@@ -475,6 +477,7 @@ impl fmt::Debug for GroupInfo {
 mod tests {
     use super::*;
     use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
+    use openmls::treesync::LeafNodeSource;
 
     use crate::{create_device, generate_key_packages};
 
@@ -581,6 +584,23 @@ mod tests {
             let (stored, _) = on_group(dev, g, |_, _, group| group.configuration().clone());
             assert_eq!(&stored, join);
         }
+    }
+
+    #[test]
+    fn the_creator_leaf_lives_five_years() {
+        let alice = device(1);
+        let g = create_group(&alice.state, &[0xAB; 32]).unwrap();
+        let (source, _) = on_group(&alice, &g, |_, _, group| {
+            group.own_leaf_node().unwrap().leaf_node_source().clone()
+        });
+        let LeafNodeSource::KeyPackage(lifetime) = source else {
+            panic!("the creator leaf carries no lifetime");
+        };
+        // OpenMLS backdates `not_before` by one hour for skewed clocks.
+        assert_eq!(
+            lifetime.not_after() - lifetime.not_before(),
+            crate::LIFETIME_SECONDS + 60 * 60
+        );
     }
 
     #[test]

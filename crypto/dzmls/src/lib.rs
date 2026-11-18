@@ -31,5 +31,15 @@ pub use message::{Encrypted, Event, Processed, encrypt, process, wire_epoch};
 pub(crate) const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
+/// Lifetime of every key package and of a group creator's leaf: five years (365-day years), in seconds.
+///
+/// OpenMLS checks a leaf's lifetime against the wall clock whenever a Welcome is joined (every leaf that never
+/// updated, i.e. still carries its key package lifetime) and whenever a commit adds a key package. Add-only commits
+/// carry no update path, so leaves keep their key package lifetime until a later plan adds a periodic leaf
+/// self-update. OpenMLS sets `not_before` one hour before the moment of creation, so device clocks more than an hour
+/// behind the creator's refuse the package (`not valid yet`) when joining or adding. OpenMLS 0.9.2 never enforces a
+/// maximum lifetime range (`Lifetime::has_acceptable_range` has no caller), so five years is accepted everywhere.
+pub(crate) const LIFETIME_SECONDS: u64 = 157_680_000;
+
 /// Largest wire input (key package, Welcome, message) accepted before parsing.
 pub(crate) const MAX_WIRE_LEN: usize = 65536;
