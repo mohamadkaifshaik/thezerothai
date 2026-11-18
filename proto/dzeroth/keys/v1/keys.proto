@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+// Key directory for end-to-end encrypted direct messages: each encryption device publishes a public signature key and a
+// pool of opaque MLS key packages, and a user who may message another user looks up that user's devices and claims one
+// key package per device. The server stores and hands out opaque bytes; it never parses a key package and never sees
+// message content. Clients MUST verify that a claimed key package's credential and signature key match the directory
+// entry (ClaimedKeyPackage.signature_public_key) before using it.
+// Owner module: backend/internal/keys.
+// Collections owned: users/{uid}/keyDevices/{deviceId} (signaturePublicKey, createdAt, lastSeenAt, lastResortKeyPackage)
+// and its subcollection users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time pool; the document id is
+// derived from the package bytes). Both are erased and exported with the account.
+//
+// Key material is raw bytes: this is the first proto in the repo with `bytes` fields. Device ids, user ids and
+// idempotency keys are strings. Nothing the server stores or returns is a message body.
+//
+// Flag FEATURE_E2EE_DM (wire name "e2ee_dm", default off). RegisterKeyDevice, UploadKeyPackages, ClaimKeyPackages and
+// GetKeyDevices need it on for the caller. ListMyKeyDevices and RemoveKeyDevice need it only not globally off, so a user
+// dropped from an allowlist can still see and remove their devices. Else FAILED_PRECONDITION + FEATURE_DISABLED,
+// metadata["feature"] = "e2ee_dm", before any lookup. A TARGET whose own flag is off is not an error: see GetKeyDevices.
+//
+// Limits: device id [A-Za-z0-9_-]{16,64}; signature_public_key exactly 32 bytes (Ed25519); a key package 1-4096 bytes;
+// at most 100 key packages per upload and at most 100 stored per device (the pool); at most 5 devices per user; a device
+// not seen for 30 days is inactive; GetKeyDevices takes 1-10 user ids.
+//
+// Inactive devices are filtered at read time and never deleted by the server: an inactive device is left out of
+// GetKeyDevices and ClaimKeyPackages, still appears in ListMyKeyDevices, still counts toward the cap of 5 until its
+// owner removes it, and becomes active again when it next registers or uploads (same id, same key).
+//
+// Idempotency: every mutating RPC takes idempotency_key in the repo format (16-64 of [A-Za-z0-9_-], else VALIDATION
+// "idempotency_key"). RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages are naturally idempotent and the key is
+// only format-checked. ClaimKeyPackages is NOT replayable: a retry consumes fresh packages (see its comment).
+//
+// Errors:
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] in idempotency_key | device_id | signature_public_key | key_packages
+//   | last_resort_key_package | user_ids | user_id | exclude_device_id, before any lookup unless stated. The value is
+//   never echoed.
+// - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "e2ee_dm" (see the flag classes above).
+// - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "key_devices": a sixth device (never evicts).
+// - FAILED_PRECONDITION + CANNOT_MESSAGE (GetKeyDevices, ClaimKeyPackages): the caller may not message a target. ONE
+//   byte-identical error for an unknown user, a user who is not ACTIVE, a block in either direction and any other
+//   refusal by the messaging send rules, so it reveals no more than GetProfile's NOT_FOUND. Do not retry.
+// - NOT_FOUND: UploadKeyPackages for a device the caller has not registered.
+// - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_KEYS_WRITE_PER_MIN (20: RegisterKeyDevice, RemoveKeyDevice,
+//   UploadKeyPackages), RATE_LIMIT_KEYS_READ_PER_MIN (60: ListMyKeyDevices, GetKeyDevices), RATE_LIMIT_KEYS_CLAIM_PER_MIN
+//   (20: ClaimKeyPackages), per uid per instance; and the daily cap KEYS_CLAIMS_PER_DAY (300) on ClaimKeyPackages,
+//   metadata["limit"] = "keys_claims_daily".
+package dzeroth.keys.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1;keysv1";
+
+service KeyService {
+  // Publish the caller's encryption device. Needs the flag on for the caller. Naturally idempotent by device_id:
+  // same id and same key => refreshes last_seen_at (at most once per 24 h) and returns the device; same id with a
+  // different key => INVALID_ARGUMENT + VALIDATION "signature_public_key"; a sixth device => FAILED_PRECONDITION +
+  // LIMIT_REACHED "key_devices" (never evicts). Validation: device_id and signature_public_key as in the header,
+  // idempotency_key format. One transaction: 1 device read + a query of at most 6 device documents, 1 write.
+  rpc RegisterKeyDevice(RegisterKeyDeviceRequest) returns (RegisterKeyDeviceResponse);
+  // The caller's devices, at most 5, oldest first; inactive ones (not seen for 30 days) are included, flagged by
+  // last_seen_at. Needs the flag only not globally off. Query of at most 5 device documents (Limit 5).
+  rpc ListMyKeyDevices(ListMyKeyDevicesRequest) returns (ListMyKeyDevicesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Remove one of the caller's devices together with its key package pool and its last-resort package. A missing
+  // device is success (idempotent). Needs the flag only not globally off. Validation: device_id format,
+  // idempotency_key format. Bounded delete of the device document and at most 100 pool documents.
+  rpc RemoveKeyDevice(RemoveKeyDeviceRequest) returns (RemoveKeyDeviceResponse);
+  // Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
+  // for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
+  // nothing twice, and duplicates within one request are stored once. The pool holds at most 100: packages beyond the
+  // free space are dropped (the response carries the resulting count). Unknown device => NOT_FOUND. Neither key
+  // packages nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h).
+  // One transaction: 1 device read + at most 100 reads, at most 101 writes.
+  rpc UploadKeyPackages(UploadKeyPackagesRequest) returns (UploadKeyPackagesResponse);
+  // Active devices of up to 10 users. Needs the flag on for the caller. For each target other than the caller, the
+  // caller must be allowed to message the target by the messaging send rules; an unknown or non-ACTIVE user, a block in
+  // either direction and any other refusal answer ONE byte-identical FAILED_PRECONDITION + CANNOT_MESSAGE. A target
+  // with the flag off or with no active device answers success with an empty device list. Only active devices are
+  // returned; key_package_count and has_last_resort are zeroed for other users' devices. Validation: 1-10 user_ids
+  // (VALIDATION "user_ids"). At most 10 users x (1 user read + a query of at most 5 devices), no writes.
+  rpc GetKeyDevices(GetKeyDevicesRequest) returns (GetKeyDevicesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Claim one key package per active device of user_id. Needs the flag on for the caller. Same send-rules check and
+  // the same single CANNOT_MESSAGE refusal as GetKeyDevices. For each active device the server consumes one one-time
+  // package, else returns the device's last-resort package (last_resort = true, not consumed), else
+  // has_key_package = false. One transaction, at most 10 reads and 10 writes. NOT replayable: a retry consumes fresh
+  // packages, and idempotency_key is format-checked only. Claiming for the caller's own user id requires
+  // exclude_device_id to be one of the caller's devices (VALIDATION "exclude_device_id"); that device is left out.
+  // Limited by RATE_LIMIT_KEYS_CLAIM_PER_MIN and the daily cap KEYS_CLAIMS_PER_DAY (see Errors).
+  rpc ClaimKeyPackages(ClaimKeyPackagesRequest) returns (ClaimKeyPackagesResponse);
+}
+
+message KeyDevice {
+  // [A-Za-z0-9_-]{16,64}, chosen by the device.
+  string device_id = 1;
+  // 32 bytes (Ed25519).
+  bytes signature_public_key = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // Moved at most once per 24 h.
+  google.protobuf.Timestamp last_seen_at = 4;
+  // One-time packages in the pool. The caller's own devices only; 0 for other users' devices.
+  int32 key_package_count = 5;
+  // The caller's own devices only; false for other users' devices.
+  bool has_last_resort = 6;
+}
+
+message RegisterKeyDeviceRequest {
+  string idempotency_key = 1;
+  string device_id = 2;
+  // Exactly 32 bytes.
+  bytes signature_public_key = 3;
+}
+
+message RegisterKeyDeviceResponse {
+  KeyDevice device = 1;
+}
+
+message ListMyKeyDevicesRequest {}
+
+message ListMyKeyDevicesResponse {
+  // At most 5, oldest first; inactive ones included, flagged by last_seen_at.
+  repeated KeyDevice devices = 1;
+}
+
+message RemoveKeyDeviceRequest {
+  string idempotency_key = 1;
+  string device_id = 2;
+}
+
+message RemoveKeyDeviceResponse {}
+
+message UploadKeyPackagesRequest {
+  string idempotency_key = 1;
+  string device_id = 2;
+  // 0-100, each 1-4096 bytes. Opaque to the server.
+  repeated bytes key_packages = 3;
+  // Optional, 1-4096 bytes; replaces the stored one when set.
+  bytes last_resort_key_package = 4;
+}
+
+message UploadKeyPackagesResponse {
+  // One-time packages in the pool after the upload.
+  int32 key_package_count = 1;
+  bool has_last_resort = 2;
+}
+
+message GetKeyDevicesRequest {
+  // 1-10; the caller's own id is allowed.
+  repeated string user_ids = 1;
+}
+
+message UserKeyDevices {
+  string user_id = 1;
+  // Active devices only.
+  repeated KeyDevice devices = 2;
+}
+
+message GetKeyDevicesResponse {
+  // Same order as the request.
+  repeated UserKeyDevices users = 1;
+}
+
+message ClaimKeyPackagesRequest {
+  string idempotency_key = 1;
+  string user_id = 2;
+  // Lets a device claim for its own user's other devices without consuming its own package. Required when user_id is
+  // the caller, and then must be one of the caller's devices.
+  string exclude_device_id = 3;
+}
+
+message ClaimedKeyPackage {
+  string device_id = 1;
+  // The directory's key for the device; the client checks it against the key package's own credential.
+  bytes signature_public_key = 2;
+  // Empty when has_key_package is false.
+  bytes key_package = 3;
+  bool has_key_package = 4;
+  // True when key_package is the device's last-resort package (reusable, not consumed).
+  bool last_resort = 5;
+}
+
+message ClaimKeyPackagesResponse {
+  // One per active device of user_id.
+  repeated ClaimedKeyPackage key_packages = 1;
+}

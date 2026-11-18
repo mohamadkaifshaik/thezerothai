@@ -18,6 +18,7 @@ import '../../gen/dzeroth/timeline/v1/timeline.connect.client.dart';
 import '../../gen/dzeroth/beacons/v1/beacons.connect.client.dart';
 import '../../gen/dzeroth/billing/v1/billing.connect.client.dart';
 import '../../gen/dzeroth/location/v1/location.connect.client.dart';
+import '../../gen/dzeroth/keys/v1/keys.connect.client.dart';
 import 'app_exception.dart';
 import 'auth_token_provider.dart';
 import 'connect_error_mapper.dart';
@@ -98,6 +99,9 @@ class ApiClient {
 
   /// Chosen area and consent. Only `LocationRepository` calls it.
   late final location = LocationServiceClient(_transport);
+
+  /// E2EE key directory. Only the encryption key repository calls it.
+  late final keys = KeyServiceClient(_transport);
 }
 
 /// Runs [call], converting any thrown error into a typed [AppException].
