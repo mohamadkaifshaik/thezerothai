@@ -179,15 +179,19 @@ class ErrorReason extends $pb.ProtobufEnum {
   /// FAILED_PRECONDITION: an end-to-end encrypted conversation moved on (messaging.v1 header, "Ordering"). The send or
   /// commit was built on an MLS (generation, epoch) pair that is no longer the conversation's current pair, or another
   /// device started encryption first; nothing was stored. metadata["generation"] and metadata["epoch"] are the current
-  /// pair as decimal strings. Catch up with MessagingService.ListConversationCommits, apply the commits, then build the
-  /// message or commit again on the current pair and retry. A client built before this value sees UNSPECIFIED and
-  /// falls back to the FAILED_PRECONDITION code mapping; only a client that sends ciphertext can reach it.
+  /// pair as decimal strings; metadata["conversation_id"] is set too when a SendMessage addressed recipient_user_id.
+  /// Catch up with MessagingService.ListConversationCommits, apply the commits, then build the message or commit again
+  /// on the current pair and retry. A device that lost an mls_init race (another device started encryption first) has
+  /// no group to apply commits to: it joins through MessagingService.ListWelcomes instead. A client built before this
+  /// value sees UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; only a client that sends ciphertext
+  /// can reach it.
   static const ErrorReason ERROR_REASON_STALE_EPOCH =
       ErrorReason._(23, _omitEnumNames ? '' : 'ERROR_REASON_STALE_EPOCH');
 
   /// FAILED_PRECONDITION: a plaintext SendMessage (no ciphertext) into a conversation that is end-to-end encrypted.
   /// Encryption is one-way: the conversation never accepts plaintext again and there is no fallback. Nothing was
-  /// stored. A current client never sends plaintext there; on this reason show "Update the app to keep messaging". A
+  /// stored. metadata["conversation_id"] is set when the SendMessage addressed recipient_user_id. A current client
+  /// never sends plaintext there; on this reason show "Update the app to keep messaging". A
   /// client built before this value decodes it as UNSPECIFIED (no metadata["reason"] is set) and falls back to the
   /// FAILED_PRECONDITION code mapping, so its messaging screens show their generic failure text, not an update prompt:
   /// telling such an app to update is the app version floor's job, not this error's.

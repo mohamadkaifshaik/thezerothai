@@ -181,13 +181,17 @@ const (
 	// FAILED_PRECONDITION: an end-to-end encrypted conversation moved on (messaging.v1 header, "Ordering"). The send or
 	// commit was built on an MLS (generation, epoch) pair that is no longer the conversation's current pair, or another
 	// device started encryption first; nothing was stored. metadata["generation"] and metadata["epoch"] are the current
-	// pair as decimal strings. Catch up with MessagingService.ListConversationCommits, apply the commits, then build the
-	// message or commit again on the current pair and retry. A client built before this value sees UNSPECIFIED and
-	// falls back to the FAILED_PRECONDITION code mapping; only a client that sends ciphertext can reach it.
+	// pair as decimal strings; metadata["conversation_id"] is set too when a SendMessage addressed recipient_user_id.
+	// Catch up with MessagingService.ListConversationCommits, apply the commits, then build the message or commit again
+	// on the current pair and retry. A device that lost an mls_init race (another device started encryption first) has
+	// no group to apply commits to: it joins through MessagingService.ListWelcomes instead. A client built before this
+	// value sees UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; only a client that sends ciphertext
+	// can reach it.
 	ErrorReason_ERROR_REASON_STALE_EPOCH ErrorReason = 23
 	// FAILED_PRECONDITION: a plaintext SendMessage (no ciphertext) into a conversation that is end-to-end encrypted.
 	// Encryption is one-way: the conversation never accepts plaintext again and there is no fallback. Nothing was
-	// stored. A current client never sends plaintext there; on this reason show "Update the app to keep messaging". A
+	// stored. metadata["conversation_id"] is set when the SendMessage addressed recipient_user_id. A current client
+	// never sends plaintext there; on this reason show "Update the app to keep messaging". A
 	// client built before this value decodes it as UNSPECIFIED (no metadata["reason"] is set) and falls back to the
 	// FAILED_PRECONDITION code mapping, so its messaging screens show their generic failure text, not an update prompt:
 	// telling such an app to update is the app version floor's job, not this error's.
@@ -280,11 +284,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
-//   (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//   (snapshotted when the row was written);
-// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//   cache, up to 60 s stale).
+//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
+//     (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//     (snapshotted when the row was written);
+//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//     cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Always set. With FEATURE_PUBLIC_IDS off for the

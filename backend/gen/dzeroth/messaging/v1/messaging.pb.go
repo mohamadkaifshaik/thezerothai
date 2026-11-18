@@ -46,6 +46,8 @@
 // - FAILED_PRECONDITION + ERROR_REASON_STALE_EPOCH, metadata["generation"] and metadata["epoch"] = the current pair:
 //   an encrypted send or a commit built on a pair that is no longer current (see "Ordering"). Nothing was stored.
 // - FAILED_PRECONDITION + ERROR_REASON_ENCRYPTION_REQUIRED: a plaintext SendMessage into an encrypted conversation.
+//   Both are answered after every existing refusal; a SendMessage that addressed recipient_user_id gets
+//   metadata["conversation_id"] with either (SendMessage comment).
 // - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id may also answer NOT_FOUND
 //   "post not found" (the GetPost bytes) when the caller may not see the post or a block in either direction stands
 //   between the caller and its author.
@@ -91,42 +93,65 @@
 //   "e2ee_dm", before any lookup) AND for the recipient (else the byte-identical CANNOT_MESSAGE). Every other operation
 //   on an encrypted conversation (sends, CommitConversation, ListConversationCommits, ListEpochMessages,
 //   ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC, so a participant dropped
-//   from the e2ee_dm allowlist keeps using an encrypted conversation.
+//   from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation. The limit of that: the
+//   key directory (keys.v1) needs e2ee_dm for registering a device and for device lookups and key package claims, so
+//   such a participant cannot add a device, their devices drop out of lookups once unseen for 30 days (only
+//   RegisterKeyDevice and UploadKeyPackages mark a device seen), and a reset or a commit that must address one of
+//   their devices then fails (VALIDATION "welcome_device_ids").
 // - What the server can see for an MLS conversation: who the participants are, who sent each message and when, its
-//   size, its message id and state, unread counts, read times and receipts (as for plaintext), the (generation,
-//   epoch) pair of every message and commit, the commit and welcome bytes (opaque MLS records it does not parse; a
-//   welcome is encrypted to its device), which device ids a welcome is addressed to, and the 32-byte report
-//   commitment (which reveals nothing about the content). What it cannot see: the text, the shared post id, the report
-//   key and anything else inside MessageContent, unless a participant reports the message and discloses it
-//   (ModerationService.ReportContent, message_payload). Inbox previews carry encrypted = true and an empty snippet;
-//   pushes stay generic ("New message", the conversation id only) and carry no content.
+//   message id and state, the ciphertext length (the plaintext is padded to 256-byte blocks, so the length reveals the
+//   number of blocks), unread counts, read times and receipts (as for plaintext), the (generation, epoch) pair of
+//   every message and commit, the time and sending user of every commit and reset, the commit and welcome bytes
+//   (opaque MLS records it does not parse; a welcome is encrypted to its device; the clear MLS header of every
+//   message and commit carries the group id and epoch), which device ids a welcome is addressed to (and so how many
+//   devices each user has in the group), and the 32-byte report commitment (which reveals nothing about the content).
+//   What it cannot see: the text, the shared post id, the report key and anything else inside MessageContent, unless
+//   a participant reports the message and discloses it (ModerationService.ReportContent, message_payload). Inbox
+//   previews carry encrypted = true and an empty snippet; pushes stay generic ("New message", the conversation id
+//   only) and carry no content.
 // - Ordering. A conversation has a generation (1 at the start, +1 on each reset) and an epoch within it; together the
-//   current pair. Every encrypted message and every commit states the pair it was built on. A message is stored
-//   only when its pair equals the current pair, compared inside the send transaction; a commit is stored only when
-//   built on the current pair, and it moves the conversation to (generation, epoch + 1). There is at most one commit
-//   per pair: the first accepted wins, any other is STALE_EPOCH. Anything built on another pair => FAILED_PRECONDITION
-//   + STALE_EPOCH with metadata["generation"], metadata["epoch"] = the current pair, storing nothing; the client calls
-//   ListConversationCommits, applies the missing commits, builds the message or commit again on the current pair and
-//   retries. Hence every message of an epoch is stored before the commit that ends it, and once an epoch has a commit
-//   no message can join it. An ordinary message never writes the conversation document (no hot document): only an
-//   mls_init, a commit and a reset do.
+//   current pair. Every encrypted message and every commit states the pair it was built on (a reset states the
+//   generation it replaces). A message is stored only when its pair equals the current pair, compared inside the
+//   send transaction; a commit is stored only when built on the current pair, and it moves the conversation to
+//   (generation, epoch + 1); a reset is stored only when it replaces the current generation, and it moves the
+//   conversation to (generation + 1, 1). There is at most one commit per pair: the first accepted wins, any other is
+//   STALE_EPOCH. Anything built on another pair => FAILED_PRECONDITION + STALE_EPOCH with metadata["generation"],
+//   metadata["epoch"] = the current pair, storing nothing; the client calls ListConversationCommits, applies the
+//   missing commits, builds the message or commit again on the current pair and retries. Hence every message of an
+//   epoch is stored before the commit that ends it, and once an epoch is closed (it has a commit, or a later
+//   generation exists after a reset) no message can join it. An ordinary message never writes the conversation
+//   document (no hot document): only an mls_init, a commit and a reset do.
 // - Processing order on a device: all messages of its current epoch, then that epoch's commit, then the next epoch.
 //   MLS deletes an epoch's keys when its commit is applied, so before applying the commit that ends an epoch a device
-//   calls ListEpochMessages for that epoch: once the epoch is closed (it has a commit, or a later generation exists
-//   after a reset), that list is complete, which is how the device proves it holds every message of the epoch. Within an epoch the order between senders does not matter;
-//   created_at is the display order only. Messages from epochs before a device joined are skipped, not shown as
-//   failures.
+//   calls ListEpochMessages for that epoch: once the epoch is closed, that list is complete, which is how the device
+//   proves it holds every message of the epoch. ListEpochMessages is a completeness set, not a decryption order: the
+//   device collects every page, then decrypts in created_at order, then by id. Messages of different senders may be
+//   decrypted in any order; one sender's messages may be decrypted at most 50 out of their sending order (the client
+//   core's out-of-order tolerance, which covers created_at being stamped per server instance). created_at is the
+//   display order. Messages from epochs before a device joined are skipped, not shown as failures. A device that
+//   receives a message checks report_commitment against the decrypted MessageContent before showing it
+//   (Message.report_commitment).
 // - Devices. Every device id in a request (welcome_device_ids, ListWelcomes and AckWelcomes device_id) is checked
 //   against the key directory, never trusted: a welcome's devices must be ACTIVE registered devices of a participant
 //   (not seen for 30 days = inactive, keys.v1 header), and the device_id of ListWelcomes / AckWelcomes must be one of
-//   the caller's own registered devices. Device ids are not user references (no user_ref) and never appear in logs.
+//   the caller's own registered devices. That device_id is a filter, not an authentication between a user's own
+//   devices: any session of the user may name any of the user's devices; a welcome is protected by being encrypted to
+//   its device. A welcome-device check is answered only after every NOT_FOUND and CANNOT_MESSAGE refusal, so a refused
+//   caller never learns whether a device id is active. Device ids are not user references (no user_ref) and never
+//   appear in logs.
+// - Welcomes: at most one stored welcome per conversation per device. A later welcome for the same conversation and
+//   device (a later commit that adds it again, or a reset) REPLACES the earlier one in the same transaction: the
+//   earlier document is deleted and the new one has a new id, so acknowledging the earlier id never removes the new
+//   one. Only the newest (generation, epoch) is usable by the device.
 // - Retention. An encrypted message record stays like any other (id, times, state, paging, tokens, tombstones), but
 //   its ciphertext and report_commitment are blanked 30 days after created_at by a periodic sweep (so possibly a
-//   little later): Message.ciphertext_removed = true, state stays VISIBLE. Commit records and welcomes are kept at
-//   least 30 days after their creation and then expire; an unacknowledged welcome is gone after that too. A device
-//   that is further behind than the stored commits (a gap in ListConversationCommits) or whose epoch messages lost
-//   their ciphertext cannot catch up and resets (CommitConversation reset = true). Commit and welcome records are
-//   untouched by DeleteConversation and by a moderator takedown.
+//   little later): Message.ciphertext_removed = true, state stays VISIBLE. A device whose epoch messages lost their
+//   ciphertext does NOT reset: it applies the commits and shows "Couldn't decrypt this message" for those messages.
+//   Commit records and welcomes are kept at least 30 days after their creation and then expire; an unacknowledged
+//   welcome is gone after that too. A device that needs a commit that is gone (a gap in ListConversationCommits, see
+//   there) or that lost its group state, and has no usable welcome, resets (CommitConversation reset = true, naming
+//   the current generation from ListConversationCommits). Commit and welcome records are untouched by
+//   DeleteConversation and by a moderator takedown.
 // - The device's store is the only copy of an encrypted conversation's text, so the token contract's "drop the cached
 //   thread" does NOT apply to it: on a retired since_token the device drops the token, keeps its stored messages and
 //   reconciles them by message id with the server's records (state REMOVED or DELETED_ACCOUNT => delete the local copy
@@ -779,9 +804,11 @@ type Message struct {
 	MlsGeneration uint64 `protobuf:"varint,10,opt,name=mls_generation,json=mlsGeneration,proto3" json:"mls_generation,omitempty"`
 	MlsEpoch      uint64 `protobuf:"varint,11,opt,name=mls_epoch,json=mlsEpoch,proto3" json:"mls_epoch,omitempty"`
 	// 32 bytes while the ciphertext is present, empty otherwise: SHA-256 over the ASCII bytes "dz-report-v1" followed by
-	// the exact MessageContent bytes inside the ciphertext. The recipient's device checks it on decrypt (a mismatch is
-	// still shown; a report of it is marked unverified). A report sends the content and the server recomputes it
-	// (moderation.v1 ReportContentRequest.message_payload).
+	// the exact MessageContent bytes inside the ciphertext. The receiving device MUST verify it against the decrypted
+	// MessageContent before showing the message: on a mismatch, or when report_key is not 32 bytes, it shows a "This
+	// message couldn't be verified" placeholder instead of the content and still offers Report (such a report is marked
+	// unverified). A report sends the content and the server recomputes it (moderation.v1
+	// ReportContentRequest.message_payload).
 	ReportCommitment []byte `protobuf:"bytes,12,opt,name=report_commitment,json=reportCommitment,proto3" json:"report_commitment,omitempty"`
 	// True once the ciphertext was removed: by the 30-day sweep (state stays VISIBLE; the device's own copy is the only
 	// one left, else show "Couldn't decrypt this message"), by a takedown (state REMOVED) or by the sender's account
@@ -1143,11 +1170,13 @@ type MlsInit struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The MLS commit that creates the group, 1-16384 bytes (VALIDATION "commit"). Stored as the commit record (1, 0).
 	Commit []byte `protobuf:"bytes,1,opt,name=commit,proto3" json:"commit,omitempty"`
-	// The MLS Welcome for the members, 1-65536 bytes (VALIDATION "welcome"). Stored once per welcome_device_ids entry.
+	// The MLS Welcome for the members, 1-65536 bytes (VALIDATION "welcome"). Stored once per welcome_device_ids entry,
+	// replacing that device's earlier welcome for this conversation if any (at most one per conversation per device).
 	Welcome []byte `protobuf:"bytes,2,opt,name=welcome,proto3" json:"welcome,omitempty"`
 	// 1-10 distinct device ids ([A-Za-z0-9_-]{16,64}), each an active registered device of the caller or the
 	// recipient, at least one of them the recipient's; the sending device itself needs no welcome. Else VALIDATION
-	// "welcome_device_ids", without saying which id failed. Device ids, not user references.
+	// "welcome_device_ids", without saying which id failed, answered only after every NOT_FOUND and CANNOT_MESSAGE
+	// refusal. Device ids, not user references.
 	WelcomeDeviceIds []string `protobuf:"bytes,3,rep,name=welcome_device_ids,json=welcomeDeviceIds,proto3" json:"welcome_device_ids,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -1987,7 +2016,8 @@ type CommitConversationRequest struct {
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	// An MLS conversation the caller is a participant of (32 lower-case hex).
 	ConversationId string `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
-	// The pair the commit is built on (the current pair). Ignored when reset.
+	// Normal commit: the pair the commit is built on (the current pair). Reset: mls_generation is the generation being
+	// replaced (the current one; else STALE_EPOCH) and mls_epoch is ignored.
 	MlsGeneration uint64 `protobuf:"varint,3,opt,name=mls_generation,json=mlsGeneration,proto3" json:"mls_generation,omitempty"`
 	MlsEpoch      uint64 `protobuf:"varint,4,opt,name=mls_epoch,json=mlsEpoch,proto3" json:"mls_epoch,omitempty"`
 	// The MLS commit, 1-16384 bytes. For a reset: the commit that creates the fresh group.
@@ -1995,10 +2025,12 @@ type CommitConversationRequest struct {
 	// The MLS Welcome for the devices the commit adds, 1-65536 bytes; empty when it adds none. Required with reset.
 	Welcome []byte `protobuf:"bytes,6,opt,name=welcome,proto3" json:"welcome,omitempty"`
 	// The devices the welcome is for: 1-10 distinct device ids, each an active registered device of a participant, set
-	// exactly when welcome is set. A reset must address at least one device of each participant. Device ids, not user
-	// references.
+	// exactly when welcome is set. A reset must address at least one device of the PEER; the caller's other devices are
+	// optional (the sending device creates the group and needs no welcome). Each stored welcome replaces that device's
+	// earlier welcome for this conversation (at most one per conversation per device). Device ids, not user references.
 	WelcomeDeviceIds []string `protobuf:"bytes,7,rep,name=welcome_device_ids,json=welcomeDeviceIds,proto3" json:"welcome_device_ids,omitempty"`
-	// Start a new generation at epoch 1 with a fresh group (a device that cannot recover). Limited per day.
+	// Replace generation mls_generation (the current one) with generation + 1 at epoch 1 and a fresh group (a device
+	// that cannot recover). Conditional like a commit: a stale mls_generation is STALE_EPOCH. Limited per day.
 	Reset_        bool `protobuf:"varint,8,opt,name=reset,proto3" json:"reset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2092,7 +2124,8 @@ func (x *CommitConversationRequest) GetReset_() bool {
 
 type CommitConversationResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The new current pair: (generation, epoch + 1) after a commit, (generation + 1, 1) after a reset.
+	// The new current pair: (generation, epoch + 1) after a commit, (generation + 1, 1) after a reset. On a replay, the
+	// current pair at the time of the retry, which may be later.
 	MlsGeneration uint64 `protobuf:"varint,1,opt,name=mls_generation,json=mlsGeneration,proto3" json:"mls_generation,omitempty"`
 	MlsEpoch      uint64 `protobuf:"varint,2,opt,name=mls_epoch,json=mlsEpoch,proto3" json:"mls_epoch,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2154,7 +2187,9 @@ type ConversationCommit struct {
 	// The MLS commit bytes, opaque to the server.
 	Commit []byte `protobuf:"bytes,3,opt,name=commit,proto3" json:"commit,omitempty"`
 	// True when the calling USER sent it, from any of their devices (not only the calling device): a device still
-	// applies its own user's commits made on other devices. There is deliberately no sender uid.
+	// applies its own user's commits made on other devices. A device recognises its OWN accepted commit by comparing
+	// the bytes with its pending commit: it merges that pending commit and never processes the record. There is
+	// deliberately no sender uid.
 	FromSelf bool `protobuf:"varint,4,opt,name=from_self,json=fromSelf,proto3" json:"from_self,omitempty"`
 	// Server time the commit was stored.
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
@@ -2649,7 +2684,8 @@ func (x *ListWelcomesRequest) GetPageSize() int32 {
 
 type ListWelcomesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// By welcome id (not time order).
+	// By welcome id (ids are hashes, so not time order). At most one per conversation; should two ever appear for one
+	// conversation, use the highest (generation, epoch).
 	Welcomes []*Welcome `protobuf:"bytes,1,rep,name=welcomes,proto3" json:"welcomes,omitempty"`
 	// True when a full page was returned: acknowledge, then call again.
 	More          bool `protobuf:"varint,2,opt,name=more,proto3" json:"more,omitempty"`
