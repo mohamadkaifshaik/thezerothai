@@ -199,20 +199,20 @@ final $typed_data.Uint8List uploadKeyPackagesResponseDescriptor = $convert.base6
 const GetKeyDevicesRequest$json = {
   '1': 'GetKeyDevicesRequest',
   '2': [
-    {'1': 'user_ids', '3': 1, '4': 3, '5': 9, '10': 'userIds'},
+    {'1': 'user_ids', '3': 1, '4': 3, '5': 9, '8': {}, '10': 'userIds'},
   ],
 };
 
 /// Descriptor for `GetKeyDevicesRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List getKeyDevicesRequestDescriptor =
-    $convert.base64Decode(
-        'ChRHZXRLZXlEZXZpY2VzUmVxdWVzdBIZCgh1c2VyX2lkcxgBIAMoCVIHdXNlcklkcw==');
+final $typed_data.Uint8List getKeyDevicesRequestDescriptor = $convert.base64Decode(
+    'ChRHZXRLZXlEZXZpY2VzUmVxdWVzdBIfCgh1c2VyX2lkcxgBIAMoCUIE6OAYAVIHdXNlcklkcw'
+    '==');
 
 @$core.Deprecated('Use userKeyDevicesDescriptor instead')
 const UserKeyDevices$json = {
   '1': 'UserKeyDevices',
   '2': [
-    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '8': {}, '10': 'userId'},
     {
       '1': 'devices',
       '3': 2,
@@ -226,8 +226,8 @@ const UserKeyDevices$json = {
 
 /// Descriptor for `UserKeyDevices`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List userKeyDevicesDescriptor = $convert.base64Decode(
-    'Cg5Vc2VyS2V5RGV2aWNlcxIXCgd1c2VyX2lkGAEgASgJUgZ1c2VySWQSNAoHZGV2aWNlcxgCIA'
-    'MoCzIaLmR6ZXJvdGgua2V5cy52MS5LZXlEZXZpY2VSB2RldmljZXM=');
+    'Cg5Vc2VyS2V5RGV2aWNlcxIdCgd1c2VyX2lkGAEgASgJQgTo4BgBUgZ1c2VySWQSNAoHZGV2aW'
+    'NlcxgCIAMoCzIaLmR6ZXJvdGgua2V5cy52MS5LZXlEZXZpY2VSB2RldmljZXM=');
 
 @$core.Deprecated('Use getKeyDevicesResponseDescriptor instead')
 const GetKeyDevicesResponse$json = {
@@ -254,7 +254,7 @@ const ClaimKeyPackagesRequest$json = {
   '1': 'ClaimKeyPackagesRequest',
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
-    {'1': 'user_id', '3': 2, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'user_id', '3': 2, '4': 1, '5': 9, '8': {}, '10': 'userId'},
     {'1': 'exclude_device_id', '3': 3, '4': 1, '5': 9, '10': 'excludeDeviceId'},
   ],
 };
@@ -262,8 +262,8 @@ const ClaimKeyPackagesRequest$json = {
 /// Descriptor for `ClaimKeyPackagesRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List claimKeyPackagesRequestDescriptor = $convert.base64Decode(
     'ChdDbGFpbUtleVBhY2thZ2VzUmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDmlkZW'
-    '1wb3RlbmN5S2V5EhcKB3VzZXJfaWQYAiABKAlSBnVzZXJJZBIqChFleGNsdWRlX2RldmljZV9p'
-    'ZBgDIAEoCVIPZXhjbHVkZURldmljZUlk');
+    '1wb3RlbmN5S2V5Eh0KB3VzZXJfaWQYAiABKAlCBOjgGAFSBnVzZXJJZBIqChFleGNsdWRlX2Rl'
+    'dmljZV9pZBgDIAEoCVIPZXhjbHVkZURldmljZUlk');
 
 @$core.Deprecated('Use claimedKeyPackageDescriptor instead')
 const ClaimedKeyPackage$json = {

@@ -738,7 +738,8 @@ class GetKeyDevicesRequest extends $pb.GeneratedMessage {
           GetKeyDevicesRequest.$_createMessage);
   static GetKeyDevicesRequest? _defaultInstance;
 
-  /// 1-10; the caller's own id is allowed.
+  /// 1-10; the caller's own id is allowed. A user reference: translated to and from the public id like every other
+  /// user id on the wire (options.proto, user_ref).
   @$pb.TagNumber(1)
   $pb.PbList<$core.String> get userIds => $_getList(0);
 }
@@ -795,6 +796,7 @@ class UserKeyDevices extends $pb.GeneratedMessage {
           UserKeyDevices.$_createMessage);
   static UserKeyDevices? _defaultInstance;
 
+  /// A user reference, translated like the others (options.proto, user_ref).
   @$pb.TagNumber(1)
   $core.String get userId => $_getSZ(0);
   @$pb.TagNumber(1)
@@ -930,6 +932,7 @@ class ClaimKeyPackagesRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   void clearIdempotencyKey() => $_clearField(1);
 
+  /// A user reference, translated like the others (options.proto, user_ref).
   @$pb.TagNumber(2)
   $core.String get userId => $_getSZ(1);
   @$pb.TagNumber(2)

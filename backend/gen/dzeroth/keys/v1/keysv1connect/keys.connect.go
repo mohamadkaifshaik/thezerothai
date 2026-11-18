@@ -29,6 +29,10 @@
 // GetKeyDevices and ClaimKeyPackages, still appears in ListMyKeyDevices, still counts toward the cap of 5 until its
 // owner removes it, and becomes active again when it next registers or uploads (same id, same key).
 //
+// User references: user_ids (GetKeyDevicesRequest), user_id (UserKeyDevices, ClaimKeyPackagesRequest) carry the
+// user_ref option (TRANSLATE), so with FEATURE_PUBLIC_IDS on the edge swaps them for public ids in both directions,
+// as for every other service. device_id and exclude_device_id are device ids, not user references.
+//
 // Idempotency: every mutating RPC takes idempotency_key in the repo format (16-64 of [A-Za-z0-9_-], else VALIDATION
 // "idempotency_key"). RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages are naturally idempotent and the key is
 // only format-checked. ClaimKeyPackages is NOT replayable: a retry consumes fresh packages (see its comment).

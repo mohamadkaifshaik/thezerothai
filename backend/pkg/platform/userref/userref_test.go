@@ -22,6 +22,7 @@ import (
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
+	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1"
@@ -67,6 +68,9 @@ var wantAnnotated = map[protoreflect.FullName]commonv1.UserRefKind{
 	"dzeroth.identity.v1.GetProfileRequest.user_id":                    translate,
 	"dzeroth.identity.v1.Profile.public_id":                            publicID,
 	"dzeroth.identity.v1.Profile.user_id":                              translate,
+	"dzeroth.keys.v1.ClaimKeyPackagesRequest.user_id":                  translate,
+	"dzeroth.keys.v1.GetKeyDevicesRequest.user_ids":                    translate,
+	"dzeroth.keys.v1.UserKeyDevices.user_id":                           translate,
 	"dzeroth.lists.v1.AddListMemberRequest.user_id":                    translate,
 	"dzeroth.lists.v1.ListUserListsRequest.contains_user_id":           translate,
 	"dzeroth.lists.v1.ListUserListsRequest.owner_id":                   translate,

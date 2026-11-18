@@ -31,6 +31,10 @@
 // GetKeyDevices and ClaimKeyPackages, still appears in ListMyKeyDevices, still counts toward the cap of 5 until its
 // owner removes it, and becomes active again when it next registers or uploads (same id, same key).
 //
+// User references: user_ids (GetKeyDevicesRequest), user_id (UserKeyDevices, ClaimKeyPackagesRequest) carry the
+// user_ref option (TRANSLATE), so with FEATURE_PUBLIC_IDS on the edge swaps them for public ids in both directions,
+// as for every other service. device_id and exclude_device_id are device ids, not user references.
+//
 // Idempotency: every mutating RPC takes idempotency_key in the repo format (16-64 of [A-Za-z0-9_-], else VALIDATION
 // "idempotency_key"). RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages are naturally idempotent and the key is
 // only format-checked. ClaimKeyPackages is NOT replayable: a retry consumes fresh packages (see its comment).
@@ -53,6 +57,7 @@
 package keysv1
 
 import (
+	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -556,7 +561,8 @@ func (x *UploadKeyPackagesResponse) GetHasLastResort() bool {
 
 type GetKeyDevicesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 1-10; the caller's own id is allowed.
+	// 1-10; the caller's own id is allowed. A user reference: translated to and from the public id like every other
+	// user id on the wire (options.proto, user_ref).
 	UserIds       []string `protobuf:"bytes,1,rep,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -600,8 +606,9 @@ func (x *GetKeyDevicesRequest) GetUserIds() []string {
 }
 
 type UserKeyDevices struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	UserId string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A user reference, translated like the others (options.proto, user_ref).
+	UserId string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	// Active devices only.
 	Devices       []*KeyDevice `protobuf:"bytes,2,rep,name=devices,proto3" json:"devices,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -700,7 +707,8 @@ func (x *GetKeyDevicesResponse) GetUsers() []*UserKeyDevices {
 type ClaimKeyPackagesRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	UserId         string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// A user reference, translated like the others (options.proto, user_ref).
+	UserId string `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	// Lets a device claim for its own user's other devices without consuming its own package. Required when user_id is
 	// the caller, and then must be one of the caller's devices.
 	ExcludeDeviceId string `protobuf:"bytes,3,opt,name=exclude_device_id,json=excludeDeviceId,proto3" json:"exclude_device_id,omitempty"`
@@ -887,7 +895,7 @@ var File_dzeroth_keys_v1_keys_proto protoreflect.FileDescriptor
 
 const file_dzeroth_keys_v1_keys_proto_rawDesc = "" +
 	"\n" +
-	"\x1adzeroth/keys/v1/keys.proto\x12\x0fdzeroth.keys.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa7\x02\n" +
+	"\x1adzeroth/keys/v1/keys.proto\x12\x0fdzeroth.keys.v1\x1a\x1fdzeroth/common/v1/options.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa7\x02\n" +
 	"\tKeyDevice\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x120\n" +
 	"\x14signature_public_key\x18\x02 \x01(\fR\x12signaturePublicKey\x129\n" +
@@ -917,17 +925,17 @@ const file_dzeroth_keys_v1_keys_proto_rawDesc = "" +
 	"\x17last_resort_key_package\x18\x04 \x01(\fR\x14lastResortKeyPackage\"o\n" +
 	"\x19UploadKeyPackagesResponse\x12*\n" +
 	"\x11key_package_count\x18\x01 \x01(\x05R\x0fkeyPackageCount\x12&\n" +
-	"\x0fhas_last_resort\x18\x02 \x01(\bR\rhasLastResort\"1\n" +
-	"\x14GetKeyDevicesRequest\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\tR\auserIds\"_\n" +
-	"\x0eUserKeyDevices\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x124\n" +
+	"\x0fhas_last_resort\x18\x02 \x01(\bR\rhasLastResort\"7\n" +
+	"\x14GetKeyDevicesRequest\x12\x1f\n" +
+	"\buser_ids\x18\x01 \x03(\tB\x04\xe8\xe0\x18\x01R\auserIds\"e\n" +
+	"\x0eUserKeyDevices\x12\x1d\n" +
+	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x124\n" +
 	"\adevices\x18\x02 \x03(\v2\x1a.dzeroth.keys.v1.KeyDeviceR\adevices\"N\n" +
 	"\x15GetKeyDevicesResponse\x125\n" +
-	"\x05users\x18\x01 \x03(\v2\x1f.dzeroth.keys.v1.UserKeyDevicesR\x05users\"\x87\x01\n" +
+	"\x05users\x18\x01 \x03(\v2\x1f.dzeroth.keys.v1.UserKeyDevicesR\x05users\"\x8d\x01\n" +
 	"\x17ClaimKeyPackagesRequest\x12'\n" +
-	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12*\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\tB\x04\xe8\xe0\x18\x01R\x06userId\x12*\n" +
 	"\x11exclude_device_id\x18\x03 \x01(\tR\x0fexcludeDeviceId\"\xcc\x01\n" +
 	"\x11ClaimedKeyPackage\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x120\n" +

@@ -27,6 +27,10 @@ syntax = "proto3";
 // GetKeyDevices and ClaimKeyPackages, still appears in ListMyKeyDevices, still counts toward the cap of 5 until its
 // owner removes it, and becomes active again when it next registers or uploads (same id, same key).
 //
+// User references: user_ids (GetKeyDevicesRequest), user_id (UserKeyDevices, ClaimKeyPackagesRequest) carry the
+// user_ref option (TRANSLATE), so with FEATURE_PUBLIC_IDS on the edge swaps them for public ids in both directions,
+// as for every other service. device_id and exclude_device_id are device ids, not user references.
+//
 // Idempotency: every mutating RPC takes idempotency_key in the repo format (16-64 of [A-Za-z0-9_-], else VALIDATION
 // "idempotency_key"). RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages are naturally idempotent and the key is
 // only format-checked. ClaimKeyPackages is NOT replayable: a retry consumes fresh packages (see its comment).
@@ -47,6 +51,7 @@ syntax = "proto3";
 //   metadata["limit"] = "keys_claims_daily".
 package dzeroth.keys.v1;
 
+import "dzeroth/common/v1/options.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1;keysv1";
@@ -148,12 +153,14 @@ message UploadKeyPackagesResponse {
 }
 
 message GetKeyDevicesRequest {
-  // 1-10; the caller's own id is allowed.
-  repeated string user_ids = 1;
+  // 1-10; the caller's own id is allowed. A user reference: translated to and from the public id like every other
+  // user id on the wire (options.proto, user_ref).
+  repeated string user_ids = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
 }
 
 message UserKeyDevices {
-  string user_id = 1;
+  // A user reference, translated like the others (options.proto, user_ref).
+  string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   // Active devices only.
   repeated KeyDevice devices = 2;
 }
@@ -165,7 +172,8 @@ message GetKeyDevicesResponse {
 
 message ClaimKeyPackagesRequest {
   string idempotency_key = 1;
-  string user_id = 2;
+  // A user reference, translated like the others (options.proto, user_ref).
+  string user_id = 2 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   // Lets a device claim for its own user's other devices without consuming its own package. Required when user_id is
   // the caller, and then must be one of the caller's devices.
   string exclude_device_id = 3;
