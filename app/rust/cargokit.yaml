@@ -1,0 +1,10 @@
+# Read by the Cargokit build glue (app/rust_builder) during the Android build. Every build uses Cargo.lock as committed.
+# There is deliberately no `precompiled_binaries` section: the library is always compiled from source.
+# The toolchain comes from rust-toolchain.toml (a local change to the vendored Cargokit; see crypto/README.md).
+cargo:
+  debug:
+    extra_flags: ["--locked"]
+  profile:
+    extra_flags: ["--locked"]
+  release:
+    extra_flags: ["--locked"]

@@ -6,6 +6,7 @@ Rust workspace for Dzeroth's end-to-end encryption core.
   versioned state blobs (`DZS1`). It has one cipher suite, `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`. Nothing
   else in the repo depends on it yet.
 - `dzmls_web/`: the wasm-bindgen binding (one exported function per `dzmls` function), run by `app/web/mls_worker.js`.
+- `../app/rust/` (`dzmls_flutter`): the flutter_rust_bridge binding for Android, its own Cargo workspace. See "Android".
 
 Operations (`dzmls`; the binding and the worker op use the camelCase name):
 
@@ -103,6 +104,101 @@ cd app && flutter drive --driver=test_driver/integration_test.dart   --target=in
 `flutter test integration_test -d chrome` is not supported on Flutter 3.50 ("Web devices are not supported for
 integration tests yet"), hence `flutter drive`. The driver (run from `app/`) serves `../testdata/mls/vectors-v1.json`, the
 one committed copy, on 127.0.0.1:8089 for the run, so the file is not an app asset and release builds do not ship it.
+
+## Android
+
+On Android, `createCryptoEngine()` returns `NativeCryptoEngine` (`app/lib/core/crypto/native_crypto_engine.dart`), which
+calls `dzmls` through flutter_rust_bridge 2.13.0. Every other non-web platform, iOS included, still throws
+`UnsupportedError` (iOS is deferred).
+
+| Path | What it is |
+|---|---|
+| `app/rust/` | The `dzmls_flutter` crate: one function per `dzmls` function (`src/api.rs`), no logic. Its own workspace and `Cargo.lock` (seeded from `crypto/Cargo.lock`, so the shared crates are the same versions), `rust-toolchain.toml` pinned to 1.100.0, release profile `opt-level = "z"`, `lto`, `codegen-units = 1`, `strip`, **`panic = "unwind"`**. `cargokit.yaml` passes `--locked` to every build. |
+| `app/rust_builder/` | The build glue `flutter_rust_bridge_codegen integrate` generated (Cargokit), cut down to Android: the plugin declares only `android`, so iOS, macOS, Linux, Windows and web builds neither build nor bundle Rust. |
+| `app/lib/core/crypto/frb_generated/`, `app/rust/src/frb_generated.rs` | Generated; never edit. Excluded from analysis. |
+| `app/flutter_rust_bridge.yaml` | The codegen config. |
+
+Regenerate after changing `app/rust/src/api.rs` (from `app/`, with `~/.cargo/bin` on PATH):
+
+```
+flutter_rust_bridge_codegen generate --no-web --no-build-runner --no-dart-fix --no-dart-format --no-auto-upgrade-dependency
+dart format lib/core/crypto/frb_generated && (cd rust && cargo fmt)
+```
+
+Check the crate (from `app/rust`; the Android clippy needs `ANDROID_NDK_HOME` and `cargo-ndk`):
+
+```
+cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings
+cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 clippy --locked -- -D warnings
+cargo deny --config ../../crypto/deny.toml check
+```
+
+### How the Android build runs Rust
+
+`flutter build apk|appbundle` → Gradle → the Cargokit plugin (`app/rust_builder/cargokit/gradle/plugin.gradle`) adds a
+`cargokitCargoBuildDzmls_flutter<BuildType>` task before `merge<BuildType>NativeLibs`. It runs
+`run_build_tool.sh` (`.cmd` on Windows), which `dart pub get`s and compiles Cargokit's Dart build tool, which then runs,
+per ABI, `rustup run 1.100.0 cargo build --locked --manifest-path app/rust/Cargo.toml -p dzmls_flutter --release
+--target <triple> --target-dir app/build/dzmls_flutter/build` with the NDK's clang as linker, and copies
+`libdzmls_flutter.so` into the APK/AAB. Release builds `arm64-v8a`, `armeabi-v7a`, `x86_64`; debug builds the
+`--target-platform` ABIs plus `x86_64` (for the emulator).
+
+Local changes to the vendored Cargokit (each marked `Local change (dzeroth)`):
+
+- `build_tool/lib/src/builder.dart`: the toolchain is the `channel` of `app/rust/rust-toolchain.toml` (stock Cargokit
+  always runs `rustup run stable`); a missing toolchain or target fails the build with the `rustup` command to run,
+  instead of installing it during the build.
+- `build_tool/lib/src/rustup.dart`: version-pinned toolchains such as `1.100.0` are recognised as installed.
+- `gradle/plugin.gradle`: debug builds no longer add `android-x86` (`i686-linux-android`).
+
+**What a build machine (CI runner) needs before `flutter build appbundle`:**
+
+- `rustup` with toolchain `1.100.0` (profile minimal) and the targets `aarch64-linux-android`,
+  `armv7-linux-androideabi`, `x86_64-linux-android` added to it:
+  `rustup toolchain install 1.100.0 --profile minimal --target aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android`.
+  Cargokit finds `rustup` on `PATH` or in `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on Windows).
+- The Android NDK `28.2.13676358` (Flutter's `flutter.ndkVersion`, which `app/android/app/build.gradle.kts` uses).
+  If it is missing, Cargokit (like the Android Gradle plugin) installs it with `sdkmanager`; install it beforehand.
+- Network access to crates.io (the crates in `app/rust/Cargo.lock`) and to pub.dev: Cargokit's build tool resolves its
+  own Dart dependencies (pinned in `app/rust_builder/cargokit/build_tool/pubspec.yaml`) with `dart pub get` on its
+  first run. Nothing else is downloaded; there are no precompiled binaries.
+- Nothing else: no `cargo-ndk`, no MSVC (on Windows the GNU host toolchain works), no `minSdk` change (24).
+
+### Panics, logging, loading
+
+- A Rust panic unwinds (`panic = "unwind"` in `app/rust/Cargo.toml`; `crypto/Cargo.toml`'s `panic = "abort"` does not
+  apply to another workspace). flutter_rust_bridge runs each call inside `catch_unwind` on its worker pool and
+  completes the Dart future with a `PanicException`; `NativeCryptoEngine` turns that, and any other non-`MlsError`
+  failure, into `MlsException(internal)` with a fixed message, so panic text never reaches the caller.
+- `init_app` (run once at load) replaces the default panic hook with a silent one, so a panic prints nothing.
+  flutter_rust_bridge's logging features (`log`, `user-utils` with `android_logger`) are off.
+- If `libdzmls_flutter.so` cannot be loaded, every call fails with `MlsException(internal)`.
+
+### Device test
+
+The same `integration_test/crypto_engine_test.dart` runs on a phone. A device's `127.0.0.1` is the device itself, so map
+the driver's port to the host first; the vectors are never bundled into the app.
+
+```
+adb -s <serial> reverse tcp:8089 tcp:8089
+cd app && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/crypto_engine_test.dart -d <serial>
+adb -s <serial> reverse --remove tcp:8089
+```
+
+The test retries the vectors download for up to 30 seconds, because the app starts its tests before the driver opens
+the port. If 8089 is taken on the host, pick another port `n` for all three: `adb reverse tcp:n tcp:n`, the
+environment variable `MLS_VECTORS_PORT=n` for the driver and `--dart-define=MLS_VECTORS_PORT=n` for the app.
+
+Sizes of `libdzmls_flutter.so` in the release app bundle (measured 2026-11-18, stripped; compressed in the bundle):
+
+| ABI | Size | Compressed |
+|---|---|---|
+| `arm64-v8a` | 1,706,600 B | 938,020 B |
+| `armeabi-v7a` | 1,297,368 B | 859,395 B |
+| `x86_64` | 2,040,200 B | 979,756 B |
+
+The release `.aab` grew by 5,556,328 B (96,259,678 → 101,816,006): the bundle stores each library twice (in `base/lib/`
+and as debug-symbol metadata), and the Dart code (`libapp.so`) is unchanged. A device downloads only its own ABI.
 
 ## Key package and leaf lifetime
 

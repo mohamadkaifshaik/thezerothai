@@ -1,29 +1,21 @@
-// Runs in real Chrome through `flutter drive` (see crypto/README.md). It needs
-// `make crypto-web` first, and the driver in test_driver/integration_test.dart,
-// which serves the vectors file on port 8089.
+// Runs through `flutter drive` with the driver in test_driver/
+// integration_test.dart, which serves the vectors file on port 8089 (see
+// crypto/README.md). On web (real Chrome) it needs `make crypto-web` first; on
+// an Android device it needs `adb reverse tcp:8089 tcp:8089` so the device's
+// 127.0.0.1:8089 reaches the host. The same tests run against whichever engine
+// createCryptoEngine() returns.
 import 'dart:async';
 import 'dart:convert';
-import 'dart:js_interop';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_engine_factory.dart';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
-import 'package:dzeroth/core/crypto/web_crypto_engine.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
-@JS('crossOriginIsolated')
-external bool get _crossOriginIsolated;
-
-@JS('fetch')
-external JSPromise<_Response> _fetch(String url);
-
-extension type _Response._(JSObject _) implements JSObject {
-  external bool get ok;
-  external JSPromise<JSString> text();
-}
+import 'support/crypto_platform.dart';
 
 Uint8List _unhex(Object? value) {
   final s = value! as String;
@@ -52,12 +44,8 @@ Future<void> _fails(Future<Object?> future, MlsErrorCode code) async {
   fail('expected MlsException ${code.wire}');
 }
 
-Future<Map<String, dynamic>> _loadVectors() async {
-  final response = await _fetch('http://127.0.0.1:8089/vectors-v1.json').toDart;
-  expect(response.ok, isTrue, reason: 'the driver serves the vectors');
-  final text = (await response.text().toDart).toDart;
-  return jsonDecode(text) as Map<String, dynamic>;
-}
+Future<Map<String, dynamic>> _loadVectors() async =>
+    jsonDecode(await loadVectorsText()) as Map<String, dynamic>;
 
 SecurityParty _party(Map<String, dynamic> p) => SecurityParty(
   userId: _unhex(p['user_id']),
@@ -80,7 +68,7 @@ void main() {
   // passed" without running anything.
   CryptoEngine newEngine() {
     final engine = createCryptoEngine();
-    addTearDown((engine as WebCryptoEngine).close);
+    addTearDown(() => closeEngine(engine));
     return engine;
   }
 
@@ -460,7 +448,7 @@ void main() {
     }
     final fiftyMs = watch.elapsedMilliseconds;
     // 50 calls finish in a few dozen milliseconds, shorter than a handful of
-    // frames, so keep the worker busy for a full second to measure frames.
+    // frames, so keep the engine busy for a full second to measure frames.
     while (watch.elapsedMilliseconds < 1000) {
       group = (await engine.encrypt(
         alice.deviceState,
@@ -480,7 +468,7 @@ void main() {
     expect(
       maxGapMicros,
       lessThanOrEqualTo(100 * 1000),
-      reason: 'a frame at least every 100 ms while the worker runs',
+      reason: 'a frame at least every 100 ms while the engine runs',
     );
   });
 
@@ -488,10 +476,15 @@ void main() {
   // page is isolated there; the hosting config sends neither, and the engine
   // does not depend on isolation either way.
   testWidgets('the page is not cross-origin isolated', (tester) async {
+    final isolated = crossOriginIsolated;
+    if (isolated == null) {
+      markTestSkipped('web only');
+      return;
+    }
     if (const bool.fromEnvironment('dart.tool.dart2wasm')) {
       markTestSkipped('the wasm dev server sends COOP/COEP');
       return;
     }
-    expect(_crossOriginIsolated, isFalse);
+    expect(isolated, isFalse);
   });
 }
