@@ -202,8 +202,9 @@ jobs:
 
       # The Android binding of the MLS core lands in a later PR and its Flutter build compiles Rust for each Android ABI:
       # the toolchain and cargo-ndk are needed from that PR on and are harmless before it (cargo-ndk is compiled from
-      # crates.io, about 1 to 2 minutes). The Android SDK/NDK are preinstalled on the runner image. iOS has no Rust
-      # setup on purpose: the binding is Android-only.
+      # crates.io, about 1 to 2 minutes). The Android SDK is preinstalled on the runner image, the NDK Flutter asks for is
+      # not (the image ships 27.3, 29.0 and 30.0): the next steps install it. iOS has no Rust setup on purpose: the binding
+      # is Android-only.
       - name: Setup Rust (Android targets)
         uses: ./.github/actions/setup-rust
         with:
@@ -212,6 +213,12 @@ jobs:
 
       - name: Install cargo-ndk
         run: cargo install --locked --version 4.1.2 cargo-ndk
+
+      # Flutter 3.50.0's flutter.ndkVersion; bump together with the Flutter version above (the action fails if they differ).
+      - name: Setup Android NDK
+        uses: ./.github/actions/setup-android-ndk
+        with:
+          version: "28.2.13676358"
 
       - name: flutter build appbundle
         working-directory: app

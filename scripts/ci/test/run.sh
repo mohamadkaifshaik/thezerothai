@@ -230,25 +230,30 @@ done
 done
 
 # --- changed-groups.sh: which ci.yml job groups a change needs (fail open) ---
-ALL='go_checks=true go_unit=true int=true flutter=true promotion=true crypto=true'
+ALL='go_checks=true go_unit=true int=true flutter=true promotion=true crypto=true android=true'
 groups_of() { printf '%s\n' "$@" | bash "$ci/changed-groups.sh" | paste -sd' ' -; }
-expect_out groups-docs "go_checks=false go_unit=false int=false flutter=false promotion=false crypto=false" groups_of docs/plan.md .claude/rules/x.md README.md releases/v1-readiness.md
-expect_out groups-app "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false" groups_of app/lib/main.dart app/pubspec.lock docs/x.md
-expect_out groups-backend "go_checks=true go_unit=true int=true flutter=false promotion=true crypto=false" groups_of backend/internal/posts/service.go
-expect_out groups-infra "go_checks=false go_unit=true int=false flutter=false promotion=true crypto=false" groups_of infra/terraform/envs/dev/main.tf
-expect_out groups-app-and-backend "go_checks=true go_unit=true int=true flutter=true promotion=true crypto=false" groups_of app/lib/main.dart backend/x.go infra/terraform/x.tf README.md
-expect_out groups-app-and-backend-flags "go_checks=true go_unit=true int=true flutter=true promotion=true crypto=false" groups_of app/lib/main.dart backend/x.go
+expect_out groups-docs "go_checks=false go_unit=false int=false flutter=false promotion=false crypto=false android=false" groups_of docs/plan.md .claude/rules/x.md README.md releases/v1-readiness.md
+expect_out groups-app "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false android=false" groups_of app/lib/main.dart app/test/a_test.dart docs/x.md
+expect_out groups-backend "go_checks=true go_unit=true int=true flutter=false promotion=true crypto=false android=false" groups_of backend/internal/posts/service.go
+expect_out groups-infra "go_checks=false go_unit=true int=false flutter=false promotion=true crypto=false android=false" groups_of infra/terraform/envs/dev/main.tf
+expect_out groups-app-and-backend "go_checks=true go_unit=true int=true flutter=true promotion=true crypto=false android=false" groups_of app/lib/main.dart backend/x.go infra/terraform/x.tf README.md
+expect_out groups-app-and-backend-flags "go_checks=true go_unit=true int=true flutter=true promotion=true crypto=false android=false" groups_of app/lib/main.dart backend/x.go
 for shared in proto/dzeroth/a/v1/a.proto testdata/x.json scripts/ci/shard.sh Makefile .github/workflows/ci.yml firebase/firestore.rules \
 	firebase.json osv-scanner.toml testdata/mls/vectors-v1.json scripts/crypto/build-web.sh loadtest/a.js docs2/a.md '"quoted/p\303\251.md"'; do
 	expect_out "groups-shared-$shared" "$ALL" groups_of "$shared" docs/a.md
 done
-expect_out groups-crypto-only "go_checks=false go_unit=false int=false flutter=false promotion=false crypto=true" groups_of crypto/dzmls/src/lib.rs crypto/Cargo.lock docs/x.md
-expect_out groups-app-rust "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true" groups_of app/rust/src/lib.rs
-expect_out groups-app-crypto-dart "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true" groups_of app/lib/core/crypto/web_crypto_engine.dart
-expect_out groups-app-web-worker "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true" groups_of app/web/mls_worker.js
+expect_out groups-crypto-only "go_checks=false go_unit=false int=false flutter=false promotion=false crypto=true android=true" groups_of crypto/dzmls/src/lib.rs crypto/Cargo.lock docs/x.md
+expect_out groups-app-rust "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true android=true" groups_of app/rust/src/lib.rs
+expect_out groups-app-crypto-dart "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true android=false" groups_of app/lib/core/crypto/web_crypto_engine.dart
+expect_out groups-app-web-worker "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true android=false" groups_of app/web/mls_worker.js
+expect_out groups-app-pubspec "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false android=true" groups_of app/pubspec.lock docs/x.md
+expect_out groups-app-pubspec-yaml "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false android=true" groups_of app/pubspec.yaml
+expect_out groups-app-android "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false android=true" groups_of app/android/app/build.gradle.kts
+expect_out groups-app-rust-builder "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false android=true" groups_of app/rust_builder/android/build.gradle
+expect_out groups-app-rust-builder-not-rust "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false android=false" groups_of app/rust_builderx/a app/lib/main.dart
 expect_out groups-empty-list "$ALL" groups_of
 expect_out groups-all-flag "$ALL" bash -c "bash '$ci/changed-groups.sh' --all | paste -sd' ' -"
-expect_out groups-crlf-input "go_checks=false go_unit=false int=false flutter=false promotion=false crypto=false" bash -c "printf 'docs/a.md\r\n' | bash '$ci/changed-groups.sh' | paste -sd' ' -"
+expect_out groups-crlf-input "go_checks=false go_unit=false int=false flutter=false promotion=false crypto=false android=false" bash -c "printf 'docs/a.md\r\n' | bash '$ci/changed-groups.sh' | paste -sd' ' -"
 
 # --- cover.sh merge ---
 cov=$tmp/cov
