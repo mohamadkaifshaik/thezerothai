@@ -45,6 +45,9 @@ abstract interface class VaultCipher {
   /// are in memory) and the platform key and stored record are deleted. If
   /// the platform delete fails the cipher is still ended and this throws
   /// [VaultKeyException] with [VaultKeyFailure.unavailable].
+  ///
+  /// A [seal] or [open] result that completes after [destroy] began must not
+  /// be stored: the vault session serialises its writes before [destroy].
   Future<void> destroy();
 }
 

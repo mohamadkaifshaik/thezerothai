@@ -128,6 +128,16 @@ Future<void> storeWrongVaultKey(String uid, String kind) async {
 /// Makes the vault's key validation throw (true) or work (false).
 void setVaultKeyCheckFault(bool fail) => debugFailWebVaultKeyCheck = fail;
 
+/// Makes the read-back of a newly added key look like a non-key (true) or
+/// leaves it alone (false).
+void setVaultReadBackCorruption(bool corrupt) =>
+    debugCorruptWebVaultReadBack = corrupt;
+
+/// The global the key check resolves as the CryptoKey constructor
+/// (`CryptoKey` normally; a missing name simulates an unresolvable one).
+void setCryptoKeyConstructorName(String name) =>
+    debugWebCryptoKeyConstructorName = name;
+
 /// Runs [hook] in destroy just before the record is deleted (null: none).
 void setBeforeVaultKeyDeleteHook(void Function()? hook) =>
     debugBeforeWebVaultKeyDelete = hook;
@@ -275,3 +285,39 @@ Future<(String, int)> idbUncloneablePutOutcome() => _idbRunOutcome((tx, store) {
     ..put(1.toJS, 'a')
     ..put((() {}).toJS, 'b');
 });
+
+/// The overall idbOpen timeout. A raw v1 connection is held (no
+/// versionchange handler) and a raw v2 open waits blocked behind it; an
+/// idbOpen at v3 is queued behind that and gets no event at all, so only the
+/// timeout (300 ms here) can end it. Returns the idbOpen error name, how long
+/// it took in ms, and whether a raw v4 open afterwards is `opened` (the late
+/// v3 connection was closed) or `blocked`.
+Future<(String, int, String)> idbOpenTimeoutOutcome() async {
+  final name = _scratchName();
+  final raw1 = (await _rawOpen(name, 1))!;
+  final raw2 = await _rawOpen(name, 2); // null: blocked, still queued
+  final watch = Stopwatch()..start();
+  String outcome;
+  try {
+    final db = await idbOpen(
+      _idb,
+      name,
+      3,
+      (_) {},
+      timeout: const Duration(milliseconds: 300),
+    );
+    db.close();
+    outcome = 'opened';
+  } on WebOperationError catch (e) {
+    outcome = e.name;
+  }
+  final ms = watch.elapsedMilliseconds;
+  raw2?.close();
+  // The queued v2 open now succeeds (and _rawOpen closes it), then the v3
+  // open succeeds late and idbOpen must close it.
+  raw1.close();
+  final raw4 = await _rawOpen(name, 4);
+  raw4?.close();
+  await _deleteDatabase(name);
+  return (outcome, ms, raw4 == null ? 'blocked' : 'opened');
+}

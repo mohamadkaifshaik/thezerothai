@@ -233,8 +233,8 @@ Future<JSAny?> settle(JSPromise<JSAny?> promise) {
 /// versionchange transaction (create stores there); if it throws, the upgrade
 /// is aborted. An error, an abort, a `blocked` open or no answer within
 /// [timeout] completes with [WebOperationError]; a connection that opens
-/// after such a failure is closed at once. The connection closes itself when another one needs a
-/// version change, so it never blocks one.
+/// after such a failure is closed at once. The connection closes itself when
+/// another one needs a version change, so it never blocks one.
 Future<IDBDatabase> idbOpen(
   IDBFactory factory,
   String name,
@@ -280,7 +280,8 @@ Future<IDBDatabase> idbOpen(
         return;
       }
       if (completer.isCompleted) {
-        db.close(); // We already gave up on this open (blocked).
+        // We already gave up on this open (blocked, timed out or failed).
+        db.close();
         return;
       }
       db.onversionchange = ((JSAny? _) => db.close()).toJS;

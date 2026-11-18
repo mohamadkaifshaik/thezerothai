@@ -165,6 +165,8 @@ void main() {
       }
       live.clear();
       setVaultKeyCheckFault(false);
+      setVaultReadBackCorruption(false);
+      setCryptoKeyConstructorName('CryptoKey');
       setBeforeVaultKeyDeleteHook(null);
       // Cleanup only (assertions are in the test bodies; flutter drive does
       // not report a tearDown failure): whatever the test left.
@@ -416,6 +418,84 @@ void main() {
       final again = await open();
       expect(again.freshlyCreated, isFalse);
       expect(await again.open('messages', 'r1', sealed), _b('kept'));
+    });
+
+    testWidgets('our own key reading back wrong is unavailable and removed', (
+      tester,
+    ) async {
+      setVaultReadBackCorruption(true);
+      for (var i = 0; i < 2; i++) {
+        // Never keyLost: the record we could not use is deleted, so the next
+        // open again finds no record instead of a "lost" one.
+        await expectLater(
+          openVaultCipher(uid: uid, engine: engine),
+          throwsA(
+            isA<VaultKeyException>().having(
+              (e) => e.failure,
+              'failure',
+              VaultKeyFailure.unavailable,
+            ),
+          ),
+        );
+        expect(await describeStoredVaultKey(uid), 'missing');
+      }
+      setVaultReadBackCorruption(false);
+      final cipher = await open();
+      expect(cipher.freshlyCreated, isTrue);
+    });
+
+    testWidgets('an unresolvable CryptoKey constructor is unavailable', (
+      tester,
+    ) async {
+      final first = await open();
+      final sealed = await first.seal('messages', 'r1', _b('kept'));
+      final before = await describeStoredVaultKey(uid);
+      setCryptoKeyConstructorName('NoSuchCryptoKeyConstructor');
+      try {
+        await expectLater(
+          openVaultCipher(uid: uid, engine: engine),
+          throwsA(
+            isA<VaultKeyException>().having(
+              (e) => e.failure,
+              'failure',
+              VaultKeyFailure.unavailable,
+            ),
+          ),
+        );
+      } finally {
+        setCryptoKeyConstructorName('CryptoKey');
+      }
+      expect(await describeStoredVaultKey(uid), before);
+      final again = await open();
+      expect(again.freshlyCreated, isFalse);
+      expect(await again.open('messages', 'r1', sealed), _b('kept'));
+    });
+
+    testWidgets('destroy drops the key even when the delete hook throws', (
+      tester,
+    ) async {
+      final cipher = await open();
+      final sealed = await cipher.seal('messages', 'r1', _b('x'));
+      setBeforeVaultKeyDeleteHook(() => throw StateError('hook'));
+      await expectLater(cipher.destroy(), throwsStateError);
+      setBeforeVaultKeyDeleteHook(null);
+      await expectLater(
+        cipher.open('messages', 'r1', sealed),
+        throwsStateError,
+      );
+      await expectLater(
+        cipher.seal('messages', 'r1', _b('x')),
+        throwsStateError,
+      );
+    });
+
+    testWidgets('idbOpen: an open that gets no answer times out', (
+      tester,
+    ) async {
+      final (outcome, ms, later) = await idbOpenTimeoutOutcome();
+      expect(outcome, 'TimeoutError');
+      expect(ms, lessThan(5000));
+      expect(later, 'opened');
     });
 
     testWidgets('idbOpen: a blocked open fails at once; a late one is closed', (

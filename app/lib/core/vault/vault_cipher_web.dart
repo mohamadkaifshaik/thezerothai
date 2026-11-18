@@ -24,6 +24,15 @@
 // message history on key loss. An existing record is never overwritten (the
 // create transaction uses `add`).
 //
+// Only idbOpen is time-bounded (10 s). A generateKey promise or an
+// IndexedDB transaction that never settles would leave the open pending; it
+// never turns into keyLost.
+//
+// A newly added key that reads back as an observable non-key is deleted
+// again (best effort) before the open reports unavailable, so a browser that
+// cannot keep a CryptoKey never reaches keyLost on the next launch. A check
+// that throws leaves the record alone.
+//
 // freshlyCreated is not a key-loss detector on its own. Of two concurrent
 // openers exactly one normally reports it, but zero is possible: a tab that
 // dies between the commit of its new key and its return leaves a key that
@@ -57,6 +66,14 @@ const webVaultKeyStore = 'keys';
 /// Tests only: makes key validation throw.
 @visibleForTesting
 bool debugFailWebVaultKeyCheck = false;
+
+/// Tests only: makes the read-back of a newly added key a non-key value.
+@visibleForTesting
+bool debugCorruptWebVaultReadBack = false;
+
+/// Tests only: the global resolved as the CryptoKey constructor.
+@visibleForTesting
+String debugWebCryptoKeyConstructorName = 'CryptoKey';
 
 /// Tests only: runs in [WebVaultCipher.destroy] after the wait for calls in
 /// flight, just before the key is dropped and the record deleted.
@@ -230,6 +247,17 @@ Future<bool> _addRecord(
   }
 }
 
+/// Deletes [alias] on an open [db], strict durability, ignoring failure.
+Future<void> _deleteQuietly(IDBDatabase db, String alias) async {
+  try {
+    await idbRun(db, webVaultKeyStore, 'readwrite', (tx, store) {
+      store.delete(alias);
+    }, strict: true);
+  } on Object {
+    // Best effort: the open reports unavailable either way.
+  }
+}
+
 Future<void> _deleteRecord(_Env env, String alias) async {
   final db = await _openDb(env);
   try {
@@ -271,7 +299,16 @@ _KeyCheck _checkKey(JSAny? value) {
     if (debugFailWebVaultKeyCheck) throw StateError('test fault');
     if (value == null || !value.isA<JSObject>()) return mismatch;
     final object = value as JSObject;
-    if (!object.instanceOfString('CryptoKey')) return mismatch;
+    // instanceOfString would answer false (a mismatch: keyLost) when the
+    // global cannot be resolved; an unresolvable constructor is an
+    // environment failure, so it throws here (unavailable).
+    final constructor = globalContext.getProperty<JSAny?>(
+      debugWebCryptoKeyConstructorName.toJS,
+    );
+    if (constructor == null || !constructor.isA<JSFunction>()) {
+      throw StateError('CryptoKey is not available');
+    }
+    if (!object.instanceof(constructor as JSFunction)) return mismatch;
     final key = CryptoKey(object);
     final type = key.type;
     if (type == null || !type.isA<JSString>()) return mismatch;
@@ -377,7 +414,24 @@ class WebVaultCipher implements VaultCipher {
       }
       // Never hand out a key that is not really stored: use the stored copy
       // (some private modes cannot keep a CryptoKey).
-      return WebVaultCipher._(env, alias, _ownKey(back.value), true);
+      final check = _checkKey(
+        debugCorruptWebVaultReadBack ? 'not a key'.toJS : back.value,
+      );
+      switch (check) {
+        case _ValidKey(:final key):
+          return WebVaultCipher._(env, alias, key, true);
+        case _Mismatch():
+          // The record we just added reads back as something unusable (a
+          // browser that cannot keep a CryptoKey). Remove it, so the next
+          // open again finds no record instead of reporting keyLost (which
+          // would wipe the vault on every launch).
+          await _deleteQuietly(db, alias);
+          throw _unavailable;
+        case _CheckFailed():
+          // Possibly transient, and another opener may already use this
+          // record: leave it.
+          throw _unavailable;
+      }
     } finally {
       db.close();
     }
@@ -491,8 +545,8 @@ class WebVaultCipher implements VaultCipher {
       final drained = _drained = Completer<void>();
       await drained.future.timeout(_destroyWait, onTimeout: () {});
     }
-    debugBeforeWebVaultKeyDelete?.call();
     _key = null;
+    debugBeforeWebVaultKeyDelete?.call();
     await _deleteRecord(_env, _alias);
   }
 }

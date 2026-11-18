@@ -46,3 +46,12 @@ Future<(String, int)> idbUncloneablePutOutcome() async => _webOnly();
 
 /// Web only: runs a hook in destroy just before the record is deleted.
 void setBeforeVaultKeyDeleteHook(void Function()? hook) => _webOnly();
+
+/// Web only: corrupts the read-back of a newly added key.
+void setVaultReadBackCorruption(bool corrupt) => _webOnly();
+
+/// Web only: the global the key check resolves as the CryptoKey constructor.
+void setCryptoKeyConstructorName(String name) => _webOnly();
+
+/// Web only: the idbOpen overall timeout path.
+Future<(String, int, String)> idbOpenTimeoutOutcome() async => _webOnly();
