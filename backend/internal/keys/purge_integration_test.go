@@ -21,8 +21,13 @@ func (e *repoEnv) seed(t *testing.T, uid string, n, pool int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
 		e.mustRegister(t, uid, dvc(i), skey(byte(i+1)), it0)
-		if _, _, err := e.repo.Upload(context.Background(), uid, dvc(i), pkgRange(i*1000, i*1000+pool), []byte("last-resort"), it0); err != nil {
-			t.Fatal(err)
+		// The repository refuses more than MaxUploadBatch packages per call: upload in chunks (an over-full request is
+		// dropped by the pool cap, as before).
+		for from := i * 1000; from < i*1000+pool; from += MaxUploadBatch {
+			to := min(from+MaxUploadBatch, i*1000+pool)
+			if _, _, err := e.repo.Upload(context.Background(), uid, dvc(i), pkgRange(from, to), []byte("last-resort"), it0); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }

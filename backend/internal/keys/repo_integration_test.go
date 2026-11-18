@@ -248,6 +248,7 @@ func TestRepo_UploadStoresDedupesAndReplays(t *testing.T) {
 	if got, _ := e.repo.List(ctx, uid); got[0].PoolCount != 8 {
 		t.Fatalf("listed PoolCount = %d", got[0].PoolCount)
 	}
+	e.assertPoolInvariant(t, uid, dvc(1))
 	if _, _, err = e.repo.Upload(ctx, uid, dvc(9), pkgRange(0, 1), nil, it0); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown device err = %v, want ErrNotFound", err)
 	}
@@ -280,6 +281,7 @@ func TestRepo_PoolCapKeepsOldest(t *testing.T) {
 	if err != nil || n != 100 {
 		t.Fatalf("partial = %d, %v", n, err)
 	}
+	e.assertPoolInvariant(t, uid2, dvc(1))
 	for i, want := range []bool{true, true, false, false, false} {
 		_, gerr := e.repo.poolCol(uid2, dvc(1)).Doc(pkgDocID(pkgN(200 + i))).Get(ctx)
 		if (gerr == nil) != want {
@@ -315,6 +317,7 @@ func TestRepo_LastResortReplaceKeep(t *testing.T) {
 	if got := e.snap(t, uid, dvc(1)).Data()["lastResort"].([]byte); string(got) != "two" {
 		t.Fatalf("replace = %q", got)
 	}
+	e.assertPoolInvariant(t, uid, dvc(1))
 	if d, _ := e.repo.List(ctx, uid); !d[0].HasLastResort || d[0].PoolCount != 1 {
 		t.Fatalf("listed = %+v", d)
 	}
@@ -389,6 +392,7 @@ func TestRepo_RemoveDeletesPoolAndDevice(t *testing.T) {
 	if n := len(e.poolDocs(t, uid, dvc(2))); n != 100 {
 		t.Fatalf("the other device's pool = %d", n)
 	}
+	e.assertPoolInvariant(t, uid, dvc(2))
 	if got, _ := e.repo.List(ctx, uid); len(got) != 1 || got[0].ID != dvc(2) {
 		t.Fatalf("list = %+v", got)
 	}

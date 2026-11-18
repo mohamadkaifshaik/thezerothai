@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -28,6 +29,8 @@ const (
 	packageIDHexLen = 32
 	// removePageSize is how many pool documents one Remove batch deletes.
 	removePageSize = 100
+	// removeRounds bounds how often Remove sweeps again because an Upload refilled the pool before its final transaction.
+	removeRounds = 5
 
 	// txTimeout bounds one transaction (all attempts); maxTxRuns bounds the outer re-runs. One user's devices are
 	// written by that user, so contention is a double tap or two devices racing for the last slot.
@@ -42,7 +45,10 @@ type deviceDoc struct {
 	CreatedAt    time.Time `firestore:"createdAt"`
 	LastSeenAt   time.Time `firestore:"lastSeenAt"`
 	LastResort   []byte    `firestore:"lastResort,omitempty"`
-	PoolCount    int       `firestore:"poolCount"`
+	// PoolCount is the number of pool documents. Invariant: it is changed only inside the Upload, Remove and (later)
+	// Claim transactions, as a delta, never recounted (a recount would break Upload's bound of 100 reads); the eraser
+	// deletes by listing documents, never by this counter.
+	PoolCount int `firestore:"poolCount"`
 }
 
 func (d deviceDoc) device(id string) Device {
@@ -67,6 +73,8 @@ func packageID(b []byte) string {
 // FirestoreRepo is the Firestore implementation of Repo.
 type FirestoreRepo struct {
 	client *firestore.Client
+	// afterPoolSweep, set only by tests, runs in Remove between the pool sweep and the final transaction.
+	afterPoolSweep func()
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
@@ -169,35 +177,105 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string) ([]Device, error) 
 	return out, nil
 }
 
-// Remove implements Repo. The pool goes first, in batches of removePageSize (each a query with Limit, the loop bounded by
-// MaxPoolSize), then the device document, so a failure part-way leaves a device whose removal can simply be retried.
+// Remove implements Repo. Each round deletes the whole pool in pages of removePageSize (each a query with Limit, the loop
+// bounded by MaxPoolSize), then runs one transaction that reads the device document and pool.Limit(1) and deletes the
+// device only when the pool is empty. An Upload that committed in between left pool documents, so the round repeats; one
+// that tries to commit after conflicts on its device read and then answers ErrNotFound. After removeRounds rounds with a
+// pool that keeps refilling, Remove gives up with an Aborted-class error (store.IsContention, the service answers
+// UNAVAILABLE with retry). A missing device is success: with no pool nothing is written, with orphan pool documents
+// (data from before this fix, or a crash mid-remove) they are deleted too. Writes: one delete per pool document, plus
+// one device delete; reads: one page query per page (at least one) and, per round, the device read and a 1-document pool
+// query.
+//
+// The poolCount invariant: poolCount equals the number of pool documents and is changed only inside the Upload, Remove
+// and (later) Claim transactions; the eraser deletes by listing documents, never by the counter.
 func (r *FirestoreRepo) Remove(ctx context.Context, uid, deviceID string) error {
+	for round := 0; round < removeRounds; round++ {
+		if err := r.sweepPool(ctx, uid, deviceID); err != nil {
+			return err
+		}
+		if r.afterPoolSweep != nil {
+			r.afterPoolSweep()
+		}
+		done := false
+		err := r.run(ctx, uid, deviceID, func(_ context.Context, tx *firestore.Transaction) error {
+			done = false
+			ref := r.deviceRef(uid, deviceID)
+			snap, err := tx.Get(ref)
+			exists := err == nil
+			if err != nil && status.Code(err) != codes.NotFound {
+				return fmt.Errorf("keys: get device: %w", err)
+			}
+			left, err := tx.Documents(r.poolCol(uid, deviceID).Select().Limit(1)).GetAll()
+			if err != nil {
+				return fmt.Errorf("keys: check pool: %w", err)
+			}
+			if len(left) > 0 {
+				return nil // refilled by an Upload that committed meanwhile: sweep again
+			}
+			done = true
+			if !exists {
+				return nil
+			}
+			b := store.NewFirestoreTxBatch(tx)
+			b.Delete(snap.Ref)
+			return b.Err()
+		})
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+	}
+	return logger.RedactErr(fmt.Errorf("keys: remove: pool kept refilling: %w", status.Error(codes.Aborted, "pool refilled during remove")), uid, deviceID)
+}
+
+// sweepPool deletes every pool document of the device in batches of removePageSize.
+func (r *FirestoreRepo) sweepPool(ctx context.Context, uid, deviceID string) error {
 	for i := 0; i < MaxPoolSize; i++ {
-		snaps, err := r.poolCol(uid, deviceID).Limit(removePageSize).Documents(ctx).GetAll()
+		snaps, err := r.poolCol(uid, deviceID).Select().Limit(removePageSize).Documents(ctx).GetAll()
 		if err != nil {
 			return logger.RedactErr(fmt.Errorf("keys: list pool: %w", err), uid, deviceID)
 		}
 		if len(snaps) == 0 {
-			break
+			return nil
 		}
-		b := store.NewFirestoreBatch(r.client)
-		for _, s := range snaps {
-			b.Delete(s.Ref)
+		// One atomic batch per page: the deletes and, while the device exists, poolCount -= len(page), so the counter stays
+		// true if the sweep stops half way. A missing device (orphans) has no counter: plain deletes.
+		if err := r.deletePage(ctx, uid, deviceID, snaps, true); err != nil {
+			if !store.IsPreconditionFailed(err) {
+				return logger.RedactErr(fmt.Errorf("keys: delete pool: %w", err), uid, deviceID)
+			}
+			if err := r.deletePage(ctx, uid, deviceID, snaps, false); err != nil {
+				return logger.RedactErr(fmt.Errorf("keys: delete orphan pool: %w", err), uid, deviceID)
+			}
 		}
-		if err := b.Commit(ctx); err != nil {
-			return logger.RedactErr(fmt.Errorf("keys: delete pool: %w", err), uid, deviceID)
-		}
-	}
-	if _, err := r.deviceRef(uid, deviceID).Delete(ctx); err != nil {
-		return logger.RedactErr(fmt.Errorf("keys: delete device: %w", err), uid, deviceID)
 	}
 	return nil
 }
 
-// Upload implements Repo. Reads: the device document and one GetAll of at most MaxUploadBatch candidate pool documents.
+// deletePage deletes the page's documents in one batch (at most removePageSize + 1 writes); withCounter adds the device's
+// poolCount decrement, which fails with a precondition error when the device document does not exist.
+func (r *FirestoreRepo) deletePage(ctx context.Context, uid, deviceID string, snaps []*firestore.DocumentSnapshot, withCounter bool) error {
+	b := store.NewFirestoreBatch(r.client)
+	for _, s := range snaps {
+		b.Delete(s.Ref)
+	}
+	if withCounter {
+		b.Update(r.deviceRef(uid, deviceID), []firestore.Update{{Path: "poolCount", Value: firestore.Increment(-len(snaps))}})
+	}
+	return b.Commit(ctx)
+}
+
+// Upload implements Repo. poolCount is kept as a delta of the true document count (see deviceDoc.PoolCount); more than
+// MaxUploadBatch packages is refused before any read, so the write bound holds for every caller. Reads: the device document and one GetAll of at most MaxUploadBatch candidate pool documents.
 // Writes: one create per absent candidate while the pool has room (at most MaxUploadBatch) plus one device update (pool
 // count, last resort, last seen), none at all when nothing changes.
 func (r *FirestoreRepo) Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte, now time.Time) (int, bool, error) {
+	if len(packages) > MaxUploadBatch {
+		return 0, false, apierr.Validation("key_packages", "at most 100 key packages per upload")
+	}
 	now = now.UTC()
 	var count int
 	var hasLR bool
