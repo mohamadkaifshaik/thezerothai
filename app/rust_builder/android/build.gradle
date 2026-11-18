@@ -1,0 +1,209 @@
+// Builds libdzmls_flutter.so (the Rust crate in app/rust) with `cargo ndk` and hands it to the Android build as
+// jniLibs. Hand-maintained: see ../README.md and crypto/README.md ("Android").
+//
+// Before every task of this module that merges or copies native libraries, cargoNdkBuild<BuildType> runs
+//   cargo ndk --platform <app minSdk> -t <abi>... -o build/rustJniLibs/<buildType> build --locked [--release]
+// in app/rust, so the toolchain is the one app/rust/rust-toolchain.toml pins. It installs nothing: a missing NDK,
+// cargo, cargo-ndk, toolchain or Rust target fails the build with the command to run.
+//
+// The task always runs and relies on cargo's own incremental build (inputs span app/rust, crypto/dzmls and the
+// toolchain, which cargo already tracks exactly); a no-op cargo build takes about a second per ABI.
+
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+group 'com.flutter_rust_bridge.dzmls_flutter'
+version '1.0'
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.flutter_rust_bridge.dzmls_flutter'
+    compileSdkVersion 36
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        minSdkVersion 19
+    }
+}
+
+abstract class CargoNdkBuild extends DefaultTask {
+    // Android ABI -> Rust target triple.
+    static final Map<String, String> TRIPLES = [
+        'arm64-v8a'  : 'aarch64-linux-android',
+        'armeabi-v7a': 'armv7-linux-androideabi',
+        'x86_64'     : 'x86_64-linux-android',
+    ]
+
+    @Inject
+    abstract ExecOperations getExecOps()
+
+    @Internal File rustDir
+    @Internal File outputDir
+    @Internal List<String> abis
+    @Internal boolean release
+    @Internal File ndkDir
+    @Internal String ndkVersion
+    @Internal int minSdk
+
+    @TaskAction
+    void build() {
+        if (ndkDir == null || !new File(ndkDir, 'source.properties').isFile()) {
+            throw new GradleException("Android NDK ${ndkVersion} not found at ${ndkDir}. Install that version " +
+                "(Android Studio SDK Manager, or sdkmanager \"ndk;${ndkVersion}\"); this build installs nothing.")
+        }
+        File cargo = findTool('cargo')
+        File cargoNdk = findTool('cargo-ndk')
+        File rustc = findTool('rustc')
+        if (cargo == null || rustc == null) {
+            throw new GradleException('cargo/rustc not found on PATH or in ~/.cargo/bin. Install Rust with rustup ' +
+                '(https://rustup.rs) and the toolchain in app/rust/rust-toolchain.toml.')
+        }
+        if (cargoNdk == null) {
+            throw new GradleException('cargo-ndk not found on PATH or in ~/.cargo/bin. Install it with ' +
+                '`cargo install --locked --version 4.1.2 cargo-ndk`.')
+        }
+
+        String channel = pinnedChannel()
+        String pathKey = System.getenv().keySet().find { it.equalsIgnoreCase('PATH') } ?: 'PATH'
+        Map<String, String> env = [
+            (pathKey)            : [cargo.parent, cargoNdk.parent, System.getenv(pathKey) ?: ''].join(File.pathSeparator),
+            // Never let rustup download the pinned toolchain behind our back.
+            'RUSTUP_AUTO_INSTALL': '0',
+            'ANDROID_NDK_HOME'   : ndkDir.path,
+            'ANDROID_NDK_ROOT'   : ndkDir.path,
+        ]
+
+        Map version = run([rustc.path, '--version'], env)
+        if (version.code != 0 || !version.text.startsWith("rustc ${channel} ")) {
+            throw new GradleException("Rust toolchain ${channel} (app/rust/rust-toolchain.toml) is not available: " +
+                "run `rustup toolchain install ${channel} --profile minimal`. rustc said: ${version.text.trim()}")
+        }
+        Map sysroot = run([rustc.path, '--print', 'sysroot'], env)
+        if (sysroot.code != 0) {
+            throw new GradleException("rustc --print sysroot failed: ${sysroot.text.trim()}")
+        }
+        List<String> missing = abis.collect { TRIPLES[it] }.findAll {
+            !new File(sysroot.text.trim(), "lib/rustlib/${it}").isDirectory()
+        }
+        if (!missing.isEmpty()) {
+            throw new GradleException("Rust targets missing for toolchain ${channel}: run " +
+                "`rustup target add --toolchain ${channel} ${missing.join(' ')}`.")
+        }
+
+        // A clean copy per build: no library of an ABI from an earlier build with other target platforms.
+        outputDir.deleteDir()
+        List<String> args = [cargo.path, 'ndk', '--platform', "${minSdk}".toString()]
+        abis.each { args += ['-t', it] }
+        args += ['-o', outputDir.path, 'build', '--locked']
+        if (release) {
+            args += '--release'
+        }
+        execOps.exec { spec ->
+            spec.commandLine(args)
+            spec.workingDir(rustDir)
+            spec.environment(env)
+        }
+        abis.each {
+            if (!new File(outputDir, "${it}/libdzmls_flutter.so").isFile()) {
+                throw new GradleException("cargo ndk produced no libdzmls_flutter.so for ${it}")
+            }
+        }
+    }
+
+    protected String pinnedChannel() {
+        def toml = new File(rustDir, 'rust-toolchain.toml')
+        def match = toml.text =~ /(?m)^channel\s*=\s*"([^"]+)"/
+        if (!match.find()) {
+            throw new GradleException("no channel in ${toml}")
+        }
+        return match.group(1)
+    }
+
+    protected Map run(List<String> command, Map<String, String> env) {
+        def out = new ByteArrayOutputStream()
+        def result = execOps.exec { spec ->
+            spec.commandLine(command)
+            spec.workingDir(rustDir)
+            spec.environment(env)
+            spec.standardOutput = out
+            spec.errorOutput = out
+            spec.ignoreExitValue = true
+        }
+        return [code: result.exitValue, text: out.toString()]
+    }
+
+    // PATH first, then $CARGO_HOME/bin (default ~/.cargo/bin, where rustup installs), so a Gradle daemon started
+    // without Rust on its PATH still finds it.
+    protected static File findTool(String name) {
+        String exe = System.getProperty('os.name').toLowerCase().contains('windows') ? "${name}.exe" : name
+        String pathValue = System.getenv().find { it.key.equalsIgnoreCase('PATH') }?.value ?: ''
+        List<String> dirs = pathValue.split(File.pathSeparator).findAll { it }
+        String cargoHome = System.getenv('CARGO_HOME') ?: new File(System.getProperty('user.home'), '.cargo').path
+        dirs += new File(cargoHome, 'bin').path
+        for (String dir : dirs) {
+            File candidate = new File(dir, exe)
+            if (candidate.isFile()) {
+                return candidate
+            }
+        }
+        return null
+    }
+}
+
+// Flutter passes the ABIs it builds as -Ptarget-platform (all three for an app bundle, the device's for `flutter
+// run`); without it (a plain Gradle build) all three are built.
+def flutterPlatformToAbi = ['android-arm': 'armeabi-v7a', 'android-arm64': 'arm64-v8a', 'android-x64': 'x86_64']
+def targetPlatform = project.findProperty('target-platform')?.toString()
+def requestedAbis = targetPlatform
+    ? targetPlatform.split(',').collect { it.trim() }.findAll { it }.collect { platform ->
+        def abi = flutterPlatformToAbi[platform]
+        if (abi == null) {
+            throw new GradleException("dzmls_flutter: no Rust build for target platform ${platform} " +
+                "(supported: ${flutterPlatformToAbi.keySet().join(', ')})")
+        }
+        abi
+    }.unique()
+    : ['arm64-v8a', 'armeabi-v7a', 'x86_64']
+
+def rustDir = file('../../rust').canonicalFile
+
+android.buildTypes.all { buildType ->
+    def name = buildType.name
+    def cap = name.capitalize()
+    def outDir = layout.buildDirectory.dir("rustJniLibs/${name}").get().asFile
+    android.sourceSets.maybeCreate(name).jniLibs.srcDir(outDir)
+
+    def cargoTask = tasks.register("cargoNdkBuild${cap}", CargoNdkBuild) {
+        description = "Builds libdzmls_flutter.so for the ${name} build type with cargo ndk."
+        it.rustDir = rustDir
+        it.outputDir = outDir
+        it.abis = requestedAbis
+        it.release = name != 'debug'
+    }
+    // Every task that merges or copies this build type's native libraries waits for the Rust build.
+    tasks.configureEach { other ->
+        if (other.name != "cargoNdkBuild${cap}" && other.name.contains(cap) &&
+            (other.name.contains('JniLib') || other.name.contains('NativeLibs'))) {
+            other.dependsOn(cargoTask)
+        }
+    }
+}
+
+// The NDK and minSdk the app module uses (Flutter's flutter.ndkVersion and flutter.minSdkVersion), read once every
+// project is configured.
+gradle.projectsEvaluated {
+    def appAndroid = rootProject.findProject(':app')?.extensions?.findByName('android')
+    def ndkVersion = appAndroid?.ndkVersion ?: android.ndkVersion
+    def minSdk = appAndroid?.defaultConfig?.minSdkVersion?.apiLevel ?: android.defaultConfig.minSdkVersion.apiLevel
+    def ndkDir = new File(android.sdkDirectory, "ndk/${ndkVersion}")
+    tasks.withType(CargoNdkBuild).configureEach {
+        it.ndkVersion = ndkVersion
+        it.ndkDir = ndkDir
+        it.minSdk = minSdk as int
+    }
+}

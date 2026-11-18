@@ -1,0 +1,60 @@
+name: Setup Android NDK (pinned, runner's own sdkmanager)
+description: >
+  Installs exactly one Android NDK version into the runner's preinstalled Android SDK with the sdkmanager the runner image
+  ships, then verifies the directory. The ubuntu runner image carries only some NDK versions (27.3, 29.0 and 30.0 on the
+  Ubuntu 24.04 image), not the one Flutter's Gradle plugin asks for. Run it after checkout and after setup-flutter: it
+  checks the version against the one in the installed Flutter SDK (flutter.ndkVersion), so a Flutter bump that moves the
+  NDK fails here instead of at the Gradle build. Installs nothing else.
+inputs:
+  version:
+    description: >
+      NDK version, e.g. 28.2.13676358. Must equal flutter.ndkVersion of the installed Flutter SDK (bump it together with
+      the Flutter version pin).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install and verify the NDK
+      shell: bash
+      env:
+        NDK_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "$NDK_VERSION" in
+          *[!0-9.]* | "") echo "::error::NDK version '$NDK_VERSION' is not of the form 28.2.13676358"; exit 1 ;;
+        esac
+
+        # The version Flutter's Gradle plugin requests for every app (flutter.ndkVersion).
+        ext="$HOME/flutter/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt"
+        [ -f "$ext" ] || { echo "::error::$ext not found: run setup-flutter before this action (or Flutter moved the file)"; exit 1; }
+        flutter_ndk=$(sed -n 's/^ *val ndkVersion: String = "\([0-9.]*\)".*/\1/p' "$ext")
+        if [ "$flutter_ndk" != "$NDK_VERSION" ]; then
+          echo "::error::Flutter's flutter.ndkVersion is '${flutter_ndk:-unknown}' but this workflow pins NDK $NDK_VERSION: bump the pin together with the Flutter version"
+          exit 1
+        fi
+
+        sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+        [ -n "$sdk" ] && [ -d "$sdk" ] || { echo "::error::ANDROID_HOME/ANDROID_SDK_ROOT is not set or not a directory (the runner image changed?)"; exit 1; }
+        echo "NDK versions on the runner image:"
+        ls -1 "$sdk/ndk" 2>/dev/null | sed 's/^/  /' || true
+
+        dir="$sdk/ndk/$NDK_VERSION"
+        if [ ! -f "$dir/source.properties" ]; then
+          sdkmanager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$sdkmanager" ] || { echo "::error::no sdkmanager at $sdkmanager (the runner image changed?)"; exit 1; }
+          # Licences: answer "y" to every prompt from a process substitution (a pipe from `yes` would fail under pipefail on SIGPIPE).
+          "$sdkmanager" --sdk_root="$sdk" --install "ndk;$NDK_VERSION" < <(yes) >"$RUNNER_TEMP/sdkmanager.log" 2>&1 || {
+            tail -n 40 "$RUNNER_TEMP/sdkmanager.log"
+            echo "::error::sdkmanager could not install ndk;$NDK_VERSION"
+            exit 1
+          }
+          tail -n 5 "$RUNNER_TEMP/sdkmanager.log"
+        fi
+
+        [ -f "$dir/source.properties" ] || { echo "::error::NDK $NDK_VERSION is not at $dir after the install"; exit 1; }
+        echo "NDK directory: $dir"
+        grep '^Pkg.Revision' "$dir/source.properties"
+        grep -q "^Pkg.Revision *= *$NDK_VERSION\$" "$dir/source.properties" || {
+          echo "::error::$dir/source.properties does not say Pkg.Revision = $NDK_VERSION"
+          exit 1
+        }

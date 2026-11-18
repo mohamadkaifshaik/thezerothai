@@ -1,0 +1,19 @@
+name: dzmls_flutter
+description: "Build glue (a cargo-ndk Gradle task) that compiles app/rust into libdzmls_flutter.so during the Android build."
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+# Android only: iOS, macOS, Linux, Windows and web builds of the app do not build or bundle the Rust library.
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true

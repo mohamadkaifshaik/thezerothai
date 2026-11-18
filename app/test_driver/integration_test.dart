@@ -2,10 +2,13 @@ import 'dart:io';
 
 import 'package:integration_test/integration_test_driver.dart';
 
-/// The port the test fetches the MLS vectors from. The vectors live outside
-/// the app's asset list (so release builds do not ship them); the driver
-/// serves them for the length of the run.
-const _vectorsPort = 8089;
+/// The port the test fetches the MLS vectors from: 8089, or the
+/// MLS_VECTORS_PORT environment variable (pass the same number to the app as
+/// `--dart-define=MLS_VECTORS_PORT=n`). The vectors live outside the app's
+/// asset list (so release builds do not ship them); the driver serves them for
+/// the length of the run.
+final _vectorsPort =
+    int.tryParse(Platform.environment['MLS_VECTORS_PORT'] ?? '') ?? 8089;
 
 Future<void> main() async {
   // The driver runs on the VM with `app/` as its working directory, so it reads

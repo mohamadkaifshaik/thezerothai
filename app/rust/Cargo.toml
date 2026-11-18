@@ -1,0 +1,37 @@
+[package]
+name = "dzmls_flutter"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+publish = false
+description = "flutter_rust_bridge binding over dzmls for the Android app: one function per dzmls function, no logic."
+
+[lib]
+# cdylib only: the Android build loads libdzmls_flutter.so. (iOS would need a staticlib; it is deferred.)
+crate-type = ["cdylib"]
+
+[dependencies]
+dzmls = { path = "../../crypto/dzmls" }
+# Default features off, so no logger (`log`, `user-utils` with android_logger) and no backtrace capture. `thread-pool`
+# runs every call on a worker thread, off the Dart UI isolate; the generated boilerplate also needs `rust-async` and
+# `dart-opaque`, though no function here is async or takes a Dart object.
+flutter_rust_bridge = { version = "=2.13.0", default-features = false, features = [
+    "dart-opaque",
+    "rust-async",
+    "thread-pool",
+] }
+
+# The bridge's `#[frb]` attribute expands to `cfg(frb_expand)`, a cfg its code generator sets.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(frb_expand)"] }
+
+# Its own workspace, so crypto/Cargo.toml's release profile (panic = "abort", for wasm) does not apply here.
+[workspace]
+
+# The bridge turns a Rust panic into an error on the Dart side by catching the unwind, so this profile must unwind.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "unwind"
+strip = true
