@@ -19,6 +19,18 @@ The toolchain is pinned to Rust `1.100.0` in `rust-toolchain.toml`. On Windows, 
 once, both succeed and one result is lost. Run calls that take or return a device state one at a time per device,
 and calls on a group state one at a time per group.
 
+## Test vectors (frozen)
+
+`../testdata/mls/vectors-v1.json` records one scripted run (device states, group states, wire messages, expected
+events, two security codes). Web, Android and iOS replay it to prove every platform reads the same bytes, and
+`cargo test -p dzmls` replays every `testdata/mls/vectors-v*.json`.
+
+**`vectors-v1.json` is frozen once committed.** State blobs live on users' devices across OpenMLS upgrades, so this
+file is the guard that a newer build still reads state written by an older one. Never regenerate it. A format or
+library change adds `vectors-v2.json` beside it:
+`cargo run -p dzmls --bin dzmls_vectors -- ../testdata/mls/vectors-v2.json`. The keys are random, so every
+generator run writes a different file.
+
 ## OpenMLS version and audit (settled 2026-11-18)
 
 **Pinned here:** `openmls =0.9.2`, `openmls_rust_crypto =0.6.0`, `openmls_basic_credential =0.6.0`. `Cargo.lock` is

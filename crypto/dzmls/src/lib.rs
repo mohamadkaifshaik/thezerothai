@@ -10,6 +10,7 @@
 
 use openmls::prelude::Ciphersuite;
 
+mod code;
 mod device;
 mod error;
 mod group;
@@ -17,6 +18,7 @@ mod message;
 mod padding;
 mod state;
 
+pub use code::{Party, security_code};
 pub use device::{DeviceCreated, KeyPackages, create_device, generate_key_packages};
 pub use error::{ErrorCode, MlsError};
 pub use group::{
