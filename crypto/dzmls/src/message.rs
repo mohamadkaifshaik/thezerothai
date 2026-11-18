@@ -2,8 +2,9 @@
 //! commits from other members).
 //!
 //! Both calls are pure over the blobs. A failed call returns no state, so the caller keeps its old blobs; a
-//! successful `process` can be repeated from the same old blobs with the same result, which is how a crash between
-//! processing and persisting is recovered.
+//! successful `process` can be repeated from the same old blobs with an equivalent result, which is how a crash
+//! between processing and persisting is recovered. The result is byte-identical for application messages; merging
+//! a commit stamps wall-clock time into the state, so commit results are equivalent but not byte-identical.
 //!
 //! **Callers must serialize calls**: one call at a time per device blob and per group blob.
 
@@ -117,8 +118,8 @@ pub struct Processed {
 ///
 /// Error codes: `wrong_epoch` when the message's epoch is not the group's (older or newer); `evicted` when this
 /// device is no longer a member; `duplicate` when the message's generation was already consumed (a replay, this
-/// device's own message echoed back, or a message more than 50 generations behind the newest one seen from its
-/// sender); `bad_input` for anything oversized, unparsable, for another group, failing decryption or validation,
+/// device's own message echoed back); `bad_input` for a message more than 50 generations behind the newest one seen
+/// from its sender (its key is gone, so it was never read and cannot be read), and for anything oversized, unparsable, for another group, failing decryption or validation,
 /// or of a kind this engine does not take (Welcome, standalone proposal). On any error no state is returned.
 ///
 /// A commit from another member for the epoch this device has a pending commit on means that commit lost:
@@ -186,9 +187,14 @@ pub fn process(
     })
 }
 
-/// The epoch in a message's header (an application message or a commit), read without any state.
+/// The epoch in a message's header (an application message or a commit), read without any state. Accepts exactly
+/// what [`process`] accepts: a private message. A public message is `bad_input`.
 pub fn wire_epoch(wire: &[u8]) -> Result<u64, MlsError> {
-    Ok(parse_protocol_message(wire)?.epoch().as_u64())
+    let message = parse_protocol_message(wire)?;
+    if message.wire_format() != WireFormat::PrivateMessage {
+        return Err(MlsError::bad_input("message is not a private message"));
+    }
+    Ok(message.epoch().as_u64())
 }
 
 /// Size cap, then MLS decoding. Only protocol messages (private or public) pass; Welcomes, group infos and key
@@ -271,7 +277,7 @@ fn map_process_error<E>(e: ProcessMessageError<E>) -> MlsError {
                 MlsError::new(ErrorCode::WrongEpoch, "message is for another epoch")
             }
             ValidationError::UnableToDecrypt(MessageDecryptionError::SecretTreeError(
-                SecretTreeError::SecretReuseError | SecretTreeError::TooDistantInThePast,
+                SecretTreeError::SecretReuseError,
             )) => MlsError::new(
                 ErrorCode::Duplicate,
                 "message generation was already consumed",
@@ -333,7 +339,10 @@ impl fmt::Debug for Processed {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openmls::prelude::{BasicCredential, CredentialWithKey, KeyPackage, OpenMlsProvider as _};
+    use openmls::prelude::{
+        BasicCredential, CredentialWithKey, GroupId, KeyPackage, MlsGroupCreateConfig,
+        OpenMlsProvider as _, PURE_PLAINTEXT_WIRE_FORMAT_POLICY,
+    };
     use openmls_basic_credential::SignatureKeyPair;
 
     use crate::device::capabilities;
@@ -453,5 +462,46 @@ mod tests {
         assert!(!printed.contains("secret"), "plaintext leaked: {printed}");
         assert!(!printed.contains('['), "a byte list leaked: {printed}");
         assert!(printed.contains("plaintext_len: 6"));
+    }
+
+    #[test]
+    fn wire_epoch_refuses_a_public_message() {
+        // The crate only creates private messages, so build a plaintext-policy group with raw OpenMLS and take
+        // its self-update commit, which is then a public message.
+        let provider = OpenMlsRustCrypto::default();
+        let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+        let credential = CredentialWithKey {
+            credential: BasicCredential::new(vec![7; 16]).into(),
+            signature_key: signer.to_public_vec().into(),
+        };
+        let config = MlsGroupCreateConfig::builder()
+            .ciphersuite(CIPHERSUITE)
+            .wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
+            .build();
+        let mut group = MlsGroup::new_with_group_id(
+            &provider,
+            &signer,
+            &config,
+            GroupId::from_slice(&[9; 32]),
+            credential,
+        )
+        .unwrap();
+        let bundle = group
+            .self_update(&provider, &signer, Default::default())
+            .unwrap();
+        let wire = bundle.commit().tls_serialize_detached().unwrap();
+
+        // It parses as a protocol message, so only the wire format check can refuse it.
+        assert_eq!(
+            parse_protocol_message(&wire).unwrap().wire_format(),
+            WireFormat::PublicMessage
+        );
+        assert_eq!(wire_epoch(&wire).unwrap_err().code, ErrorCode::BadInput);
+        let alice = device(1);
+        let g = crate::create_group(&alice.state, &[0xAB; 32]).unwrap();
+        assert_eq!(
+            process(&alice.state, &g, &wire).unwrap_err().code,
+            ErrorCode::BadInput
+        );
     }
 }

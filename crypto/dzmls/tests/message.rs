@@ -145,7 +145,7 @@ fn replay_is_duplicate() {
 }
 
 #[test]
-fn more_than_50_generations_late_is_duplicate_and_1000_ahead_is_bad_input() {
+fn more_than_50_generations_late_and_1000_ahead_are_bad_input_but_a_replay_is_duplicate() {
     let alice = device(1);
     let mut bob = device(2);
     let s = group_of(&alice, &mut [&mut bob], &gid(1));
@@ -161,14 +161,20 @@ fn more_than_50_generations_late_is_duplicate_and_1000_ahead_is_bad_input() {
         code(dzmls::process(&bob.state, &s[1], &wires[1001])),
         "bad_input"
     );
-    // After generation 51 the ratchet head is at 52, so generations 0 and 1 are more than 50 behind.
+    // After generation 51 the ratchet head is at 52, so generations 0 and 1 are more than 50 behind. Their keys
+    // are gone and they were never read, so they are bad input, not a replay.
     let p = dzmls::process(&bob.state, &s[1], &wires[51]).unwrap();
     assert_eq!(
         code(dzmls::process(&bob.state, &p.group_state, &wires[0])),
-        "duplicate"
+        "bad_input"
     );
     assert_eq!(
         code(dzmls::process(&bob.state, &p.group_state, &wires[1])),
+        "bad_input"
+    );
+    // A true replay of a generation that was read stays a duplicate.
+    assert_eq!(
+        code(dzmls::process(&bob.state, &p.group_state, &wires[51])),
         "duplicate"
     );
     // Generation 2 is exactly 50 behind and still decrypts.
