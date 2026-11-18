@@ -298,7 +298,13 @@ pub fn describe(group_state: &[u8]) -> Result<GroupInfo, MlsError> {
     })
 }
 
-/// The group named by the group blob's header, loaded from the provider's storage.
+/// The group named by the group blob's header, loaded from the provider's storage, and bound to the device blob:
+/// the group's own leaf must carry the device's id and signature key, or the pair is `corrupt_state` (two blobs of
+/// different devices). Every call that takes both blobs loads the group here, so the check runs before anything is
+/// mutated or signed.
+///
+/// An inactive (evicted) group has a blank own leaf and nothing to bind to; it is returned unchecked, and every
+/// caller refuses it with `evicted` before using it.
 pub(crate) fn load_group(
     provider: &OpenMlsRustCrypto,
     header: &Header,
@@ -306,9 +312,22 @@ pub(crate) fn load_group(
     let group_id = header
         .group_id()
         .ok_or_else(|| MlsError::internal("no group id"))?;
-    MlsGroup::load(provider.storage(), &GroupId::from_slice(&group_id))
+    let group = MlsGroup::load(provider.storage(), &GroupId::from_slice(&group_id))
         .map_err(|_| MlsError::corrupt_state("group state does not decode"))?
-        .ok_or_else(|| MlsError::corrupt_state("group missing from group state"))
+        .ok_or_else(|| MlsError::corrupt_state("group missing from group state"))?;
+    if group.is_active() {
+        let leaf = group
+            .own_leaf_node()
+            .ok_or_else(|| MlsError::corrupt_state("group state has no own leaf"))?;
+        if leaf.credential().serialized_content() != header.device_id()
+            || leaf.signature_key().as_slice() != header.signature_public_key()
+        {
+            return Err(MlsError::corrupt_state(
+                "group state belongs to another device",
+            ));
+        }
+    }
+    Ok(group)
 }
 
 /// Only `join_from_welcome` may change the device blob. Every other group call checks that it did not, so a device
@@ -707,6 +726,58 @@ mod tests {
         assert_eq!(r.unwrap_err().code, ErrorCode::BadInput);
         let r = commit_change(&alice.state, &a, &[kp(&mut bob)], &[]);
         assert_eq!(r.unwrap_err().code, ErrorCode::BadInput);
+    }
+
+    #[test]
+    fn a_group_state_refuses_any_device_but_its_own() {
+        let alice = device(1);
+        let mut bob = device(2);
+        let mut carol = device(3);
+        let (a, b) = pair(&alice, &mut bob);
+        // Bob is a member, but this is alice's group blob; carol is not a member at all. Same device id with
+        // another key (a device recreated under its old id) is refused too.
+        let impostor = Dev {
+            id: alice.id.clone(),
+            state: create_device(&alice.id).unwrap().device_state,
+        };
+        let pending = commit_change(&alice.state, &a, &[kp(&mut carol)], &[])
+            .unwrap()
+            .group_state;
+        let wire = crate::encrypt(&bob.state, &b, b"to alice")
+            .unwrap()
+            .ciphertext;
+        for other in [&bob, &carol, &impostor] {
+            let corrupt =
+                |r: Result<(), MlsError>| assert_eq!(r.unwrap_err().code, ErrorCode::CorruptState);
+            corrupt(crate::encrypt(&other.state, &a, b"x").map(|_| ()));
+            corrupt(commit_change(&other.state, &a, &[], &[bob.id.clone()]).map(|_| ()));
+            corrupt(crate::process(&other.state, &a, &wire).map(|_| ()));
+            corrupt(confirm_commit(&other.state, &pending).map(|_| ()));
+            corrupt(discard_commit(&other.state, &pending).map(|_| ()));
+            // A wrong device is refused before the pending-commit rule.
+            corrupt(commit_change(&other.state, &pending, &[], &[bob.id.clone()]).map(|_| ()));
+        }
+        // The owner still works.
+        crate::process(&alice.state, &a, &wire).unwrap();
+    }
+
+    #[test]
+    fn an_evicted_group_state_answers_evicted() {
+        // After eviction the own leaf is blank, so there is nothing to bind to; every call refuses the inactive
+        // group with `evicted` instead, whichever device blob comes with it.
+        let alice = device(1);
+        let mut bob = device(2);
+        let mut carol = device(3);
+        let (a, b) = pair(&alice, &mut bob);
+        let c = commit_change(&alice.state, &a, &[], &[bob.id.clone()]).unwrap();
+        let (_, gone) = receive(&bob, &b, &c.commit);
+        let carol_kp = kp(&mut carol);
+        for dev in [&bob, &carol] {
+            let r = crate::encrypt(&dev.state, &gone, b"x");
+            assert_eq!(r.unwrap_err().code, ErrorCode::Evicted);
+            let r = commit_change(&dev.state, &gone, std::slice::from_ref(&carol_kp), &[]);
+            assert_eq!(r.unwrap_err().code, ErrorCode::Evicted);
+        }
     }
 
     #[test]

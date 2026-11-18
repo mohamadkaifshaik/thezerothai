@@ -453,22 +453,54 @@ void main() {
     );
   });
 
-  test('a device that is not in the group cannot commit or encrypt', () async {
+  test('a group state refuses any device but its own', () async {
     final alice = await device(1);
     final bob = await device(2);
     final carol = await device(3);
     final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
     final carolKp = await keyPackage(carol);
-    await _fails(
-      engine.commitChange(carol.state, states[0], addKeyPackages: [carolKp]),
-      MlsErrorCode.badInput,
-    );
-    await _fails(
-      engine.encrypt(carol.state, states[0], _utf8('x')),
-      MlsErrorCode.badInput,
-    );
+    final pending = (await engine.commitChange(
+      alice.state,
+      states[0],
+      addKeyPackages: [carolKp],
+    )).groupState;
+    final wire = (await engine.encrypt(
+      bob.state,
+      states[1],
+      _utf8('hi'),
+    )).ciphertext;
+    // Bob is a member but this is alice's state; carol is not a member.
+    for (final other in [bob, carol]) {
+      await _fails(
+        engine.commitChange(other.state, states[0], removeDeviceIds: [bob.id]),
+        MlsErrorCode.corruptState,
+      );
+      await _fails(
+        engine.encrypt(other.state, states[0], _utf8('x')),
+        MlsErrorCode.corruptState,
+      );
+      await _fails(
+        engine.process(other.state, states[0], wire),
+        MlsErrorCode.corruptState,
+      );
+      await _fails(
+        engine.confirmCommit(other.state, pending),
+        MlsErrorCode.corruptState,
+      );
+      await _fails(
+        engine.discardCommit(other.state, pending),
+        MlsErrorCode.corruptState,
+      );
+      // The binding is checked before the pending-commit rule.
+      await _fails(
+        engine.commitChange(other.state, pending, removeDeviceIds: [bob.id]),
+        MlsErrorCode.corruptState,
+      );
+    }
+    // The owner still works.
+    await engine.process(alice.state, states[0], wire);
 
-    // An evicted device still gets evicted, not badInput.
+    // An evicted group state answers evicted, whichever device comes with it.
     final removal = await engine.commitChange(
       alice.state,
       states[0],
@@ -481,6 +513,10 @@ void main() {
     );
     await _fails(
       engine.commitChange(bob.state, p.groupState, addKeyPackages: [carolKp]),
+      MlsErrorCode.evicted,
+    );
+    await _fails(
+      engine.encrypt(carol.state, p.groupState, _utf8('x')),
       MlsErrorCode.evicted,
     );
   });

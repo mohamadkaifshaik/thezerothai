@@ -9,7 +9,8 @@ use std::fmt;
 pub enum ErrorCode {
     /// The caller passed an argument outside the documented limits or of the wrong shape.
     BadInput,
-    /// A state blob could not be decoded, or its contents are inconsistent.
+    /// A state blob could not be decoded, or its contents are inconsistent (including a group blob passed with
+    /// the device blob of another device).
     CorruptState,
     /// A message belongs to an epoch this state cannot process.
     WrongEpoch,

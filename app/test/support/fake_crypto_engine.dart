@@ -12,13 +12,13 @@ import 'package:dzeroth/core/crypto/crypto_types.dart';
 /// It keeps the engine contract: no state lives in the object, every method
 /// takes blobs and returns new ones (so repeating a call with the same old
 /// blobs gives the same result), and it mirrors the Rust core's error codes and
-/// epoch rules (membership, pending commit, eviction, wrong epoch, duplicate).
+/// epoch rules (device binding, membership, pending commit, eviction, wrong
+/// epoch, duplicate).
 /// The securityCode is the real algorithm.
 ///
 /// Known differences from the real engine: ids and keys are derived from the
 /// device id; the blob encoding is a simple length-prefixed format; epochs
-/// and message counters are 32-bit; a commit does not check that its sender is
-/// the device that staged it beyond membership; there are no update paths or
+/// and message counters are 32-bit; there are no update paths or
 /// Update proposals, so the real engine's refusal of a commit that changes a
 /// member's device id has no counterpart here.
 class FakeCryptoEngine implements CryptoEngine {
@@ -80,8 +80,10 @@ class FakeCryptoEngine implements CryptoEngine {
   ) async {
     final device = _Device.decode(deviceState);
     _checkId(groupId, 'group id');
-    final group = _Group(groupId: groupId)
-      ..members.add(_Member(device.id, device.signatureKey));
+    final group = _Group(
+      groupId: groupId,
+      owner: _Member(device.id, device.signatureKey),
+    )..members.add(_Member(device.id, device.signatureKey));
     return group.encode();
   }
 
@@ -101,6 +103,7 @@ class FakeCryptoEngine implements CryptoEngine {
     }
     final device = _Device.decode(deviceState);
     final group = _Group.decode(groupState);
+    _checkOwner(group, device);
     if (group.pending != null) {
       throw const MlsException(
         MlsErrorCode.pendingCommit,
@@ -108,7 +111,6 @@ class FakeCryptoEngine implements CryptoEngine {
       );
     }
     if (!group.active) throw _evicted();
-    _checkMember(group, device);
 
     final adds = <_Member>[];
     final recipients = <_Recipient>[];
@@ -174,8 +176,9 @@ class FakeCryptoEngine implements CryptoEngine {
     Uint8List deviceState,
     Uint8List groupState,
   ) async {
-    _Device.decode(deviceState);
+    final device = _Device.decode(deviceState);
     final group = _Group.decode(groupState);
+    _checkOwner(group, device);
     final pending = group.pending;
     if (pending == null) {
       throw const MlsException(MlsErrorCode.noPendingCommit, 'none pending');
@@ -189,8 +192,9 @@ class FakeCryptoEngine implements CryptoEngine {
     Uint8List deviceState,
     Uint8List groupState,
   ) async {
-    _Device.decode(deviceState);
+    final device = _Device.decode(deviceState);
     final group = _Group.decode(groupState);
+    _checkOwner(group, device);
     if (group.pending == null) {
       throw const MlsException(MlsErrorCode.noPendingCommit, 'none pending');
     }
@@ -230,9 +234,13 @@ class FakeCryptoEngine implements CryptoEngine {
         'welcome matches no key package of this device',
       );
     }
-    final group = _Group(groupId: w.groupId)
-      ..epoch = w.epoch
-      ..members.addAll(w.members);
+    final group =
+        _Group(
+            groupId: w.groupId,
+            owner: _Member(device.id, device.signatureKey),
+          )
+          ..epoch = w.epoch
+          ..members.addAll(w.members);
     return JoinResult(
       deviceState: device.encode(),
       groupState: group.encode(),
@@ -255,8 +263,8 @@ class FakeCryptoEngine implements CryptoEngine {
     }
     final device = _Device.decode(deviceState);
     final group = _Group.decode(groupState);
+    _checkOwner(group, device);
     if (!group.active) throw _evicted();
-    _checkMember(group, device);
     if (group.pending != null) {
       throw const MlsException(
         MlsErrorCode.pendingCommit,
@@ -293,6 +301,7 @@ class FakeCryptoEngine implements CryptoEngine {
         'message is for another group',
       );
     }
+    _checkOwner(group, device);
     if (!group.active) throw _evicted();
     if (parsed.epoch != group.epoch) {
       throw MlsException(
@@ -473,13 +482,19 @@ class FakeCryptoEngine implements CryptoEngine {
     }
   }
 
-  /// The real engine cannot act with a device that is not in the group; a
-  /// wrong-account state pairing must fail here too.
-  static void _checkMember(_Group group, _Device device) {
-    if (!group.hasMember(device.id)) {
+  /// A group state belongs to the device that created or joined it. As in the
+  /// real engine (whose group's own leaf must carry the device's id and
+  /// signature key), any other device state is corruptState, checked before
+  /// anything else about the group. An evicted group has nothing to bind to
+  /// in the real engine, so it is not checked here either; the caller then
+  /// answers evicted.
+  static void _checkOwner(_Group group, _Device device) {
+    if (group.active &&
+        !(_eq(group.owner.deviceId, device.id) &&
+            _eq(group.owner.key, device.signatureKey))) {
       throw const MlsException(
-        MlsErrorCode.badInput,
-        'this device is not a member of the group',
+        MlsErrorCode.corruptState,
+        'group state belongs to another device',
       );
     }
   }
@@ -641,11 +656,14 @@ class _Device {
 }
 
 class _Group {
-  _Group({required this.groupId});
+  _Group({required this.groupId, required this.owner});
 
   static const _magic = 'FKG1';
 
   final Uint8List groupId;
+
+  /// The device this state belongs to.
+  final _Member owner;
   int epoch = 0;
   bool active = true;
   final List<_Member> members = [];
@@ -671,6 +689,8 @@ class _Group {
   Uint8List encode() {
     final w = _Writer(_magic)
       ..bytes(groupId)
+      ..bytes(owner.deviceId)
+      ..bytes(owner.key)
       ..u32(epoch)
       ..u8(active ? 1 : 0);
     _writeMembers(w, members);
@@ -697,10 +717,11 @@ class _Group {
   static _Group decode(Uint8List blob) {
     try {
       final r = _Reader(blob, _magic);
-      final group = _Group(groupId: r.bytes())
-        ..epoch = r.u32()
-        ..active = r.u8() == 1
-        ..members.addAll(_readMembers(r));
+      final group =
+          _Group(groupId: r.bytes(), owner: _Member(r.bytes(), r.bytes()))
+            ..epoch = r.u32()
+            ..active = r.u8() == 1
+            ..members.addAll(_readMembers(r));
       if (r.u8() == 1) {
         final adds = _readMembers(r);
         final removes = [for (var n = r.u32(); n > 0; n--) r.bytes()];

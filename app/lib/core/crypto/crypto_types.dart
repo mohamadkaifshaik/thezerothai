@@ -6,7 +6,8 @@ enum MlsErrorCode {
   /// An argument outside the documented limits or of the wrong shape.
   badInput('bad_input'),
 
-  /// A state blob that cannot be decoded or is inconsistent.
+  /// A state blob that cannot be decoded or is inconsistent, including a group
+  /// state passed with the device state of another device.
   corruptState('corrupt_state'),
 
   /// A message that belongs to an epoch other than the group's current one.
