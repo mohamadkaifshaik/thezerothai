@@ -212,7 +212,7 @@ func (s *service) ListSuggestions(ctx context.Context, uid string, req *messagin
 // followingOnly reports whether p's FOLLOWING_ONLY policy (with FEATURE_DM_POLICY on for them, the send rule) applies to a
 // message from the caller: not for an ACCEPTED conversation, which a send continues whatever the policy.
 func (s *service) followingOnly(c candidate, p identity.Profile) bool {
-	return !c.accepted && p.DMPolicy == identity.DMPolicyFollowingOnly && s.enabledFor(c.uid, identity.DMPolicyFlag)
+	return !c.accepted && s.recipientFollowingOnly(c.uid, p)
 }
 
 // suggestionCandidates gathers the sources in order with the free drops applied, deduped (the first reason wins), at most
