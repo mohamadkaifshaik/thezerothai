@@ -72,7 +72,7 @@ final $typed_data.Uint8List devicePlatformDescriptor = $convert.base64Decode(
 const Notification$json = {
   '1': 'Notification',
   '2': [
-    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '8': {}, '10': 'id'},
     {
       '1': 'type',
       '3': 2,
@@ -113,13 +113,13 @@ const Notification$json = {
 
 /// Descriptor for `Notification`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List notificationDescriptor = $convert.base64Decode(
-    'CgxOb3RpZmljYXRpb24SDgoCaWQYASABKAlSAmlkEj4KBHR5cGUYAiABKA4yKi5kemVyb3RoLm'
-    '5vdGlmaWNhdGlvbnMudjEuTm90aWZpY2F0aW9uVHlwZVIEdHlwZRI3CgVhY3RvchgDIAEoCzIh'
-    'LmR6ZXJvdGguY29tbW9uLnYxLkF1dGhvclNuYXBzaG90UgVhY3RvchIfCgthY3Rvcl9jb3VudB'
-    'gEIAEoBVIKYWN0b3JDb3VudBIXCgdwb3N0X2lkGAUgASgJUgZwb3N0SWQSOQoKY3JlYXRlZF9h'
-    'dBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCWNyZWF0ZWRBdBIbCgliZWFjb2'
-    '5faWQYByABKAlSCGJlYWNvbklkEjkKBmFjdG9ycxgIIAMoCzIhLmR6ZXJvdGguY29tbW9uLnYx'
-    'LkF1dGhvclNuYXBzaG90UgZhY3RvcnM=');
+    'CgxOb3RpZmljYXRpb24SFAoCaWQYASABKAlCBOjgGAJSAmlkEj4KBHR5cGUYAiABKA4yKi5kem'
+    'Vyb3RoLm5vdGlmaWNhdGlvbnMudjEuTm90aWZpY2F0aW9uVHlwZVIEdHlwZRI3CgVhY3RvchgD'
+    'IAEoCzIhLmR6ZXJvdGguY29tbW9uLnYxLkF1dGhvclNuYXBzaG90UgVhY3RvchIfCgthY3Rvcl'
+    '9jb3VudBgEIAEoBVIKYWN0b3JDb3VudBIXCgdwb3N0X2lkGAUgASgJUgZwb3N0SWQSOQoKY3Jl'
+    'YXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCWNyZWF0ZWRBdBIbCg'
+    'liZWFjb25faWQYByABKAlSCGJlYWNvbklkEjkKBmFjdG9ycxgIIAMoCzIhLmR6ZXJvdGguY29t'
+    'bW9uLnYxLkF1dGhvclNuYXBzaG90UgZhY3RvcnM=');
 
 @$core.Deprecated('Use listNotificationsRequestDescriptor instead')
 const ListNotificationsRequest$json = {

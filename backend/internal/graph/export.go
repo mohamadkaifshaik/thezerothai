@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // exportEdgePage is the page size for walking follow edges (a batch job, not a request path).
@@ -104,7 +105,9 @@ func (r *FirestoreRepo) peopleFor(ctx context.Context, lists ...[]string) (map[s
 		end := min(start+profileGetAllCap, len(all))
 		got, err := r.profiles.GetProfiles(ctx, all[start:end])
 		if err != nil {
-			return nil, fmt.Errorf("graph: export: profiles: %w", err)
+			// The read names the people asked for (identity's error text, Firestore's document paths): nobody is named
+			// on the way out, and the counterpart pseudonym is not their uid_hash.
+			return nil, logger.ScrubPairErr(fmt.Errorf("graph: export: profiles: %w", err), "", all[start:end]...)
 		}
 		for uid, p := range got {
 			people[uid] = ExportUser{PublicID: p.PublicID, Handle: p.Handle}

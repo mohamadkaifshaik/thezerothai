@@ -12,7 +12,7 @@
 // interceptor translates every USER_REF_KIND_TRANSLATE field (inbound public id -> uid, outbound uid -> public id), so
 // modules keep using uids internally. A guard test (backend/pkg/platform/userref) requires every field whose name looks
 // like a user id to carry this option with an explicit kind, so a new field cannot silently skip the translation.
-// Nothing reads this option at runtime yet.
+// The edge (backend/pkg/platform/publicid) reads it once at startup to build its translation plans.
 
 package commonv1
 
@@ -42,7 +42,9 @@ const (
 	// is on; the edge translates it in both directions. "" stays "" (several requests read "" as "the caller").
 	UserRefKind_USER_REF_KIND_TRANSLATE UserRefKind = 1
 	// The field holds a user id only for some values of a sibling field (e.g. moderation.v1.ReportContentRequest.target_id
-	// when target_type is ACCOUNT). The edge needs a per-message rule for it; the generic walker must not touch it.
+	// when target_type is ACCOUNT), or an id that embeds a user id (e.g. notifications.v1.Notification.id, whose last "_"
+	// segment names the actor for some types). The edge needs a per-field rule for it, which says whether and where the
+	// value holds a user id; the generic walker never touches it otherwise.
 	UserRefKind_USER_REF_KIND_CONDITIONAL UserRefKind = 2
 	// The field already holds a public id (e.g. Profile.public_id). Never translated.
 	UserRefKind_USER_REF_KIND_PUBLIC_ID UserRefKind = 3

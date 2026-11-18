@@ -101,11 +101,11 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
 			}
-			return fmt.Errorf("identity: get user %s: %w", uid, err)
+			return fmt.Errorf("identity: get user: %w", err)
 		}
 		var d userDoc
 		if err := snap.DataTo(&d); err != nil {
-			return fmt.Errorf("identity: decode user %s: %w", uid, err)
+			return fmt.Errorf("identity: decode user: %w", err)
 		}
 		profile := d.toProfile(uid)
 		before := profile
