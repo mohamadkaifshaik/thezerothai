@@ -27,9 +27,12 @@ var _ Permission = (*service)(nil)
 //   - callerUID == targetUID: ErrSelf (not a refusal).
 //   - a malformed uid, or FEATURE_MESSAGING off for the caller (Send's per-caller gate, here a refusal rather than
 //     FEATURE_DISABLED): ErrCannotMessage, no read.
-//   - the caller's graph (Social.Snapshot): the target blocked the caller, or the caller's blockedBy list overflowed
-//     (peerBlockedCaller: the list cannot say, so it fails closed, as the thread header and the export do):
-//     ErrCannotMessage, before the profile read.
+//   - the caller's graph (Social.Snapshot): the target blocked the caller (BlockedBy): ErrCannotMessage, before the
+//     profile read. When the caller's blockedBy list overflowed (it no longer names every blocker), the target's own
+//     graph (Social.Snapshot, cache-first) decides instead: the target's Blocked set names the caller => ErrCannotMessage.
+//     That is what SendMessage decides (its transaction reads the recipient's graph, never the caller's blockedBy), so
+//     an overflowed caller is not refused here where a send would be allowed. (The thread header and the export keep
+//     failing closed through peerBlockedCaller.)
 //   - the target's profile (Profiles.GetProfiles), then recipientRefusal, the caller-side check Send runs before its
 //     transaction: the caller blocked the target, the target is unknown or not ACTIVE, or messaging is off for the target.
 //   - the target's FOLLOWING_ONLY policy (recipientFollowingOnly, the predicate Send passes as RecipientFollowingOnly),
@@ -42,10 +45,11 @@ var _ Permission = (*service)(nil)
 // the daily send caps), which bound messages, not key lookups; a mute either way. A conversation whose peer deleted the
 // account is not read separately: the deleted peer is not ACTIVE, so recipientRefusal already refuses.
 //
-// Reads, all cache-first (CACHE_TTL, 60 s by default): at most 4 per call: the caller's graph snapshot, one profile
-// batch of one uid, one follow-edge lookup and one conversation document; the last two only when the target's
-// FOLLOWING_ONLY policy applies (the conversation only when the target does not follow the caller). The cheapest
-// refusals read nothing (self, malformed, caller flag off) or only the graph (a block found there).
+// Reads, all cache-first (CACHE_TTL, 60 s by default): at most 4 per call, or 5 when the caller's blockedBy list
+// overflowed: the caller's graph snapshot, the target's graph snapshot (overflow only), one profile batch of one uid,
+// one follow-edge lookup and one conversation document; the last two only when the target's FOLLOWING_ONLY policy
+// applies (the conversation only when the target does not follow the caller). The cheapest refusals read nothing
+// (self, malformed, caller flag off) or only the graphs (a block found there).
 //
 // Staleness: SendMessage reads the recipient's graph inside its transaction (fresh); this function cannot, so a block,
 // unfollow or policy change made on another instance can take up to CACHE_TTL (60 s) to be seen here (this instance
@@ -68,8 +72,19 @@ func (s *service) CanMessage(ctx context.Context, callerUID, targetUID string) e
 	if err != nil {
 		return permissionFailure("caller graph", err, callerUID, targetUID)
 	}
-	if peerBlockedCaller(mine, targetUID) {
+	if mine.BlockedBy[targetUID] {
 		return ErrCannotMessage
+	}
+	if mine.BlockedByOverflow {
+		// The caller's blockedBy list is truncated, so it cannot say: ask the target's own block list, as SendMessage's
+		// transaction does (requestBlockedByPeer's fallback; a target with no graph document is an empty snapshot).
+		theirs, err := s.d.Social.Snapshot(ctx, targetUID)
+		if err != nil {
+			return permissionFailure("target graph", err, callerUID, targetUID)
+		}
+		if theirs.Blocked[callerUID] {
+			return ErrCannotMessage
+		}
 	}
 	profiles, err := s.d.Profiles.GetProfiles(ctx, []string{targetUID})
 	if err != nil {

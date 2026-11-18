@@ -91,7 +91,19 @@ func TestCanMessage_Rules(t *testing.T) {
 		{name: "the peer blocked the caller", setup: []func(*suggestRig){func(r *suggestRig) {
 			r.social.snaps[me] = graph.Snapshot{BlockedBy: map[string]bool{permPeer: true}}
 		}}, want: refused},
-		{name: "blockedBy overflow fails closed", setup: []func(*suggestRig){func(r *suggestRig) {
+		// blockedBy overflow: the caller's list cannot say, so the peer's own block list decides, as SendMessage's
+		// transaction does (it reads the recipient's graph, never the caller's blockedBy).
+		{name: "blockedBy overflow, the peer did not block the caller: allowed like a send", setup: []func(*suggestRig){func(r *suggestRig) {
+			r.social.snaps[me] = graph.Snapshot{BlockedByOverflow: true}
+		}}, want: allowed},
+		{name: "blockedBy overflow, the peer blocked the caller", setup: []func(*suggestRig){func(r *suggestRig) {
+			r.social.snaps[me] = graph.Snapshot{BlockedByOverflow: true}
+			r.social.snaps[permPeer] = graph.Snapshot{Blocked: map[string]bool{me: true}}
+		}}, want: refused},
+		{name: "blockedBy overflow, the listed blocker still refuses", setup: []func(*suggestRig){func(r *suggestRig) {
+			r.social.snaps[me] = graph.Snapshot{BlockedByOverflow: true, BlockedBy: map[string]bool{permPeer: true}}
+		}}, want: refused},
+		{name: "blockedBy overflow, unknown target", target: "uid-nobody", setup: []func(*suggestRig){func(r *suggestRig) {
 			r.social.snaps[me] = graph.Snapshot{BlockedByOverflow: true}
 		}}, want: refused},
 		{name: "messaging off for the caller", specs: []flags.Spec{allowOnly(FlagName, permPeer), {Name: identity.DMPolicyFlag, Mode: flags.On}}, want: refused},
@@ -182,7 +194,29 @@ func TestCanMessage_Reads(t *testing.T) {
 			t.Fatalf("reads: social=%d profiles=%d follows=%d convs=%d", r.social.calls, r.profs.calls, len(r.follow.asked), r.repo.gets)
 		}
 	})
-	t.Run("worst case: four reads", func(t *testing.T) {
+	t.Run("blockedBy overflow adds the peer's graph", func(t *testing.T) {
+		r := newSuggestRig(t, []string{me, permPeer}, permAllOn()...)
+		r.social.snaps[me] = graph.Snapshot{BlockedByOverflow: true}
+		r.social.snaps[permPeer] = graph.Snapshot{Blocked: map[string]bool{me: true}}
+		if err := r.svc.CanMessage(context.Background(), me, permPeer); !errors.Is(err, ErrCannotMessage) {
+			t.Fatal(err)
+		}
+		if r.social.calls != 2 || r.profs.calls != 0 {
+			t.Fatalf("reads: social=%d profiles=%d", r.social.calls, r.profs.calls)
+		}
+	})
+	t.Run("worst case: five reads (blockedBy overflow and FOLLOWING_ONLY)", func(t *testing.T) {
+		r := newSuggestRig(t, []string{me, permPeer}, permAllOn()...)
+		followingOnly(r)
+		r.social.snaps[me] = graph.Snapshot{BlockedByOverflow: true}
+		if err := r.svc.CanMessage(context.Background(), me, permPeer); !errors.Is(err, ErrCannotMessage) {
+			t.Fatal(err)
+		}
+		if r.social.calls != 2 || r.profs.calls != 1 || len(r.follow.asked) != 1 || r.repo.gets != 1 {
+			t.Fatalf("reads: social=%d profiles=%d follows=%d convs=%d", r.social.calls, r.profs.calls, len(r.follow.asked), r.repo.gets)
+		}
+	})
+	t.Run("worst case without overflow: four reads", func(t *testing.T) {
 		r := newSuggestRig(t, []string{me, permPeer}, permAllOn()...)
 		followingOnly(r)
 		if err := r.svc.CanMessage(context.Background(), me, permPeer); !errors.Is(err, ErrCannotMessage) {
@@ -219,6 +253,10 @@ func TestCanMessage_ReadFailures(t *testing.T) {
 			mut  func(*suggestRig)
 		}{
 			{"caller graph", func(r *suggestRig) { r.social.err = cause }},
+			{"peer graph (blockedBy overflow)", func(r *suggestRig) {
+				r.social.snaps[me] = graph.Snapshot{BlockedByOverflow: true}
+				r.social.errFor = map[string]error{permPeer: cause}
+			}},
 			{"profiles", func(r *suggestRig) { r.profs.err = cause }},
 			{"follow lookup", func(r *suggestRig) { followingOnly(r); r.follow.err = cause }},
 			{"conversation", func(r *suggestRig) {
