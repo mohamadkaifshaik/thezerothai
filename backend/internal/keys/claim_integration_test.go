@@ -126,6 +126,40 @@ func TestClaim_UnknownExcludeAndInactive(t *testing.T) {
 	}
 }
 
+// TestRepo_ReplayedUploadAfterClaimReAddsConsumedPackage pins a known, documented behaviour (keys.proto,
+// UploadKeyPackages): document ids derive from the package bytes, so once a claim has deleted a package, a replay of the
+// upload that carried it stores it again, and a later claim can hand the same package out a second time. Not a bug to
+// fix here: clients tolerate a Welcome built on a consumed package and follow a retried top-up with fresh packages.
+func TestRepo_ReplayedUploadAfterClaimReAddsConsumedPackage(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	uid := uniqueUID()
+	p := pkgN(7)
+	e.mustRegister(t, uid, dvc(1), skey(1), it0)
+	if n, _, err := e.repo.Upload(ctx, uid, dvc(1), [][]byte{p}, nil, it0); err != nil || n != 1 {
+		t.Fatalf("upload = %d, %v", n, err)
+	}
+	got, err := e.repo.Claim(ctx, uid, "", it0)
+	if err != nil || len(got) != 1 || !got[0].HasKeyPackage || got[0].LastResort || !bytes.Equal(got[0].KeyPackage, p) {
+		t.Fatalf("claim = %+v, %v; want P", got, err)
+	}
+	if n := len(e.poolDocs(t, uid, dvc(1))); n != 0 {
+		t.Fatalf("pool after the claim = %d, want 0", n)
+	}
+	// The retried upload (same bytes) stores P again.
+	if n, _, err := e.repo.Upload(ctx, uid, dvc(1), [][]byte{p}, nil, it0.Add(time.Minute)); err != nil || n != 1 {
+		t.Fatalf("replayed upload = %d, %v; want P stored again (count 1)", n, err)
+	}
+	if _, err := e.repo.poolCol(uid, dvc(1)).Doc(pkgDocID(p)).Get(ctx); err != nil {
+		t.Fatalf("P is not stored again after the replay: %v", err)
+	}
+	e.assertPoolInvariant(t, uid, dvc(1))
+	got, err = e.repo.Claim(ctx, uid, "", it0.Add(2*time.Minute))
+	if err != nil || len(got) != 1 || !got[0].HasKeyPackage || got[0].LastResort || !bytes.Equal(got[0].KeyPackage, p) {
+		t.Fatalf("second claim = %+v, %v; want P handed out again", got, err)
+	}
+}
+
 // Draining a full pool hands out 100 distinct packages, then the last-resort package repeatedly (kept); a device with
 // neither answers HasKeyPackage false. poolCount follows the real count throughout.
 func TestClaim_DrainThenLastResort(t *testing.T) {

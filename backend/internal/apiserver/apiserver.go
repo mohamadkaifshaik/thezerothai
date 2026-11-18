@@ -966,7 +966,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if !ok {
 		return nil, nil, errors.New("messaging service does not implement Permission")
 	}
-	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, log)
+	// ClaimKeyPackages is also capped per (caller, target) by the service itself (KEYS_CLAIMS_PER_TARGET_PER_DAY, limit_name
+	// keys_claims_per_target_daily): the interceptor cannot see the target.
+	keysClaimCap := ratelimit.NewDailyCap(cfg.RateLimit.KeysClaimsPerTargetPerDay)
+	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, keysClaimCap, log)
 	if err != nil {
 		return nil, nil, err
 	}

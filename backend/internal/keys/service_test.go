@@ -141,6 +141,19 @@ func TestRegister(t *testing.T) {
 			},
 		},
 		{
+			name: "same key at exactly 24h does not move last seen (the refresh needs more than 24h)",
+			setup: func(t *testing.T, s Service, _ *fakeRepo, c *fakeClock) {
+				mustRegister(t, s, devID, sigKey(1))
+				c.t = t0.Add(24 * time.Hour)
+			},
+			id: devID, key: sigKey(1),
+			check: func(t *testing.T, d Device, err error, r *fakeRepo) {
+				if err != nil || !d.LastSeenAt.Equal(t0) || !r.devices[uidA][0].LastSeenAt.Equal(t0) {
+					t.Fatalf("Register = %+v, %v", d, err)
+				}
+			},
+		},
+		{
 			name: "same key after 24h refreshes, not a second device",
 			setup: func(t *testing.T, s Service, _ *fakeRepo, c *fakeClock) {
 				mustRegister(t, s, devID, sigKey(1))
@@ -172,6 +185,11 @@ func TestRegister(t *testing.T) {
 				mustRegister(t, s, devID, sigKey(1))
 			},
 			id: devID, key: sigKey(2), field: "signature_public_key",
+			check: func(t *testing.T, _ Device, _ error, r *fakeRepo) {
+				if ds := r.devices[uidA]; len(ds) != 1 || !bytes.Equal(ds[0].SignatureKey, sigKey(1)) || !ds[0].LastSeenAt.Equal(t0) {
+					t.Fatalf("stored devices %+v, want the first key kept and nothing refreshed", ds)
+				}
+			},
 		},
 		{
 			name: "sixth device is refused",
@@ -249,6 +267,9 @@ func TestRegister(t *testing.T) {
 				wantValidation(t, err, tc.field)
 				if msg := err.Error(); strings.Contains(msg, tc.id) && tc.id != "" {
 					t.Fatalf("message echoes the value: %q", msg)
+				}
+				if tc.check != nil {
+					tc.check(t, d, err, repo)
 				}
 			case tc.check != nil:
 				tc.check(t, d, err, repo)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	keysv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1"
@@ -243,10 +244,18 @@ func srvDev(id string, pool int, lr bool) Device {
 	return Device{ID: id, SignatureKey: bytes.Repeat([]byte{7}, 32), CreatedAt: t0, LastSeenAt: t1, PoolCount: pool, HasLastResort: lr}
 }
 
+// wireTimeIs: a zero service time is an absent wire timestamp, anything else the same instant.
+func wireTimeIs(got *timestamppb.Timestamp, want time.Time) bool {
+	if want.IsZero() {
+		return got == nil
+	}
+	return got != nil && got.AsTime().Equal(want)
+}
+
 func checkWireDevice(t *testing.T, got *keysv1.KeyDevice, want Device) {
 	t.Helper()
 	if got.GetDeviceId() != want.ID || !bytes.Equal(got.GetSignaturePublicKey(), want.SignatureKey) ||
-		!got.GetCreatedAt().AsTime().Equal(want.CreatedAt) || !got.GetLastSeenAt().AsTime().Equal(want.LastSeenAt) ||
+		!wireTimeIs(got.GetCreatedAt(), want.CreatedAt) || !wireTimeIs(got.GetLastSeenAt(), want.LastSeenAt) ||
 		int(got.GetKeyPackageCount()) != want.PoolCount || got.GetHasLastResort() != want.HasLastResort {
 		t.Fatalf("wire device %v, want %+v", got, want)
 	}
@@ -319,6 +328,7 @@ func TestServer_Mapping(t *testing.T) {
 	t.Run("GetKeyDevices keeps the request order and every id", func(t *testing.T) {
 		mine := srvDev("device-mine00000000000", 7, true)
 		theirs := srvDev("device-theirs000000000", 0, false)
+		theirs.CreatedAt, theirs.LastSeenAt = time.Time{}, time.Time{} // as the service returns another user's device
 		// The service answers a map; the handler must answer in request order, with an entry for every id (an empty
 		// list for one the map has no devices for, or no key at all).
 		svc := &fakeService{byUser: map[string][]Device{srvThird: {theirs}, srvCaller: {mine}, srvOther: {}}}
@@ -343,6 +353,12 @@ func TestServer_Mapping(t *testing.T) {
 			t.Fatalf("device lists = %v", users)
 		}
 		checkWireDevice(t, users[0].GetDevices()[0], theirs) // zeroed counts as the service returned them
+		if d := users[0].GetDevices()[0]; d.GetCreatedAt() != nil || d.GetLastSeenAt() != nil {
+			t.Fatalf("another user's device carries timestamps on the wire: %v", d)
+		}
+		if d := users[2].GetDevices()[0]; d.GetCreatedAt() == nil || d.GetLastSeenAt() == nil {
+			t.Fatalf("the caller's own device lost its timestamps on the wire: %v", d)
+		}
 		checkWireDevice(t, users[2].GetDevices()[0], mine)
 	})
 

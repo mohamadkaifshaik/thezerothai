@@ -28,7 +28,7 @@ func devKey(uid, id string) string { return uid + "|" + id }
 func (f *fakeRepo) view(uid string, d Device) Device {
 	k := devKey(uid, d.ID)
 	d.PoolCount = len(f.pool[k])
-	d.HasLastResort = f.lastResort[k] != nil
+	d.HasLastResort = len(f.lastResort[k]) > 0
 	return d
 }
 
@@ -125,14 +125,14 @@ func (f *fakeRepo) Upload(_ context.Context, uid, deviceID string, packages [][]
 			f.pool[k] = append(f.pool[k], append([]byte(nil), p...))
 		}
 	}
-	if lastResort != nil {
+	if len(lastResort) > 0 { // the repository's presence rule: empty bytes are none
 		f.lastResort[k] = append([]byte(nil), lastResort...)
 	}
 	if cur := f.devices[uid][i]; now.Sub(cur.LastSeenAt) > seenRefreshInterval {
 		cur.LastSeenAt = now
 		f.devices[uid][i] = cur
 	}
-	return len(f.pool[k]), f.lastResort[k] != nil, nil
+	return len(f.pool[k]), len(f.lastResort[k]) > 0, nil
 }
 
 func (f *fakeRepo) ActiveDevices(_ context.Context, uid string, now time.Time) ([]Device, error) {
@@ -175,7 +175,7 @@ func (f *fakeRepo) Claim(_ context.Context, targetUID, excludeDeviceID string, n
 		if pool := f.pool[k]; len(pool) > 0 {
 			c.KeyPackage, c.HasKeyPackage = cloneBytes(pool[0]), true
 			f.pool[k] = pool[1:]
-		} else if lr := f.lastResort[k]; lr != nil {
+		} else if lr := f.lastResort[k]; len(lr) > 0 {
 			c.KeyPackage, c.HasKeyPackage, c.LastResort = cloneBytes(lr), true, true
 		}
 		out = append(out, c)

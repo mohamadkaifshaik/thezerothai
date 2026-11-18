@@ -191,7 +191,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// (RATE_LIMIT_KEYS_WRITE_PER_MIN, 20/min per instance); ListMyKeyDevices and GetKeyDevices share a read bucket
 	// (RATE_LIMIT_KEYS_READ_PER_MIN, 60/min); ClaimKeyPackages has its own (RATE_LIMIT_KEYS_CLAIM_PER_MIN, 20/min) and the
 	// per-uid daily cap "keys_claims_daily" (KEYS_CLAIMS_PER_DAY, 300), because each claim consumes other users' one-time
-	// key packages.
+	// key packages. The per-(caller, target) cap "keys_claims_per_target_daily" (KEYS_CLAIMS_PER_TARGET_PER_DAY, 20) is
+	// drawn on by the keys service, not here (the interceptor cannot see the target).
 	rlKeysWrite := ratelimit.NewLimiter(cfg.RateLimit.KeysWritePerUserPerMinute, idleBucketTTL)
 	rlKeysRead := ratelimit.NewLimiter(cfg.RateLimit.KeysReadPerUserPerMinute, idleBucketTTL)
 	rlKeysClaim := ratelimit.NewLimiter(cfg.RateLimit.KeysClaimPerUserPerMinute, idleBucketTTL)

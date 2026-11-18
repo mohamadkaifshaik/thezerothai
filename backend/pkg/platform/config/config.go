@@ -761,6 +761,8 @@ func Load() (Config, error) {
 		{&rl.BeaconsCancelledPerDay, "BEACONS_CANCELLED_PER_DAY", 20},
 		// ClaimKeyPackages per uid, limit_name "keys_claims_daily".
 		{&rl.KeysClaimsPerDay, "KEYS_CLAIMS_PER_DAY", 300},
+		// ClaimKeyPackages per caller and target, limit_name "keys_claims_per_target_daily" (drawn on by the keys service).
+		{&rl.KeysClaimsPerTargetPerDay, "KEYS_CLAIMS_PER_TARGET_PER_DAY", 20},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {

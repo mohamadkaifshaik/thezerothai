@@ -3,6 +3,8 @@ package keys
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,6 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -43,22 +46,30 @@ const MaxLookupUsers = 10
 // lookupFanout bounds the concurrent device queries of one GetDevices (at most MaxLookupUsers in all).
 const lookupFanout = 4
 
-// Deps wires the service. A nil Permission refuses every other user; a nil Flags is off for every target.
+// LimitClaimsPerTargetDaily is the limit_name (RATE_LIMITED metadata["limit"]) of the per-(caller, target) daily cap on
+// ClaimKeyPackages (KEYS_CLAIMS_PER_TARGET_PER_DAY).
+const LimitClaimsPerTargetDaily = "keys_claims_per_target_daily"
+
+// Deps wires the service. A nil Permission refuses every other user; a nil Flags is off for every target; a nil ClaimCap
+// leaves claims uncapped per target (the composition root always sets it).
 type Deps struct {
 	Repo       Repo
 	Now        func() time.Time
 	Permission Permission
 	Flags      FlagChecker
+	// ClaimCap is the per-(caller, target) daily cap on Claim (KEYS_CLAIMS_PER_TARGET_PER_DAY), keyed by claimCapKey.
+	ClaimCap *ratelimit.DailyCap
 	// Log receives panics on the lookup's worker goroutines (default slog.Default()).
 	Log *slog.Logger
 }
 
 type service struct {
-	repo  Repo
-	now   func() time.Time
-	perm  Permission
-	flags FlagChecker
-	log   *slog.Logger
+	repo     Repo
+	now      func() time.Time
+	perm     Permission
+	flags    FlagChecker
+	claimCap *ratelimit.DailyCap
+	log      *slog.Logger
 }
 
 // New builds the service.
@@ -71,7 +82,7 @@ func New(d Deps) Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, log: log}
+	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, log: log}
 }
 
 var _ Service = (*service)(nil)
@@ -286,7 +297,10 @@ func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) 
 			}
 			d = cloneDevice(d)
 			if id != uid {
+				// Another user's device: only its id and signature key. No counts and no timestamps (the handler sends
+				// zero times as absent); the activity filter above has already used LastSeenAt.
 				d.PoolCount, d.HasLastResort = 0, false
+				d.CreatedAt, d.LastSeenAt = time.Time{}, time.Time{}
 			}
 			list = append(list, d)
 		}
@@ -298,7 +312,8 @@ func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) 
 	return out, nil
 }
 
-// Claim validates, checks permission and the target's flag (another user), then claims through the repository
+// Claim validates, draws one unit of the per-(caller, target) daily cap (every well-formed request, the caller's own id
+// included), checks permission and the target's flag (another user), then claims through the repository
 // (compare-and-delete per device). The excluded device is passed to the repository only for the caller's own id, where it must exist; for another user
 // a well-formed exclude_device_id is accepted and not used (it exists for a device claiming its own user's others).
 func (s *service) Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, error) {
@@ -309,6 +324,12 @@ func (s *service) Claim(ctx context.Context, uid, targetUID, excludeDeviceID str
 	self := targetUID == uid
 	if (self || excludeDeviceID != "") && !ValidDeviceID(excludeDeviceID) {
 		return nil, invalid(ctx, "exclude_device_id", excludeMessage)
+	}
+	// The per-(caller, target) daily cap: counted for every well-formed request, self included, before the permission
+	// check, the target's flag or any read, so a capped answer is the same for a blocked, unknown or real target.
+	if s.claimCap != nil && !s.claimCap.Allow(claimCapKey(uid, targetUID)) {
+		logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"rate_limited")
+		return nil, s.claimCap.ExceededError(ctx, LimitClaimsPerTargetDaily)
 	}
 	exclude := ""
 	if self {
@@ -346,6 +367,14 @@ func (s *service) Claim(ctx context.Context, uid, targetUID, excludeDeviceID str
 	logger.SetRequestField(ctx, fieldPackages, consumed)
 	logger.SetRequestField(ctx, fieldLRUsed, lastResort)
 	return out, nil
+}
+
+// claimCapKey is the per-target cap's key for the ordered pair (caller, target): the first 32 hex characters of the
+// SHA-256 of "caller|target" ('|' is not a uid character, so the pair is unambiguous). Fixed-size, and it names neither
+// uid, so the in-memory counter table holds no user id.
+func claimCapKey(callerUID, targetUID string) string {
+	sum := sha256.Sum256([]byte(callerUID + "|" + targetUID))
+	return hex.EncodeToString(sum[:16])
 }
 
 // excludeMessage is the VALIDATION text for exclude_device_id (the value is never echoed).

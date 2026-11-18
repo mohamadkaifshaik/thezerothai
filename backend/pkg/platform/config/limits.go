@@ -208,6 +208,12 @@ type RateLimitConfig struct {
 	// packages one caller can drain from other users' pools in a day (each claim takes at most one per device, at most
 	// 5 devices). Per instance, so the effective limit is x max-instances.
 	KeysClaimsPerDay int64
+	// KeysClaimsPerTargetPerDay is the in-memory daily cap on ClaimKeyPackages per caller and target (ratelimit.DailyCap
+	// keyed by a hash of the pair), env KEYS_CLAIMS_PER_TARGET_PER_DAY, default 20, logged as limit_name
+	// "keys_claims_per_target_daily". It bounds how fast one caller can drain one user's pools. The keys service draws on
+	// it for every well-formed target before the permission check, so a refusal says nothing about the target. Per
+	// instance, so the effective limit is x max-instances.
+	KeysClaimsPerTargetPerDay int64
 
 	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest, env
 	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph

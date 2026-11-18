@@ -11,7 +11,8 @@ import (
 
 // The key directory buckets: RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages share RATE_LIMIT_KEYS_WRITE_PER_MIN,
 // ListMyKeyDevices and GetKeyDevices share RATE_LIMIT_KEYS_READ_PER_MIN, ClaimKeyPackages has RATE_LIMIT_KEYS_CLAIM_PER_MIN
-// alone, and only ClaimKeyPackages is on a daily cap (keys_claims_daily, KEYS_CLAIMS_PER_DAY).
+// alone, and only ClaimKeyPackages is on an interceptor daily cap (keys_claims_daily, KEYS_CLAIMS_PER_DAY). Its
+// per-(caller, target) cap (keys_claims_per_target_daily) is the service's; see keys_wiring_test.go.
 var (
 	keysWriteProcedures = []string{
 		keysv1connect.KeyServiceRegisterKeyDeviceProcedure,

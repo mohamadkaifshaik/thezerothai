@@ -325,6 +325,10 @@ func TestGetDevicesResults(t *testing.T) {
 	if len(bob) != 1 || bob[0].ID != devB2 || bob[0].PoolCount != 0 || bob[0].HasLastResort || !bytes.Equal(bob[0].SignatureKey, sigKey(3)) {
 		t.Fatalf("bob = %+v, want only the active devB2 with zeroed counts", bob)
 	}
+	// Another user's device carries no timestamps (the handler sends them as absent).
+	if !bob[0].CreatedAt.IsZero() || !bob[0].LastSeenAt.IsZero() {
+		t.Fatalf("bob's device carries created %v / last seen %v, want both zero", bob[0].CreatedAt, bob[0].LastSeenAt)
+	}
 	if fmt.Sprint(r.perm.calls) != fmt.Sprint([]string{uidCarol, uidBob, uidDan}) {
 		t.Fatalf("permission checked %v, want every other user in request order, never the caller", r.perm.calls)
 	}
@@ -335,8 +339,24 @@ func TestGetDevicesResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mine := got[uidA]; len(mine) != 1 || mine[0].PoolCount != 4 || !mine[0].HasLastResort {
-		t.Fatalf("own devices %+v, want pool 4 and a last resort", mine)
+	if mine := got[uidA]; len(mine) != 1 || mine[0].PoolCount != 4 || !mine[0].HasLastResort ||
+		!mine[0].CreatedAt.Equal(t0) || !mine[0].LastSeenAt.Equal(t0) {
+		t.Fatalf("own devices %+v, want pool 4, a last resort and both timestamps", mine)
+	}
+
+	// Two active devices of another user: oldest first, both without timestamps or counts.
+	r.clk.t = t0.Add(InactiveAfter - time.Hour)
+	got, err = r.svc.GetDevices(context.Background(), uidA, []string{uidBob})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bob := got[uidBob]; len(bob) != 2 || bob[0].ID != devB1 || bob[1].ID != devB2 {
+		t.Fatalf("bob = %+v, want devB1 then devB2", bob)
+	}
+	for _, d := range got[uidBob] {
+		if !d.CreatedAt.IsZero() || !d.LastSeenAt.IsZero() || d.PoolCount != 0 || d.HasLastResort {
+			t.Fatalf("bob's device %s carries %+v, want no timestamps and no counts", d.ID, d)
+		}
 	}
 }
 
@@ -412,6 +432,29 @@ func TestClaimConsumesThenLastResort(t *testing.T) {
 	}
 	if n := len(r.repo.pool[devKey(uidBob, "device-bob-000000003")]); n != 5 {
 		t.Fatalf("inactive device's pool = %d, want untouched 5", n)
+	}
+}
+
+// TestReplayedUploadAfterClaimReAddsConsumedPackage pins the documented replay behaviour at the service: upload P, a claim
+// takes P, the same upload again stores P again (the service does not remember consumed packages). See the repository
+// test of the same name and keys.proto (UploadKeyPackages).
+func TestReplayedUploadAfterClaimReAddsConsumedPackage(t *testing.T) {
+	r := newClaimRig(t)
+	p := []byte("package-P")
+	r.seed(t, uidBob, devB1, 2, nil, nil)
+	ctx := context.Background()
+	if n, _, err := r.svc.Upload(ctx, uidBob, devB1, [][]byte{p}, nil); err != nil || n != 1 {
+		t.Fatalf("upload = %d, %v", n, err)
+	}
+	cl, err := r.svc.Claim(ctx, uidA, uidBob, "")
+	if err != nil || len(cl) != 1 || !bytes.Equal(cl[0].KeyPackage, p) || cl[0].LastResort {
+		t.Fatalf("claim = %+v, %v; want P", cl, err)
+	}
+	if n, _, err := r.svc.Upload(ctx, uidBob, devB1, [][]byte{p}, nil); err != nil || n != 1 {
+		t.Fatalf("replayed upload = %d, %v; want P stored again", n, err)
+	}
+	if pool := r.repo.pool[devKey(uidBob, devB1)]; len(pool) != 1 || !bytes.Equal(pool[0], p) {
+		t.Fatalf("pool = %q, want [P]", pool)
 	}
 }
 

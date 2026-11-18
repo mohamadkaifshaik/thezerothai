@@ -8,8 +8,9 @@ package e2e
 // also needs the Pub/Sub and Storage emulators (like account_smoke_test.go) and skips without them.
 //
 // Scenario: A and B follow each other. A registers a device and uploads 3 key packages plus a last-resort package; B
-// registers. B claims A (one package, not last-resort, A's key; A's pool is then 2), B looks A up (counts zeroed). A blocks
-// B: B's claim and B's lookup answer CANNOT_MESSAGE, byte-identical to each other and to the answer for an unknown user.
+// registers. B claims A (one package, not last-resort, A's key; A's pool is then 2), B looks A up (counts zeroed, no
+// timestamps). A blocks B: B's claim and B's lookup answer CANNOT_MESSAGE, identical on the wire (raw HTTP: status, body
+// bytes, content type) to each other, to the answers for an unknown user and to those for a SUSPENDED user.
 // A caller without the flag (not in the allowlist, flag not globally off) gets FEATURE_DISABLED on the four gated RPCs
 // and can still list. No credentials answer 401 on all six procedures. Account deletion erases users/{A}/keyDevices.
 
@@ -18,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -30,6 +32,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/api/option"
 	pubsub "google.golang.org/api/pubsub/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
@@ -98,6 +101,40 @@ func keysWantReason(t *testing.T, err error, reason commonv1.ErrorReason, metaKe
 		t.Errorf("metadata[%s] = %q, want %q (all: %v)", metaKey, d.GetMetadata()[metaKey], metaVal, d.GetMetadata())
 	}
 	return wire
+}
+
+// keysWire is one raw HTTP answer as a client sees it: the status code, the Content-Type header and the body bytes.
+type keysWire struct {
+	status int
+	ctype  string
+	body   []byte
+}
+
+// keysRawPost calls a KeyService procedure the way any client would, without the Connect client: a Connect unary JSON
+// POST with the caller's bearer token, so the comparison below sees exactly the bytes on the wire.
+func keysRawPost(t *testing.T, baseURL, proc, token string, msg proto.Message) keysWire {
+	t.Helper()
+	body, err := protojson.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal %s request: %v", proc, err)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, baseURL+proc, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", proc, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read %s response: %v", proc, err)
+	}
+	return keysWire{status: resp.StatusCode, ctype: resp.Header.Get("Content-Type"), body: raw}
 }
 
 type keysSmokeUser struct{ token, uid string }
@@ -192,6 +229,13 @@ func TestE2E_KeysSmoke_RegisterClaimBlockFlag(t *testing.T) {
 	if d := users[0].GetDevices()[0]; d.GetDeviceId() != devA || !bytes.Equal(d.GetSignaturePublicKey(), sigA) || d.GetKeyPackageCount() != 0 || d.GetHasLastResort() {
 		t.Fatalf("A's device as seen by B = %v, want id %s, A's key, counts zeroed", d, devA)
 	}
+	// Another user's device carries no timestamps; the owner's own list keeps them.
+	if d := users[0].GetDevices()[0]; d.GetCreatedAt() != nil || d.GetLastSeenAt() != nil {
+		t.Fatalf("A's device as seen by B carries created_at %v / last_seen_at %v, want both absent", d.GetCreatedAt(), d.GetLastSeenAt())
+	}
+	if d := mine.Msg.GetDevices()[0]; d.GetCreatedAt() == nil || d.GetLastSeenAt() == nil {
+		t.Fatalf("A's own device lost its timestamps: %v", d)
+	}
 
 	// A blocks B (the real graph service): B's claim and lookup refuse, byte-identical to each other and to an unknown user.
 	if _, err := graph.Block(ctx, authedRequest(a.token, &graphv1.BlockRequest{IdempotencyKey: keysKey("block"), UserId: b.uid})); err != nil {
@@ -206,6 +250,51 @@ func TestE2E_KeysSmoke_RegisterClaimBlockFlag(t *testing.T) {
 	unkWire := keysWantReason(t, unkErr, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, "", "")
 	if claimWire != lookWire || lookWire != unkWire {
 		t.Fatalf("the refusals differ on the wire:\n  blocked claim  %q\n  blocked lookup %q\n  unknown lookup %q", claimWire, lookWire, unkWire)
+	}
+
+	// The same comparison on the raw HTTP answer (status, body bytes, content type), adding an unknown-user claim and a
+	// SUSPENDED target. D's profile is created on a second instance and suspended in Firestore, so this instance never
+	// cached D as ACTIVE.
+	tokD, uidD := newAnonymousIDToken(t)
+	identD, _ := newTestServerCfg(t, func(c *config.Config) {
+		c.FeatureMessaging = flags.Spec{Name: "messaging", Mode: flags.On}
+		c.RateLimit.PreAuthIPPerMinute = 100000
+	})
+	keysSmokeUser{tokD, uidD}.withProfile(t, identD, "d")
+	fsCfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, err := firestore.NewClient(ctx, fsCfg.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fs.Close() })
+	if _, err := fs.Doc("users/"+uidD).Update(ctx, []firestore.Update{{Path: "status", Value: "SUSPENDED"}}); err != nil {
+		t.Fatalf("suspend D: %v", err)
+	}
+	const unknownUID = "NoSuchUserAnywhere0000000000"
+	claimProc, lookProc := keysv1connect.KeyServiceClaimKeyPackagesProcedure, keysv1connect.KeyServiceGetKeyDevicesProcedure
+	raw := []struct {
+		name string
+		got  keysWire
+	}{
+		{"blocked claim", keysRawPost(t, baseURL, claimProc, b.token, &keysv1.ClaimKeyPackagesRequest{IdempotencyKey: keysKey("raw-claim-blocked"), UserId: a.uid})},
+		{"blocked lookup", keysRawPost(t, baseURL, lookProc, b.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{a.uid}})},
+		{"unknown-user lookup", keysRawPost(t, baseURL, lookProc, b.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{unknownUID}})},
+		{"unknown-user claim", keysRawPost(t, baseURL, claimProc, b.token, &keysv1.ClaimKeyPackagesRequest{IdempotencyKey: keysKey("raw-claim-unknown"), UserId: unknownUID})},
+		{"suspended-user claim", keysRawPost(t, baseURL, claimProc, b.token, &keysv1.ClaimKeyPackagesRequest{IdempotencyKey: keysKey("raw-claim-suspended"), UserId: uidD})},
+		{"suspended-user lookup", keysRawPost(t, baseURL, lookProc, b.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{uidD}})},
+	}
+	want := raw[0].got
+	if want.status == http.StatusOK || len(want.body) == 0 || !strings.Contains(string(want.body), "failed_precondition") {
+		t.Fatalf("blocked claim on the wire = HTTP %d %q %s, want a failed_precondition error", want.status, want.ctype, want.body)
+	}
+	for _, r := range raw[1:] {
+		if r.got.status != want.status || r.got.ctype != want.ctype || !bytes.Equal(r.got.body, want.body) {
+			t.Errorf("%s differs on the wire from the blocked claim:\n  got  HTTP %d %q %s\n  want HTTP %d %q %s",
+				r.name, r.got.status, r.got.ctype, r.got.body, want.status, want.ctype, want.body)
+		}
 	}
 
 	// Flag off for the caller (C is not on the allowlist): the four gated RPCs answer FEATURE_DISABLED / e2ee_dm before any lookup.
