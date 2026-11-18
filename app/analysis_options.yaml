@@ -18,10 +18,8 @@ analyzer:
     - lib/gen/**
     - "**/*.freezed.dart"
     - "**/*.g.dart"
-    # flutter_rust_bridge output (`flutter_rust_bridge_codegen generate`) and
-    # its vendored Cargokit build tool.
+    # flutter_rust_bridge output (`flutter_rust_bridge_codegen generate`).
     - lib/core/crypto/frb_generated/**
-    - rust_builder/cargokit/**
 
 linter:
   # The lint rules applied to this project can be customized in the

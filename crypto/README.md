@@ -113,8 +113,8 @@ calls `dzmls` through flutter_rust_bridge 2.13.0. Every other non-web platform, 
 
 | Path | What it is |
 |---|---|
-| `app/rust/` | The `dzmls_flutter` crate: one function per `dzmls` function (`src/api.rs`), no logic. Its own workspace and `Cargo.lock` (seeded from `crypto/Cargo.lock`, so the shared crates are the same versions), `rust-toolchain.toml` pinned to 1.100.0, release profile `opt-level = "z"`, `lto`, `codegen-units = 1`, `strip`, **`panic = "unwind"`**. `cargokit.yaml` passes `--locked` to every build. |
-| `app/rust_builder/` | The build glue `flutter_rust_bridge_codegen integrate` generated (Cargokit), cut down to Android: the plugin declares only `android`, so iOS, macOS, Linux, Windows and web builds neither build nor bundle Rust. |
+| `app/rust/` | The `dzmls_flutter` crate: one function per `dzmls` function (`src/api.rs`), no logic. Its own workspace and `Cargo.lock` (seeded from `crypto/Cargo.lock`, so the shared crates are the same versions), `rust-toolchain.toml` pinned to 1.100.0, release profile `opt-level = "z"`, `lto`, `codegen-units = 1`, `strip`, **`panic = "unwind"`**. |
+| `app/rust_builder/` | A hand-maintained, Android-only FFI plugin: `pubspec.yaml` declares only `android` (so iOS, macOS, Linux, Windows and web builds neither build nor bundle Rust), and `android/build.gradle` builds the library with `cargo ndk`. Do not re-run `flutter_rust_bridge_codegen integrate`: it would put the Cargokit glue back (`test/guards/rust_build_guard_test.dart` fails if it does). |
 | `app/lib/core/crypto/frb_generated/`, `app/rust/src/frb_generated.rs` | Generated; never edit. Excluded from analysis. |
 | `app/flutter_rust_bridge.yaml` | The codegen config. |
 
@@ -135,34 +135,43 @@ cargo deny --config ../../crypto/deny.toml check
 
 ### How the Android build runs Rust
 
-`flutter build apk|appbundle` → Gradle → the Cargokit plugin (`app/rust_builder/cargokit/gradle/plugin.gradle`) adds a
-`cargokitCargoBuildDzmls_flutter<BuildType>` task before `merge<BuildType>NativeLibs`. It runs
-`run_build_tool.sh` (`.cmd` on Windows), which `dart pub get`s and compiles Cargokit's Dart build tool, which then runs,
-per ABI, `rustup run 1.100.0 cargo build --locked --manifest-path app/rust/Cargo.toml -p dzmls_flutter --release
---target <triple> --target-dir app/build/dzmls_flutter/build` with the NDK's clang as linker, and copies
-`libdzmls_flutter.so` into the APK/AAB. Release builds `arm64-v8a`, `armeabi-v7a`, `x86_64`; debug builds the
-`--target-platform` ABIs plus `x86_64` (for the emulator).
+`app/rust_builder/android/build.gradle` registers `cargoNdkBuild<BuildType>` (debug, profile, release). Every task of
+that module that merges or copies native libraries (`merge<BuildType>NativeLibs`, `merge<BuildType>JniLibFolders`,
+`copy<BuildType>JniLibs…`) depends on it. It runs, in `app/rust`:
 
-Local changes to the vendored Cargokit (each marked `Local change (dzeroth)`):
+```
+cargo ndk --platform <app minSdk, 24> -t <abi>... -o app/build/dzmls_flutter/rustJniLibs/<buildType> build --locked [--release]
+```
 
-- `build_tool/lib/src/builder.dart`: the toolchain is the `channel` of `app/rust/rust-toolchain.toml` (stock Cargokit
-  always runs `rustup run stable`); a missing toolchain or target fails the build with the `rustup` command to run,
-  instead of installing it during the build.
-- `build_tool/lib/src/rustup.dart`: version-pinned toolchains such as `1.100.0` are recognised as installed.
-- `gradle/plugin.gradle`: debug builds no longer add `android-x86` (`i686-linux-android`).
+- **Toolchain:** `cargo` is rustup's proxy run in `app/rust`, so the toolchain is the one `app/rust/rust-toolchain.toml`
+  pins (1.100.0). `RUSTUP_AUTO_INSTALL=0` stops rustup from downloading it.
+- **Profiles:** debug uses cargo's dev profile; profile and release use `--release`.
+- **ABIs:** the ones Flutter passes as `-Ptarget-platform`, which is all three (`arm64-v8a`, `armeabi-v7a`, `x86_64`)
+  for an app bundle and the device's ABI for `flutter run`. A plain Gradle build without the property builds all three.
+- **Output:** a build directory (`app/build/…`, ignored) added as that build type's `jniLibs`, cleared before every
+  run. Cargo's own cache is `app/rust/target` (ignored).
+- **NDK and minSdk:** taken from the app module (`flutter.ndkVersion`, `flutter.minSdkVersion`), with
+  `ANDROID_NDK_HOME` set to `<sdk>/ndk/<version>`.
+- **16 KB pages:** cargo-ndk 4.1.2 passes `-Wl,-z,max-page-size=16384` itself only for NDK ≤ 27; NDK r28's linker
+  uses 16 KB pages by default (the 64-bit libraries' LOAD segments are 0x4000-aligned).
+- **Always runs:** the task runs on every build and relies on cargo's incremental build. Cargo already tracks every
+  input exactly (both crates, `Cargo.lock`, toolchain, flags); a no-op takes about a second per ABI.
+- **Finding the tools:** `cargo`, `cargo-ndk` and `rustc` are looked up on `PATH`, then in `$CARGO_HOME/bin`
+  (default `~/.cargo/bin`, `%USERPROFILE%\.cargo\bin` on Windows). A Gradle daemon started without Rust on its PATH
+  still finds them.
+- **Installs nothing:** a missing NDK, `cargo`/`rustc`, `cargo-ndk`, toolchain or Rust target fails the build with a
+  message naming the command to run. Nothing is installed during the build.
 
-**What a build machine (CI runner) needs before `flutter build appbundle`:**
+**What a developer machine or CI runner needs before any Android build (`flutter build apk|appbundle`, `flutter run`):**
 
-- `rustup` with toolchain `1.100.0` (profile minimal) and the targets `aarch64-linux-android`,
-  `armv7-linux-androideabi`, `x86_64-linux-android` added to it:
-  `rustup toolchain install 1.100.0 --profile minimal --target aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android`.
-  Cargokit finds `rustup` on `PATH` or in `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on Windows).
-- The Android NDK `28.2.13676358` (Flutter's `flutter.ndkVersion`, which `app/android/app/build.gradle.kts` uses).
-  If it is missing, Cargokit (like the Android Gradle plugin) installs it with `sdkmanager`; install it beforehand.
-- Network access to crates.io (the crates in `app/rust/Cargo.lock`) and to pub.dev: Cargokit's build tool resolves its
-  own Dart dependencies (pinned in `app/rust_builder/cargokit/build_tool/pubspec.yaml`) with `dart pub get` on its
-  first run. Nothing else is downloaded; there are no precompiled binaries.
-- Nothing else: no `cargo-ndk`, no MSVC (on Windows the GNU host toolchain works), no `minSdk` change (24).
+- rustup with toolchain 1.100.0 and the three Android targets:
+  `rustup toolchain install 1.100.0 --profile minimal --component rustfmt,clippy --target aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android`
+- cargo-ndk: `cargo install --locked --version 4.1.2 cargo-ndk`.
+- The Android NDK `28.2.13676358` (Flutter's `flutter.ndkVersion`), installed beforehand:
+  `sdkmanager "ndk;28.2.13676358"`.
+- At build time, network access to crates.io only (the crates in `app/rust/Cargo.lock`, `--locked`), besides what the
+  Android Gradle build itself already fetches. No precompiled binaries. MSVC is not needed: on Windows the GNU host
+  toolchain works.
 
 ### Panics, logging, loading
 
@@ -193,12 +202,13 @@ Sizes of `libdzmls_flutter.so` in the release app bundle (measured 2026-11-18, s
 
 | ABI | Size | Compressed |
 |---|---|---|
-| `arm64-v8a` | 1,706,600 B | 938,020 B |
-| `armeabi-v7a` | 1,297,368 B | 859,395 B |
-| `x86_64` | 2,040,200 B | 979,756 B |
+| `arm64-v8a` | 1,705,816 B | 937,690 B |
+| `armeabi-v7a` | 1,297,384 B | 859,334 B |
+| `x86_64` | 2,039,488 B | 979,880 B |
 
-The release `.aab` grew by 5,556,328 B (96,259,678 → 101,816,006): the bundle stores each library twice (in `base/lib/`
-and as debug-symbol metadata), and the Dart code (`libapp.so`) is unchanged. A device downloads only its own ABI.
+The release `.aab` grew by 3,637,650 B (96,259,678 → 99,897,328). That is the three libraries, plus a second copy of
+the `armeabi-v7a` one that the bundle keeps as debug-symbol metadata. The Dart code (`libapp.so`) is unchanged. A
+device downloads only its own ABI. Two release builds from the same sources produced byte-identical libraries.
 
 ## Key package and leaf lifetime
 
