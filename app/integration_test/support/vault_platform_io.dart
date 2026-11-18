@@ -19,3 +19,30 @@ bool webCipherPersisted(VaultCipher cipher) => _webOnly();
 
 /// Web only: `navigator.storage.persisted()`, never throwing.
 Future<bool> webStoragePersisted() async => _webOnly();
+
+/// Web only: the stored record of [uid] in words.
+Future<String> describeStoredVaultKey(String uid) async => _webOnly();
+
+/// Web only: stores a record that is not the vault's kind of key.
+Future<void> storeWrongVaultKey(String uid, String kind) async => _webOnly();
+
+/// Web only: makes the vault's key validation throw.
+void setVaultKeyCheckFault(bool fail) => _webOnly();
+
+/// Web only: idbOpen blocked, then a late success.
+Future<(String, String)> idbBlockedThenLateOutcome() async => _webOnly();
+
+/// Web only: our connection closes itself on versionchange.
+Future<String> idbVersionChangeOutcome() async => _webOnly();
+
+/// Web only: idbRun with a throwing body.
+Future<(String, int)> idbThrowingBodyOutcome() async => _webOnly();
+
+/// Web only: idbRun with a duplicate add.
+Future<(String, int)> idbDuplicateAddOutcome() async => _webOnly();
+
+/// Web only: idbRun with an uncloneable put.
+Future<(String, int)> idbUncloneablePutOutcome() async => _webOnly();
+
+/// Web only: runs a hook in destroy just before the record is deleted.
+void setBeforeVaultKeyDeleteHook(void Function()? hook) => _webOnly();

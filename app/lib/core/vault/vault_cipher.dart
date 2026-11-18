@@ -10,12 +10,14 @@ import 'package:dzeroth/core/vault/vault_cipher_stub.dart'
 
 /// Seals and opens the rows of the encrypted local vault for one user.
 ///
-/// Rows are AES-256-GCM under a random 32-byte data key that lives only in
-/// memory; the platform keeps it wrapped by a non-exportable key (Android
-/// Keystore). The associated data is `utf8("$table|$rowKey")`, so a value
-/// moved to another row or table fails to open.
+/// Rows are AES-256-GCM under a 256-bit key: on Android a random data key
+/// held in memory and stored wrapped by a non-exportable Android Keystore
+/// key; on the web a non-extractable WebCrypto key kept in IndexedDB, used
+/// by WebCrypto directly so its bytes are never readable. The associated
+/// data is `utf8("$table|$rowKey")`, so a value moved to another row or
+/// table fails to open.
 ///
-/// The data key never appears in an error, a log or [Object.toString].
+/// The key never appears in an error, a log or [Object.toString].
 abstract interface class VaultCipher {
   /// True when [openVaultCipher] found no stored key for this user and made a
   /// new one. The vault treats "existing vault data + a fresh key" as key loss.
@@ -36,10 +38,13 @@ abstract interface class VaultCipher {
   /// [VaultKeyFailure.unavailable]. Throws [StateError] after [destroy].
   Future<Uint8List> open(String table, String rowKey, Uint8List sealed);
 
-  /// Zeroes the in-memory key, then deletes the platform key and the stored
-  /// wrapped key for this user. Every later call, [destroy] included, throws
-  /// [StateError]. If the platform delete fails the cipher is still ended and
-  /// this throws [VaultKeyException] with [VaultKeyFailure.unavailable].
+  /// Ends this cipher and deletes the stored key for this user. New calls
+  /// are refused at once ([StateError], [destroy] included); calls already in
+  /// flight finish first under the key (on the web the wait is at most 5 s).
+  /// Then the in-memory key is dropped (zeroed on Android, where its bytes
+  /// are in memory) and the platform key and stored record are deleted. If
+  /// the platform delete fails the cipher is still ended and this throws
+  /// [VaultKeyException] with [VaultKeyFailure.unavailable].
   Future<void> destroy();
 }
 

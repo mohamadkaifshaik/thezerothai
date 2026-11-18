@@ -9,6 +9,7 @@
 //     --browser-name=chrome --driver-port=4455 --headless [--wasm]
 // Groups are gated by platform; no dart:io import here, so it also compiles
 // for the web.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
@@ -163,9 +164,11 @@ void main() {
         }
       }
       live.clear();
-      // Whatever the test left (a junk record, a key from a reopen).
+      setVaultKeyCheckFault(false);
+      setBeforeVaultKeyDeleteHook(null);
+      // Cleanup only (assertions are in the test bodies; flutter drive does
+      // not report a tearDown failure): whatever the test left.
       await deleteStoredVaultKey(uid);
-      expect(await storedVaultKeyExists(uid), isFalse);
     });
 
     Future<VaultCipher> open() async {
@@ -310,43 +313,145 @@ void main() {
       tester,
     ) async {
       final cipher = await open();
-      final value = Uint8List.fromList(List.generate(4096, (i) => i & 0xff));
+      // 1 MiB values, so the calls take a while.
+      final value = Uint8List.fromList(
+        List.generate(1024 * 1024, (i) => i & 0xff),
+      );
       final sealed = await cipher.seal('messages', 'r0', value);
       // A second cipher on the same key keeps it in memory after the record
       // is deleted, so it can check what the in-flight seals produced.
       final reader = await open();
       expect(reader.freshlyCreated, isFalse);
+      var finished = 0;
+      Future<Uint8List> counted(Future<Uint8List> call) =>
+          call.whenComplete(() => finished++);
       // Started before destroy and not awaited yet.
       final seals = [
-        for (var i = 0; i < 20; i++) cipher.seal('messages', 'r$i', value),
+        for (var i = 0; i < 16; i++)
+          counted(cipher.seal('messages', 'r$i', value)),
       ];
       final opens = [
-        for (var i = 0; i < 20; i++) cipher.open('messages', 'r0', sealed),
+        for (var i = 0; i < 16; i++)
+          counted(cipher.open('messages', 'r0', sealed)),
       ];
+      // Read in a microtask queued by the hook: the last call's own
+      // completion callback is already queued then (the drain completes in
+      // its finally block, just before it returns). Without the wait the hook
+      // runs before any call has finished, which needs WebCrypto tasks.
+      int? finishedAtDelete;
+      setBeforeVaultKeyDeleteHook(
+        () => scheduleMicrotask(() => finishedAtDelete = finished),
+      );
       final destroyed = cipher.destroy();
       // Started after destroy: refused.
-      await expectLater(cipher.seal('messages', 'x', value), throwsStateError);
+      final refused = expectLater(
+        cipher.seal('messages', 'x', value),
+        throwsStateError,
+      );
+      await destroyed;
+      final finishedAtDestroy = finished;
+      // Every call in flight had finished before the delete started (this
+      // fails if destroy does not wait) and when destroy returned.
+      expect(finishedAtDelete, seals.length + opens.length);
+      expect(finishedAtDestroy, seals.length + opens.length);
+      await refused;
       await expectLater(
         cipher.open('messages', 'r0', sealed),
         throwsStateError,
       );
-      await destroyed;
       expect(await storedVaultKeyExists(uid), isFalse);
+      // They ran under the key, to the right result.
       for (var i = 0; i < seals.length; i++) {
-        try {
-          final out = await seals[i];
-          expect(await reader.open('messages', 'r$i', out), value);
-        } on StateError {
-          // Refused, never a wrong result.
-        }
+        expect(await reader.open('messages', 'r$i', await seals[i]), value);
       }
       for (final o in opens) {
-        try {
-          expect(await o, value);
-        } on StateError {
-          // Refused, never a wrong result.
-        }
+        expect(await o, value);
       }
+    });
+
+    for (final kind in ['extractable-gcm', 'aes-cbc', 'null']) {
+      testWidgets('a stored $kind record is keyLost and is not overwritten', (
+        tester,
+      ) async {
+        await storeWrongVaultKey(uid, kind);
+        final before = await describeStoredVaultKey(uid);
+        expect(before, isNot('missing'));
+        await expectLater(
+          openVaultCipher(uid: uid, engine: engine),
+          throwsA(
+            isA<VaultKeyException>().having(
+              (e) => e.failure,
+              'failure',
+              VaultKeyFailure.keyLost,
+            ),
+          ),
+        );
+        expect(await describeStoredVaultKey(uid), before);
+      });
+    }
+
+    testWidgets('a key validation that throws is unavailable, not keyLost', (
+      tester,
+    ) async {
+      final first = await open();
+      final sealed = await first.seal('messages', 'r1', _b('kept'));
+      final before = await describeStoredVaultKey(uid);
+      expect(before, 'CryptoKey AES-GCM 256 extractable=false');
+      setVaultKeyCheckFault(true);
+      try {
+        await expectLater(
+          openVaultCipher(uid: uid, engine: engine),
+          throwsA(
+            isA<VaultKeyException>().having(
+              (e) => e.failure,
+              'failure',
+              VaultKeyFailure.unavailable,
+            ),
+          ),
+        );
+      } finally {
+        setVaultKeyCheckFault(false);
+      }
+      expect(await describeStoredVaultKey(uid), before);
+      final again = await open();
+      expect(again.freshlyCreated, isFalse);
+      expect(await again.open('messages', 'r1', sealed), _b('kept'));
+    });
+
+    testWidgets('idbOpen: a blocked open fails at once; a late one is closed', (
+      tester,
+    ) async {
+      final (first, later) = await idbBlockedThenLateOutcome();
+      expect(first, 'BlockedError');
+      expect(later, 'opened');
+    });
+
+    testWidgets('idbOpen: our connection gives way to a version change', (
+      tester,
+    ) async {
+      expect(await idbVersionChangeOutcome(), 'opened');
+    });
+
+    testWidgets('idbRun: a throwing body aborts; nothing is written', (
+      tester,
+    ) async {
+      final (outcome, count) = await idbThrowingBodyOutcome();
+      expect(outcome, isNot('completed'));
+      expect(count, 0);
+    });
+
+    testWidgets('idbRun: a duplicate add aborts with ConstraintError', (
+      tester,
+    ) async {
+      expect(await idbDuplicateAddOutcome(), ('ConstraintError', 0));
+    });
+
+    testWidgets('idbRun: an uncloneable value aborts; nothing is written', (
+      tester,
+    ) async {
+      final (outcome, count) = await idbUncloneablePutOutcome();
+      expect(outcome, isNot('completed'));
+      expect(count, 0);
     });
 
     testWidgets('200 seal + open of 1 KB values take under 2 s', (

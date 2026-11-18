@@ -138,6 +138,15 @@ extension type IDBDatabase(JSObject _) implements JSObject {
   external DOMStringList get objectStoreNames;
   external IDBObjectStore createObjectStore(String name);
   external IDBTransaction transaction(String storeNames, String mode);
+
+  /// [transaction] with options (`{durability: 'strict'}`); browsers ignore
+  /// members they do not know.
+  @JS('transaction')
+  external IDBTransaction transactionWith(
+    String storeNames,
+    String mode,
+    JSObject options,
+  );
   external void close();
   external set onversionchange(JSFunction? handler);
 }
@@ -156,6 +165,12 @@ extension type IDBTransaction(JSObject _) implements JSObject {
 extension type IDBObjectStore(JSObject _) implements JSObject {
   external IDBRequest get(String key);
   external IDBRequest put(JSAny? value, String key);
+
+  /// Fails with ConstraintError when [key] already has a record.
+  external IDBRequest add(JSAny? value, String key);
+
+  /// The number of records with [key] (all records for null).
+  external IDBRequest count(JSAny? key);
   external IDBRequest delete(String key);
 }
 
@@ -216,16 +231,17 @@ Future<JSAny?> settle(JSPromise<JSAny?> promise) {
 
 /// Opens database [name] at [version]. [onUpgrade] runs inside the
 /// versionchange transaction (create stores there); if it throws, the upgrade
-/// is aborted. An error, an abort or a `blocked` open completes with
-/// [WebOperationError]; a connection that opens after a `blocked` failure is
-/// closed at once. The connection closes itself when another one needs a
+/// is aborted. An error, an abort, a `blocked` open or no answer within
+/// [timeout] completes with [WebOperationError]; a connection that opens
+/// after such a failure is closed at once. The connection closes itself when another one needs a
 /// version change, so it never blocks one.
 Future<IDBDatabase> idbOpen(
   IDBFactory factory,
   String name,
   int version,
-  void Function(IDBDatabase db) onUpgrade,
-) {
+  void Function(IDBDatabase db) onUpgrade, {
+  Duration timeout = const Duration(seconds: 10),
+}) {
   final completer = Completer<IDBDatabase>();
   final IDBOpenDBRequest request;
   try {
@@ -233,6 +249,14 @@ Future<IDBDatabase> idbOpen(
   } on Object {
     return Future.error(const WebOperationError('Error'));
   }
+  final timer = Timer(timeout, () {
+    if (!completer.isCompleted) {
+      completer.completeError(const WebOperationError('TimeoutError'));
+    }
+  });
+  completer.future
+      .then<void>((_) {}, onError: (Object _) {})
+      .whenComplete(timer.cancel);
   request
     ..onupgradeneeded = ((JSAny? _) {
       try {
@@ -298,12 +322,19 @@ Future<void> idbRun(
   IDBDatabase db,
   String store,
   String mode,
-  void Function(IDBTransaction tx, IDBObjectStore store) body,
-) {
+  void Function(IDBTransaction tx, IDBObjectStore store) body, {
+  bool strict = false,
+}) {
   final completer = Completer<void>();
   final IDBTransaction tx;
   try {
-    tx = db.transaction(store, mode);
+    tx = strict
+        ? db.transactionWith(
+            store,
+            mode,
+            JSObject()..setProperty('durability'.toJS, 'strict'.toJS),
+          )
+        : db.transaction(store, mode);
     tx
       ..oncomplete = ((JSAny? _) {
         if (!completer.isCompleted) completer.complete();

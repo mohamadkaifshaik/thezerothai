@@ -9,16 +9,26 @@
 //
 // Failure mapping (mirrors the Android cipher):
 //   no secure context, no crypto.subtle, no indexedDB, an IndexedDB open
-//   error or `blocked`, any request or transaction error (quota, security,
-//   abort), a key that cannot be generated or stored, a stored key that does
-//   not read back                         -> VaultKeyException(unavailable)
-//   no record (a successful read finds nothing) -> a new key, freshlyCreated
-//   a record that is not a usable non-extractable AES-256-GCM CryptoKey
+//   error, `blocked` or 10 s timeout, any request or transaction error
+//   (quota, security, abort), a key that cannot be generated or stored, a
+//   new key that does not read back, a key check that throws
+//                                         -> VaultKeyException(unavailable)
+//   no record (a successful count finds none) -> a new key, freshlyCreated
+//   a record that exists (its value may be null) and is observably not a
+//   non-extractable AES-256-GCM CryptoKey with encrypt and decrypt
 //                                         -> VaultKeyException(keyLost)
 //   decrypt rejects with OperationError, or the value is too short
 //                                         -> VaultRowException
 //   any other encrypt/decrypt rejection   -> VaultKeyException(unavailable)
-// A transient IndexedDB error is never keyLost.
+// A transient or environmental failure is never keyLost: a later task wipes
+// message history on key loss. An existing record is never overwritten (the
+// create transaction uses `add`).
+//
+// freshlyCreated is not a key-loss detector on its own. Of two concurrent
+// openers exactly one normally reports it, but zero is possible: a tab that
+// dies between the commit of its new key and its return leaves a key that
+// every later opener adopts as not fresh. Callers must also check the vault's
+// own data (a sentinel row) to detect key loss.
 //
 // Web only (dart:js_interop); reached through the conditional import in
 // vault_cipher.dart. Nothing here logs.
@@ -44,6 +54,16 @@ const webVaultKeyDatabaseVersion = 1;
 @visibleForTesting
 const webVaultKeyStore = 'keys';
 
+/// Tests only: makes key validation throw.
+@visibleForTesting
+bool debugFailWebVaultKeyCheck = false;
+
+/// Tests only: runs in [WebVaultCipher.destroy] after the wait for calls in
+/// flight, just before the key is dropped and the record deleted.
+@visibleForTesting
+void Function()? debugBeforeWebVaultKeyDelete;
+
+const _destroyWait = Duration(seconds: 5);
 const _nonceLength = 12;
 const _tagLength = 16;
 const _maxPlaintext = 1024 * 1024;
@@ -94,16 +114,20 @@ Future<void> _requestPersistence() async {
   _persistRequested = true;
   final storage = storageManagerOrNull();
   if (storage == null) return;
-  unawaited(
-    settle(storage.persist()).then(
-      (answer) {
-        if (_isTrue(answer)) _pagePersisted = true;
-      },
-      onError: (Object _) {
-        // Refused or not supported: the answer stays false.
-      },
-    ),
-  );
+  try {
+    unawaited(
+      settle(storage.persist()).then(
+        (answer) {
+          if (_isTrue(answer)) _pagePersisted = true;
+        },
+        onError: (Object _) {
+          // Refused or not supported: the answer stays false.
+        },
+      ),
+    );
+  } on Object {
+    // persist() missing or throwing synchronously: the answer stays false.
+  }
 }
 
 bool _isTrue(JSAny? value) =>
@@ -145,12 +169,27 @@ Future<IDBDatabase> _openDb(_Env env) async {
   }
 }
 
-/// Reads the record of [alias]: null when a successful read found nothing.
-/// Any IndexedDB failure is [VaultKeyFailure.unavailable], never "missing".
-Future<JSAny?> _readRecord(IDBDatabase db, String alias) async {
+/// A record as read: whether it exists (counted, so a record whose value is
+/// null or undefined still exists) and its value.
+typedef _Record = ({bool exists, JSAny? value});
+
+/// Reads the record of [alias] in one readonly transaction. Any IndexedDB
+/// failure is [VaultKeyFailure.unavailable], never "missing".
+Future<_Record> _readRecord(IDBDatabase db, String alias) async {
+  int? count;
   JSAny? value;
   try {
     await idbRun(db, webVaultKeyStore, 'readonly', (tx, store) {
+      final counted = store.count(alias.toJS);
+      counted.onsuccess = ((JSAny? _) {
+        try {
+          final n = counted.result;
+          if (n == null || !n.isA<JSNumber>()) throw StateError('count');
+          count = (n as JSNumber).toDartInt;
+        } on Object {
+          abortQuietly(tx);
+        }
+      }).toJS;
       final request = store.get(alias);
       request.onsuccess = ((JSAny? _) {
         try {
@@ -163,41 +202,32 @@ Future<JSAny?> _readRecord(IDBDatabase db, String alias) async {
   } on Object {
     throw _unavailable;
   }
-  return value;
+  final n = count;
+  if (n == null) throw _unavailable;
+  return (exists: n > 0, value: value);
 }
 
-/// In one readwrite transaction: reads the record of [alias] and, only if
-/// there is none, stores [candidate]. Readwrite transactions on one store run
-/// one at a time, so of two openers racing here exactly one stores its key and
-/// the other adopts it. Returns null when [candidate] was stored, else the
-/// record found.
-Future<JSAny?> _storeIfAbsent(
+/// Stores [candidate] under [alias] with `add`, which never overwrites: true
+/// when it was stored, false when a record already existed (ConstraintError;
+/// another opener won). Durability strict. Any other failure, including a
+/// CryptoKey that cannot be cloned (DataCloneError), is
+/// [VaultKeyFailure.unavailable].
+Future<bool> _addRecord(
   IDBDatabase db,
   String alias,
   CryptoKey candidate,
 ) async {
-  JSAny? existing;
   try {
     await idbRun(db, webVaultKeyStore, 'readwrite', (tx, store) {
-      final request = store.get(alias);
-      request.onsuccess = ((JSAny? _) {
-        try {
-          final found = request.result;
-          if (found == null) {
-            // A CryptoKey that cannot be cloned (DataCloneError) throws here.
-            store.put(candidate, alias);
-          } else {
-            existing = found;
-          }
-        } on Object {
-          abortQuietly(tx);
-        }
-      }).toJS;
-    });
+      store.add(candidate, alias);
+    }, strict: true);
+    return true;
+  } on WebOperationError catch (e) {
+    if (e.name == 'ConstraintError') return false;
+    throw _unavailable;
   } on Object {
     throw _unavailable;
   }
-  return existing;
 }
 
 Future<void> _deleteRecord(_Env env, String alias) async {
@@ -205,7 +235,7 @@ Future<void> _deleteRecord(_Env env, String alias) async {
   try {
     await idbRun(db, webVaultKeyStore, 'readwrite', (tx, store) {
       store.delete(alias);
-    });
+    }, strict: true);
   } on Object {
     throw _unavailable;
   } finally {
@@ -213,40 +243,76 @@ Future<void> _deleteRecord(_Env env, String alias) async {
   }
 }
 
-/// [value] as the vault key, or null when it is not a non-extractable
-/// AES-256-GCM secret key that can encrypt and decrypt.
-CryptoKey? _asVaultKey(JSAny? value) {
+/// The outcome of checking a stored value: the key, a positive mismatch
+/// (observably not the vault's kind of key: keyLost), or a check that threw
+/// (environmental: unavailable).
+sealed class _KeyCheck {
+  const _KeyCheck();
+}
+
+final class _ValidKey extends _KeyCheck {
+  const _ValidKey(this.key);
+  final CryptoKey key;
+}
+
+final class _Mismatch extends _KeyCheck {
+  const _Mismatch();
+}
+
+final class _CheckFailed extends _KeyCheck {
+  const _CheckFailed();
+}
+
+/// Checks that [value] is a non-extractable AES-256-GCM secret CryptoKey
+/// that can encrypt and decrypt.
+_KeyCheck _checkKey(JSAny? value) {
+  const mismatch = _Mismatch();
   try {
-    if (value == null || !value.isA<JSObject>()) return null;
+    if (debugFailWebVaultKeyCheck) throw StateError('test fault');
+    if (value == null || !value.isA<JSObject>()) return mismatch;
     final object = value as JSObject;
-    if (!object.instanceOfString('CryptoKey')) return null;
+    if (!object.instanceOfString('CryptoKey')) return mismatch;
     final key = CryptoKey(object);
     final type = key.type;
-    if (type == null || !type.isA<JSString>()) return null;
-    if ((type as JSString).toDart != 'secret') return null;
+    if (type == null || !type.isA<JSString>()) return mismatch;
+    if ((type as JSString).toDart != 'secret') return mismatch;
     final extractable = key.extractable;
-    if (extractable == null || !extractable.isA<JSBoolean>()) return null;
-    if ((extractable as JSBoolean).toDart) return null;
+    if (extractable == null || !extractable.isA<JSBoolean>()) return mismatch;
+    if ((extractable as JSBoolean).toDart) return mismatch;
     final algorithm = key.algorithm;
-    if (algorithm == null || !algorithm.isA<JSObject>()) return null;
+    if (algorithm == null || !algorithm.isA<JSObject>()) return mismatch;
     final name = (algorithm as JSObject).getProperty<JSAny?>('name'.toJS);
     final length = algorithm.getProperty<JSAny?>('length'.toJS);
-    if (name == null || !name.isA<JSString>()) return null;
-    if ((name as JSString).toDart != 'AES-GCM') return null;
-    if (length == null || !length.isA<JSNumber>()) return null;
-    if ((length as JSNumber).toDartInt != 256) return null;
+    if (name == null || !name.isA<JSString>()) return mismatch;
+    if ((name as JSString).toDart != 'AES-GCM') return mismatch;
+    if (length == null || !length.isA<JSNumber>()) return mismatch;
+    if ((length as JSNumber).toDartInt != 256) return mismatch;
     final usages = key.usages;
-    if (usages == null || !usages.isA<JSArray>()) return null;
+    if (usages == null || !usages.isA<JSArray>()) return mismatch;
     final names = {
       for (final u in (usages as JSArray).toDart)
         if (u != null && u.isA<JSString>()) (u as JSString).toDart,
     };
-    if (!names.containsAll(const ['encrypt', 'decrypt'])) return null;
-    return key;
+    if (!names.containsAll(const ['encrypt', 'decrypt'])) return mismatch;
+    return _ValidKey(key);
   } on Object {
-    return null;
+    return const _CheckFailed();
   }
 }
+
+/// The key of a record that exists: valid, else keyLost for a mismatch and
+/// unavailable for a check that threw.
+CryptoKey _existingKey(JSAny? value) => switch (_checkKey(value)) {
+  _ValidKey(:final key) => key,
+  _Mismatch() => throw _keyLost,
+  _CheckFailed() => throw _unavailable,
+};
+
+/// The key we just made or stored: anything but valid is unavailable.
+CryptoKey _ownKey(JSAny? value) => switch (_checkKey(value)) {
+  _ValidKey(:final key) => key,
+  _ => throw _unavailable,
+};
 
 /// The vault cipher whose key is a non-extractable WebCrypto key in
 /// IndexedDB.
@@ -267,8 +333,10 @@ class WebVaultCipher implements VaultCipher {
   @override
   final bool freshlyCreated;
 
-  /// Whether the browser has granted persistent storage to this origin (the
-  /// latest answer this page has). Asked for once per page at open.
+  /// True once the browser has granted persistent storage to this origin in
+  /// this page (persistence is asked for once per page, at open, without
+  /// waiting for a prompt). False until then, so it can turn true later.
+  /// For a fresh answer call `vaultStoragePersisted()` in vault_cipher.dart.
   bool get persisted => _pagePersisted;
 
   static Future<WebVaultCipher> _open(String alias) async {
@@ -277,10 +345,8 @@ class WebVaultCipher implements VaultCipher {
     final db = await _openDb(env);
     try {
       final stored = await _readRecord(db, alias);
-      if (stored != null) {
-        final key = _asVaultKey(stored);
-        if (key == null) throw _keyLost;
-        return WebVaultCipher._(env, alias, key, false);
+      if (stored.exists) {
+        return WebVaultCipher._(env, alias, _existingKey(stored.value), false);
       }
 
       // No record: first use for this user in this browser profile. The key
@@ -299,22 +365,19 @@ class WebVaultCipher implements VaultCipher {
       } on Object {
         throw _unavailable;
       }
-      final candidate = _asVaultKey(generated);
-      if (candidate == null) throw _unavailable;
+      final candidate = _ownKey(generated);
 
-      final existing = await _storeIfAbsent(db, alias, candidate);
-      if (existing != null) {
-        // Another opener (another tab, or a concurrent open here) won.
-        final key = _asVaultKey(existing);
-        if (key == null) throw _keyLost;
-        return WebVaultCipher._(env, alias, key, false);
+      final added = await _addRecord(db, alias, candidate);
+      final back = await _readRecord(db, alias);
+      if (!back.exists) throw _unavailable;
+      if (!added) {
+        // Another opener (another tab, or a concurrent open here) won: adopt
+        // its record under the same rules as any existing record.
+        return WebVaultCipher._(env, alias, _existingKey(back.value), false);
       }
-
-      // Never hand out a key that is not really stored: read it back and use
-      // the stored copy (some private modes cannot keep a CryptoKey).
-      final back = _asVaultKey(await _readRecord(db, alias));
-      if (back == null) throw _unavailable;
-      return WebVaultCipher._(env, alias, back, true);
+      // Never hand out a key that is not really stored: use the stored copy
+      // (some private modes cannot keep a CryptoKey).
+      return WebVaultCipher._(env, alias, _ownKey(back.value), true);
     } finally {
       db.close();
     }
@@ -332,7 +395,10 @@ class WebVaultCipher implements VaultCipher {
 
   void _leave() {
     _inFlight--;
-    if (_inFlight == 0) _drained?.complete();
+    final drained = _drained;
+    if (_inFlight == 0 && drained != null && !drained.isCompleted) {
+      drained.complete();
+    }
   }
 
   JSObject _gcm(JSUint8Array nonce, Uint8List aad) => JSObject()
@@ -416,13 +482,16 @@ class WebVaultCipher implements VaultCipher {
     if (_closing || _key == null) {
       throw StateError('The vault cipher was destroyed.');
     }
-    // Refuse new calls first, let the ones in flight finish under the key,
-    // then delete the record and drop the key.
+    // Refuse new calls first, let the ones in flight finish under the key
+    // (waiting at most 5 s), then delete the record and drop the key. A call
+    // still running after 5 s holds its own reference to the in-memory key,
+    // so it still completes correctly; it only finishes after the delete.
     _closing = true;
     if (_inFlight > 0) {
       final drained = _drained = Completer<void>();
-      await drained.future;
+      await drained.future.timeout(_destroyWait, onTimeout: () {});
     }
+    debugBeforeWebVaultKeyDelete?.call();
     _key = null;
     await _deleteRecord(_env, _alias);
   }
