@@ -1,0 +1,5 @@
+# Only for wasm32-unknown-unknown: getrandom 0.4 needs an explicit backend (the browser's crypto.getRandomValues),
+# and `cargo test --target wasm32-unknown-unknown` runs the tests in a browser through wasm-bindgen-test-runner.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+runner = "wasm-bindgen-test-runner"
