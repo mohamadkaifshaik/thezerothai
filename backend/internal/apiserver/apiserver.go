@@ -31,6 +31,7 @@ import (
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	keysv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1/keysv1connect"
 	listsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
 	locationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1/locationv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
@@ -951,13 +952,27 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerLocationLifecycle(lifecycle, locationMod.repo, locationMod.catalog); err != nil {
 		return nil, nil, fmt.Errorf("location lifecycle registry: %w", err)
 	}
-	// Key directory: only the repository is built here (the KeysService handler and module wiring come later and reuse
-	// keysRepo). Its lifecycle step and export section are appended last, after location (users/{uid}/keyDevices and its
-	// keyPackages pools; step names are persisted in running deletion jobs, so steps are only ever appended).
+	// Key directory: one repository, shared by the lifecycle and the service. Its lifecycle step and export section are
+	// appended last, after location (users/{uid}/keyDevices and its keyPackages pools; step names are persisted in running
+	// deletion jobs, so steps are only ever appended).
 	keysRepo := keys.NewFirestoreRepo(fsClient)
 	if err := registerKeysLifecycle(lifecycle, keysRepo); err != nil {
 		return nil, nil, fmt.Errorf("keys lifecycle registry: %w", err)
 	}
+	// The KeyService (built after messaging: GetKeyDevices and ClaimKeyPackages ask the messaging send rules through
+	// messaging.Permission). All six routes are mounted behind FEATURE_E2EE_DM (default off), so the interceptor chain
+	// covers them; the handler runs the flag class per RPC.
+	messagingPermission, ok := messagingSvc.(messaging.Permission)
+	if !ok {
+		return nil, nil, errors.New("messaging service does not implement Permission")
+	}
+	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return keysv1connect.NewKeyServiceHandler(keysMod.server, o...)
+	})
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return locationv1connect.NewLocationServiceHandler(locationMod.server, o...)
 	})

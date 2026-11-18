@@ -664,6 +664,11 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_LOCATION_READ_PER_MIN", 30, &rl.LocationReadPerUserPerMinute},
 		{"RATE_LIMIT_LOCATION_WRITE_PER_MIN", 6, &rl.LocationWritePerUserPerMinute},
 		{"RATE_LIMIT_LOCATION_CLEAR_PER_MIN", 30, &rl.LocationClearPerUserPerMinute},
+		// Key directory: Register/Remove/Upload 20/min, ListMyKeyDevices and GetKeyDevices 60/min, ClaimKeyPackages 20/min
+		// (per instance, x3).
+		{"RATE_LIMIT_KEYS_WRITE_PER_MIN", 20, &rl.KeysWritePerUserPerMinute},
+		{"RATE_LIMIT_KEYS_READ_PER_MIN", 60, &rl.KeysReadPerUserPerMinute},
+		{"RATE_LIMIT_KEYS_CLAIM_PER_MIN", 20, &rl.KeysClaimPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -754,6 +759,8 @@ func Load() (Config, error) {
 		{&rl.BeaconsCreatedPerDay, "BEACONS_CREATED_PER_DAY", 10},
 		// CancelBeacon per uid, limit_name "beacons_cancelled_daily" (R24: bounds the cap-exempt cancellation fan-out).
 		{&rl.BeaconsCancelledPerDay, "BEACONS_CANCELLED_PER_DAY", 20},
+		// ClaimKeyPackages per uid, limit_name "keys_claims_daily".
+		{&rl.KeysClaimsPerDay, "KEYS_CLAIMS_PER_DAY", 300},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {

@@ -125,6 +125,15 @@ type RateLimitConfig struct {
 	LocationWritePerUserPerMinute int
 	LocationClearPerUserPerMinute int
 
+	// KeysWritePerUserPerMinute is the bucket shared by RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages, env
+	// RATE_LIMIT_KEYS_WRITE_PER_MIN, default 20; KeysReadPerUserPerMinute is ListMyKeyDevices and GetKeyDevices, env
+	// RATE_LIMIT_KEYS_READ_PER_MIN, default 60; KeysClaimPerUserPerMinute is ClaimKeyPackages alone, env
+	// RATE_LIMIT_KEYS_CLAIM_PER_MIN, default 20 (a claim consumes another user's one-time packages). Per instance (x3 with
+	// 3 instances); the key directory (keys.proto).
+	KeysWritePerUserPerMinute int
+	KeysReadPerUserPerMinute  int
+	KeysClaimPerUserPerMinute int
+
 	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket, env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
 	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
 	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60. All are per instance, so the
@@ -194,6 +203,11 @@ type RateLimitConfig struct {
 	// created that day can be cancelled, and the rest is headroom for client retries (the interceptor counts every call,
 	// replays included). Per instance, so the effective limit is x max-instances.
 	BeaconsCancelledPerDay int64
+	// KeysClaimsPerDay is the in-memory daily cap on ClaimKeyPackages per uid (ratelimit.DailyCap), env
+	// KEYS_CLAIMS_PER_DAY, default 300, logged as limit_name "keys_claims_daily". It bounds how many one-time key
+	// packages one caller can drain from other users' pools in a day (each claim takes at most one per device, at most
+	// 5 devices). Per instance, so the effective limit is x max-instances.
+	KeysClaimsPerDay int64
 
 	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest, env
 	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph
