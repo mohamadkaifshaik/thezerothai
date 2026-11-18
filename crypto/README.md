@@ -15,6 +15,46 @@ cargo fmt --check && cargo clippy -p dzmls --all-targets -- -D warnings
 The toolchain is pinned to Rust `1.100.0` in `rust-toolchain.toml`. On Windows, use the GNU host
 (`rustup set default-host x86_64-pc-windows-gnu`) unless the MSVC build tools are installed.
 
+## Build and check
+
+From the repo root:
+
+```
+make crypto-test   # rustfmt check, clippy (-D warnings), host tests incl. the vectors replay, cargo deny (if installed)
+make crypto-web    # wasm build + wasm-bindgen into app/web/mls/ (gitignored)
+```
+
+Pinned versions (bump each with the file named beside it, and re-run the checks):
+
+| Tool | Version | Where it is pinned |
+|---|---|---|
+| Rust | 1.100.0 (stable, with `rustfmt` and `clippy`) | `rust-toolchain.toml` |
+| Rust target for the web build | `wasm32-unknown-unknown` | `rustup target add wasm32-unknown-unknown` |
+| wasm-bindgen CLI | 0.2.130, exactly the version of the `wasm-bindgen` crate | `=0.2.130` in `dzmls_web/Cargo.toml`, `WASM_BINDGEN_VERSION` in `../scripts/crypto/build-web.sh` (the script refuses another CLI) |
+| cargo-deny | 0.21.0 is what the checks were run with (`cargo install --locked cargo-deny`) | not enforced; the policy is `deny.toml` |
+| OpenMLS | `openmls =0.9.2` and its siblings (see below) | `=` versions in `dzmls/Cargo.toml`, `Cargo.lock` committed |
+
+`cargo deny check` (policy in `deny.toml`) fails on a known advisory, a licence outside the allow-list, a yanked crate or
+any source but crates.io. There are no ignore entries; a finding is fixed by a dependency change or goes to the owner.
+
+**Open findings (2026-11-18), not yet decided by the owner.** `cargo deny check` fails on RUSTSEC-2026-0387
+(`crypto-bigint` 0.5.5, constant-time issues; fixed in 0.7.6, but `elliptic-curve` 0.13 requires `^0.5`) and RUSTSEC-2026-0173
+(`proc-macro-error2` is unmaintained; it is a build-time macro crate reached through `hpke-rs`, no fixed version).
+`osv-scanner` on `Cargo.lock` reports those two and RUSTSEC-2026-0330 and RUSTSEC-2026-0331 (`libcrux-kem` 0.0.9, fix 0.0.10;
+the crate is in `Cargo.lock` but not in the build graph of any target, so cargo-deny does not see it). While these are open,
+`make crypto-test` ends red when cargo-deny is installed. CI does not run either check yet; a proposed CI change adds both.
+
+### Updating OpenMLS
+
+1. Read the OpenMLS release notes and RustSec/GitHub advisories for the new version, and update the audit notes below.
+2. Change the `=` pins in `dzmls/Cargo.toml` (`openmls`, `openmls_rust_crypto`, `openmls_basic_credential` move together)
+   and run `cargo update -p openmls` (or the sibling crates) so `Cargo.lock` follows.
+3. Run `make crypto-test` and `make crypto-web`, then the browser tests below. `cargo test -p dzmls` replays
+   `testdata/mls/vectors-v*.json`: state written by the old version must still load and every expected event must come out.
+4. **Never regenerate `vectors-v1.json`.** If the replay fails, the new version cannot read state that devices already hold:
+   stop and ask. A deliberate format change adds `vectors-v2.json` beside it (see "Test vectors").
+5. Commit `Cargo.toml`, `Cargo.lock` and the README together; dependency bumps are ask-first in this repo.
+
 **Callers must serialize calls.** The engine keeps no memory between calls. If two calls run on the same blob at
 once, both succeed and one result is lost. Run calls that take or return a device state one at a time per device,
 and calls on a group state one at a time per group.
@@ -109,9 +149,24 @@ are fixed in the versions pinned here.
 | RUSTSEC-2026-0069/0070/0071 (`hpke-rs`) | — | < 0.6.0 | 0.6.0 (we lock 0.7.0) |
 | RUSTSEC-2026-0072 (`hpke-rs-rust-crypto`, all-zero X25519 secret) | — | ≤ 0.5.0 | 0.6.0 (we lock 0.7.0) |
 
-Only the `openmls*` and `hpke-rs*` crates were looked up in RustSec. The rest of the locked tree (the dalek
-crates, `aes-gcm`, `tls_codec` and the others) is not scanned yet. A later task does that with cargo-deny and
-osv-scanner.
+Only the `openmls*` and `hpke-rs*` crates were looked up in RustSec by hand. The whole locked tree can be checked with
+`cargo deny check` (RustSec) and `osv-scanner scan --config=osv-scanner.toml -L crypto/Cargo.lock` (run from the repo root);
+see "Build and check" for the open findings.
 
 0.8.3 is an older release line that is patched for the same advisories. We stay on 0.9.2 because it is the version
 the MLS spike proved. The owner may want to weigh this choice.
+
+## Licences
+
+`deny.toml` allows MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, Zlib, Unlicense and MPL-2.0. Everything
+else fails the check. These three crates are covered by the MPL-2.0 entry; all other locked crates are under the
+other, permissive licences (most dual MIT or Apache-2.0):
+
+- `hpke-rs` 0.7.0
+- `hpke-rs-crypto` 0.7.0
+- `hpke-rs-rust-crypto` 0.7.0
+
+MPL-2.0 is file-level copyleft: changes to those crates' own files must be published under MPL-2.0, and linking them
+into a larger work does not extend the licence to it. We use them unmodified from crates.io. **The owner's counsel should
+confirm that MPL-2.0 is acceptable for the app, including its distribution in the web, Android and iOS builds.** Our own
+crates (`dzmls`, `dzmls_web`) are `publish = false` and carry no licence field; `deny.toml` skips private crates.

@@ -1,0 +1,38 @@
+# cargo-deny policy for the MLS core workspace. Run from crypto/: `cargo deny check` (make crypto-test does it when
+# cargo-deny is installed). Adding a licence, an advisory ignore or a source is a security / legal decision: ask first.
+
+[advisories]
+version = 2
+yanked = "deny"
+# No `ignore` entries. A finding is fixed or reported to the owner, never silenced here.
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "Unlicense",
+    "MPL-2.0",
+]
+confidence-threshold = 0.93
+
+# Our own crates (dzmls, dzmls_web) are `publish = false` and carry no licence field; the owner decides that.
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# dzmls_web depends on dzmls by path (no version); every crates.io dependency still has to be pinned.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
