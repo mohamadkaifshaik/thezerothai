@@ -96,7 +96,8 @@
 //   from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
 //   are already members. The limits of that, from the key directory (keys.v1): (a) their devices disappear from the
 //   peer's GetKeyDevices and ClaimKeyPackages at once (a target with e2ee_dm off is an empty success there), so no new
-//   device of theirs can be added and a reset by the peer cannot address them; (b) they cannot call GetKeyDevices or
+//   device of theirs can be added, and the peer cannot reset at all (a reset must address one of their devices): a
+//   peer device that would reset keeps waiting until the flag is back; (b) they cannot call GetKeyDevices or
 //   ClaimKeyPackages or register a device themselves, so they cannot add devices or reset. A device of theirs that
 //   loses its group state cannot recover until the flag is back on for them.
 // - What the server can see for an MLS conversation: who the participants are, who sent each message and when, its
@@ -159,20 +160,26 @@
 //   - Within a generation the device applies commits from ListConversationCommits after its own after-pair: the pair
 //     of the last commit it applied, the welcome's pair when it joined through a welcome, (1, 0) for the creator of
 //     an mls_init and (g + 1, 0) for the creator of a reset of generation g.
-//   - A gap within the device's own generation (a needed commit expired, see ListConversationCommits) or a lost group
-//     state, with no welcome for a later pair in ListWelcomes: the device resets (CommitConversation reset = true,
-//     naming the current generation from ListConversationCommits).
+//   - A device whose own device id is still a member of the group and whose generation is still the current one, but
+//     which cannot go on (a commit it needs has expired, see ListConversationCommits, or it lost its group state but
+//     kept its device id), with no welcome for a later pair in ListWelcomes: the device resets (CommitConversation
+//     reset = true, naming the current generation from ListConversationCommits).
 //   - A newer generation exists (from ListConversationCommits or Conversation.mls_generation): the device joins from
 //     the newest welcome it has for this conversation (ListWelcomes; a replaced welcome is simply gone, the newest one
 //     is the one to use). Before joining generation g + 1, a device that still holds state for generation g fetches
 //     the rest of g's messages (ListEpochMessages for every epoch it has not completed) and decrypts what it can;
-//     joining g + 1 does not wait on this.
+//     messages of generation g it cannot decrypt are shown as "Couldn't decrypt this message". Joining g + 1 does not
+//     wait on this.
 //   - A newer generation exists and ListWelcomes has no welcome for it: the device does NOT reset. It keeps its key
 //     packages published and waits to be added, showing the conversation as "waiting for this device to be added";
-//     it may reset only after 24 hours without a welcome. The same holds for a device removed by a commit: it stops
-//     applying commits and waits for a welcome. Member devices make this work: when they open the conversation and
-//     before they send, they reconcile the group's membership against GetKeyDevices for both users and add missing
-//     active devices with an ordinary commit.
+//     it may reset only after 24 hours without a welcome, counted from when the device first saw that generation. The
+//     same holds for a device removed by a commit (it stops applying commits and waits for a welcome) and for a device
+//     with NO state for the conversation (a new device, or a reinstall under a new device id): it publishes key
+//     packages and waits to be added; it does not reset. Member devices make this work: when they open the
+//     conversation and before they send, they reconcile the group's membership against GetKeyDevices for both users
+//     and add missing active devices with an ordinary commit. On STALE_EPOCH (or a success whose pair is later than
+//     expected) for such a commit, the device catches up and runs the reconciliation again on the caught-up group
+//     before building any commit; it never resends a rebuilt copy of the same add.
 //   - A reset SHOULD address every active key device of both users that the resetter can obtain a key package for
 //     (its own other devices included); it MUST address at least one device of the peer.
 //   - A success answer whose pair is later than the pair the device expected (a replay answered after other commits,
@@ -2578,8 +2585,9 @@ type Welcome struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The conversation the welcome joins (32 lower-case hex).
 	ConversationId string `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
-	// The pair of the commit the welcome accompanies (epoch 0 for mls_init or a reset): the device joins at
-	// (mls_generation, mls_epoch + 1) and catches up with ListConversationCommits after this pair.
+	// The pair the accompanying commit was BUILT ON, not the pair the device joins at: (1, 0) for an mls_init,
+	// (g + 1, 0) for a reset of generation g, (g, e) for a commit built on (g, e). The device joins at
+	// (mls_generation, mls_epoch + 1) and passes this pair as its after-pair to ListConversationCommits.
 	MlsGeneration uint64 `protobuf:"varint,3,opt,name=mls_generation,json=mlsGeneration,proto3" json:"mls_generation,omitempty"`
 	MlsEpoch      uint64 `protobuf:"varint,4,opt,name=mls_epoch,json=mlsEpoch,proto3" json:"mls_epoch,omitempty"`
 	// The MLS Welcome bytes, opaque to the server.

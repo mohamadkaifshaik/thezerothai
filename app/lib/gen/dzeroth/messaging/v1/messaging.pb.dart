@@ -2970,8 +2970,9 @@ class Welcome extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearConversationId() => $_clearField(2);
 
-  /// The pair of the commit the welcome accompanies (epoch 0 for mls_init or a reset): the device joins at
-  /// (mls_generation, mls_epoch + 1) and catches up with ListConversationCommits after this pair.
+  /// The pair the accompanying commit was BUILT ON, not the pair the device joins at: (1, 0) for an mls_init,
+  /// (g + 1, 0) for a reset of generation g, (g, e) for a commit built on (g, e). The device joins at
+  /// (mls_generation, mls_epoch + 1) and passes this pair as its after-pair to ListConversationCommits.
   @$pb.TagNumber(3)
   $fixnum.Int64 get mlsGeneration => $_getI64(2);
   @$pb.TagNumber(3)
@@ -3334,16 +3335,18 @@ class MessagingServiceApi {
   /// (postShares marker) + 2 writes (marker Create, posts.shareCount Increment); 1 read and 0 writes otherwise.
   /// Encrypted messages (file comment, "End-to-end encryption"). A request with any of ciphertext, report_commitment,
   /// mls_generation, mls_epoch or mls_init set is an encrypted request:
-  /// - Validation, before any lookup: text and shared_post_id must be empty (VALIDATION "text" / "shared_post_id"; the
-  ///   text and any shared post id travel inside the ciphertext as MessageContent); ciphertext 1-8192 bytes (VALIDATION
-  ///   "ciphertext"); report_commitment exactly 32 bytes (VALIDATION "report_commitment"); mls_generation and mls_epoch
-  ///   >= 1, and exactly (1, 1) with mls_init (VALIDATION "mls_generation" / "mls_epoch"); with mls_init the MlsInit
-  ///   rules (VALIDATION "commit", "welcome" or "welcome_device_ids").
+  /// - Validation of the FORMAT of the encrypted fields, before any lookup: text and shared_post_id must be empty
+  ///   (VALIDATION "text" / "shared_post_id"; the text and any shared post id travel inside the ciphertext as
+  ///   MessageContent); ciphertext 1-8192 bytes (VALIDATION "ciphertext"); report_commitment exactly 32 bytes
+  ///   (VALIDATION "report_commitment"); mls_generation and mls_epoch >= 1, and exactly (1, 1) with mls_init
+  ///   (VALIDATION "mls_generation" / "mls_epoch"); with mls_init the MlsInit format rules (VALIDATION "commit",
+  ///   "welcome" or "welcome_device_ids").
   /// - Order of answers: every existing refusal (verified email, NOT_FOUND, CANNOT_MESSAGE for gone, blocks, policy or
   ///   flag, LIMIT_REACHED, rate limits) keeps its order and bytes and comes first. Then, in this order and before any
-  ///   write: the welcome-device (active) check (VALIDATION "welcome_device_ids"), ENCRYPTION_REQUIRED, STALE_EPOCH.
-  ///   Only the device check and STALE_EPOCH can both apply (on mls_init); the device check answers first. A replay
-  ///   (the message of this idempotency_key already stored with the same request) wins over all three.
+  ///   write: the welcome-device (active) check (VALIDATION "welcome_device_ids"); ENCRYPTION_REQUIRED or VALIDATION
+  ///   "ciphertext" (an encrypted send without mls_init into a NONE or new conversation), which cannot both apply;
+  ///   STALE_EPOCH. Only the device check and STALE_EPOCH can both apply (on mls_init); the device check answers first.
+  ///   A replay (the message of this idempotency_key already stored with the same request) wins over all of them.
   /// - Into an MLS conversation without mls_init: the pair must equal the conversation's current pair, compared inside
   ///   the send transaction, else STALE_EPOCH (current pair in metadata), storing nothing.
   /// - Into a NONE conversation, or opening a new one, without mls_init => VALIDATION "ciphertext".
@@ -3381,8 +3384,8 @@ class MessagingServiceApi {
   ///   refusal on an existing conversation (ENCRYPTION_REQUIRED, VALIDATION "ciphertext", STALE_EPOCH) adds 1 read,
   ///   the replay check of the message id. mls_init adds the device checks (at most 2 queries of at most 5 device
   ///   documents) and, in the transaction, at most 10 reads (the earlier welcome of each addressed device, to replace
-  ///   it) and at most 3 + 20 more writes (the conversation's encryption fields, the commit record, per device one
-  ///   welcome and the delete of the earlier one).
+  ///   it) and at most 2 + 20 = 22 more writes (the conversation's encryption fields, 0 when the send already creates
+  ///   or updates the conversation; the commit record; per device one welcome and the delete of the earlier one).
   $async.Future<SendMessageResponse> sendMessage(
           $pb.ClientContext? ctx, SendMessageRequest request) =>
       _client.invoke<SendMessageResponse>(ctx, 'MessagingService',
@@ -3500,9 +3503,10 @@ class MessagingServiceApi {
   /// Flag: "messaging" on for the caller (as SendMessage; FEATURE_DISABLED before any lookup); e2ee_dm is not needed.
   /// The caller needs a verified email (EMAIL_NOT_VERIFIED, before any lookup). Refused under DEGRADED_MODE=readonly.
   /// Answers, in this order (nothing is written on any refusal):
-  /// 1. Before any lookup: idempotency_key format and conversation_id (32 lower-case hex), VALIDATION. The per-minute
-  ///    and per-day call limits (below) are applied before the service runs, so a retry counts against them like any
-  ///    call.
+  /// 1. Before any lookup: idempotency_key format and conversation_id (32 lower-case hex), VALIDATION; the pair's form:
+  ///    mls_generation 1 to 2^63 - 2, and mls_epoch 1 to 2^63 - 1 unless reset (VALIDATION "mls_generation" /
+  ///    "mls_epoch"). The per-minute and per-day call limits (below) are applied before the service runs, so a retry
+  ///    counts against them like any call.
   /// 2. Existing refusals: an unknown conversation or a non-participant => the one NOT_FOUND; a NONE conversation =>
   ///    VALIDATION "conversation_id" (start encryption with SendMessage mls_init); a conversation whose peer is gone, or
   ///    a block in either direction (the recipient's graph read in the transaction, as a send) => CANNOT_MESSAGE,
@@ -3510,12 +3514,12 @@ class MessagingServiceApi {
   /// 3. Retry recognition: a commit whose record for its pair (for a reset: (mls_generation + 1, 0)) already exists from
   ///    the same user with identical commit bytes is a retry: it returns the current pair (possibly later than
   ///    (generation, epoch + 1) by then) and writes nothing, before every check below. A record for that pair with other
-  ///    bytes or from the other user is not a retry: the request goes on and ends in STALE_EPOCH (5).
+  ///    bytes or from the other user is not a retry: the request goes on to 4 and 5 (at the latest STALE_EPOCH).
   /// 4. Field validation: commit 1-16384 bytes (VALIDATION "commit"); welcome at most 65536 bytes (VALIDATION
   ///    "welcome"); welcome and welcome_device_ids go together and the ids are 1-10, distinct, well-formed (VALIDATION
-  ///    "welcome_device_ids"); a reset requires both (VALIDATION "welcome_device_ids"); mls_generation >= 1, and
-  ///    mls_epoch >= 1 unless reset (VALIDATION "mls_generation" / "mls_epoch"). Then the welcome-device (active) check,
-  ///    which runs inside the transaction after the conversation read that names the peer: each device must be an
+  ///    "welcome_device_ids"); a reset requires both (VALIDATION "welcome_device_ids"). Then the welcome-device
+  ///    (active) check, which runs during the transaction, after the conversation read that names the peer (its
+  ///    key-directory reads are not transactional): each device must be an
   ///    active registered device of the caller or the peer, and a reset must address at least one device of the PEER
   ///    (the caller's other devices are optional; the sending device creates the group and needs no welcome), else
   ///    VALIDATION "welcome_device_ids" without saying which.
@@ -3539,10 +3543,10 @@ class MessagingServiceApi {
   /// 500 (metadata["limit"] = "messages_commits_daily") and MESSAGES_RESETS_PER_DAY 10 ("messages_resets_daily"); a
   /// reset counts against both. RATE_LIMITED, honour retry_after.
   /// Cost: one transaction reads the conversation (which names the peer for the device check), the recipient graph,
-  /// the commit record (retry recognition) and at most 10 earlier welcomes = at most 13 reads; the device check adds
-  /// at most 2 queries of at most 5 device documents through the key directory (not part of the transaction's
-  /// snapshot); at most 2 + 20 writes (the conversation's pair, the commit record, per device one welcome and the
-  /// delete of the earlier one). Emits nothing; no push.
+  /// the commit record (retry recognition) and at most 10 earlier welcomes = at most 13 reads; the device check runs
+  /// during the transaction, after the conversation read, and adds at most 2 queries of at most 5 device documents
+  /// through the key directory, whose reads are not transactional; at most 2 + 20 writes (the conversation's pair, the
+  /// commit record, per device one welcome and the delete of the earlier one). Emits nothing; no push.
   $async.Future<CommitConversationResponse> commitConversation(
           $pb.ClientContext? ctx, CommitConversationRequest request) =>
       _client.invoke<CommitConversationResponse>(ctx, 'MessagingService',
