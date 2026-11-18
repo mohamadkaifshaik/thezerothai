@@ -415,12 +415,13 @@ jobs:
 
       - name: Install cargo-ndk
         run: |
-          if [ "$(cargo-ndk --version 2>/dev/null)" = "cargo-ndk 4.1.2" ]; then
+          # The binary refuses to run unless cargo starts it: always `cargo ndk`, never `cargo-ndk`.
+          if cargo ndk --version 2>/dev/null | grep -qF "4.1.2"; then
             echo "cargo-ndk 4.1.2 restored from the cache"
           else
             cargo install --locked --version 4.1.2 cargo-ndk
           fi
-          cargo-ndk --version
+          cargo ndk --version
 
       # The runner image ships NDK 27.3, 29.0 and 30.0, not Flutter's 28.2: install exactly that one (not cached: about 1.5 GB unpacked).
       - name: Setup Android NDK
