@@ -24,6 +24,10 @@
 // dropped from an allowlist can still see and remove their devices. Else FAILED_PRECONDITION + FEATURE_DISABLED,
 // metadata["feature"] = "e2ee_dm", before any lookup. A TARGET whose own flag is off is not an error: see GetKeyDevices.
 //
+// Interplay with FEATURE_MESSAGING (wire name "messaging"), for GetKeyDevices and ClaimKeyPackages: a caller with
+// "messaging" off gets CANNOT_MESSAGE for every other user; a target with "messaging" off is CANNOT_MESSAGE; a target
+// with "messaging" on and only "e2ee_dm" off is an empty success (no devices).
+//
 // Limits: device id [A-Za-z0-9_-]{16,64}; signature_public_key exactly 32 bytes (Ed25519); a key package 1-4096 bytes;
 // at most 100 key packages per upload and at most 100 stored per device (the pool); at most 5 devices per user; a device
 // not seen for 30 days is inactive (one last seen exactly 30 days ago is inactive); GetKeyDevices takes 1-10 user ids.
@@ -31,6 +35,9 @@
 // Inactive devices are filtered at read time and never deleted by the server: an inactive device is left out of
 // GetKeyDevices and ClaimKeyPackages, still appears in ListMyKeyDevices, still counts toward the cap of 5 until its
 // owner removes it, and becomes active again when it next registers or uploads (same id, same key).
+// Only RegisterKeyDevice and UploadKeyPackages move last_seen_at (at most once per 24 h); lookups, claims, lists and
+// removes never do. A device unseen for 30 days drops out of lookups and claims, so clients MUST call
+// RegisterKeyDevice periodically (for example on app open, at most once a day), not only on first install.
 //
 // User references: user_ids (GetKeyDevicesRequest), user_id (UserKeyDevices, ClaimKeyPackagesRequest) carry the
 // user_ref option (TRANSLATE), so with FEATURE_PUBLIC_IDS on the edge swaps them for public ids in both directions,
@@ -49,17 +56,23 @@
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "key_devices": a sixth device (never evicts).
 // - FAILED_PRECONDITION + CANNOT_MESSAGE (GetKeyDevices, ClaimKeyPackages): the caller may not message a target. ONE
 //   byte-identical error for an unknown user, a user who is not ACTIVE, a block in either direction and any other
-//   refusal by the messaging send rules, so it reveals no more than GetProfile's NOT_FOUND. Do not retry. A failure of
-//   the send-rules check that is not a refusal (a read failed) is a generic INTERNAL, or UNAVAILABLE as below, never
-//   the messaging module's own error.
-// - NOT_FOUND: UploadKeyPackages for a device the caller has not registered.
+//   refusal by the messaging send rules. Do not retry. A failure of the send-rules check that is not a refusal (a read
+//   failed) is a generic INTERNAL, or UNAVAILABLE as below, never the messaging module's own error. The send-rules
+//   check reads through caches of up to 60 s: a block, an unfollow or an account status change can take up to 60 s to
+//   apply here, while SendMessage applies it immediately (and is what guards the message itself).
+// - NOT_FOUND: UploadKeyPackages for a device the caller has not registered (RemoveKeyDevice of a missing device is
+//   success, not NOT_FOUND).
 // - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
 //   transaction, a timeout). Contention between concurrent claimers is never surfaced as an error (see
 //   ClaimKeyPackages).
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_KEYS_WRITE_PER_MIN (20: RegisterKeyDevice, RemoveKeyDevice,
 //   UploadKeyPackages), RATE_LIMIT_KEYS_READ_PER_MIN (60: ListMyKeyDevices, GetKeyDevices), RATE_LIMIT_KEYS_CLAIM_PER_MIN
-//   (20: ClaimKeyPackages), per uid per instance; and the daily cap KEYS_CLAIMS_PER_DAY (300) on ClaimKeyPackages,
-//   metadata["limit"] = "keys_claims_daily".
+//   (20: ClaimKeyPackages), per uid per instance; the daily cap KEYS_CLAIMS_PER_DAY (300 per uid) on
+//   ClaimKeyPackages, metadata["limit"] = "keys_claims_daily"; and the daily cap KEYS_CLAIMS_PER_TARGET_PER_DAY (20 per
+//   caller and target user, the caller's own id included) on ClaimKeyPackages, metadata["limit"] =
+//   "keys_claims_per_target_daily". The daily caps are per instance too and reset at midnight IST. The per-target cap
+//   is counted for every well-formed request before the send-rules check, so its refusal is the same for a blocked,
+//   unknown or real target.
 
 package keysv1
 
@@ -85,9 +98,11 @@ type KeyDevice struct {
 	// [A-Za-z0-9_-]{16,64}, chosen by the device.
 	DeviceId string `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	// 32 bytes (Ed25519).
-	SignaturePublicKey []byte                 `protobuf:"bytes,2,opt,name=signature_public_key,json=signaturePublicKey,proto3" json:"signature_public_key,omitempty"`
-	CreatedAt          *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// Moved at most once per 24 h.
+	SignaturePublicKey []byte `protobuf:"bytes,2,opt,name=signature_public_key,json=signaturePublicKey,proto3" json:"signature_public_key,omitempty"`
+	// The caller's own devices only; absent for other users' devices (GetKeyDevices).
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Moved at most once per 24 h, by RegisterKeyDevice and UploadKeyPackages only. The caller's own devices only;
+	// absent for other users' devices (GetKeyDevices).
 	LastSeenAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
 	// One-time packages in the pool. The caller's own devices only; 0 for other users' devices.
 	KeyPackageCount int32 `protobuf:"varint,5,opt,name=key_package_count,json=keyPackageCount,proto3" json:"key_package_count,omitempty"`
@@ -312,7 +327,7 @@ func (*ListMyKeyDevicesRequest) Descriptor() ([]byte, []int) {
 
 type ListMyKeyDevicesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// At most 5, oldest first; inactive ones included, flagged by last_seen_at.
+	// At most 5, oldest first; inactive ones included, flagged by last_seen_at. No cursor: the device limit caps it.
 	Devices       []*KeyDevice `protobuf:"bytes,1,rep,name=devices,proto3" json:"devices,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -616,7 +631,7 @@ type UserKeyDevices struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// A user reference, translated like the others (options.proto, user_ref).
 	UserId string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	// Active devices only.
+	// Active devices only. For another user: device_id and signature_public_key only (no timestamps, no counts).
 	Devices       []*KeyDevice `protobuf:"bytes,2,rep,name=devices,proto3" json:"devices,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
