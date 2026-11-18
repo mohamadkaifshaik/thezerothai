@@ -44,6 +44,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
@@ -949,6 +950,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// ListAreas not globally off, GetLocationSettings and ClearArea in every mode).
 	if err := registerLocationLifecycle(lifecycle, locationMod.repo, locationMod.catalog); err != nil {
 		return nil, nil, fmt.Errorf("location lifecycle registry: %w", err)
+	}
+	// Key directory: only the repository is built here (the KeysService handler and module wiring come later and reuse
+	// keysRepo). Its lifecycle step and export section are appended last, after location (users/{uid}/keyDevices and its
+	// keyPackages pools; step names are persisted in running deletion jobs, so steps are only ever appended).
+	keysRepo := keys.NewFirestoreRepo(fsClient)
+	if err := registerKeysLifecycle(lifecycle, keysRepo); err != nil {
+		return nil, nil, fmt.Errorf("keys lifecycle registry: %w", err)
 	}
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return locationv1connect.NewLocationServiceHandler(locationMod.server, o...)
