@@ -23,7 +23,7 @@ pub use device::{DeviceCreated, KeyPackages, create_device, generate_key_package
 pub use error::{ErrorCode, MlsError};
 pub use group::{
     Commit, GroupInfo, Joined, Member, commit_change, confirm_commit, create_group, describe,
-    discard_commit, join_from_welcome,
+    discard_commit, join_from_welcome, self_update,
 };
 pub use message::{Encrypted, Event, Processed, encrypt, process, wire_epoch};
 
@@ -35,10 +35,10 @@ pub(crate) const CIPHERSUITE: Ciphersuite =
 ///
 /// OpenMLS checks a leaf's lifetime against the wall clock whenever a Welcome is joined (every leaf that never
 /// updated, i.e. still carries its key package lifetime) and whenever a commit adds a key package. Add-only commits
-/// carry no update path, so leaves keep their key package lifetime until a later plan adds a periodic leaf
-/// self-update. OpenMLS sets `not_before` one hour before the moment of creation, so device clocks more than an hour
-/// behind the creator's refuse the package (`not valid yet`) when joining or adding. OpenMLS 0.9.2 never enforces a
-/// maximum lifetime range (`Lifetime::has_acceptable_range` has no caller), so five years is accepted everywhere.
+/// carry no update path, so a leaf keeps its key package lifetime until its device commits with one ([`self_update`]
+/// does; calling it periodically is a later plan). OpenMLS sets `not_before` one hour before the moment of creation,
+/// so device clocks more than an hour behind the creator's refuse the package (`not valid yet`) when joining or
+/// adding. OpenMLS 0.9.2 never enforces a maximum lifetime range (`Lifetime::has_acceptable_range` has no caller), so five years is accepted everywhere.
 pub(crate) const LIFETIME_SECONDS: u64 = 157_680_000;
 
 /// Largest wire input (key package, Welcome, message) accepted before parsing.

@@ -8,6 +8,12 @@
 //   response                 : { id, ok: true, result: object }
 //                            | { id, ok: false, code: string, message: string }
 // Every Uint8Array in a response is transferred, not copied.
+// Ops and their args (see `ops` below): createDevice { deviceId }; generateKeyPackages { deviceState, count,
+// lastResort }; createGroup { deviceState, groupId }; commitChange { deviceState, groupState, addKeyPackages,
+// removeDeviceIds }; selfUpdate { deviceState, groupState } (same result shape as commitChange, welcome null);
+// confirmCommit / discardCommit { deviceState, groupState }; joinFromWelcome { deviceState, welcome };
+// encrypt { deviceState, groupState, plaintext }; process { deviceState, groupState, wire }; describe { groupState };
+// wireEpoch { wire }; securityCode { a, b }.
 'use strict';
 
 importScripts('mls/dzmls_web.js');
@@ -20,6 +26,7 @@ const ops = {
   createGroup: (a) => wasm_bindgen.createGroup(a.deviceState, a.groupId),
   commitChange: (a) =>
     wasm_bindgen.commitChange(a.deviceState, a.groupState, a.addKeyPackages, a.removeDeviceIds),
+  selfUpdate: (a) => wasm_bindgen.selfUpdate(a.deviceState, a.groupState),
   confirmCommit: (a) => wasm_bindgen.confirmCommit(a.deviceState, a.groupState),
   discardCommit: (a) => wasm_bindgen.discardCommit(a.deviceState, a.groupState),
   joinFromWelcome: (a) => wasm_bindgen.joinFromWelcome(a.deviceState, a.welcome),

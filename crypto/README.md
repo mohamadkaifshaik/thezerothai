@@ -5,6 +5,20 @@ Rust workspace for Dzeroth's end-to-end encryption core.
 - `dzmls/`: the MLS (RFC 9420) engine. It wraps the official `openmls` crate behind pure functions over opaque,
   versioned state blobs (`DZS1`). It has one cipher suite, `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`. Nothing
   else in the repo depends on it yet.
+- `dzmls_web/`: the wasm-bindgen binding (one exported function per `dzmls` function), run by `app/web/mls_worker.js`.
+
+Operations (`dzmls`; the binding and the worker op use the camelCase name):
+
+| Operation | What it does |
+|---|---|
+| `create_device`, `generate_key_packages` | A device and its signature key; one-time and last-resort key packages. |
+| `create_group` | A group with this device as its only member, at epoch 0. |
+| `commit_change` | A pending commit that adds and/or removes devices. |
+| `self_update` | A pending commit that replaces this device's own leaf keys (new encryption key, same device id and signature key), nothing else. |
+| `confirm_commit`, `discard_commit` | The server accepted (merge, epoch + 1) or refused (drop) the pending commit. |
+| `join_from_welcome` | Joins from a Welcome. |
+| `encrypt`, `process`, `wire_epoch` | Application messages and other members' commits. |
+| `describe`, `security_code` | Read a group blob; the 60-digit code two users compare. |
 
 ```
 cd crypto
@@ -97,7 +111,14 @@ Every key package (one-time and last-resort) and a group creator's leaf carry a 
 `not_after` five years after it. OpenMLS checks the lifetime against the device clock when a key package is added to a
 group, and when a device joins from a Welcome, for every leaf that still carries its key package lifetime. Add-only
 commits do not refresh leaves, so a leaf keeps its key package lifetime until it commits with an update path (a
-removal does). OpenMLS 0.9.2 enforces no maximum range (`Lifetime::has_acceptable_range` has no caller).
+removal does, and so does `self_update`). OpenMLS 0.9.2 enforces no maximum range (`Lifetime::has_acceptable_range`
+has no caller).
+
+`self_update` builds a commit with only an update path (OpenMLS `commit_builder()` with `force_self_update(true)`,
+no proposals, the device's existing signer). The device's new leaf is commit-sourced (`LeafNodeSource::Commit`), so
+it carries no lifetime and no longer expires; the update path also renews the device's path secrets, which is the
+recovery after a key compromise. The device id and the signature key stay the same. Like `commit_change`, the
+commit is pending until `confirm_commit` or `discard_commit`.
 
 Consequences:
 
@@ -105,7 +126,8 @@ Consequences:
 - A device whose clock is more than one hour behind the clock of the device that made a key package (or created the
   group) refuses it as "not valid yet", so joins and adds fail between devices whose clocks are that far apart.
 - A conversation whose members never commit with an update path stops accepting joins five years after its oldest
-  leaf was made. A periodic leaf self-update is planned in a later plan.
+  leaf was made. `self_update` exists to prevent that; calling it periodically (about every 30 days per active
+  conversation) is a later plan, so until then nothing calls it.
 
 ## Test vectors (frozen)
 

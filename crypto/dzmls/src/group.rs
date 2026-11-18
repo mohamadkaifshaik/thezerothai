@@ -1,9 +1,10 @@
-//! Groups: create, change membership through a pending commit the server then accepts or refuses, join from a
-//! Welcome, and describe.
+//! Groups: create, change membership or renew this device's own leaf keys through a pending commit the server then
+//! accepts or refuses, join from a Welcome, and describe.
 //!
-//! A commit is two-phase. `commit_change` stages it: the group blob then holds OpenMLS's pending-commit state and
-//! the group stays at its old epoch. When the server accepts the commit, `confirm_commit` merges it (epoch + 1);
-//! when the server refuses it, `discard_commit` drops it and the group is exactly as usable as before.
+//! A commit is two-phase. `commit_change` (or `self_update`) stages it: the group blob then holds OpenMLS's
+//! pending-commit state and the group stays at its old epoch. When the server accepts the commit, `confirm_commit`
+//! merges it (epoch + 1); when the server refuses it, `discard_commit` drops it and the group is exactly as usable as
+//! before.
 //!
 //! Group calls never change the device blob except `join_from_welcome`, which may consume a one-time key package.
 //! The other calls check this and fail with `internal` rather than lose a device write.
@@ -15,8 +16,8 @@ use openmls::group::PURE_CIPHERTEXT_WIRE_FORMAT_POLICY;
 use openmls::prelude::OpenMlsProvider as _;
 use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 use openmls::prelude::{
-    CreateCommitError, GroupId, KeyPackage, KeyPackageIn, LeafNodeIndex, MlsGroup,
-    MlsGroupCreateConfig, MlsMessageBodyIn, MlsMessageIn, ProtocolVersion,
+    CommitMessageBundle, CreateCommitError, GroupId, KeyPackage, KeyPackageIn, LeafNodeIndex,
+    MlsGroup, MlsGroupCreateConfig, MlsMessageBodyIn, MlsMessageIn, ProtocolVersion,
     SenderRatchetConfiguration, StagedWelcome, WelcomeError,
 };
 use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -106,6 +107,67 @@ pub fn commit_change(
             remove_device_ids.len()
         )));
     }
+    stage(device_state, group_state, |provider, header, group| {
+        let adds = add_key_packages
+            .iter()
+            .map(|kp| parse_key_package(provider, kp))
+            .collect::<Result<Vec<_>, _>>()?;
+        check_adds(group, &adds)?;
+        let removals = removal_indexes(group, header, remove_device_ids)?;
+        let signer = load_signer(provider, header)?;
+        group
+            .commit_builder()
+            .consume_proposal_store(false)
+            .propose_adds(adds)
+            .propose_removals(removals)
+            .load_psks(provider.storage())
+            .map_err(map_commit_error)?
+            .build(provider.rand(), provider.crypto(), &signer, |_| true)
+            .map_err(map_commit_error)?
+            .stage_commit(provider)
+            .map_err(|_| MlsError::internal("staging the commit failed"))
+    })
+}
+
+/// Builds a commit that replaces this device's own leaf keys and nothing else (no adds, no removes).
+/// The result is pending exactly like `commit_change`: `confirm_commit` once the server accepted it,
+/// `discard_commit` if it lost the race.
+///
+/// The commit carries an update path with a fresh leaf: a new HPKE encryption key, the same credential (device
+/// id), the same signature key, capabilities and extensions. The new leaf is commit-sourced, so it carries no
+/// lifetime and no longer expires; the path also renews this device's path secrets (recovery after a compromise).
+/// Errors and their order match `commit_change`: `corrupt_state` for a group blob of another device, then
+/// `pending_commit`, then `evicted`.
+pub fn self_update(device_state: &[u8], group_state: &[u8]) -> Result<Commit, MlsError> {
+    stage(device_state, group_state, |provider, header, group| {
+        let signer = load_signer(provider, header)?;
+        // `force_self_update` makes the builder compute an update path although no proposal requires one; with
+        // empty leaf node parameters and the old signer the leaf keeps its credential and signature key.
+        group
+            .commit_builder()
+            .consume_proposal_store(false)
+            .force_self_update(true)
+            .load_psks(provider.storage())
+            .map_err(|_| MlsError::internal("building the self-update failed"))?
+            .build(provider.rand(), provider.crypto(), &signer, |_| true)
+            .map_err(|_| MlsError::internal("building the self-update failed"))?
+            .stage_commit(provider)
+            .map_err(|_| MlsError::internal("staging the commit failed"))
+    })
+}
+
+/// The shared half of `commit_change` and `self_update`: binds the blobs (`corrupt_state`), refuses a group with a
+/// pending commit (`pending_commit`) or an inactive one (`evicted`), lets `build` stage the commit, and packs the
+/// result. The group stays at its epoch until `confirm_commit` or `discard_commit`.
+fn stage(
+    device_state: &[u8],
+    group_state: &[u8],
+    build: impl FnOnce(
+        &OpenMlsRustCrypto,
+        &Header,
+        &mut MlsGroup,
+    ) -> Result<CommitMessageBundle, MlsError>,
+) -> Result<Commit, MlsError> {
     let ((bundle, epoch), device_out, group_out) = with_provider(
         device_state,
         Some(group_state),
@@ -124,25 +186,8 @@ pub fn commit_change(
                     "this device is no longer a member",
                 ));
             }
-            let adds = add_key_packages
-                .iter()
-                .map(|kp| parse_key_package(provider, kp))
-                .collect::<Result<Vec<_>, _>>()?;
-            check_adds(&group, &adds)?;
-            let removals = removal_indexes(&group, header, remove_device_ids)?;
             let epoch = group.epoch().as_u64();
-            let signer = load_signer(provider, header)?;
-            let bundle = group
-                .commit_builder()
-                .consume_proposal_store(false)
-                .propose_adds(adds)
-                .propose_removals(removals)
-                .load_psks(provider.storage())
-                .map_err(map_commit_error)?
-                .build(provider.rand(), provider.crypto(), &signer, |_| true)
-                .map_err(map_commit_error)?
-                .stage_commit(provider)
-                .map_err(|_| MlsError::internal("staging the commit failed"))?;
+            let bundle = build(provider, header, &mut group)?;
             Ok((bundle, epoch))
         },
     )?;
@@ -628,6 +673,57 @@ mod tests {
             lifetime.not_after() - lifetime.not_before(),
             crate::LIFETIME_SECONDS + 60 * 60
         );
+    }
+
+    /// The leaf source, encryption key and signature key of `whose` leaf, as `dev` sees it in `group_state`.
+    fn leaf_of(dev: &Dev, group_state: &[u8], whose: &[u8]) -> (LeafNodeSource, Vec<u8>, Vec<u8>) {
+        let (leaf, _) = on_group(dev, group_state, |_, _, group| {
+            let index = group
+                .members()
+                .find(|m| m.credential.serialized_content() == whose)
+                .unwrap()
+                .index;
+            let leaf = group.public_group().leaf(index).unwrap();
+            (
+                leaf.leaf_node_source().clone(),
+                leaf.encryption_key().tls_serialize_detached().unwrap(),
+                leaf.signature_key().as_slice().to_vec(),
+            )
+        });
+        leaf
+    }
+
+    #[test]
+    fn self_update_makes_the_leaf_commit_sourced() {
+        let alice = device(1);
+        let mut bob = device(2);
+        let (a, b) = pair(&alice, &mut bob);
+        for (dev, g) in [(&alice, &a), (&bob, &b)] {
+            let (source, _, _) = leaf_of(dev, g, &alice.id);
+            assert!(
+                matches!(source, LeafNodeSource::KeyPackage(_)),
+                "before: alice's leaf carries its key package lifetime"
+            );
+        }
+        let (_, key_before, sig_before) = leaf_of(&alice, &a, &alice.id);
+
+        let c = self_update(&alice.state, &a).unwrap();
+        let a2 = confirm_commit(&alice.state, &c.group_state).unwrap();
+        let b2 = crate::process(&bob.state, &b, &c.commit)
+            .unwrap()
+            .group_state;
+        for (dev, g) in [(&alice, &a2), (&bob, &b2)] {
+            let (source, key, sig) = leaf_of(dev, g, &alice.id);
+            assert!(
+                matches!(source, LeafNodeSource::Commit(_)),
+                "after: alice's leaf is commit-sourced, with no lifetime"
+            );
+            assert_ne!(key, key_before, "the leaf encryption key is renewed");
+            assert_eq!(sig, sig_before, "the signature key is kept");
+        }
+        // Bob's own leaf is untouched by alice's update.
+        let (source, _, _) = leaf_of(&bob, &b2, &bob.id);
+        assert!(matches!(source, LeafNodeSource::KeyPackage(_)));
     }
 
     #[test]

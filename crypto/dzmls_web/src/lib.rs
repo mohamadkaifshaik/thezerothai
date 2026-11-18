@@ -125,12 +125,23 @@ pub fn commit_change(
     let adds = to_bytes_list(add_key_packages)?;
     let removes = to_bytes_list(remove_device_ids)?;
     let c = dzmls::commit_change(device_state, group_state, &adds, &removes).map_err(fail)?;
-    Ok(object(&[
+    Ok(commit_object(&c))
+}
+
+/// `{ groupState, commit, welcome: null, epoch }`, the same shape as `commitChange`.
+#[wasm_bindgen(js_name = selfUpdate)]
+pub fn self_update(device_state: &[u8], group_state: &[u8]) -> Result<JsValue, JsValue> {
+    let c = dzmls::self_update(device_state, group_state).map_err(fail)?;
+    Ok(commit_object(&c))
+}
+
+fn commit_object(c: &dzmls::Commit) -> JsValue {
+    object(&[
         ("groupState", bytes(&c.group_state)),
         ("commit", bytes(&c.commit)),
         ("welcome", c.welcome.as_deref().map_or(JsValue::NULL, bytes)),
         ("epoch", num(c.epoch)),
-    ]))
+    ])
 }
 
 /// `{ groupState }`
