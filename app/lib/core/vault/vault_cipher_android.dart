@@ -4,20 +4,32 @@
 // Channel protocol (mirrors the Kotlin header; all arguments are a map):
 //
 //   wrap   {alias: String, dataKey: Uint8List(32)} -> null
-//          Replaces any Keystore key under alias with a new AES-256-GCM key,
-//          wraps dataKey with it and stores iv || ciphertext+tag (base64) in
-//          the private SharedPreferences file dzeroth_vault_keys under alias.
+//          Create-if-absent. When a wrapped key is already stored for alias it
+//          answers `exists` and changes nothing. Otherwise it replaces any
+//          orphan Keystore key under alias with a new AES-256-GCM key, wraps
+//          dataKey with it and stores iv || ciphertext+tag (base64) in the
+//          private SharedPreferences file dzeroth_vault_keys under alias.
 //          Replies only after the write is on disk.
 //   unwrap {alias: String} -> Uint8List (the data key)
+//          Kotlin retries once after a short delay before answering
+//          `unavailable`.
 //   delete {alias: String} -> null   (idempotent: deletes the Keystore key and
 //          the stored wrapped key)
 //
 // Error codes (PlatformException.code; message is fixed text, details null):
 //   no_key       unwrap: no stored wrapped key for alias (first use).
-//   key_lost     unwrap: a stored key exists but cannot be unwrapped
-//                (Keystore alias missing, key permanently invalidated,
-//                unrecoverable key, bad tag, malformed stored bytes).
-//   unavailable  anything else (Keystore or storage not usable).
+//   exists       wrap: a wrapped key is already stored; nothing changed.
+//   key_lost     unwrap: a stored key exists but is gone for good: Keystore
+//                alias missing, bad tag, malformed stored bytes, or a
+//                permanently invalidated / permanently failed key (see the
+//                Kotlin header for the exact exceptions and codes).
+//   unavailable  anything else, transient failures included.
+//
+// Dart maps key_lost to VaultKeyFailure.keyLost and every other error
+// (unavailable, unknown codes, MissingPluginException: for example in a
+// background FlutterEngine, which has no channel) to unavailable. Only no_key
+// creates a key.
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
@@ -28,6 +40,8 @@ import 'package:flutter/services.dart';
 
 const _channel = MethodChannel('dzeroth/vault_key');
 const _dataKeyLength = 32;
+const _unavailable = VaultKeyException(VaultKeyFailure.unavailable);
+const _keyLost = VaultKeyException(VaultKeyFailure.keyLost);
 
 /// The Android vault; other dart:io platforms (iOS, desktop) have none.
 Future<VaultCipher> openPlatformVaultCipher({
@@ -43,20 +57,85 @@ Future<VaultCipher> openIoVaultCipher({
   required CryptoEngine engine,
   required bool isAndroid,
 }) {
+  _requireAndroid(isAndroid);
+  final alias = vaultKeyAlias(uid);
+  return _serialized(alias, () => AndroidVaultCipher._open(alias, engine));
+}
+
+/// [deleteVaultKey] on dart:io platforms.
+Future<void> platformDeleteVaultKey(String uid) =>
+    deleteIoVaultKey(uid: uid, isAndroid: Platform.isAndroid);
+
+/// [platformDeleteVaultKey] with the platform check passed in, for tests.
+@visibleForTesting
+Future<void> deleteIoVaultKey({required String uid, required bool isAndroid}) {
+  _requireAndroid(isAndroid);
+  final alias = vaultKeyAlias(uid);
+  return _serialized(alias, () => _deleteAlias(alias));
+}
+
+/// [vaultStoragePersisted] on dart:io platforms.
+Future<bool> platformVaultStoragePersisted() =>
+    ioVaultStoragePersisted(isAndroid: Platform.isAndroid);
+
+/// Android keeps the wrapped key in app-private storage that the system never
+/// evicts; other io platforms have no vault.
+@visibleForTesting
+Future<bool> ioVaultStoragePersisted({required bool isAndroid}) async =>
+    isAndroid;
+
+void _requireAndroid(bool isAndroid) {
   if (!isAndroid) {
     throw UnsupportedError(
       'No encrypted vault on this platform; only web and Android have one.',
     );
   }
-  return AndroidVaultCipher._open(uid: uid, engine: engine);
 }
 
-VaultKeyException _mapPlatform(Object e) {
-  if (e is PlatformException && e.code == 'key_lost') {
-    return const VaultKeyException(VaultKeyFailure.keyLost);
+// Opens and deletes of one alias run one at a time, so two concurrent opens
+// end on the same stored key (the second unwraps what the first stored) and
+// a delete never interleaves with an open. A failed task does not block the
+// next one.
+final Map<String, Future<void>> _tails = {};
+
+Future<T> _serialized<T>(String alias, Future<T> Function() task) {
+  final previous = _tails[alias] ?? Future<void>.value();
+  final result = previous.then((_) => task());
+  final tail = result.then<void>((_) {}, onError: (Object _) {});
+  _tails[alias] = tail;
+  unawaited(
+    tail.whenComplete(() {
+      if (identical(_tails[alias], tail)) _tails.remove(alias);
+    }),
+  );
+  return result;
+}
+
+Future<void> _deleteAlias(String alias) async {
+  try {
+    await _channel.invokeMethod<void>('delete', {'alias': alias});
+  } on Object {
+    throw _unavailable;
   }
-  // unavailable, an unknown code, MissingPluginException or anything else.
-  return const VaultKeyException(VaultKeyFailure.unavailable);
+}
+
+/// Unwraps the stored key: null when none is stored (`no_key`).
+Future<Uint8List?> _unwrap(String alias) async {
+  final Uint8List? key;
+  try {
+    key = await _channel.invokeMethod<Uint8List>('unwrap', {'alias': alias});
+  } on PlatformException catch (e) {
+    if (e.code == 'no_key') return null;
+    if (e.code == 'key_lost') throw _keyLost;
+    throw _unavailable;
+  } on Object {
+    throw _unavailable;
+  }
+  // The decoded reply can be a view of the engine's read-only message buffer,
+  // which cannot be zeroed (Dart cannot clear that copy), so the cipher keeps
+  // its own copy that destroy can zero.
+  if (key == null || key.length != _dataKeyLength) throw _keyLost;
+  return Uint8List.fromList(key);
 }
 
 /// The vault cipher whose data key is wrapped by the Android Keystore.
@@ -71,33 +150,27 @@ class AndroidVaultCipher implements VaultCipher {
   final String _alias;
   final CryptoEngine _engine;
 
-  // The data key. Only here, never copied, printed or logged; zeroed by
-  // destroy (and set to null so later calls fail).
-  Uint8List? _key;
+  // The data key: the one long-lived copy in Dart, never printed or logged.
+  // The channel codec makes short-lived copies when it is wrapped or
+  // unwrapped (Kotlin zeroes its side). Zeroed by destroy once no call is in
+  // flight.
+  final Uint8List _key;
+
+  // Set first by destroy: new calls are refused while in-flight ones finish.
+  bool _closed = false;
+  int _inFlight = 0;
+  Completer<void>? _drained;
 
   @override
   final bool freshlyCreated;
 
-  static Future<AndroidVaultCipher> _open({
-    required String uid,
-    required CryptoEngine engine,
-  }) async {
-    final alias = vaultKeyAlias(uid);
-    try {
-      final key = await _channel.invokeMethod<Uint8List>('unwrap', {
-        'alias': alias,
-      });
-      if (key == null || key.length != _dataKeyLength) {
-        key?.fillRange(0, key.length, 0);
-        throw const VaultKeyException(VaultKeyFailure.keyLost);
-      }
-      return AndroidVaultCipher._(alias, engine, key, false);
-    } on PlatformException catch (e) {
-      if (e.code != 'no_key') throw _mapPlatform(e);
-    } on VaultKeyException {
-      rethrow;
-    } on Object catch (e) {
-      throw _mapPlatform(e);
+  static Future<AndroidVaultCipher> _open(
+    String alias,
+    CryptoEngine engine,
+  ) async {
+    final stored = await _unwrap(alias);
+    if (stored != null) {
+      return AndroidVaultCipher._(alias, engine, stored, false);
     }
 
     // No stored key: first use for this user on this device.
@@ -105,79 +178,87 @@ class AndroidVaultCipher implements VaultCipher {
     try {
       key = await engine.randomBytes(_dataKeyLength);
     } on Object {
-      throw const VaultKeyException(VaultKeyFailure.unavailable);
+      throw _unavailable;
     }
     try {
       await _channel.invokeMethod<void>('wrap', {
         'alias': alias,
         'dataKey': key,
       });
-    } on Object {
+      return AndroidVaultCipher._(alias, engine, key, true);
+    } on PlatformException catch (e) {
       // Never hand out a key that is not stored: rows sealed under it would
       // be lost on the next start.
       key.fillRange(0, key.length, 0);
-      throw const VaultKeyException(VaultKeyFailure.unavailable);
+      if (e.code != 'exists') throw _unavailable;
+    } on Object {
+      key.fillRange(0, key.length, 0);
+      throw _unavailable;
     }
-    return AndroidVaultCipher._(alias, engine, key, true);
+
+    // Another writer stored a key first: adopt it.
+    final theirs = await _unwrap(alias);
+    if (theirs == null) throw _unavailable;
+    return AndroidVaultCipher._(alias, engine, theirs, false);
   }
 
-  Uint8List _liveKey() {
-    final key = _key;
-    if (key == null) throw StateError('The vault cipher was destroyed.');
-    return key;
-  }
-
-  // seal/open read the key and pass it to the engine with no await in
-  // between: the engine copies its arguments when the call is made, so a
-  // destroy that runs while a call is in flight cannot change its key.
-
-  @override
-  Future<Uint8List> seal(
-    String table,
-    String rowKey,
-    Uint8List plaintext,
-  ) async {
-    // Errors (destroyed, a bad table) come back as a failed future.
-    final key = _liveKey();
+  // The engine may read the key at any point until its future completes
+  // (nothing promises a copy at call time), so seal/open count themselves in
+  // flight and destroy zeroes the key only after they finish.
+  Future<T> _run<T>(Future<T> Function(Uint8List key) body) async {
+    if (_closed) throw StateError('The vault cipher was destroyed.');
+    _inFlight++;
     try {
-      return await _engine.seal(key, vaultRowAad(table, rowKey), plaintext);
-    } on MlsException catch (e) {
-      // With a 32-byte key, badInput can only be the plaintext size.
-      if (e.code == MlsErrorCode.badInput) {
-        throw ArgumentError.value(
-          plaintext.length,
-          'plaintext.length',
-          'more than 1 MiB',
-        );
-      }
-      throw const VaultKeyException(VaultKeyFailure.unavailable);
+      return await body(_key);
+    } finally {
+      _inFlight--;
+      if (_inFlight == 0) _drained?.complete();
     }
   }
 
   @override
-  Future<Uint8List> open(String table, String rowKey, Uint8List sealed) async {
-    final key = _liveKey();
-    final aad = vaultRowAad(table, rowKey);
-    try {
-      return await _engine.open(key, aad, sealed);
-    } on MlsException catch (e) {
-      // badInput is every authentication failure. Anything else (the native
-      // library missing: internal) is not about this row: the engine is not
-      // usable right now.
-      if (e.code == MlsErrorCode.badInput) throw const VaultRowException();
-      throw const VaultKeyException(VaultKeyFailure.unavailable);
-    }
-  }
+  Future<Uint8List> seal(String table, String rowKey, Uint8List plaintext) =>
+      _run((key) async {
+        final aad = vaultRowAad(table, rowKey);
+        try {
+          return await _engine.seal(key, aad, plaintext);
+        } on MlsException catch (e) {
+          // With a 32-byte key, badInput can only be the plaintext size.
+          if (e.code == MlsErrorCode.badInput) {
+            throw ArgumentError.value(
+              plaintext.length,
+              'plaintext.length',
+              'more than 1 MiB',
+            );
+          }
+          throw _unavailable;
+        }
+      });
+
+  @override
+  Future<Uint8List> open(String table, String rowKey, Uint8List sealed) =>
+      _run((key) async {
+        final aad = vaultRowAad(table, rowKey);
+        try {
+          return await _engine.open(key, aad, sealed);
+        } on MlsException catch (e) {
+          // badInput is every authentication failure. Anything else (the
+          // native library missing: internal) is not about this row: the
+          // engine is not usable right now.
+          if (e.code == MlsErrorCode.badInput) throw const VaultRowException();
+          throw _unavailable;
+        }
+      });
 
   @override
   Future<void> destroy() async {
-    final key = _liveKey();
-    key.fillRange(0, key.length, 0);
-    _key = null;
-    try {
-      await _channel.invokeMethod<void>('delete', {'alias': _alias});
-    } on Object {
-      throw const VaultKeyException(VaultKeyFailure.unavailable);
+    if (_closed) throw StateError('The vault cipher was destroyed.');
+    _closed = true;
+    if (_inFlight > 0) {
+      final drained = _drained = Completer<void>();
+      await drained.future;
     }
+    _key.fillRange(0, _key.length, 0);
+    await _serialized(_alias, () => _deleteAlias(_alias));
   }
 }

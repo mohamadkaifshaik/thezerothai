@@ -40,17 +40,24 @@ void main() {
     });
 
     tearDown(() async {
-      // Remove this test's Keystore key and stored value.
-      final c = live ?? await openVaultCipher(uid: uid, engine: engine);
+      // Cleanup only (every assertion is in the test bodies): drop the
+      // cipher and remove this test's Keystore key and stored value without
+      // creating one.
+      final c = live;
       live = null;
-      try {
-        await c.destroy();
-      } on StateError {
-        // Already destroyed by the test.
+      if (c != null) {
+        try {
+          await c.destroy();
+        } on StateError {
+          // Already destroyed by the test.
+        }
       }
+      await deleteVaultKey(uid: uid);
     });
 
-    test('a key survives a restart (a second open in the same run)', () async {
+    testWidgets('a key survives a restart (a second open in the same run)', (
+      tester,
+    ) async {
       final first = await openVaultCipher(uid: uid, engine: engine);
       expect(first.freshlyCreated, isTrue);
       final sealed = await first.seal('messages', 'r1', _b('survives'));
@@ -66,7 +73,9 @@ void main() {
       );
     });
 
-    test('200 seal + open of 1 KB values take under 2 s', () async {
+    testWidgets('200 seal + open of 1 KB values take under 2 s', (
+      tester,
+    ) async {
       final cipher = await openVaultCipher(uid: uid, engine: engine);
       live = cipher;
       final value = Uint8List.fromList(List.generate(1024, (i) => i & 0xff));
@@ -80,7 +89,9 @@ void main() {
       expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
     });
 
-    test('destroy deletes the key; a reopen makes a new one', () async {
+    testWidgets('destroy deletes the key; a reopen makes a new one', (
+      tester,
+    ) async {
       final cipher = await openVaultCipher(uid: uid, engine: engine);
       final sealed = await cipher.seal('messages', 'r1', _b('gone'));
       await cipher.destroy();
@@ -96,6 +107,36 @@ void main() {
         again.open('messages', 'r1', sealed),
         throwsA(isA<VaultRowException>()),
       );
+    });
+
+    testWidgets('two concurrent opens share one key; one is fresh', (
+      tester,
+    ) async {
+      final both = await Future.wait([
+        openVaultCipher(uid: uid, engine: engine),
+        openVaultCipher(uid: uid, engine: engine),
+      ]);
+      live = both[0];
+      expect(both.where((c) => c.freshlyCreated).length, 1);
+      final sealed = await both[0].seal('messages', 'r1', _b('shared'));
+      expect(await both[1].open('messages', 'r1', sealed), _b('shared'));
+    });
+
+    testWidgets('deleteVaultKey removes a key without opening it', (
+      tester,
+    ) async {
+      final cipher = await openVaultCipher(uid: uid, engine: engine);
+      final sealed = await cipher.seal('messages', 'r1', _b('wiped'));
+      await deleteVaultKey(uid: uid);
+      await deleteVaultKey(uid: uid); // idempotent
+      final again = await openVaultCipher(uid: uid, engine: engine);
+      live = again;
+      expect(again.freshlyCreated, isTrue);
+      await expectLater(
+        again.open('messages', 'r1', sealed),
+        throwsA(isA<VaultRowException>()),
+      );
+      expect(await vaultStoragePersisted(), isTrue);
     });
   });
 

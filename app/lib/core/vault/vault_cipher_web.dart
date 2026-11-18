@@ -427,3 +427,9 @@ class WebVaultCipher implements VaultCipher {
     await _deleteRecord(_env, _alias);
   }
 }
+
+/// [deleteVaultKey] on the web: [deleteWebVaultKey].
+Future<void> platformDeleteVaultKey(String uid) => deleteWebVaultKey(uid);
+
+/// [vaultStoragePersisted] on the web: [webVaultStoragePersisted].
+Future<bool> platformVaultStoragePersisted() => webVaultStoragePersisted();

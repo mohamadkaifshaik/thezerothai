@@ -96,3 +96,18 @@ Future<VaultCipher> openVaultCipher({
   required String uid,
   required CryptoEngine engine,
 }) => impl.openPlatformVaultCipher(uid: uid, engine: engine);
+
+/// Deletes the stored vault key of [uid] without opening it or creating one
+/// (idempotent). Rows sealed under it can never be opened again. Used by the
+/// wipe paths for a user whose cipher is not open.
+///
+/// Throws [VaultKeyException] with [VaultKeyFailure.unavailable] when the
+/// platform store cannot be used, and [UnsupportedError] where there is no
+/// vault.
+Future<void> deleteVaultKey({required String uid}) =>
+    impl.platformDeleteVaultKey(uid);
+
+/// Whether the platform keeps the vault key safe from eviction: always on
+/// Android (app-private storage), on the web only when the browser granted
+/// persistent storage, never elsewhere. Never throws.
+Future<bool> vaultStoragePersisted() => impl.platformVaultStoragePersisted();

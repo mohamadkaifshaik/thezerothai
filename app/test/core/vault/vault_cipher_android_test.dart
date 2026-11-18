@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dzeroth/core/crypto/crypto_types.dart';
@@ -21,6 +22,7 @@ class _FakeKeystore {
   String? failWrap;
   String? failDelete;
   Uint8List? unwrapOverride;
+  Uint8List? storeBeforeWrap;
 
   static Uint8List _flip(Uint8List b) =>
       Uint8List.fromList([for (final x in b) x ^ 0x5a]);
@@ -33,6 +35,16 @@ class _FakeKeystore {
       case 'wrap':
         if (failWrap != null) {
           throw PlatformException(code: failWrap!, message: 'wrap failed');
+        }
+        // Another writer got there first (an earlier process, a second
+        // engine): it stores its key, so this wrap must change nothing.
+        final other = storeBeforeWrap;
+        if (other != null) {
+          storeBeforeWrap = null;
+          stored[alias] = _flip(other);
+        }
+        if (stored.containsKey(alias)) {
+          throw PlatformException(code: 'exists', message: 'already stored');
         }
         stored[alias] = _flip(args['dataKey']! as Uint8List);
         return null;
@@ -83,6 +95,40 @@ class _BrokenEngine extends _CapturingEngine {
   Future<Uint8List> open(Uint8List key, Uint8List aad, Uint8List sealed) {
     if (fail) throw const MlsException(MlsErrorCode.internal, 'no library');
     return super.open(key, aad, sealed);
+  }
+}
+
+/// randomBytes waits on [gate] (when set), so a test can interleave two
+/// opens there.
+class _GatedRandomEngine extends _CapturingEngine {
+  Completer<void>? gate;
+  int randomCalls = 0;
+
+  @override
+  Future<Uint8List> randomBytes(int length) async {
+    randomCalls++;
+    final g = gate;
+    if (g != null) await g.future;
+    return super.randomBytes(length);
+  }
+}
+
+/// seal copies the key it is given, then waits on [sealGate] and only then
+/// reads the key: an engine that reads its arguments late.
+class _LateReadEngine extends _CapturingEngine {
+  Completer<void>? sealGate;
+  Uint8List? keySeenAtCall;
+
+  @override
+  Future<Uint8List> seal(
+    Uint8List key,
+    Uint8List aad,
+    Uint8List plaintext,
+  ) async {
+    keySeenAtCall = Uint8List.fromList(key);
+    final g = sealGate;
+    if (g != null) await g.future;
+    return super.seal(key, aad, plaintext);
   }
 }
 
@@ -279,6 +325,190 @@ void main() {
       const VaultKeyException(VaultKeyFailure.unavailable).toString(),
       'VaultKeyException(unavailable)',
     );
+  });
+
+  test('each unwrap error code maps to one outcome', () async {
+    // no_key creates a key; key_lost is keyLost; everything else (Kotlin
+    // answers unavailable after its own retry) is unavailable.
+    final cases = <String, VaultKeyFailure>{
+      'key_lost': VaultKeyFailure.keyLost,
+      'unavailable': VaultKeyFailure.unavailable,
+      'exists': VaultKeyFailure.unavailable, // never sent by unwrap
+      'something_new': VaultKeyFailure.unavailable,
+    };
+    for (final c in cases.entries) {
+      keystore.failUnwrap = c.key;
+      keystore.calls.clear();
+      await expectLater(_open(engine), _keyFailure(c.value), reason: c.key);
+      expect(keystore.calls.map((m) => m.method), ['unwrap'], reason: c.key);
+    }
+    keystore.failUnwrap = null;
+    final created = await _open(engine);
+    expect(created.freshlyCreated, isTrue);
+  });
+
+  test(
+    'wrap answering exists adopts the stored key, not the new one',
+    () async {
+      final theirs = Uint8List.fromList(List.generate(32, (i) => 200 - i));
+      keystore.storeBeforeWrap = theirs;
+      final cipher = await _open(engine);
+      expect(cipher.freshlyCreated, isFalse);
+      expect(keystore.calls.map((c) => c.method), ['unwrap', 'wrap', 'unwrap']);
+      // The key we generated is not used, so it is zeroed.
+      expect(engine.keys.single, everyElement(0));
+      final sealed = await cipher.seal('messages', 'r1', _b('x'));
+      expect(
+        await FakeCryptoEngine().open(
+          theirs,
+          vaultRowAad('messages', 'r1'),
+          sealed,
+        ),
+        _b('x'),
+      );
+    },
+  );
+
+  test(
+    'exists then a failing unwrap is reported, never a memory-only key',
+    () async {
+      keystore.storeBeforeWrap = Uint8List(32);
+      keystore.calls.clear();
+      var unwraps = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_channel, (call) {
+            if (call.method == 'unwrap' && ++unwraps == 2) {
+              throw PlatformException(code: 'key_lost');
+            }
+            return keystore.handle(call);
+          });
+      await expectLater(_open(engine), _keyFailure(VaultKeyFailure.keyLost));
+      expect(engine.keys.single, everyElement(0));
+    },
+  );
+
+  test('two concurrent opens share one key; exactly one is fresh', () async {
+    final gated = _GatedRandomEngine()..gate = Completer<void>();
+    final a = _open(gated);
+    final b = _open(gated);
+    // Let both opens run as far as they can: the first waits in randomBytes.
+    await pumpEventQueue();
+    gated.gate!.complete();
+    final ciphers = await Future.wait([a, b]);
+
+    expect(gated.randomCalls, 1);
+    expect(keystore.stored.length, 1);
+    expect(ciphers.where((c) => c.freshlyCreated).length, 1);
+    final sealed = await ciphers[0].seal('messages', 'r1', _b('shared'));
+    expect(await ciphers[1].open('messages', 'r1', sealed), _b('shared'));
+    final back = await ciphers[1].seal('messages', 'r2', _b('back'));
+    expect(await ciphers[0].open('messages', 'r2', back), _b('back'));
+  });
+
+  test('a failed open does not block the next open of the same uid', () async {
+    var unwraps = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_channel, (call) {
+          if (call.method == 'unwrap' && ++unwraps == 1) {
+            throw PlatformException(code: 'unavailable');
+          }
+          return keystore.handle(call);
+        });
+    final first = _open(engine);
+    final second = _open(engine);
+    await expectLater(first, _keyFailure(VaultKeyFailure.unavailable));
+    expect((await second).freshlyCreated, isTrue);
+  });
+
+  test('destroy waits for a seal in flight before zeroing the key', () async {
+    final late = _LateReadEngine();
+    final cipher = await _open(late);
+    late.sealGate = Completer<void>();
+    final sealing = cipher.seal('messages', 'r1', _b('in flight'));
+    await pumpEventQueue();
+    var destroyed = false;
+    final destroying = cipher.destroy().then((_) => destroyed = true);
+    await pumpEventQueue();
+
+    // New calls are refused at once; the key is still intact.
+    await expectLater(cipher.seal('messages', 'r2', _b('x')), throwsStateError);
+    expect(destroyed, isFalse);
+    expect(late.keys.single, isNot(everyElement(0)));
+    expect(keystore.calls.where((c) => c.method == 'delete'), isEmpty);
+
+    late.sealGate!.complete();
+    final sealed = await sealing;
+    await destroying;
+    expect(
+      await FakeCryptoEngine().open(
+        late.keySeenAtCall!,
+        vaultRowAad('messages', 'r1'),
+        sealed,
+      ),
+      _b('in flight'),
+    );
+    expect(late.keys.single, everyElement(0));
+    expect(keystore.calls.last.method, 'delete');
+  });
+
+  test('an unwrapped key in a read-only channel buffer is copied, so destroy '
+      'can zero it', () async {
+    // On a device the engine hands the reply over in a read-only buffer, and
+    // the decoded Uint8List is a view of it (found by the device run).
+    await _open(engine); // stores a key
+    const codec = StandardMethodCodec();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMessageHandler(_channel.name, (message) async {
+          final call = codec.decodeMethodCall(message);
+          final Object? value;
+          try {
+            value = await keystore.handle(call);
+          } on PlatformException catch (e) {
+            return codec
+                .encodeErrorEnvelope(code: e.code, message: e.message)
+                .asUnmodifiableView();
+          }
+          return codec.encodeSuccessEnvelope(value).asUnmodifiableView();
+        });
+    final cipher = await _open(engine);
+    expect(cipher.freshlyCreated, isFalse);
+    await cipher.destroy(); // threw "Cannot modify an unmodifiable list"
+    keystore.unwrapOverride = Uint8List(16);
+    await expectLater(_open(engine), _keyFailure(VaultKeyFailure.keyLost));
+  });
+
+  test('deleteVaultKey deletes the stored key without creating one', () async {
+    await _open(engine);
+    keystore.calls.clear();
+    await deleteIoVaultKey(uid: 'user-1', isAndroid: true);
+    expect(keystore.calls.map((c) => c.method), ['delete']);
+    expect(
+      (keystore.calls.single.arguments as Map<Object?, Object?>)['alias'],
+      vaultKeyAlias('user-1'),
+    );
+    expect(keystore.stored, isEmpty);
+
+    // Idempotent, and never wraps.
+    await deleteIoVaultKey(uid: 'nobody', isAndroid: true);
+    expect(keystore.calls.where((c) => c.method == 'wrap'), isEmpty);
+
+    keystore.failDelete = 'unavailable';
+    await expectLater(
+      deleteIoVaultKey(uid: 'user-1', isAndroid: true),
+      _keyFailure(VaultKeyFailure.unavailable),
+    );
+    expect(
+      () => deleteIoVaultKey(uid: 'user-1', isAndroid: false),
+      throwsUnsupportedError,
+    );
+    // The VM test host is never Android.
+    expect(() => deleteVaultKey(uid: 'user-1'), throwsUnsupportedError);
+  });
+
+  test('vaultStoragePersisted is true on Android, false elsewhere', () async {
+    expect(await ioVaultStoragePersisted(isAndroid: true), isTrue);
+    expect(await ioVaultStoragePersisted(isAndroid: false), isFalse);
+    expect(await vaultStoragePersisted(), isFalse);
   });
 
   test('an engine that fails (not authentication) is unavailable', () async {

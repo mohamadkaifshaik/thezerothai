@@ -6,3 +6,10 @@ Future<VaultCipher> openPlatformVaultCipher({
   required String uid,
   required CryptoEngine engine,
 }) => throw UnsupportedError('No encrypted vault on this platform.');
+
+/// No vault, so no key to delete.
+Future<void> platformDeleteVaultKey(String uid) =>
+    throw UnsupportedError('No encrypted vault on this platform.');
+
+/// No vault storage at all.
+Future<bool> platformVaultStoragePersisted() async => false;
