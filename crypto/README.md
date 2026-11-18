@@ -39,14 +39,25 @@ Pinned versions (bump each with the file named beside it, and re-run the checks)
 | OpenMLS | `openmls =0.9.2` and its siblings (see below) | `=` versions in `dzmls/Cargo.toml`, `Cargo.lock` committed |
 
 `cargo deny check` (policy in `deny.toml`) fails on a known advisory, a licence outside the allow-list, a yanked crate or
-any source but crates.io. There are no ignore entries; a finding is fixed by a dependency change or goes to the owner.
+any source but crates.io. A finding is fixed by a dependency change or goes to the owner; an ignore entry is added only on
+the owner's decision, with a reason and a review date.
 
-**Open findings (2026-11-18), not yet decided by the owner.** `cargo deny check` fails on RUSTSEC-2026-0387
-(`crypto-bigint` 0.5.5, constant-time issues; fixed in 0.7.6, but `elliptic-curve` 0.13 requires `^0.5`) and RUSTSEC-2026-0173
-(`proc-macro-error2` is unmaintained; it is a build-time macro crate reached through `hpke-rs`, no fixed version).
+**Accepted findings (owner decision 2026-11-18, review by 2027-02-16).** `deny.toml` ignores two advisories:
+
+- RUSTSEC-2026-0387 (`crypto-bigint` 0.5.5, operations meant to be constant-time can leak timing; fixed in 0.7.6, but
+  `elliptic-curve` 0.13 requires `^0.5`). It is reached only through the NIST-curve crates (`p256`, `p384`, `k256`,
+  `ecdsa`). The one suite this workspace uses is X25519 + Ed25519, whose crates do not depend on it, and `dzmls` refuses
+  every other suite. Check with `cargo tree -p dzmls -i crypto-bigint --edges normal`. Remove the entry when
+  `elliptic-curve` can take the fixed version, and re-check it if another cipher suite is ever enabled.
+- RUSTSEC-2026-0173 (`proc-macro-error2` is unmaintained; a build-time macro crate reached through `hpke-rs`, no fixed
+  version). It is not in any shipped binary.
+
+Do not extend the review date or add an entry without asking the owner again.
+
 `osv-scanner` on `Cargo.lock` reports those two and RUSTSEC-2026-0330 and RUSTSEC-2026-0331 (`libcrux-kem` 0.0.9, fix 0.0.10;
-the crate is in `Cargo.lock` but not in the build graph of any target, so cargo-deny does not see it). While these are open,
-`make crypto-test` ends red when cargo-deny is installed. CI does not run either check yet; a proposed CI change adds both.
+the crate is in `Cargo.lock` but not in the build graph of any target, so cargo-deny does not see it). CI does not run either
+check yet; when the proposed CI change adds the `Cargo.lock` scan, those findings need the owner's decision in
+`osv-scanner.toml` too.
 
 ### Updating OpenMLS
 

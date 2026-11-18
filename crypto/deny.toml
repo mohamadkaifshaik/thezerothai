@@ -4,7 +4,18 @@
 [advisories]
 version = 2
 yanked = "deny"
-# No `ignore` entries. A finding is fixed or reported to the owner, never silenced here.
+# A finding is fixed or reported to the owner, never silenced without the owner's decision. The two entries below were
+# accepted by the owner on 2026-11-18 and MUST be re-examined by 2027-02-16 (90 days): remove an entry as soon as its
+# fix can be taken, and do not extend the date without asking again.
+ignore = [
+    # crypto-bigint 0.5.5: operations meant to be constant-time can leak timing. It is reached only through
+    # elliptic-curve 0.13 (p256, p384, k256, ecdsa); the one suite this workspace uses is X25519 + Ed25519, whose
+    # crates do not depend on it, and dzmls refuses every other suite. Fixed in 0.7.6, blocked by elliptic-curve 0.13.
+    { id = "RUSTSEC-2026-0387", reason = "NIST-curve path only, not used by the pinned suite; upstream bump blocked. Owner-accepted 2026-11-18, review by 2027-02-16." },
+    # proc-macro-error2 2.0.1: unmaintained, no fixed version. A build-time proc-macro (hpke-rs -> libcrux -> hax-lib
+    # macros); it is not in any shipped binary.
+    { id = "RUSTSEC-2026-0173", reason = "Unmaintained build-time macro, not shipped. Owner-accepted 2026-11-18, review by 2027-02-16." },
+]
 
 [licenses]
 version = 2
