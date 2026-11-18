@@ -6,9 +6,10 @@ syntax = "proto3";
 // message content. Clients MUST verify that a claimed key package's credential and signature key match the directory
 // entry (ClaimedKeyPackage.signature_public_key) before using it.
 // Owner module: backend/internal/keys.
-// Collections owned: users/{uid}/keyDevices/{deviceId} (signaturePublicKey, createdAt, lastSeenAt, lastResortKeyPackage)
-// and its subcollection users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time pool; the document id is
-// derived from the package bytes). Both are erased and exported with the account.
+// Collections owned: users/{uid}/keyDevices/{deviceId} (signatureKey (bytes), createdAt, lastSeenAt, lastResort (bytes,
+// absent = none), poolCount) and its subcollection users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time
+// pool; data (bytes) and createdAt; id = the first 32 hex characters of the SHA-256 of the bytes). Both are erased with
+// the account; the account export lists device metadata and counts only, never key bytes.
 //
 // Key material is raw bytes: this is the first proto in the repo with `bytes` fields. Device ids, user ids and
 // idempotency keys are strings. Nothing the server stores or returns is a message body.
