@@ -1,3 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["dzmls"]
+members = ["dzmls", "dzmls_web"]
+
+# Profiles only count here, in the workspace root. Size-optimised, and no unwinding (a panic is a trap in wasm).
+# `cargo test` uses the test profile, which ignores `panic`, so host tests are unaffected.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

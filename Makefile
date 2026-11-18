@@ -53,6 +53,8 @@ help:
 	@echo "  make flutter-test SHARD=0/3 | make test-int-shard SHARD=0/3 + make test-int-cover   # CI shards (scripts/ci/shard.sh)"
 	@echo "  make loadtest SCENARIO=identity_getme   # runs loadtest/<scenario>.js with k6 (see loadtest/README.md)"
 	@echo "  make cost PROJECT_ID=dzeroth-dev        # also queries live Cloud Logging usage"
+	@echo "  make crypto-test                        # MLS core (crypto/): fmt, clippy, host tests"
+	@echo "  make crypto-web                         # build the MLS wasm binding into app/web/mls/ (not committed)"
 
 ## proto: buf lint + buf breaking (tolerant of a missing 'main' baseline, e.g. first commit) + generate.
 proto:
@@ -234,3 +236,14 @@ loadtest:
 	@if [ -z "$${SCENARIO:-}" ]; then echo "usage: make loadtest SCENARIO=<name>  (runs loadtest/<name>.js)"; exit 1; fi
 	@if [ ! -f "loadtest/$(SCENARIO).js" ]; then echo "loadtest/$(SCENARIO).js not found"; exit 1; fi
 	k6 run "loadtest/$(SCENARIO).js"
+
+.PHONY: crypto-test crypto-web
+
+## crypto-test: the MLS core (crypto/dzmls): rustfmt check, clippy on the whole workspace, host tests. Not part of ci yet.
+crypto-test:
+	cd crypto && cargo fmt --check && cargo clippy --workspace -- -D warnings && cargo test -p dzmls
+
+## crypto-web: build the MLS wasm binding (crypto/dzmls_web) into app/web/mls/ and print its size. Needs the
+## wasm32-unknown-unknown target and wasm-bindgen CLI 0.2.130. The output is gitignored.
+crypto-web:
+	bash scripts/crypto/build-web.sh

@@ -41,3 +41,8 @@ AGENTS.md
 # firebase auth:export dumps contain user PII; never commit
 users.json
 docs/
+
+# MLS core: built web binding and cargo build output
+app/web/mls/
+crypto/target/
+app/rust/target/
