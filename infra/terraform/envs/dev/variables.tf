@@ -1042,6 +1042,34 @@ variable "feature_trending_posts_percent" {
   }
 }
 
+variable "feature_public_ids" {
+  description = "FEATURE_PUBLIC_IDS rollout mode for opaque public user ids: off | allowlist | percent | on. Default off. For every caller the flag is on for, the API replaces Firebase uids with opaque public ids on the wire, in requests and responses. Any mode other than off also makes the API mint a public id for every account at signup and on its first GetMe, whether or not the flag is on for that account. Before leaving off, read the warnings on feature_public_ids_allowlist (backfill and app build) and feature_public_ids_percent (do not use percent). Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6 entries, no prod raise; the on mode needs a reviewed ceiling change first, and the deploy validators refuse it until then."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_public_ids)
+    error_message = "feature_public_ids must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_public_ids_allowlist" {
+  description = "FEATURE_PUBLIC_IDS_ALLOWLIST: comma-separated Firebase uids (not a secret), at most 6 under the dev ceiling. Applies in allowlist and percent modes. Before this is set, run `opsctl backfill-public-ids` in this environment (with --dry-run first, then for real), so that every existing account has a public id. Every allowlisted account must already be on an app build that supports public ids: an older build sends raw uids and gets validation errors."
+  type        = string
+  default     = ""
+}
+
+variable "feature_public_ids_percent" {
+  description = "FEATURE_PUBLIC_IDS_PERCENT: 0-100, only meaningful when feature_public_ids = percent. Do not use the percent mode for this flag: profile links break between users inside and outside the cohort. Leave this at 0; the dev ceiling allows no percent either."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_public_ids_percent >= 0 && var.feature_public_ids_percent <= 100 && floor(var.feature_public_ids_percent) == var.feature_public_ids_percent
+    error_message = "feature_public_ids_percent must be an integer 0-100."
+  }
+}
+
 variable "trends_min_authors" {
   description = "TRENDS_MIN_AUTHORS (ADR-0028 note 2026-10-31, W4-26): the fewest distinct established authors (ACTIVE, account at least TRENDS_MIN_ACCOUNT_AGE (trends_min_account_age) old) a hashtag needs to trend. Read at every trends refresh (hourly). Default 1 is the cold-start value for a fresh environment (a tag used by one established account trends). The owner-held terraform.tfvars overrides it: a `trends_min_authors = N` line there wins, so raise it there once there are enough users, and set it to 1 there to get cold-start behaviour in an environment whose tfvars still pins a higher value."
   type        = number

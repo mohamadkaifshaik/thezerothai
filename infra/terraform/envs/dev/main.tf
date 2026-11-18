@@ -206,6 +206,9 @@ locals {
     { name = "FEATURE_TRENDING_POSTS", value = var.feature_trending_posts },
     { name = "FEATURE_TRENDING_POSTS_ALLOWLIST", value = var.feature_trending_posts_allowlist },
     { name = "FEATURE_TRENDING_POSTS_PERCENT", value = tostring(var.feature_trending_posts_percent) },
+    { name = "FEATURE_PUBLIC_IDS", value = var.feature_public_ids },
+    { name = "FEATURE_PUBLIC_IDS_ALLOWLIST", value = var.feature_public_ids_allowlist },
+    { name = "FEATURE_PUBLIC_IDS_PERCENT", value = tostring(var.feature_public_ids_percent) },
     // Tags that never trend, applied at serve time and by the sweep. Operators hide a tag
     // at once with `opsctl trends hide`; this list is the deploy-time floor. Comma-separated tag bodies, no leading #.
     { name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) },
