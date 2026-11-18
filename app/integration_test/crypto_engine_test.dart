@@ -171,16 +171,37 @@ void main() {
     }
     expect(replayed, greaterThan(20));
 
-    final finals = (doc['final_states'] as Map<String, dynamic>).values;
-    for (final st in finals) {
-      final s = st as Map<String, dynamic>;
-      await engine.describe(_unhex(s['group_state']));
+    // The final states say what the script left behind: the group id it used,
+    // alice and carol at epoch 3 with only themselves as members, and bob
+    // (removed by the commit that made epoch 3) on his own inactive state.
+    // Every device state still loads. Mirrors crypto/dzmls/tests/vectors.rs.
+    final finals = doc['final_states'] as Map<String, dynamic>;
+    expect(finals, hasLength(3));
+    final ids = doc['device_ids'] as Map<String, dynamic>;
+    final aliceAndCarol = [_unhex(ids['alice']), _unhex(ids['carol'])];
+    for (final (name, members) in [
+      ('alice', aliceAndCarol),
+      ('carol', aliceAndCarol),
+      ('bob', null),
+    ]) {
+      final s = finals[name] as Map<String, dynamic>;
+      final info = await engine.describe(_unhex(s['group_state']));
+      expect(info.groupId, _bytes(0xAB, 32), reason: name);
+      expect(info.epoch, 3, reason: name);
+      expect(info.hasPendingCommit, isFalse, reason: name);
+      if (members != null) {
+        expect(
+          [for (final m in info.members) m.deviceId],
+          members,
+          reason: name,
+        );
+      }
       final k = await engine.generateKeyPackages(
         _unhex(s['device_state']),
         count: 1,
         lastResort: false,
       );
-      expect(k.keyPackages, hasLength(1));
+      expect(k.keyPackages, hasLength(1), reason: name);
     }
   });
 

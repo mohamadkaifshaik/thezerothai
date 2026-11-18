@@ -76,9 +76,8 @@ cd app && flutter drive --driver=test_driver/integration_test.dart   --target=in
 ```
 
 `flutter test integration_test -d chrome` is not supported on Flutter 3.50 ("Web devices are not supported for
-integration tests yet"), hence `flutter drive`. The driver serves `app/integration_test/assets/mls/vectors-v1.json`
-(a byte-identical copy of the frozen vectors, checked by `test/core/crypto/vectors_copy_test.dart`) on
-127.0.0.1:8089 for the run, so the file is not an app asset and release builds do not ship it.
+integration tests yet"), hence `flutter drive`. The driver (run from `app/`) serves `../testdata/mls/vectors-v1.json`, the
+one committed copy, on 127.0.0.1:8089 for the run, so the file is not an app asset and release builds do not ship it.
 
 ## Key package and leaf lifetime
 

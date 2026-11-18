@@ -8,7 +8,12 @@ import 'package:integration_test/integration_test_driver.dart';
 const _vectorsPort = 8089;
 
 Future<void> main() async {
-  final vectors = File('integration_test/assets/mls/vectors-v1.json');
+  // The driver runs on the VM with `app/` as its working directory, so it reads
+  // the one committed copy of the vectors, in the repo's testdata/.
+  final vectors = File('../testdata/mls/vectors-v1.json');
+  if (!vectors.existsSync()) {
+    throw StateError('run flutter drive from app/: ${vectors.path} not found');
+  }
   final server = await HttpServer.bind(
     InternetAddress.loopbackIPv4,
     _vectorsPort,

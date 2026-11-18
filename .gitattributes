@@ -16,4 +16,3 @@ scripts/promotion/** text eol=lf
 # fails golden comparisons that pass on Linux CI (seen on TestW335b_FollowRequestsThroughAccountLifecycle, 2026-10-28).
 backend/**/testdata/** text eol=lf
 testdata/**            text eol=lf
-app/integration_test/assets/** text eol=lf

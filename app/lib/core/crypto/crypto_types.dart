@@ -54,6 +54,11 @@ class MlsException implements Exception {
   String toString() => 'MlsException(${code.wire}): $message';
 }
 
+// The result and event types below carry state blobs, keys, plaintext and
+// wire bytes. Never give them a generated toString, Equatable or freezed: those
+// print every byte list into logs and test output. They keep Object.toString
+// (pinned by test/core/crypto/crypto_types_test.dart).
+
 /// A new device: its state blob and the public half of its signature key.
 class DeviceCreated {
   const DeviceCreated({
