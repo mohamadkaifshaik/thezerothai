@@ -279,8 +279,8 @@ func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) 
 	return out, nil
 }
 
-// Claim validates, checks permission and the target's flag (another user), then claims in one repository transaction.
-// The excluded device is passed to the repository only for the caller's own id, where it must exist; for another user
+// Claim validates, checks permission and the target's flag (another user), then claims through the repository
+// (compare-and-delete per device). The excluded device is passed to the repository only for the caller's own id, where it must exist; for another user
 // a well-formed exclude_device_id is accepted and not used (it exists for a device claiming its own user's others).
 func (s *service) Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, error) {
 	begin(ctx, "claim")

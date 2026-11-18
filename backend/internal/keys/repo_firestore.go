@@ -3,6 +3,7 @@ package keys
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -45,9 +46,10 @@ type deviceDoc struct {
 	CreatedAt    time.Time `firestore:"createdAt"`
 	LastSeenAt   time.Time `firestore:"lastSeenAt"`
 	LastResort   []byte    `firestore:"lastResort,omitempty"`
-	// PoolCount is the number of pool documents. Invariant: it is changed only inside the Upload, Remove and Claim
-	// transactions, as a delta, never recounted (a recount would break Upload's bound of 100 reads); the eraser
-	// deletes by listing documents, never by this counter.
+	// PoolCount is the number of pool documents. Invariant: it changes only in the same atomic write as the pool
+	// documents it counts (Upload's transaction, Remove's page batches and final transaction, Claim's compare-and-delete
+	// batch), as a delta, never recounted (a recount would break Upload's bound of 100 reads); the eraser deletes by
+	// listing documents, never by this counter.
 	PoolCount int `firestore:"poolCount"`
 }
 
@@ -189,8 +191,9 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string) ([]Device, error) 
 // one device delete; reads: one page query per page (at least one) and, per round, the device read and a 1-document pool
 // query.
 //
-// The poolCount invariant: poolCount equals the number of pool documents and is changed only inside the Upload, Remove
-// and Claim transactions; the eraser deletes by listing documents, never by the counter.
+// The poolCount invariant: poolCount equals the number of pool documents and changes only in the same atomic write as
+// those documents (Upload, Remove, Claim; see deviceDoc.PoolCount); the eraser deletes by listing documents, never by the
+// counter.
 func (r *FirestoreRepo) Remove(ctx context.Context, uid, deviceID string) error {
 	for round := 0; round < removeRounds; round++ {
 		if err := r.sweepPool(ctx, uid, deviceID); err != nil {
@@ -306,82 +309,141 @@ func (r *FirestoreRepo) ActiveDevices(ctx context.Context, uid string, now time.
 	return out, nil
 }
 
-// claimedDevice is one device a claim takes from: its reference, its stored document and its pool head (nil = empty).
-type claimedDevice struct {
-	ref  *firestore.DocumentRef
-	doc  deviceDoc
-	head *firestore.DocumentSnapshot
+// claimAttempts bounds how often Claim picks a pool document of one device again after another claimer (or a Remove
+// sweep) took the one it picked first. Exhausted attempts fall back to the last-resort package, never an error. With k
+// claimers racing over k documents in lock step, each round leaves about a third of them losing; a simulation of 20 over
+// 20 gives P(some claimer exhausts its attempts) of 0.74 at 4, 0.085 at 6, 0.0016 at 8 and none in 20000 trials at 10.
+const claimAttempts = 10
+
+// fieldClaimRetries is the request-line count of pool picks Claim had to repeat (contention, never an id).
+const fieldClaimRetries = "claim_retries"
+
+// claimTarget is one device a claim takes from: its reference and its stored document as the device query read it.
+type claimTarget struct {
+	ref *firestore.DocumentRef
+	doc deviceDoc
 }
 
-// Claim implements Repo as one transaction, so it conflicts with a concurrent Upload, Remove, Register or Claim of the
-// same devices. All reads come first: the target's device documents (one query, Limit MaxDevicesPerUser, oldest first),
-// then for each active, non-excluded device one pool query ordered by document id with Limit 1. The pool query, never
-// poolCount, decides whether a package exists. Then per device with a pool head: delete it and set poolCount to
-// max(read count - 1, 0) (a stale counter is never driven negative); with an empty pool the last-resort package is
-// returned and nothing is written for that device. Bound: at most 5 device documents + 5 pool documents read (10), at
-// most 5 deletes + 5 updates (10). LastSeenAt is never written. Two claims of one device read the same pool head and the
-// device documents, so one of them retries; claims of one user are serialised by the device reads anyway.
+// Claim implements Repo with compare-and-delete and no transaction, so concurrent claimers hold no read locks and
+// cannot deadlock. A plain device query (Limit MaxDevicesPerUser, oldest first) gives the devices, their signature keys
+// and last-resort packages; an unmatched non-empty exclude is ErrExcludeNotFound before any write. Per remaining active
+// device (claimOne): pick a pool document at a random point of the id space, then take it with one atomic batch of
+// Delete(document, Exists) + poolCount Increment(-1). Exactly one batch can delete a given document, and the counter moves
+// in the same write, so the poolCount invariant holds without reading it. Reads: the device query (at most 5 documents)
+// plus, per device and attempt, at most 2 pool queries of at most 1 document and, after a failed batch, 1 device read.
+// Writes: per device one batch of 2 (only the committed one counts). LastSeenAt is never written.
 func (r *FirestoreRepo) Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error) {
-	var out []Claimed
-	var seen []string
-	err := r.run(ctx, targetUID, excludeDeviceID, func(_ context.Context, tx *firestore.Transaction) error {
-		out, seen = nil, seen[:0]
-		snaps, err := tx.Documents(r.devices(targetUID).OrderBy("createdAt", firestore.Asc).Limit(MaxDevicesPerUser)).GetAll()
+	snaps, err := r.devices(targetUID).OrderBy("createdAt", firestore.Asc).Limit(MaxDevicesPerUser).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("keys: read devices: %w", err), targetUID, excludeDeviceID)
+	}
+	seen := []string{targetUID, excludeDeviceID}
+	excluded := false
+	targets := make([]claimTarget, 0, len(snaps))
+	for _, s := range snaps {
+		seen = append(seen, s.Ref.ID)
+		if s.Ref.ID == excludeDeviceID {
+			excluded = true
+			continue
+		}
+		var d deviceDoc
+		if err := s.DataTo(&d); err != nil {
+			return nil, logger.RedactErr(fmt.Errorf("keys: decode device: %w", err), seen...)
+		}
+		if d.device(s.Ref.ID).Active(now) {
+			targets = append(targets, claimTarget{ref: s.Ref, doc: d})
+		}
+	}
+	if excludeDeviceID != "" && !excluded {
+		return nil, ErrExcludeNotFound
+	}
+	out := make([]Claimed, 0, len(targets))
+	retries := 0
+	for _, tg := range targets {
+		c, present, n, err := r.claimOne(ctx, tg)
+		retries += n
 		if err != nil {
-			return fmt.Errorf("keys: read devices: %w", err)
+			logger.SetRequestField(ctx, fieldClaimRetries, retries)
+			return nil, logger.RedactErr(err, seen...)
 		}
-		excluded := false
-		picks := make([]claimedDevice, 0, len(snaps))
-		for _, s := range snaps {
-			seen = append(seen, s.Ref.ID)
-			if s.Ref.ID == excludeDeviceID {
-				excluded = true
-				continue
-			}
-			var d deviceDoc
-			if err := s.DataTo(&d); err != nil {
-				return fmt.Errorf("keys: decode device: %w", err)
-			}
-			if d.device(s.Ref.ID).Active(now) {
-				picks = append(picks, claimedDevice{ref: s.Ref, doc: d})
-			}
-		}
-		if excludeDeviceID != "" && !excluded {
-			return ErrExcludeNotFound
-		}
-		for i := range picks {
-			heads, err := tx.Documents(picks[i].ref.Collection(keyPackagesCollection).OrderBy(firestore.DocumentID, firestore.Asc).Limit(1)).GetAll()
-			if err != nil {
-				return fmt.Errorf("keys: read pool: %w", err)
-			}
-			if len(heads) > 0 {
-				picks[i].head = heads[0]
-			}
-		}
-		b := store.NewFirestoreTxBatch(tx)
-		out = make([]Claimed, 0, len(picks))
-		for _, p := range picks {
-			c := Claimed{DeviceID: p.ref.ID, SignatureKey: cloneBytes(p.doc.SignatureKey)}
-			switch {
-			case p.head != nil:
-				var pd packageDoc
-				if err := p.head.DataTo(&pd); err != nil {
-					return fmt.Errorf("keys: decode package: %w", err)
-				}
-				c.KeyPackage, c.HasKeyPackage = cloneBytes(pd.Data), true
-				b.Delete(p.head.Ref)
-				b.Update(p.ref, []firestore.Update{{Path: "poolCount", Value: max(p.doc.PoolCount-1, 0)}})
-			case len(p.doc.LastResort) > 0:
-				c.KeyPackage, c.HasKeyPackage, c.LastResort = cloneBytes(p.doc.LastResort), true, true
-			}
+		if present {
 			out = append(out, c)
 		}
-		return b.Err()
-	})
-	if err != nil {
-		return nil, logger.RedactErr(err, seen...)
 	}
+	logger.SetRequestField(ctx, fieldClaimRetries, retries)
 	return out, nil
+}
+
+// claimOne takes one package of the device: a one-time package by compare-and-delete, else (empty pool, or every
+// attempt lost to another claimer) the last-resort package, else HasKeyPackage false. present is false when the device
+// document was deleted meanwhile (the device is then left out). retries counts the repeated picks.
+func (r *FirestoreRepo) claimOne(ctx context.Context, tg claimTarget) (c Claimed, present bool, retries int, err error) {
+	c = Claimed{DeviceID: tg.ref.ID, SignatureKey: cloneBytes(tg.doc.SignatureKey)}
+	for attempt := 0; attempt < claimAttempts; attempt++ {
+		if attempt > 0 {
+			retries++
+		}
+		head, err := r.pickPoolDoc(ctx, tg.ref)
+		if err != nil {
+			return Claimed{}, false, retries, err
+		}
+		if head == nil {
+			break // empty pool
+		}
+		var pd packageDoc
+		if err := head.DataTo(&pd); err != nil {
+			return Claimed{}, false, retries, fmt.Errorf("keys: decode package: %w", err)
+		}
+		b := store.NewFirestoreBatch(r.client)
+		b.Delete(head.Ref, firestore.Exists)
+		b.Update(tg.ref, []firestore.Update{{Path: "poolCount", Value: firestore.Increment(-1)}})
+		cerr := b.Commit(ctx)
+		switch {
+		case cerr == nil:
+			c.KeyPackage, c.HasKeyPackage = cloneBytes(pd.Data), true
+			return c, true, retries, nil
+		case store.IsContention(cerr):
+			continue // the write lost a lock race: nothing was written, pick again
+		case !store.IsPreconditionFailed(cerr):
+			return Claimed{}, false, retries, fmt.Errorf("keys: claim package: %w", cerr)
+		}
+		// A precondition failed for the whole batch: the picked document is gone (taken by another claimer or a Remove
+		// sweep) or the device document is. One read tells which.
+		if _, gerr := tg.ref.Get(ctx); gerr != nil {
+			if status.Code(gerr) == codes.NotFound {
+				return Claimed{}, false, retries, nil
+			}
+			return Claimed{}, false, retries, fmt.Errorf("keys: get device: %w", gerr)
+		}
+	}
+	if len(tg.doc.LastResort) > 0 {
+		c.KeyPackage, c.HasKeyPackage, c.LastResort = cloneBytes(tg.doc.LastResort), true, true
+	}
+	return c, true, retries, nil
+}
+
+// pickPoolDoc returns one pool document of the device (nil for an empty pool) without a transaction: the first at or
+// after a random id (ids are SHA-256 hex, so concurrent claimers spread over the pool), else the first of all
+// (wrap-around). Ordering by document id needs no index. At most 2 queries of at most 1 document.
+func (r *FirestoreRepo) pickPoolDoc(ctx context.Context, device *firestore.DocumentRef) (*firestore.DocumentSnapshot, error) {
+	var b [packageIDHexLen / 2]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return nil, fmt.Errorf("keys: random pick: %w", err)
+	}
+	byID := device.Collection(keyPackagesCollection).OrderBy(firestore.DocumentID, firestore.Asc)
+	snaps, err := byID.StartAt(hex.EncodeToString(b[:])).Limit(1).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("keys: pick package: %w", err)
+	}
+	if len(snaps) == 0 {
+		if snaps, err = byID.Limit(1).Documents(ctx).GetAll(); err != nil {
+			return nil, fmt.Errorf("keys: pick package: %w", err)
+		}
+	}
+	if len(snaps) == 0 {
+		return nil, nil
+	}
+	return snaps[0], nil
 }
 
 // Upload implements Repo. poolCount is kept as a delta of the true document count (see deviceDoc.PoolCount); more than

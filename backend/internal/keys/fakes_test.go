@@ -152,8 +152,9 @@ func (f *fakeRepo) ActiveDevices(_ context.Context, uid string, now time.Time) (
 }
 
 // Claim mirrors FirestoreRepo.Claim: a non-empty exclude must name one of the target's devices (inactive ones included),
-// else ErrExcludeNotFound with nothing consumed; per remaining active device the pool package with the smallest document
-// id is consumed, else the last-resort package is returned (kept), else HasKeyPackage is false. LastSeenAt is untouched.
+// else ErrExcludeNotFound with nothing consumed; per remaining active device one pool package is consumed (which one is
+// unspecified, as in the repository; here the oldest), else the last-resort package is returned (kept), else
+// HasKeyPackage is false. LastSeenAt is untouched.
 func (f *fakeRepo) Claim(_ context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -172,14 +173,8 @@ func (f *fakeRepo) Claim(_ context.Context, targetUID, excludeDeviceID string, n
 		k := devKey(targetUID, d.ID)
 		c := Claimed{DeviceID: d.ID, SignatureKey: cloneBytes(d.SignatureKey)}
 		if pool := f.pool[k]; len(pool) > 0 {
-			best := 0
-			for i := range pool {
-				if packageID(pool[i]) < packageID(pool[best]) {
-					best = i
-				}
-			}
-			c.KeyPackage, c.HasKeyPackage = cloneBytes(pool[best]), true
-			f.pool[k] = append(pool[:best:best], pool[best+1:]...)
+			c.KeyPackage, c.HasKeyPackage = cloneBytes(pool[0]), true
+			f.pool[k] = pool[1:]
 		} else if lr := f.lastResort[k]; lr != nil {
 			c.KeyPackage, c.HasKeyPackage, c.LastResort = cloneBytes(lr), true, true
 		}

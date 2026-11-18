@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -181,21 +182,23 @@ func TestClaim_StaleCounterFallsBack(t *testing.T) {
 	}
 }
 
-// Twenty concurrent claims against one device with twenty packages each get a distinct package, and the pool ends
-// empty with a true count. All twenty must succeed within the repository's transaction retry budget.
-func TestClaim_TwentyConcurrentClaimsGetDistinctPackages(t *testing.T) {
-	e := newRepoEnv(t)
-	uid := uniqueUID()
-	const n = 20
-	e.seedDevice(t, uid, 1, 0, n, []byte("lr"))
+// claimRace is the outcome of n claims started together against one user with one device.
+type claimRace struct {
+	oneTime    map[string]int // package bytes -> times handed out
+	lastResort int
+	retries    int
+	errs       []error
+	took       time.Duration
+}
 
+// raceClaims starts n claims of uid behind one barrier and collects what each got.
+func (e *repoEnv) raceClaims(t *testing.T, uid string, n int) claimRace {
+	t.Helper()
+	res := claimRace{oneTime: map[string]int{}}
 	var (
-		wg       sync.WaitGroup
-		start    = make(chan struct{})
-		mu       sync.Mutex
-		got      = map[string]int{}
-		attempts int
-		errs     []error
+		wg    sync.WaitGroup
+		start = make(chan struct{})
+		mu    sync.Mutex
 	)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
@@ -204,42 +207,163 @@ func TestClaim_TwentyConcurrentClaimsGetDistinctPackages(t *testing.T) {
 			ctx, info := logger.WithRequestInfo(context.Background())
 			<-start
 			cl, err := e.repo.Claim(ctx, uid, "", it0)
-			a, _ := info.Get("txn_attempts")
+			r, _ := info.Get(fieldClaimRetries)
 			mu.Lock()
 			defer mu.Unlock()
-			if v, ok := a.(int64); ok {
-				attempts += int(v)
+			if v, ok := r.(int64); ok {
+				res.retries += int(v)
 			}
-			if err != nil {
-				errs = append(errs, err)
-				return
+			switch {
+			case err != nil:
+				res.errs = append(res.errs, err)
+			case len(cl) != 1 || !cl[0].HasKeyPackage:
+				res.errs = append(res.errs, fmt.Errorf("claim answered %+v", cl))
+			case cl[0].LastResort:
+				res.lastResort++
+			default:
+				res.oneTime[string(cl[0].KeyPackage)]++
 			}
-			if len(cl) != 1 || !cl[0].HasKeyPackage || cl[0].LastResort {
-				errs = append(errs, errors.New("claim did not get a one-time package"))
-				return
-			}
-			got[string(cl[0].KeyPackage)]++
 		}()
 	}
 	began := time.Now()
 	close(start)
 	wg.Wait()
-	t.Logf("20 concurrent claims: %v, %d transaction body runs in all, %d errors, %d pool documents left",
-		time.Since(began), attempts, len(errs), len(e.poolDocs(t, uid, dvc(1))))
-	for _, err := range errs {
-		t.Errorf("claim failed: %v", err)
+	res.took = time.Since(began)
+	return res
+}
+
+// wantDistinct fails unless every one-time package went to exactly one claimer, all from the seeded range.
+func wantDistinct(t *testing.T, res claimRace, from, to int) {
+	t.Helper()
+	valid := map[string]bool{}
+	for _, p := range pkgRange(from, to) {
+		valid[string(p)] = true
 	}
-	for p, c := range got {
-		if c != 1 {
-			t.Errorf("package %q handed out %d times", p, c)
+	for p, c := range res.oneTime {
+		if c != 1 || !valid[p] {
+			t.Errorf("package %q handed out %d times (seeded: %v)", p, c, valid[p])
 		}
 	}
-	if len(got) != n-len(errs) {
-		t.Errorf("%d distinct packages for %d successful claims", len(got), n-len(errs))
+	for _, err := range res.errs {
+		t.Errorf("claim failed: %v", err)
+	}
+}
+
+// Twenty concurrent claims against one device with twenty packages: every claim succeeds with a distinct one-time
+// package, and the pool ends empty with a true count of 0.
+func TestClaim_TwentyConcurrentClaimsGetDistinctPackages(t *testing.T) {
+	e := newRepoEnv(t)
+	uid := uniqueUID()
+	const n = 20
+	e.seedDevice(t, uid, 1, 0, n, []byte("lr"))
+	res := e.raceClaims(t, uid, n)
+	t.Logf("20 concurrent claims: %v, %d pick retries in all, %d errors, %d last resort, %d pool documents left",
+		res.took, res.retries, len(res.errs), res.lastResort, len(e.poolDocs(t, uid, dvc(1))))
+	wantDistinct(t, res, 0, n)
+	if len(res.oneTime) != n || res.lastResort != 0 {
+		t.Errorf("%d one-time packages and %d last resorts, want %d and 0", len(res.oneTime), res.lastResort, n)
 	}
 	e.assertPoolInvariant(t, uid, dvc(1))
-	if len(errs) == 0 && e.poolCount(t, uid, 1) != 0 {
-		t.Errorf("poolCount = %d, want 0", e.poolCount(t, uid, 1))
+	if c := e.poolCount(t, uid, 1); c != 0 {
+		t.Errorf("poolCount = %d, want 0", c)
+	}
+}
+
+// Forty concurrent claims against twenty packages: twenty distinct one-time packages, twenty last-resort answers, no
+// error, and a true count of 0.
+func TestClaim_FortyClaimsTwentyPackages(t *testing.T) {
+	e := newRepoEnv(t)
+	uid := uniqueUID()
+	e.seedDevice(t, uid, 1, 0, 20, []byte("lr"))
+	res := e.raceClaims(t, uid, 40)
+	t.Logf("40 concurrent claims: %v, %d pick retries in all, %d errors", res.took, res.retries, len(res.errs))
+	wantDistinct(t, res, 0, 20)
+	if len(res.oneTime) != 20 || res.lastResort != 20 {
+		t.Errorf("%d one-time packages and %d last resorts, want 20 and 20", len(res.oneTime), res.lastResort)
+	}
+	e.assertPoolInvariant(t, uid, dvc(1))
+	if c := e.poolCount(t, uid, 1); c != 0 {
+		t.Errorf("poolCount = %d, want 0", c)
+	}
+}
+
+// A claim racing a Remove of the device answers a package (one-time or last resort) or no device, never an error, and
+// leaves either nothing or a device whose poolCount equals its real pool.
+func TestClaim_RacingRemove(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	for round := 0; round < 10; round++ {
+		uid := uniqueUID()
+		e.seedDevice(t, uid, 1, 0, 10, []byte("lr"))
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		var claimed []Claimed
+		var claimErr, removeErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			claimed, claimErr = e.repo.Claim(ctx, uid, "", it0)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			removeErr = e.repo.Remove(ctx, uid, dvc(1))
+		}()
+		close(start)
+		wg.Wait()
+		if claimErr != nil || removeErr != nil {
+			t.Fatalf("round %d: claim %v, remove %v", round, claimErr, removeErr)
+		}
+		if len(claimed) > 1 || len(claimed) == 1 && !claimed[0].HasKeyPackage {
+			t.Fatalf("round %d: claimed %+v, want one package or nothing", round, claimed)
+		}
+		if _, err := e.repo.deviceRef(uid, dvc(1)).Get(ctx); err == nil {
+			e.assertPoolInvariant(t, uid, dvc(1))
+		} else if n := len(e.poolDocs(t, uid, dvc(1))); n != 0 {
+			t.Fatalf("round %d: device gone, %d pool documents left", round, n)
+		}
+	}
+}
+
+// Uploads and claims of one device running concurrently never break the invariant: after every round poolCount
+// equals the real number of pool documents.
+func TestRepo_ConcurrentUploadClaimKeepsCount(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	for round := 0; round < 10; round++ {
+		uid := uniqueUID()
+		e.seedDevice(t, uid, 1, 0, 10, nil)
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		errs := make(chan error, 6)
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if _, err := e.repo.Claim(ctx, uid, "", it0); err != nil {
+					errs <- fmt.Errorf("claim: %w", err)
+				}
+			}()
+		}
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if _, _, err := e.repo.Upload(ctx, uid, dvc(1), pkgRange(100+10*i, 105+10*i), nil, it0); err != nil {
+					errs <- fmt.Errorf("upload: %w", err)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Errorf("round %d: %v", round, err)
+		}
+		e.assertPoolInvariant(t, uid, dvc(1))
 	}
 }
 

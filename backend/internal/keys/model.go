@@ -119,10 +119,11 @@ type Repo interface {
 	// ActiveDevices returns the user's devices active at now, oldest first (one query, Limit MaxDevicesPerUser). Nothing
 	// is written.
 	ActiveDevices(ctx context.Context, uid string, now time.Time) ([]Device, error)
-	// Claim is one transaction: read the target's devices; a non-empty excludeDeviceID that names none of them is
-	// ErrExcludeNotFound (nothing written); for every other device active at now, read one pool document, delete it and
-	// decrement poolCount, else return the last-resort package (LastResort), else HasKeyPackage false. LastSeenAt is
-	// not touched.
+	// Claim reads the target's devices; a non-empty excludeDeviceID that names none of them is ErrExcludeNotFound
+	// (nothing written). For every other device active at now it takes one pool document (any one) by compare-and-delete,
+	// deleting it and decrementing poolCount in one atomic write, else returns the last-resort package (LastResort),
+	// else HasKeyPackage false; a device deleted meanwhile is left out. Contention on a device is never an error.
+	// LastSeenAt is not touched.
 	Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error)
 }
 
