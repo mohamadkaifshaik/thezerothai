@@ -20,8 +20,10 @@ if [ "${installed}" != "${WASM_BINDGEN_VERSION}" ]; then
   exit 1
 fi
 
-# --lib: only the web binding, never the dzmls test-vector generator or the tests.
-(cd "${root}/crypto" && cargo build -p dzmls_web --lib --release --target wasm32-unknown-unknown)
+# --lib: only the web binding, never the dzmls test-vector generator or the tests. `cargo rustc --crate-type cdylib`
+# instead of `cargo build`: the crate also declares an rlib (so tests/web.rs can link it), and cargo skips LTO for a
+# unit that emits an rlib. Building only the cdylib here makes the profile's `lto = true` take effect.
+(cd "${root}/crypto" && cargo rustc -p dzmls_web --lib --release --target wasm32-unknown-unknown --crate-type cdylib)
 
 mkdir -p "${out}"
 wasm-bindgen \
