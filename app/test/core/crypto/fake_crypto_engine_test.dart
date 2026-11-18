@@ -22,6 +22,22 @@ Future<void> _fails(Future<Object?> future, MlsErrorCode code) async {
   fail('expected MlsException ${code.wire}');
 }
 
+/// [bytes] with the first length-prefixed 16-byte id [from] replaced by [to]:
+/// a hostile peer's edit of a wire message.
+Uint8List _swapId(Uint8List bytes, Uint8List from, Uint8List to) {
+  final needle = [0, 0, 0, from.length, ...from];
+  for (var i = 0; i + needle.length <= bytes.length; i++) {
+    var hit = true;
+    for (var j = 0; j < needle.length && hit; j++) {
+      hit = bytes[i + j] == needle[j];
+    }
+    if (hit) {
+      return Uint8List.fromList(bytes)..setRange(i + 4, i + 4 + to.length, to);
+    }
+  }
+  throw StateError('id not found');
+}
+
 class _Dev {
   _Dev(this.id, this.state, this.signatureKey);
 
@@ -526,6 +542,63 @@ void main() {
       );
     },
   );
+
+  test(
+    'a received commit adding a present or repeated device id is refused',
+    () async {
+      final alice = await device(1);
+      final bob = await device(2);
+      final carol = await device(3);
+      final dave = await device(4);
+      final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+      final c = await engine.commitChange(
+        alice.state,
+        states[0],
+        addKeyPackages: [await keyPackage(carol), await keyPackage(dave)],
+      );
+      // Control: the commit as sent is accepted.
+      await engine.process(bob.state, states[1], c.commit);
+      // An add that reuses bob's id (already a member).
+      await _fails(
+        engine.process(
+          bob.state,
+          states[1],
+          _swapId(c.commit, carol.id, bob.id),
+        ),
+        MlsErrorCode.badInput,
+      );
+      // The same id added twice in one commit.
+      await _fails(
+        engine.process(
+          bob.state,
+          states[1],
+          _swapId(c.commit, dave.id, carol.id),
+        ),
+        MlsErrorCode.badInput,
+      );
+    },
+  );
+
+  test('a welcome listing a device id twice is refused', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final carol = await device(3);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final c = await engine.commitChange(
+      alice.state,
+      states[0],
+      addKeyPackages: [await keyPackage(carol)],
+    );
+    await _fails(
+      engine.joinFromWelcome(
+        carol.state,
+        _swapId(c.welcome!, bob.id, carol.id),
+      ),
+      MlsErrorCode.badInput,
+    );
+    // Control: the welcome as sent is accepted.
+    await engine.joinFromWelcome(carol.state, c.welcome!);
+  });
 
   test('a message from another group is refused', () async {
     final alice = await device(1);

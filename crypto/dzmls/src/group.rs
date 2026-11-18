@@ -344,15 +344,20 @@ fn parse_key_package(provider: &OpenMlsRustCrypto, bytes: &[u8]) -> Result<KeyPa
     Ok(kp)
 }
 
-/// Every member of a group being joined carries a 16 to 64 byte device id; otherwise the Welcome is refused
-/// before the group is accepted.
+/// Every member of a group being joined carries a 16 to 64 byte device id, and no device id appears twice;
+/// otherwise the Welcome is refused before the group is accepted.
 fn check_member_identities(staged: &StagedWelcome) -> Result<(), MlsError> {
+    let mut seen = BTreeSet::new();
     for member in staged.members() {
-        let len = member.credential.serialized_content().len();
-        if !state::ID_LEN.contains(&len) {
+        let id = member.credential.serialized_content().to_vec();
+        if !state::ID_LEN.contains(&id.len()) {
             return Err(MlsError::bad_input(format!(
-                "welcome has a member identity of {len} bytes"
+                "welcome has a member identity of {} bytes",
+                id.len()
             )));
+        }
+        if !seen.insert(id) {
+            return Err(MlsError::bad_input("welcome lists a device id twice"));
         }
     }
     Ok(())

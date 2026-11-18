@@ -8,13 +8,14 @@
 //!
 //! **Callers must serialize calls**: one call at a time per device blob and per group blob.
 
+use std::collections::BTreeSet;
 use std::fmt;
 
 use openmls::framing::errors::{MessageDecryptionError, SecretTreeError};
 use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 use openmls::prelude::{
-    MlsGroup, MlsGroupStateError, MlsMessageIn, ProcessMessageError, ProcessedMessageContent,
-    ProtocolMessage, StagedCommit, ValidationError, WireFormat,
+    Credential, LeafNodeIndex, MlsGroup, MlsGroupStateError, MlsMessageIn, ProcessMessageError,
+    ProcessedMessageContent, ProtocolMessage, Sender, StagedCommit, ValidationError, WireFormat,
 };
 use openmls_rust_crypto::OpenMlsRustCrypto;
 
@@ -121,7 +122,8 @@ pub struct Processed {
 /// device's own message echoed back); `bad_input` for a message more than 50 generations behind the newest one seen
 /// from its sender (its key is gone, so it was never read and cannot be read), and for anything oversized,
 /// unparsable, for another group, failing decryption or validation, or of a kind this engine does not take
-/// (Welcome, standalone proposal). On any error no state is returned.
+/// (Welcome, standalone proposal), and for a commit that adds a device id already in the group (or twice) or changes
+/// a member's device id. On any error no state is returned.
 ///
 /// A commit from another member for the epoch this device has a pending commit on means that commit lost:
 /// processing it merges the winner and drops the pending commit.
@@ -165,13 +167,17 @@ pub fn process(
                 .process_message(provider, message)
                 .map_err(map_process_error)?;
             let sender_device_id = processed.credential().serialized_content().to_vec();
+            let sender = processed.sender().clone();
             match processed.into_content() {
                 ProcessedMessageContent::ApplicationMessage(m) => Ok(Event::Message {
                     plaintext: padding::unpad(&m.into_bytes())?,
                     sender_device_id,
                 }),
                 ProcessedMessageContent::StagedCommitMessage(staged) => {
-                    merge_commit(provider, &mut group, *staged)
+                    let Sender::Member(committer) = sender else {
+                        return Err(MlsError::bad_input("commit is not from a member"));
+                    };
+                    merge_commit(provider, &mut group, *staged, committer)
                 }
                 ProcessedMessageContent::OwnPrivateMessage => Err(MlsError::new(
                     ErrorCode::Duplicate,
@@ -213,21 +219,15 @@ fn parse_protocol_message(wire: &[u8]) -> Result<ProtocolMessage, MlsError> {
         .map_err(|_| MlsError::bad_input("message is not a protocol message"))
 }
 
-/// Reports and merges a verified commit. Every credential the commit brings into the group must carry a 16 to 64
-/// byte device id, checked before anything is merged.
+/// Reports and merges a verified commit, after checking the identities it brings in (see
+/// [`check_commit_identities`]) before anything is merged.
 fn merge_commit(
     provider: &OpenMlsRustCrypto,
     group: &mut MlsGroup,
     staged: StagedCommit,
+    committer: LeafNodeIndex,
 ) -> Result<Event, MlsError> {
-    for credential in staged.credentials_to_verify() {
-        let len = credential.serialized_content().len();
-        if !state::ID_LEN.contains(&len) {
-            return Err(MlsError::bad_input(format!(
-                "commit brings in a member identity of {len} bytes"
-            )));
-        }
-    }
+    check_commit_identities(group, &staged, committer)?;
     let added = staged
         .add_proposals()
         .map(|q| {
@@ -259,6 +259,78 @@ fn merge_commit(
         removed,
         self_removed,
     })
+}
+
+/// A device id names exactly one leaf. OpenMLS keeps signature and encryption keys unique but never compares
+/// credential identities, so dzmls refuses a commit that
+/// - brings in a credential whose identity is not 16 to 64 bytes;
+/// - adds an identity that is already a member (even one the same commit removes, as `commit_change` refuses to
+///   build) or adds one identity twice;
+/// - changes the identity of an existing leaf, through the committer's update path or an Update proposal.
+fn check_commit_identities(
+    group: &MlsGroup,
+    staged: &StagedCommit,
+    committer: LeafNodeIndex,
+) -> Result<(), MlsError> {
+    for credential in staged.credentials_to_verify() {
+        let len = credential.serialized_content().len();
+        if !state::ID_LEN.contains(&len) {
+            return Err(MlsError::bad_input(format!(
+                "commit brings in a member identity of {len} bytes"
+            )));
+        }
+    }
+    let mut added = BTreeSet::new();
+    for add in staged.add_proposals() {
+        let id = add
+            .add_proposal()
+            .key_package()
+            .leaf_node()
+            .credential()
+            .serialized_content()
+            .to_vec();
+        if group
+            .members()
+            .any(|m| m.credential.serialized_content() == id.as_slice())
+        {
+            return Err(MlsError::bad_input(
+                "commit adds a device that is already a member",
+            ));
+        }
+        if !added.insert(id) {
+            return Err(MlsError::bad_input("commit adds a device twice"));
+        }
+    }
+    if let Some(leaf) = staged.update_path_leaf_node() {
+        keeps_identity(group, committer, leaf.credential())?;
+    }
+    for update in staged.update_proposals() {
+        let Sender::Member(index) = update.sender() else {
+            return Err(MlsError::bad_input("update proposal is not from a member"));
+        };
+        keeps_identity(
+            group,
+            *index,
+            update.update_proposal().leaf_node().credential(),
+        )?;
+    }
+    Ok(())
+}
+
+/// The new leaf at `index` carries the identity the leaf there has now.
+fn keeps_identity(
+    group: &MlsGroup,
+    index: LeafNodeIndex,
+    credential: &Credential,
+) -> Result<(), MlsError> {
+    let current = group
+        .member(index)
+        .ok_or_else(|| MlsError::bad_input("commit updates a leaf that is not a member"))?;
+    if current.serialized_content() == credential.serialized_content() {
+        Ok(())
+    } else {
+        Err(MlsError::bad_input("commit changes a member's device id"))
+    }
 }
 
 fn evicted() -> MlsError {
@@ -341,8 +413,8 @@ impl fmt::Debug for Processed {
 mod tests {
     use super::*;
     use openmls::prelude::{
-        BasicCredential, CredentialWithKey, GroupId, KeyPackage, MlsGroupCreateConfig,
-        OpenMlsProvider as _, PURE_PLAINTEXT_WIRE_FORMAT_POLICY,
+        BasicCredential, CredentialWithKey, GroupId, KeyPackage, LeafNodeParameters,
+        MlsGroupCreateConfig, OpenMlsProvider as _, PURE_PLAINTEXT_WIRE_FORMAT_POLICY,
     };
     use openmls_basic_credential::SignatureKeyPair;
 
@@ -370,10 +442,15 @@ mod tests {
 
     /// A key package whose credential identity is `identity_len` bytes, which `commit_change` would refuse.
     fn hostile_key_package(identity_len: usize) -> KeyPackage {
+        key_package_for(vec![9; identity_len])
+    }
+
+    /// A key package with a fresh signature key and the given credential identity.
+    fn key_package_for(identity: Vec<u8>) -> KeyPackage {
         let provider = OpenMlsRustCrypto::default();
         let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let credential = CredentialWithKey {
-            credential: BasicCredential::new(vec![9; identity_len]).into(),
+            credential: BasicCredential::new(identity).into(),
             signature_key: signer.to_public_vec().into(),
         };
         KeyPackage::builder()
@@ -387,6 +464,11 @@ mod tests {
     /// `dev` commits an add of `kp` with raw OpenMLS (bypassing `commit_change`'s checks) and merges it. Returns
     /// the commit message and `dev`'s new group state.
     fn raw_add(dev: &Dev, group_state: &[u8], kp: KeyPackage) -> (Vec<u8>, Vec<u8>) {
+        raw_add_all(dev, group_state, vec![kp])
+    }
+
+    /// [`raw_add`] for several key packages in one commit.
+    fn raw_add_all(dev: &Dev, group_state: &[u8], kps: Vec<KeyPackage>) -> (Vec<u8>, Vec<u8>) {
         let (commit, _, g) = with_provider(
             &dev.state,
             Some(group_state),
@@ -396,7 +478,7 @@ mod tests {
                 let signer = load_signer(provider, header)?;
                 let bundle = group
                     .commit_builder()
-                    .propose_adds(vec![kp])
+                    .propose_adds(kps)
                     .load_psks(provider.storage())
                     .unwrap()
                     .build(provider.rand(), provider.crypto(), &signer, |_| true)
@@ -409,6 +491,183 @@ mod tests {
         )
         .unwrap();
         (commit, g.unwrap())
+    }
+
+    /// Runs `f` on `dev`'s loaded group with raw OpenMLS and returns its value and the new group blob.
+    fn raw<T>(
+        dev: &Dev,
+        group_state: &[u8],
+        f: impl FnOnce(&OpenMlsRustCrypto, &SignatureKeyPair, &mut MlsGroup) -> T,
+    ) -> (T, Vec<u8>) {
+        let (value, _, g) = with_provider(
+            &dev.state,
+            Some(group_state),
+            Partition::Group,
+            |provider, header| {
+                let mut group = load_group(provider, header)?;
+                let signer = load_signer(provider, header)?;
+                Ok(f(provider, &signer, &mut group))
+            },
+        )
+        .unwrap();
+        (value, g.unwrap())
+    }
+
+    /// Leaf parameters that keep `signer`'s key but claim `identity` as the credential.
+    fn claim(signer: &SignatureKeyPair, identity: &[u8]) -> LeafNodeParameters {
+        LeafNodeParameters::builder()
+            .with_credential_with_key(CredentialWithKey {
+                credential: BasicCredential::new(identity.to_vec()).into(),
+                signature_key: signer.to_public_vec().into(),
+            })
+            .build()
+    }
+
+    /// `dev` commits a self-update whose leaf claims `identity`, with raw OpenMLS, and merges it. Returns the
+    /// commit message.
+    fn raw_self_update(dev: &Dev, group_state: &[u8], identity: &[u8]) -> Vec<u8> {
+        raw(dev, group_state, |provider, signer, group| {
+            let bundle = group
+                .commit_builder()
+                .force_self_update(true)
+                .leaf_node_parameters(claim(signer, identity))
+                .load_psks(provider.storage())
+                .unwrap()
+                .build(provider.rand(), provider.crypto(), signer, |_| true)
+                .unwrap()
+                .stage_commit(provider)
+                .unwrap();
+            group.merge_pending_commit(provider).unwrap();
+            bundle.commit().tls_serialize_detached().unwrap()
+        })
+        .0
+    }
+
+    /// `dev` processes a standalone proposal with raw OpenMLS and stores it, as a client that accepts proposals
+    /// would. Returns `dev`'s new group state.
+    fn raw_store_proposal(dev: &Dev, group_state: &[u8], wire: &[u8]) -> Vec<u8> {
+        raw(dev, group_state, |provider, _, group| {
+            let message = MlsMessageIn::tls_deserialize_exact(wire)
+                .unwrap()
+                .try_into_protocol_message()
+                .unwrap();
+            match group
+                .process_message(provider, message)
+                .unwrap()
+                .into_content()
+            {
+                ProcessedMessageContent::ProposalMessage(p) => {
+                    group
+                        .store_pending_proposal(provider.storage(), *p)
+                        .unwrap();
+                }
+                _ => panic!("expected a proposal"),
+            }
+        })
+        .1
+    }
+
+    /// alice creates a group, adds bob, then carol. Returns the three devices and their group states at epoch 2.
+    fn trio() -> ([Dev; 3], [Vec<u8>; 3]) {
+        let alice = device(1);
+        let mut bob = device(2);
+        let mut carol = device(3);
+        let g = create_group(&alice.state, &[0xAB; 32]).unwrap();
+        let c = commit_change(&alice.state, &g, &[kp(&mut bob)], &[]).unwrap();
+        let a1 = confirm_commit(&alice.state, &c.group_state).unwrap();
+        let j = join_from_welcome(&bob.state, &c.welcome.unwrap()).unwrap();
+        bob.state = j.device_state;
+        let c = commit_change(&alice.state, &a1, &[kp(&mut carol)], &[]).unwrap();
+        let a2 = confirm_commit(&alice.state, &c.group_state).unwrap();
+        let b2 = process(&bob.state, &j.group_state, &c.commit)
+            .unwrap()
+            .group_state;
+        let j = join_from_welcome(&carol.state, &c.welcome.unwrap()).unwrap();
+        carol.state = j.device_state;
+        ([alice, bob, carol], [a2, b2, j.group_state])
+    }
+
+    #[test]
+    fn a_commit_adding_a_present_or_repeated_identity_is_bad_input() {
+        let ([alice, bob, _], [a2, b2, _]) = trio();
+        // An existing member's device id under a fresh key: OpenMLS accepts it (keys differ), dzmls must not.
+        let (commit, _) = raw_add(&alice, &a2, key_package_for(vec![3; 16]));
+        let r = process(&bob.state, &b2, &commit);
+        assert_eq!(r.unwrap_err().code, ErrorCode::BadInput);
+        // The same new identity twice in one commit.
+        let (commit, _) = raw_add_all(
+            &alice,
+            &a2,
+            vec![key_package_for(vec![4; 16]), key_package_for(vec![4; 16])],
+        );
+        let r = process(&bob.state, &b2, &commit);
+        assert_eq!(r.unwrap_err().code, ErrorCode::BadInput);
+        // Control: one new identity through the same raw path is accepted.
+        let (commit, _) = raw_add(&alice, &a2, key_package_for(vec![4; 16]));
+        assert!(process(&bob.state, &b2, &commit).is_ok());
+    }
+
+    #[test]
+    fn an_update_path_changing_the_committer_identity_is_bad_input() {
+        let ([alice, bob, _], [a2, b2, _]) = trio();
+        let commit = raw_self_update(&alice, &a2, &[5; 16]);
+        let r = process(&bob.state, &b2, &commit);
+        assert_eq!(r.unwrap_err().code, ErrorCode::BadInput);
+        // Taking over another member's identity is refused too.
+        let commit = raw_self_update(&alice, &a2, &[3; 16]);
+        let r = process(&bob.state, &b2, &commit);
+        assert_eq!(r.unwrap_err().code, ErrorCode::BadInput);
+        // Control: a self-update that keeps the identity is accepted.
+        let commit = raw_self_update(&alice, &a2, &[1; 16]);
+        assert!(process(&bob.state, &b2, &commit).is_ok());
+    }
+
+    #[test]
+    fn an_update_proposal_changing_a_member_identity_is_bad_input() {
+        // dzmls never stores standalone proposals, so a received commit cannot reference one today. Store one with
+        // raw OpenMLS to show the check still holds if that ever changes.
+        for (identity, accepted) in [([6u8; 16], false), ([3u8; 16], true)] {
+            let ([alice, bob, carol], [a2, b2, c2]) = trio();
+            let (proposal, _) = raw(&carol, &c2, |provider, signer, group| {
+                group
+                    .propose_self_update(provider, signer, claim(signer, &identity))
+                    .unwrap()
+                    .0
+                    .tls_serialize_detached()
+                    .unwrap()
+            });
+            let a2 = raw_store_proposal(&alice, &a2, &proposal);
+            let b2 = raw_store_proposal(&bob, &b2, &proposal);
+            let (commit, _) = raw(&alice, &a2, |provider, signer, group| {
+                let bundle = group
+                    .commit_builder()
+                    .load_psks(provider.storage())
+                    .unwrap()
+                    .build(provider.rand(), provider.crypto(), signer, |_| true)
+                    .unwrap()
+                    .stage_commit(provider)
+                    .unwrap();
+                group.merge_pending_commit(provider).unwrap();
+                bundle.commit().tls_serialize_detached().unwrap()
+            });
+            let r = process(&bob.state, &b2, &commit);
+            if accepted {
+                assert!(r.is_ok());
+            } else {
+                assert_eq!(r.unwrap_err().code, ErrorCode::BadInput);
+            }
+        }
+    }
+
+    #[test]
+    fn a_welcome_with_a_repeated_identity_is_bad_input() {
+        let ([alice, _, _], [a2, _, _]) = trio();
+        let mut dave = device(4);
+        // alice slips a second leaf with bob's device id into the group, then welcomes dave.
+        let (_, a3) = raw_add(&alice, &a2, key_package_for(vec![2; 16]));
+        let c = commit_change(&alice.state, &a3, &[kp(&mut dave)], &[]).unwrap();
+        let r = join_from_welcome(&dave.state, &c.welcome.unwrap());
+        assert_eq!(r.unwrap_err().code, ErrorCode::BadInput);
     }
 
     #[test]

@@ -18,7 +18,9 @@ import 'package:dzeroth/core/crypto/crypto_types.dart';
 /// Known differences from the real engine: ids and keys are derived from the
 /// device id; the blob encoding is a simple length-prefixed format; epochs
 /// and message counters are 32-bit; a commit does not check that its sender is
-/// the device that staged it beyond membership.
+/// the device that staged it beyond membership; there are no update paths or
+/// Update proposals, so the real engine's refusal of a commit that changes a
+/// member's device id has no counterpart here.
 class FakeCryptoEngine implements CryptoEngine {
   static const int _maxPlaintext = 4096;
   static const int _maxWire = 65536;
@@ -210,6 +212,15 @@ class FakeCryptoEngine implements CryptoEngine {
         'welcome is not for this device',
       );
     }
+    for (var i = 0; i < w.members.length; i++) {
+      final id = w.members[i].deviceId;
+      if (w.members.take(i).any((m) => _eq(m.deviceId, id))) {
+        throw const MlsException(
+          MlsErrorCode.badInput,
+          'welcome lists a device id twice',
+        );
+      }
+    }
     final keyPackageId = mine.first.keyPackageId;
     if (device.oneTime.contains(keyPackageId)) {
       device.oneTime.remove(keyPackageId);
@@ -305,6 +316,18 @@ class FakeCryptoEngine implements CryptoEngine {
     }
 
     if (parsed.isCommit) {
+      // A device id names one member: an add of a current member (even one
+      // the same commit removes) or of one id twice is refused, as in Rust.
+      for (var i = 0; i < parsed.adds.length; i++) {
+        final id = parsed.adds[i].deviceId;
+        if (group.hasMember(id) ||
+            parsed.adds.take(i).any((a) => _eq(a.deviceId, id))) {
+          throw const MlsException(
+            MlsErrorCode.badInput,
+            'commit adds a current member or one device twice',
+          );
+        }
+      }
       for (final id in parsed.removes) {
         if (!group.hasMember(id)) {
           throw const MlsException(
