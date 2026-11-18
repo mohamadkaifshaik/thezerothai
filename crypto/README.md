@@ -20,6 +20,7 @@ Operations (`dzmls`; the binding and the worker op use the camelCase name):
 | `join_from_welcome` | Joins from a Welcome. |
 | `encrypt`, `process`, `wire_epoch` | Application messages and other members' commits. |
 | `describe`, `security_code` | Read a group blob; the 60-digit code two users compare. |
+| `seal`, `open`, `random_bytes` | Not MLS: AES-256-GCM for local storage, `nonce (12) \|\| ciphertext \|\| tag (16)` under a 32-byte key, aad not stored, plaintext at most 1 MiB; 1 to 64 bytes from the provider's CSPRNG. Every failure is `bad_input`. |
 
 ```
 cd crypto

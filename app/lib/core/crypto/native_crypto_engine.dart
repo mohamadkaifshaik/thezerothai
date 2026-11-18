@@ -247,4 +247,24 @@ class NativeCryptoEngine implements CryptoEngine {
   @override
   Future<String> securityCode(SecurityParty a, SecurityParty b) =>
       _call(() => rust.securityCode(a: _party(a), b: _party(b)));
+
+  @override
+  Future<Uint8List> seal(Uint8List key, Uint8List aad, Uint8List plaintext) =>
+      _call(() => rust.seal(key: key, aad: aad, plaintext: plaintext));
+
+  @override
+  Future<Uint8List> open(Uint8List key, Uint8List aad, Uint8List sealed) =>
+      _call(() => rust.open(key: key, aad: aad, sealed: sealed));
+
+  @override
+  Future<Uint8List> randomBytes(int length) => _call(() {
+    // u32 on the Rust side: refused here rather than wrapped by the bridge.
+    if (length < 1 || length > 64) {
+      throw const MlsException(
+        MlsErrorCode.badInput,
+        'random length out of range',
+      );
+    }
+    return rust.randomBytes(length: length);
+  });
 }

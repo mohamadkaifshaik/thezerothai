@@ -16,6 +16,7 @@ mod error;
 mod group;
 mod message;
 mod padding;
+mod seal;
 mod state;
 
 pub use code::{Party, security_code};
@@ -26,6 +27,7 @@ pub use group::{
     discard_commit, join_from_welcome, self_update,
 };
 pub use message::{Encrypted, Event, Processed, encrypt, process, wire_epoch};
+pub use seal::{MAX_SEAL_PLAINTEXT, SEAL_KEY_BYTES, SEAL_NONCE_BYTES, open, random_bytes, seal};
 
 /// The one cipher suite this engine speaks.
 pub(crate) const CIPHERSUITE: Ciphersuite =

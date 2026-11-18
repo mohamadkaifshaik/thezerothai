@@ -401,6 +401,24 @@ void main() {
     await _fails(engine.createDevice(_bytes(1, 3)), MlsErrorCode.badInput);
   });
 
+  testWidgets('seal and open round-trip under a random key', (tester) async {
+    final engine = newEngine();
+    final key = await engine.randomBytes(32);
+    expect(key.length, 32);
+    expect(await engine.randomBytes(32), isNot(key));
+    final aad = _utf8('messages:row-1');
+    final plaintext = _utf8('in the vault');
+    final sealed = await engine.seal(key, aad, plaintext);
+    expect(sealed.length, plaintext.length + 28);
+    expect(await engine.seal(key, aad, plaintext), isNot(sealed));
+    expect(await engine.open(key, aad, sealed), plaintext);
+    await _fails(
+      engine.open(key, _utf8('messages:row-2'), sealed),
+      MlsErrorCode.badInput,
+    );
+    await _fails(engine.randomBytes(65), MlsErrorCode.badInput);
+  });
+
   testWidgets('50 encrypt calls complete while frames keep coming', (
     tester,
   ) async {

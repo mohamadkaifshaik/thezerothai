@@ -252,3 +252,18 @@ pub fn security_code(a: Party, b: Party) -> Result<String, MlsError> {
     };
     Ok(dzmls::security_code(&party(a), &party(b))?)
 }
+
+/// AES-256-GCM for local storage: `nonce (12) || ciphertext || tag (16)` under a 32-byte key.
+pub fn seal(key: Vec<u8>, aad: Vec<u8>, plaintext: Vec<u8>) -> Result<Vec<u8>, MlsError> {
+    Ok(dzmls::seal(&key, &aad, &plaintext)?)
+}
+
+/// The inverse of [`seal`]; a wrong key, wrong aad or altered bytes fail with `bad_input`.
+pub fn open(key: Vec<u8>, aad: Vec<u8>, sealed: Vec<u8>) -> Result<Vec<u8>, MlsError> {
+    Ok(dzmls::open(&key, &aad, &sealed)?)
+}
+
+/// `length` (1 to 64) random bytes.
+pub fn random_bytes(length: u32) -> Result<Vec<u8>, MlsError> {
+    Ok(dzmls::random_bytes(length)?)
+}
