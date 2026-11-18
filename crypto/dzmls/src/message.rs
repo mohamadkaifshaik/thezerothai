@@ -119,8 +119,9 @@ pub struct Processed {
 /// Error codes: `wrong_epoch` when the message's epoch is not the group's (older or newer); `evicted` when this
 /// device is no longer a member; `duplicate` when the message's generation was already consumed (a replay, this
 /// device's own message echoed back); `bad_input` for a message more than 50 generations behind the newest one seen
-/// from its sender (its key is gone, so it was never read and cannot be read), and for anything oversized, unparsable, for another group, failing decryption or validation,
-/// or of a kind this engine does not take (Welcome, standalone proposal). On any error no state is returned.
+/// from its sender (its key is gone, so it was never read and cannot be read), and for anything oversized,
+/// unparsable, for another group, failing decryption or validation, or of a kind this engine does not take
+/// (Welcome, standalone proposal). On any error no state is returned.
 ///
 /// A commit from another member for the epoch this device has a pending commit on means that commit lost:
 /// processing it merges the winner and drops the pending commit.

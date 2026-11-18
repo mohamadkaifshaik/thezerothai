@@ -95,3 +95,15 @@ fn code_rejects_bad_parties() {
         "bad_input"
     );
 }
+
+#[test]
+fn code_rejects_a_zero_length_device_key() {
+    assert_eq!(
+        err_code(security_code(&alice(), &party(b"bob", &[&[2u8; 32], &[]]))),
+        "bad_input"
+    );
+    assert_eq!(
+        err_code(security_code(&party(b"alice", &[&[]]), &bob())),
+        "bad_input"
+    );
+}

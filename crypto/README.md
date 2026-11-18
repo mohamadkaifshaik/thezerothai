@@ -28,7 +28,7 @@ events, two security codes). Web, Android and iOS replay it to prove every platf
 **`vectors-v1.json` is frozen once committed.** State blobs live on users' devices across OpenMLS upgrades, so this
 file is the guard that a newer build still reads state written by an older one. Never regenerate it. A format or
 library change adds `vectors-v2.json` beside it:
-`cargo run -p dzmls --bin dzmls_vectors -- ../testdata/mls/vectors-v2.json`. The keys are random, so every
+`cargo run -p dzmls --features vectors --bin dzmls_vectors -- ../testdata/mls/vectors-v2.json`. The keys are random, so every
 generator run writes a different file.
 
 ## OpenMLS version and audit (settled 2026-11-18)

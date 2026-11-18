@@ -160,11 +160,29 @@ fn committed_vectors_replay() {
         for (i, step) in steps.iter().enumerate() {
             replay_step(i, step);
         }
-        // The final states of all three devices still decode.
+        // The final states of all three devices still decode and say what the script left behind: the group id
+        // the script used, alice and carol at epoch 3 with only themselves as members, and bob (removed by the
+        // commit that made epoch 3) on his own inactive blob. Every device state still loads.
         let finals = doc["final_states"].as_object().expect("final_states");
         assert_eq!(finals.len(), 3);
-        for st in finals.values() {
-            dzmls::describe(&unhex(&st["group_state"])).unwrap();
+        let id = |name: &str| unhex(&doc["device_ids"][name]);
+        for (name, want_epoch, want_members) in [
+            ("alice", 3, Some(vec![id("alice"), id("carol")])),
+            ("carol", 3, Some(vec![id("alice"), id("carol")])),
+            ("bob", 3, None),
+        ] {
+            let st = &finals[name];
+            let info = dzmls::describe(&unhex(&st["group_state"])).unwrap();
+            assert_eq!(info.group_id, vec![0xab; 32], "{name}");
+            assert_eq!(info.epoch, want_epoch, "{name}");
+            assert!(!info.has_pending_commit, "{name}");
+            if let Some(members) = want_members {
+                let ids: Vec<Vec<u8>> = info.members.into_iter().map(|m| m.device_id).collect();
+                assert_eq!(ids, members, "{name}");
+            }
+            let kps = dzmls::generate_key_packages(&unhex(&st["device_state"]), 1, false)
+                .unwrap_or_else(|e| panic!("{name}: final device state no longer loads: {e}"));
+            assert_eq!(kps.key_packages.len(), 1, "{name}");
         }
     }
 }

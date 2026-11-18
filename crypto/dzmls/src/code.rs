@@ -28,7 +28,7 @@ pub struct Party {
 
 /// The security code for the pair `a`, `b`. Symmetric, and independent of the order and repetition of device keys.
 ///
-/// `bad_input` for an empty user id, equal user ids, or a party with no device keys.
+/// `bad_input` for an empty user id, equal user ids, a party with no device keys, or a zero-length device key.
 pub fn security_code(a: &Party, b: &Party) -> Result<String, MlsError> {
     for p in [a, b] {
         if p.user_id.is_empty() {
@@ -36,6 +36,9 @@ pub fn security_code(a: &Party, b: &Party) -> Result<String, MlsError> {
         }
         if p.device_keys.is_empty() {
             return Err(MlsError::bad_input("a party has no device keys"));
+        }
+        if p.device_keys.iter().any(|k| k.is_empty()) {
+            return Err(MlsError::bad_input("a device key is empty"));
         }
     }
     if a.user_id == b.user_id {

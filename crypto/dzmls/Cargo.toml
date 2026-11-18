@@ -10,11 +10,19 @@ description = "Dzeroth MLS (RFC 9420) core: pure functions over opaque state blo
 openmls = "=0.9.2"
 openmls_basic_credential = "=0.6.0"
 openmls_rust_crypto = "=0.6.0"
-serde_json = "=1.0.154"
+serde_json = { version = "=1.0.154", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 openmls = { version = "=0.9.2", features = ["js"] }
 
+[features]
+# The test-vector generator (`dzmls_vectors`) is not part of a plain library build (wasm, mobile).
+vectors = ["dep:serde_json"]
+
+[dev-dependencies]
+serde_json = "=1.0.154"
+
 [[bin]]
 name = "dzmls_vectors"
 path = "src/bin/dzmls_vectors.rs"
+required-features = ["vectors"]
