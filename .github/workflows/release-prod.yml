@@ -168,6 +168,8 @@ jobs:
   build-android:
     name: Build Android AAB
     needs: build-and-stage
+    permissions:
+      contents: read # no id-token: this job builds third-party code (Rust build scripts from the binding PR on) and never touches GCP
     # N1: hashFiles() cannot be used in a job-level `if:` (only step-level) —
     # it fails to parse there. app/pubspec.yaml is committed, so this job
     # always runs; the Flutter build step itself would fail loudly if it ever
@@ -177,6 +179,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
+          persist-credentials: false
 
       - name: Setup Flutter
         uses: ./.github/actions/setup-flutter
@@ -196,6 +199,19 @@ jobs:
             || { echo "::error::swapped google-services.json is not dzeroth-prod's"; exit 1; }
           grep -q '"package_name": "com.dzeroth.dzeroth"' app/android/app/google-services.json \
             || { echo "::error::swapped google-services.json has an unexpected package name"; exit 1; }
+
+      # The Android binding of the MLS core lands in a later PR and its Flutter build compiles Rust for each Android ABI:
+      # the toolchain and cargo-ndk are needed from that PR on and are harmless before it (cargo-ndk is compiled from
+      # crates.io, about 1 to 2 minutes). The Android SDK/NDK are preinstalled on the runner image. iOS has no Rust
+      # setup on purpose: the binding is Android-only.
+      - name: Setup Rust (Android targets)
+        uses: ./.github/actions/setup-rust
+        with:
+          version: "1.100.0"
+          targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install --locked --version 4.1.2 cargo-ndk
 
       - name: flutter build appbundle
         working-directory: app
@@ -223,10 +239,13 @@ jobs:
     needs: build-and-stage
     # N1: hashFiles() cannot be used in a job-level `if:` — see build-android.
     runs-on: macos-latest
+    permissions:
+      contents: read # no id-token: this job builds third-party code and never touches GCP
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
+          persist-credentials: false
 
       - name: Setup Flutter
         uses: ./.github/actions/setup-flutter

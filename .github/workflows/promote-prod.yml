@@ -52,8 +52,57 @@ concurrency:
   cancel-in-progress: false # never cancel a traffic shift mid-flight
 
 jobs:
+  # Third-party Rust build scripts (build.rs and proc-macros of ~200 crates.io crates) run in `make crypto-web`, so that runs here
+  # and nowhere near credentials: read-only `contents`, no id-token, no `environment:`, no cloud auth, no secrets. The
+  # promote job below (stage 100 only) downloads app/web/mls/ from this job (artifact: mls-web) and checks it against the hash this job outputs.
+  crypto-web:
+    name: Build the MLS wasm (no credentials)
+    # Stage 100 only, and only from a v* tag: a dispatch from a branch (which the promote job refuses anyway) must not spend
+    # minutes building. A skipped crypto-web at stage 100 still blocks `promote` (its `if:` below is unchanged), so a stage-100
+    # dispatch from a branch now ends with `promote` skipped (neutral) instead of failing at its explicit tag-ref refusal.
+    if: github.event.inputs.stage == '100' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      mls_sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust (for the MLS wasm build)
+        uses: ./.github/actions/setup-rust
+        with:
+          version: "1.100.0"
+          targets: wasm32-unknown-unknown
+          wasm-bindgen: "true"
+
+      - name: make crypto-web
+        run: make crypto-web
+
+      - name: Hash the output
+        id: hash
+        run: |
+          set -euo pipefail
+          cd app/web/mls
+          echo "sha256=$(cat dzmls_web.js dzmls_web_bg.wasm | sha256sum | cut -d' ' -f1)" >>"$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mls-web
+          path: |
+            app/web/mls/dzmls_web.js
+            app/web/mls/dzmls_web_bg.wasm
+          if-no-files-found: error
+          retention-days: 1
+
   promote:
     name: "Promote candidate (stage=${{ github.event.inputs.stage }})"
+    needs: [crypto-web]
+    # crypto-web is skipped on purpose for stage 10 only; any other non-success blocks the promotion.
+    if: ${{ !cancelled() && (needs.crypto-web.result == 'success' || (needs.crypto-web.result == 'skipped' && github.event.inputs.stage != '100')) }}
     runs-on: ubuntu-latest
     environment: prod # deployment policy restricts this to tag refs matching v* (GitHub Free-compatible)
     steps:
@@ -212,6 +261,29 @@ jobs:
         with:
           version: "3.50.0"
           sha: ab2912035e160d9cad6306df307576da6128ebdb
+
+      # app/web/mls/ is gitignored and the web bundle copies web/ at build time: bring in the wasm built by the credential-free job.
+      - name: Download the MLS wasm
+        if: steps.stage.outputs.stage == '100'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mls-web
+          path: app/web/mls
+
+      - name: Check the MLS wasm (present and the hash the build job reported)
+        if: steps.stage.outputs.stage == '100'
+        env:
+          EXPECTED_SHA256: ${{ needs.crypto-web.outputs.mls_sha256 }}
+        run: |
+          set -euo pipefail
+          for f in dzmls_web.js dzmls_web_bg.wasm; do
+            [ -s "app/web/mls/$f" ] || { echo "::error::app/web/mls/$f is missing or empty: the crypto-web job did not hand over the MLS wasm"; exit 1; }
+          done
+          actual=$(cd app/web/mls && cat dzmls_web.js dzmls_web_bg.wasm | sha256sum | cut -d' ' -f1)
+          if [ -z "$EXPECTED_SHA256" ] || [ "$actual" != "$EXPECTED_SHA256" ]; then
+            echo "::error::the downloaded MLS wasm does not match the hash the crypto-web job reported"
+            exit 1
+          fi
 
       - name: flutter build web (prod) — built fresh from this tag, before any traffic shift
         if: steps.stage.outputs.stage == '100'
