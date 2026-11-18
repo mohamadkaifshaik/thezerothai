@@ -7,8 +7,9 @@
 // Key directory for end-to-end encrypted direct messages: each encryption device publishes a public signature key and a
 // pool of opaque MLS key packages, and a user who may message another user looks up that user's devices and claims one
 // key package per device. The server stores and hands out opaque bytes; it never parses a key package and never sees
-// message content. Clients MUST verify that a claimed key package's credential and signature key match the directory
-// entry (ClaimedKeyPackage.signature_public_key) before using it.
+// message content. Clients MUST check that a claimed key package's credential and signature key match both
+// ClaimedKeyPackage.signature_public_key and the device's directory entry (GetKeyDevices) before using it; on a mismatch
+// the client skips that device (it does not fail the whole operation).
 // Owner module: backend/internal/keys.
 // Collections owned: users/{uid}/keyDevices/{deviceId} (signatureKey (bytes), createdAt, lastSeenAt, lastResort (bytes,
 // absent = none), poolCount) and its subcollection users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time
@@ -25,7 +26,7 @@
 //
 // Limits: device id [A-Za-z0-9_-]{16,64}; signature_public_key exactly 32 bytes (Ed25519); a key package 1-4096 bytes;
 // at most 100 key packages per upload and at most 100 stored per device (the pool); at most 5 devices per user; a device
-// not seen for 30 days is inactive; GetKeyDevices takes 1-10 user ids.
+// not seen for 30 days is inactive (one last seen exactly 30 days ago is inactive); GetKeyDevices takes 1-10 user ids.
 //
 // Inactive devices are filtered at read time and never deleted by the server: an inactive device is left out of
 // GetKeyDevices and ClaimKeyPackages, still appears in ListMyKeyDevices, still counts toward the cap of 5 until its
@@ -37,7 +38,8 @@
 //
 // Idempotency: every mutating RPC takes idempotency_key in the repo format (16-64 of [A-Za-z0-9_-], else VALIDATION
 // "idempotency_key"). RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages are naturally idempotent and the key is
-// only format-checked. ClaimKeyPackages is NOT replayable: a retry consumes fresh packages (see its comment).
+// only format-checked. ClaimKeyPackages is NOT replayable: a retry consumes fresh packages, and a failed or timed-out
+// call may already have consumed some (see its comment).
 //
 // Errors:
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in idempotency_key | device_id | signature_public_key | key_packages
@@ -47,8 +49,13 @@
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "key_devices": a sixth device (never evicts).
 // - FAILED_PRECONDITION + CANNOT_MESSAGE (GetKeyDevices, ClaimKeyPackages): the caller may not message a target. ONE
 //   byte-identical error for an unknown user, a user who is not ACTIVE, a block in either direction and any other
-//   refusal by the messaging send rules, so it reveals no more than GetProfile's NOT_FOUND. Do not retry.
+//   refusal by the messaging send rules, so it reveals no more than GetProfile's NOT_FOUND. Do not retry. A failure of
+//   the send-rules check that is not a refusal (a read failed) is a generic INTERNAL, or UNAVAILABLE as below, never
+//   the messaging module's own error.
 // - NOT_FOUND: UploadKeyPackages for a device the caller has not registered.
+// - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
+//   transaction, a timeout). Contention between concurrent claimers is never surfaced as an error (see
+//   ClaimKeyPackages).
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_KEYS_WRITE_PER_MIN (20: RegisterKeyDevice, RemoveKeyDevice,
 //   UploadKeyPackages), RATE_LIMIT_KEYS_READ_PER_MIN (60: ListMyKeyDevices, GetKeyDevices), RATE_LIMIT_KEYS_CLAIM_PER_MIN
 //   (20: ClaimKeyPackages), per uid per instance; and the daily cap KEYS_CLAIMS_PER_DAY (300) on ClaimKeyPackages,
@@ -442,7 +449,7 @@ type UploadKeyPackagesRequest struct {
 	DeviceId       string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	// 0-100, each 1-4096 bytes. Opaque to the server.
 	KeyPackages [][]byte `protobuf:"bytes,3,rep,name=key_packages,json=keyPackages,proto3" json:"key_packages,omitempty"`
-	// Optional, 1-4096 bytes; replaces the stored one when set.
+	// Optional, 1-4096 bytes; replaces the stored one when set. Empty means none sent: the stored one is kept.
 	LastResortKeyPackage []byte `protobuf:"bytes,4,opt,name=last_resort_key_package,json=lastResortKeyPackage,proto3" json:"last_resort_key_package,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
@@ -661,7 +668,7 @@ func (x *UserKeyDevices) GetDevices() []*KeyDevice {
 
 type GetKeyDevicesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Same order as the request.
+	// Same order as the request, one entry per requested id (with no devices when the user has none to return).
 	Users         []*UserKeyDevices `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -710,7 +717,8 @@ type ClaimKeyPackagesRequest struct {
 	// A user reference, translated like the others (options.proto, user_ref).
 	UserId string `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	// Lets a device claim for its own user's other devices without consuming its own package. Required when user_id is
-	// the caller, and then must be one of the caller's devices.
+	// the caller, and then must be one of the caller's devices (an inactive one included). For another user it must be
+	// empty or a well-formed device id (else VALIDATION "exclude_device_id") and is ignored.
 	ExcludeDeviceId string `protobuf:"bytes,3,opt,name=exclude_device_id,json=excludeDeviceId,proto3" json:"exclude_device_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -770,7 +778,9 @@ func (x *ClaimKeyPackagesRequest) GetExcludeDeviceId() string {
 type ClaimedKeyPackage struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	DeviceId string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	// The directory's key for the device; the client checks it against the key package's own credential.
+	// The device's key as the directory held it just before the package was taken. It can be stale if the device id was
+	// removed and registered again in that instant, so the client checks the key package's credential and signature key
+	// against it and against the directory entry, and skips the device on a mismatch (see the file header).
 	SignaturePublicKey []byte `protobuf:"bytes,2,opt,name=signature_public_key,json=signaturePublicKey,proto3" json:"signature_public_key,omitempty"`
 	// Empty when has_key_package is false.
 	KeyPackage    []byte `protobuf:"bytes,3,opt,name=key_package,json=keyPackage,proto3" json:"key_package,omitempty"`
@@ -848,7 +858,8 @@ func (x *ClaimedKeyPackage) GetLastResort() bool {
 
 type ClaimKeyPackagesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One per active device of user_id.
+	// One per active device of user_id, oldest first, except: a device removed during the claim is left out, and for
+	// the caller's own id the excluded device is left out.
 	KeyPackages   []*ClaimedKeyPackage `protobuf:"bytes,1,rep,name=key_packages,json=keyPackages,proto3" json:"key_packages,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

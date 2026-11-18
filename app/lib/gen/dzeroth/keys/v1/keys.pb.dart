@@ -603,7 +603,7 @@ class UploadKeyPackagesRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $pb.PbList<$core.List<$core.int>> get keyPackages => $_getList(2);
 
-  /// Optional, 1-4096 bytes; replaces the stored one when set.
+  /// Optional, 1-4096 bytes; replaces the stored one when set. Empty means none sent: the stored one is kept.
   @$pb.TagNumber(4)
   $core.List<$core.int> get lastResortKeyPackage => $_getN(3);
   @$pb.TagNumber(4)
@@ -862,7 +862,7 @@ class GetKeyDevicesResponse extends $pb.GeneratedMessage {
           GetKeyDevicesResponse.$_createMessage);
   static GetKeyDevicesResponse? _defaultInstance;
 
-  /// Same order as the request.
+  /// Same order as the request, one entry per requested id (with no devices when the user has none to return).
   @$pb.TagNumber(1)
   $pb.PbList<UserKeyDevices> get users => $_getList(0);
 }
@@ -943,7 +943,8 @@ class ClaimKeyPackagesRequest extends $pb.GeneratedMessage {
   void clearUserId() => $_clearField(2);
 
   /// Lets a device claim for its own user's other devices without consuming its own package. Required when user_id is
-  /// the caller, and then must be one of the caller's devices.
+  /// the caller, and then must be one of the caller's devices (an inactive one included). For another user it must be
+  /// empty or a well-formed device id (else VALIDATION "exclude_device_id") and is ignored.
   @$pb.TagNumber(3)
   $core.String get excludeDeviceId => $_getSZ(2);
   @$pb.TagNumber(3)
@@ -1026,7 +1027,9 @@ class ClaimedKeyPackage extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   void clearDeviceId() => $_clearField(1);
 
-  /// The directory's key for the device; the client checks it against the key package's own credential.
+  /// The device's key as the directory held it just before the package was taken. It can be stale if the device id was
+  /// removed and registered again in that instant, so the client checks the key package's credential and signature key
+  /// against it and against the directory entry, and skips the device on a mismatch (see the file header).
   @$pb.TagNumber(2)
   $core.List<$core.int> get signaturePublicKey => $_getN(1);
   @$pb.TagNumber(2)
@@ -1118,7 +1121,8 @@ class ClaimKeyPackagesResponse extends $pb.GeneratedMessage {
           ClaimKeyPackagesResponse.$_createMessage);
   static ClaimKeyPackagesResponse? _defaultInstance;
 
-  /// One per active device of user_id.
+  /// One per active device of user_id, oldest first, except: a device removed during the claim is left out, and for
+  /// the caller's own id the excluded device is left out.
   @$pb.TagNumber(1)
   $pb.PbList<ClaimedKeyPackage> get keyPackages => $_getList(0);
 }
@@ -1156,9 +1160,11 @@ class KeyServiceApi {
   /// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
   /// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
   /// nothing twice, and duplicates within one request are stored once. The pool holds at most 100: packages beyond the
-  /// free space are dropped (the response carries the resulting count). Unknown device => NOT_FOUND. Neither key
-  /// packages nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h).
-  /// One transaction: 1 device read + at most 100 reads, at most 101 writes.
+  /// free space are dropped: when the pool is full the oldest stay and the new packages are not stored (the response
+  /// carries the resulting count, which can be momentarily higher than the pool if a claim runs concurrently). An empty
+  /// last_resort_key_package means none sent: the stored one is kept. Unknown device => NOT_FOUND. Neither key packages
+  /// nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h). One
+  /// transaction: 1 device read + at most 100 reads, at most 101 writes.
   $async.Future<UploadKeyPackagesResponse> uploadKeyPackages(
           $pb.ClientContext? ctx, UploadKeyPackagesRequest request) =>
       _client.invoke<UploadKeyPackagesResponse>(ctx, 'KeyService',
@@ -1167,21 +1173,37 @@ class KeyServiceApi {
   /// Active devices of up to 10 users. Needs the flag on for the caller. For each target other than the caller, the
   /// caller must be allowed to message the target by the messaging send rules; an unknown or non-ACTIVE user, a block in
   /// either direction and any other refusal answer ONE byte-identical FAILED_PRECONDITION + CANNOT_MESSAGE. A target
-  /// with the flag off or with no active device answers success with an empty device list. Only active devices are
-  /// returned; key_package_count and has_last_resort are zeroed for other users' devices. Validation: 1-10 user_ids
-  /// (VALIDATION "user_ids"). At most 10 users x (1 user read + a query of at most 5 devices), no writes.
+  /// with the flag off or with no active device answers success with an empty device list. One refused target fails the
+  /// whole call with that single CANNOT_MESSAGE (no partial result). Only active devices are returned, oldest first;
+  /// key_package_count and has_last_resort are zeroed for other users' devices. Validation: 1-10 user_ids, each a
+  /// well-formed user id, no duplicates (the caller's own id twice included), else VALIDATION "user_ids". Reads: for
+  /// each target other than the caller, the send-rules check reads at most 4 documents, all cache-first (the caller's
+  /// graph, the target's profile and, only when the target accepts messages from accounts they follow, one follow edge
+  /// and the conversation); then at most 10 queries of at most 5 devices (the caller and each permitted target with the
+  /// flag on: nothing is read for a refused or flag-off target). No writes.
   $async.Future<GetKeyDevicesResponse> getKeyDevices(
           $pb.ClientContext? ctx, GetKeyDevicesRequest request) =>
       _client.invoke<GetKeyDevicesResponse>(
           ctx, 'KeyService', 'GetKeyDevices', request, GetKeyDevicesResponse());
 
-  /// Claim one key package per active device of user_id. Needs the flag on for the caller. Same send-rules check and
-  /// the same single CANNOT_MESSAGE refusal as GetKeyDevices. For each active device the server consumes one one-time
-  /// package, else returns the device's last-resort package (last_resort = true, not consumed), else
-  /// has_key_package = false. One transaction, at most 10 reads and 10 writes. NOT replayable: a retry consumes fresh
-  /// packages, and idempotency_key is format-checked only. Claiming for the caller's own user id requires
-  /// exclude_device_id to be one of the caller's devices (VALIDATION "exclude_device_id"); that device is left out.
-  /// Limited by RATE_LIMIT_KEYS_CLAIM_PER_MIN and the daily cap KEYS_CLAIMS_PER_DAY (see Errors).
+  /// Claim one key package per active device of user_id, devices oldest first. Needs the flag on for the caller. Same
+  /// send-rules check and the same single CANNOT_MESSAGE refusal as GetKeyDevices; a target with the flag off is an
+  /// empty success; a malformed user_id is VALIDATION "user_id". For each active device the server consumes one
+  /// one-time package (which one is unspecified), else returns the device's last-resort package (last_resort = true,
+  /// not consumed), else has_key_package = false. Under heavy contention on one device the last-resort package (or
+  /// has_key_package = false) may be returned although one-time packages remain; contention is never an error. A
+  /// returned last-resort package may be one the device replaced a moment earlier (a stale read in a millisecond
+  /// window); the receiving device may then be unable to use it, and the sender should claim again.
+  /// There is no transaction: per device, one atomic write deletes one one-time package and decrements the count. Not
+  /// atomic across devices. Reads without contention: at most 15 (1 query of at most 5 devices + 1 or 2 pool queries of
+  /// at most 1 document per device); with contention at most 110 (at most 10 picks per device, 2 pool queries each, plus
+  /// 1 device read); plus the send-rules check's at most 4 for another user. At most 10 committed writes.
+  /// NOT replayable: a retry consumes fresh packages, and idempotency_key is format-checked only. A failed or timed-out
+  /// call is not proof that nothing was consumed: packages may already have been taken, including for earlier devices
+  /// of the same call when a later device fails. Claiming for the caller's own user id requires exclude_device_id to be
+  /// one of the caller's devices, an inactive one included (VALIDATION "exclude_device_id"); that device is left out.
+  /// For another user exclude_device_id must be empty or a well-formed device id (VALIDATION "exclude_device_id") and
+  /// is ignored. Limited by RATE_LIMIT_KEYS_CLAIM_PER_MIN and the daily cap KEYS_CLAIMS_PER_DAY (see Errors).
   $async.Future<ClaimKeyPackagesResponse> claimKeyPackages(
           $pb.ClientContext? ctx, ClaimKeyPackagesRequest request) =>
       _client.invoke<ClaimKeyPackagesResponse>(ctx, 'KeyService',

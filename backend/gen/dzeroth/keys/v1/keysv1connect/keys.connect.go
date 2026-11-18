@@ -5,8 +5,9 @@
 // Key directory for end-to-end encrypted direct messages: each encryption device publishes a public signature key and a
 // pool of opaque MLS key packages, and a user who may message another user looks up that user's devices and claims one
 // key package per device. The server stores and hands out opaque bytes; it never parses a key package and never sees
-// message content. Clients MUST verify that a claimed key package's credential and signature key match the directory
-// entry (ClaimedKeyPackage.signature_public_key) before using it.
+// message content. Clients MUST check that a claimed key package's credential and signature key match both
+// ClaimedKeyPackage.signature_public_key and the device's directory entry (GetKeyDevices) before using it; on a mismatch
+// the client skips that device (it does not fail the whole operation).
 // Owner module: backend/internal/keys.
 // Collections owned: users/{uid}/keyDevices/{deviceId} (signatureKey (bytes), createdAt, lastSeenAt, lastResort (bytes,
 // absent = none), poolCount) and its subcollection users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time
@@ -23,7 +24,7 @@
 //
 // Limits: device id [A-Za-z0-9_-]{16,64}; signature_public_key exactly 32 bytes (Ed25519); a key package 1-4096 bytes;
 // at most 100 key packages per upload and at most 100 stored per device (the pool); at most 5 devices per user; a device
-// not seen for 30 days is inactive; GetKeyDevices takes 1-10 user ids.
+// not seen for 30 days is inactive (one last seen exactly 30 days ago is inactive); GetKeyDevices takes 1-10 user ids.
 //
 // Inactive devices are filtered at read time and never deleted by the server: an inactive device is left out of
 // GetKeyDevices and ClaimKeyPackages, still appears in ListMyKeyDevices, still counts toward the cap of 5 until its
@@ -35,7 +36,8 @@
 //
 // Idempotency: every mutating RPC takes idempotency_key in the repo format (16-64 of [A-Za-z0-9_-], else VALIDATION
 // "idempotency_key"). RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages are naturally idempotent and the key is
-// only format-checked. ClaimKeyPackages is NOT replayable: a retry consumes fresh packages (see its comment).
+// only format-checked. ClaimKeyPackages is NOT replayable: a retry consumes fresh packages, and a failed or timed-out
+// call may already have consumed some (see its comment).
 //
 // Errors:
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in idempotency_key | device_id | signature_public_key | key_packages
@@ -45,8 +47,13 @@
 //   - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "key_devices": a sixth device (never evicts).
 //   - FAILED_PRECONDITION + CANNOT_MESSAGE (GetKeyDevices, ClaimKeyPackages): the caller may not message a target. ONE
 //     byte-identical error for an unknown user, a user who is not ACTIVE, a block in either direction and any other
-//     refusal by the messaging send rules, so it reveals no more than GetProfile's NOT_FOUND. Do not retry.
+//     refusal by the messaging send rules, so it reveals no more than GetProfile's NOT_FOUND. Do not retry. A failure of
+//     the send-rules check that is not a refusal (a read failed) is a generic INTERNAL, or UNAVAILABLE as below, never
+//     the messaging module's own error.
 //   - NOT_FOUND: UploadKeyPackages for a device the caller has not registered.
+//   - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
+//     transaction, a timeout). Contention between concurrent claimers is never surfaced as an error (see
+//     ClaimKeyPackages).
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_KEYS_WRITE_PER_MIN (20: RegisterKeyDevice, RemoveKeyDevice,
 //     UploadKeyPackages), RATE_LIMIT_KEYS_READ_PER_MIN (60: ListMyKeyDevices, GetKeyDevices), RATE_LIMIT_KEYS_CLAIM_PER_MIN
 //     (20: ClaimKeyPackages), per uid per instance; and the daily cap KEYS_CLAIMS_PER_DAY (300) on ClaimKeyPackages,
@@ -120,24 +127,42 @@ type KeyServiceClient interface {
 	// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
 	// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
 	// nothing twice, and duplicates within one request are stored once. The pool holds at most 100: packages beyond the
-	// free space are dropped (the response carries the resulting count). Unknown device => NOT_FOUND. Neither key
-	// packages nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h).
-	// One transaction: 1 device read + at most 100 reads, at most 101 writes.
+	// free space are dropped: when the pool is full the oldest stay and the new packages are not stored (the response
+	// carries the resulting count, which can be momentarily higher than the pool if a claim runs concurrently). An empty
+	// last_resort_key_package means none sent: the stored one is kept. Unknown device => NOT_FOUND. Neither key packages
+	// nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h). One
+	// transaction: 1 device read + at most 100 reads, at most 101 writes.
 	UploadKeyPackages(context.Context, *connect.Request[v1.UploadKeyPackagesRequest]) (*connect.Response[v1.UploadKeyPackagesResponse], error)
 	// Active devices of up to 10 users. Needs the flag on for the caller. For each target other than the caller, the
 	// caller must be allowed to message the target by the messaging send rules; an unknown or non-ACTIVE user, a block in
 	// either direction and any other refusal answer ONE byte-identical FAILED_PRECONDITION + CANNOT_MESSAGE. A target
-	// with the flag off or with no active device answers success with an empty device list. Only active devices are
-	// returned; key_package_count and has_last_resort are zeroed for other users' devices. Validation: 1-10 user_ids
-	// (VALIDATION "user_ids"). At most 10 users x (1 user read + a query of at most 5 devices), no writes.
+	// with the flag off or with no active device answers success with an empty device list. One refused target fails the
+	// whole call with that single CANNOT_MESSAGE (no partial result). Only active devices are returned, oldest first;
+	// key_package_count and has_last_resort are zeroed for other users' devices. Validation: 1-10 user_ids, each a
+	// well-formed user id, no duplicates (the caller's own id twice included), else VALIDATION "user_ids". Reads: for
+	// each target other than the caller, the send-rules check reads at most 4 documents, all cache-first (the caller's
+	// graph, the target's profile and, only when the target accepts messages from accounts they follow, one follow edge
+	// and the conversation); then at most 10 queries of at most 5 devices (the caller and each permitted target with the
+	// flag on: nothing is read for a refused or flag-off target). No writes.
 	GetKeyDevices(context.Context, *connect.Request[v1.GetKeyDevicesRequest]) (*connect.Response[v1.GetKeyDevicesResponse], error)
-	// Claim one key package per active device of user_id. Needs the flag on for the caller. Same send-rules check and
-	// the same single CANNOT_MESSAGE refusal as GetKeyDevices. For each active device the server consumes one one-time
-	// package, else returns the device's last-resort package (last_resort = true, not consumed), else
-	// has_key_package = false. One transaction, at most 10 reads and 10 writes. NOT replayable: a retry consumes fresh
-	// packages, and idempotency_key is format-checked only. Claiming for the caller's own user id requires
-	// exclude_device_id to be one of the caller's devices (VALIDATION "exclude_device_id"); that device is left out.
-	// Limited by RATE_LIMIT_KEYS_CLAIM_PER_MIN and the daily cap KEYS_CLAIMS_PER_DAY (see Errors).
+	// Claim one key package per active device of user_id, devices oldest first. Needs the flag on for the caller. Same
+	// send-rules check and the same single CANNOT_MESSAGE refusal as GetKeyDevices; a target with the flag off is an
+	// empty success; a malformed user_id is VALIDATION "user_id". For each active device the server consumes one
+	// one-time package (which one is unspecified), else returns the device's last-resort package (last_resort = true,
+	// not consumed), else has_key_package = false. Under heavy contention on one device the last-resort package (or
+	// has_key_package = false) may be returned although one-time packages remain; contention is never an error. A
+	// returned last-resort package may be one the device replaced a moment earlier (a stale read in a millisecond
+	// window); the receiving device may then be unable to use it, and the sender should claim again.
+	// There is no transaction: per device, one atomic write deletes one one-time package and decrements the count. Not
+	// atomic across devices. Reads without contention: at most 15 (1 query of at most 5 devices + 1 or 2 pool queries of
+	// at most 1 document per device); with contention at most 110 (at most 10 picks per device, 2 pool queries each, plus
+	// 1 device read); plus the send-rules check's at most 4 for another user. At most 10 committed writes.
+	// NOT replayable: a retry consumes fresh packages, and idempotency_key is format-checked only. A failed or timed-out
+	// call is not proof that nothing was consumed: packages may already have been taken, including for earlier devices
+	// of the same call when a later device fails. Claiming for the caller's own user id requires exclude_device_id to be
+	// one of the caller's devices, an inactive one included (VALIDATION "exclude_device_id"); that device is left out.
+	// For another user exclude_device_id must be empty or a well-formed device id (VALIDATION "exclude_device_id") and
+	// is ignored. Limited by RATE_LIMIT_KEYS_CLAIM_PER_MIN and the daily cap KEYS_CLAIMS_PER_DAY (see Errors).
 	ClaimKeyPackages(context.Context, *connect.Request[v1.ClaimKeyPackagesRequest]) (*connect.Response[v1.ClaimKeyPackagesResponse], error)
 }
 
@@ -251,24 +276,42 @@ type KeyServiceHandler interface {
 	// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
 	// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
 	// nothing twice, and duplicates within one request are stored once. The pool holds at most 100: packages beyond the
-	// free space are dropped (the response carries the resulting count). Unknown device => NOT_FOUND. Neither key
-	// packages nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h).
-	// One transaction: 1 device read + at most 100 reads, at most 101 writes.
+	// free space are dropped: when the pool is full the oldest stay and the new packages are not stored (the response
+	// carries the resulting count, which can be momentarily higher than the pool if a claim runs concurrently). An empty
+	// last_resort_key_package means none sent: the stored one is kept. Unknown device => NOT_FOUND. Neither key packages
+	// nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h). One
+	// transaction: 1 device read + at most 100 reads, at most 101 writes.
 	UploadKeyPackages(context.Context, *connect.Request[v1.UploadKeyPackagesRequest]) (*connect.Response[v1.UploadKeyPackagesResponse], error)
 	// Active devices of up to 10 users. Needs the flag on for the caller. For each target other than the caller, the
 	// caller must be allowed to message the target by the messaging send rules; an unknown or non-ACTIVE user, a block in
 	// either direction and any other refusal answer ONE byte-identical FAILED_PRECONDITION + CANNOT_MESSAGE. A target
-	// with the flag off or with no active device answers success with an empty device list. Only active devices are
-	// returned; key_package_count and has_last_resort are zeroed for other users' devices. Validation: 1-10 user_ids
-	// (VALIDATION "user_ids"). At most 10 users x (1 user read + a query of at most 5 devices), no writes.
+	// with the flag off or with no active device answers success with an empty device list. One refused target fails the
+	// whole call with that single CANNOT_MESSAGE (no partial result). Only active devices are returned, oldest first;
+	// key_package_count and has_last_resort are zeroed for other users' devices. Validation: 1-10 user_ids, each a
+	// well-formed user id, no duplicates (the caller's own id twice included), else VALIDATION "user_ids". Reads: for
+	// each target other than the caller, the send-rules check reads at most 4 documents, all cache-first (the caller's
+	// graph, the target's profile and, only when the target accepts messages from accounts they follow, one follow edge
+	// and the conversation); then at most 10 queries of at most 5 devices (the caller and each permitted target with the
+	// flag on: nothing is read for a refused or flag-off target). No writes.
 	GetKeyDevices(context.Context, *connect.Request[v1.GetKeyDevicesRequest]) (*connect.Response[v1.GetKeyDevicesResponse], error)
-	// Claim one key package per active device of user_id. Needs the flag on for the caller. Same send-rules check and
-	// the same single CANNOT_MESSAGE refusal as GetKeyDevices. For each active device the server consumes one one-time
-	// package, else returns the device's last-resort package (last_resort = true, not consumed), else
-	// has_key_package = false. One transaction, at most 10 reads and 10 writes. NOT replayable: a retry consumes fresh
-	// packages, and idempotency_key is format-checked only. Claiming for the caller's own user id requires
-	// exclude_device_id to be one of the caller's devices (VALIDATION "exclude_device_id"); that device is left out.
-	// Limited by RATE_LIMIT_KEYS_CLAIM_PER_MIN and the daily cap KEYS_CLAIMS_PER_DAY (see Errors).
+	// Claim one key package per active device of user_id, devices oldest first. Needs the flag on for the caller. Same
+	// send-rules check and the same single CANNOT_MESSAGE refusal as GetKeyDevices; a target with the flag off is an
+	// empty success; a malformed user_id is VALIDATION "user_id". For each active device the server consumes one
+	// one-time package (which one is unspecified), else returns the device's last-resort package (last_resort = true,
+	// not consumed), else has_key_package = false. Under heavy contention on one device the last-resort package (or
+	// has_key_package = false) may be returned although one-time packages remain; contention is never an error. A
+	// returned last-resort package may be one the device replaced a moment earlier (a stale read in a millisecond
+	// window); the receiving device may then be unable to use it, and the sender should claim again.
+	// There is no transaction: per device, one atomic write deletes one one-time package and decrements the count. Not
+	// atomic across devices. Reads without contention: at most 15 (1 query of at most 5 devices + 1 or 2 pool queries of
+	// at most 1 document per device); with contention at most 110 (at most 10 picks per device, 2 pool queries each, plus
+	// 1 device read); plus the send-rules check's at most 4 for another user. At most 10 committed writes.
+	// NOT replayable: a retry consumes fresh packages, and idempotency_key is format-checked only. A failed or timed-out
+	// call is not proof that nothing was consumed: packages may already have been taken, including for earlier devices
+	// of the same call when a later device fails. Claiming for the caller's own user id requires exclude_device_id to be
+	// one of the caller's devices, an inactive one included (VALIDATION "exclude_device_id"); that device is left out.
+	// For another user exclude_device_id must be empty or a well-formed device id (VALIDATION "exclude_device_id") and
+	// is ignored. Limited by RATE_LIMIT_KEYS_CLAIM_PER_MIN and the daily cap KEYS_CLAIMS_PER_DAY (see Errors).
 	ClaimKeyPackages(context.Context, *connect.Request[v1.ClaimKeyPackagesRequest]) (*connect.Response[v1.ClaimKeyPackagesResponse], error)
 }
 
