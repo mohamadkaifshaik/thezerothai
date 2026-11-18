@@ -188,7 +188,7 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key),
 		Text: in.text, RequestHash: requestHash(in.convID, in.text, in.sharedRaw), Now: now, SharedPostID: in.shared.ID,
 		CallerFollowsPeer: mine.Following[in.peer], CallerSilent: mine.Muted[in.peer],
-		RecipientFollowingOnly: peer.DMPolicy == identity.DMPolicyFollowingOnly && s.flags.Enabled(in.peer, identity.DMPolicyFlag),
+		RecipientFollowingOnly: s.recipientFollowingOnly(in.peer, peer),
 		Caller:                 peerDocOf(caller), Peer: peerDocOf(peer),
 		MaxUnanswered: s.d.Limits.RequestMaxUnanswered, DMNewLimit: limit,
 		RecipientGraphInTx: func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error) {
@@ -447,4 +447,11 @@ func (s *service) recipientRefusal(mine graph.Snapshot, peer string, active bool
 		return refusedRecipientFlagOff
 	}
 	return ""
+}
+
+// recipientFollowingOnly is the one F9 predicate shared by Send (SendParams.RecipientFollowingOnly), ListMessageSuggestions
+// (followingOnly) and CanMessage: the peer's dm_policy is FOLLOWING_ONLY and FEATURE_DM_POLICY is on for the peer. Whether it
+// refuses a given message is dmPolicyRefuses (the follow-back and the conversation decide).
+func (s *service) recipientFollowingOnly(peer string, p identity.Profile) bool {
+	return p.DMPolicy == identity.DMPolicyFollowingOnly && s.enabledFor(peer, identity.DMPolicyFlag)
 }

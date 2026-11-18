@@ -246,6 +246,10 @@ type Config struct {
 	// FeatureDMSuggestions is the flag (wire name `dm_suggestions`) gating message recipient suggestions on the new-message screen: on for the caller.
 	// FEATURE_DM_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureDMSuggestions flags.Spec
+	// FeatureE2EEDM is the flag (wire name `e2ee_dm`) gating the key directory (`KeyService`) and, in later work,
+	// end-to-end-encrypted direct messages: on for the caller. FEATURE_E2EE_DM[_ALLOWLIST|_PERCENT], default off in
+	// every environment.
+	FeatureE2EEDM flags.Spec
 	// FeaturePostViews is the flag (wire name `post_views`) gating F1 post view counts: EngagementService.RecordImpressions
 	// on for the caller, and Post.view_count on every read while it is not globally off (globally off is the kill switch:
 	// no count on any surface, the author's own included). FEATURE_POST_VIEWS[_ALLOWLIST|_PERCENT], default off in every
@@ -660,6 +664,11 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_LOCATION_READ_PER_MIN", 30, &rl.LocationReadPerUserPerMinute},
 		{"RATE_LIMIT_LOCATION_WRITE_PER_MIN", 6, &rl.LocationWritePerUserPerMinute},
 		{"RATE_LIMIT_LOCATION_CLEAR_PER_MIN", 30, &rl.LocationClearPerUserPerMinute},
+		// Key directory: Register/Remove/Upload 20/min, ListMyKeyDevices and GetKeyDevices 60/min, ClaimKeyPackages 20/min
+		// (per instance, x3).
+		{"RATE_LIMIT_KEYS_WRITE_PER_MIN", 20, &rl.KeysWritePerUserPerMinute},
+		{"RATE_LIMIT_KEYS_READ_PER_MIN", 60, &rl.KeysReadPerUserPerMinute},
+		{"RATE_LIMIT_KEYS_CLAIM_PER_MIN", 20, &rl.KeysClaimPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -750,6 +759,10 @@ func Load() (Config, error) {
 		{&rl.BeaconsCreatedPerDay, "BEACONS_CREATED_PER_DAY", 10},
 		// CancelBeacon per uid, limit_name "beacons_cancelled_daily" (R24: bounds the cap-exempt cancellation fan-out).
 		{&rl.BeaconsCancelledPerDay, "BEACONS_CANCELLED_PER_DAY", 20},
+		// ClaimKeyPackages per uid, limit_name "keys_claims_daily".
+		{&rl.KeysClaimsPerDay, "KEYS_CLAIMS_PER_DAY", 300},
+		// ClaimKeyPackages per caller and target, limit_name "keys_claims_per_target_daily" (drawn on by the keys service).
+		{&rl.KeysClaimsPerTargetPerDay, "KEYS_CLAIMS_PER_TARGET_PER_DAY", 20},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
@@ -1083,6 +1096,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureE2EEDM, err := flags.LoadSpec("E2EE_DM", "e2ee_dm", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1309,6 +1326,7 @@ func Load() (Config, error) {
 		FeatureSearchFilters:         featureSearchFilters,
 		FeatureLocation:              featureLocation,
 		FeatureDMSuggestions:         featureDMSuggestions,
+		FeatureE2EEDM:                featureE2EEDM,
 		FeaturePostViews:             featurePostViews,
 		FeatureCreatorInsights:       featureCreatorInsights,
 		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),

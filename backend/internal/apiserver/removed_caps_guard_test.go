@@ -12,6 +12,7 @@ import (
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	keysv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1/keysv1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
@@ -51,6 +52,8 @@ var expectedDailyCaps = map[string][]string{
 	"shares_daily": {engagementv1connect.EngagementServiceRecordPostShareProcedure},
 	// RecordImpressions (F1 post views, IMPRESSIONS_RECORDED_PER_DAY).
 	"impressions_daily": {engagementv1connect.EngagementServiceRecordImpressionsProcedure},
+	// ClaimKeyPackages (the key directory, KEYS_CLAIMS_PER_DAY): bounds how many other users' one-time packages one caller drains.
+	"keys_claims_daily": {keysv1connect.KeyServiceClaimKeyPackagesProcedure},
 }
 
 // requiredPerProcedureBuckets are procedures whose own per-minute bucket must stay: they once had a daily cap and the per-minute

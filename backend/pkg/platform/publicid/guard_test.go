@@ -20,6 +20,7 @@ import (
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
+	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1"
 	_ "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1"

@@ -37,6 +37,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	keysv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1"
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1/keysv1connect"
 	listsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
 	locationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1"
@@ -455,6 +457,26 @@ func uidScanCaseTable() map[string]uidScanCase {
 			return &listsv1.ListSuggestedMembersRequest{ListId: w.FList, MaxResults: 10}
 		}},
 
+		// ---- keys (sorted within a phase: RegisterKeyDevice runs before UploadKeyPackages; RemoveKeyDevice destroys) ----
+		keysv1connect.KeyServiceRegisterKeyDeviceProcedure: {Phase: uidScanWrite, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &keysv1.RegisterKeyDeviceRequest{IdempotencyKey: uidScanKey("keyreg"), DeviceId: uidScanKeyDevice, SignaturePublicKey: uidScanSigKey}
+		}},
+		keysv1connect.KeyServiceListMyKeyDevicesProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &keysv1.ListMyKeyDevicesRequest{}
+		}},
+		keysv1connect.KeyServiceUploadKeyPackagesProcedure: {Phase: uidScanWrite, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &keysv1.UploadKeyPackagesRequest{IdempotencyKey: uidScanKey("keyup"), DeviceId: uidScanKeyDevice, KeyPackages: [][]byte{[]byte("uidscan key package")}}
+		}},
+		keysv1connect.KeyServiceGetKeyDevicesProcedure: {Phase: uidScanRead, Want: "ok", MustHaveID: true, Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &keysv1.GetKeyDevicesRequest{UserIds: []string{v.id(w.A), v.id(w.F)}}
+		}},
+		keysv1connect.KeyServiceClaimKeyPackagesProcedure: {Phase: uidScanWrite, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &keysv1.ClaimKeyPackagesRequest{IdempotencyKey: uidScanKey("keyclaim"), UserId: v.id(w.A)}
+		}},
+		keysv1connect.KeyServiceRemoveKeyDeviceProcedure: {Phase: uidScanDestroy, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &keysv1.RemoveKeyDeviceRequest{IdempotencyKey: uidScanKey("keyrm"), DeviceId: uidScanKeyDevice}
+		}},
+
 		// ---- location ----
 		locationv1connect.LocationServiceGetLocationSettingsProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
 			return &locationv1.GetLocationSettingsRequest{}
@@ -620,6 +642,11 @@ func uidScanCaseTable() map[string]uidScanCase {
 		}},
 	}
 }
+
+// uidScanKeyDevice is the scanner's encryption device id and uidScanSigKey its 32-byte signature key (the key directory).
+const uidScanKeyDevice = "uidscan-keydevice-0001"
+
+var uidScanSigKey = []byte("uidscan-signature-key-32-bytes!!")
 
 // uidScanArticleBody is a valid article body (the shape the articles package tests use).
 const uidScanArticleBody = `[{"kind":"paragraph","runs":[{"text":"Hello world"}]}]`

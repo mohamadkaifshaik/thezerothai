@@ -52,6 +52,15 @@ type Service interface {
 	ListSuggestions(ctx context.Context, uid string, req *messagingv1.ListMessageSuggestionsRequest) (*messagingv1.ListMessageSuggestionsResponse, error)
 }
 
+// Permission is the messaging send rules as a yes/no question for another module (the key directory,
+// internal/keys, through an apiserver adapter): may callerUID message targetUID? It is a separate interface, not part of
+// Service, and the composition root type-asserts the service to it like MessageReporter. CanMessage writes nothing.
+// Every refusal is ErrCannotMessage itself (never a wire error); ErrSelf is the caller asking about themselves; any
+// other error is a failure to decide (a read failed), never a refusal. See permission.go for the rules and reads.
+type Permission interface {
+	CanMessage(ctx context.Context, callerUID, targetUID string) error
+}
+
 // Eraser is messaging's step in the account-deletion cascade (the `messaging` step between follow_requests and identity).
 // PurgeUser is resumable: call again with the returned opaque checkpoint (JSON of
 // Checkpoint) until done is true, like identity.StepEraser. NewEraser builds it.
