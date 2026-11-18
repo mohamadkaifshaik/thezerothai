@@ -36,6 +36,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures 0.2.17",
+ "zeroize",
 ]
 
 [[package]]
@@ -50,6 +51,7 @@ dependencies = [
  "ctr",
  "ghash",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -512,6 +514,7 @@ dependencies = [
 name = "dzmls"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "openmls",
  "openmls_basic_credential",

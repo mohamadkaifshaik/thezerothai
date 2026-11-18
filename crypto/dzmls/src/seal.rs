@@ -52,12 +52,7 @@ pub fn seal(key: &[u8], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, MlsErro
             plaintext.len()
         )));
     }
-    let nonce = random(SEAL_NONCE_BYTES)?;
-    if nonce.len() != SEAL_NONCE_BYTES {
-        return Err(MlsError::internal(
-            "the random source returned a short nonce",
-        ));
-    }
+    let nonce = random(SEAL_NONCE_BYTES)?; // random_vec returns exactly the length asked for
     let ciphertext = cipher
         .encrypt(
             Nonce::from_slice(&nonce),
