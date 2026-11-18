@@ -10,13 +10,15 @@
 #                                                            backend (config.go), infra (flag registry, until-dates)
 #   crypto     MLS core (Rust): crypto job + web integration  crypto, app/rust, app/lib/core/crypto, app/integration_test, app/web
 #                                                            (testdata/mls and scripts/crypto are shared paths: everything runs)
+#   android    Android debug build on Linux (Rust via cargo-ndk)  crypto, app/rust, app/rust_builder, app/android,
+#                                                            app/pubspec.yaml, app/pubspec.lock (not other app code; .github is shared: everything runs)
 # Every path is classified by its first match; anything that is not clearly one of the kinds below, anything shared
 # (proto, testdata, scripts, Makefile, .github, firebase, root files, loadtest, ...) turns every group on. Fail open:
 # an empty list or an unreadable one is "everything", never "nothing". A path in the docs kind (docs/, .claude/,
 # scratchpad/, README.md, releases/*.md) needs no job at all.
 set -uo pipefail
 
-groups="go_checks go_unit int flutter promotion crypto"
+groups="go_checks go_unit int flutter promotion crypto android"
 
 emit_all() {
 	local g
@@ -28,7 +30,7 @@ if [ "${1:-}" = "--all" ]; then
 	exit 0
 fi
 
-backend=0 app=0 infra=0 crypto=0 other=0 seen=0
+backend=0 app=0 infra=0 crypto=0 android=0 other=0 seen=0
 while IFS= read -r p || [ -n "$p" ]; do
 	p=${p%$'\r'}
 	[ -n "$p" ] || continue
@@ -36,8 +38,10 @@ while IFS= read -r p || [ -n "$p" ]; do
 	case "$p" in
 	docs/* | .claude/* | scratchpad/* | README.md | releases/*.md) ;;
 	backend/*) backend=1 ;;
-	crypto/*) crypto=1 ;;
-	app/rust/* | app/lib/core/crypto/* | app/integration_test/* | app/web/*) app=1 crypto=1 ;;
+	crypto/*) crypto=1 android=1 ;;
+	app/rust/*) app=1 crypto=1 android=1 ;;
+	app/lib/core/crypto/* | app/integration_test/* | app/web/*) app=1 crypto=1 ;;
+	app/rust_builder/* | app/android/* | app/pubspec.yaml | app/pubspec.lock) app=1 android=1 ;;
 	app/*) app=1 ;;
 	infra/terraform/*) infra=1 ;;
 	*) other=1 ;;
@@ -56,3 +60,4 @@ echo "int=$(flag "$backend")"
 echo "flutter=$(flag "$app")"
 echo "promotion=$(flag $((backend | infra)))"
 echo "crypto=$(flag "$crypto")"
+echo "android=$(flag "$android")"

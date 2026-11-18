@@ -17,6 +17,7 @@ name: CI
 # requires "make ci (...)", "make test-int (Firebase emulators)" and "promotion scripts (...)" by name.
 # The MLS core (crypto/, Rust) has its own group: `crypto` (fmt, clippy, tests, cargo-deny, wasm build and browser test)
 # is counted by `make ci` below; `crypto-web-integration` (Flutter web test over the worker) is advisory, not counted.
+# `android-build` (group `android`: the Android debug build on Linux, which compiles the Rust binding with cargo-ndk) is counted.
 # About 23 jobs per run, up to 20 at once: on a plan with a 20-job concurrency limit, parallel PRs queue.
 
 on:
@@ -33,6 +34,9 @@ concurrency:
 
 env:
   FLUTTER_VERSION: "3.50.0"
+  # Flutter 3.50.0's flutter.ndkVersion (the NDK the Android build requires). The runner image does not ship it, so
+  # .github/actions/setup-android-ndk installs it and fails if the Flutter SDK asks for another one: bump with FLUTTER_VERSION.
+  ANDROID_NDK_VERSION: "28.2.13676358"
   # Keep in step with crypto/rust-toolchain.toml (.github/actions/setup-rust checks it and fails if they differ).
   RUST_VERSION: "1.100.0"
   BUF_VERSION: "1.47.2"
@@ -52,6 +56,7 @@ jobs:
       flutter: ${{ steps.groups.outputs.flutter }}
       promotion: ${{ steps.groups.outputs.promotion }}
       crypto: ${{ steps.groups.outputs.crypto }}
+      android: ${{ steps.groups.outputs.android }}
     steps:
       # A pull_request run checks out the merge of the PR into its base: HEAD is that merge commit and HEAD^1 the base tip,
       # so `git diff HEAD^1 HEAD` is exactly what the PR changes, even if the base moved since the PR was opened.
@@ -370,13 +375,101 @@ jobs:
           cd app
           flutter drive --driver=test_driver/integration_test.dart             --target=integration_test/crypto_engine_test.dart             -d web-server --browser-name=chrome --driver-port=4455 --headless
 
+  # The Android debug build on Linux: Gradle runs `cargo ndk` for the Rust binding (app/rust_builder) for the three ABIs.
+  # Pull-request CI otherwise never builds Android, so the first Linux build would be a release. No secrets, no environment.
+  android-build:
+    name: android build (debug APK on Linux, Rust via cargo-ndk, 16 KB page alignment)
+    needs: [changes]
+    if: needs.changes.outputs.android != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Java: the runner's default (17), which AGP 9.1 / Gradle 9.3 and the app's JavaVersion.VERSION_17 accept; release-prod.yml does the same.
+      - name: Setup Flutter
+        uses: ./.github/actions/setup-flutter
+        with:
+          version: ${{ env.FLUTTER_VERSION }}
+          sha: ab2912035e160d9cad6306df307576da6128ebdb
+
+      - name: Setup Rust (Android targets)
+        uses: ./.github/actions/setup-rust
+        with:
+          version: ${{ env.RUST_VERSION }}
+          targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
+      - name: Cache cargo registry, cargo-ndk and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-ndk
+            app/rust/target
+          key: android-${{ runner.os }}-${{ env.RUST_VERSION }}-cargo-ndk-4.1.2-${{ hashFiles('app/rust/Cargo.lock', 'crypto/Cargo.lock', 'app/rust/rust-toolchain.toml', 'crypto/rust-toolchain.toml') }}
+          restore-keys: |
+            android-${{ runner.os }}-${{ env.RUST_VERSION }}-cargo-ndk-4.1.2-
+
+      - name: Install cargo-ndk
+        run: |
+          # The binary refuses to run unless cargo starts it: always `cargo ndk`, never `cargo-ndk`.
+          if cargo ndk --version 2>/dev/null | grep -qF "4.1.2"; then
+            echo "cargo-ndk 4.1.2 restored from the cache"
+          else
+            cargo install --locked --version 4.1.2 cargo-ndk
+          fi
+          cargo ndk --version
+
+      # The runner image ships NDK 27.3, 29.0 and 30.0, not Flutter's 28.2: install exactly that one (not cached: about 1.5 GB unpacked).
+      - name: Setup Android NDK
+        uses: ./.github/actions/setup-android-ndk
+        with:
+          version: ${{ env.ANDROID_NDK_VERSION }}
+
+      # No --dart-define is needed to compile: every String.fromEnvironment has a default, and app/android/app/google-services.json is committed.
+      - name: flutter pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: flutter build apk --debug (arm, arm64, x64)
+        working-directory: app
+        run: flutter build apk --debug --target-platform android-arm,android-arm64,android-x64
+
+      - name: The APK carries the Rust library for every ABI, 16 KB aligned
+        run: |
+          set -euo pipefail
+          apk=app/build/app/outputs/flutter-apk/app-debug.apk
+          [ -f "$apk" ] || { echo "::error::$apk was not built"; exit 1; }
+          listing=$(unzip -l "$apk")
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            lib="lib/$abi/libdzmls_flutter.so"
+            line=$(grep -F " $lib" <<<"$listing" | head -n 1 || true)
+            [ -n "$line" ] || { echo "::error::$lib is not in the APK"; exit 1; }
+            echo "$lib: $(awk '{print $1}' <<<"$line") bytes"
+          done
+          # Android 15+ devices with 16 KB pages need every LOAD segment of a 64-bit library aligned to 0x4000.
+          work=$(mktemp -d)
+          for abi in arm64-v8a x86_64; do
+            unzip -p "$apk" "lib/$abi/libdzmls_flutter.so" >"$work/$abi.so"
+            aligns=$(readelf -lW "$work/$abi.so" | awk '$1 == "LOAD" {print $NF}')
+            echo "$abi LOAD alignments: ${aligns//$'\n'/ }"
+            [ -n "$aligns" ] || { echo "::error::no LOAD segments found in the $abi library"; exit 1; }
+            if [ -n "$(grep -vx '0x4000' <<<"$aligns" || true)" ]; then
+              echo "::error::the $abi libdzmls_flutter.so has a LOAD segment not aligned to 0x4000 (16 KB pages)"
+              exit 1
+            fi
+          done
+
   # Summary under the required check name. always(): GitHub counts a skipped required check as passed, so this job must
   # run, and fail, when any job above failed or was cancelled. A job is expected to be `skipped` exactly when `changes`
   # turned its group off, and `success` otherwise; a failed `changes` job fails this one (its skipped dependants must not
   # read as passed). go-unit runs always() itself, so it is always expected to succeed. Re-running failed jobs re-runs this one too.
   make-ci:
     name: make ci (lint, vet, unit tests, buf breaking, flutter analyze/test)
-    needs: [changes, go-checks, go-unit-shard, go-unit, flutter-analyze, flutter-test, crypto]
+    needs: [changes, go-checks, go-unit-shard, go-unit, flutter-analyze, flutter-test, crypto, android-build]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -386,7 +479,7 @@ jobs:
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
           jq -e '. as $n | $n.changes.result == "success" and $n["go-unit"].result == "success" and
-            ($n.changes.outputs as $o | [["go-checks", "go_checks"], ["go-unit-shard", "go_unit"], ["flutter-analyze", "flutter"], ["flutter-test", "flutter"], ["crypto", "crypto"]] |
+            ($n.changes.outputs as $o | [["go-checks", "go_checks"], ["go-unit-shard", "go_unit"], ["flutter-analyze", "flutter"], ["flutter-test", "flutter"], ["crypto", "crypto"], ["android-build", "android"]] |
               all(.[]; . as [$job, $flag] | $n[$job].result == (if $o[$flag] == "false" then "skipped" else "success" end)))' <<<"$NEEDS" >/dev/null || {
             echo "::error::make ci failed: a job above did not succeed (see the results listed in this step)"
             exit 1
