@@ -156,6 +156,14 @@ var uidScanExcluded = map[string]string{
 		"lifecycle tests, and the response carries no user id",
 	billingv1connect.BillingServiceEnsureBillingIdentityProcedure: "creates a customer at the external billing provider (RevenueCat), which the emulator " +
 		"chain does not have; the other two billing RPCs are called",
+	// TEMPORARY (E2EE plan 3): the contract exists (Task 1) but no handler does yet, so the embedded
+	// UnimplementedMessagingServiceHandler answers them. Task 6 wires the handlers and replaces these five exclusions
+	// with scan cases. None of their requests or responses carries a user id.
+	messagingv1connect.MessagingServiceCommitConversationProcedure:      "no handler until E2EE plan 3 Task 6 (then scanned)",
+	messagingv1connect.MessagingServiceListConversationCommitsProcedure: "no handler until E2EE plan 3 Task 6 (then scanned)",
+	messagingv1connect.MessagingServiceListEpochMessagesProcedure:       "no handler until E2EE plan 3 Task 6 (then scanned)",
+	messagingv1connect.MessagingServiceListWelcomesProcedure:            "no handler until E2EE plan 3 Task 6 (then scanned)",
+	messagingv1connect.MessagingServiceAckWelcomesProcedure:             "no handler until E2EE plan 3 Task 6 (then scanned)",
 }
 
 func uidScanCaseTable() map[string]uidScanCase {

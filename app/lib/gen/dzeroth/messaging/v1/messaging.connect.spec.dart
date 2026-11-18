@@ -61,6 +61,42 @@ abstract final class MessagingService {
   /// Worst case added by a share: the post visibility check (cache-first: the post, its author's status, the caller's
   /// graph already read, the protected set; 0-3 reads), then on a first share by this caller of this post 1 read
   /// (postShares marker) + 2 writes (marker Create, posts.shareCount Increment); 1 read and 0 writes otherwise.
+  /// Encrypted messages (file comment, "End-to-end encryption"). A request with any of ciphertext, report_commitment,
+  /// mls_generation, mls_epoch or mls_init set is an encrypted request:
+  /// - Validation, before any lookup: text and shared_post_id must be empty (VALIDATION "text" / "shared_post_id"; the
+  ///   text and any shared post id travel inside the ciphertext as MessageContent); ciphertext 1-8192 bytes (VALIDATION
+  ///   "ciphertext"); report_commitment exactly 32 bytes (VALIDATION "report_commitment"); with mls_init the pair must
+  ///   be generation 1, epoch 1 (VALIDATION "mls_generation" / "mls_epoch"), plus the MlsInit rules on that message.
+  /// - Into an MLS conversation without mls_init: the pair must equal the conversation's current pair, compared inside
+  ///   the send transaction, else STALE_EPOCH (current pair in metadata), storing nothing. Every existing refusal (gone,
+  ///   blocks, DM policy, request cap, caps) keeps its order and bytes before it.
+  /// - Into a NONE conversation, or opening a new one, without mls_init => VALIDATION "ciphertext".
+  /// - A plaintext request (none of those fields) into an MLS conversation, by conversation_id or by recipient_user_id
+  ///   => FAILED_PRECONDITION + ENCRYPTION_REQUIRED, storing nothing (entries and unread counts untouched).
+  /// - mls_init starts encryption: it creates the conversation as MLS (no conversation yet) or converts a NONE one (the
+  ///   caller must be a participant; else the one NOT_FOUND). Flag e2ee_dm on for the caller (FEATURE_DISABLED
+  ///   "e2ee_dm", before any lookup) and the recipient (CANNOT_MESSAGE). All existing send rules (blocks, DM policy,
+  ///   requests and their cap, verified email, rate limits, dm_new_daily) apply unchanged and their refusals stay
+  ///   byte-identical. In the transaction: a conversation that is already MLS => STALE_EPOCH with its pair (another
+  ///   device started first; join through its welcome); else the conversation becomes MLS at generation 1, epoch 1, the
+  ///   commit record (1, 0) is created with mls_init.commit, one welcome per mls_init.welcome_device_ids, and the
+  ///   message is stored at (1, 1); all in the one send transaction, or none of it.
+  /// - Stored and returned: text empty, ciphertext, report_commitment, the pair; no shared post id. The server cannot
+  ///   check a shared post's visibility or the protected-author rule for an encrypted message: the sending app applies
+  ///   them (and FEATURE_DM_POST_SHARE), the reader's app opens the card through PostService.GetPost, which decides for
+  ///   the reader; Post.share_count does not count encrypted shares. Previews: snippet empty, encrypted = true,
+  ///   shared_post false. Unread, silent, request routing and push are unchanged (the push carries no content).
+  /// - Idempotency: unchanged rule, the message id derives from (caller, idempotency_key); the request body compared on
+  ///   a replay is the conversation id, the pair and the SHA-256 of the ciphertext. A lost response is retried with the
+  ///   SAME key and the IDENTICAL saved ciphertext and pair, and returns the stored message even if the epoch has moved
+  ///   on since (a replay wins over STALE_EPOCH). The same key with different bytes or another pair => VALIDATION
+  ///   "idempotency_key" as for a different text. A STALE_EPOCH refusal stores nothing, so the key is not consumed; the
+  ///   message re-encrypted after it is a new request: send it with a NEW idempotency key (the client saves the new
+  ///   bytes and key together before calling).
+  /// - Cost: an encrypted send in an MLS conversation reads and writes exactly what a plaintext send does (no conversation
+  ///   write; a replay check after STALE_EPOCH adds 1 read). mls_init adds, before the transaction, the device checks (at
+  ///   most 2 queries of at most 5 device documents) and, in it, at most 3 + 10 more writes (the conversation's encryption
+  ///   fields, the commit record, one welcome per device).
   static const sendMessage = connect.Spec(
     '/$name/SendMessage',
     connect.StreamType.unary,
@@ -188,5 +224,127 @@ abstract final class MessagingService {
     dzerothmessagingv1messaging.ListMessageSuggestionsRequest.new,
     dzerothmessagingv1messaging.ListMessageSuggestionsResponse.new,
     idempotency: connect.Idempotency.noSideEffects,
+  );
+
+  /// Store an MLS commit for an encrypted conversation and advance its epoch, or reset the group (file comment,
+  /// "Ordering"). A commit changes the group (adds or removes devices, renews keys); it is a record, not a message.
+  /// Flag: "messaging" on for the caller (as SendMessage; FEATURE_DISABLED before any lookup); e2ee_dm is not needed.
+  /// The caller needs a verified email (EMAIL_NOT_VERIFIED, before any lookup). Refused under DEGRADED_MODE=readonly.
+  /// Validation, before any lookup: idempotency_key format; conversation_id; commit 1-16384 bytes (VALIDATION
+  /// "commit"); welcome 1-65536 bytes when set (VALIDATION "welcome"); welcome and welcome_device_ids go together and
+  /// the ids are 1-10, distinct, well-formed (VALIDATION "welcome_device_ids"); a reset requires both.
+  /// Lookups: an unknown conversation, a non-participant, and a conversation whose peer is gone => the one NOT_FOUND; a
+  /// NONE conversation => VALIDATION "conversation_id" (start encryption with SendMessage mls_init); a block in either
+  /// direction (the recipient's graph read in the transaction, as a send) => CANNOT_MESSAGE, byte-identical. Every
+  /// welcome device id must be an active registered device of the caller or the peer, else VALIDATION
+  /// "welcome_device_ids" without saying which; a reset must address at least one device of each participant (same
+  /// error).
+  /// Normal commit: (mls_generation, mls_epoch) is the pair it is built on and must be the current pair, else
+  /// STALE_EPOCH with the current pair; the commit record for that pair is created (the first accepted wins: a second
+  /// commit on the same pair is STALE_EPOCH) and the conversation moves to (generation, epoch + 1).
+  /// Reset (reset = true): used when a device cannot recover (reinstalled only device, away past retention). The pair
+  /// in the request is ignored; the server starts generation current + 1 at epoch 1 with the commit record
+  /// (generation + 1, 0) and the welcomes of the fresh group. Each accepted reset starts a new generation (two resets in
+  /// a row make two generations; devices follow the newest from ListConversationCommits). Every device shows
+  /// "Encryption was reset". Limited per day (below).
+  /// Welcomes: one per welcome_device_ids entry, stored for that device with the commit's pair, delivered by
+  /// ListWelcomes and expiring 30 days after creation.
+  /// Neither a commit nor a reset changes rev or any message, and no since_token is retired by them.
+  /// Idempotency: the commit record's pair is the natural key; idempotency_key is format-checked only. A retry of a
+  /// commit already stored for that pair by the caller (same user) with identical commit bytes returns the current pair
+  /// and writes nothing; different bytes => STALE_EPOCH. A retried reset whose commit bytes equal the commit that started
+  /// the current generation, from the same user, likewise returns the current pair and writes nothing.
+  /// Caps: RATE_LIMIT_MESSAGES_COMMIT_PER_MIN 20/min/uid per instance; daily caps per instance MESSAGES_COMMITS_PER_DAY
+  /// 500 (metadata["limit"] = "messages_commits_daily") and MESSAGES_RESETS_PER_DAY 10 ("messages_resets_daily"); a
+  /// reset counts against both. RATE_LIMITED, honour retry_after.
+  /// Cost: device checks before the transaction when welcomes are sent (at most 2 queries of at most 5 device
+  /// documents); one transaction: the conversation, the recipient graph and the commit record (1 read, to tell a
+  /// retry from a race) = at most 3 reads; at most 2 + 10 writes (the conversation's pair, the commit record, one
+  /// welcome per device). Emits nothing; no push.
+  static const commitConversation = connect.Spec(
+    '/$name/CommitConversation',
+    connect.StreamType.unary,
+    dzerothmessagingv1messaging.CommitConversationRequest.new,
+    dzerothmessagingv1messaging.CommitConversationResponse.new,
+  );
+
+  /// Commits of an encrypted conversation after a given pair, ascending by (generation, epoch), plus the conversation's
+  /// current pair read fresh (never the instance cache). This is how a device catches up after STALE_EPOCH, on app
+  /// open, and after joining through a welcome.
+  /// after_generation, after_epoch: the pair of the last commit the device applied (a commit's pair is the one it was
+  /// built on), exclusive. A device that joined through a Welcome passes the welcome's pair; a device that started the
+  /// conversation passes (1, 0). (0, 0) lists everything still stored.
+  /// Commits are kept at least 30 days: when the first commit returned does not follow on from the device's pair (a gap),
+  /// or a generation the device is not in has started, the device rejoins through its welcome or resets.
+  /// more = true when a full page was returned: call again with the last returned commit's pair. The current pair can
+  /// be ahead of the last commit returned while more is true.
+  /// Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
+  /// NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
+  /// conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
+  /// instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+  /// Cost: 1 conversation read + 1 query of at most page_size (max 50) commit records. Writes nothing.
+  static const listConversationCommits = connect.Spec(
+    '/$name/ListConversationCommits',
+    connect.StreamType.unary,
+    dzerothmessagingv1messaging.ListConversationCommitsRequest.new,
+    dzerothmessagingv1messaging.ListConversationCommitsResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
+
+  /// Every message of one (generation, epoch) of an encrypted conversation, in message id order (not time order),
+  /// paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later generation exists after a
+  /// reset; ListConversationCommits) no message can join it, so the full list is complete: a device calls this before applying the commit that ends an epoch, to prove it holds
+  /// every message of the epoch (MLS deletes the epoch's keys on commit). Skip ids already processed.
+  /// Unlike ListMessages, messages at or before the caller's own DeleteConversation time ARE returned (a device needs them
+  /// to advance its state); the tombstone rules are the same (DELETED_ACCOUNT and REMOVED carry no ciphertext), and a
+  /// message older than 30 days has ciphertext_removed = true. shared_post is never set (the post id is inside the
+  /// ciphertext).
+  /// page_token: sealed, bound to the caller, the conversation and the pair, expires after 30 days; an expired, foreign
+  /// or tampered token, or one for another pair => VALIDATION "page_token": call again without it. next_page_token "" =>
+  /// the end of the epoch's messages as of now.
+  /// Flag: "messaging" not globally off. Participant check and the one NOT_FOUND as ListMessages (the conversation through
+  /// the 60 s instance copy). Validation: conversation_id; mls_generation >= 1 and mls_epoch >= 1 (VALIDATION
+  /// "mls_generation" / "mls_epoch"); page_size as the file comment. A NONE conversation or a pair with no messages is an
+  /// empty list. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
+  /// Cost: at most 1 conversation read (cache-first) + 1 query of at most page_size (max 50) messages. Writes nothing.
+  static const listEpochMessages = connect.Spec(
+    '/$name/ListEpochMessages',
+    connect.StreamType.unary,
+    dzerothmessagingv1messaging.ListEpochMessagesRequest.new,
+    dzerothmessagingv1messaging.ListEpochMessagesResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
+
+  /// Welcomes waiting for one of the caller's devices: how a device joins an encrypted conversation's group (after
+  /// mls_init, a commit that adds it, or a reset). Process each, then AckWelcomes it; a welcome stays listed until
+  /// acknowledged or expired (30 days after creation). There is no cursor: acknowledging is how the list advances.
+  /// more = true when a full page was returned: acknowledge, then call again. Acknowledge also a welcome the device
+  /// cannot use (it will not become usable), else it keeps its place on the page until it expires.
+  /// device_id: [A-Za-z0-9_-]{16,64} and one of the caller's own registered devices (an inactive one included), else
+  /// VALIDATION "device_id" (one answer for both). Order: by welcome id (not time order).
+  /// Flag: "messaging" not globally off. Validation: device_id; page_size as the file comment. Rate limit:
+  /// RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
+  /// Cost: the device check (1 query of at most 5 device documents) + 1 query of at most page_size (max 50) welcomes.
+  /// Writes nothing.
+  static const listWelcomes = connect.Spec(
+    '/$name/ListWelcomes',
+    connect.StreamType.unary,
+    dzerothmessagingv1messaging.ListWelcomesRequest.new,
+    dzerothmessagingv1messaging.ListWelcomesResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
+
+  /// Delete welcomes the caller's device has processed. device_id as ListWelcomes (VALIDATION "device_id"); ids: 1-50
+  /// welcome ids, each 32 lower-case hex, else VALIDATION "ids". Only the caller's own welcomes are deleted; ids that are
+  /// missing (already acknowledged, expired, never existed) are ignored, so a replay is a success writing nothing new.
+  /// Naturally idempotent; idempotency_key is format-checked only.
+  /// Flag: "messaging" not globally off. Refused under DEGRADED_MODE=readonly. Rate limit:
+  /// RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
+  /// Cost: the device check (1 query of at most 5 device documents) + at most 50 deletes, no other read.
+  static const ackWelcomes = connect.Spec(
+    '/$name/AckWelcomes',
+    connect.StreamType.unary,
+    dzerothmessagingv1messaging.AckWelcomesRequest.new,
+    dzerothmessagingv1messaging.AckWelcomesResponse.new,
   );
 }

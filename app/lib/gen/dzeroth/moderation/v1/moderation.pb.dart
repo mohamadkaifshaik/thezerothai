@@ -28,6 +28,7 @@ class ReportContentRequest extends $pb.GeneratedMessage {
     $core.String? targetId,
     ReportReason? reason,
     $core.String? note,
+    $core.List<$core.int>? messagePayload,
   }) {
     final result = ReportContentRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -35,6 +36,7 @@ class ReportContentRequest extends $pb.GeneratedMessage {
     if (targetId != null) result.targetId = targetId;
     if (reason != null) result.reason = reason;
     if (note != null) result.note = note;
+    if (messagePayload != null) result.messagePayload = messagePayload;
     return result;
   }
 
@@ -59,6 +61,8 @@ class ReportContentRequest extends $pb.GeneratedMessage {
     ..aE<ReportReason>(4, _omitFieldNames ? '' : 'reason',
         enumValues: ReportReason.values)
     ..aOS(5, _omitFieldNames ? '' : 'note')
+    ..a<$core.List<$core.int>>(
+        6, _omitFieldNames ? '' : 'messagePayload', $pb.PbFieldType.OY)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -129,6 +133,30 @@ class ReportContentRequest extends $pb.GeneratedMessage {
   $core.bool hasNote() => $_has(4);
   @$pb.TagNumber(5)
   void clearNote() => $_clearField(5);
+
+  /// REPORT_TARGET_TYPE_MESSAGE of an end-to-end encrypted message only: the exact dzeroth.messaging.v1.MessageContent
+  /// bytes the reporter's device decrypted from that message (the bytes as decrypted, never re-serialized: protobuf
+  /// encoding is not canonical). Required for an encrypted message, 1-8192 bytes; must be empty for every other target,
+  /// a plaintext message included; else INVALID_ARGUMENT + VALIDATION metadata["field"] = "message_payload". Bytes that
+  /// do not parse as MessageContent => the same VALIDATION. Every other MESSAGE rule is unchanged (a participant
+  /// reports the peer's VISIBLE message; FEATURE_MESSAGING not globally off; the reports quota). FEATURE_E2EE_DM is not
+  /// needed.
+  /// Verification: the server computes SHA-256 over the 12 ASCII bytes "dz-report-v1" (no terminator) followed by these
+  /// bytes, and compares it in constant time with the message's stored report_commitment (messaging.v1
+  /// Message.report_commitment). Equal => the evidence is marked verified: a moderator knows this is what the sender
+  /// sent. Different, or the commitment is already gone (removed 30 days after the send) => the report is still
+  /// accepted, marked unverified (supplied by the reporter). The answer is the same success in both cases.
+  /// Evidence: the payload's text and shared_post_id are kept in the report evidence with the existing retention, so a
+  /// reported encrypted message is readable by the operator; report_key is never stored. This is the only place the
+  /// server reads message content of an encrypted conversation, and only what the reporter discloses.
+  @$pb.TagNumber(6)
+  $core.List<$core.int> get messagePayload => $_getN(5);
+  @$pb.TagNumber(6)
+  set messagePayload($core.List<$core.int> value) => $_setBytes(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasMessagePayload() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearMessagePayload() => $_clearField(6);
 }
 
 class ReportContentResponse extends $pb.GeneratedMessage {

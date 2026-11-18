@@ -40,7 +40,9 @@ const (
 	// A direct message. target_id = "<convId>:<msgId>": the conversation id and the message id, 32
 	// lower-case hex each, joined by ":". Only a participant may report, and only the peer's message (own => VALIDATION
 	// "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
-	// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
+	// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies. For a message of an
+	// end-to-end encrypted conversation the server holds no text: the reporter sends the decrypted content in
+	// ReportContentRequest.message_payload, which the server checks against the sender's commitment.
 	ReportTargetType_REPORT_TARGET_TYPE_MESSAGE ReportTargetType = 3
 	// A list. target_id = the list id (19 digits). Only a list the caller may see can be
 	// reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
@@ -194,11 +196,27 @@ type ReportContentRequest struct {
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	TargetType     ReportTargetType       `protobuf:"varint,2,opt,name=target_type,json=targetType,proto3,enum=dzeroth.moderation.v1.ReportTargetType" json:"target_type,omitempty"`
 	// A user id only for REPORT_TARGET_TYPE_ACCOUNT (see the enum for every other shape), hence CONDITIONAL.
-	TargetId      string       `protobuf:"bytes,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
-	Reason        ReportReason `protobuf:"varint,4,opt,name=reason,proto3,enum=dzeroth.moderation.v1.ReportReason" json:"reason,omitempty"`
-	Note          string       `protobuf:"bytes,5,opt,name=note,proto3" json:"note,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TargetId string       `protobuf:"bytes,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	Reason   ReportReason `protobuf:"varint,4,opt,name=reason,proto3,enum=dzeroth.moderation.v1.ReportReason" json:"reason,omitempty"`
+	Note     string       `protobuf:"bytes,5,opt,name=note,proto3" json:"note,omitempty"`
+	// REPORT_TARGET_TYPE_MESSAGE of an end-to-end encrypted message only: the exact dzeroth.messaging.v1.MessageContent
+	// bytes the reporter's device decrypted from that message (the bytes as decrypted, never re-serialized: protobuf
+	// encoding is not canonical). Required for an encrypted message, 1-8192 bytes; must be empty for every other target,
+	// a plaintext message included; else INVALID_ARGUMENT + VALIDATION metadata["field"] = "message_payload". Bytes that
+	// do not parse as MessageContent => the same VALIDATION. Every other MESSAGE rule is unchanged (a participant
+	// reports the peer's VISIBLE message; FEATURE_MESSAGING not globally off; the reports quota). FEATURE_E2EE_DM is not
+	// needed.
+	// Verification: the server computes SHA-256 over the 12 ASCII bytes "dz-report-v1" (no terminator) followed by these
+	// bytes, and compares it in constant time with the message's stored report_commitment (messaging.v1
+	// Message.report_commitment). Equal => the evidence is marked verified: a moderator knows this is what the sender
+	// sent. Different, or the commitment is already gone (removed 30 days after the send) => the report is still
+	// accepted, marked unverified (supplied by the reporter). The answer is the same success in both cases.
+	// Evidence: the payload's text and shared_post_id are kept in the report evidence with the existing retention, so a
+	// reported encrypted message is readable by the operator; report_key is never stored. This is the only place the
+	// server reads message content of an encrypted conversation, and only what the reporter discloses.
+	MessagePayload []byte `protobuf:"bytes,6,opt,name=message_payload,json=messagePayload,proto3" json:"message_payload,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ReportContentRequest) Reset() {
@@ -266,6 +284,13 @@ func (x *ReportContentRequest) GetNote() string {
 	return ""
 }
 
+func (x *ReportContentRequest) GetMessagePayload() []byte {
+	if x != nil {
+		return x.MessagePayload
+	}
+	return nil
+}
+
 type ReportContentResponse struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	ReportId string                 `protobuf:"bytes,1,opt,name=report_id,json=reportId,proto3" json:"report_id,omitempty"`
@@ -323,14 +348,15 @@ var File_dzeroth_moderation_v1_moderation_proto protoreflect.FileDescriptor
 
 const file_dzeroth_moderation_v1_moderation_proto_rawDesc = "" +
 	"\n" +
-	"&dzeroth/moderation/v1/moderation.proto\x12\x15dzeroth.moderation.v1\x1a\x1fdzeroth/common/v1/options.proto\"\xfd\x01\n" +
+	"&dzeroth/moderation/v1/moderation.proto\x12\x15dzeroth.moderation.v1\x1a\x1fdzeroth/common/v1/options.proto\"\xa6\x02\n" +
 	"\x14ReportContentRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12H\n" +
 	"\vtarget_type\x18\x02 \x01(\x0e2'.dzeroth.moderation.v1.ReportTargetTypeR\n" +
 	"targetType\x12!\n" +
 	"\ttarget_id\x18\x03 \x01(\tB\x04\xe8\xe0\x18\x02R\btargetId\x12;\n" +
 	"\x06reason\x18\x04 \x01(\x0e2#.dzeroth.moderation.v1.ReportReasonR\x06reason\x12\x12\n" +
-	"\x04note\x18\x05 \x01(\tR\x04note\"_\n" +
+	"\x04note\x18\x05 \x01(\tR\x04note\x12'\n" +
+	"\x0fmessage_payload\x18\x06 \x01(\fR\x0emessagePayload\"_\n" +
 	"\x15ReportContentResponse\x12\x1b\n" +
 	"\treport_id\x18\x01 \x01(\tR\breportId\x12)\n" +
 	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*\xf1\x01\n" +

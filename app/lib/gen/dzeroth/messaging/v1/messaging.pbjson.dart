@@ -66,6 +66,22 @@ final $typed_data.Uint8List folderDescriptor = $convert.base64Decode(
     'CgZGb2xkZXISFgoSRk9MREVSX1VOU1BFQ0lGSUVEEAASEAoMRk9MREVSX0lOQk9YEAESEwoPRk'
     '9MREVSX1JFUVVFU1RTEAI=');
 
+@$core.Deprecated('Use conversationEncryptionDescriptor instead')
+const ConversationEncryption$json = {
+  '1': 'ConversationEncryption',
+  '2': [
+    {'1': 'CONVERSATION_ENCRYPTION_UNSPECIFIED', '2': 0},
+    {'1': 'CONVERSATION_ENCRYPTION_NONE', '2': 1},
+    {'1': 'CONVERSATION_ENCRYPTION_MLS', '2': 2},
+  ],
+};
+
+/// Descriptor for `ConversationEncryption`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List conversationEncryptionDescriptor = $convert.base64Decode(
+    'ChZDb252ZXJzYXRpb25FbmNyeXB0aW9uEicKI0NPTlZFUlNBVElPTl9FTkNSWVBUSU9OX1VOU1'
+    'BFQ0lGSUVEEAASIAocQ09OVkVSU0FUSU9OX0VOQ1JZUFRJT05fTk9ORRABEh8KG0NPTlZFUlNB'
+    'VElPTl9FTkNSWVBUSU9OX01MUxAC');
+
 @$core.Deprecated('Use messageStateDescriptor instead')
 const MessageState$json = {
   '1': 'MessageState',
@@ -167,6 +183,16 @@ const Conversation$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'peerReadAt'
     },
+    {
+      '1': 'encryption',
+      '3': 12,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.messaging.v1.ConversationEncryption',
+      '10': 'encryption'
+    },
+    {'1': 'mls_generation', '3': 13, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 14, '4': 1, '5': 4, '10': 'mlsEpoch'},
   ],
 };
 
@@ -181,7 +207,10 @@ final $typed_data.Uint8List conversationDescriptor = $convert.base64Decode(
     'Z2USIQoMdW5yZWFkX2NvdW50GAcgASgDUgt1bnJlYWRDb3VudBIbCgljYW5fcmVwbHkYCCABKA'
     'hSCGNhblJlcGx5EhYKBnNpbGVudBgJIAEoCFIGc2lsZW50EjkKCnVwZGF0ZWRfYXQYCiABKAsy'
     'Gi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgl1cGRhdGVkQXQSPAoMcGVlcl9yZWFkX2F0GA'
-    'sgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIKcGVlclJlYWRBdA==');
+    'sgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIKcGVlclJlYWRBdBJMCgplbmNyeXB0'
+    'aW9uGAwgASgOMiwuZHplcm90aC5tZXNzYWdpbmcudjEuQ29udmVyc2F0aW9uRW5jcnlwdGlvbl'
+    'IKZW5jcnlwdGlvbhIlCg5tbHNfZ2VuZXJhdGlvbhgNIAEoBFINbWxzR2VuZXJhdGlvbhIbCglt'
+    'bHNfZXBvY2gYDiABKARSCG1sc0Vwb2No');
 
 @$core.Deprecated('Use messagePreviewDescriptor instead')
 const MessagePreview$json = {
@@ -206,6 +235,7 @@ const MessagePreview$json = {
       '10': 'createdAt'
     },
     {'1': 'shared_post', '3': 5, '4': 1, '5': 8, '10': 'sharedPost'},
+    {'1': 'encrypted', '3': 6, '4': 1, '5': 8, '10': 'encrypted'},
   ],
 };
 
@@ -214,7 +244,8 @@ final $typed_data.Uint8List messagePreviewDescriptor = $convert.base64Decode(
     'Cg5NZXNzYWdlUHJldmlldxIYCgdzbmlwcGV0GAEgASgJUgdzbmlwcGV0EhsKCWZyb21fc2VsZh'
     'gCIAEoCFIIZnJvbVNlbGYSOAoFc3RhdGUYAyABKA4yIi5kemVyb3RoLm1lc3NhZ2luZy52MS5N'
     'ZXNzYWdlU3RhdGVSBXN0YXRlEjkKCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idW'
-    'YuVGltZXN0YW1wUgljcmVhdGVkQXQSHwoLc2hhcmVkX3Bvc3QYBSABKAhSCnNoYXJlZFBvc3Q=');
+    'YuVGltZXN0YW1wUgljcmVhdGVkQXQSHwoLc2hhcmVkX3Bvc3QYBSABKAhSCnNoYXJlZFBvc3QS'
+    'HAoJZW5jcnlwdGVkGAYgASgIUgllbmNyeXB0ZWQ=');
 
 @$core.Deprecated('Use messageDescriptor instead')
 const Message$json = {
@@ -248,6 +279,23 @@ const Message$json = {
       '6': '.dzeroth.posts.v1.EmbeddedPost',
       '10': 'sharedPost'
     },
+    {'1': 'ciphertext', '3': 9, '4': 1, '5': 12, '10': 'ciphertext'},
+    {'1': 'mls_generation', '3': 10, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 11, '4': 1, '5': 4, '10': 'mlsEpoch'},
+    {
+      '1': 'report_commitment',
+      '3': 12,
+      '4': 1,
+      '5': 12,
+      '10': 'reportCommitment'
+    },
+    {
+      '1': 'ciphertext_removed',
+      '3': 13,
+      '4': 1,
+      '5': 8,
+      '10': 'ciphertextRemoved'
+    },
   ],
   '9': [
     {'1': 7, '2': 8},
@@ -261,7 +309,25 @@ final $typed_data.Uint8List messageDescriptor = $convert.base64Decode(
     'dGV4dBI4CgVzdGF0ZRgFIAEoDjIiLmR6ZXJvdGgubWVzc2FnaW5nLnYxLk1lc3NhZ2VTdGF0ZV'
     'IFc3RhdGUSOQoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBS'
     'CWNyZWF0ZWRBdBI/CgtzaGFyZWRfcG9zdBgIIAEoCzIeLmR6ZXJvdGgucG9zdHMudjEuRW1iZW'
-    'RkZWRQb3N0UgpzaGFyZWRQb3N0SgQIBxAI');
+    'RkZWRQb3N0UgpzaGFyZWRQb3N0Eh4KCmNpcGhlcnRleHQYCSABKAxSCmNpcGhlcnRleHQSJQoO'
+    'bWxzX2dlbmVyYXRpb24YCiABKARSDW1sc0dlbmVyYXRpb24SGwoJbWxzX2Vwb2NoGAsgASgEUg'
+    'htbHNFcG9jaBIrChFyZXBvcnRfY29tbWl0bWVudBgMIAEoDFIQcmVwb3J0Q29tbWl0bWVudBIt'
+    'ChJjaXBoZXJ0ZXh0X3JlbW92ZWQYDSABKAhSEWNpcGhlcnRleHRSZW1vdmVkSgQIBxAI');
+
+@$core.Deprecated('Use messageContentDescriptor instead')
+const MessageContent$json = {
+  '1': 'MessageContent',
+  '2': [
+    {'1': 'text', '3': 1, '4': 1, '5': 9, '10': 'text'},
+    {'1': 'shared_post_id', '3': 2, '4': 1, '5': 9, '10': 'sharedPostId'},
+    {'1': 'report_key', '3': 3, '4': 1, '5': 12, '10': 'reportKey'},
+  ],
+};
+
+/// Descriptor for `MessageContent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List messageContentDescriptor = $convert.base64Decode(
+    'Cg5NZXNzYWdlQ29udGVudBISCgR0ZXh0GAEgASgJUgR0ZXh0EiQKDnNoYXJlZF9wb3N0X2lkGA'
+    'IgASgJUgxzaGFyZWRQb3N0SWQSHQoKcmVwb3J0X2tleRgDIAEoDFIJcmVwb3J0S2V5');
 
 @$core.Deprecated('Use sendMessageRequestDescriptor instead')
 const SendMessageRequest$json = {
@@ -287,6 +353,24 @@ const SendMessageRequest$json = {
     },
     {'1': 'text', '3': 4, '4': 1, '5': 9, '10': 'text'},
     {'1': 'shared_post_id', '3': 5, '4': 1, '5': 9, '10': 'sharedPostId'},
+    {'1': 'ciphertext', '3': 6, '4': 1, '5': 12, '10': 'ciphertext'},
+    {'1': 'mls_generation', '3': 7, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 8, '4': 1, '5': 4, '10': 'mlsEpoch'},
+    {
+      '1': 'report_commitment',
+      '3': 9,
+      '4': 1,
+      '5': 12,
+      '10': 'reportCommitment'
+    },
+    {
+      '1': 'mls_init',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.messaging.v1.MlsInit',
+      '10': 'mlsInit'
+    },
   ],
   '8': [
     {'1': 'target'},
@@ -298,8 +382,32 @@ final $typed_data.Uint8List sendMessageRequestDescriptor = $convert.base64Decode
     'ChJTZW5kTWVzc2FnZVJlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg5pZGVtcG90ZW'
     '5jeUtleRIpCg9jb252ZXJzYXRpb25faWQYAiABKAlIAFIOY29udmVyc2F0aW9uSWQSMgoRcmVj'
     'aXBpZW50X3VzZXJfaWQYAyABKAlCBOjgGAFIAFIPcmVjaXBpZW50VXNlcklkEhIKBHRleHQYBC'
-    'ABKAlSBHRleHQSJAoOc2hhcmVkX3Bvc3RfaWQYBSABKAlSDHNoYXJlZFBvc3RJZEIICgZ0YXJn'
-    'ZXQ=');
+    'ABKAlSBHRleHQSJAoOc2hhcmVkX3Bvc3RfaWQYBSABKAlSDHNoYXJlZFBvc3RJZBIeCgpjaXBo'
+    'ZXJ0ZXh0GAYgASgMUgpjaXBoZXJ0ZXh0EiUKDm1sc19nZW5lcmF0aW9uGAcgASgEUg1tbHNHZW'
+    '5lcmF0aW9uEhsKCW1sc19lcG9jaBgIIAEoBFIIbWxzRXBvY2gSKwoRcmVwb3J0X2NvbW1pdG1l'
+    'bnQYCSABKAxSEHJlcG9ydENvbW1pdG1lbnQSOAoIbWxzX2luaXQYCiABKAsyHS5kemVyb3RoLm'
+    '1lc3NhZ2luZy52MS5NbHNJbml0UgdtbHNJbml0QggKBnRhcmdldA==');
+
+@$core.Deprecated('Use mlsInitDescriptor instead')
+const MlsInit$json = {
+  '1': 'MlsInit',
+  '2': [
+    {'1': 'commit', '3': 1, '4': 1, '5': 12, '10': 'commit'},
+    {'1': 'welcome', '3': 2, '4': 1, '5': 12, '10': 'welcome'},
+    {
+      '1': 'welcome_device_ids',
+      '3': 3,
+      '4': 3,
+      '5': 9,
+      '10': 'welcomeDeviceIds'
+    },
+  ],
+};
+
+/// Descriptor for `MlsInit`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List mlsInitDescriptor = $convert.base64Decode(
+    'CgdNbHNJbml0EhYKBmNvbW1pdBgBIAEoDFIGY29tbWl0EhgKB3dlbGNvbWUYAiABKAxSB3dlbG'
+    'NvbWUSLAoSd2VsY29tZV9kZXZpY2VfaWRzGAMgAygJUhB3ZWxjb21lRGV2aWNlSWRz');
 
 @$core.Deprecated('Use sendMessageResponseDescriptor instead')
 const SendMessageResponse$json = {
@@ -578,6 +686,249 @@ final $typed_data.Uint8List listMessageSuggestionsResponseDescriptor =
         'Ch5MaXN0TWVzc2FnZVN1Z2dlc3Rpb25zUmVzcG9uc2USSQoLc3VnZ2VzdGlvbnMYASADKAsyJy'
         '5kemVyb3RoLm1lc3NhZ2luZy52MS5NZXNzYWdlU3VnZ2VzdGlvblILc3VnZ2VzdGlvbnM=');
 
+@$core.Deprecated('Use commitConversationRequestDescriptor instead')
+const CommitConversationRequest$json = {
+  '1': 'CommitConversationRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'conversation_id', '3': 2, '4': 1, '5': 9, '10': 'conversationId'},
+    {'1': 'mls_generation', '3': 3, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 4, '4': 1, '5': 4, '10': 'mlsEpoch'},
+    {'1': 'commit', '3': 5, '4': 1, '5': 12, '10': 'commit'},
+    {'1': 'welcome', '3': 6, '4': 1, '5': 12, '10': 'welcome'},
+    {
+      '1': 'welcome_device_ids',
+      '3': 7,
+      '4': 3,
+      '5': 9,
+      '10': 'welcomeDeviceIds'
+    },
+    {'1': 'reset', '3': 8, '4': 1, '5': 8, '10': 'reset'},
+  ],
+};
+
+/// Descriptor for `CommitConversationRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List commitConversationRequestDescriptor = $convert.base64Decode(
+    'ChlDb21taXRDb252ZXJzYXRpb25SZXF1ZXN0EicKD2lkZW1wb3RlbmN5X2tleRgBIAEoCVIOaW'
+    'RlbXBvdGVuY3lLZXkSJwoPY29udmVyc2F0aW9uX2lkGAIgASgJUg5jb252ZXJzYXRpb25JZBIl'
+    'Cg5tbHNfZ2VuZXJhdGlvbhgDIAEoBFINbWxzR2VuZXJhdGlvbhIbCgltbHNfZXBvY2gYBCABKA'
+    'RSCG1sc0Vwb2NoEhYKBmNvbW1pdBgFIAEoDFIGY29tbWl0EhgKB3dlbGNvbWUYBiABKAxSB3dl'
+    'bGNvbWUSLAoSd2VsY29tZV9kZXZpY2VfaWRzGAcgAygJUhB3ZWxjb21lRGV2aWNlSWRzEhQKBX'
+    'Jlc2V0GAggASgIUgVyZXNldA==');
+
+@$core.Deprecated('Use commitConversationResponseDescriptor instead')
+const CommitConversationResponse$json = {
+  '1': 'CommitConversationResponse',
+  '2': [
+    {'1': 'mls_generation', '3': 1, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 2, '4': 1, '5': 4, '10': 'mlsEpoch'},
+  ],
+};
+
+/// Descriptor for `CommitConversationResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List commitConversationResponseDescriptor =
+    $convert.base64Decode(
+        'ChpDb21taXRDb252ZXJzYXRpb25SZXNwb25zZRIlCg5tbHNfZ2VuZXJhdGlvbhgBIAEoBFINbW'
+        'xzR2VuZXJhdGlvbhIbCgltbHNfZXBvY2gYAiABKARSCG1sc0Vwb2No');
+
+@$core.Deprecated('Use conversationCommitDescriptor instead')
+const ConversationCommit$json = {
+  '1': 'ConversationCommit',
+  '2': [
+    {'1': 'mls_generation', '3': 1, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 2, '4': 1, '5': 4, '10': 'mlsEpoch'},
+    {'1': 'commit', '3': 3, '4': 1, '5': 12, '10': 'commit'},
+    {'1': 'from_self', '3': 4, '4': 1, '5': 8, '10': 'fromSelf'},
+    {
+      '1': 'created_at',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'createdAt'
+    },
+  ],
+};
+
+/// Descriptor for `ConversationCommit`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List conversationCommitDescriptor = $convert.base64Decode(
+    'ChJDb252ZXJzYXRpb25Db21taXQSJQoObWxzX2dlbmVyYXRpb24YASABKARSDW1sc0dlbmVyYX'
+    'Rpb24SGwoJbWxzX2Vwb2NoGAIgASgEUghtbHNFcG9jaBIWCgZjb21taXQYAyABKAxSBmNvbW1p'
+    'dBIbCglmcm9tX3NlbGYYBCABKAhSCGZyb21TZWxmEjkKCmNyZWF0ZWRfYXQYBSABKAsyGi5nb2'
+    '9nbGUucHJvdG9idWYuVGltZXN0YW1wUgljcmVhdGVkQXQ=');
+
+@$core.Deprecated('Use listConversationCommitsRequestDescriptor instead')
+const ListConversationCommitsRequest$json = {
+  '1': 'ListConversationCommitsRequest',
+  '2': [
+    {'1': 'conversation_id', '3': 1, '4': 1, '5': 9, '10': 'conversationId'},
+    {'1': 'after_generation', '3': 2, '4': 1, '5': 4, '10': 'afterGeneration'},
+    {'1': 'after_epoch', '3': 3, '4': 1, '5': 4, '10': 'afterEpoch'},
+    {'1': 'page_size', '3': 4, '4': 1, '5': 5, '10': 'pageSize'},
+  ],
+};
+
+/// Descriptor for `ListConversationCommitsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listConversationCommitsRequestDescriptor =
+    $convert.base64Decode(
+        'Ch5MaXN0Q29udmVyc2F0aW9uQ29tbWl0c1JlcXVlc3QSJwoPY29udmVyc2F0aW9uX2lkGAEgAS'
+        'gJUg5jb252ZXJzYXRpb25JZBIpChBhZnRlcl9nZW5lcmF0aW9uGAIgASgEUg9hZnRlckdlbmVy'
+        'YXRpb24SHwoLYWZ0ZXJfZXBvY2gYAyABKARSCmFmdGVyRXBvY2gSGwoJcGFnZV9zaXplGAQgAS'
+        'gFUghwYWdlU2l6ZQ==');
+
+@$core.Deprecated('Use listConversationCommitsResponseDescriptor instead')
+const ListConversationCommitsResponse$json = {
+  '1': 'ListConversationCommitsResponse',
+  '2': [
+    {
+      '1': 'commits',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.messaging.v1.ConversationCommit',
+      '10': 'commits'
+    },
+    {'1': 'more', '3': 2, '4': 1, '5': 8, '10': 'more'},
+    {'1': 'mls_generation', '3': 3, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 4, '4': 1, '5': 4, '10': 'mlsEpoch'},
+  ],
+};
+
+/// Descriptor for `ListConversationCommitsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listConversationCommitsResponseDescriptor =
+    $convert.base64Decode(
+        'Ch9MaXN0Q29udmVyc2F0aW9uQ29tbWl0c1Jlc3BvbnNlEkIKB2NvbW1pdHMYASADKAsyKC5kem'
+        'Vyb3RoLm1lc3NhZ2luZy52MS5Db252ZXJzYXRpb25Db21taXRSB2NvbW1pdHMSEgoEbW9yZRgC'
+        'IAEoCFIEbW9yZRIlCg5tbHNfZ2VuZXJhdGlvbhgDIAEoBFINbWxzR2VuZXJhdGlvbhIbCgltbH'
+        'NfZXBvY2gYBCABKARSCG1sc0Vwb2No');
+
+@$core.Deprecated('Use listEpochMessagesRequestDescriptor instead')
+const ListEpochMessagesRequest$json = {
+  '1': 'ListEpochMessagesRequest',
+  '2': [
+    {'1': 'conversation_id', '3': 1, '4': 1, '5': 9, '10': 'conversationId'},
+    {'1': 'mls_generation', '3': 2, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 3, '4': 1, '5': 4, '10': 'mlsEpoch'},
+    {'1': 'page_size', '3': 4, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 5, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `ListEpochMessagesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listEpochMessagesRequestDescriptor = $convert.base64Decode(
+    'ChhMaXN0RXBvY2hNZXNzYWdlc1JlcXVlc3QSJwoPY29udmVyc2F0aW9uX2lkGAEgASgJUg5jb2'
+    '52ZXJzYXRpb25JZBIlCg5tbHNfZ2VuZXJhdGlvbhgCIAEoBFINbWxzR2VuZXJhdGlvbhIbCglt'
+    'bHNfZXBvY2gYAyABKARSCG1sc0Vwb2NoEhsKCXBhZ2Vfc2l6ZRgEIAEoBVIIcGFnZVNpemUSHQ'
+    'oKcGFnZV90b2tlbhgFIAEoCVIJcGFnZVRva2Vu');
+
+@$core.Deprecated('Use listEpochMessagesResponseDescriptor instead')
+const ListEpochMessagesResponse$json = {
+  '1': 'ListEpochMessagesResponse',
+  '2': [
+    {
+      '1': 'messages',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.messaging.v1.Message',
+      '10': 'messages'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `ListEpochMessagesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listEpochMessagesResponseDescriptor = $convert.base64Decode(
+    'ChlMaXN0RXBvY2hNZXNzYWdlc1Jlc3BvbnNlEjkKCG1lc3NhZ2VzGAEgAygLMh0uZHplcm90aC'
+    '5tZXNzYWdpbmcudjEuTWVzc2FnZVIIbWVzc2FnZXMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJ'
+    'Ug1uZXh0UGFnZVRva2Vu');
+
+@$core.Deprecated('Use welcomeDescriptor instead')
+const Welcome$json = {
+  '1': 'Welcome',
+  '2': [
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+    {'1': 'conversation_id', '3': 2, '4': 1, '5': 9, '10': 'conversationId'},
+    {'1': 'mls_generation', '3': 3, '4': 1, '5': 4, '10': 'mlsGeneration'},
+    {'1': 'mls_epoch', '3': 4, '4': 1, '5': 4, '10': 'mlsEpoch'},
+    {'1': 'welcome', '3': 5, '4': 1, '5': 12, '10': 'welcome'},
+    {
+      '1': 'created_at',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'createdAt'
+    },
+  ],
+};
+
+/// Descriptor for `Welcome`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List welcomeDescriptor = $convert.base64Decode(
+    'CgdXZWxjb21lEg4KAmlkGAEgASgJUgJpZBInCg9jb252ZXJzYXRpb25faWQYAiABKAlSDmNvbn'
+    'ZlcnNhdGlvbklkEiUKDm1sc19nZW5lcmF0aW9uGAMgASgEUg1tbHNHZW5lcmF0aW9uEhsKCW1s'
+    'c19lcG9jaBgEIAEoBFIIbWxzRXBvY2gSGAoHd2VsY29tZRgFIAEoDFIHd2VsY29tZRI5Cgpjcm'
+    'VhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIJY3JlYXRlZEF0');
+
+@$core.Deprecated('Use listWelcomesRequestDescriptor instead')
+const ListWelcomesRequest$json = {
+  '1': 'ListWelcomesRequest',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'page_size', '3': 2, '4': 1, '5': 5, '10': 'pageSize'},
+  ],
+};
+
+/// Descriptor for `ListWelcomesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listWelcomesRequestDescriptor = $convert.base64Decode(
+    'ChNMaXN0V2VsY29tZXNSZXF1ZXN0EhsKCWRldmljZV9pZBgBIAEoCVIIZGV2aWNlSWQSGwoJcG'
+    'FnZV9zaXplGAIgASgFUghwYWdlU2l6ZQ==');
+
+@$core.Deprecated('Use listWelcomesResponseDescriptor instead')
+const ListWelcomesResponse$json = {
+  '1': 'ListWelcomesResponse',
+  '2': [
+    {
+      '1': 'welcomes',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.messaging.v1.Welcome',
+      '10': 'welcomes'
+    },
+    {'1': 'more', '3': 2, '4': 1, '5': 8, '10': 'more'},
+  ],
+};
+
+/// Descriptor for `ListWelcomesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listWelcomesResponseDescriptor = $convert.base64Decode(
+    'ChRMaXN0V2VsY29tZXNSZXNwb25zZRI5Cgh3ZWxjb21lcxgBIAMoCzIdLmR6ZXJvdGgubWVzc2'
+    'FnaW5nLnYxLldlbGNvbWVSCHdlbGNvbWVzEhIKBG1vcmUYAiABKAhSBG1vcmU=');
+
+@$core.Deprecated('Use ackWelcomesRequestDescriptor instead')
+const AckWelcomesRequest$json = {
+  '1': 'AckWelcomesRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'device_id', '3': 2, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'ids', '3': 3, '4': 3, '5': 9, '10': 'ids'},
+  ],
+};
+
+/// Descriptor for `AckWelcomesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List ackWelcomesRequestDescriptor = $convert.base64Decode(
+    'ChJBY2tXZWxjb21lc1JlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg5pZGVtcG90ZW'
+    '5jeUtleRIbCglkZXZpY2VfaWQYAiABKAlSCGRldmljZUlkEhAKA2lkcxgDIAMoCVIDaWRz');
+
+@$core.Deprecated('Use ackWelcomesResponseDescriptor instead')
+const AckWelcomesResponse$json = {
+  '1': 'AckWelcomesResponse',
+};
+
+/// Descriptor for `AckWelcomesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List ackWelcomesResponseDescriptor =
+    $convert.base64Decode('ChNBY2tXZWxjb21lc1Jlc3BvbnNl');
+
 const $core.Map<$core.String, $core.dynamic> MessagingServiceBase$json = {
   '1': 'MessagingService',
   '2': [
@@ -619,6 +970,34 @@ const $core.Map<$core.String, $core.dynamic> MessagingServiceBase$json = {
       '3': '.dzeroth.messaging.v1.ListMessageSuggestionsResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'CommitConversation',
+      '2': '.dzeroth.messaging.v1.CommitConversationRequest',
+      '3': '.dzeroth.messaging.v1.CommitConversationResponse'
+    },
+    {
+      '1': 'ListConversationCommits',
+      '2': '.dzeroth.messaging.v1.ListConversationCommitsRequest',
+      '3': '.dzeroth.messaging.v1.ListConversationCommitsResponse',
+      '4': {'34': 1},
+    },
+    {
+      '1': 'ListEpochMessages',
+      '2': '.dzeroth.messaging.v1.ListEpochMessagesRequest',
+      '3': '.dzeroth.messaging.v1.ListEpochMessagesResponse',
+      '4': {'34': 1},
+    },
+    {
+      '1': 'ListWelcomes',
+      '2': '.dzeroth.messaging.v1.ListWelcomesRequest',
+      '3': '.dzeroth.messaging.v1.ListWelcomesResponse',
+      '4': {'34': 1},
+    },
+    {
+      '1': 'AckWelcomes',
+      '2': '.dzeroth.messaging.v1.AckWelcomesRequest',
+      '3': '.dzeroth.messaging.v1.AckWelcomesResponse'
+    },
   ],
 };
 
@@ -626,6 +1005,7 @@ const $core.Map<$core.String, $core.dynamic> MessagingServiceBase$json = {
 const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
     MessagingServiceBase$messageJson = {
   '.dzeroth.messaging.v1.SendMessageRequest': SendMessageRequest$json,
+  '.dzeroth.messaging.v1.MlsInit': MlsInit$json,
   '.dzeroth.messaging.v1.SendMessageResponse': SendMessageResponse$json,
   '.dzeroth.messaging.v1.Message': Message$json,
   '.google.protobuf.Timestamp': $1.Timestamp$json,
@@ -660,6 +1040,24 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.messaging.v1.ListMessageSuggestionsResponse':
       ListMessageSuggestionsResponse$json,
   '.dzeroth.messaging.v1.MessageSuggestion': MessageSuggestion$json,
+  '.dzeroth.messaging.v1.CommitConversationRequest':
+      CommitConversationRequest$json,
+  '.dzeroth.messaging.v1.CommitConversationResponse':
+      CommitConversationResponse$json,
+  '.dzeroth.messaging.v1.ListConversationCommitsRequest':
+      ListConversationCommitsRequest$json,
+  '.dzeroth.messaging.v1.ListConversationCommitsResponse':
+      ListConversationCommitsResponse$json,
+  '.dzeroth.messaging.v1.ConversationCommit': ConversationCommit$json,
+  '.dzeroth.messaging.v1.ListEpochMessagesRequest':
+      ListEpochMessagesRequest$json,
+  '.dzeroth.messaging.v1.ListEpochMessagesResponse':
+      ListEpochMessagesResponse$json,
+  '.dzeroth.messaging.v1.ListWelcomesRequest': ListWelcomesRequest$json,
+  '.dzeroth.messaging.v1.ListWelcomesResponse': ListWelcomesResponse$json,
+  '.dzeroth.messaging.v1.Welcome': Welcome$json,
+  '.dzeroth.messaging.v1.AckWelcomesRequest': AckWelcomesRequest$json,
+  '.dzeroth.messaging.v1.AckWelcomesResponse': AckWelcomesResponse$json,
 };
 
 /// Descriptor for `MessagingService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -679,4 +1077,15 @@ final $typed_data.Uint8List messagingServiceDescriptor = $convert.base64Decode(
     'blJlcXVlc3QaMC5kemVyb3RoLm1lc3NhZ2luZy52MS5EZWxldGVDb252ZXJzYXRpb25SZXNwb2'
     '5zZRKIAQoWTGlzdE1lc3NhZ2VTdWdnZXN0aW9ucxIzLmR6ZXJvdGgubWVzc2FnaW5nLnYxLkxp'
     'c3RNZXNzYWdlU3VnZ2VzdGlvbnNSZXF1ZXN0GjQuZHplcm90aC5tZXNzYWdpbmcudjEuTGlzdE'
-    '1lc3NhZ2VTdWdnZXN0aW9uc1Jlc3BvbnNlIgOQAgE=');
+    '1lc3NhZ2VTdWdnZXN0aW9uc1Jlc3BvbnNlIgOQAgESdwoSQ29tbWl0Q29udmVyc2F0aW9uEi8u'
+    'ZHplcm90aC5tZXNzYWdpbmcudjEuQ29tbWl0Q29udmVyc2F0aW9uUmVxdWVzdBowLmR6ZXJvdG'
+    'gubWVzc2FnaW5nLnYxLkNvbW1pdENvbnZlcnNhdGlvblJlc3BvbnNlEosBChdMaXN0Q29udmVy'
+    'c2F0aW9uQ29tbWl0cxI0LmR6ZXJvdGgubWVzc2FnaW5nLnYxLkxpc3RDb252ZXJzYXRpb25Db2'
+    '1taXRzUmVxdWVzdBo1LmR6ZXJvdGgubWVzc2FnaW5nLnYxLkxpc3RDb252ZXJzYXRpb25Db21t'
+    'aXRzUmVzcG9uc2UiA5ACARJ5ChFMaXN0RXBvY2hNZXNzYWdlcxIuLmR6ZXJvdGgubWVzc2FnaW'
+    '5nLnYxLkxpc3RFcG9jaE1lc3NhZ2VzUmVxdWVzdBovLmR6ZXJvdGgubWVzc2FnaW5nLnYxLkxp'
+    'c3RFcG9jaE1lc3NhZ2VzUmVzcG9uc2UiA5ACARJqCgxMaXN0V2VsY29tZXMSKS5kemVyb3RoLm'
+    '1lc3NhZ2luZy52MS5MaXN0V2VsY29tZXNSZXF1ZXN0GiouZHplcm90aC5tZXNzYWdpbmcudjEu'
+    'TGlzdFdlbGNvbWVzUmVzcG9uc2UiA5ACARJiCgtBY2tXZWxjb21lcxIoLmR6ZXJvdGgubWVzc2'
+    'FnaW5nLnYxLkFja1dlbGNvbWVzUmVxdWVzdBopLmR6ZXJvdGgubWVzc2FnaW5nLnYxLkFja1dl'
+    'bGNvbWVzUmVzcG9uc2U=');
