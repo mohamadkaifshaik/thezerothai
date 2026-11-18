@@ -88,8 +88,9 @@ Uint8List vaultRowAad(String table, String rowKey) {
 
 /// Opens (or, on first use, creates) the vault cipher of [uid].
 ///
-/// Android: the Keystore-wrapped key. Web: added by a later task in
-/// `vault_cipher_web.dart`. Every other platform throws [UnsupportedError].
+/// Android: the Keystore-wrapped key. Web: a non-extractable WebCrypto key in
+/// IndexedDB (`vault_cipher_web.dart`). Every other platform throws
+/// [UnsupportedError].
 /// Failures throw [VaultKeyException]; a lost key is never silently replaced.
 Future<VaultCipher> openVaultCipher({
   required String uid,
