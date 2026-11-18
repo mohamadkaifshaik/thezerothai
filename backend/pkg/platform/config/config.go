@@ -246,6 +246,10 @@ type Config struct {
 	// FeatureDMSuggestions is the flag (wire name `dm_suggestions`) gating message recipient suggestions on the new-message screen: on for the caller.
 	// FEATURE_DM_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureDMSuggestions flags.Spec
+	// FeatureE2EEDM is the flag (wire name `e2ee_dm`) gating the key directory (`KeyService`) and, in later work,
+	// end-to-end-encrypted direct messages: on for the caller. FEATURE_E2EE_DM[_ALLOWLIST|_PERCENT], default off in
+	// every environment.
+	FeatureE2EEDM flags.Spec
 	// FeaturePostViews is the flag (wire name `post_views`) gating F1 post view counts: EngagementService.RecordImpressions
 	// on for the caller, and Post.view_count on every read while it is not globally off (globally off is the kill switch:
 	// no count on any surface, the author's own included). FEATURE_POST_VIEWS[_ALLOWLIST|_PERCENT], default off in every
@@ -1083,6 +1087,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureE2EEDM, err := flags.LoadSpec("E2EE_DM", "e2ee_dm", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1309,6 +1317,7 @@ func Load() (Config, error) {
 		FeatureSearchFilters:         featureSearchFilters,
 		FeatureLocation:              featureLocation,
 		FeatureDMSuggestions:         featureDMSuggestions,
+		FeatureE2EEDM:                featureE2EEDM,
 		FeaturePostViews:             featurePostViews,
 		FeatureCreatorInsights:       featureCreatorInsights,
 		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),
