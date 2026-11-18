@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -419,4 +420,70 @@ func TestRepo_RemoveRacingClaimLeavesNothing(t *testing.T) {
 	if n := len(e.poolDocs(t, uid, dvc(1))); n != 0 {
 		t.Fatalf("%d pool documents left", n)
 	}
+}
+
+// Two concurrent Uploads of 60 new packages each to one device never overfill the pool: at most 100 documents, and
+// poolCount equals the real count. Both write the device document when they add, so the later commit conflicts with the
+// earlier and re-reads the count before deciding the cap.
+func TestRepo_ConcurrentUploadsKeepCap(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	for round := 0; round < 5; round++ {
+		uid := uniqueUID()
+		e.seedDevice(t, uid, 1, 0, 0, nil)
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		errs := make(chan error, 2)
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if _, _, err := e.repo.Upload(ctx, uid, dvc(1), pkgRange(1000*(i+1), 1000*(i+1)+60), nil, it0); err != nil {
+					errs <- err
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Errorf("round %d: upload: %v", round, err)
+		}
+		if n := len(e.poolDocs(t, uid, dvc(1))); n > MaxPoolSize {
+			t.Fatalf("round %d: %d pool documents, cap is %d", round, n, MaxPoolSize)
+		}
+		e.assertPoolInvariant(t, uid, dvc(1))
+	}
+}
+
+// A claim over two devices whose second write fails with a non-contention error returns that error. The first device's
+// package is already consumed (the claim is not atomic across devices; the contract says so), and both counts stay true.
+func TestClaim_LaterDeviceErrorReturnsError(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	uid := uniqueUID()
+	e.seedDevice(t, uid, 1, 0, 3, nil)
+	e.seedDevice(t, uid, 2, 100, 3, nil)
+	e.repo.beforeClaimCommit = func(deviceID string) error {
+		if deviceID == dvc(2) {
+			return errors.New("injected write failure " + uid)
+		}
+		return nil
+	}
+	got, err := e.repo.Claim(ctx, uid, "", it0)
+	if err == nil {
+		t.Fatalf("claim = %+v, want an error", got)
+	}
+	if strings.Contains(err.Error(), uid) || strings.Contains(err.Error(), dvc(2)) {
+		t.Fatalf("error text %q carries an id", err.Error())
+	}
+	if n := len(e.poolDocs(t, uid, dvc(1))); n != 2 {
+		t.Fatalf("first device pool = %d, want 2 (its package consumed)", n)
+	}
+	if n := len(e.poolDocs(t, uid, dvc(2))); n != 3 {
+		t.Fatalf("second device pool = %d, want 3", n)
+	}
+	e.assertPoolInvariant(t, uid, dvc(1))
+	e.assertPoolInvariant(t, uid, dvc(2))
 }

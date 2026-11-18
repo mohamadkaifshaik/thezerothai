@@ -189,21 +189,40 @@ func cannotMessage(ctx context.Context) error {
 	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, cannotMessageText)
 }
 
-// permit asks the messaging rules whether uid may message target. A refusal of any kind is the one CANNOT_MESSAGE; a
-// failure to decide goes through mapErr with both uids redacted. No separate existence check: the seam refuses an
-// unknown user exactly like a blocked one.
+// permit asks the messaging rules whether uid may message target. As far as the wire is concerned the seam's answer is
+// one of three things: nil (allowed); a refusal (ErrCannotMessage, or any *apierr.Error with reason CANNOT_MESSAGE,
+// whatever its message or metadata), which becomes the one cannotMessage value; or a failure to decide, which is sealed
+// so nothing of the seam's error reaches the client (see sealPermissionErr). No separate existence check: the seam
+// refuses an unknown user exactly like a blocked one.
 func (s *service) permit(ctx context.Context, op, uid, target string) error {
 	if s.perm == nil {
 		return cannotMessage(ctx)
 	}
 	err := s.perm.CanMessage(ctx, uid, target)
-	switch {
-	case err == nil:
+	if err == nil {
 		return nil
-	case errors.Is(err, ErrCannotMessage):
+	}
+	var ae *apierr.Error
+	if errors.Is(err, ErrCannotMessage) || errors.As(err, &ae) && ae.Reason == commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE {
 		return cannotMessage(ctx)
 	}
-	return s.mapErr(ctx, op, uid, logger.RedactErr(fmt.Errorf("keys: permission: %w", err), target))
+	return s.mapErr(ctx, op, uid, sealPermissionErr(err, uid, target))
+}
+
+// sealPermissionErr turns a seam failure into an error that carries nothing the client could see: no *apierr.Error or
+// *connect.Error is reachable through it (so its code, reason, message, metadata and retry hint are dropped), only its
+// class survives, the way mapErr derives classes for repository errors: contention stays Aborted and a deadline stays
+// DeadlineExceeded (both UNAVAILABLE with retry), anything else is an unknown error (INTERNAL). The text, with both uids
+// hashed, is kept for the server log.
+func sealPermissionErr(err error, uid, target string) error {
+	text := logger.RedactErr(fmt.Errorf("keys: permission: %w", err), uid, target).Error()
+	switch {
+	case store.IsContention(err):
+		return status.Error(codes.Aborted, text)
+	case errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
+		return status.Error(codes.DeadlineExceeded, text)
+	}
+	return errors.New(text)
 }
 
 // targetOn reports whether the flag is on for target (a nil checker is off).

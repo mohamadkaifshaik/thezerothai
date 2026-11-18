@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
@@ -155,6 +157,91 @@ func TestPermissionFailureIsNotARefusal(t *testing.T) {
 	_, err = r.svc.Claim(context.Background(), uidA, uidBob, "")
 	if err == nil || strings.Contains(err.Error(), uidBob) || strings.Contains(err.Error(), uidA) {
 		t.Fatalf("claim err = %v", err)
+	}
+}
+
+// The seam's answer reaches the wire as one of three things only: the one refusal (ErrCannotMessage or any apierr with
+// reason CANNOT_MESSAGE, whatever its message or metadata), a generic failure that carries nothing of the seam's error
+// (whatever apierr code, reason, message, metadata or retry hint it had), or the package's class mapping for contention
+// and deadlines. Checked on both RPCs.
+func TestPermissionSeamErrorsAreSealed(t *testing.T) {
+	ctx := context.Background()
+	callBoth := func(t *testing.T, seamErr error) [2]error {
+		t.Helper()
+		r := newClaimRig(t)
+		r.seed(t, uidBob, devB1, 2, pkgs(0, 2), nil)
+		r.perm.err = seamErr
+		_, gerr := r.svc.GetDevices(ctx, uidA, []string{uidBob})
+		_, cerr := r.svc.Claim(ctx, uidA, uidBob, "")
+		if n := len(r.repo.pool[devKey(uidBob, devB1)]); n != 2 {
+			t.Fatalf("a failed permission check consumed packages: pool %d", n)
+		}
+		return [2]error{gerr, cerr}
+	}
+	refusal := wireBytes(t, callBoth(t, ErrCannotMessage)[0])
+	generic := wireBytes(t, callBoth(t, errors.New("plain failure"))[0])
+	if bytes.Equal(refusal, generic) {
+		t.Fatal("refusal and failure have the same wire form")
+	}
+
+	sealed := map[string]error{
+		"apierr NOT_FOUND for an unknown user": apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "user "+uidBob+" not found").
+			WithMeta("why", "unknown_user"),
+		"apierr with metadata and retry hint": apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "slow down").
+			WithMeta("limit", "messaging_send").WithRetryAfter(5 * time.Second),
+		"wrapped apierr": fmt.Errorf("adapter: %w", apierr.New(connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "blocked")),
+		"apierr with a cause": apierr.New(connect.CodeInternal, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "db").
+			WithCause(errors.New("firestore " + uidBob)),
+	}
+	for name, seamErr := range sealed {
+		t.Run(name, func(t *testing.T) {
+			for i, err := range callBoth(t, seamErr) {
+				var ae *apierr.Error
+				if errors.As(err, &ae) {
+					t.Fatalf("call %d: the seam's apierr is reachable: %+v", i, ae)
+				}
+				if got := wireBytes(t, err); !bytes.Equal(got, generic) {
+					t.Fatalf("call %d: wire %q, want the generic failure %q", i, got, generic)
+				}
+				if strings.Contains(err.Error(), uidBob) || strings.Contains(err.Error(), uidA) {
+					t.Fatalf("call %d: error text %q carries a uid", i, err.Error())
+				}
+			}
+		})
+	}
+
+	refusals := map[string]error{
+		"apierr CANNOT_MESSAGE with its own message and metadata": apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, "blocked by "+uidBob).
+			WithMeta("cause", "block").WithRetryAfter(time.Minute),
+		"wrapped apierr CANNOT_MESSAGE with another code": fmt.Errorf("adapter: %w", apierr.New(connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, "policy")),
+	}
+	for name, seamErr := range refusals {
+		t.Run(name, func(t *testing.T) {
+			for i, err := range callBoth(t, seamErr) {
+				if got := wireBytes(t, err); !bytes.Equal(got, refusal) {
+					t.Fatalf("call %d: wire %q, want the standard refusal %q", i, got, refusal)
+				}
+			}
+		})
+	}
+
+	// Classes keep the package's mapping (as for repository errors): UNAVAILABLE with a 1 s retry, nothing else.
+	classes := map[string]error{
+		"deadline":            fmt.Errorf("adapter: %w", context.DeadlineExceeded),
+		"grpc deadline":       status.Error(codes.DeadlineExceeded, "slow "+uidBob),
+		"contention":          status.Error(codes.Aborted, "lock "+uidBob),
+		"apierr over a cause": apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "gone").WithCause(context.DeadlineExceeded),
+	}
+	for name, seamErr := range classes {
+		t.Run(name, func(t *testing.T) {
+			for i, err := range callBoth(t, seamErr) {
+				wantErr(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+				var ae *apierr.Error
+				if errors.As(err, &ae) && (ae.RetryAfter != time.Second || len(ae.Metadata) != 0 || ae.Message != "temporarily busy, please retry") {
+					t.Fatalf("call %d: %+v", i, ae)
+				}
+			}
+		})
 	}
 }
 
