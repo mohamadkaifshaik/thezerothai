@@ -500,8 +500,11 @@ impl fmt::Debug for GroupInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
+    use openmls::prelude::{
+        BasicCredential, CredentialWithKey, ProcessedMessageContent, ProtocolMessage,
+    };
     use openmls::treesync::LeafNodeSource;
+    use openmls_basic_credential::SignatureKeyPair;
 
     use crate::{create_device, generate_key_packages};
 
@@ -778,6 +781,74 @@ mod tests {
             let r = commit_change(&dev.state, &gone, std::slice::from_ref(&carol_kp), &[]);
             assert_eq!(r.unwrap_err().code, ErrorCode::Evicted);
         }
+    }
+
+    /// Another suite with the same signature scheme, so only the suite check can refuse it.
+    const OTHER_SUITE: openmls::prelude::Ciphersuite =
+        openmls::prelude::Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
+
+    /// A raw OpenMLS key package in [`OTHER_SUITE`], with its private parts in `provider`.
+    fn other_suite_key_package(provider: &OpenMlsRustCrypto, identity: u8) -> KeyPackage {
+        let signer = SignatureKeyPair::new(OTHER_SUITE.signature_algorithm()).unwrap();
+        let credential = CredentialWithKey {
+            credential: BasicCredential::new(vec![identity; 16]).into(),
+            signature_key: signer.to_public_vec().into(),
+        };
+        KeyPackage::builder()
+            .build(OTHER_SUITE, provider, &signer, credential)
+            .unwrap()
+            .key_package()
+            .clone()
+    }
+
+    #[test]
+    fn a_key_package_in_another_suite_is_refused() {
+        let alice = device(1);
+        let g = create_group(&alice.state, &[0xAB; 32]).unwrap();
+        let kp = other_suite_key_package(&OpenMlsRustCrypto::default(), 2)
+            .tls_serialize_detached()
+            .unwrap();
+        let e = commit_change(&alice.state, &g, &[kp], &[]).unwrap_err();
+        assert_eq!(e.code, ErrorCode::BadInput);
+        assert_eq!(e.message, "key package uses another cipher suite");
+    }
+
+    #[test]
+    fn a_welcome_in_another_suite_is_refused() {
+        // A whole raw OpenMLS group in the other suite welcomes a device; dzmls refuses the Welcome on its suite.
+        let provider = OpenMlsRustCrypto::default();
+        let signer = SignatureKeyPair::new(OTHER_SUITE.signature_algorithm()).unwrap();
+        let credential = CredentialWithKey {
+            credential: BasicCredential::new(vec![1; 16]).into(),
+            signature_key: signer.to_public_vec().into(),
+        };
+        let config = MlsGroupCreateConfig::builder()
+            .ciphersuite(OTHER_SUITE)
+            .use_ratchet_tree_extension(true)
+            .build();
+        let mut group = MlsGroup::new(&provider, &signer, &config, credential).unwrap();
+        let joiner = OpenMlsRustCrypto::default();
+        let (_, welcome, _) = group
+            .add_members(&provider, &signer, &[other_suite_key_package(&joiner, 2)])
+            .unwrap();
+        let welcome = welcome.tls_serialize_detached().unwrap();
+        let bob = device(2);
+        let e = join_from_welcome(&bob.state, &welcome).unwrap_err();
+        assert_eq!(e.code, ErrorCode::BadInput);
+        assert_eq!(e.message, "welcome uses another cipher suite");
+    }
+
+    #[test]
+    fn more_than_100_adds_or_removals_are_refused() {
+        // The batch limits are checked before anything is parsed, so placeholders suffice.
+        let alice = device(1);
+        let g = create_group(&alice.state, &[0xAB; 32]).unwrap();
+        let e = commit_change(&alice.state, &g, &vec![vec![0u8]; 101], &[]).unwrap_err();
+        assert_eq!(e.code, ErrorCode::BadInput);
+        assert_eq!(e.message, "at most 100 key packages per commit, got 101");
+        let e = commit_change(&alice.state, &g, &[], &vec![vec![7u8; 16]; 101]).unwrap_err();
+        assert_eq!(e.code, ErrorCode::BadInput);
+        assert_eq!(e.message, "at most 100 removals per commit, got 101");
     }
 
     #[test]

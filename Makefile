@@ -239,14 +239,14 @@ loadtest:
 
 .PHONY: crypto-test crypto-web
 
-## crypto-test: the MLS core (crypto/dzmls): rustfmt check, clippy on the whole workspace, host tests, cargo deny when installed. Not part of ci yet.
+## crypto-test: the MLS core (crypto/dzmls): rustfmt check, clippy on the whole workspace (all targets), host tests, cargo deny when installed. Not part of ci yet.
 crypto-test:
-	cd crypto && cargo fmt --check && cargo clippy --workspace -- -D warnings && cargo test -p dzmls
+	cd crypto && cargo fmt --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test -p dzmls --locked
 	@echo "==> cargo deny"
 	@if command -v cargo-deny >/dev/null 2>&1; then \
 		cd crypto && cargo deny check; \
 	else \
-		echo "cargo-deny not installed locally; skipping (CI installs and runs it)"; \
+		echo "cargo-deny not installed locally; skipping (CI does not run it yet)"; \
 	fi
 
 ## crypto-web: build the MLS wasm binding (crypto/dzmls_web) into app/web/mls/ and print its size. Needs the
