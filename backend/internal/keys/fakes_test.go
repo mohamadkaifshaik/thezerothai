@@ -8,8 +8,8 @@ import (
 )
 
 // fakeRepo mirrors the Firestore repository's rules in memory: the cap of 5 devices, key mismatch, the 24 h last-seen
-// refresh, the pool cap with excess dropped (oldest stay), dedupe by package bytes, unknown device, and remove of a
-// missing device succeeding.
+// refresh, the pool cap with excess dropped (oldest stay), dedupe by package bytes, unknown device, remove of a missing
+// device succeeding, and the claim rules (one-time package consumed, last resort reused, exclusion, inactivity).
 type fakeRepo struct {
 	mu         sync.Mutex
 	devices    map[string][]Device // per uid, oldest first
@@ -133,6 +133,78 @@ func (f *fakeRepo) Upload(_ context.Context, uid, deviceID string, packages [][]
 		f.devices[uid][i] = cur
 	}
 	return len(f.pool[k]), f.lastResort[k] != nil, nil
+}
+
+func (f *fakeRepo) ActiveDevices(_ context.Context, uid string, now time.Time) ([]Device, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]Device, 0, len(f.devices[uid]))
+	for _, d := range f.devices[uid] {
+		if d.Active(now) {
+			out = append(out, f.view(uid, d))
+		}
+	}
+	return out, nil
+}
+
+// Claim mirrors FirestoreRepo.Claim: a non-empty exclude must name one of the target's devices (inactive ones included),
+// else ErrExcludeNotFound with nothing consumed; per remaining active device the pool package with the smallest document
+// id is consumed, else the last-resort package is returned (kept), else HasKeyPackage is false. LastSeenAt is untouched.
+func (f *fakeRepo) Claim(_ context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	if excludeDeviceID != "" && f.find(targetUID, excludeDeviceID) < 0 {
+		return nil, ErrExcludeNotFound
+	}
+	out := []Claimed{}
+	for _, d := range f.devices[targetUID] {
+		if d.ID == excludeDeviceID || !d.Active(now) {
+			continue
+		}
+		k := devKey(targetUID, d.ID)
+		c := Claimed{DeviceID: d.ID, SignatureKey: cloneBytes(d.SignatureKey)}
+		if pool := f.pool[k]; len(pool) > 0 {
+			best := 0
+			for i := range pool {
+				if packageID(pool[i]) < packageID(pool[best]) {
+					best = i
+				}
+			}
+			c.KeyPackage, c.HasKeyPackage = cloneBytes(pool[best]), true
+			f.pool[k] = append(pool[:best:best], pool[best+1:]...)
+		} else if lr := f.lastResort[k]; lr != nil {
+			c.KeyPackage, c.HasKeyPackage, c.LastResort = cloneBytes(lr), true, true
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// fakePermission is a Permission: refuse maps a target to the (cause-specific) error the messaging rules would give;
+// every one wraps ErrCannotMessage. calls counts the checks.
+type fakePermission struct {
+	mu     sync.Mutex
+	refuse map[string]error
+	calls  []string
+	err    error
+}
+
+func (p *fakePermission) CanMessage(_ context.Context, _, targetUID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls = append(p.calls, targetUID)
+	if p.err != nil {
+		return p.err
+	}
+	return p.refuse[targetUID]
 }
 
 // fakeFlags is a FlagChecker: on lists the uids the flag is on for; off is the kill switch.

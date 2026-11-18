@@ -35,6 +35,9 @@ var (
 	ErrDeviceLimit = errors.New("keys: device limit reached")
 	// ErrKeyMismatch is a register of an existing device id with a different signature key.
 	ErrKeyMismatch = errors.New("keys: signature key mismatch")
+	// ErrExcludeNotFound is a claim whose non-empty exclude device id names none of the target's devices (inactive ones
+	// included); nothing is consumed.
+	ErrExcludeNotFound = errors.New("keys: excluded device not found")
 )
 
 // ValidDeviceID reports whether s matches [A-Za-z0-9_-]{16,64}.
@@ -62,6 +65,16 @@ type Device struct {
 	HasLastResort bool
 }
 
+// Claimed is the answer of a claim for one active device: a one-time package (consumed), else the last-resort package
+// (LastResort, reusable, not consumed), else HasKeyPackage false with no bytes.
+type Claimed struct {
+	DeviceID      string
+	SignatureKey  []byte
+	KeyPackage    []byte
+	HasKeyPackage bool
+	LastResort    bool
+}
+
 // Active reports whether the device was seen within InactiveAfter of now (exactly InactiveAfter ago is inactive).
 func (d Device) Active(now time.Time) bool { return now.Sub(d.LastSeenAt) < InactiveAfter }
 
@@ -79,6 +92,16 @@ type Service interface {
 	// Upload adds packages to a registered device's pool (duplicates stored once, excess over MaxPoolSize dropped) and
 	// optionally replaces its last-resort package (nil or empty = keep). It returns the resulting pool size.
 	Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte) (poolCount int, hasLastResort bool, err error)
+	// GetDevices answers the active devices of 1 to 10 distinct users, keyed by every requested id (an empty list for a
+	// user with the flag off or no active device). For every user other than the caller the caller must pass
+	// Permission.CanMessage first; any refusal is the one CANNOT_MESSAGE. PoolCount and HasLastResort are zeroed for
+	// other users. Nothing is written (LastSeenAt is not refreshed).
+	GetDevices(ctx context.Context, uid string, userIDs []string) (map[string][]Device, error)
+	// Claim takes one key package per active device of targetUID (see Claimed), oldest device first, after the same
+	// permission and flag rules as GetDevices. For the caller's own id excludeDeviceID is required and must be one of the
+	// caller's devices, which is skipped; for another user it must be empty or well-formed and is not used. Not
+	// replayable: a retry consumes fresh packages.
+	Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, error)
 }
 
 // Repo is the storage seam (repo_firestore.go).
@@ -93,6 +116,14 @@ type Repo interface {
 	// Upload stores packages (deduplicated by bytes, oldest stay when the pool is full), sets lastResort when non-nil and
 	// refreshes LastSeenAt on the same rule as Register. An unknown device is ErrNotFound.
 	Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte, now time.Time) (int, bool, error)
+	// ActiveDevices returns the user's devices active at now, oldest first (one query, Limit MaxDevicesPerUser). Nothing
+	// is written.
+	ActiveDevices(ctx context.Context, uid string, now time.Time) ([]Device, error)
+	// Claim is one transaction: read the target's devices; a non-empty excludeDeviceID that names none of them is
+	// ErrExcludeNotFound (nothing written); for every other device active at now, read one pool document, delete it and
+	// decrement poolCount, else return the last-resort package (LastResort), else HasKeyPackage false. LastSeenAt is
+	// not touched.
+	Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error)
 }
 
 // cloneBytes returns a copy of b (nil stays nil).
@@ -101,6 +132,12 @@ func cloneBytes(b []byte) []byte {
 		return nil
 	}
 	return append([]byte{}, b...)
+}
+
+func cloneClaimed(c Claimed) Claimed {
+	c.SignatureKey = cloneBytes(c.SignatureKey)
+	c.KeyPackage = cloneBytes(c.KeyPackage)
+	return c
 }
 
 func cloneDevice(d Device) Device {

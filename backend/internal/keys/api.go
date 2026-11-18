@@ -19,6 +19,17 @@ import (
 // GetMe.enabled_features.
 const FlagName = "e2ee_dm"
 
+// Permission is the seam to the messaging send rules; the composition root fills it.
+type Permission interface {
+	// CanMessage answers whether caller may message target by the messaging send rules. A refusal is
+	// ErrCannotMessage (possibly wrapped); it never says why. Any other error is a failure to decide, not a refusal.
+	CanMessage(ctx context.Context, callerUID, targetUID string) error
+}
+
+// ErrCannotMessage is Permission's refusal: an unknown or non-ACTIVE target, a block in either direction or any other
+// refusal by the messaging send rules. The service answers every one with the same CANNOT_MESSAGE.
+var ErrCannotMessage = errors.New("keys: cannot message")
+
 // FlagChecker is the seam to pkg/platform/flags.Registry (*flags.Registry satisfies it).
 type FlagChecker interface {
 	Enabled(uid, name string) bool

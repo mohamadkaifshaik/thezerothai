@@ -45,8 +45,8 @@ type deviceDoc struct {
 	CreatedAt    time.Time `firestore:"createdAt"`
 	LastSeenAt   time.Time `firestore:"lastSeenAt"`
 	LastResort   []byte    `firestore:"lastResort,omitempty"`
-	// PoolCount is the number of pool documents. Invariant: it is changed only inside the Upload, Remove and (later)
-	// Claim transactions, as a delta, never recounted (a recount would break Upload's bound of 100 reads); the eraser
+	// PoolCount is the number of pool documents. Invariant: it is changed only inside the Upload, Remove and Claim
+	// transactions, as a delta, never recounted (a recount would break Upload's bound of 100 reads); the eraser
 	// deletes by listing documents, never by this counter.
 	PoolCount int `firestore:"poolCount"`
 }
@@ -75,6 +75,8 @@ type FirestoreRepo struct {
 	client *firestore.Client
 	// afterPoolSweep, set only by tests, runs in Remove between the pool sweep and the final transaction.
 	afterPoolSweep func()
+	// beforePageDelete, set only by tests, runs in the pool sweep between a page query and that page's batch.
+	beforePageDelete func()
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
@@ -188,7 +190,7 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string) ([]Device, error) 
 // query.
 //
 // The poolCount invariant: poolCount equals the number of pool documents and is changed only inside the Upload, Remove
-// and (later) Claim transactions; the eraser deletes by listing documents, never by the counter.
+// and Claim transactions; the eraser deletes by listing documents, never by the counter.
 func (r *FirestoreRepo) Remove(ctx context.Context, uid, deviceID string) error {
 	for round := 0; round < removeRounds; round++ {
 		if err := r.sweepPool(ctx, uid, deviceID); err != nil {
@@ -241,31 +243,145 @@ func (r *FirestoreRepo) sweepPool(ctx context.Context, uid, deviceID string) err
 		if len(snaps) == 0 {
 			return nil
 		}
-		// One atomic batch per page: the deletes and, while the device exists, poolCount -= len(page), so the counter stays
-		// true if the sweep stops half way. A missing device (orphans) has no counter: plain deletes.
-		if err := r.deletePage(ctx, uid, deviceID, snaps, true); err != nil {
-			if !store.IsPreconditionFailed(err) {
-				return logger.RedactErr(fmt.Errorf("keys: delete pool: %w", err), uid, deviceID)
-			}
-			if err := r.deletePage(ctx, uid, deviceID, snaps, false); err != nil {
-				return logger.RedactErr(fmt.Errorf("keys: delete orphan pool: %w", err), uid, deviceID)
-			}
+		if r.beforePageDelete != nil {
+			r.beforePageDelete()
+		}
+		// One atomic batch per page: the deletes (each requiring its document to still exist) and, while the device
+		// exists, poolCount -= len(page), so the counter stays true if the sweep stops half way. A failed precondition
+		// means the device is gone (orphans: plain deletes, no counter) or a Claim took a listed document after the page
+		// query (the counter must not be decremented for it twice): re-list and try again, within the loop bound.
+		err = r.deletePage(ctx, uid, deviceID, snaps, true)
+		if err == nil {
+			continue
+		}
+		if !store.IsPreconditionFailed(err) {
+			return logger.RedactErr(fmt.Errorf("keys: delete pool: %w", err), uid, deviceID)
+		}
+		_, gerr := r.deviceRef(uid, deviceID).Get(ctx)
+		if gerr == nil {
+			continue // a listed document vanished under a live device: re-list
+		}
+		if status.Code(gerr) != codes.NotFound {
+			return logger.RedactErr(fmt.Errorf("keys: get device: %w", gerr), uid, deviceID)
+		}
+		if err := r.deletePage(ctx, uid, deviceID, snaps, false); err != nil {
+			return logger.RedactErr(fmt.Errorf("keys: delete orphan pool: %w", err), uid, deviceID)
 		}
 	}
 	return nil
 }
 
-// deletePage deletes the page's documents in one batch (at most removePageSize + 1 writes); withCounter adds the device's
-// poolCount decrement, which fails with a precondition error when the device document does not exist.
+// deletePage deletes the page's documents in one batch (at most removePageSize + 1 writes). withCounter makes every delete
+// require its document to exist and adds the device's poolCount decrement; the batch then fails as a whole, with a
+// precondition error, when a listed document is gone or the device document does not exist. Without it the deletes are
+// plain (orphans under a missing device, no counter).
 func (r *FirestoreRepo) deletePage(ctx context.Context, uid, deviceID string, snaps []*firestore.DocumentSnapshot, withCounter bool) error {
 	b := store.NewFirestoreBatch(r.client)
 	for _, s := range snaps {
-		b.Delete(s.Ref)
+		if withCounter {
+			b.Delete(s.Ref, firestore.Exists)
+		} else {
+			b.Delete(s.Ref)
+		}
 	}
 	if withCounter {
 		b.Update(r.deviceRef(uid, deviceID), []firestore.Update{{Path: "poolCount", Value: firestore.Increment(-len(snaps))}})
 	}
 	return b.Commit(ctx)
+}
+
+// ActiveDevices implements Repo: the List query (Limit MaxDevicesPerUser, oldest first) filtered to devices active at
+// now. Nothing is written; LastSeenAt is not refreshed.
+func (r *FirestoreRepo) ActiveDevices(ctx context.Context, uid string, now time.Time) ([]Device, error) {
+	all, err := r.List(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Device, 0, len(all))
+	for _, d := range all {
+		if d.Active(now) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// claimedDevice is one device a claim takes from: its reference, its stored document and its pool head (nil = empty).
+type claimedDevice struct {
+	ref  *firestore.DocumentRef
+	doc  deviceDoc
+	head *firestore.DocumentSnapshot
+}
+
+// Claim implements Repo as one transaction, so it conflicts with a concurrent Upload, Remove, Register or Claim of the
+// same devices. All reads come first: the target's device documents (one query, Limit MaxDevicesPerUser, oldest first),
+// then for each active, non-excluded device one pool query ordered by document id with Limit 1. The pool query, never
+// poolCount, decides whether a package exists. Then per device with a pool head: delete it and set poolCount to
+// max(read count - 1, 0) (a stale counter is never driven negative); with an empty pool the last-resort package is
+// returned and nothing is written for that device. Bound: at most 5 device documents + 5 pool documents read (10), at
+// most 5 deletes + 5 updates (10). LastSeenAt is never written. Two claims of one device read the same pool head and the
+// device documents, so one of them retries; claims of one user are serialised by the device reads anyway.
+func (r *FirestoreRepo) Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error) {
+	var out []Claimed
+	var seen []string
+	err := r.run(ctx, targetUID, excludeDeviceID, func(_ context.Context, tx *firestore.Transaction) error {
+		out, seen = nil, seen[:0]
+		snaps, err := tx.Documents(r.devices(targetUID).OrderBy("createdAt", firestore.Asc).Limit(MaxDevicesPerUser)).GetAll()
+		if err != nil {
+			return fmt.Errorf("keys: read devices: %w", err)
+		}
+		excluded := false
+		picks := make([]claimedDevice, 0, len(snaps))
+		for _, s := range snaps {
+			seen = append(seen, s.Ref.ID)
+			if s.Ref.ID == excludeDeviceID {
+				excluded = true
+				continue
+			}
+			var d deviceDoc
+			if err := s.DataTo(&d); err != nil {
+				return fmt.Errorf("keys: decode device: %w", err)
+			}
+			if d.device(s.Ref.ID).Active(now) {
+				picks = append(picks, claimedDevice{ref: s.Ref, doc: d})
+			}
+		}
+		if excludeDeviceID != "" && !excluded {
+			return ErrExcludeNotFound
+		}
+		for i := range picks {
+			heads, err := tx.Documents(picks[i].ref.Collection(keyPackagesCollection).OrderBy(firestore.DocumentID, firestore.Asc).Limit(1)).GetAll()
+			if err != nil {
+				return fmt.Errorf("keys: read pool: %w", err)
+			}
+			if len(heads) > 0 {
+				picks[i].head = heads[0]
+			}
+		}
+		b := store.NewFirestoreTxBatch(tx)
+		out = make([]Claimed, 0, len(picks))
+		for _, p := range picks {
+			c := Claimed{DeviceID: p.ref.ID, SignatureKey: cloneBytes(p.doc.SignatureKey)}
+			switch {
+			case p.head != nil:
+				var pd packageDoc
+				if err := p.head.DataTo(&pd); err != nil {
+					return fmt.Errorf("keys: decode package: %w", err)
+				}
+				c.KeyPackage, c.HasKeyPackage = cloneBytes(pd.Data), true
+				b.Delete(p.head.Ref)
+				b.Update(p.ref, []firestore.Update{{Path: "poolCount", Value: max(p.doc.PoolCount-1, 0)}})
+			case len(p.doc.LastResort) > 0:
+				c.KeyPackage, c.HasKeyPackage, c.LastResort = cloneBytes(p.doc.LastResort), true, true
+			}
+			out = append(out, c)
+		}
+		return b.Err()
+	})
+	if err != nil {
+		return nil, logger.RedactErr(err, seen...)
+	}
+	return out, nil
 }
 
 // Upload implements Repo. poolCount is kept as a delta of the true document count (see deviceDoc.PoolCount); more than

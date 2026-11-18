@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -26,21 +29,36 @@ const (
 	fieldPackages    = "package_count"
 	fieldPoolCount   = "pool_count"
 	fieldLastResort  = "has_last_resort"
+	fieldUsers       = "user_count"
+	fieldLRUsed      = "last_resort_count"
 	outcomeDone      = "done"
 	outcomeNoop      = "noop"
 	outcomeRejected  = "rejected:"
 	rejectValidation = "validation"
 )
 
-// Deps wires the service.
+// MaxLookupUsers is the most user ids one GetDevices takes.
+const MaxLookupUsers = 10
+
+// lookupFanout bounds the concurrent device queries of one GetDevices (at most MaxLookupUsers in all).
+const lookupFanout = 4
+
+// Deps wires the service. A nil Permission refuses every other user; a nil Flags is off for every target.
 type Deps struct {
-	Repo Repo
-	Now  func() time.Time
+	Repo       Repo
+	Now        func() time.Time
+	Permission Permission
+	Flags      FlagChecker
+	// Log receives panics on the lookup's worker goroutines (default slog.Default()).
+	Log *slog.Logger
 }
 
 type service struct {
-	repo Repo
-	now  func() time.Time
+	repo  Repo
+	now   func() time.Time
+	perm  Permission
+	flags FlagChecker
+	log   *slog.Logger
 }
 
 // New builds the service.
@@ -49,7 +67,11 @@ func New(d Deps) Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &service{repo: d.Repo, now: now}
+	log := d.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, log: log}
 }
 
 var _ Service = (*service)(nil)
@@ -156,6 +178,159 @@ func (s *service) Upload(ctx context.Context, uid, deviceID string, packages [][
 	logger.SetRequestField(ctx, fieldLastResort, has)
 	return n, has, nil
 }
+
+// cannotMessageText is the one text of every CANNOT_MESSAGE answer (the same words as messaging's).
+const cannotMessageText = "you can't message this account"
+
+// cannotMessage is the single refusal of GetDevices and Claim for every cause: built here only, fresh on each call (so
+// no caller can mutate a shared value), with no metadata, cause or retry hint, so its wire form is byte-identical.
+func cannotMessage(ctx context.Context) error {
+	logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"cannot_message")
+	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, cannotMessageText)
+}
+
+// permit asks the messaging rules whether uid may message target. A refusal of any kind is the one CANNOT_MESSAGE; a
+// failure to decide goes through mapErr with both uids redacted. No separate existence check: the seam refuses an
+// unknown user exactly like a blocked one.
+func (s *service) permit(ctx context.Context, op, uid, target string) error {
+	if s.perm == nil {
+		return cannotMessage(ctx)
+	}
+	err := s.perm.CanMessage(ctx, uid, target)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrCannotMessage):
+		return cannotMessage(ctx)
+	}
+	return s.mapErr(ctx, op, uid, logger.RedactErr(fmt.Errorf("keys: permission: %w", err), target))
+}
+
+// targetOn reports whether the flag is on for target (a nil checker is off).
+func (s *service) targetOn(target string) bool {
+	return s.flags != nil && s.flags.Enabled(target, FlagName)
+}
+
+// GetDevices validates the ids, checks permission for every other user in request order (before any flag check or
+// read), then reads the active devices of the caller and of every other user with the flag on, concurrently (at most
+// MaxLookupUsers queries of at most MaxDevicesPerUser documents each).
+func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) (map[string][]Device, error) {
+	begin(ctx, "get_devices")
+	if len(userIDs) < 1 || len(userIDs) > MaxLookupUsers {
+		return nil, invalid(ctx, "user_ids", "send 1-10 user_ids")
+	}
+	seen := make(map[string]bool, len(userIDs))
+	for _, id := range userIDs {
+		if !ids.ValidUID(id) {
+			return nil, invalid(ctx, "user_ids", ids.UIDMessage)
+		}
+		if seen[id] {
+			return nil, invalid(ctx, "user_ids", "user_ids must be distinct")
+		}
+		seen[id] = true
+	}
+	logger.SetRequestField(ctx, fieldUsers, len(userIDs))
+	for _, id := range userIDs {
+		if id != uid {
+			if err := s.permit(ctx, "get_devices", uid, id); err != nil {
+				return nil, err
+			}
+		}
+	}
+	now := s.now()
+	found := make([][]Device, len(userIDs))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(lookupFanout)
+	for i, id := range userIDs {
+		if id != uid && !s.targetOn(id) {
+			continue
+		}
+		g.Go(mw.RecoverGo(ctx, s.log, "keys/lookup_worker", func() error {
+			ds, err := s.repo.ActiveDevices(gctx, id, now)
+			if err != nil {
+				return logger.RedactErr(err, id)
+			}
+			found[i] = ds
+			return nil
+		}))
+	}
+	if err := g.Wait(); err != nil {
+		return nil, s.mapErr(ctx, "get_devices", uid, err)
+	}
+	out := make(map[string][]Device, len(userIDs))
+	total := 0
+	for i, id := range userIDs {
+		list := make([]Device, 0, len(found[i]))
+		for _, d := range found[i] {
+			if !d.Active(now) {
+				continue
+			}
+			d = cloneDevice(d)
+			if id != uid {
+				d.PoolCount, d.HasLastResort = 0, false
+			}
+			list = append(list, d)
+		}
+		out[id] = list
+		total += len(list)
+	}
+	logger.SetRequestField(ctx, fieldOutcome, outcomeDone)
+	logger.SetRequestField(ctx, fieldDevices, total)
+	return out, nil
+}
+
+// Claim validates, checks permission and the target's flag (another user), then claims in one repository transaction.
+// The excluded device is passed to the repository only for the caller's own id, where it must exist; for another user
+// a well-formed exclude_device_id is accepted and not used (it exists for a device claiming its own user's others).
+func (s *service) Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, error) {
+	begin(ctx, "claim")
+	if !ids.ValidUID(targetUID) {
+		return nil, invalid(ctx, "user_id", ids.UIDMessage)
+	}
+	self := targetUID == uid
+	if (self || excludeDeviceID != "") && !ValidDeviceID(excludeDeviceID) {
+		return nil, invalid(ctx, "exclude_device_id", excludeMessage)
+	}
+	exclude := ""
+	if self {
+		exclude = excludeDeviceID
+	} else {
+		if err := s.permit(ctx, "claim", uid, targetUID); err != nil {
+			return nil, err
+		}
+		if !s.targetOn(targetUID) {
+			logger.SetRequestField(ctx, fieldOutcome, outcomeDone)
+			logger.SetRequestField(ctx, fieldDevices, 0)
+			return []Claimed{}, nil
+		}
+	}
+	got, err := s.repo.Claim(ctx, targetUID, exclude, s.now())
+	if errors.Is(err, ErrExcludeNotFound) {
+		return nil, invalid(ctx, "exclude_device_id", excludeMessage)
+	}
+	if err != nil {
+		return nil, s.mapErr(ctx, "claim", uid, logger.RedactErr(err, targetUID))
+	}
+	out := make([]Claimed, 0, len(got))
+	consumed, lastResort := 0, 0
+	for _, c := range got {
+		switch {
+		case c.LastResort:
+			lastResort++
+		case c.HasKeyPackage:
+			consumed++
+		}
+		out = append(out, cloneClaimed(c))
+	}
+	logger.SetRequestField(ctx, fieldOutcome, outcomeDone)
+	logger.SetRequestField(ctx, fieldDevices, len(out))
+	logger.SetRequestField(ctx, fieldPackages, consumed)
+	logger.SetRequestField(ctx, fieldLRUsed, lastResort)
+	return out, nil
+}
+
+// excludeMessage is the VALIDATION text for exclude_device_id (the value is never echoed).
+const excludeMessage = "exclude_device_id must be one of your devices"
 
 // dedupe returns copies of the distinct packages in first-seen order. At most MaxUploadBatch, so the scan is bounded.
 func dedupe(packages [][]byte) [][]byte {
