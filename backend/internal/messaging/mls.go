@@ -3,7 +3,9 @@ package messaging
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
@@ -20,6 +22,10 @@ const (
 	MaxWelcomeBytes     = 65536
 	MaxWelcomeDevices   = 10
 	CiphertextRetention = 30 * 24 * time.Hour
+	// CommitRetention and WelcomeRetention set expireAt on commit and welcome documents (creation + 30 days; global
+	// constraints, "Retention"): the TTL field of a policy the owner applies.
+	CommitRetention  = 30 * 24 * time.Hour
+	WelcomeRetention = 30 * 24 * time.Hour
 )
 
 // encSend is a validated encrypted SendMessage request.
@@ -29,10 +35,59 @@ type encSend struct {
 	Init                   *mlsInit
 }
 
-// mlsInit is the validated group creation that starts encryption.
+// mlsInit is the validated group creation that starts encryption. DeviceIDs is the request's format-checked list; the
+// service fills Targets and DevicesOK from the key directory before the transaction (checkWelcomeDevices), and the
+// transaction applies the verdict only after every existing refusal (encGate).
 type mlsInit struct {
 	Commit, Welcome []byte
 	DeviceIDs       []string
+	// Targets is, per DeviceIDs entry and in the same order, the user whose welcome inbox the device belongs to; set only
+	// when DevicesOK.
+	Targets []welcomeTarget
+	// DevicesOK: every id is an ACTIVE device of the caller or the recipient and at least one is the recipient's.
+	DevicesOK bool
+}
+
+// welcomeTarget is one device a welcome is stored for, with the user who owns it (users/{Owner}/dmWelcomes).
+type welcomeTarget struct {
+	Owner, DeviceID string
+}
+
+// errWelcomeDevices is the welcome-device verdict "no" (VALIDATION welcome_device_ids, without saying which id).
+var errWelcomeDevices = errors.New("messaging: welcome devices are not active devices of the participants")
+
+// welcomeTargets decides the welcome-device rule of an mls_init from the ACTIVE device ids of the caller and the
+// recipient: every id must be one of them and at least one the recipient's; ok is false otherwise (and targets nil). An
+// id both users registered (device ids are client-chosen) is taken as the recipient's, so the rule "at least one of the
+// recipient's" cannot be met by a device of the caller alone and the welcome is stored once.
+func welcomeTargets(ids []string, caller, recipient string, callerActive, recipientActive []string) (targets []welcomeTarget, ok bool) {
+	targets = make([]welcomeTarget, 0, len(ids))
+	peerHas := false
+	for _, id := range ids {
+		switch {
+		case slices.Contains(recipientActive, id):
+			targets, peerHas = append(targets, welcomeTarget{Owner: recipient, DeviceID: id}), true
+		case slices.Contains(callerActive, id):
+			targets = append(targets, welcomeTarget{Owner: caller, DeviceID: id})
+		default:
+			return nil, false
+		}
+	}
+	if !peerHas {
+		return nil, false
+	}
+	return targets, true
+}
+
+// initDigest is the tagged extra part of encRequestHash for an mls_init: "i|" and the hex SHA-256 of the length-prefixed
+// commit, welcome and sorted device ids, so a retry with another commit, welcome or device set is not the same request,
+// while the same set in another order is.
+func initDigest(in *mlsInit) string {
+	ids := slices.Clone(in.DeviceIDs)
+	slices.Sort(ids)
+	parts := append([]string{"init1", string(in.Commit), string(in.Welcome)}, ids...)
+	sum := sha256.Sum256([]byte(lengthPrefixed(parts...)))
+	return "i|" + hex.EncodeToString(sum[:])
 }
 
 // validateEncrypted validates the encrypted shape of a SendMessage request. A request carrying none of ciphertext,
@@ -109,7 +164,7 @@ func validateWelcome(welcome []byte, deviceIDs []string) error {
 // encRequestHash is the request hash of an encrypted send (the encrypted counterpart of requestHash, same digest32): it
 // binds the conversation, the (generation, epoch), the SHA-256 of the ciphertext and the report commitment (hex), so a
 // retry with the same ciphertext but another commitment is not the same request. extra appends further parts for a
-// request that carries more (mls_init: Task 4); each must have a fixed shape of its own and start with a tag ("i|" and a
+// request that carries more (mls_init: initDigest); each must have a fixed shape of its own and start with a tag ("i|" and a
 // hex digest, say), so a request without extra parts keeps this exact hash. Every part has a fixed shape (hex id, decimal
 // numbers, hex digests) and is "|"-separated, so no two inputs share an encoding. A retry must resend identical bytes;
 // different bytes under the same key read as a reused key.
@@ -127,13 +182,22 @@ func encRequestHash(convID string, gen, epoch int64, ciphertext, commitment []by
 // after every existing refusal and before any write: a plaintext request (enc nil) into an MLS conversation is
 // ErrEncryptionRequired; an encrypted request into a plaintext or new conversation is errNeedsInit (VALIDATION
 // ciphertext: encryption starts only with mls_init); an encrypted request whose pair is not the conversation's current
-// pair is a *staleEpochError carrying the current pair. A request carrying mls_init never reaches it yet (Task 4).
+// pair is a *staleEpochError carrying the current pair. A request carrying mls_init is answered by its own rule, in the
+// proto's order: the welcome-device verdict first (errWelcomeDevices), then an already MLS conversation (another device
+// started first) is a *staleEpochError with its pair, whatever pair the request states (an init always states (1, 1),
+// which may equal the current pair); a NONE or new conversation passes.
 func encGate(conv *ConvDoc, enc *encSend) error {
 	encrypted := conv != nil && conv.encrypted()
 	switch {
 	case enc == nil && encrypted:
 		return ErrEncryptionRequired
 	case enc == nil:
+		return nil
+	case enc.Init != nil && !enc.Init.DevicesOK:
+		return errWelcomeDevices
+	case enc.Init != nil && encrypted:
+		return &staleEpochError{Gen: conv.MlsGen, Epoch: conv.MlsEpoch}
+	case enc.Init != nil:
 		return nil
 	case !encrypted:
 		return errNeedsInit

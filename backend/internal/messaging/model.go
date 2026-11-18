@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,10 @@ const (
 	dmInboxCollection       = "dmInbox"
 	dmRequestsCollection    = "dmRequests"
 	usersCollection         = "users"
+	// commitsCollection is conversations/{id}/commits/{commitDocID(gen, epoch)}; dmWelcomesCollection is
+	// users/{uid}/dmWelcomes/{welcomeDocID(...)}. Both are written only by mls_init, a commit and a reset.
+	commitsCollection    = "commits"
+	dmWelcomesCollection = "dmWelcomes"
 )
 
 // Stored states. They are the proto enum names without the prefix, so a stored value maps one to one.
@@ -172,6 +177,50 @@ func mlsKey(gen, epoch int64) string { return fmt.Sprintf("%d:%d", gen, epoch) }
 
 // commitDocID is the id of conversations/{id}/commits/{gen_epoch}: zero-padded so ids sort by generation, then epoch.
 func commitDocID(gen, epoch int64) string { return fmt.Sprintf("%010d_%010d", gen, epoch) }
+
+// CommitDoc is conversations/{convId}/commits/{commitDocID(gen, epoch)}: the MLS commit built on (Gen, Epoch), created
+// once (first wins) by mls_init (the group creation, (1, 0)), a commit or a reset. Data is opaque to the server. Epoch
+// is 0 for the commit of an mls_init or a reset, so it has no omitempty. ExpireAt = CreatedAt + CommitRetention (a TTL
+// field once the owner applies the policy).
+type CommitDoc struct {
+	Data      []byte    `firestore:"data"`
+	SenderID  string    `firestore:"senderId"`
+	Gen       int64     `firestore:"gen"`
+	Epoch     int64     `firestore:"epoch"`
+	CreatedAt time.Time `firestore:"createdAt"`
+	ExpireAt  time.Time `firestore:"expireAt"`
+}
+
+// WelcomeDoc is users/{uid}/dmWelcomes/{welcomeDocID(convId, gen, epoch, deviceId)}: the MLS Welcome for one device of
+// uid, accompanying the commit built on (Gen, Epoch). At most one per (conversation, device): a newer one replaces it in
+// the same transaction. Data is opaque. ExpireAt = CreatedAt + WelcomeRetention. convId and deviceId stay indexed (the
+// replacement query filters on both); data is never queried.
+type WelcomeDoc struct {
+	DeviceID  string    `firestore:"deviceId"`
+	ConvID    string    `firestore:"convId"`
+	Gen       int64     `firestore:"gen"`
+	Epoch     int64     `firestore:"epoch"`
+	Data      []byte    `firestore:"data"`
+	CreatedAt time.Time `firestore:"createdAt"`
+	ExpireAt  time.Time `firestore:"expireAt"`
+}
+
+// welcomeDocID is the id of a welcome document: the first 32 hex characters of the SHA-256 of the length-prefixed parts
+// (convId, gen, epoch, deviceId), so no two inputs share an encoding.
+func welcomeDocID(convID string, gen, epoch int64, deviceID string) string {
+	return digest32(lengthPrefixed("welcome1", convID, strconv.FormatInt(gen, 10), strconv.FormatInt(epoch, 10), deviceID))
+}
+
+// lengthPrefixed joins parts as "<len>:<part>" each, an unambiguous encoding of any strings.
+func lengthPrefixed(parts ...string) string {
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(strconv.Itoa(len(p)))
+		b.WriteByte(':')
+		b.WriteString(p)
+	}
+	return b.String()
+}
 
 func (c ConvDoc) hasParticipant(uid string) bool {
 	for _, p := range c.Participants {

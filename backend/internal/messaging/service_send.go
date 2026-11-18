@@ -17,9 +17,11 @@ import (
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -36,6 +38,7 @@ const (
 	fieldRefused      = "refused_reason"
 	fieldSilent       = "silent"
 	fieldReplay       = "replay"
+	fieldMlsInit      = "mls_init"
 	kindSend          = "send"
 	stateLabelAccept  = "accepted"
 	stateLabelRequest = "request"
@@ -47,6 +50,7 @@ const (
 	refusedBlocked          = "blocked"
 	refusedRecipientOff     = "recipient_inactive"
 	refusedRecipientFlagOff = "recipient_flag_off"
+	refusedRecipientE2EEOff = "recipient_e2ee_off"
 	refusedGone             = "gone"
 	refusedDMPolicy         = "dm_policy"
 )
@@ -68,6 +72,13 @@ func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMes
 	in, err := validateSend(uid, req)
 	if err != nil {
 		return nil, err
+	}
+	// Starting encryption: FEATURE_E2EE_DM on for the caller, after the format checks and before any lookup.
+	if in.starting() {
+		logger.SetRequestField(ctx, fieldMlsInit, true)
+		if err := s.guardE2EE(ctx, uid); err != nil {
+			return nil, err
+		}
 	}
 	// A shared post: its flags and its id shape run after the existing checks and before any lookup.
 	if in.sharedRaw != "" {
@@ -126,10 +137,6 @@ func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, e
 		return in, err
 	}
 	if enc != nil {
-		if enc.Init != nil {
-			// Task 4: starting encryption (mls_init) is not implemented yet; refused before any read, writing nothing.
-			return in, apierr.Validation("mls_init", "starting encryption is not available yet")
-		}
 		in.enc = enc
 		return in, nil
 	}
@@ -140,6 +147,48 @@ func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, e
 	in.text = norm
 	in.sharedRaw = req.GetSharedPostId()
 	return in, nil
+}
+
+// starting reports whether the request carries mls_init (starts encryption).
+func (in sendInput) starting() bool { return in.enc != nil && in.enc.Init != nil }
+
+// guardE2EE is the caller's FEATURE_E2EE_DM gate of an mls_init: FAILED_PRECONDITION + FEATURE_DISABLED with
+// metadata["feature"] = "e2ee_dm", before any lookup (the shape of guard). A nil checker is off.
+func (s *service) guardE2EE(ctx context.Context, uid string) error {
+	err := flags.Guard(ctx, func(uid, name string) bool { return s.flags != nil && s.flags.Enabled(uid, name) }, uid, keys.FlagName)
+	if err == nil {
+		return nil
+	}
+	logger.SetRequestField(ctx, "feature", keys.FlagName)
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		return ae.WithMeta("feature", keys.FlagName)
+	}
+	return err
+}
+
+// checkWelcomeDevices is the pre-transaction half of the mls_init device rule: the recipient's FEATURE_E2EE_DM (off is the
+// one CANNOT_MESSAGE, among the caller-side recipient refusals), then the ACTIVE device ids of the caller and the recipient
+// (2 queries of at most 5 documents, through Devices). The verdict is only recorded on in.enc.Init (Targets, DevicesOK):
+// the send transaction answers it after every NOT_FOUND / CANNOT_MESSAGE / LIMIT_REACHED refusal and after the replay
+// check (encGate), so a refused caller never learns whether a device id is active.
+func (s *service) checkWelcomeDevices(ctx context.Context, uid string, in sendInput) error {
+	if s.flags == nil || !s.flags.Enabled(in.peer, keys.FlagName) {
+		return s.refuse(ctx, refusedRecipientE2EEOff)
+	}
+	if s.d.Devices == nil {
+		return errors.New("messaging: mls_init has no device directory configured")
+	}
+	mine, err := s.d.Devices.ActiveDeviceIDs(ctx, uid)
+	if err != nil {
+		return fmt.Errorf("messaging: caller devices: %w", err)
+	}
+	theirs, err := s.d.Devices.ActiveDeviceIDs(ctx, in.peer)
+	if err != nil {
+		return fmt.Errorf("messaging: recipient devices: %w", err)
+	}
+	in.enc.Init.Targets, in.enc.Init.DevicesOK = welcomeTargets(in.enc.Init.DeviceIDs, uid, in.peer, mine, theirs)
+	return nil
 }
 
 func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagingv1.SendMessageResponse, error) {
@@ -186,6 +235,13 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	if reason := s.recipientRefusal(mine, in.peer, active); reason != "" {
 		return nil, s.refuse(ctx, reason)
 	}
+	// mls_init: the recipient's e2ee_dm (CANNOT_MESSAGE) and the device lookups; the device verdict is answered in the
+	// transaction.
+	if in.starting() {
+		if err := s.checkWelcomeDevices(ctx, uid, in); err != nil {
+			return nil, s.mapErr(ctx, uid, in, err)
+		}
+	}
 	// A shared post: the GetPost rules and the protected-author rule, after the recipient checks and before the
 	// transaction (NOT_FOUND "post not found" or PROTECTED_ACCOUNT, writing nothing).
 	if in.sharedRaw != "" {
@@ -201,7 +257,11 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	}
 	reqHash := requestHash(in.convID, in.text, in.sharedRaw)
 	if in.enc != nil {
-		reqHash = encRequestHash(in.convID, in.enc.Gen, in.enc.Epoch, in.enc.Ciphertext, in.enc.Commitment)
+		var extra []string
+		if in.starting() {
+			extra = append(extra, initDigest(in.enc.Init))
+		}
+		reqHash = encRequestHash(in.convID, in.enc.Gen, in.enc.Epoch, in.enc.Ciphertext, in.enc.Commitment, extra...)
 	}
 	res, err := s.d.Repo.Send(ctx, SendParams{
 		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key), Enc: in.enc,
@@ -346,6 +406,8 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 		return encryptionRequired(in.addressedConv())
 	case errors.Is(err, errNeedsInit):
 		return needsInit()
+	case errors.Is(err, errWelcomeDevices):
+		return welcomeDevicesInvalid()
 	}
 	var stale *staleEpochError
 	if errors.As(err, &stale) {

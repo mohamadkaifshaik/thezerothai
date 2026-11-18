@@ -305,7 +305,8 @@ func TestSendEnc_ReplayOfRemovedCiphertext(t *testing.T) {
 	}
 }
 
-// The encrypted shape is validated before any read; mls_init is refused for now (Task 4 implements it) and writes nothing.
+// The encrypted shape is validated before any read, mls_init's format included (before its e2ee_dm gate: the rig has
+// e2ee_dm off), writing nothing.
 func TestSendEnc_ValidationAndInitCostNoReads(t *testing.T) {
 	convID := ConversationID(alice, bob)
 	withText := encTo(key1, convID, true, 1, 1, "ct")
@@ -313,7 +314,7 @@ func TestSendEnc_ValidationAndInitCostNoReads(t *testing.T) {
 	noCommit := encTo(key1, convID, true, 1, 1, "ct")
 	noCommit.ReportCommitment = nil
 	withInit := encTo(key1, convID, false, 1, 1, "ct")
-	withInit.MlsInit = &messagingv1.MlsInit{Commit: []byte("c"), Welcome: []byte("w"), WelcomeDeviceIds: []string{devA}}
+	withInit.MlsInit = &messagingv1.MlsInit{Commit: []byte("c"), Welcome: []byte("w"), WelcomeDeviceIds: []string{devA, devA}}
 	badKey := encTo("short", convID, true, 1, 1, "ct")
 	for name, tt := range map[string]struct {
 		req   *messagingv1.SendMessageRequest
@@ -322,13 +323,13 @@ func TestSendEnc_ValidationAndInitCostNoReads(t *testing.T) {
 		"text with ciphertext": {withText, "text"},
 		"no commitment":        {noCommit, "report_commitment"},
 		"bad key first":        {badKey, "idempotency_key"},
-		"mls_init (Task 4)":    {withInit, "mls_init"},
+		"mls_init format":      {withInit, "welcome_device_ids"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t, func(r *rig) { r.repo.convs[convID] = mlsConv(1, 1) })
 			_, err := r.svc.Send(verifiedCtx(), alice, tt.req)
 			wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": tt.field})
-			if r.repo.gets+len(r.repo.sends)+r.social.calls+r.profs.calls != 0 {
+			if r.repo.gets+len(r.repo.sends)+r.social.calls+r.profs.calls+len(r.devices.calls) != 0 {
 				t.Errorf("a rejected request read or wrote: gets %d sends %d graph %d profiles %d", r.repo.gets, len(r.repo.sends), r.social.calls, r.profs.calls)
 			}
 		})

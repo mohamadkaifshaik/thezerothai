@@ -820,6 +820,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// unread_conversation_count; the push event is adapted to notifications.Emitter (a no-op until it ships adds the type).
 	// F30: the plan and community sources of ListMessageSuggestions are bound once beacons and communities exist (below).
 	suggestPlans, suggestCommunities := &latePlanMates{}, &lateCommunityMates{}
+	// The mls_init welcome-device check reads the key directory, bound below once keys is built.
+	keyDevices := &lateKeyDevices{}
 	messagingSvc := messaging.New(featureFlags, messaging.Deps{
 		Repo: messagingRepo, Social: graphSvc, Profiles: identitySvc.(identity.Directory), Events: messageNotifier{slot: notifSlot},
 		TxSocial: graphRepo, TxProfiles: identityRepo, AllowAnonymous: cfg.AuthEmulator, // Recipient graph and users doc in the send transaction
@@ -839,6 +841,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Shares:    engagementMod,
 		// F30: follow-back answers from graph's batched edge lookup; plans and communities late-bound.
 		Suggestions: messaging.SuggestionDeps{Follows: graphSvc, Plans: suggestPlans, Communities: suggestCommunities},
+		Devices:     keyDevices,
 	})
 	reporter, ok := messagingSvc.(messaging.MessageReporter)
 	if !ok {
@@ -973,6 +976,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
+	keyDir, ok := keysMod.svc.(keys.DeviceDirectory)
+	if !ok {
+		return nil, nil, errors.New("keys service does not implement DeviceDirectory")
+	}
+	keyDevices.dir = keyDir
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return keysv1connect.NewKeyServiceHandler(keysMod.server, o...)
 	})

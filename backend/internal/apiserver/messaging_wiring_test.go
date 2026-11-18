@@ -3,6 +3,7 @@ package apiserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -72,5 +73,44 @@ func TestMessageEvent_ReachesTheFanoutAsPushOnly(t *testing.T) {
 		notifications.Event{Type: notifications.TypeMessage, ActorID: "uid-a", RecipientIDs: []string{"uid-b"}})
 	if err != nil || out.Dropped != 1 || out.Created != 0 || out.Pushed != 0 {
 		t.Errorf("fan-out outcome = %+v, %v; want one dropped event and no row or push", out, err)
+	}
+}
+
+// stubDeviceDirectory answers every lookup from ids, or err.
+type stubDeviceDirectory struct {
+	ids  map[string][]string
+	err  error
+	asks []string
+}
+
+func (s *stubDeviceDirectory) ActiveDeviceIDs(_ context.Context, uid string) ([]string, error) {
+	s.asks = append(s.asks, "active|"+uid)
+	return s.ids[uid], s.err
+}
+
+func (s *stubDeviceDirectory) DeviceIDs(_ context.Context, uid string) ([]string, error) {
+	s.asks = append(s.asks, "all|"+uid)
+	return s.ids[uid], s.err
+}
+
+// TestLateKeyDevices: unbound, the mls_init device lookup fails (never "no devices"); bound, it asks the key directory's
+// ACTIVE ids and passes its answer and its error through.
+func TestLateKeyDevices(t *testing.T) {
+	l := &lateKeyDevices{}
+	if got, err := l.ActiveDeviceIDs(context.Background(), "uid-a"); !errors.Is(err, errKeyDevicesUnbound) || got != nil {
+		t.Fatalf("unbound = %v, %v; want errKeyDevicesUnbound", got, err)
+	}
+	dir := &stubDeviceDirectory{ids: map[string][]string{"uid-a": {"device-aaaaaaaaaaaa"}}}
+	l.dir = dir
+	if got, err := l.ActiveDeviceIDs(context.Background(), "uid-a"); err != nil || len(got) != 1 || got[0] != "device-aaaaaaaaaaaa" {
+		t.Fatalf("bound = %v, %v", got, err)
+	}
+	if len(dir.asks) != 1 || dir.asks[0] != "active|uid-a" {
+		t.Fatalf("directory calls = %v, want one ActiveDeviceIDs", dir.asks)
+	}
+	boom := errors.New("boom")
+	dir.err = boom
+	if _, err := l.ActiveDeviceIDs(context.Background(), "uid-a"); !errors.Is(err, boom) {
+		t.Fatalf("failure = %v, want it passed through", err)
 	}
 }

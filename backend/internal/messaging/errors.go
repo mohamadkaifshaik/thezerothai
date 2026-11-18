@@ -117,6 +117,12 @@ func needsInit() *apierr.Error {
 	return apierr.Validation("ciphertext", "this conversation is not end-to-end encrypted: start encryption with mls_init")
 }
 
+// welcomeDevicesInvalid is the VALIDATION welcome_device_ids answer of the mls_init active-device check: one text for
+// every cause, naming no id.
+func welcomeDevicesInvalid() *apierr.Error {
+	return apierr.Validation("welcome_device_ids", "welcome_device_ids must be active encryption devices of this conversation's participants, at least one of the recipient's")
+}
+
 func keyReused() *apierr.Error {
 	return apierr.Validation("idempotency_key", "this idempotency_key was already used for a different message")
 }

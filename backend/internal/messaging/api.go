@@ -129,6 +129,14 @@ func (b *UnreadBadge) UnreadConversations(ctx context.Context, uid string) (int6
 	return b.counter.CountUnreadConversations(ctx, uid)
 }
 
+// Devices is the seam to the key directory (keys.DeviceDirectory, adapted by the composition root; messaging does not
+// call the keys service): the ACTIVE encryption device ids of a user, at most 5, from one bounded query, without any
+// permission or e2ee_dm check (messaging applies its own rules first). It is read before the send transaction of an
+// mls_init only (the welcome-device check); a read failure is an error, never "no devices". Device ids are never logged.
+type Devices interface {
+	ActiveDeviceIDs(ctx context.Context, uid string) ([]string, error)
+}
+
 // TxSocial is the seam to graph.TxReader (*graph.FirestoreRepo satisfies it): the recipient's graph/{uid} read INSIDE
 // the send transaction, uncached, so a Block, Mute or Unfollow by the recipient that committed on any instance decides
 // the send, and a concurrent one conflicts with it. messaging never builds a graph path.

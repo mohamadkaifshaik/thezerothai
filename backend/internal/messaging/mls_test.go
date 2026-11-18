@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -262,5 +263,113 @@ func TestLastDocFields_AlwaysWritesEncrypted(t *testing.T) {
 		if v, ok := fields["encrypted"]; !ok || v != enc {
 			t.Fatalf("fields = %v, want encrypted=%v written", fields, enc)
 		}
+	}
+}
+
+func TestWelcomeTargets(t *testing.T) {
+	callerActive, peerActive := []string{devAlice1, devAlice2}, []string{devBob1}
+	tests := []struct {
+		name string
+		ids  []string
+		want []welcomeTarget // nil = refused
+	}{
+		{"recipient's", []string{devBob1}, []welcomeTarget{{bob, devBob1}}},
+		{"both users', in request order", []string{devAlice2, devBob1}, []welcomeTarget{{alice, devAlice2}, {bob, devBob1}}},
+		{"caller's only", []string{devAlice1}, nil},
+		{"an inactive or unknown id", []string{devBob1, devBob2}, nil},
+		{"none", nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := welcomeTargets(tt.ids, alice, bob, callerActive, peerActive)
+			if ok != (tt.want != nil) || !slices.Equal(got, tt.want) {
+				t.Fatalf("welcomeTargets = %v, %v; want %v", got, ok, tt.want)
+			}
+		})
+	}
+	// An id both users registered is the recipient's (stored once, and it counts as the recipient's).
+	got, ok := welcomeTargets([]string{devBob1}, alice, bob, []string{devBob1}, []string{devBob1})
+	if !ok || len(got) != 1 || got[0].Owner != bob {
+		t.Fatalf("shared id = %v, %v; want the recipient's", got, ok)
+	}
+}
+
+func TestInitDigest(t *testing.T) {
+	base := &mlsInit{Commit: []byte("c"), Welcome: []byte("w"), DeviceIDs: []string{devBob1, devAlice1}}
+	d := initDigest(base)
+	if !strings.HasPrefix(d, "i|") || len(d) != 2+64 {
+		t.Fatalf("digest = %q, want i| and 64 hex", d)
+	}
+	if got := initDigest(&mlsInit{Commit: []byte("c"), Welcome: []byte("w"), DeviceIDs: []string{devAlice1, devBob1}}); got != d {
+		t.Error("the same ids in another order digest differently")
+	}
+	if !slices.Equal(base.DeviceIDs, []string{devBob1, devAlice1}) {
+		t.Error("initDigest reordered the request's ids")
+	}
+	for name, other := range map[string]*mlsInit{
+		"commit":           {Commit: []byte("c2"), Welcome: []byte("w"), DeviceIDs: base.DeviceIDs},
+		"welcome":          {Commit: []byte("c"), Welcome: []byte("w2"), DeviceIDs: base.DeviceIDs},
+		"ids":              {Commit: []byte("c"), Welcome: []byte("w"), DeviceIDs: []string{devBob1}},
+		"commit<->welcome": {Commit: []byte("w"), Welcome: []byte("c"), DeviceIDs: base.DeviceIDs},
+		"boundary shift":   {Commit: []byte("cw"), Welcome: []byte(""), DeviceIDs: base.DeviceIDs},
+	} {
+		if initDigest(other) == d {
+			t.Errorf("another %s digests the same", name)
+		}
+	}
+	plain := encRequestHash("0123456789abcdef0123456789abcdef", 1, 1, []byte("ct"), testCommitment)
+	if with := encRequestHash("0123456789abcdef0123456789abcdef", 1, 1, []byte("ct"), testCommitment, d); with == plain {
+		t.Error("the init part does not change the request hash")
+	}
+}
+
+func TestWelcomeDocID(t *testing.T) {
+	conv := "0123456789abcdef0123456789abcdef"
+	id := welcomeDocID(conv, 1, 0, devBob1)
+	if !ValidID(id) {
+		t.Fatalf("id %q is not 32 lower-case hex", id)
+	}
+	seen := map[string]string{id: "base"}
+	for name, other := range map[string]string{
+		"device":     welcomeDocID(conv, 1, 0, devBob2),
+		"epoch":      welcomeDocID(conv, 1, 1, devBob1),
+		"generation": welcomeDocID(conv, 2, 0, devBob1),
+		"shifted":    welcomeDocID(conv, 11, 0, devBob1), // "1|10" vs "11|0" style ambiguity
+		"shifted2":   welcomeDocID(conv, 1, 10, devBob1),
+	} {
+		if prev, dup := seen[other]; dup {
+			t.Errorf("%s collides with %s", name, prev)
+		}
+		seen[other] = name
+	}
+	if welcomeDocID(conv, 1, 0, devBob1) != id {
+		t.Error("not deterministic")
+	}
+}
+
+// encGate's mls_init rows: the device verdict first, then an MLS conversation is STALE_EPOCH with its pair whatever pair the
+// init states (it always states (1, 1)); a NONE or new conversation passes.
+func TestEncGate_Init(t *testing.T) {
+	plain := ConvDoc{Participants: sortedPair(alice, bob), State: stateAccepted}
+	at11, at34 := mlsConv(1, 1), mlsConv(3, 4)
+	good := &encSend{Ciphertext: []byte("c"), Commitment: testCommitment, Gen: 1, Epoch: 1, Init: &mlsInit{DevicesOK: true}}
+	bad := &encSend{Ciphertext: []byte("c"), Commitment: testCommitment, Gen: 1, Epoch: 1, Init: &mlsInit{}}
+	var stale *staleEpochError
+	if err := encGate(nil, good); err != nil {
+		t.Errorf("new conversation: %v", err)
+	}
+	if err := encGate(&plain, good); err != nil {
+		t.Errorf("NONE conversation: %v", err)
+	}
+	for _, c := range []*ConvDoc{nil, &plain, &at11} {
+		if err := encGate(c, bad); !errors.Is(err, errWelcomeDevices) {
+			t.Errorf("bad devices on %+v: %v", c, err)
+		}
+	}
+	if err := encGate(&at11, good); !errors.As(err, &stale) || stale.Gen != 1 || stale.Epoch != 1 {
+		t.Errorf("MLS at (1, 1): %v, want stale (1, 1)", err)
+	}
+	if err := encGate(&at34, good); !errors.As(err, &stale) || stale.Gen != 3 || stale.Epoch != 4 {
+		t.Errorf("MLS at (3, 4): %v, want stale (3, 4)", err)
 	}
 }

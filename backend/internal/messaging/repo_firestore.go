@@ -151,7 +151,15 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // cap first reads the message document (1) because a replay of the last allowed message must replay, not refuse; so does a
 // send into an existing conversation refused by encGate (ENCRYPTION_REQUIRED, VALIDATION ciphertext, STALE_EPOCH).
 // An encrypted send (p.Enc) stores ciphertext, commitment, the pair, mlsKey and ctExpireAt on the message and an empty,
-// encrypted preview; it never writes the conversation beyond what a plaintext send writes.
+// encrypted preview; it never writes the conversation beyond what a plaintext send writes, except an mls_init.
+//
+// mls_init (p.Enc.Init) reads, after every refusal and before any write, the earlier welcome of each addressed device
+// (at most MaxWelcomeDevices queries, Limit 1 each), and writes in addition: the conversation's encryption fields (in
+// the conversation Create of a new one, or in the one Update of an existing one, merged with requestCount or state when
+// those are written too: at most 1 extra write), the commit record (1, 0) (Create), one welcome per device (Set) and
+// the delete of each device's earlier welcome: at most 1 + 1 + 10 + 10 = 22 writes beyond an ordinary send. The answers
+// it adds (encGate): the welcome-device verdict (computed before the transaction, answered after every existing refusal
+// and after the replay lookup of an existing conversation), then STALE_EPOCH for a conversation already MLS.
 //
 // Writes: the message (Create, deterministic id), the sender's dmInbox entry and the recipient's entry (field-level
 // Set with MergeAll; unreadCount is a FieldValue.Increment unless the recipient muted the caller). An accepted
@@ -296,18 +304,25 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		}
 	}
 
+	// mls_init: the earlier welcome of each addressed device, the last reads before any write (at most MaxWelcomeDevices
+	// queries). Only with a good device verdict: an existing conversation reaches here only past encGate (verdict good,
+	// not yet MLS); a new one with a bad verdict is refused below, after its quota check, and needs no reads for it.
+	starting := p.Enc != nil && p.Enc.Init != nil
+	var earlier []*firestore.DocumentRef
+	if starting && p.Enc.Init.DevicesOK {
+		if earlier, err = r.earlierWelcomes(tx, p.ConvID, p.Enc.Init.Targets); err != nil {
+			return res, err
+		}
+	}
+
 	// The stamp of the message and of both entries: the handler's clock, but strictly after either participant's
 	// clearedAt as this transaction read it (0 extra reads). A DeleteConversation that committed between the handler's
 	// clock read and this attempt would otherwise leave the recreated entry with a preview and an unread count but an
 	// empty thread (ListMessages hides createdAt <= clearedAt). It also holds whatever the clock skew between instances.
 	now := stampAfterClear(wireTime(p.Now), conv)
 	b := store.NewFirestoreTxBatch(tx)
-	msg := MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: now, SharedPostID: p.SharedPostID}
-	if p.Enc != nil {
-		// Only an encrypted message carries these fields: on a plaintext message they stay zero and omitempty leaves them out.
-		msg.Ciphertext, msg.Commitment, msg.MlsGen, msg.MlsEpoch = p.Enc.Ciphertext, p.Enc.Commitment, p.Enc.Gen, p.Enc.Epoch
-		msg.MlsKey, msg.CtExpireAt = mlsKey(p.Enc.Gen, p.Enc.Epoch), now.Add(CiphertextRetention)
-	}
+	// Only an encrypted message carries the encrypted fields: on a plaintext message they stay zero and omitempty leaves them out.
+	msg := newMsgDoc(p, now)
 	b.Create(r.msgRef(p.ConvID, p.MsgID), msg)
 
 	switch {
@@ -319,22 +334,46 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		if dec.State == stateRequest {
 			doc.RequestFrom, doc.RequestTo, doc.RequestCount = p.UID, p.PeerUID, 1
 		}
+		if starting {
+			startEncryption(&doc)
+		}
 		b.Create(r.convRef(p.ConvID), doc)
 		if qerr := quota.CheckAndReserve(b, r.quotas.Ref(p.UID), qrec, quota.DMNew, p.DMNewLimit); qerr != nil {
 			return res, ErrDMNewDaily
 		}
 		// After the recipient and quota refusals: an encrypted request cannot open a conversation without mls_init
-		// (VALIDATION ciphertext). Returning aborts the transaction, so the buffered writes above are never committed.
+		// (VALIDATION ciphertext), and an mls_init's welcome-device verdict is answered here (VALIDATION
+		// welcome_device_ids). Returning aborts the transaction, so the buffered writes above are never committed.
 		if gerr := encGate(nil, p.Enc); gerr != nil {
 			return res, gerr
 		}
 		res.Conv, res.Created = doc, true
-	case dec.IncRequest:
-		b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "requestCount", Value: firestore.Increment(1)}, {Path: "updatedAt", Value: now}})
-		res.Conv.RequestCount++
-	case dec.AcceptNow:
-		b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "state", Value: stateAccepted}, {Path: "updatedAt", Value: now}})
-		res.Conv.State, res.AcceptedByReply = stateAccepted, true
+	default:
+		// An existing conversation gets at most ONE update: the request counter or the accepting reply's state (both as
+		// before) and, for an mls_init (the upgrade of a NONE conversation), the encryption fields.
+		var ups []firestore.Update
+		updatedAt := now
+		switch {
+		case dec.IncRequest:
+			ups = append(ups, firestore.Update{Path: "requestCount", Value: firestore.Increment(1)})
+			res.Conv.RequestCount++
+		case dec.AcceptNow:
+			ups = append(ups, firestore.Update{Path: "state", Value: stateAccepted})
+			res.Conv.State, res.AcceptedByReply = stateAccepted, true
+		case starting:
+			updatedAt = notBefore(now, conv.UpdatedAt) // only moves forward (putConv)
+		}
+		if starting {
+			ups = append(ups, initUpdates()...)
+			startEncryption(&res.Conv)
+			res.Conv.UpdatedAt = updatedAt
+		}
+		if len(ups) > 0 {
+			b.Update(r.convRef(p.ConvID), append(ups, firestore.Update{Path: "updatedAt", Value: updatedAt}))
+		}
+	}
+	if starting {
+		r.putInit(b, p, earlier, now)
 	}
 	res.RecipientInRequests = dec.RecipientInRequests
 

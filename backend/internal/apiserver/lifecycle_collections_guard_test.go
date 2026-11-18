@@ -149,6 +149,16 @@ var lifecycleCollections = []collectionRow{
 	{Name: "messages", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmInbox", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmRequests", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
+	// End-to-end encrypted conversations (E2EE plan 3; gate item "lifecycle guard table" owner-approved 2026-11-18).
+	// conversations/{id}/commits/{gen_epoch} {data (opaque MLS commit), senderId, gen, epoch, createdAt, expireAt} and
+	// users/{uid}/dmWelcomes/{id} {deviceId, convId, gen, epoch, data (opaque MLS Welcome), createdAt, expireAt}, both
+	// written since plan 3 Task 4 (mls_init) and expiring 30 days after creation (TTL policy applied by the owner). The
+	// `messaging` step's handling of them (commits deleted with the conversation tree once both participants are gone;
+	// the user's dmWelcomes deleted, paged and resumable) is plan 3 Task 8, which also decides the export note; these rows
+	// are added with Task 4 because the guard refuses a pendingEraser row for a collection the code writes. The branch
+	// does not merge before Task 8.
+	{Name: "commits", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS records the user cannot read; encrypted content lives on the user's devices (plan 3 Task 8 export note)", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
+	{Name: "dmWelcomes", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS Welcomes encrypted to the user's devices, expiring after 30 days (plan 3 Task 8 export note)", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
 	// Lists/{listId} (ownerId, memberIds[] holding other users' uids). Deleting users/{uid} removes none of it. The
 	// `lists` step (lists.Eraser, BeforeIdentity after messaging) deletes the user's own lists and then removes the uid from every other
 	// list that names it (memberIds array-contains, ArrayRemove, LastUpdateTime precondition), so the sweep finds no ownerId or memberIds

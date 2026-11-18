@@ -3,6 +3,7 @@ package messaging
 import (
 	"bytes"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -65,6 +66,12 @@ type fakeRepo struct {
 	lifeErr     error
 	writes      int
 	deletedDocs int
+
+	// mls_init state (sendInit): commits keyed "convID/commitDocID", the stored welcomes, and dmNewUsed the new
+	// conversations an mls_init opened per caller (the dm_new_daily counter of the init path).
+	commits   map[string]CommitDoc
+	welcomes  []fakeWelcome
+	dmNewUsed map[string]int64
 }
 
 func (f *fakeRepo) findEntry(uid, folder, convID string) (int, bool) {
@@ -317,12 +324,28 @@ func (f *fakeRepo) GetConversation(_ context.Context, id string) (ConvDoc, bool,
 	return c, ok, nil
 }
 
+// Send runs the refusals of sendTx in its order: the participant / gone check of an existing conversation (before the
+// graph read), the recipient's block and DM policy, decideSend (the request cap answered through replayOrRefuse), the
+// encryption rule of an existing conversation (encGate, through replayOrRefuse), then for a new conversation the
+// recipient's users doc (and, for an mls_init, the dm_new_daily counter) before encGate(nil), and finally the
+// commit-time AlreadyExists replay of a message already stored under this id (f.msgs). An mls_init is applied for real
+// (sendInit: the conversation, commit, welcomes and message are stored); every other success still answers from the
+// scripted sendRes, as before.
 func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	f.mu.Lock()
 	f.sends = append(f.sends, p)
+	var conv *ConvDoc
+	if c, ok := f.convs[p.ConvID]; ok {
+		conv = &c
+	}
 	f.mu.Unlock()
 	if f.sendErr != nil {
 		return SendResult{}, f.sendErr
+	}
+	// Not a participant, or a participant of a conversation whose peer is gone: refused before the graph read.
+	if conv != nil && (!conv.hasParticipant(p.UID) || len(conv.Gone) > 0) {
+		_, derr := decideSend(conv, p.UID, false, p.MaxUnanswered)
+		return SendResult{Conv: *conv}, derr
 	}
 	// The transaction's reads, in the real order: the recipient's graph (block, mute, mutual), then for a new
 	// conversation the recipient's users doc.
@@ -333,12 +356,16 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	if theirs.Blocked[p.UID] {
 		return SendResult{}, errBlocked
 	}
-	var conv *ConvDoc
-	if c, ok := f.convs[p.ConvID]; ok {
-		conv = &c
-	}
 	if dmPolicyRefuses(conv, p.UID, p.RecipientFollowingOnly, theirs.Following[p.UID]) {
 		return SendResult{}, errDMPolicy
+	}
+	mutual := p.CallerFollowsPeer && theirs.Following[p.UID]
+	dec, derr := decideSend(conv, p.UID, mutual, p.MaxUnanswered)
+	if errors.Is(derr, ErrRequestLimit) {
+		return f.replayOrRefuse(p, *conv, derr)
+	}
+	if derr != nil {
+		return SendResult{}, derr
 	}
 	// The encryption rule of an existing conversation, after the same refusals as sendTx, with its replay lookup.
 	if conv != nil {
@@ -346,10 +373,13 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 			return f.replayOrRefuse(p, *conv, gerr)
 		}
 	}
+	if p.Enc != nil && p.Enc.Init != nil {
+		return f.sendInit(ctx, p, conv, dec, theirs)
+	}
 	f.mu.Lock()
 	res := f.sendRes
 	f.mu.Unlock()
-	res.Silent, res.Mutual = theirs.Muted[p.UID], p.CallerFollowsPeer && theirs.Following[p.UID]
+	res.Silent, res.Mutual = theirs.Muted[p.UID], mutual
 	if res.Created {
 		f.freshErr = checkRecipient(p.RecipientInTx(ctx, nil))
 		if f.freshErr != nil {
@@ -362,12 +392,12 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 			return SendResult{}, gerr
 		}
 	}
+	// The commit-time AlreadyExists of the message Create.
+	if rr, replayed, rerr := f.commitReplay(p, res.Conv); replayed {
+		return rr, rerr
+	}
 	if res.Msg.CreatedAt.IsZero() {
-		res.Msg = MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: wireTime(p.Now), SharedPostID: p.SharedPostID}
-		if p.Enc != nil {
-			res.Msg.Ciphertext, res.Msg.Commitment, res.Msg.MlsGen, res.Msg.MlsEpoch = p.Enc.Ciphertext, p.Enc.Commitment, p.Enc.Gen, p.Enc.Epoch
-			res.Msg.MlsKey, res.Msg.CtExpireAt = mlsKey(p.Enc.Gen, p.Enc.Epoch), res.Msg.CreatedAt.Add(CiphertextRetention)
-		}
+		res.Msg = newMsgDoc(p, wireTime(p.Now))
 	}
 	if res.Conv.State == "" {
 		res.Conv = ConvDoc{Kind: kindDirect, Participants: sortedPair(p.UID, p.PeerUID), State: stateAccepted}
@@ -379,6 +409,122 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	f.lastRes = res
 	f.mu.Unlock()
 	return res, nil
+}
+
+// commitReplay is the commit-time AlreadyExists of the message Create: a message already stored under this id is a
+// replay (the same request hash, or a taken-down message) or ErrKeyReused; replayed is false when none is stored.
+func (f *fakeRepo) commitReplay(p SendParams, conv ConvDoc) (SendResult, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, row := range f.msgs[p.ConvID] {
+		if row.ID != p.MsgID {
+			continue
+		}
+		if row.State != msgRemoved && row.RequestHash != p.RequestHash {
+			return SendResult{}, true, ErrKeyReused
+		}
+		return SendResult{Replay: true, Msg: row.MsgDoc, Conv: conv}, true, nil
+	}
+	return SendResult{}, false, nil
+}
+
+// fakeWelcome is one stored welcome of the fake: users/{Owner}/dmWelcomes/{ID}.
+type fakeWelcome struct {
+	Owner, ID string
+	WelcomeDoc
+}
+
+// sendInit applies an mls_init that passed every refusal before it, as sendTx does: a new conversation checks the
+// recipient's users doc and the new-conversation quota (dmNewUsed against DMNewLimit), then the welcome-device verdict
+// (encGate(nil)); then the conversation becomes MLS at (1, 1) (created, or updated with the request counter or the
+// accepting reply merged), the commit (1, 0) is created (an existing one fails, like Create), each device's earlier welcome
+// for the conversation is replaced, and the message is stored at (1, 1).
+func (f *fakeRepo) sendInit(ctx context.Context, p SendParams, conv *ConvDoc, dec sendDecision, theirs graph.Snapshot) (SendResult, error) {
+	res := SendResult{Silent: theirs.Muted[p.UID], Mutual: p.CallerFollowsPeer && theirs.Following[p.UID], RecipientInRequests: dec.RecipientInRequests}
+	if dec.CreateConv {
+		if err := checkRecipient(p.RecipientInTx(ctx, nil)); err != nil {
+			return SendResult{}, err
+		}
+		f.mu.Lock()
+		used := f.dmNewUsed[p.UID]
+		f.mu.Unlock()
+		if used+1 > p.DMNewLimit {
+			return SendResult{}, ErrDMNewDaily
+		}
+		if gerr := encGate(nil, p.Enc); gerr != nil {
+			return SendResult{}, gerr
+		}
+	}
+	now := stampAfterClear(wireTime(p.Now), conv)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	commitKey := p.ConvID + "/" + commitDocID(initGen, initEpoch)
+	if _, ok := f.commits[commitKey]; ok {
+		return SendResult{}, errors.New("fake: commit record already exists")
+	}
+	var next ConvDoc
+	if dec.CreateConv {
+		next = ConvDoc{Kind: kindDirect, Participants: sortedPair(p.UID, p.PeerUID), State: dec.State, CreatedAt: now, UpdatedAt: now}
+		if dec.State == stateRequest {
+			next.RequestFrom, next.RequestTo, next.RequestCount = p.UID, p.PeerUID, 1
+		}
+		if f.dmNewUsed == nil {
+			f.dmNewUsed = map[string]int64{}
+		}
+		f.dmNewUsed[p.UID]++
+		res.Created = true
+	} else {
+		next = *conv
+		switch {
+		case dec.IncRequest:
+			next.RequestCount++
+			next.UpdatedAt = now
+		case dec.AcceptNow:
+			next.State, next.UpdatedAt, res.AcceptedByReply = stateAccepted, now, true
+		default:
+			next.UpdatedAt = notBefore(now, conv.UpdatedAt)
+		}
+	}
+	startEncryption(&next)
+	f.convs[p.ConvID] = next
+	if f.commits == nil {
+		f.commits = map[string]CommitDoc{}
+	}
+	f.commits[commitKey] = CommitDoc{Data: p.Enc.Init.Commit, SenderID: p.UID, Gen: initGen, Epoch: initEpoch, CreatedAt: now, ExpireAt: now.Add(CommitRetention)}
+	for _, t := range p.Enc.Init.Targets {
+		f.welcomes = slices.DeleteFunc(f.welcomes, func(w fakeWelcome) bool {
+			return w.Owner == t.Owner && w.ConvID == p.ConvID && w.DeviceID == t.DeviceID
+		})
+		f.welcomes = append(f.welcomes, fakeWelcome{Owner: t.Owner, ID: welcomeDocID(p.ConvID, initGen, initEpoch, t.DeviceID), WelcomeDoc: WelcomeDoc{
+			DeviceID: t.DeviceID, ConvID: p.ConvID, Gen: initGen, Epoch: initEpoch, Data: p.Enc.Init.Welcome, CreatedAt: now, ExpireAt: now.Add(WelcomeRetention),
+		}})
+	}
+	msg := newMsgDoc(p, now)
+	if f.msgs == nil {
+		f.msgs = map[string][]MessageRow{}
+	}
+	f.msgs[p.ConvID] = append(f.msgs[p.ConvID], MessageRow{ID: p.MsgID, MsgDoc: msg})
+	res.Msg, res.Conv = msg, next
+	f.lastRes = res
+	return res, nil
+}
+
+// fakeDevices is the key directory seam: the ACTIVE device ids per user; calls records the lookups (uids).
+type fakeDevices struct {
+	mu     sync.Mutex
+	active map[string][]string
+	calls  []string
+	err    error
+}
+
+func (f *fakeDevices) ActiveDeviceIDs(_ context.Context, uid string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, uid)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return slices.Clone(f.active[uid]), nil
 }
 
 // replayOrRefuse is FirestoreRepo.replayOrRefuse over f.msgs: the stored message of this key with the same request hash
@@ -493,6 +639,7 @@ type rig struct {
 	profs    *fakeProfiles
 	events   *recEvents
 	badge    *recBadge
+	devices  *fakeDevices
 	reg      *flags.Registry
 	now      time.Time
 	limits   Limits
@@ -504,7 +651,7 @@ func newRig(t *testing.T, mut func(*rig)) *rig {
 	t.Helper()
 	r := &rig{
 		repo: &fakeRepo{convs: map[string]ConvDoc{}}, social: &fakeSocial{snaps: map[string]graph.Snapshot{}},
-		events: &recEvents{}, badge: &recBadge{}, now: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC),
+		events: &recEvents{}, badge: &recBadge{}, devices: &fakeDevices{active: map[string][]string{}}, now: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC),
 		limits: Limits{RequestMaxUnanswered: 3, DMNewPerDay: 20, NewAccountDMNewPerDay: 5, NewAccountSendsPerDay: 50, NewAccountWindow: 72 * time.Hour, ConversationCacheEntries: 100},
 		reg:    flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}),
 	}
@@ -516,7 +663,7 @@ func newRig(t *testing.T, mut func(*rig)) *rig {
 		mut(r)
 	}
 	r.svc = New(r.reg, Deps{
-		Repo: r.repo, Social: r.social, TxSocial: r.txSocial, TxProfiles: r.txProfs, AllowAnonymous: r.allowAnon, Profiles: r.profs, Events: r.events, Badge: r.badge, Limits: r.limits, CursorKey: testCursorKey, Now: func() time.Time { return r.now },
+		Repo: r.repo, Social: r.social, TxSocial: r.txSocial, TxProfiles: r.txProfs, AllowAnonymous: r.allowAnon, Profiles: r.profs, Events: r.events, Badge: r.badge, Devices: r.devices, Limits: r.limits, CursorKey: testCursorKey, Now: func() time.Time { return r.now },
 	}).(*service)
 	return r
 }

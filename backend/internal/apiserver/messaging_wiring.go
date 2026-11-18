@@ -8,6 +8,7 @@ import (
 	"time"
 
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -92,4 +93,20 @@ func (c postCards) Cards(ctx context.Context, readerUID string, postIDs []string
 		out[id] = posts.CardOf(p, now)
 	}
 	return out, nil
+}
+
+// lateKeyDevices implements messaging.Devices over keys.DeviceDirectory, bound after the key directory is built (keys is
+// built after messaging: it asks the messaging send rules through messaging.Permission). Unbound, it fails: an mls_init
+// is then an internal error, never a send whose welcome devices all read as inactive.
+type lateKeyDevices struct{ dir keys.DeviceDirectory }
+
+var _ messaging.Devices = (*lateKeyDevices)(nil)
+
+var errKeyDevicesUnbound = errors.New("messaging: key directory not bound")
+
+func (l *lateKeyDevices) ActiveDeviceIDs(ctx context.Context, uid string) ([]string, error) {
+	if l.dir == nil {
+		return nil, errKeyDevicesUnbound
+	}
+	return l.dir.ActiveDeviceIDs(ctx, uid)
 }
