@@ -1,0 +1,84 @@
+name: Setup Rust (rustup, pinned, no third-party action)
+description: >
+  Installs the pinned Rust toolchain with plain rustup (preinstalled on GitHub runners) and, optionally, the
+  wasm-bindgen CLI and cargo-deny as sha256-verified release binaries (Linux x86_64 only). Run it after checkout:
+  it checks the version against crypto/rust-toolchain.toml. Bump versions and hashes together, with
+  WASM_BINDGEN_VERSION in scripts/crypto/build-web.sh.
+inputs:
+  version:
+    description: Rust toolchain version, e.g. 1.100.0. Must equal the channel in crypto/rust-toolchain.toml.
+    required: true
+  targets:
+    description: Space-separated extra rustup targets, e.g. "wasm32-unknown-unknown".
+    required: false
+    default: ""
+  components:
+    description: Space-separated rustup components.
+    required: false
+    default: ""
+  wasm-bindgen:
+    description: '"true" installs the wasm-bindgen CLI and wasm-bindgen-test-runner (Linux x86_64 only).'
+    required: false
+    default: "false"
+  cargo-deny:
+    description: '"true" installs cargo-deny (Linux x86_64 only).'
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Install the Rust toolchain
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        TARGETS: ${{ inputs.targets }}
+        COMPONENTS: ${{ inputs.components }}
+      run: |
+        set -euo pipefail
+        pinned=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' crypto/rust-toolchain.toml)
+        if [ "$pinned" != "$VERSION" ]; then
+          echo "::error::setup-rust asks for Rust $VERSION but crypto/rust-toolchain.toml pins $pinned: bump both together"
+          exit 1
+        fi
+        args=(--profile minimal --no-self-update)
+        for c in $COMPONENTS; do args+=(-c "$c"); done
+        for t in $TARGETS; do args+=(-t "$t"); done
+        rustup toolchain install "$VERSION" "${args[@]}"
+        rustup default "$VERSION"
+        rustc --version
+        cargo --version
+
+    - name: Install wasm-bindgen CLI and cargo-deny (sha256-verified release binaries)
+      if: inputs.wasm-bindgen == 'true' || inputs.cargo-deny == 'true'
+      shell: bash
+      env:
+        WANT_WASM_BINDGEN: ${{ inputs.wasm-bindgen }}
+        WANT_CARGO_DENY: ${{ inputs.cargo-deny }}
+        # Must equal WASM_BINDGEN_VERSION in scripts/crypto/build-web.sh (the script checks it and fails closed).
+        # The hash is the one the wasm-bindgen release publishes (…musl.tar.gz.sha256sum).
+        WASM_BINDGEN_VERSION: "0.2.130"
+        WASM_BINDGEN_SHA256: 9687f3bb551b9f66f37ed32a40d7913a00f7962db653054e56857bc306c3227f
+        # The hash is the one the cargo-deny release publishes (…musl.tar.gz.sha256).
+        CARGO_DENY_VERSION: "0.21.0"
+        CARGO_DENY_SHA256: a2170b854ff697e79e39c4c538981c9c1bdd803addbae6719a4cb66b4585a903
+      run: |
+        set -euo pipefail
+        bin="$RUNNER_TEMP/rust-tools/bin"
+        mkdir -p "$bin"
+        if [ "$WANT_WASM_BINDGEN" = true ]; then
+          name="wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/$name.tar.gz"
+          echo "${WASM_BINDGEN_SHA256}  ${RUNNER_TEMP}/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/$name/wasm-bindgen" "$RUNNER_TEMP/$name/wasm-bindgen-test-runner" "$bin/"
+        fi
+        if [ "$WANT_CARGO_DENY" = true ]; then
+          name="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/$name.tar.gz"
+          echo "${CARGO_DENY_SHA256}  ${RUNNER_TEMP}/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/$name/cargo-deny" "$bin/"
+        fi
+        echo "$bin" >>"$GITHUB_PATH"

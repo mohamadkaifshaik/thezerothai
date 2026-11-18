@@ -42,8 +42,51 @@ env:
   API_MAIN_PKG: ./cmd/api
 
 jobs:
+  # Third-party Rust build scripts (build.rs and proc-macros of ~200 crates.io crates) run in `make crypto-web`, so that runs here
+  # and nowhere near credentials: read-only `contents`, no id-token, no `environment:`, no cloud auth, no secrets. The
+  # deploy job below downloads app/web/mls/ from this job (artifact: mls-web) and checks it against the hash this job outputs.
+  crypto-web:
+    name: Build the MLS wasm (no credentials)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      mls_sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust (for the MLS wasm build)
+        uses: ./.github/actions/setup-rust
+        with:
+          version: "1.100.0"
+          targets: wasm32-unknown-unknown
+          wasm-bindgen: "true"
+
+      - name: make crypto-web
+        run: make crypto-web
+
+      - name: Hash the output
+        id: hash
+        run: |
+          set -euo pipefail
+          cd app/web/mls
+          echo "sha256=$(cat dzmls_web.js dzmls_web_bg.wasm | sha256sum | cut -d' ' -f1)" >>"$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mls-web
+          path: |
+            app/web/mls/dzmls_web.js
+            app/web/mls/dzmls_web_bg.wasm
+          if-no-files-found: error
+          retention-days: 1
+
   deploy:
     name: Build, validate, promote dev
+    needs: [crypto-web]
     runs-on: ubuntu-latest
     environment: dev
     # Budget: builds + index wait (<= 12) + promote (<= 30) + recover (<= 8) must fit, so the step timeouts below always fire
@@ -123,6 +166,27 @@ jobs:
         with:
           version: "3.50.0"
           sha: ab2912035e160d9cad6306df307576da6128ebdb
+
+      # app/web/mls/ is gitignored and the web bundle copies web/ at build time: bring in the wasm built by the credential-free job.
+      - name: Download the MLS wasm
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mls-web
+          path: app/web/mls
+
+      - name: Check the MLS wasm (present and the hash the build job reported)
+        env:
+          EXPECTED_SHA256: ${{ needs.crypto-web.outputs.mls_sha256 }}
+        run: |
+          set -euo pipefail
+          for f in dzmls_web.js dzmls_web_bg.wasm; do
+            [ -s "app/web/mls/$f" ] || { echo "::error::app/web/mls/$f is missing or empty: the crypto-web job did not hand over the MLS wasm"; exit 1; }
+          done
+          actual=$(cd app/web/mls && cat dzmls_web.js dzmls_web_bg.wasm | sha256sum | cut -d' ' -f1)
+          if [ -z "$EXPECTED_SHA256" ] || [ "$actual" != "$EXPECTED_SHA256" ]; then
+            echo "::error::the downloaded MLS wasm does not match the hash the crypto-web job reported"
+            exit 1
+          fi
 
       # The web client builds BEFORE anything can be promoted: a failed client build stops the release.
       - name: Build web (not deployed yet)
