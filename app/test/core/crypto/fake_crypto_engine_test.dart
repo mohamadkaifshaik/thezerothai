@@ -437,6 +437,134 @@ void main() {
     );
   });
 
+  test('a device that is not in the group cannot commit or encrypt', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final carol = await device(3);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final carolKp = await keyPackage(carol);
+    await _fails(
+      engine.commitChange(carol.state, states[0], addKeyPackages: [carolKp]),
+      MlsErrorCode.badInput,
+    );
+    await _fails(
+      engine.encrypt(carol.state, states[0], _utf8('x')),
+      MlsErrorCode.badInput,
+    );
+
+    // An evicted device still gets evicted, not badInput.
+    final removal = await engine.commitChange(
+      alice.state,
+      states[0],
+      removeDeviceIds: [bob.id],
+    );
+    final p = await engine.process(bob.state, states[1], removal.commit);
+    await _fails(
+      engine.encrypt(bob.state, p.groupState, _utf8('x')),
+      MlsErrorCode.evicted,
+    );
+    await _fails(
+      engine.commitChange(bob.state, p.groupState, addKeyPackages: [carolKp]),
+      MlsErrorCode.evicted,
+    );
+  });
+
+  test("another member's commit drops this device's pending commit", () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final carol = await device(3);
+    final dave = await device(4);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final fromAlice = await engine.commitChange(
+      alice.state,
+      states[0],
+      addKeyPackages: [await keyPackage(carol)],
+    );
+    final fromBob = await engine.commitChange(
+      bob.state,
+      states[1],
+      addKeyPackages: [await keyPackage(dave)],
+    );
+    expect((await engine.describe(fromBob.groupState)).hasPendingCommit, true);
+
+    final p = await engine.process(
+      bob.state,
+      fromBob.groupState,
+      fromAlice.commit,
+    );
+    final info = await engine.describe(p.groupState);
+    expect(info.hasPendingCommit, isFalse);
+    expect(info.epoch, 2);
+    await _fails(
+      engine.confirmCommit(bob.state, p.groupState),
+      MlsErrorCode.noPendingCommit,
+    );
+  });
+
+  test(
+    'a commit that adds a duplicate or an existing member is refused',
+    () async {
+      final alice = await device(1);
+      final bob = await device(2);
+      final carol = await device(3);
+      final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+      await _fails(
+        engine.commitChange(
+          alice.state,
+          states[0],
+          addKeyPackages: [await keyPackage(bob)],
+        ),
+        MlsErrorCode.badInput,
+      );
+      await _fails(
+        engine.commitChange(
+          alice.state,
+          states[0],
+          addKeyPackages: [await keyPackage(carol), await keyPackage(carol)],
+        ),
+        MlsErrorCode.badInput,
+      );
+    },
+  );
+
+  test('a message from another group is refused', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final other = await engine.createGroup(alice.state, _bytes(0xB2, 32));
+    final sent = await engine.encrypt(alice.state, other, _utf8('elsewhere'));
+    await _fails(
+      engine.process(bob.state, states[1], sent.ciphertext),
+      MlsErrorCode.badInput,
+    );
+  });
+
+  test('an exhaustive switch over MlsEvent covers both outcomes', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final carol = await device(3);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final sent = await engine.encrypt(alice.state, states[0], _utf8('hi'));
+    final commit = await engine.commitChange(
+      alice.state,
+      states[0],
+      addKeyPackages: [await keyPackage(carol)],
+    );
+
+    String describeEvent(MlsEvent event) => switch (event) {
+      MlsMessageEvent(:final plaintext) => 'message:${utf8.decode(plaintext)}',
+      MlsCommitEvent(:final epoch, :final added) =>
+        'commit:$epoch:${added.length}',
+    };
+
+    final first = await engine.process(bob.state, states[1], sent.ciphertext);
+    expect(describeEvent(first.event), 'message:hi');
+    // The message above belongs to epoch 1, so the commit (also epoch 1) is
+    // processed from the original state.
+    final second = await engine.process(bob.state, states[1], commit.commit);
+    expect(describeEvent(second.event), 'commit:2:1');
+  });
+
   test('MlsErrorCode.parse maps wire strings and unknown to internal', () {
     expect(MlsErrorCode.parse('wrong_epoch'), MlsErrorCode.wrongEpoch);
     expect(

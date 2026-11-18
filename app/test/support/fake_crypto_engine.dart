@@ -106,6 +106,7 @@ class FakeCryptoEngine implements CryptoEngine {
       );
     }
     if (!group.active) throw _evicted();
+    _checkMember(group, device);
 
     final adds = <_Member>[];
     final recipients = <_Recipient>[];
@@ -244,6 +245,7 @@ class FakeCryptoEngine implements CryptoEngine {
     final device = _Device.decode(deviceState);
     final group = _Group.decode(groupState);
     if (!group.active) throw _evicted();
+    _checkMember(group, device);
     if (group.pending != null) {
       throw const MlsException(
         MlsErrorCode.pendingCommit,
@@ -444,6 +446,17 @@ class FakeCryptoEngine implements CryptoEngine {
       throw MlsException(
         MlsErrorCode.badInput,
         '$what is ${id.length} bytes, expected $_minId to $_maxId',
+      );
+    }
+  }
+
+  /// The real engine cannot act with a device that is not in the group; a
+  /// wrong-account state pairing must fail here too.
+  static void _checkMember(_Group group, _Device device) {
+    if (!group.hasMember(device.id)) {
+      throw const MlsException(
+        MlsErrorCode.badInput,
+        'this device is not a member of the group',
       );
     }
   }
