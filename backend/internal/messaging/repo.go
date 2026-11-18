@@ -121,7 +121,10 @@ type SendParams struct {
 	Text, RequestHash string
 	// SharedPostID is the original post this message shares ("" for none): stored on the message, flagged on both previews.
 	SharedPostID string
-	Now          time.Time
+	// Enc is the validated encrypted request (nil: plaintext). Text and SharedPostID are then empty and RequestHash is
+	// encRequestHash. The transaction applies encGate to the conversation it reads. Enc.Init is not handled yet (Task 4).
+	Enc *encSend
+	Now time.Time
 	// CallerFollowsPeer: the caller follows the recipient (from the caller.s cached graph, 60 s). Mutual = this AND the
 	// recipient.s FRESH Following[caller] read in the transaction; it only decides the state of a conversation this send
 	// creates.

@@ -92,9 +92,12 @@ type sendInput struct {
 	// (the original), set once the visibility check passed.
 	sharedRaw string
 	shared    SharedPost
+	// enc is the validated encrypted request (text and sharedRaw are then empty); nil for a plaintext one.
+	enc *encSend
 }
 
-// validateSend is step 1: the key, the target and the text, before any read.
+// validateSend is step 1: the key, the target and the text (or, for an encrypted request, its encrypted shape), before any
+// read.
 func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, error) {
 	var in sendInput
 	if !idempotency.KeyFormatValid(req.GetIdempotencyKey()) {
@@ -117,6 +120,18 @@ func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, e
 		in.peer, in.convID = t.RecipientUserId, ConversationID(uid, t.RecipientUserId)
 	default:
 		return in, apierr.Validation("recipient_user_id", "conversation_id or recipient_user_id is required")
+	}
+	enc, err := validateEncrypted(req)
+	if err != nil {
+		return in, err
+	}
+	if enc != nil {
+		if enc.Init != nil {
+			// Task 4: starting encryption (mls_init) is not implemented yet; refused before any read, writing nothing.
+			return in, apierr.Validation("mls_init", "starting encryption is not available yet")
+		}
+		in.enc = enc
+		return in, nil
 	}
 	norm, err := text.Normalize(req.GetText())
 	if err != nil {
@@ -184,9 +199,13 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	if s.isNewAccount(caller, now) {
 		limit = s.d.Limits.NewAccountDMNewPerDay
 	}
+	reqHash := requestHash(in.convID, in.text, in.sharedRaw)
+	if in.enc != nil {
+		reqHash = encRequestHash(in.convID, in.enc.Gen, in.enc.Epoch, in.enc.Ciphertext, in.enc.Commitment)
+	}
 	res, err := s.d.Repo.Send(ctx, SendParams{
-		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key),
-		Text: in.text, RequestHash: requestHash(in.convID, in.text, in.sharedRaw), Now: now, SharedPostID: in.shared.ID,
+		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key), Enc: in.enc,
+		Text: in.text, RequestHash: reqHash, Now: now, SharedPostID: in.shared.ID,
 		CallerFollowsPeer: mine.Following[in.peer], CallerSilent: mine.Muted[in.peer],
 		RecipientFollowingOnly: s.recipientFollowingOnly(in.peer, peer),
 		Caller:                 peerDocOf(caller), Peer: peerDocOf(peer),
@@ -323,8 +342,26 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 		return limitReached(limitDMNewDaily)
 	case errors.Is(err, ErrKeyReused):
 		return keyReused()
+	case errors.Is(err, ErrEncryptionRequired):
+		return encryptionRequired(in.addressedConv())
+	case errors.Is(err, errNeedsInit):
+		return needsInit()
+	}
+	var stale *staleEpochError
+	if errors.As(err, &stale) {
+		return staleEpoch(stale.Gen, stale.Epoch, in.addressedConv())
 	}
 	return s.failure(ctx, "send", uid, in.convID, err, in.peer, MessageID(uid, in.key))
+}
+
+// addressedConv is the conversation id an ENCRYPTION_REQUIRED or STALE_EPOCH answer carries in metadata["conversation_id"]:
+// the resolved id for a send that addressed recipient_user_id (the transaction found the caller a participant before it
+// refused), "" for one that addressed the conversation id itself.
+func (in sendInput) addressedConv() string {
+	if in.byConvID {
+		return ""
+	}
+	return in.convID
 }
 
 // isTxOp reports the ops of failure that run a Firestore transaction (the ops whose busy answer is safe to retry: they carry an
@@ -399,11 +436,28 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 		state = messagingv1.ConversationState_CONVERSATION_STATE_REQUEST
 	}
 	pd := peerDocOf(peer)
+	msg := &messagingv1.Message{
+		Id: msgID, ConversationId: convID, FromSelf: true, Text: text,
+		State: msgState, CreatedAt: created,
+	}
+	// An encrypted message: the pair always; the ciphertext and commitment only while present on a VISIBLE message (a
+	// replay of a swept or taken-down message answers ciphertext_removed instead).
+	encrypted := res.Msg.MlsGen > 0
+	if encrypted {
+		msg.MlsGeneration, msg.MlsEpoch = wirePair(res.Msg.MlsGen), wirePair(res.Msg.MlsEpoch)
+		if msgState == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && !res.Msg.CtRemoved {
+			msg.Ciphertext, msg.ReportCommitment = res.Msg.Ciphertext, res.Msg.Commitment
+		} else {
+			msg.CiphertextRemoved = true
+		}
+	}
+	convEnc := messagingv1.ConversationEncryption_CONVERSATION_ENCRYPTION_NONE
+	var convGen, convEpoch uint64
+	if res.Conv.encrypted() {
+		convEnc, convGen, convEpoch = messagingv1.ConversationEncryption_CONVERSATION_ENCRYPTION_MLS, wirePair(res.Conv.MlsGen), wirePair(res.Conv.MlsEpoch)
+	}
 	return &messagingv1.SendMessageResponse{
-		Message: &messagingv1.Message{
-			Id: msgID, ConversationId: convID, FromSelf: true, Text: text,
-			State: msgState, CreatedAt: created,
-		},
+		Message: msg,
 		Conversation: &messagingv1.Conversation{
 			Id: convID, Kind: messagingv1.ConversationKind_CONVERSATION_KIND_DIRECT,
 			Peer: &commonv1.AuthorSnapshot{
@@ -413,8 +467,10 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 			LastMessage: &messagingv1.MessagePreview{
 				Snippet: snippet, FromSelf: true, State: msgState, CreatedAt: created,
 				SharedPost: msgState == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && res.Msg.SharedPostID != "",
+				Encrypted:  encrypted,
 			},
 			CanReply: true, Silent: callerSilent, UpdatedAt: created,
+			Encryption: convEnc, MlsGeneration: convGen, MlsEpoch: convEpoch,
 		},
 	}
 }

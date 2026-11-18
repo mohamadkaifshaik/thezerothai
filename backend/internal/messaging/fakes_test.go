@@ -340,6 +340,12 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	if dmPolicyRefuses(conv, p.UID, p.RecipientFollowingOnly, theirs.Following[p.UID]) {
 		return SendResult{}, errDMPolicy
 	}
+	// The encryption rule of an existing conversation, after the same refusals as sendTx, with its replay lookup.
+	if conv != nil {
+		if gerr := encGate(conv, p.Enc); gerr != nil {
+			return f.replayOrRefuse(p, *conv, gerr)
+		}
+	}
 	f.mu.Lock()
 	res := f.sendRes
 	f.mu.Unlock()
@@ -350,16 +356,46 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 			return SendResult{}, f.freshErr
 		}
 	}
+	// A new conversation: gated after its recipient check, as sendTx gates it after the recipient and quota checks.
+	if conv == nil {
+		if gerr := encGate(nil, p.Enc); gerr != nil {
+			return SendResult{}, gerr
+		}
+	}
 	if res.Msg.CreatedAt.IsZero() {
 		res.Msg = MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: wireTime(p.Now), SharedPostID: p.SharedPostID}
+		if p.Enc != nil {
+			res.Msg.Ciphertext, res.Msg.Commitment, res.Msg.MlsGen, res.Msg.MlsEpoch = p.Enc.Ciphertext, p.Enc.Commitment, p.Enc.Gen, p.Enc.Epoch
+			res.Msg.MlsKey, res.Msg.CtExpireAt = mlsKey(p.Enc.Gen, p.Enc.Epoch), res.Msg.CreatedAt.Add(CiphertextRetention)
+		}
 	}
 	if res.Conv.State == "" {
 		res.Conv = ConvDoc{Kind: kindDirect, Participants: sortedPair(p.UID, p.PeerUID), State: stateAccepted}
+		if conv != nil {
+			res.Conv = *conv
+		}
 	}
 	f.mu.Lock()
 	f.lastRes = res
 	f.mu.Unlock()
 	return res, nil
+}
+
+// replayOrRefuse is FirestoreRepo.replayOrRefuse over f.msgs: the stored message of this key with the same request hash
+// (or a taken-down one) is a replay, with another hash ErrKeyReused, and no stored message keeps the refusal.
+func (f *fakeRepo) replayOrRefuse(p SendParams, conv ConvDoc, refusal error) (SendResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, row := range f.msgs[p.ConvID] {
+		if row.ID != p.MsgID {
+			continue
+		}
+		if row.State != msgRemoved && row.RequestHash != p.RequestHash {
+			return SendResult{}, ErrKeyReused
+		}
+		return SendResult{Replay: true, Msg: row.MsgDoc, Conv: conv}, nil
+	}
+	return SendResult{}, refusal
 }
 
 // fakeSocial serves graph snapshots.

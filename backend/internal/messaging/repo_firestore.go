@@ -148,7 +148,10 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // Reads, fresh and before any write: conversations/{convId} (1) and the recipient.s graph/{uid} (1, RecipientGraphInTx,
 // a Block, Mute or Unfollow by the recipient decides this send; a gone conversation stops before it). A missing
 // conversation adds the recipient.s users/{uid} (1, RecipientInTx) and quotas/{uid} (1): 4 in all. A send refused by the unanswered-request
-// cap first reads the message document (1) because a replay of the last allowed message must replay, not refuse.
+// cap first reads the message document (1) because a replay of the last allowed message must replay, not refuse; so does a
+// send into an existing conversation refused by encGate (ENCRYPTION_REQUIRED, VALIDATION ciphertext, STALE_EPOCH).
+// An encrypted send (p.Enc) stores ciphertext, commitment, the pair, mlsKey and ctExpireAt on the message and an empty,
+// encrypted preview; it never writes the conversation beyond what a plaintext send writes.
 //
 // Writes: the message (Create, deterministic id), the sender's dmInbox entry and the recipient's entry (field-level
 // Set with MergeAll; unreadCount is a FieldValue.Increment unless the recipient muted the caller). An accepted
@@ -267,6 +270,16 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	if derr != nil {
 		return res, derr
 	}
+	// The encryption rule (ENCRYPTION_REQUIRED, VALIDATION ciphertext, STALE_EPOCH) against the conversation this
+	// transaction read, after every existing refusal and before any write. A refused send may be the replay of a message
+	// stored under this key (the epoch moved on since, or the conversation became encrypted): it is answered as a replay,
+	// with another request as a reused key, through the same 1-read lookup as the request cap. A new conversation is gated
+	// below, after its recipient and quota checks.
+	if conv != nil {
+		if gerr := encGate(conv, p.Enc); gerr != nil {
+			return r.replayOrRefuse(ctx, tx, p, res, gerr)
+		}
+	}
 
 	var qrec quota.Record
 	if dec.CreateConv {
@@ -290,6 +303,11 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	now := stampAfterClear(wireTime(p.Now), conv)
 	b := store.NewFirestoreTxBatch(tx)
 	msg := MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: now, SharedPostID: p.SharedPostID}
+	if p.Enc != nil {
+		// Only an encrypted message carries these fields: on a plaintext message they stay zero and omitempty leaves them out.
+		msg.Ciphertext, msg.Commitment, msg.MlsGen, msg.MlsEpoch = p.Enc.Ciphertext, p.Enc.Commitment, p.Enc.Gen, p.Enc.Epoch
+		msg.MlsKey, msg.CtExpireAt = mlsKey(p.Enc.Gen, p.Enc.Epoch), now.Add(CiphertextRetention)
+	}
 	b.Create(r.msgRef(p.ConvID, p.MsgID), msg)
 
 	switch {
@@ -305,6 +323,11 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		if qerr := quota.CheckAndReserve(b, r.quotas.Ref(p.UID), qrec, quota.DMNew, p.DMNewLimit); qerr != nil {
 			return res, ErrDMNewDaily
 		}
+		// After the recipient and quota refusals: an encrypted request cannot open a conversation without mls_init
+		// (VALIDATION ciphertext). Returning aborts the transaction, so the buffered writes above are never committed.
+		if gerr := encGate(nil, p.Enc); gerr != nil {
+			return res, gerr
+		}
 		res.Conv, res.Created = doc, true
 	case dec.IncRequest:
 		b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "requestCount", Value: firestore.Increment(1)}, {Path: "updatedAt", Value: now}})
@@ -315,17 +338,18 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	}
 	res.RecipientInRequests = dec.RecipientInRequests
 
-	snippet := snippetOf(p.Text)
+	// An encrypted message has no text, so its snippet is empty; the preview says encrypted instead.
+	snippet, encrypted := snippetOf(p.Text), p.Enc != nil
 	// The sender's own entry: always dmInbox (the requester sees the conversation in the Inbox, as on X). unreadCount is
 	// not touched; createdAt is set when this send created the conversation.
 	own := map[string]any{
 		"peerId": p.PeerUID, "peer": p.Peer.fields(), "lastMessageAt": now, "changedAt": now, "silent": p.CallerSilent,
-		"last": LastDoc{MessageID: p.MsgID, FromSelf: true, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != ""}.fields(),
+		"last": LastDoc{MessageID: p.MsgID, FromSelf: true, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != "", Encrypted: encrypted}.fields(),
 	}
 	// The recipient's entry: dmRequests while the request is unaccepted, else dmInbox.
 	other := map[string]any{
 		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "changedAt": now, "silent": res.Silent,
-		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != ""}.fields(),
+		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != "", Encrypted: encrypted}.fields(),
 	}
 	if !res.Silent {
 		other["unreadCount"] = firestore.Increment(1)
@@ -358,7 +382,8 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	return res, nil
 }
 
-// replayOrRefuse answers a send the unanswered-request cap would refuse: when the message of this key already exists
+// replayOrRefuse answers a send the unanswered-request cap or the encryption rule (encGate) of an existing conversation
+// would refuse: when the message of this key already exists
 // with the same digest it is a replay (returned as a successful, write-free result), with another digest ErrKeyReused,
 // otherwise the original refusal. 1 extra read, only on this path.
 func (r *FirestoreRepo) replayOrRefuse(ctx context.Context, tx *firestore.Transaction, p SendParams, res SendResult, refusal error) (SendResult, error) {

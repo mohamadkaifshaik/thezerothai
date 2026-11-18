@@ -111,6 +111,9 @@ func TestValidateEncrypted_Fields(t *testing.T) {
 		{"init bad device id", initReq(func(r *messagingv1.SendMessageRequest) { r.MlsInit.WelcomeDeviceIds = []string{"short"} }), "welcome_device_ids"},
 		{"init duplicate device ids", initReq(func(r *messagingv1.SendMessageRequest) { r.MlsInit.WelcomeDeviceIds = []string{devA, devA} }), "welcome_device_ids"},
 		{"init empty mls_init message", &messagingv1.SendMessageRequest{Ciphertext: []byte("c"), ReportCommitment: big(32), MlsGeneration: 1, MlsEpoch: 1, MlsInit: &messagingv1.MlsInit{}}, "commit"},
+		{"text with only an epoch", &messagingv1.SendMessageRequest{Text: "x", MlsEpoch: 1}, "text"},
+		{"ciphertext only: commitment missing", &messagingv1.SendMessageRequest{Ciphertext: []byte("c")}, "report_commitment"},
+		{"init eleven device ids", initReq(func(r *messagingv1.SendMessageRequest) { r.MlsInit.WelcomeDeviceIds = elevenDevices() }), "welcome_device_ids"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -125,11 +128,33 @@ func TestValidateEncrypted_Fields(t *testing.T) {
 	}
 }
 
-func TestValidateWelcome(t *testing.T) {
-	eleven := make([]string, 11)
-	for i := range eleven {
-		eleven[i] = "device-" + strings.Repeat("x", 8) + string(rune('a'+i)) + "yyyyyyy"
+// elevenDevices is one device id more than MaxWelcomeDevices, all distinct and well-formed.
+func elevenDevices() []string {
+	out := make([]string, MaxWelcomeDevices+1)
+	for i := range out {
+		out[i] = "device-" + strings.Repeat("x", 8) + string(rune('a'+i)) + "yyyyyyy"
 	}
+	return out
+}
+
+// The upper bounds are inclusive: exactly MaxCommitBytes of commit, MaxCiphertextBytes of ciphertext and
+// MaxWelcomeDevices ids pass through the init path.
+func TestValidateEncrypted_ExactLimitsPass(t *testing.T) {
+	got, err := validateEncrypted(initReq(func(r *messagingv1.SendMessageRequest) {
+		r.Ciphertext = make([]byte, MaxCiphertextBytes)
+		r.MlsInit.Commit = make([]byte, MaxCommitBytes)
+		r.MlsInit.WelcomeDeviceIds = elevenDevices()[:MaxWelcomeDevices]
+	}))
+	if err != nil || got == nil || got.Init == nil {
+		t.Fatalf("got %v, %v; want a valid init", got, err)
+	}
+	if len(got.Init.Commit) != MaxCommitBytes || len(got.Ciphertext) != MaxCiphertextBytes || len(got.Init.DeviceIDs) != MaxWelcomeDevices {
+		t.Fatalf("init = %d commit bytes, %d ciphertext bytes, %d ids", len(got.Init.Commit), len(got.Ciphertext), len(got.Init.DeviceIDs))
+	}
+}
+
+func TestValidateWelcome(t *testing.T) {
+	eleven := elevenDevices()
 	tests := []struct {
 		name    string
 		welcome []byte
@@ -167,21 +192,32 @@ func TestValidateWelcome(t *testing.T) {
 
 func TestEncRequestHash(t *testing.T) {
 	conv := ConversationID("a", "b")
-	base := encRequestHash(conv, 1, 2, []byte("abc"))
-	if base != encRequestHash(conv, 1, 2, []byte("abc")) {
+	commit := bytes.Repeat([]byte{7}, CommitmentBytes)
+	base := encRequestHash(conv, 1, 2, []byte("abc"), commit)
+	if base != encRequestHash(conv, 1, 2, []byte("abc"), bytes.Clone(commit)) {
 		t.Fatal("identical input must hash equal")
 	}
+	otherCommit := bytes.Clone(commit)
+	otherCommit[31] = 8
 	for name, h := range map[string]string{
-		"byte":         encRequestHash(conv, 1, 2, []byte("abd")),
-		"epoch":        encRequestHash(conv, 1, 3, []byte("abc")),
-		"generation":   encRequestHash(conv, 2, 2, []byte("abc")),
-		"conversation": encRequestHash(ConversationID("a", "c"), 1, 2, []byte("abc")),
-		"shifted":      encRequestHash(conv, 12, 0, []byte("abc")),
+		"byte":         encRequestHash(conv, 1, 2, []byte("abd"), commit),
+		"epoch":        encRequestHash(conv, 1, 3, []byte("abc"), commit),
+		"generation":   encRequestHash(conv, 2, 2, []byte("abc"), commit),
+		"conversation": encRequestHash(ConversationID("a", "c"), 1, 2, []byte("abc"), commit),
+		"shifted":      encRequestHash(conv, 12, 0, []byte("abc"), commit),
+		"commitment":   encRequestHash(conv, 1, 2, []byte("abc"), otherCommit),
+		"extra part":   encRequestHash(conv, 1, 2, []byte("abc"), commit, "i|00"),
 		"plaintext":    requestHash(conv, "abc", ""),
 	} {
 		if h == base {
 			t.Errorf("%s change did not change the hash", name)
 		}
+	}
+	if encRequestHash(conv, 1, 2, []byte("abc"), commit, "i|00") != encRequestHash(conv, 1, 2, []byte("abc"), bytes.Clone(commit), "i|"+"00") {
+		t.Error("identical extra parts must hash equal")
+	}
+	if encRequestHash(conv, 1, 2, []byte("abc"), commit, "i|00") == encRequestHash(conv, 1, 2, []byte("abc"), commit, "i|01") {
+		t.Error("a different extra part did not change the hash")
 	}
 	if len(base) != 32 {
 		t.Fatalf("len = %d, want 32", len(base))

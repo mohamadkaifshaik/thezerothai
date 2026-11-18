@@ -55,31 +55,31 @@ func validateEncrypted(req *messagingv1.SendMessageRequest) (*encSend, error) {
 	if len(req.GetReportCommitment()) != CommitmentBytes {
 		return nil, apierr.Validation("report_commitment", "report_commitment must be exactly "+strconv.Itoa(CommitmentBytes)+" bytes")
 	}
-	init := req.GetMlsInit()
+	in := req.GetMlsInit()
 	gen, epoch := req.GetMlsGeneration(), req.GetMlsEpoch()
-	if gen < 1 || gen > math.MaxInt64 || (init != nil && gen != 1) {
+	if gen < 1 || gen > math.MaxInt64 || (in != nil && gen != 1) {
 		return nil, apierr.Validation("mls_generation", "mls_generation is not valid for this request")
 	}
-	if epoch < 1 || epoch > math.MaxInt64 || (init != nil && epoch != 1) {
+	if epoch < 1 || epoch > math.MaxInt64 || (in != nil && epoch != 1) {
 		return nil, apierr.Validation("mls_epoch", "mls_epoch is not valid for this request")
 	}
 	out := &encSend{Ciphertext: req.GetCiphertext(), Commitment: req.GetReportCommitment(), Gen: int64(gen), Epoch: int64(epoch)}
-	if init == nil {
+	if in == nil {
 		return out, nil
 	}
-	if n := len(init.GetCommit()); n < 1 || n > MaxCommitBytes {
+	if n := len(in.GetCommit()); n < 1 || n > MaxCommitBytes {
 		return nil, apierr.Validation("commit", "commit must be 1-"+strconv.Itoa(MaxCommitBytes)+" bytes")
 	}
-	if len(init.GetWelcome()) == 0 {
+	if len(in.GetWelcome()) == 0 {
 		return nil, apierr.Validation("welcome", "welcome is required to start encryption")
 	}
-	if len(init.GetWelcomeDeviceIds()) == 0 {
+	if len(in.GetWelcomeDeviceIds()) == 0 {
 		return nil, apierr.Validation("welcome_device_ids", "welcome_device_ids is required to start encryption")
 	}
-	if err := validateWelcome(init.GetWelcome(), init.GetWelcomeDeviceIds()); err != nil {
+	if err := validateWelcome(in.GetWelcome(), in.GetWelcomeDeviceIds()); err != nil {
 		return nil, err
 	}
-	out.Init = &mlsInit{Commit: init.GetCommit(), Welcome: init.GetWelcome(), DeviceIDs: init.GetWelcomeDeviceIds()}
+	out.Init = &mlsInit{Commit: in.GetCommit(), Welcome: in.GetWelcome(), DeviceIDs: in.GetWelcomeDeviceIds()}
 	return out, nil
 }
 
@@ -107,10 +107,46 @@ func validateWelcome(welcome []byte, deviceIDs []string) error {
 }
 
 // encRequestHash is the request hash of an encrypted send (the encrypted counterpart of requestHash, same digest32): it
-// binds the conversation, the (generation, epoch) and the SHA-256 of the ciphertext. Every part has a fixed shape (hex id,
-// decimal numbers, hex digest) and is "|"-separated, so no two inputs share an encoding. A retry must resend identical
-// bytes; different bytes under the same key read as a reused key.
-func encRequestHash(convID string, gen, epoch int64, ciphertext []byte) string {
+// binds the conversation, the (generation, epoch), the SHA-256 of the ciphertext and the report commitment (hex), so a
+// retry with the same ciphertext but another commitment is not the same request. extra appends further parts for a
+// request that carries more (mls_init: Task 4); each must have a fixed shape of its own and start with a tag ("i|" and a
+// hex digest, say), so a request without extra parts keeps this exact hash. Every part has a fixed shape (hex id, decimal
+// numbers, hex digests) and is "|"-separated, so no two inputs share an encoding. A retry must resend identical bytes;
+// different bytes under the same key read as a reused key.
+func encRequestHash(convID string, gen, epoch int64, ciphertext, commitment []byte, extra ...string) string {
 	sum := sha256.Sum256(ciphertext)
-	return digest32("send-enc|" + convID + "|" + strconv.FormatInt(gen, 10) + "|" + strconv.FormatInt(epoch, 10) + "|" + hex.EncodeToString(sum[:]))
+	s := "send-enc|" + convID + "|" + strconv.FormatInt(gen, 10) + "|" + strconv.FormatInt(epoch, 10) + "|" + hex.EncodeToString(sum[:]) +
+		"|" + hex.EncodeToString(commitment)
+	for _, part := range extra {
+		s += "|" + part
+	}
+	return digest32(s)
+}
+
+// encGate is the encryption rule of a send, applied by the send transaction to the conversation it read (nil: none yet),
+// after every existing refusal and before any write: a plaintext request (enc nil) into an MLS conversation is
+// ErrEncryptionRequired; an encrypted request into a plaintext or new conversation is errNeedsInit (VALIDATION
+// ciphertext: encryption starts only with mls_init); an encrypted request whose pair is not the conversation's current
+// pair is a *staleEpochError carrying the current pair. A request carrying mls_init never reaches it yet (Task 4).
+func encGate(conv *ConvDoc, enc *encSend) error {
+	encrypted := conv != nil && conv.encrypted()
+	switch {
+	case enc == nil && encrypted:
+		return ErrEncryptionRequired
+	case enc == nil:
+		return nil
+	case !encrypted:
+		return errNeedsInit
+	case enc.Gen != conv.MlsGen || enc.Epoch != conv.MlsEpoch:
+		return &staleEpochError{Gen: conv.MlsGen, Epoch: conv.MlsEpoch}
+	}
+	return nil
+}
+
+// wirePair is a stored generation or epoch as the uint64 the wire carries (stored values are >= 1; anything else is 0).
+func wirePair(v int64) uint64 {
+	if v < 1 {
+		return 0
+	}
+	return uint64(v)
 }

@@ -3,6 +3,7 @@ package messaging
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"connectrpc.com/connect"
 
@@ -24,7 +25,19 @@ var (
 	ErrKeyReused = errors.New("messaging: idempotency key reused with a different request")
 	// ErrNotFound is a conversation that does not exist or that the caller is not a participant of.
 	ErrNotFound = errors.New("messaging: not found")
+	// ErrEncryptionRequired is a plaintext send into an end-to-end encrypted (MLS) conversation.
+	ErrEncryptionRequired = errors.New("messaging: conversation is end-to-end encrypted")
 )
+
+// errNeedsInit is an encrypted send without mls_init into a plaintext conversation or one that does not exist yet: the
+// wire answer is VALIDATION ciphertext (needsInit).
+var errNeedsInit = errors.New("messaging: encrypted message into a conversation that is not encrypted")
+
+// staleEpochError is an encrypted send built on a (generation, epoch) that is not the conversation's current pair, as the
+// send transaction read it. Gen and Epoch are that current pair; the wire answer is staleEpoch.
+type staleEpochError struct{ Gen, Epoch int64 }
+
+func (e *staleEpochError) Error() string { return "messaging: stale epoch" }
 
 // errRecipientInactive is ErrCannotMessage for a recipient whose fresh status read (a new conversation) was
 // not ACTIVE. It only exists to give the log its own refused_reason; the wire answer is the same.
@@ -76,6 +89,32 @@ const notFoundText = "conversation not found"
 
 func notFound() *apierr.Error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, notFoundText)
+}
+
+// encryptionRequired is FAILED_PRECONDITION + ENCRYPTION_REQUIRED. convID is set (metadata["conversation_id"]) only for a
+// send that addressed recipient_user_id, whose caller the transaction found to be a participant; "" adds nothing.
+func encryptionRequired(convID string) *apierr.Error {
+	e := apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ENCRYPTION_REQUIRED, "this conversation is end-to-end encrypted: update the app to send to it")
+	if convID != "" {
+		e = e.WithMeta("conversation_id", convID)
+	}
+	return e
+}
+
+// staleEpoch is FAILED_PRECONDITION + STALE_EPOCH with the conversation's current pair in metadata["generation"] and
+// metadata["epoch"]; convID as for encryptionRequired.
+func staleEpoch(gen, epoch int64, convID string) *apierr.Error {
+	e := apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_STALE_EPOCH, "the conversation's encryption moved on: sync and retry").
+		WithMeta("generation", strconv.FormatInt(gen, 10)).WithMeta("epoch", strconv.FormatInt(epoch, 10))
+	if convID != "" {
+		e = e.WithMeta("conversation_id", convID)
+	}
+	return e
+}
+
+// needsInit is the VALIDATION ciphertext answer of an encrypted send into a conversation that is not encrypted.
+func needsInit() *apierr.Error {
+	return apierr.Validation("ciphertext", "this conversation is not end-to-end encrypted: start encryption with mls_init")
 }
 
 func keyReused() *apierr.Error {
