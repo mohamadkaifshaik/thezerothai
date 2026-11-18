@@ -5,24 +5,29 @@
 //
 //   wrap   {alias: String, dataKey: Uint8List(32)} -> null
 //          Create-if-absent. When a wrapped key is already stored for alias it
-//          answers `exists` and changes nothing. Otherwise it replaces any
-//          orphan Keystore key under alias with a new AES-256-GCM key, wraps
-//          dataKey with it and stores iv || ciphertext+tag (base64) in the
-//          private SharedPreferences file dzeroth_vault_keys under alias.
-//          Replies only after the write is on disk.
+//          answers `exists` and changes nothing. Otherwise it generates a new
+//          AES-256-GCM Keystore key under alias (replacing an unreachable key
+//          left there without a stored value), wraps dataKey with it and then
+//          stores iv || ciphertext+tag (base64) in the private
+//          SharedPreferences file dzeroth_vault_keys under alias. Replies only
+//          after the write is on disk.
 //   unwrap {alias: String} -> Uint8List (the data key)
 //          Kotlin retries once after a short delay before answering
-//          `unavailable`.
-//   delete {alias: String} -> null   (idempotent: deletes the Keystore key and
-//          the stored wrapped key)
+//          `unavailable`, and when the Keystore returns no key.
+//   delete {alias: String} -> null   (idempotent: removes the stored wrapped
+//          key first, then the Keystore key)
+//
+// Kotlin runs wrap, unwrap and delete under one process-wide lock, so two
+// FlutterEngines never interleave.
 //
 // Error codes (PlatformException.code; message is fixed text, details null):
 //   no_key       unwrap: no stored wrapped key for alias (first use).
 //   exists       wrap: a wrapped key is already stored; nothing changed.
-//   key_lost     unwrap: a stored key exists but is gone for good: Keystore
-//                alias missing, bad tag, malformed stored bytes, or a
-//                permanently invalidated / permanently failed key (see the
-//                Kotlin header for the exact exceptions and codes).
+//   key_lost     unwrap: a stored key exists but is gone for good: no Keystore
+//                key on both attempts and the alias absent, bad tag,
+//                malformed stored bytes, or a permanently invalidated /
+//                permanently failed key (see the Kotlin header for the exact
+//                exceptions and codes).
 //   unavailable  anything else, transient failures included.
 //
 // Dart maps key_lost to VaultKeyFailure.keyLost and every other error
@@ -68,8 +73,13 @@ Future<void> platformDeleteVaultKey(String uid) =>
 
 /// [platformDeleteVaultKey] with the platform check passed in, for tests.
 @visibleForTesting
-Future<void> deleteIoVaultKey({required String uid, required bool isAndroid}) {
-  _requireAndroid(isAndroid);
+Future<void> deleteIoVaultKey({
+  required String uid,
+  required bool isAndroid,
+}) async {
+  _requireAndroid(
+    isAndroid,
+  ); // async: off Android a failed Future, like the web
   final alias = vaultKeyAlias(uid);
   return _serialized(alias, () => _deleteAlias(alias));
 }

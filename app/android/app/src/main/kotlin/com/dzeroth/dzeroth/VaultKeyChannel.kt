@@ -11,6 +11,7 @@ import android.util.Base64
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.security.InvalidKeyException
 import java.security.KeyStore
 import java.security.ProviderException
 import java.security.UnrecoverableKeyException
@@ -36,35 +37,44 @@ import javax.crypto.spec.GCMParameterSpec
  *
  *   wrap   {alias: String, dataKey: ByteArray(32)} -> null
  *          Create-if-absent: when a value is already stored under alias it
- *          answers `exists` and changes nothing. Otherwise it deletes any
- *          orphan Keystore key under alias, generates a new one, encrypts
- *          dataKey (the Keystore picks the IV) and stores
- *          base64(iv(12) || ciphertext || tag(16)) under alias. Replies after
+ *          answers `exists` and changes nothing. Otherwise it generates a new
+ *          Keystore key under alias, encrypts dataKey (the Keystore picks the
+ *          IV) and then stores base64(iv(12) || ciphertext || tag(16)) under
+ *          alias. A Keystore key already under alias without a stored value
+ *          is not deleted first: generateKey replaces the alias, and that old
+ *          key was unreachable (it wrapped nothing that is stored). A failure
+ *          before the write leaves no stored value. Replies after
  *          SharedPreferences.commit() reports the write done.
  *   unwrap {alias: String} -> ByteArray (the data key). An attempt that would
- *          answer `unavailable` is retried once, after RETRY_DELAY_MS on the
- *          worker thread.
- *   delete {alias: String} -> null (idempotent; Keystore key and stored value)
+ *          answer `unavailable`, or that finds getKey == null, is retried
+ *          once after RETRY_DELAY_MS on the worker thread.
+ *   delete {alias: String} -> null (idempotent). The stored value is removed
+ *          first, then the Keystore key, so no path leaves a stored value
+ *          without its key.
  *   any other method -> notImplemented
+ *
+ * wrap, unwrap and delete hold one process-wide lock (companion LOCK), so two
+ * FlutterEngines (two instances of this class) never interleave.
  *
  * Error codes (message is fixed text, details always null; no key bytes and no
  * exception message ever goes back):
  *   no_key       unwrap: the preferences hold no value for alias.
  *   exists       wrap: a value is already stored for alias; nothing changed.
  *   key_lost     unwrap: a value is stored but the key is gone for good:
- *                - the Keystore has no key under alias (getKey returns null);
+ *                - getKey returns null on both attempts AND containsAlias(alias)
+ *                  is false after the second (true, or a throw: unavailable);
  *                - the stored value is not base64 or has the wrong length;
  *                - AEADBadTagException (the stored value does not authenticate);
  *                - KeyPermanentlyInvalidatedException, thrown or anywhere in
  *                  the cause chain;
- *                - UnrecoverableKeyException whose cause chain holds
- *                  KeyPermanentlyInvalidatedException or, on API 33+, an
+ *                - UnrecoverableKeyException (getKey) or InvalidKeyException
+ *                  (Cipher.init) whose cause chain holds, on API 33+, an
  *                  android.security.KeyStoreException that is permanent
  *                  (!isTransientFailure && !isSystemError) with code
  *                  ERROR_KEY_DOES_NOT_EXIST or ERROR_KEY_CORRUPTED.
  *   unavailable  everything else, after the retry: any other
- *                UnrecoverableKeyException, ProviderException,
- *                InvalidKeyException, KeyStoreException, storage failures,
+ *                UnrecoverableKeyException or InvalidKeyException,
+ *                ProviderException, KeyStoreException, storage failures,
  *                bad arguments (wrong type or size). A transient failure is
  *                never key_lost, because Dart treats key_lost as data loss.
  *
@@ -111,12 +121,16 @@ class VaultKeyChannel(context: Context, messenger: BinaryMessenger) {
         try {
             executor.execute {
                 val reply: Reply = try {
-                    when (call.method) {
-                        "wrap" -> wrap(alias, dataKey!!)
-                        "unwrap" -> unwrapWithRetry(alias)
-                        else -> {
-                            delete(alias)
-                            Reply.Success(null)
+                    // One lock for the whole process: two engines (two
+                    // VaultKeyChannel instances) never interleave on an alias.
+                    synchronized(LOCK) {
+                        when (call.method) {
+                            "wrap" -> wrap(alias, dataKey!!)
+                            "unwrap" -> unwrapWithRetry(alias)
+                            else -> {
+                                delete(alias)
+                                Reply.Success(null)
+                            }
                         }
                     }
                 } catch (e: Throwable) {
@@ -148,8 +162,10 @@ class VaultKeyChannel(context: Context, messenger: BinaryMessenger) {
     private fun wrap(alias: String, dataKey: ByteArray): Reply {
         val prefs = prefs()
         if (prefs.contains(alias)) return Reply.Error(EXISTS, "already stored")
-        val store = keyStore()
-        if (store.containsAlias(alias)) store.deleteEntry(alias) // orphan, no value
+        // A Keystore key left under alias without a stored value is not
+        // deleted first: generateKey replaces the alias, and the old key was
+        // unreachable anyway (it wraps nothing that is stored). The value is
+        // written only after the new key exists and has wrapped dataKey.
         val key = generateKey(alias)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key) // randomized: the Keystore picks the IV
@@ -168,10 +184,29 @@ class VaultKeyChannel(context: Context, messenger: BinaryMessenger) {
 
     private fun unwrapWithRetry(alias: String): Reply {
         val first = unwrapClassified(alias)
-        if (first !is Reply.Error || first.code != UNAVAILABLE) return first
+        if (!first.isRetryable()) return first
         Thread.sleep(RETRY_DELAY_MS) // the worker thread, never the main thread
-        return unwrapClassified(alias)
+        val second = unwrapClassified(alias)
+        if (second !is Reply.Error || second.code != KEY_MISSING) return second
+        if ((first as Reply.Error).code != KEY_MISSING) {
+            return Reply.Error(UNAVAILABLE, "key store unavailable")
+        }
+        // getKey returned null on both attempts. On API 24-30 a transient
+        // Keystore failure can look like that, so it is key_lost only when
+        // the Keystore also says the alias is not there.
+        return try {
+            if (keyStore().containsAlias(alias)) {
+                Reply.Error(UNAVAILABLE, "key store unavailable")
+            } else {
+                Reply.Error(KEY_LOST, "key lost")
+            }
+        } catch (e: Exception) {
+            Reply.Error(UNAVAILABLE, "key store unavailable")
+        }
     }
+
+    private fun Reply.isRetryable() =
+        this is Reply.Error && (code == UNAVAILABLE || code == KEY_MISSING)
 
     private fun unwrapClassified(alias: String): Reply = try {
         unwrap(alias)
@@ -190,8 +225,9 @@ class VaultKeyChannel(context: Context, messenger: BinaryMessenger) {
         if (wrapped.size != IV_BYTES + DATA_KEY_BYTES + TAG_BYTES) {
             return Reply.Error(KEY_LOST, "key lost")
         }
+        // Null: maybe gone, maybe transient; unwrapWithRetry decides.
         val key = keyStore().getKey(alias, null) as? SecretKey
-            ?: return Reply.Error(KEY_LOST, "key lost")
+            ?: return Reply.Error(KEY_MISSING, "key missing")
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BYTES * 8, wrapped, 0, IV_BYTES))
         return try {
@@ -205,7 +241,8 @@ class VaultKeyChannel(context: Context, messenger: BinaryMessenger) {
     /** Whether [e] means the Keystore key is gone for good (see the header). */
     private fun isKeyGone(e: Throwable): Boolean {
         if (causeChain(e).any { it is KeyPermanentlyInvalidatedException }) return true
-        if (e !is UnrecoverableKeyException) return false
+        // getKey throws UnrecoverableKeyException, Cipher.init InvalidKeyException.
+        if (e !is UnrecoverableKeyException && e !is InvalidKeyException) return false
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
         return causeChain(e).any { isPermanentKeyStoreFailure(it) }
     }
@@ -223,10 +260,13 @@ class VaultKeyChannel(context: Context, messenger: BinaryMessenger) {
         generateSequence(e) { t -> t.cause?.takeIf { it !== t } }.take(MAX_CAUSE_DEPTH)
 
     private fun delete(alias: String) {
-        val store = keyStore()
-        if (store.containsAlias(alias)) store.deleteEntry(alias)
+        // The stored value goes first: a failure after it leaves at most an
+        // unreachable Keystore key, never a stored value without its key
+        // (which the next unwrap would report as key_lost).
         val ok = prefs().edit().remove(alias).commit()
         if (!ok) throw IllegalStateException("write failed")
+        val store = keyStore()
+        if (store.containsAlias(alias)) store.deleteEntry(alias)
     }
 
     private fun generateKey(alias: String): SecretKey {
@@ -247,8 +287,8 @@ class VaultKeyChannel(context: Context, messenger: BinaryMessenger) {
         return try {
             keyGenerator(spec(alias).setIsStrongBoxBacked(true).build())
         } catch (e: ProviderException) {
-            val store = keyStore()
-            if (store.containsAlias(alias)) store.deleteEntry(alias)
+            // Nothing to clean up: the TEE generation replaces the alias, and
+            // no value is stored for it until that key has wrapped dataKey.
             null
         }
     }
@@ -289,5 +329,11 @@ class VaultKeyChannel(context: Context, messenger: BinaryMessenger) {
         private const val EXISTS = "exists"
         private const val KEY_LOST = "key_lost"
         private const val UNAVAILABLE = "unavailable"
+
+        // Internal only, never sent: getKey returned null (see unwrapWithRetry).
+        private const val KEY_MISSING = "key_missing"
+
+        // Serializes wrap, unwrap and delete across every instance in the process.
+        private val LOCK = Any()
     }
 }

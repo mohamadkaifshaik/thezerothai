@@ -106,9 +106,14 @@ Future<VaultCipher> openVaultCipher({
 /// (idempotent). Rows sealed under it can never be opened again. Used by the
 /// wipe paths for a user whose cipher is not open.
 ///
-/// Throws [VaultKeyException] with [VaultKeyFailure.unavailable] when the
-/// platform store cannot be used, and [UnsupportedError] where there is no
-/// vault.
+/// Fails (always as a failed Future, never a synchronous throw) with
+/// [VaultKeyException] and [VaultKeyFailure.unavailable] when the platform
+/// store cannot be used, and with [UnsupportedError] where there is no vault.
+///
+/// A [VaultCipher] that outlives a [deleteVaultKey] or [VaultCipher.destroy]
+/// of its key is a caller error: it may keep sealing rows under a key that is
+/// no longer stored, and those rows are lost on the next open. The vault
+/// session owns that ordering (end the cipher first, then delete).
 Future<void> deleteVaultKey({required String uid}) =>
     impl.platformDeleteVaultKey(uid);
 

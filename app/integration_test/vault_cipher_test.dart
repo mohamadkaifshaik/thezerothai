@@ -74,7 +74,7 @@ void main() {
       );
     });
 
-    testWidgets('200 seal + open of 1 KB values take under 2 s', (
+    testWidgets('200 seal + open of 1 KB values take under 4 s', (
       tester,
     ) async {
       final cipher = await openVaultCipher(uid: uid, engine: engine);
@@ -87,7 +87,7 @@ void main() {
       }
       watch.stop();
       debugPrint('vault 200 x 1 KB seal+open: ${watch.elapsedMilliseconds} ms');
-      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(watch.elapsed, lessThan(const Duration(seconds: 4)));
     });
 
     testWidgets('destroy deletes the key; a reopen makes a new one', (

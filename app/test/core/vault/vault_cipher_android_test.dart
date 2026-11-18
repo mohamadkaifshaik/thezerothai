@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/vault/vault_cipher.dart';
 import 'package:dzeroth/core/vault/vault_cipher_android.dart';
+import 'package:dzeroth/core/vault/vault_cipher_stub.dart' as stub;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -497,12 +498,19 @@ void main() {
       deleteIoVaultKey(uid: 'user-1', isAndroid: true),
       _keyFailure(VaultKeyFailure.unavailable),
     );
-    expect(
-      () => deleteIoVaultKey(uid: 'user-1', isAndroid: false),
-      throwsUnsupportedError,
-    );
+    // Off Android the failure is a failed Future, like the web, never a
+    // synchronous throw.
+    final offAndroid = deleteIoVaultKey(uid: 'user-1', isAndroid: false);
+    await expectLater(offAndroid, throwsUnsupportedError);
     // The VM test host is never Android.
-    expect(() => deleteVaultKey(uid: 'user-1'), throwsUnsupportedError);
+    final onHost = deleteVaultKey(uid: 'user-1');
+    await expectLater(onHost, throwsUnsupportedError);
+  });
+
+  test('the stub deleteVaultKey fails asynchronously', () async {
+    final pending = stub.platformDeleteVaultKey('user-1');
+    await expectLater(pending, throwsUnsupportedError);
+    expect(await stub.platformVaultStoragePersisted(), isFalse);
   });
 
   test('vaultStoragePersisted is true on Android, false elsewhere', () async {
