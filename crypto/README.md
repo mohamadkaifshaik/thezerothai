@@ -8,9 +8,13 @@ Rust workspace for Dzeroth's end-to-end encryption core.
 
 ```
 cd crypto
-cargo test -p dzmls
-cargo fmt --check && cargo clippy -p dzmls --all-targets -- -D warnings
+cargo test -p dzmls --locked
+cargo fmt --check && cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
+
+**Callers must serialize calls.** The engine keeps no memory between calls. If two calls run on the same blob at
+once, both succeed and one result is lost. Run calls that take or return a device state one at a time per device,
+and calls on a group state one at a time per group.
 
 The toolchain is pinned to Rust `1.100.0` in `rust-toolchain.toml`. On Windows, use the GNU host
 (`rustup set default-host x86_64-pc-windows-gnu`) unless the MSVC build tools are installed.
@@ -20,7 +24,7 @@ The toolchain is pinned to Rust `1.100.0` in `rust-toolchain.toml`. On Windows, 
 From the repo root:
 
 ```
-make crypto-test   # rustfmt check, clippy (-D warnings), host tests incl. the vectors replay, cargo deny (if installed)
+make crypto-test   # rustfmt check, clippy on all targets (-D warnings), host tests incl. the vectors replay, cargo deny (if installed)
 make crypto-web    # wasm build + wasm-bindgen into app/web/mls/ (gitignored)
 ```
 
@@ -54,10 +58,6 @@ the crate is in `Cargo.lock` but not in the build graph of any target, so cargo-
 4. **Never regenerate `vectors-v1.json`.** If the replay fails, the new version cannot read state that devices already hold:
    stop and ask. A deliberate format change adds `vectors-v2.json` beside it (see "Test vectors").
 5. Commit `Cargo.toml`, `Cargo.lock` and the README together; dependency bumps are ask-first in this repo.
-
-**Callers must serialize calls.** The engine keeps no memory between calls. If two calls run on the same blob at
-once, both succeed and one result is lost. Run calls that take or return a device state one at a time per device,
-and calls on a group state one at a time per group.
 
 ## Browser tests
 
@@ -147,8 +147,8 @@ committed. It resolves `openmls_traits 0.6.0`, `openmls_memory_storage 0.6.0`, `
 - **S1-3 (non-atomic state against storage):** the engine is unaffected. Each call loads the blobs into a fresh
   in-memory storage. It returns new blobs only when the whole operation succeeds. On an error the caller keeps its
   previous blobs.
-- **S0-1 (unbounded allocations):** later tasks limit wire input to 65536 bytes and plaintext to 4096 bytes before
-  anything reaches OpenMLS.
+- **S0-1 (unbounded allocations):** the engine refuses wire input (key packages, Welcomes, messages) over 65536 bytes,
+  plaintext over 4096 bytes and batches over 100 key packages or removals before anything reaches OpenMLS.
 
 ### Security advisories checked
 
