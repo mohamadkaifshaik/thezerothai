@@ -258,7 +258,14 @@ class AndroidVaultCipher implements VaultCipher {
     if (_closed) throw StateError('The vault cipher was destroyed.');
     _inFlight++;
     try {
-      final result = await body(_key);
+      final T result;
+      try {
+        result = await body(_key);
+      } on Object {
+        // A late failure may be the zeroed key's doing: not a bad row.
+        if (_zeroed) throw StateError('The vault cipher was destroyed.');
+        rethrow;
+      }
       if (_zeroed) throw StateError('The vault cipher was destroyed.');
       return result;
     } finally {

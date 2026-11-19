@@ -184,12 +184,19 @@ List<String> memberReferences(
 List<String> assignmentsTo(String source, Set<String> names) {
   if (names.isEmpty) return const [];
   final text = stripSource(source, keepStrings: false);
+  final alt = names.map(RegExp.escape).join('|');
   final pattern = RegExp(
-    r'(?<![\w$])(' +
-        names.map(RegExp.escape).join('|') +
-        r')\s*(?:\?\?=|=(?![=>]))',
+    r'(?<![\w$])(' + alt + r')\s*(?:\?\?=|[|&^]=|=(?![=>]))',
   );
-  return [for (final m in pattern.allMatches(text)) m.group(1)!];
+  // Record / pattern destructuring: `(debugX, _) = (true, 0);` (one level of
+  // parentheses; `(...) =>` and `(...) ==` are not assignments).
+  final destructuring = RegExp(
+    r'\([^()]*(?<![\w$])(' + alt + r')(?![\w$])[^()]*\)\s*=(?![=>])',
+  );
+  return [
+    for (final m in pattern.allMatches(text)) m.group(1)!,
+    for (final m in destructuring.allMatches(text)) m.group(1)!,
+  ];
 }
 
 /// References (calls AND tear-offs) to the destructive vault operations in

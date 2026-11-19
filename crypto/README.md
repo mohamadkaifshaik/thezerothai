@@ -235,12 +235,13 @@ one key to about 2^32 seals; a device writes far fewer rows than that over the l
 - Code outside `core/vault` reaches the vault through `VaultSession`, `SecureVault`, `VaultStatus` and `KeyedMutex`
   only, with one exception: at start-up `app/lib/app/bootstrap.dart` wires the production cipher, markers, opener and
   owner into the session (`openVaultCipher`, `deleteVaultKeyForAlias`, `DriftVaultMarkers`, `vaultMarkersPersistent`,
-  `openVault`, `wipeVaultFileForAlias`, `createVaultOwner`); the guard allowlists exactly those imports and those two
-  destructive tear-offs there.
+  `openVault`, `wipeVaultFileForAlias`, `createVaultOwner`); the guard allowlists the files that may be imported from
+  outside `core/vault` (the four above for everyone; the four wiring files only for `bootstrap.dart`), never a
+  platform implementation file, and exempts only those two destructive tear-offs in `bootstrap.dart`.
 - The vault never opens in memory, and on the web never on the per-tab ("unsafe") IndexedDB storage.
 - A lost key (`keyLost`) is acted on only after it is seen on two separate launches at least one hour apart
-  (`kVaultKeyLossConfirmAfter`). `unavailable` and `storageChanged` never wipe; every `unavailable` or
-  `storageChanged` launch breaks the streak.
+  (`kVaultKeyLossConfirmAfter`). `unavailable` and `storageChanged` never wipe; every `unavailable` outcome of
+  opening the vault, and every `storageChanged` launch, clears the streak.
 - An explicit sign-out or account deletion wipes. A DIFFERENT user signing in on the device wipes the previous
   user's vault. A key loss confirmed as above wipes, and so does the explicit reset of a `storageChanged` vault
   (`resetVaultForStorageChange`, not yet called by any UI). A session that ends any other way (revoked token, auth

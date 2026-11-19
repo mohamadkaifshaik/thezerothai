@@ -179,6 +179,10 @@ Future<void> deleteVaultFilesAt(String path, {VaultWipeStop? stop}) async {
   for (final suffix in const ['', '-journal', '-wal', '-shm']) {
     if (stop?.call() ?? false) throw StateError('vault wipe stopped');
     final file = File('$path$suffix');
-    if (await file.exists()) await file.delete();
+    if (await file.exists()) {
+      // The await above is a gap: ask again right before deleting.
+      if (stop?.call() ?? false) throw StateError('vault wipe stopped');
+      await file.delete();
+    }
   }
 }

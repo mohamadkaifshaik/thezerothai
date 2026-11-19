@@ -514,6 +514,12 @@ void main() {
         'if (a) {} else debugLocksProvider = f;',
         'switch (x) { case 1: debugCorruptWebVaultReadBack = true; }',
         "String g() { return debugWebCryptoKeyConstructorName = 'x'; }",
+        'debugFailWebVaultKeyCheck |= true;',
+        'debugFailWebVaultKeyCheck ^= true;',
+        'debugFailWebVaultKeyCheck &= false;',
+        'debugFailWebVaultKeyCheck ??= y;',
+        '(debugFailWebVaultKeyCheck, _) = (true, 0);',
+        '(a, debugCorruptWebVaultReadBack) = f();',
       ]) {
         expect(assignmentsTo(bad, _vaultDebugHooks), isNotEmpty, reason: bad);
       }
@@ -543,6 +549,8 @@ void main() {
         '// debugFailWebVaultKeyCheck = true;',
         "final s = 'debugFailWebVaultKeyCheck = true';",
         'final xdebugFailWebVaultKeyCheck = true;',
+        'final g = (debugLocksProvider) => 1;',
+        'final h = (debugLocksProvider, a) == b;',
       ]) {
         expect(assignmentsTo(ok, _vaultDebugHooks), isEmpty, reason: ok);
       }

@@ -133,6 +133,19 @@ class _LateReadEngine extends _CapturingEngine {
   }
 }
 
+/// open waits on [openGate], then fails as an authentication failure does
+/// (badInput): what a late call reading a zeroed key would produce.
+class _LateFailingOpenEngine extends _CapturingEngine {
+  Completer<void>? openGate;
+
+  @override
+  Future<Uint8List> open(Uint8List key, Uint8List aad, Uint8List sealed) async {
+    final g = openGate;
+    if (g != null) await g.future;
+    throw const MlsException(MlsErrorCode.badInput, 'authentication failed');
+  }
+}
+
 Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
 
 Future<VaultCipher> _open(FakeCryptoEngine engine, {String uid = 'user-1'}) =>
@@ -510,6 +523,23 @@ void main() {
     expect(keystore.calls.last.method, 'delete');
     late.sealGate!.complete();
     await expectLater(sealing, throwsStateError);
+  });
+
+  test('a late open that fails after destroy zeroed the key reports the '
+      'cipher as destroyed, not an undecryptable row', () async {
+    final late = _LateFailingOpenEngine();
+    final cipher = await openIoVaultCipher(
+      uid: 'user-1',
+      engine: late,
+      isAndroid: true,
+      destroyWait: const Duration(milliseconds: 50),
+    );
+    late.openGate = Completer<void>();
+    final opening = cipher.open('messages', 'r1', _b('sealed'));
+    await pumpEventQueue();
+    await cipher.destroy().timeout(const Duration(seconds: 5));
+    late.openGate!.complete();
+    await expectLater(opening, throwsStateError);
   });
 
   test('deleteVaultKey deletes the stored key without creating one', () async {
