@@ -17,9 +17,11 @@ import (
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -36,6 +38,7 @@ const (
 	fieldRefused      = "refused_reason"
 	fieldSilent       = "silent"
 	fieldReplay       = "replay"
+	fieldMlsInit      = "mls_init"
 	kindSend          = "send"
 	stateLabelAccept  = "accepted"
 	stateLabelRequest = "request"
@@ -47,6 +50,7 @@ const (
 	refusedBlocked          = "blocked"
 	refusedRecipientOff     = "recipient_inactive"
 	refusedRecipientFlagOff = "recipient_flag_off"
+	refusedRecipientE2EEOff = "recipient_e2ee_off"
 	refusedGone             = "gone"
 	refusedDMPolicy         = "dm_policy"
 )
@@ -68,6 +72,13 @@ func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMes
 	in, err := validateSend(uid, req)
 	if err != nil {
 		return nil, err
+	}
+	// Starting encryption: FEATURE_E2EE_DM on for the caller, after the format checks and before any lookup.
+	if in.starting() {
+		logger.SetRequestField(ctx, fieldMlsInit, true)
+		if err := s.guardE2EE(ctx, uid); err != nil {
+			return nil, err
+		}
 	}
 	// A shared post: its flags and its id shape run after the existing checks and before any lookup.
 	if in.sharedRaw != "" {
@@ -92,9 +103,12 @@ type sendInput struct {
 	// (the original), set once the visibility check passed.
 	sharedRaw string
 	shared    SharedPost
+	// enc is the validated encrypted request (text and sharedRaw are then empty); nil for a plaintext one.
+	enc *encSend
 }
 
-// validateSend is step 1: the key, the target and the text, before any read.
+// validateSend is step 1: the key, the target and the text (or, for an encrypted request, its encrypted shape), before any
+// read.
 func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, error) {
 	var in sendInput
 	if !idempotency.KeyFormatValid(req.GetIdempotencyKey()) {
@@ -118,6 +132,14 @@ func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, e
 	default:
 		return in, apierr.Validation("recipient_user_id", "conversation_id or recipient_user_id is required")
 	}
+	enc, err := validateEncrypted(req)
+	if err != nil {
+		return in, err
+	}
+	if enc != nil {
+		in.enc = enc
+		return in, nil
+	}
 	norm, err := text.Normalize(req.GetText())
 	if err != nil {
 		return in, err
@@ -125,6 +147,48 @@ func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, e
 	in.text = norm
 	in.sharedRaw = req.GetSharedPostId()
 	return in, nil
+}
+
+// starting reports whether the request carries mls_init (starts encryption).
+func (in sendInput) starting() bool { return in.enc != nil && in.enc.Init != nil }
+
+// guardE2EE is the caller's FEATURE_E2EE_DM gate of an mls_init: FAILED_PRECONDITION + FEATURE_DISABLED with
+// metadata["feature"] = "e2ee_dm", before any lookup (the shape of guard). A nil checker is off.
+func (s *service) guardE2EE(ctx context.Context, uid string) error {
+	err := flags.Guard(ctx, func(uid, name string) bool { return s.flags != nil && s.flags.Enabled(uid, name) }, uid, keys.FlagName)
+	if err == nil {
+		return nil
+	}
+	logger.SetRequestField(ctx, "feature", keys.FlagName)
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		return ae.WithMeta("feature", keys.FlagName)
+	}
+	return err
+}
+
+// checkWelcomeDevices is the pre-transaction half of the mls_init device rule: the recipient's FEATURE_E2EE_DM (off is the
+// one CANNOT_MESSAGE, among the caller-side recipient refusals), then the ACTIVE device ids of the caller and the recipient
+// (2 queries of at most 5 documents, through Devices). The verdict is only recorded on in.enc.Init (Targets, DevicesOK):
+// the send transaction answers it after every NOT_FOUND / CANNOT_MESSAGE / LIMIT_REACHED refusal and after the replay
+// check (encGate), so a refused caller never learns whether a device id is active.
+func (s *service) checkWelcomeDevices(ctx context.Context, uid string, in sendInput) error {
+	if s.flags == nil || !s.flags.Enabled(in.peer, keys.FlagName) {
+		return s.refuse(ctx, refusedRecipientE2EEOff)
+	}
+	if s.d.Devices == nil {
+		return errors.New("messaging: mls_init has no device directory configured")
+	}
+	mine, err := s.d.Devices.ActiveDeviceIDs(ctx, uid)
+	if err != nil {
+		return fmt.Errorf("messaging: caller devices: %w", err)
+	}
+	theirs, err := s.d.Devices.ActiveDeviceIDs(ctx, in.peer)
+	if err != nil {
+		return fmt.Errorf("messaging: recipient devices: %w", err)
+	}
+	in.enc.Init.Targets, in.enc.Init.DevicesOK = welcomeTargets(in.enc.Init.DeviceIDs, uid, in.peer, mine, theirs)
+	return nil
 }
 
 func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagingv1.SendMessageResponse, error) {
@@ -171,6 +235,13 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	if reason := s.recipientRefusal(mine, in.peer, active); reason != "" {
 		return nil, s.refuse(ctx, reason)
 	}
+	// mls_init: the recipient's e2ee_dm (CANNOT_MESSAGE) and the device lookups; the device verdict is answered in the
+	// transaction.
+	if in.starting() {
+		if err := s.checkWelcomeDevices(ctx, uid, in); err != nil {
+			return nil, s.mapErr(ctx, uid, in, err)
+		}
+	}
 	// A shared post: the GetPost rules and the protected-author rule, after the recipient checks and before the
 	// transaction (NOT_FOUND "post not found" or PROTECTED_ACCOUNT, writing nothing).
 	if in.sharedRaw != "" {
@@ -184,9 +255,17 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	if s.isNewAccount(caller, now) {
 		limit = s.d.Limits.NewAccountDMNewPerDay
 	}
+	reqHash := requestHash(in.convID, in.text, in.sharedRaw)
+	if in.enc != nil {
+		var extra []string
+		if in.starting() {
+			extra = append(extra, initDigest(in.enc.Init))
+		}
+		reqHash = encRequestHash(in.convID, in.enc.Gen, in.enc.Epoch, in.enc.Ciphertext, in.enc.Commitment, extra...)
+	}
 	res, err := s.d.Repo.Send(ctx, SendParams{
-		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key),
-		Text: in.text, RequestHash: requestHash(in.convID, in.text, in.sharedRaw), Now: now, SharedPostID: in.shared.ID,
+		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key), Enc: in.enc,
+		Text: in.text, RequestHash: reqHash, Now: now, SharedPostID: in.shared.ID,
 		CallerFollowsPeer: mine.Following[in.peer], CallerSilent: mine.Muted[in.peer],
 		RecipientFollowingOnly: s.recipientFollowingOnly(in.peer, peer),
 		Caller:                 peerDocOf(caller), Peer: peerDocOf(peer),
@@ -323,18 +402,40 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 		return limitReached(limitDMNewDaily)
 	case errors.Is(err, ErrKeyReused):
 		return keyReused()
+	case errors.Is(err, ErrEncryptionRequired):
+		return encryptionRequired(in.addressedConv())
+	case errors.Is(err, errNeedsInit):
+		return needsInit()
+	case errors.Is(err, errWelcomeDevices):
+		return welcomeDevicesInvalid()
+	}
+	var stale *staleEpochError
+	if errors.As(err, &stale) {
+		return staleEpoch(stale.Gen, stale.Epoch, in.addressedConv())
 	}
 	return s.failure(ctx, "send", uid, in.convID, err, in.peer, MessageID(uid, in.key))
 }
 
+// addressedConv is the conversation id an ENCRYPTION_REQUIRED or STALE_EPOCH answer carries in metadata["conversation_id"]:
+// the resolved id for a send that addressed recipient_user_id (the transaction found the caller a participant before it
+// refused), "" for one that addressed the conversation id itself.
+func (in sendInput) addressedConv() string {
+	if in.byConvID {
+		return ""
+	}
+	return in.convID
+}
+
 // isTxOp reports the ops of failure that run a Firestore transaction (the ops whose busy answer is safe to retry: they carry an
 // idempotency key or are idempotent by state). Any other op, ListMessages above all, is a read path.
-func isTxOp(op string) bool { return op == "send" || op == "accept" || op == "delete" }
+func isTxOp(op string) bool {
+	return op == "send" || op == "accept" || op == "delete" || op == "commit"
+}
 
 // failure is the tail every RPC's error mapper shares (mapErr, messagesErr, lifecycleErr), reached after the mapper's own
 // sentinels. In this order: an *apierr.Error is already a wire answer; ErrNotFound is the one byte-identical NOT_FOUND of an
 // unknown id, a non-participant and a deleted conversation (D11); a request whose own context ended; for a transactional
-// op only (send, accept, delete) a lost or timed-out transaction is UNAVAILABLE "busy, please retry" (retry after
+// op only (send, accept, delete, commit) a lost or timed-out transaction is UNAVAILABLE "busy, please retry" (retry after
 // 1 s) with a WARN messaging_<op>_contention line; anything else, including a timeout on a read path (list_messages), is
 // INTERNAL with uid, convID and every id in redact replaced by hashes, because a Firestore error embeds document paths and
 // a path names a uid and a conversation. A read-path timeout stays INTERNAL on purpose: it is not contention, Error
@@ -399,11 +500,20 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 		state = messagingv1.ConversationState_CONVERSATION_STATE_REQUEST
 	}
 	pd := peerDocOf(peer)
+	msg := &messagingv1.Message{
+		Id: msgID, ConversationId: convID, FromSelf: true, Text: text,
+		State: msgState, CreatedAt: created,
+	}
+	// An encrypted message: the pair always; the ciphertext and commitment only while present on a VISIBLE message (a
+	// replay of a swept or taken-down message answers ciphertext_removed instead).
+	encrypted := res.Msg.MlsGen > 0
+	setEncrypted(msg, res.Msg)
+	if encrypted {
+		snippet = ""
+	}
+	convEnc, convGen, convEpoch := encryptionOf(res.Conv)
 	return &messagingv1.SendMessageResponse{
-		Message: &messagingv1.Message{
-			Id: msgID, ConversationId: convID, FromSelf: true, Text: text,
-			State: msgState, CreatedAt: created,
-		},
+		Message: msg,
 		Conversation: &messagingv1.Conversation{
 			Id: convID, Kind: messagingv1.ConversationKind_CONVERSATION_KIND_DIRECT,
 			Peer: &commonv1.AuthorSnapshot{
@@ -412,9 +522,11 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 			State: state, Folder: messagingv1.Folder_FOLDER_INBOX,
 			LastMessage: &messagingv1.MessagePreview{
 				Snippet: snippet, FromSelf: true, State: msgState, CreatedAt: created,
-				SharedPost: msgState == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && res.Msg.SharedPostID != "",
+				SharedPost: msgState == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && res.Msg.SharedPostID != "" && !encrypted,
+				Encrypted:  encrypted,
 			},
 			CanReply: true, Silent: callerSilent, UpdatedAt: created,
+			Encryption: convEnc, MlsGeneration: convGen, MlsEpoch: convEpoch,
 		},
 	}
 }

@@ -131,6 +131,47 @@ func reportsCommand(ctx context.Context, b *backends, sub string, a modArgs, out
 	return fmt.Errorf("unknown reports subcommand %q (list, show, resolve)", sub)
 }
 
+// encryptedVerdictLine is the one verdict line of an encrypted message's report, printed by `reports show` and by every
+// command that acts on a report (checkReport), so an operator never acts on reporter-supplied text unawares.
+func encryptedVerdictLine(e *moderation.Evidence) string {
+	switch {
+	case e.MessageUndecodable:
+		return "evidence ENCRYPTED message: content could not be decoded; the sender's device sent malformed content (verified against the sender's commitment)"
+	case e.MessageVerified:
+		return "evidence ENCRYPTED message: verified against the sender's commitment"
+	}
+	return "evidence ENCRYPTED message: NOT verified (supplied by the reporter)"
+}
+
+// printReportVerdict is checkReport's line for a MESSAGE report: the verdict of an encrypted message, or that it is gone
+// with the expired evidence (the verdict lived in the same child document). A plaintext message prints nothing.
+func printReportVerdict(out io.Writer, r moderation.Report) {
+	if r.TargetType != moderation.TargetMessage || r.Evidence == nil {
+		return
+	}
+	switch {
+	case r.Evidence.TextExpired:
+		fmt.Fprintln(out, "evidence expired (verdict, if any, no longer available)") // plaintext or encrypted: the child said which
+	case r.Evidence.MessageEncrypted:
+		fmt.Fprintln(out, encryptedVerdictLine(r.Evidence))
+	}
+}
+
+// printEncryptedMessageEvidence prints the evidence of an end-to-end encrypted message: the server never held its text,
+// the reporter disclosed it. The verdict line comes first so an unverified text is never read without it.
+func printEncryptedMessageEvidence(out io.Writer, e *moderation.Evidence) {
+	fmt.Fprintln(out, encryptedVerdictLine(e))
+	if e.MessageUndecodable {
+		fmt.Fprintf(out, "evidence message from @%s sent %s (no text kept)\n", e.AuthorHandle, e.PostCreatedAt.Format(time.RFC3339))
+		return
+	}
+	fmt.Fprintf(out, "evidence message from @%s sent %s (PRIVATE text, disclosed by the reporter): %q\n",
+		e.AuthorHandle, e.PostCreatedAt.Format(time.RFC3339), e.Text)
+	if e.SharedPostID != "" {
+		fmt.Fprintf(out, "evidence shared post %s\n", e.SharedPostID)
+	}
+}
+
 func printReport(out io.Writer, r moderation.Report) {
 	fmt.Fprintf(out, "report   %s\nstatus   %s", r.ID, r.Status)
 	if r.Resolution != "" {
@@ -180,6 +221,10 @@ func printReport(out io.Writer, r moderation.Report) {
 			// resolved + 90 days); the report itself is kept.
 			fmt.Fprintf(out, "evidence expired: the copied message text was deleted by its retention limit (message from @%s sent %s)\n",
 				r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339))
+			break
+		}
+		if r.Evidence.MessageEncrypted {
+			printEncryptedMessageEvidence(out, r.Evidence)
 			break
 		}
 		fmt.Fprintf(out, "evidence message from @%s sent %s (PRIVATE text, copied at report time): %q\n",
@@ -252,6 +297,7 @@ func checkReport(ctx context.Context, b *backends, id string, wantType moderatio
 	if r.Status == moderation.StatusResolved {
 		fmt.Fprintf(out, "warning: report %s is already RESOLVED (%s); the action still applies, the report stays as is\n", id, r.Resolution)
 	}
+	printReportVerdict(out, r)
 	return nil
 }
 
@@ -448,6 +494,12 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 	if a.dryRun {
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
+		// The same guard as the real run (it writes nothing): the dry run shows the report's verdict before anyone acts.
+		if a.report != "" {
+			if err := checkReport(cctx, b, a.report, "", "", uid, out); err != nil {
+				return err
+			}
+		}
 		p, err := b.profile(cctx, uid)
 		if err != nil {
 			return fmt.Errorf("read profile: %w", err)

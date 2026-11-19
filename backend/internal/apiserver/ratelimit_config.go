@@ -31,6 +31,10 @@ const idleBucketTTL = 10 * time.Minute
 // keysClaimsDailyName is the limit_name (RATE_LIMITED metadata["limit"]) of the ClaimKeyPackages daily cap.
 const keysClaimsDailyName = "keys_claims_daily"
 
+// messagesCommitsDailyName is the limit_name of the CommitConversation daily call cap (the per-conversation cap,
+// "messages_commits_per_conversation_daily", and the reset cap, "messages_resets_daily", are the messaging service's).
+const messagesCommitsDailyName = "messages_commits_daily"
+
 // RateLimitConfig builds the post-auth rate-limit interceptor's config: per-minute buckets, the per-uid daily
 // call caps. It is a function of
 // cfg alone so the guard test (guard_test.go) can inspect exactly what Build wires.
@@ -141,6 +145,17 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	messagesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesSendsPerDay)
 	messagesMarkReadDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMarkReadPerDay)
 	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
+	// Encrypted conversations: CommitConversation has its own bucket (RATE_LIMIT_MESSAGES_COMMIT_PER_MIN, 20/min per instance)
+	// and the per-uid daily call cap "messages_commits_daily" (MESSAGES_COMMITS_PER_DAY, 500), which every call draws on, a
+	// reset and a recognised retry included. The per-(uid, conversation) cap "messages_commits_per_conversation_daily"
+	// (MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY, 20) and the reset cap "messages_resets_daily" (MESSAGES_RESETS_PER_DAY, 10)
+	// are drawn on by the messaging service (they need the request's conversation id and reset field), after the flag and the
+	// request's form, so a reset counts against all three. The four sync RPCs
+	// (ListConversationCommits, ListEpochMessages, ListWelcomes, AckWelcomes) share ONE bucket
+	// (RATE_LIMIT_MESSAGES_SYNC_PER_MIN, 60/min); no daily cap (AckWelcomes only deletes the caller's own welcomes).
+	rlMessagesCommit := ratelimit.NewLimiter(cfg.RateLimit.MessagesCommitPerUserPerMinute, idleBucketTTL)
+	rlMessagesSync := ratelimit.NewLimiter(cfg.RateLimit.MessagesSyncPerUserPerMinute, idleBucketTTL)
+	messagesCommitsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesCommitsPerDay)
 
 	// ListNotifications has its own per-user bucket (RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN, 30/min per instance), the
 	// read-bucket norm; it used to fall back to the 60/min default. One call reads up to 50 rows and, for a caller whose
@@ -272,6 +287,11 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceListConversationsProcedure:        rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessagesProcedure:             rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessageSuggestionsProcedure:   rlDMSuggestions,
+			messagingv1connect.MessagingServiceCommitConversationProcedure:       rlMessagesCommit,
+			messagingv1connect.MessagingServiceListConversationCommitsProcedure:  rlMessagesSync,
+			messagingv1connect.MessagingServiceListEpochMessagesProcedure:        rlMessagesSync,
+			messagingv1connect.MessagingServiceListWelcomesProcedure:             rlMessagesSync,
+			messagingv1connect.MessagingServiceAckWelcomesProcedure:              rlMessagesSync,
 			notificationsv1connect.NotificationServiceListNotificationsProcedure: rlNotificationsList,
 			listsv1connect.ListServiceCreateListProcedure:                        rlListsWrite,
 			listsv1connect.ListServiceUpdateListProcedure:                        rlListsWrite,
@@ -344,6 +364,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceMarkConversationReadProcedure: {Name: "messages_mark_read_daily", Cap: messagesMarkReadDailyCap},
 			messagingv1connect.MessagingServiceAcceptMessageRequestProcedure: {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
 			messagingv1connect.MessagingServiceDeleteConversationProcedure:   {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
+			messagingv1connect.MessagingServiceCommitConversationProcedure:   {Name: messagesCommitsDailyName, Cap: messagesCommitsDailyCap},
 
 			identityv1connect.IdentityServiceUpdateProfileProcedure: {Name: "profile_update_daily", Cap: profileUpdateDailyCap},
 

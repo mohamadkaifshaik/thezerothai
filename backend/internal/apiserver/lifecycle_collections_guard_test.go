@@ -116,10 +116,12 @@ var lifecycleCollections = []collectionRow{
 	// A log keyed by post id (state, createdAt, expireAt) whose entries carry
 	// the post author's uid (authorId, a pseudonymous link) so readers can scope them per feed. The posts step deletes
 	// them by authorId (PurgeUser phase 2); the 32-day TTL is only the backstop, so no residue allowlist entry exists.
-	// Security L-6: reports/{id}/evidence/message holds only the copied text of a MESSAGE report and its expireAt (no uid
-	// field). A TTL on the collection group deletes it 180 days after filing, or by resolved + 90 days. PurgeReporter keeps no
-	// reference to it; nothing in it names the reporter, so there is nothing to erase at account deletion.
-	{Name: "evidence", Sub: true, Disposition: notPersonal, Owner: "moderation", Cite: "ADR-0016 note 2026-10-30 (W7-36): text only, no uid field, TTL <= 180 d"},
+	// Security L-6: reports/{id}/evidence/message holds the copied text of a MESSAGE report (empty for undecodable evidence),
+	// its expireAt and, since E2EE plan 3 Task 7, sharedPostId (a post id) and the flags encrypted, verified and undecodable;
+	// no field is a uid. A TTL on the collection group deletes it 180 days after filing, or by resolved + 90 days.
+	// PurgeReporter keeps no reference to it; nothing in it names the reporter, so there is nothing to erase at account
+	// deletion (the disposition is unchanged by the new fields).
+	{Name: "evidence", Sub: true, Disposition: notPersonal, Owner: "moderation", Cite: "ADR-0016 note 2026-10-30 (W7-36): message text, a shared post id and flags (encrypted, verified, undecodable), no uid field, TTL <= 180 d; E2EE plan 3 Task 7"},
 	{Name: "postRemovals", Disposition: erasedByStep, Step: "posts", ExportNote: "operator-internal moderation log (post id, state, timestamps, author uid); not user content, not exported", Owner: "posts", Cite: "ADR-0016 amendment 2026-10-18 (b), ADR-0011 Q10"},
 	// Scheduled posts live under users/{uid}/scheduled, a subcollection that deleting users/{uid}
 	// does not remove. The `scheduled` step (posts.ScheduledEraser, BeforeIdentity after reports) deletes every
@@ -149,6 +151,19 @@ var lifecycleCollections = []collectionRow{
 	{Name: "messages", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmInbox", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmRequests", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
+	// End-to-end encrypted conversations (E2EE plan 3; gate item "lifecycle guard table" owner-approved 2026-11-18).
+	// conversations/{id}/commits/{gen_epoch} {data (opaque MLS commit), senderId, gen, epoch, createdAt, expireAt} and
+	// users/{uid}/dmWelcomes/{id} {deviceId, convId, gen, epoch, data (opaque MLS Welcome), createdAt, expireAt}, both
+	// written since plan 3 Task 4 (mls_init) and expiring 30 days after creation (TTL policy applied by the owner). The
+	// `messaging` step (plan 3 Task 8): a commit record whose sender is the deleted user gets senderId = DeletedUID while the
+	// peer lives (paged, in the rewrite phase, before the conversation itself is rewritten), and every commit record is
+	// deleted with the conversation tree once both participants are gone (DeleteTreePage, children before the document);
+	// every document under the user's own dmWelcomes is deleted (paged, the last phase of the step). A welcome the user's
+	// own commit left in a PEER's dmWelcomes holds no uid of the user (the peer's device id, the conversation id hash, the
+	// pair, opaque bytes) and stays until its 30-day expiry, which is why the sweep finds nothing there. Neither is
+	// exported: opaque MLS protocol records the user cannot read. Seeded proof: account_lifecycle_messaging_e2ee_integration_test.go.
+	{Name: "commits", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS commit records the user cannot read, not exported; when the messages section holds an encrypted message it notes that encrypted messages can only be read on the user's devices", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
+	{Name: "dmWelcomes", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS Welcomes encrypted to the user's devices, expiring after 30 days, not exported", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
 	// Lists/{listId} (ownerId, memberIds[] holding other users' uids). Deleting users/{uid} removes none of it. The
 	// `lists` step (lists.Eraser, BeforeIdentity after messaging) deletes the user's own lists and then removes the uid from every other
 	// list that names it (memberIds array-contains, ArrayRemove, LastUpdateTime precondition), so the sweep finds no ownerId or memberIds
@@ -592,8 +607,8 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 			t.Error("the scan did not find the lists collection in internal/lists")
 		}
 	})
-	// ... and the guard fails, naming the collection, when any one of the four rows is removed.
-	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
+	// ... and the guard fails, naming the collection, when any one of the six rows is removed (the two E2EE ones included).
+	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests", "commits", "dmWelcomes"} {
 		t.Run("without the "+name+" row", func(t *testing.T) {
 			rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == name })
 			if len(rows) != len(lifecycleCollections)-1 {
@@ -604,12 +619,12 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 			}
 		})
 	}
-	// The scan sees all four collections in messaging's sources (the rows above are what it must be matched against).
+	// The scan sees all six collections in messaging's sources (the rows above are what it must be matched against).
 	seen := map[string]bool{}
 	for _, r := range real {
 		seen[r.Name] = true
 	}
-	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
+	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests", "commits", "dmWelcomes"} {
 		if !seen[name] {
 			t.Errorf("the scan did not find the %q collection in internal/messaging", name)
 		}

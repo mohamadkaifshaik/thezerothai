@@ -312,6 +312,39 @@ func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) 
 	return out, nil
 }
 
+var _ DeviceDirectory = (*service)(nil)
+
+// ActiveDeviceIDs implements DeviceDirectory: one ActiveDevices query (Limit MaxDevicesPerUser), filtered again with
+// Active(now) like GetDevices, with no permission or flag check and no request-line field.
+func (s *service) ActiveDeviceIDs(ctx context.Context, uid string) ([]string, error) {
+	now := s.now()
+	ds, err := s.repo.ActiveDevices(ctx, uid, now)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("keys: active device ids: %w", err), uid)
+	}
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		if d.Active(now) {
+			out = append(out, d.ID)
+		}
+	}
+	return out, nil
+}
+
+// DeviceIDs implements DeviceDirectory: one List query (Limit MaxDevicesPerUser), inactive devices included, with no
+// permission or flag check and no request-line field.
+func (s *service) DeviceIDs(ctx context.Context, uid string) ([]string, error) {
+	ds, err := s.repo.List(ctx, uid)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("keys: device ids: %w", err), uid)
+	}
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, d.ID)
+	}
+	return out, nil
+}
+
 // Claim validates, draws one unit of the per-(caller, target) daily cap (every well-formed request, the caller's own id
 // included), checks permission and the target's flag (another user), then claims through the repository
 // (compare-and-delete per device). The excluded device is passed to the repository only for the caller's own id, where it must exist; for another user

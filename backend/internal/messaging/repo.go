@@ -41,6 +41,81 @@ type Repo interface {
 	// clearedAt and clearedKey and deletes the entry; a retry with the same key, or any other repeat of a delete that
 	// already happened, writes nothing.
 	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
+	// Commit runs the CommitConversation transaction (a commit or a reset): it reads the conversation, the recipient's
+	// graph, the commit record of the target pair and the earlier welcome of each addressed device, then moves the pair,
+	// creates the record and stores the welcomes; a recognised retry writes nothing.
+	Commit(ctx context.Context, p CommitParams) (CommitResult, error)
+	// ListCommits reads, in ONE read-only transaction, the conversation (participant check: ErrNotFound for a missing
+	// conversation or a non-participant, before any other read) and, for an MLS conversation, one page of its commit
+	// records after q.AfterID in document-id order. A NONE conversation answers no rows and no query.
+	ListCommits(ctx context.Context, q CommitsQuery) (CommitsPage, error)
+	// ListEpochMessages reads one page of conversations/{id}/messages where mlsKey == key, in document-id order, after
+	// afterID ("" = from the start), at most limit rows.
+	ListEpochMessages(ctx context.Context, convID, key, afterID string, limit int) ([]MessageRow, error)
+	// ListWelcomes reads one page of users/{uid}/dmWelcomes where deviceId == deviceID, in document-id order, at most limit.
+	ListWelcomes(ctx context.Context, uid, deviceID string, limit int) ([]WelcomeRow, error)
+	// AckWelcomes deletes users/{uid}/dmWelcomes/{id} for each id (a missing document is a no-op), in one batch.
+	AckWelcomes(ctx context.Context, uid string, ids []string) error
+}
+
+// CommitsQuery is one ListConversationCommits page: the caller (participant check), the conversation, the exclusive lower
+// bound as a commit document id ("" = from the start) and the page size.
+type CommitsQuery struct {
+	UID, ConvID, AfterID string
+	Limit                int
+}
+
+// CommitsPage is the snapshot ListCommits read: the conversation (its current pair) and the scanned records, in document-id
+// order, before any filtering (len(Rows) == Limit is a full page).
+type CommitsPage struct {
+	Conv ConvDoc
+	Rows []CommitRow
+}
+
+// CommitRow is one stored commit record with its document id.
+type CommitRow struct {
+	ID string
+	CommitDoc
+}
+
+// WelcomeRow is one stored welcome with its document id.
+type WelcomeRow struct {
+	ID string
+	WelcomeDoc
+}
+
+// CommitParams is everything the commit transaction needs; the service has already checked the flag, the verified email,
+// the key, the conversation id and the pair's form (step 1 of the proto's order).
+type CommitParams struct {
+	UID, ConvID string
+	// Gen and Epoch are the pair the commit is built on; for a Reset, Gen is the generation being replaced and Epoch is
+	// ignored.
+	Gen, Epoch int64
+	Reset      bool
+	// Commit is the record's bytes; Welcome and DeviceIDs the welcome stored per device (both empty: no welcome).
+	Commit, Welcome []byte
+	DeviceIDs       []string
+	// FieldErr is the service's verdict on the remaining fields (commit size, the welcome and its device ids, a reset
+	// without a welcome), computed before the transaction and ANSWERED only after retry recognition (step 4). nil passes.
+	FieldErr error
+	Now      time.Time
+	// RecipientGraphInTx reads the peer's graph/{uid} through the transaction (a block by the peer refuses). Required.
+	RecipientGraphInTx func(ctx context.Context, tx *firestore.Transaction, peer string) (graph.Snapshot, error)
+	// CallerBlocks answers "does the caller block peer" from the caller's cached graph snapshot (as a send). Required.
+	CallerBlocks func(ctx context.Context, peer string) (bool, error)
+	// WelcomeTargets is the welcome-device check against the key directory (not transactional): the owner of each of
+	// DeviceIDs among the ACTIVE devices of the caller and peer, errWelcomeDevices when one is neither's (or, for a reset,
+	// none is the peer's). Called only when DeviceIDs is not empty, after retry recognition and FieldErr. Required then.
+	WelcomeTargets func(ctx context.Context, peer string) ([]welcomeTarget, error)
+}
+
+// CommitResult is the outcome of Commit.
+type CommitResult struct {
+	// Retry: the record this request would create already exists from the same user with identical bytes; nothing was
+	// written and Conv is the conversation as read (its pair may be later than the one this commit produced).
+	Retry bool
+	// Conv is the conversation after the call, from the transaction's own read (the cache is updated from it).
+	Conv ConvDoc
 }
 
 // AcceptParams is everything the accept transaction needs; the service has already validated the id and the caller's flag.
@@ -121,7 +196,11 @@ type SendParams struct {
 	Text, RequestHash string
 	// SharedPostID is the original post this message shares ("" for none): stored on the message, flagged on both previews.
 	SharedPostID string
-	Now          time.Time
+	// Enc is the validated encrypted request (nil: plaintext). Text and SharedPostID are then empty and RequestHash is
+	// encRequestHash. The transaction applies encGate to the conversation it reads; with Enc.Init (mls_init) it also starts
+	// encryption: the conversation's encryption fields, the (1, 0) commit record and the welcomes (putInit).
+	Enc *encSend
+	Now time.Time
 	// CallerFollowsPeer: the caller follows the recipient (from the caller.s cached graph, 60 s). Mutual = this AND the
 	// recipient.s FRESH Following[caller] read in the transaction; it only decides the state of a conversation this send
 	// creates.

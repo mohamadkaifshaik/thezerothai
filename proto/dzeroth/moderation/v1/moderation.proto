@@ -44,7 +44,9 @@ enum ReportTargetType {
   // A direct message. target_id = "<convId>:<msgId>": the conversation id and the message id, 32
   // lower-case hex each, joined by ":". Only a participant may report, and only the peer's message (own => VALIDATION
   // "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
-  // conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
+  // conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies. For a message of an
+  // end-to-end encrypted conversation the server holds no text: the reporter sends the decrypted content in
+  // ReportContentRequest.message_payload, which the server checks against the sender's commitment.
   REPORT_TARGET_TYPE_MESSAGE = 3;
   // A list. target_id = the list id (19 digits). Only a list the caller may see can be
   // reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
@@ -94,6 +96,24 @@ message ReportContentRequest {
   string target_id = 3 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_CONDITIONAL];
   ReportReason reason = 4;
   string note = 5;
+  // REPORT_TARGET_TYPE_MESSAGE of an end-to-end encrypted message only: the exact dzeroth.messaging.v1.MessageContent
+  // bytes the reporter's device decrypted from that message (the bytes as decrypted, never re-serialized: protobuf
+  // encoding is not canonical). Required for an encrypted message, 1-8192 bytes; must be empty for every other target,
+  // a plaintext message included; else INVALID_ARGUMENT + VALIDATION metadata["field"] = "message_payload". Bytes that
+  // are not well-formed protobuf wire data are accepted only when they match the commitment (the evidence is then
+  // marked undecodable and no text is stored), else the same VALIDATION; invalid UTF-8 in text is replaced by U+FFFD.
+  // Every other MESSAGE rule is unchanged (a participant
+  // reports the peer's VISIBLE message; FEATURE_MESSAGING not globally off; the reports quota). FEATURE_E2EE_DM is not
+  // needed.
+  // Verification: the server computes SHA-256 over the 12 ASCII bytes "dz-report-v1" (no terminator) followed by these
+  // bytes, and compares it in constant time with the message's stored report_commitment (messaging.v1
+  // Message.report_commitment). Equal => the evidence is marked verified: a moderator knows this is what the sender
+  // sent. Different, or the commitment is already gone (removed 30 days after the send) => the report is still
+  // accepted, marked unverified (supplied by the reporter). The answer is the same success in both cases.
+  // Evidence: the payload's text and shared_post_id are kept in the report evidence with the existing retention, so a
+  // reported encrypted message is readable by the operator; report_key is never stored. This is the only place the
+  // server reads message content of an encrypted conversation, and only what the reporter discloses.
+  bytes message_payload = 6;
 }
 
 message ReportContentResponse {

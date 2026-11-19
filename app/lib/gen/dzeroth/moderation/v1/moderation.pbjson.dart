@@ -86,6 +86,7 @@ const ReportContentRequest$json = {
       '10': 'reason'
     },
     {'1': 'note', '3': 5, '4': 1, '5': 9, '10': 'note'},
+    {'1': 'message_payload', '3': 6, '4': 1, '5': 12, '10': 'messagePayload'},
   ],
 };
 
@@ -95,7 +96,8 @@ final $typed_data.Uint8List reportContentRequestDescriptor = $convert.base64Deco
     'RlbmN5S2V5EkgKC3RhcmdldF90eXBlGAIgASgOMicuZHplcm90aC5tb2RlcmF0aW9uLnYxLlJl'
     'cG9ydFRhcmdldFR5cGVSCnRhcmdldFR5cGUSIQoJdGFyZ2V0X2lkGAMgASgJQgTo4BgCUgh0YX'
     'JnZXRJZBI7CgZyZWFzb24YBCABKA4yIy5kemVyb3RoLm1vZGVyYXRpb24udjEuUmVwb3J0UmVh'
-    'c29uUgZyZWFzb24SEgoEbm90ZRgFIAEoCVIEbm90ZQ==');
+    'c29uUgZyZWFzb24SEgoEbm90ZRgFIAEoCVIEbm90ZRInCg9tZXNzYWdlX3BheWxvYWQYBiABKA'
+    'xSDm1lc3NhZ2VQYXlsb2Fk');
 
 @$core.Deprecated('Use reportContentResponseDescriptor instead')
 const ReportContentResponse$json = {

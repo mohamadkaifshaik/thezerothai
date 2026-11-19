@@ -42,6 +42,8 @@ type raceHooks struct {
 	beforeTakedownRun  func(run int)
 	afterTakedownReads func(run int) error
 	afterTombstoneRead func()
+	// afterCiphertextSweepRead runs between the retention sweep's query and its updates.
+	afterCiphertextSweepRead func()
 	// commitThenFail runs after a send, accept or delete transaction COMMITTED and returns the error the caller then sees
 	// (a deadline that expires while the commit is in flight; the write is applied, the client is told it failed).
 	commitThenFail func() error
@@ -68,6 +70,12 @@ func (h *raceHooks) takedownReads() error {
 func (h *raceHooks) tombstoneRead() {
 	if h != nil && h.afterTombstoneRead != nil {
 		h.afterTombstoneRead()
+	}
+}
+
+func (h *raceHooks) ciphertextSweepRead() {
+	if h != nil && h.afterCiphertextSweepRead != nil {
+		h.afterCiphertextSweepRead()
 	}
 }
 
@@ -148,7 +156,20 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // Reads, fresh and before any write: conversations/{convId} (1) and the recipient.s graph/{uid} (1, RecipientGraphInTx,
 // a Block, Mute or Unfollow by the recipient decides this send; a gone conversation stops before it). A missing
 // conversation adds the recipient.s users/{uid} (1, RecipientInTx) and quotas/{uid} (1): 4 in all. A send refused by the unanswered-request
-// cap first reads the message document (1) because a replay of the last allowed message must replay, not refuse.
+// cap first reads the message document (1) because a replay of the last allowed message must replay, not refuse; so does a
+// send into an existing conversation refused by encGate (ENCRYPTION_REQUIRED, VALIDATION ciphertext, STALE_EPOCH).
+// An encrypted send (p.Enc) stores ciphertext, commitment, the pair, mlsKey and ctExpireAt on the message and an empty,
+// encrypted preview; it never writes the conversation beyond what a plaintext send writes, except an mls_init.
+//
+// mls_init (p.Enc.Init) reads, after every refusal and before any write, the earlier welcome of each addressed device
+// (at most MaxWelcomeDevices queries, Limit 1 each) and the (1, 0) commit record (1 read: only a leftover of an earlier
+// conversation with this id can be there), at most 11 reads, and writes in addition: the conversation's encryption fields (in
+// the conversation Create of a new one, or in the one Update of an existing one, merged with requestCount or state when
+// those are written too: at most 1 extra write), the commit record (1, 0) (Create; over a leftover, an Update under its
+// update time), one welcome per device (Set) and
+// the delete of each device's earlier welcome: at most 1 + 1 + 10 + 10 = 22 writes beyond an ordinary send. The answers
+// it adds (encGate): the welcome-device verdict (computed before the transaction, answered after every existing refusal
+// and after the replay lookup of an existing conversation), then STALE_EPOCH for a conversation already MLS.
 //
 // Writes: the message (Create, deterministic id), the sender's dmInbox entry and the recipient's entry (field-level
 // Set with MergeAll; unreadCount is a FieldValue.Increment unless the recipient muted the caller). An accepted
@@ -267,6 +288,16 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	if derr != nil {
 		return res, derr
 	}
+	// The encryption rule (ENCRYPTION_REQUIRED, VALIDATION ciphertext, STALE_EPOCH) against the conversation this
+	// transaction read, after every existing refusal and before any write. A refused send may be the replay of a message
+	// stored under this key (the epoch moved on since, or the conversation became encrypted): it is answered as a replay,
+	// with another request as a reused key, through the same 1-read lookup as the request cap. A new conversation is gated
+	// below, after its recipient and quota checks.
+	if conv != nil {
+		if gerr := encGate(conv, p.Enc); gerr != nil {
+			return r.replayOrRefuse(ctx, tx, p, res, gerr)
+		}
+	}
 
 	var qrec quota.Record
 	if dec.CreateConv {
@@ -283,13 +314,30 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		}
 	}
 
+	// mls_init: the earlier welcome of each addressed device, the last reads before any write (at most MaxWelcomeDevices
+	// queries). Only with a good device verdict: an existing conversation reaches here only past encGate (verdict good,
+	// not yet MLS); a new one with a bad verdict is refused below, after its quota check, and needs no reads for it.
+	// Then the (1, 0) record (1 read): only a leftover of an earlier conversation with this id can be there (putInit).
+	starting := p.Enc != nil && p.Enc.Init != nil
+	var earlier []*firestore.DocumentRef
+	var leftover time.Time
+	if starting && p.Enc.Init.DevicesOK {
+		if earlier, err = r.earlierWelcomes(tx, p.ConvID, p.Enc.Init.Targets); err != nil {
+			return res, err
+		}
+		if leftover, err = r.initLeftover(tx, p.ConvID); err != nil {
+			return res, err
+		}
+	}
+
 	// The stamp of the message and of both entries: the handler's clock, but strictly after either participant's
 	// clearedAt as this transaction read it (0 extra reads). A DeleteConversation that committed between the handler's
 	// clock read and this attempt would otherwise leave the recreated entry with a preview and an unread count but an
 	// empty thread (ListMessages hides createdAt <= clearedAt). It also holds whatever the clock skew between instances.
 	now := stampAfterClear(wireTime(p.Now), conv)
 	b := store.NewFirestoreTxBatch(tx)
-	msg := MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: now, SharedPostID: p.SharedPostID}
+	// Only an encrypted message carries the encrypted fields: on a plaintext message they stay zero and omitempty leaves them out.
+	msg := newMsgDoc(p, now)
 	b.Create(r.msgRef(p.ConvID, p.MsgID), msg)
 
 	switch {
@@ -301,31 +349,62 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		if dec.State == stateRequest {
 			doc.RequestFrom, doc.RequestTo, doc.RequestCount = p.UID, p.PeerUID, 1
 		}
+		if starting {
+			startEncryption(&doc)
+		}
 		b.Create(r.convRef(p.ConvID), doc)
 		if qerr := quota.CheckAndReserve(b, r.quotas.Ref(p.UID), qrec, quota.DMNew, p.DMNewLimit); qerr != nil {
 			return res, ErrDMNewDaily
 		}
+		// After the recipient and quota refusals: an encrypted request cannot open a conversation without mls_init
+		// (VALIDATION ciphertext), and an mls_init's welcome-device verdict is answered here (VALIDATION
+		// welcome_device_ids). Returning aborts the transaction, so the buffered writes above are never committed.
+		if gerr := encGate(nil, p.Enc); gerr != nil {
+			return res, gerr
+		}
 		res.Conv, res.Created = doc, true
-	case dec.IncRequest:
-		b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "requestCount", Value: firestore.Increment(1)}, {Path: "updatedAt", Value: now}})
-		res.Conv.RequestCount++
-	case dec.AcceptNow:
-		b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "state", Value: stateAccepted}, {Path: "updatedAt", Value: now}})
-		res.Conv.State, res.AcceptedByReply = stateAccepted, true
+	default:
+		// An existing conversation gets at most ONE update: the request counter or the accepting reply's state (both as
+		// before) and, for an mls_init (the upgrade of a NONE conversation), the encryption fields.
+		var ups []firestore.Update
+		updatedAt := now
+		switch {
+		case dec.IncRequest:
+			ups = append(ups, firestore.Update{Path: "requestCount", Value: firestore.Increment(1)})
+			res.Conv.RequestCount++
+		case dec.AcceptNow:
+			ups = append(ups, firestore.Update{Path: "state", Value: stateAccepted})
+			res.Conv.State, res.AcceptedByReply = stateAccepted, true
+		}
+		if starting {
+			// Strictly after the updatedAt this transaction read, whichever arm above ran (commitStamp): an equal stamp would
+			// let the instance cache keep the NONE copy for up to 60 s (putConv keeps a copy unless the newcomer is newer).
+			updatedAt = commitStamp(now, conv.UpdatedAt)
+			ups = append(ups, initUpdates()...)
+			startEncryption(&res.Conv)
+			res.Conv.UpdatedAt = updatedAt
+		}
+		if len(ups) > 0 {
+			b.Update(r.convRef(p.ConvID), append(ups, firestore.Update{Path: "updatedAt", Value: updatedAt}))
+		}
+	}
+	if starting {
+		r.putInit(b, p, earlier, leftover, now)
 	}
 	res.RecipientInRequests = dec.RecipientInRequests
 
-	snippet := snippetOf(p.Text)
+	// An encrypted message has no text, so its snippet is empty; the preview says encrypted instead.
+	snippet, encrypted := snippetOf(p.Text), p.Enc != nil
 	// The sender's own entry: always dmInbox (the requester sees the conversation in the Inbox, as on X). unreadCount is
 	// not touched; createdAt is set when this send created the conversation.
 	own := map[string]any{
 		"peerId": p.PeerUID, "peer": p.Peer.fields(), "lastMessageAt": now, "changedAt": now, "silent": p.CallerSilent,
-		"last": LastDoc{MessageID: p.MsgID, FromSelf: true, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != ""}.fields(),
+		"last": LastDoc{MessageID: p.MsgID, FromSelf: true, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != "", Encrypted: encrypted}.fields(),
 	}
 	// The recipient's entry: dmRequests while the request is unaccepted, else dmInbox.
 	other := map[string]any{
 		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "changedAt": now, "silent": res.Silent,
-		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != ""}.fields(),
+		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible, SharedPost: p.SharedPostID != "", Encrypted: encrypted}.fields(),
 	}
 	if !res.Silent {
 		other["unreadCount"] = firestore.Increment(1)
@@ -358,7 +437,8 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	return res, nil
 }
 
-// replayOrRefuse answers a send the unanswered-request cap would refuse: when the message of this key already exists
+// replayOrRefuse answers a send the unanswered-request cap or the encryption rule (encGate) of an existing conversation
+// would refuse: when the message of this key already exists
 // with the same digest it is a replay (returned as a successful, write-free result), with another digest ErrKeyReused,
 // otherwise the original refusal. 1 extra read, only on this path.
 func (r *FirestoreRepo) replayOrRefuse(ctx context.Context, tx *firestore.Transaction, p SendParams, res SendResult, refusal error) (SendResult, error) {
@@ -515,7 +595,7 @@ func (r *FirestoreRepo) MarkRead(ctx context.Context, uid, convID string, at tim
 	return false, nil
 }
 
-// txRunner is the transaction runner of the send, accept and delete transactions: the client itself, or in a test with the
+// txRunner is the transaction runner of the send, accept, delete and commit transactions: the client itself, or in a test with the
 // commitThenFail seam the client followed by an error after a successful commit.
 func (r *FirestoreRepo) txRunner() store.TxnRunner {
 	if r.hooks == nil || r.hooks.commitThenFail == nil {

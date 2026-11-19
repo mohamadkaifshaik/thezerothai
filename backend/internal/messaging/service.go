@@ -38,6 +38,16 @@ type Limits struct {
 	NewAccountWindow time.Duration
 	// ConversationCacheEntries is CACHE_MESSAGING_CONVERSATION_ENTRIES.
 	ConversationCacheEntries int
+	// ResetsPerDay is MESSAGES_RESETS_PER_DAY (10): the daily cap "messages_resets_daily" on CommitConversation calls with
+	// reset = true. The interceptor holds the per-call cap "messages_commits_daily" but cannot see the reset field, so the
+	// service draws on this one (commitCaps). 0 = no reset cap (unit rigs).
+	ResetsPerDay int64
+	// CommitsPerConversationPerDay is MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY (20): the daily cap
+	// "messages_commits_per_conversation_daily" on CommitConversation calls per (caller, conversation id), a reset included.
+	// It bounds what one caller can store against one conversation (and the peer's devices must download) in a day, whatever
+	// the conversation's state; the interceptor cannot see the conversation id, so the service draws on it (commitCaps).
+	// 0 = no per-conversation cap (unit rigs).
+	CommitsPerConversationPerDay int64
 }
 
 // Deps are the collaborators of the service. Repo and Social are required for ListConversations, Repo, Social and Profiles for SendMessage; Events and Badge may
@@ -61,6 +71,9 @@ type Deps struct {
 	Shares    ShareRecorder
 	// Suggestions wires ListMessageSuggestions (F30); without Follows that RPC is an internal error for an enabled caller.
 	Suggestions SuggestionDeps
+	// Devices answers the welcome-device check of an mls_init (the key directory); required for a send carrying mls_init
+	// (without it such a send is an internal error), unused otherwise.
+	Devices Devices
 	// AllowAnonymous is config.AuthEmulator only: the verified-email gate of Send and Accept lets emulator callers through.
 	AllowAnonymous bool
 	// CursorKey seals the list tokens (CURSOR_HMAC_KEY, like every other module); required for ListConversations.
@@ -85,10 +98,14 @@ type service struct {
 	// newSends is the new-account tier of the SendMessage daily call cap (Limits.NewAccountSendsPerDay), in memory per
 	// instance like every ratelimit.DailyCap.
 	newSends *ratelimit.DailyCap
+	// resets is the CommitConversation reset cap (Limits.ResetsPerDay), in memory per instance; nil = none.
+	resets *ratelimit.DailyCap
+	// convCommits is the CommitConversation per-(caller, conversation) cap (Limits.CommitsPerConversationPerDay), in memory
+	// per instance, keyed by convCommitKey; nil = none.
+	convCommits *ratelimit.DailyCap
 }
 
-// New builds the Service: the flag gate, then the rules of the six RPCs (SendMessage, ListConversations, ListMessages,
-// MarkRead, Accept, Delete).
+// New builds the Service: the flag gate, then the rules of every messaging RPC (the Service interface in api.go).
 func New(fc FlagChecker, d Deps) Service {
 	if d.Now == nil {
 		d.Now = time.Now
@@ -103,6 +120,12 @@ func New(fc FlagChecker, d Deps) Service {
 	s := &service{flags: fc, d: d, convs: cache.New[string, ConvDoc](entries, convCacheTTL)}
 	if d.Limits.NewAccountSendsPerDay > 0 {
 		s.newSends = ratelimit.NewDailyCap(d.Limits.NewAccountSendsPerDay).WithClock(d.Now)
+	}
+	if d.Limits.ResetsPerDay > 0 {
+		s.resets = ratelimit.NewDailyCap(d.Limits.ResetsPerDay).WithClock(d.Now)
+	}
+	if d.Limits.CommitsPerConversationPerDay > 0 {
+		s.convCommits = ratelimit.NewDailyCap(d.Limits.CommitsPerConversationPerDay).WithClock(d.Now)
 	}
 	return s
 }

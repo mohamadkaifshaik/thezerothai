@@ -70,6 +70,7 @@ func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderat
 		TargetID:       m.GetTargetId(),
 		Reason:         reasonFromProto(m.GetReason()),
 		Note:           m.GetNote(),
+		MessagePayload: m.GetMessagePayload(),
 	})
 	if err != nil {
 		return nil, err

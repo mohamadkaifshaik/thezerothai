@@ -178,6 +178,24 @@ const (
 	// UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; it can reach this value only on a reply in an
 	// ARCHIVED community's conversation (CreatePost).
 	ErrorReason_ERROR_REASON_COMMUNITY_STATE ErrorReason = 22
+	// FAILED_PRECONDITION: an end-to-end encrypted conversation moved on (messaging.v1 header, "Ordering"). The send or
+	// commit was built on an MLS (generation, epoch) pair that is no longer the conversation's current pair, or another
+	// device started encryption first; nothing was stored. metadata["generation"] and metadata["epoch"] are the current
+	// pair as decimal strings; metadata["conversation_id"] is set too when a SendMessage addressed recipient_user_id.
+	// Catch up with MessagingService.ListConversationCommits, apply the commits, then build the message or commit again
+	// on the current pair and retry. A device that lost an mls_init race (another device started encryption first) has
+	// no group to apply commits to: it joins through MessagingService.ListWelcomes instead. A client built before this
+	// value sees UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; only a client that sends ciphertext
+	// can reach it.
+	ErrorReason_ERROR_REASON_STALE_EPOCH ErrorReason = 23
+	// FAILED_PRECONDITION: a plaintext SendMessage (no ciphertext) into a conversation that is end-to-end encrypted.
+	// Encryption is one-way: the conversation never accepts plaintext again and there is no fallback. Nothing was
+	// stored. metadata["conversation_id"] is set when the SendMessage addressed recipient_user_id. A current client
+	// never sends plaintext there; on this reason show "Update the app to keep messaging". A
+	// client built before this value decodes it as UNSPECIFIED (no metadata["reason"] is set) and falls back to the
+	// FAILED_PRECONDITION code mapping, so its messaging screens show their generic failure text, not an update prompt:
+	// telling such an app to update is the app version floor's job, not this error's.
+	ErrorReason_ERROR_REASON_ENCRYPTION_REQUIRED ErrorReason = 24
 )
 
 // Enum value maps for ErrorReason.
@@ -206,6 +224,8 @@ var (
 		20: "ERROR_REASON_ALREADY_VOTED",
 		21: "ERROR_REASON_FORBIDDEN",
 		22: "ERROR_REASON_COMMUNITY_STATE",
+		23: "ERROR_REASON_STALE_EPOCH",
+		24: "ERROR_REASON_ENCRYPTION_REQUIRED",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -231,6 +251,8 @@ var (
 		"ERROR_REASON_ALREADY_VOTED":          20,
 		"ERROR_REASON_FORBIDDEN":              21,
 		"ERROR_REASON_COMMUNITY_STATE":        22,
+		"ERROR_REASON_STALE_EPOCH":            23,
+		"ERROR_REASON_ENCRYPTION_REQUIRED":    24,
 	}
 )
 
@@ -262,11 +284,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
-//   (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//   (snapshotted when the row was written);
-// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//   cache, up to 60 s stale).
+//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
+//     (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//     (snapshotted when the row was written);
+//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//     cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Always set. With FEATURE_PUBLIC_IDS off for the
@@ -670,7 +692,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\vHomeTabKind\x12\x1d\n" +
 	"\x19HOME_TAB_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12HOME_TAB_KIND_LIST\x10\x01\x12\x1b\n" +
-	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\x8f\x06\n" +
+	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\xd3\x06\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -695,7 +717,9 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x18ERROR_REASON_POLL_CLOSED\x10\x13\x12\x1e\n" +
 	"\x1aERROR_REASON_ALREADY_VOTED\x10\x14\x12\x1a\n" +
 	"\x16ERROR_REASON_FORBIDDEN\x10\x15\x12 \n" +
-	"\x1cERROR_REASON_COMMUNITY_STATE\x10\x16BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1cERROR_REASON_COMMUNITY_STATE\x10\x16\x12\x1c\n" +
+	"\x18ERROR_REASON_STALE_EPOCH\x10\x17\x12$\n" +
+	" ERROR_REASON_ENCRYPTION_REQUIRED\x10\x18BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once
