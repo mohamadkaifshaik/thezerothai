@@ -50,6 +50,10 @@
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       },
       {
+        "source": "/drift_worker.js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
         "source": "/flutter.js",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       },
