@@ -7,6 +7,9 @@ class RawLockHolder {
       throw UnsupportedError('Web Locks need a browser');
 }
 
+/// Web only: the requests made since `useLocks('counting')`.
+int lockRequestCount = 0;
+
 /// Web only: what the owner sees as `navigator.locks`.
 void useLocks(String mode) => throw UnsupportedError('browser only');
 

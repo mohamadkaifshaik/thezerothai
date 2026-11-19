@@ -121,6 +121,13 @@ class WebVaultOwner implements VaultOwner {
           _end(request, lost: false);
           return null;
         }
+        if (request.releasing != null) {
+          // Released before the grant arrived: give the lock back at once and
+          // tell the caller it does not own it.
+          if (!request.hold.isCompleted) request.hold.complete(null);
+          if (!request.granted.isCompleted) request.granted.complete(false);
+          return request.hold.future.toJS;
+        }
         request.held = true;
         if (!request.granted.isCompleted) request.granted.complete(true);
         return request.hold.future.toJS;

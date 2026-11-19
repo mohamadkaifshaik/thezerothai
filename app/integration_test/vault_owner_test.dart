@@ -137,7 +137,9 @@ void main() {
       final released = owner.release();
       final second = owner.acquire(uid);
       await released.timeout(_wait);
-      await first.timeout(_wait);
+      // The original caller asked for the lock and then for its release: the
+      // grant that arrives after the release must not be reported as owned.
+      expect(await first.timeout(_wait), isFalse);
       final owns = await second.timeout(_wait);
       // The second caller either truly holds the lock or was truthfully
       // refused: never "true" without the lock.
@@ -203,9 +205,12 @@ void main() {
     ) async {
       final other = await rawRequest(ifAvailable: true);
       expect(other, isNotNull);
+      useLocks('counting');
       final both = await Future.wait([owner.acquire(uid), owner.acquire(uid)])
           .timeout(_wait);
       expect(both, [false, false]);
+      expect(lockRequestCount, 1);
+      useLocks('real');
       await other!.release().timeout(_wait);
       expect(await owner.acquire(uid).timeout(_wait), isTrue);
     });

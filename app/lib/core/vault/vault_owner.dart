@@ -20,6 +20,9 @@ abstract interface class VaultOwner {
   /// A second call for the same uid while owned returns true without asking
   /// again. A call for another uid while owning throws [StateError]
   /// synchronously (a caller bug, not a failed future): call [release] first.
+  /// A caller waiting behind a [release] can receive an asynchronous
+  /// [StateError] instead, if a different uid acquired first. A pending
+  /// acquire that is released before the browser grants it returns false.
   Future<bool> acquire(String uid);
 
   /// Gives ownership up (the lock is free when this completes). A no-op when

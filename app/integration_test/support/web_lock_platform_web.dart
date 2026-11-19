@@ -15,6 +15,9 @@ external void _addEventListener(String type, JSFunction listener);
 @JS('removeEventListener')
 external void _removeEventListener(String type, JSFunction listener);
 
+/// The requests made since `useLocks('counting')`.
+int lockRequestCount = 0;
+
 /// What the owner sees as `navigator.locks`: `real`, `missing`, `rejecting`
 /// (request() returns a promise that rejects before any grant, like a
 /// SecurityError) or `throwing` (request() throws at once).
@@ -22,6 +25,15 @@ void useLocks(String mode) {
   switch (mode) {
     case 'real':
       debugLocksProvider = () => _locks;
+    case 'counting':
+      // The real locks, with every request() counted in lockRequestCount.
+      lockRequestCount = 0;
+      JSAny? counted(JSAny? n, JSAny? o, JSAny? cb) {
+        lockRequestCount++;
+        return _locks.callMethod<JSAny?>('request'.toJS, n, o, cb);
+      }
+      debugLocksProvider = () =>
+          JSObject()..setProperty('request'.toJS, counted.toJS);
     case 'missing':
       debugLocksProvider = () => null;
     case 'rejecting':
