@@ -28,6 +28,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/location"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
@@ -210,6 +211,14 @@ var lifecycleCollections = []collectionRow{
 	// and the `location` section exports both (DPDP: erased and exported with the account).
 	{Name: "locationArea", Sub: true, Disposition: erasedByStep, Step: "location", Section: "location", Owner: "location", Cite: "erasure and export follow the ADR-0011 Q1 pattern; location design 2026-11-15 section 4.2 (owner DPDP line: erased and exported with the account), ADR pending"},
 	{Name: "locationConsents", Sub: true, Disposition: erasedByStep, Step: "location", Section: "location", Owner: "location", Cite: "erasure and export follow the ADR-0011 Q1 pattern; location design 2026-11-15 section 4.2 (owner DPDP line: erased and exported with the account), ADR pending"},
+	// Key directory (E2EE DM design 2026-11-18, 7.9). users/{uid}/keyDevices/{deviceId} {signatureKey, createdAt, lastSeenAt,
+	// lastResort, poolCount} and its keyPackages/{id} pool {data, createdAt}: public key material and opaque packages, no other
+	// user's uid. Deleting users/{uid} removes neither; the `keys` step (BeforeIdentity, appended last, after location) deletes
+	// each device's pool in pages and then the device, finding devices through the missing-document listing so pool documents
+	// orphaned by a concurrent remove are erased as well. The `keys` section exports device id, times, pool size and whether a
+	// last resort exists, never key bytes.
+	{Name: "keyDevices", Sub: true, Disposition: erasedByStep, Step: "keys", Section: "keys", Owner: "keys", Cite: "erasure and export follow the ADR-0011 Q1 pattern; E2EE DM design 2026-11-18, 7.9 (owner-approved right-to-delete path), ADR pending"},
+	{Name: "keyPackages", Sub: true, Disposition: erasedByStep, Step: "keys", Section: "keys", Owner: "keys", Cite: "erasure and export follow the ADR-0011 Q1 pattern; E2EE DM design 2026-11-18, 7.9 (owner-approved right-to-delete path), ADR pending"},
 }
 
 // gcsPrefixRow is one GCS object namespace.
@@ -432,6 +441,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerLocationLifecycle(l, location.NewFirestoreRepo(nil, nil), nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerKeysLifecycle(l, keys.NewFirestoreRepo(nil)); err != nil {
+		t.Fatal(err)
+	}
 	return l.StepNames(), l.ExportSectionNames()
 }
 
@@ -532,6 +544,25 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("the scan did not find the %s collection in internal/communities", name)
+			}
+		})
+	}
+	// The two key directory rows are only green while the keys step and section are registered, and the guard names each
+	// collection when its row is removed.
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, without(steps, "keys"), sections), "\n"); !strings.Contains(p, `step "keys" is not registered`) {
+		t.Errorf("dropping the keys step went unnoticed: %q", p)
+	}
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "keys")), "\n"); !strings.Contains(p, `export section "keys" is not registered`) {
+		t.Errorf("dropping the keys section went unnoticed: %q", p)
+	}
+	for _, name := range []string{"keyDevices", "keyPackages"} {
+		t.Run("without the "+name+" row", func(t *testing.T) {
+			rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == name })
+			if len(rows) != len(lifecycleCollections)-1 {
+				t.Fatalf("the table has no %q row to remove", name)
+			}
+			if p := strings.Join(coverageProblems(real, rows, steps, sections), "\n"); !strings.Contains(p, `collection "`+name+`"`) || !strings.Contains(p, "has no row in lifecycleCollections") {
+				t.Errorf("removing the %s row went unnoticed: %q", name, p)
 			}
 		})
 	}

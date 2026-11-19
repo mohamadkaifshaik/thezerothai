@@ -5,6 +5,11 @@ Makefile  text eol=lf
 
 # Flutter regenerates these as LF on every pub get/analyze/test; keep them LF on Windows checkouts so they never show as modified.
 
+# The drift web worker is build output whose SHA-256 is pinned in its sidecar (app/test/guards/drift_worker_guard_test.dart):
+# never convert its line endings, so the bytes are identical on every checkout. The sidecar is text and stays LF.
+app/web/drift_worker.js      -text
+app/web/drift_worker.version text eol=lf
+
 # Promotion scripts, ceiling and fixtures: LF always, or CRLF breaks bash string comparisons and jq output diffs.
 scripts/promotion/** text eol=lf
 

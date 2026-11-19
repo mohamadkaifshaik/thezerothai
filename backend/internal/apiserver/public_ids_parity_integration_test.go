@@ -88,6 +88,7 @@ func pubChainCfg(mode flags.Mode, allow, creators []string) func(*config.Config)
 		c.FeatureQuotes = flags.Spec{Name: "quotes", Mode: flags.On}
 		c.FeatureReplies = flags.Spec{Name: "replies", Mode: flags.On}
 		c.FeatureReports = flags.Spec{Name: "reports", Mode: flags.On} // ReportContent's gate (an ACCOUNT target is a user id)
+		c.FeatureE2EEDM = flags.Spec{Name: "e2ee_dm", Mode: flags.On}  // GetKeyDevices' and ClaimKeyPackages' gate
 		c.Communities.Creators = creators
 		pubRelaxAllLimits(c)
 		spec := flags.Spec{Name: identity.PublicIDsFlag, Mode: mode, Allowlist: map[string]struct{}{}}
@@ -515,6 +516,10 @@ var pubUnknownAnswer = map[string]pubAnswer{
 	"/dzeroth.beacons.v1.BeaconService/ListSharedBeacons peer_user_id": pubOK,
 	// messaging/service_send.go: a recipient without an ACTIVE profile is the one CANNOT_MESSAGE refusal.
 	"/dzeroth.messaging.v1.MessagingService/SendMessage recipient_user_id": {code: "failed_precondition", reason: commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE},
+	// keys/service.go permit: an unknown user is refused by the messaging send rules (messaging.CanMessage: no ACTIVE
+	// profile), the one CANNOT_MESSAGE of GetKeyDevices and ClaimKeyPackages; nothing is read or written for it.
+	"/dzeroth.keys.v1.KeyService/GetKeyDevices user_ids":   {code: "failed_precondition", reason: commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE},
+	"/dzeroth.keys.v1.KeyService/ClaimKeyPackages user_id": {code: "failed_precondition", reason: commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE},
 	// moderation/service.go Report, ACCOUNT target: Accounts.GetProfile (identity GetProfile) answers notFoundErr()
 	// before anything is written (target_type ACCOUNT, reason SPAM set by pubBase).
 	"/dzeroth.moderation.v1.ModerationService/ReportContent target_id": pubNotFound,

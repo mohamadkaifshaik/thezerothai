@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
@@ -190,6 +191,34 @@ func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestFeatureRegistry_IncludesE2EEDM: the registry built from config reports `e2ee_dm` in EnabledFeatures for an
+// allowlisted uid only, and not at all when unset (a spec left out of featureRegistry would be silently off).
+func TestFeatureRegistry_IncludesE2EEDM(t *testing.T) {
+	t.Setenv("FEATURE_E2EE_DM", "")
+	t.Setenv("FEATURE_E2EE_DM_ALLOWLIST", "")
+	t.Setenv("FEATURE_E2EE_DM_PERCENT", "")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if slices.Contains(featureRegistry(cfg).EnabledFeatures("uid-a"), "e2ee_dm") {
+		t.Error("e2ee_dm must default off")
+	}
+	t.Setenv("FEATURE_E2EE_DM", "allowlist")
+	t.Setenv("FEATURE_E2EE_DM_ALLOWLIST", "uid-a")
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	reg := featureRegistry(cfg)
+	if !slices.Contains(reg.EnabledFeatures("uid-a"), "e2ee_dm") {
+		t.Error("e2ee_dm should be reported for uid-a")
+	}
+	if slices.Contains(reg.EnabledFeatures("uid-z"), "e2ee_dm") {
+		t.Error("e2ee_dm must not be reported for uid-z")
 	}
 }
 

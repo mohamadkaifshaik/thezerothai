@@ -9,6 +9,7 @@ import (
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	keysv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1/keysv1connect"
 	listsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
 	locationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/location/v1/locationv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
@@ -26,6 +27,9 @@ import (
 
 // idleBucketTTL is how long an idle per-key token bucket is kept before eviction.
 const idleBucketTTL = 10 * time.Minute
+
+// keysClaimsDailyName is the limit_name (RATE_LIMITED metadata["limit"]) of the ClaimKeyPackages daily cap.
+const keysClaimsDailyName = "keys_claims_daily"
 
 // RateLimitConfig builds the post-auth rate-limit interceptor's config: per-minute buckets, the per-uid daily
 // call caps. It is a function of
@@ -183,6 +187,17 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlLocationWrite := ratelimit.NewLimiter(cfg.RateLimit.LocationWritePerUserPerMinute, idleBucketTTL)
 	rlLocationClear := ratelimit.NewLimiter(cfg.RateLimit.LocationClearPerUserPerMinute, idleBucketTTL)
 
+	// Key directory (KeyService): RegisterKeyDevice, RemoveKeyDevice and UploadKeyPackages share a write bucket
+	// (RATE_LIMIT_KEYS_WRITE_PER_MIN, 20/min per instance); ListMyKeyDevices and GetKeyDevices share a read bucket
+	// (RATE_LIMIT_KEYS_READ_PER_MIN, 60/min); ClaimKeyPackages has its own (RATE_LIMIT_KEYS_CLAIM_PER_MIN, 20/min) and the
+	// per-uid daily cap "keys_claims_daily" (KEYS_CLAIMS_PER_DAY, 300), because each claim consumes other users' one-time
+	// key packages. The per-(caller, target) cap "keys_claims_per_target_daily" (KEYS_CLAIMS_PER_TARGET_PER_DAY, 20) is
+	// drawn on by the keys service, not here (the interceptor cannot see the target).
+	rlKeysWrite := ratelimit.NewLimiter(cfg.RateLimit.KeysWritePerUserPerMinute, idleBucketTTL)
+	rlKeysRead := ratelimit.NewLimiter(cfg.RateLimit.KeysReadPerUserPerMinute, idleBucketTTL)
+	rlKeysClaim := ratelimit.NewLimiter(cfg.RateLimit.KeysClaimPerUserPerMinute, idleBucketTTL)
+	keysClaimsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.KeysClaimsPerDay)
+
 	// The seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
 	// HideCommunityPost, RestoreCommunityPost, SetMemberRole) share one per-user bucket (RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, 20/min per
 	// instance). HideCommunityPost and SetMemberRole (bans go through it) also share one per-uid daily cap, limit_name
@@ -305,6 +320,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			locationv1connect.LocationServiceListAreasProcedure:                  rlLocationRead,
 			locationv1connect.LocationServiceSetAreaProcedure:                    rlLocationWrite,
 			locationv1connect.LocationServiceClearAreaProcedure:                  rlLocationClear,
+			keysv1connect.KeyServiceRegisterKeyDeviceProcedure:                   rlKeysWrite,
+			keysv1connect.KeyServiceRemoveKeyDeviceProcedure:                     rlKeysWrite,
+			keysv1connect.KeyServiceUploadKeyPackagesProcedure:                   rlKeysWrite,
+			keysv1connect.KeyServiceListMyKeyDevicesProcedure:                    rlKeysRead,
+			keysv1connect.KeyServiceGetKeyDevicesProcedure:                       rlKeysRead,
+			keysv1connect.KeyServiceClaimKeyPackagesProcedure:                    rlKeysClaim,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceFollowProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
@@ -336,6 +357,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 			beaconsv1connect.BeaconServiceCreateBeaconProcedure: {Name: "beacons_created_daily", Cap: beaconsCreatedDailyCap},
 			beaconsv1connect.BeaconServiceCancelBeaconProcedure: {Name: "beacons_cancelled_daily", Cap: beaconsCancelledDailyCap},
+
+			keysv1connect.KeyServiceClaimKeyPackagesProcedure: {Name: keysClaimsDailyName, Cap: keysClaimsDailyCap},
 		},
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,

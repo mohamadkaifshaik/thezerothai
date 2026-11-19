@@ -54,6 +54,7 @@
 	featureSearchFilters, err := flags.LoadSpec("SEARCH_FILTERS", "search_filters", flags.Off)
 	featureLocation, err := flags.LoadSpec("LOCATION", "location", flags.Off)
 	featureDMSuggestions, err := flags.LoadSpec("DM_SUGGESTIONS", "dm_suggestions", flags.Off)
+	featureE2EEDM, err := flags.LoadSpec("E2EE_DM", "e2ee_dm", flags.Off)
 	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	featureCreatorInsights, err := flags.LoadSpec("CREATOR_INSIGHTS", "creator_insights", flags.Off)
 	featureBeaconQuickJoin, err := flags.LoadSpec("BEACON_QUICK_JOIN", "beacon_quick_join", flags.Off)
