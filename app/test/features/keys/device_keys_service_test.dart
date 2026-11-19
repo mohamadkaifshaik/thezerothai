@@ -148,7 +148,11 @@ class _Rig {
     gate = ServiceFeatureGate(isEnabled: () => flag, now: () => now);
     service = DeviceKeysService(
       session: session,
-      repository: KeysRepository(apiClient: server.apiClient, gate: gate),
+      repository: KeysRepository(
+        apiClient: server.apiClient,
+        gate: gate,
+        deviceFacts: () => false,
+      ),
       engine: () => engine,
       currentUid: () => uid,
       now: () => now,

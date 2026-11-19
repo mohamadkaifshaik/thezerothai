@@ -94,6 +94,7 @@ void main() {
         repository: KeysRepository(
           apiClient: server.apiClient,
           gate: ServiceFeatureGate(isEnabled: () => true),
+          deviceFacts: () => false,
         ),
         engine: () => engine,
         currentUid: uid,

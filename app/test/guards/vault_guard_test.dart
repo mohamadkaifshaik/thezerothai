@@ -694,7 +694,8 @@ void main() {
       'test/features/keys/device_keys_service_test.dart':
           'flag off: the vault never opens, nothing is generated or sent',
       'test/features/keys/keys_repository_test.dart':
-          'with the flag off nothing is sent and FeatureDisabled is thrown',
+          'flag off and no vault on this device: nothing is sent and '
+          'FeatureDisabled is thrown',
     };
 
     for (final e in pinned.entries) {

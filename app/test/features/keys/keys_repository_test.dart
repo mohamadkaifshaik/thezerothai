@@ -19,6 +19,7 @@ Uint8List _sig([int fill = 7]) => Uint8List.fromList(List.filled(32, fill));
 void main() {
   late FakeKeyServer server;
   late bool flag;
+  late bool hasVault;
   late ServiceFeatureGate gate;
   late KeysRepository repo;
   late int refreshes;
@@ -31,7 +32,12 @@ void main() {
       isEnabled: () => flag,
       onDisabledByServer: () => refreshes++,
     );
-    repo = KeysRepository(apiClient: server.apiClient, gate: gate);
+    hasVault = false;
+    repo = KeysRepository(
+      apiClient: server.apiClient,
+      gate: gate,
+      deviceFacts: () => hasVault,
+    );
   });
 
   test('register sends the id, key and idempotency key; the same id and '
@@ -158,44 +164,101 @@ void main() {
     expect(server.calls, ['register', 'remove', 'remove']);
   });
 
-  test(
-    'with the flag off nothing is sent and FeatureDisabled is thrown',
-    () async {
-      flag = false;
-      await expectLater(
-        repo.registerDevice(
-          deviceId: _id,
-          signaturePublicKey: _sig(),
-          idempotencyKey: _key1,
+  // One call per method, in a fixed order: register, list, remove, upload,
+  // get, claim.
+  List<Future<Object?> Function()> allSix() => [
+    () => repo.registerDevice(
+      deviceId: _id,
+      signaturePublicKey: _sig(),
+      idempotencyKey: _key1,
+    ),
+    () => repo.listMine(),
+    () => repo.removeDevice(deviceId: _id, idempotencyKey: _key1),
+    () => repo.uploadKeyPackages(
+      deviceId: _id,
+      keyPackages: [
+        Uint8List.fromList([1]),
+      ],
+      idempotencyKey: _key1,
+    ),
+    () => repo.getDevices(['u1']),
+    () => repo.claim(userId: 'u1', idempotencyKey: _key1),
+  ];
+
+  test('flag off and no vault on this device: nothing is sent and '
+      'FeatureDisabled is thrown', () async {
+    flag = false;
+    for (final call in allSix()) {
+      await expectLater(call(), throwsA(isA<FeatureDisabledException>()));
+    }
+    expect(server.rpcCount, 0);
+    expect(repo.enabled, isFalse);
+  });
+
+  test('flag off with a vault on this device: list, remove and lookup are '
+      'sent; register, upload and claim are not', () async {
+    flag = false;
+    hasVault = true;
+    final calls = allSix();
+    await calls[1]();
+    await calls[2]();
+    await calls[4]();
+    expect(server.calls, ['list', 'remove', 'get']);
+    for (final i in [0, 3, 5]) {
+      await expectLater(calls[i](), throwsA(isA<FeatureDisabledException>()));
+    }
+    expect(server.calls, ['list', 'remove', 'get']);
+    expect(repo.enabled, isFalse);
+  });
+
+  test('flag on: all six are sent', () async {
+    final calls = allSix();
+    // Removal last: the upload needs the registered device.
+    for (final i in [0, 1, 3, 4, 5, 2]) {
+      await calls[i]();
+    }
+    expect(server.calls, [
+      'register',
+      'list',
+      'upload',
+      'get',
+      'claim',
+      'remove',
+    ]);
+  });
+
+  test('a server FEATURE_DISABLED on list, remove or lookup is rethrown and '
+      'not recorded in the gate', () async {
+    flag = false;
+    hasVault = true;
+    final calls = allSix();
+    for (final i in [1, 2, 4]) {
+      server.failNext[const ['', 'list', 'remove', '', 'get'][i]] = [
+        keyServerError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
         ),
-        throwsA(isA<FeatureDisabledException>()),
-      );
-      await expectLater(
-        repo.listMine(),
-        throwsA(isA<FeatureDisabledException>()),
-      );
-      await expectLater(
-        repo.uploadKeyPackages(
-          deviceId: _id,
-          keyPackages: [
-            Uint8List.fromList([1]),
-          ],
-          idempotencyKey: _key1,
-        ),
-        throwsA(isA<FeatureDisabledException>()),
-      );
-      await expectLater(
-        repo.getDevices(['u1']),
-        throwsA(isA<FeatureDisabledException>()),
-      );
-      await expectLater(
-        repo.claim(userId: 'u1', idempotencyKey: _key1),
-        throwsA(isA<FeatureDisabledException>()),
-      );
-      expect(server.rpcCount, 0);
-      expect(repo.enabled, isFalse);
-    },
-  );
+      ];
+      await expectLater(calls[i](), throwsA(isA<FeatureDisabledException>()));
+    }
+    expect(refreshes, 0);
+    flag = true;
+    expect(repo.enabled, isTrue);
+  });
+
+  test('claim carries conversationId and lookup carries inactive', () async {
+    server.claimConversationId = '0123456789abcdef0123456789abcdef';
+    await repo.registerDevice(
+      deviceId: _id,
+      signaturePublicKey: _sig(),
+      idempotencyKey: _key1,
+    );
+    server.devices[_id]!.inactive = true;
+    final claimed = await repo.claim(userId: 'u1', idempotencyKey: _key2);
+    expect(claimed.conversationId, '0123456789abcdef0123456789abcdef');
+    final got = await repo.getDevices(['u1']);
+    expect(got.users.single.devices.single.inactive, isTrue);
+  });
 
   test(
     'removal is gated too: with the flag off nothing reaches KeyService',

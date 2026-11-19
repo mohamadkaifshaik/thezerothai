@@ -65,6 +65,9 @@ class FakeKeyServer {
 
   bool featureEnabled = true;
 
+  /// The `conversation_id` a claim answers with ('' = none; K2).
+  String claimConversationId = '';
+
   late final _KeyTransport _transport = _KeyTransport(_handle);
 
   /// A client whose `keys` calls land here.
@@ -116,6 +119,7 @@ class FakeKeyServer {
       pb.RemoveKeyDeviceRequest r => _remove(r),
       pb.UploadKeyPackagesRequest r => _upload(r),
       pb.ClaimKeyPackagesRequest r => _claim(r),
+      pb.GetKeyDevicesRequest r => _get(r),
       _ => throw UnimplementedError(name),
     };
     final late = failAfterApply[name];
@@ -228,8 +232,24 @@ class FakeKeyServer {
       }
       out.add(claimed);
     }
-    return pb.ClaimKeyPackagesResponse(keyPackages: out);
+    return pb.ClaimKeyPackagesResponse(
+      keyPackages: out,
+      conversationId: claimConversationId,
+    );
   }
+
+  /// Every requested user answers with this caller's devices (the fake holds
+  /// one user's directory), each carrying its inactive flag.
+  pb.GetKeyDevicesResponse _get(pb.GetKeyDevicesRequest r) =>
+      pb.GetKeyDevicesResponse(
+        users: [
+          for (final id in r.userIds)
+            pb.UserKeyDevices(
+              userId: id,
+              devices: [for (final d in devices.values) d.toProto()],
+            ),
+        ],
+      );
 
   static bool _same(List<int> a, List<int> b) {
     if (a.length != b.length) return false;
@@ -288,6 +308,9 @@ class FakeKeyDevice {
   final List<Uint8List> pool = [];
   Uint8List? lastResort;
 
+  /// K5: the device is registered but no longer active.
+  bool inactive = false;
+
   pb.KeyDevice toProto() => pb.KeyDevice(
     deviceId: id,
     signaturePublicKey: signatureKey,
@@ -295,6 +318,7 @@ class FakeKeyDevice {
     lastSeenAt: lastSeen == null ? null : ts.Timestamp.fromDateTime(lastSeen!),
     keyPackageCount: pool.length,
     hasLastResort: lastResort != null,
+    inactive: inactive,
   );
 }
 

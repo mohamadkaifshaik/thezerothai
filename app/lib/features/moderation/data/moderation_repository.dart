@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../gen/dzeroth/moderation/v1/moderation.pb.dart' as pb;
@@ -40,7 +42,16 @@ class ModerationRepository {
     required String targetId,
     required ReportReason reason,
     String note = '',
+    Uint8List? messagePayload,
   }) async {
+    if (messagePayload != null &&
+        (messagePayload.isEmpty || messagePayload.length > 8192)) {
+      throw ArgumentError.value(
+        messagePayload.length,
+        'messagePayload.length',
+        'must be 1 to 8192 bytes',
+      );
+    }
     final response = await _gate.run(
       () => _apiClient.moderation.reportContent(
         pb.ReportContentRequest(
@@ -49,6 +60,7 @@ class ModerationRepository {
           targetId: targetId,
           reason: reason,
           note: note,
+          messagePayload: messagePayload,
         ),
       ),
     );

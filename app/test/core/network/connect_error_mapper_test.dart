@@ -1,4 +1,5 @@
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/connect_error_mapper.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -76,23 +77,83 @@ void main() {
   });
 
   group('mapConnectError', () {
-    for (final reason in [
-      common.ErrorReason.ERROR_REASON_STALE_EPOCH,
-      common.ErrorReason.ERROR_REASON_ENCRYPTION_REQUIRED,
-    ]) {
-      test('$reason is a generic error, never ProfileRequired', () {
-        final result = mapConnectError(
-          _withDetail(
-            connect.Code.failedPrecondition,
-            'fallback',
-            common.ErrorDetail(reason: reason, message: 'Try again'),
-          ),
-        );
+    const conv = '0123456789abcdef0123456789abcdef';
 
-        expect(result, isA<UnknownApiException>());
-        expect(result.message, 'Try again');
+    AppException stale(Map<String, String> metadata) => mapConnectError(
+      _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_STALE_EPOCH,
+          message: 'Try again',
+          metadata: metadata.entries,
+        ),
+      ),
+    );
+
+    test('STALE_EPOCH keeps generation, epoch and conversation_id', () {
+      final result = stale({
+        'generation': '3',
+        'epoch': '17',
+        'conversation_id': conv,
       });
-    }
+      expect(result, isA<StaleEpochException>());
+      final e = result as StaleEpochException;
+      expect(e.generation, 3);
+      expect(e.epoch, 17);
+      expect(e.conversationId, conv);
+      expect(e.pair, const MlsPair(3, 17));
+    });
+
+    test('STALE_EPOCH with a missing or non-numeric epoch has pair == null '
+        'and is still StaleEpochException', () {
+      for (final metadata in [
+        <String, String>{},
+        {'generation': '3'},
+        {'generation': '3', 'epoch': 'x'},
+        {'generation': '3', 'epoch': '0'},
+        {'generation': '0', 'epoch': '4'},
+        {'generation': '3', 'epoch': '-1'},
+        {'generation': '3', 'epoch': '9007199254740992'},
+      ]) {
+        final result = stale(metadata);
+        expect(result, isA<StaleEpochException>(), reason: '$metadata');
+        final e = result as StaleEpochException;
+        expect(e.pair, isNull, reason: '$metadata');
+        expect(e.generation, 0);
+        expect(e.epoch, 0);
+      }
+    });
+
+    test('ENCRYPTION_REQUIRED is typed and keeps conversation_id', () {
+      final result = mapConnectError(
+        _withDetail(
+          connect.Code.failedPrecondition,
+          'fallback',
+          common.ErrorDetail(
+            reason: common.ErrorReason.ERROR_REASON_ENCRYPTION_REQUIRED,
+            message: 'Try again',
+            metadata: {'conversation_id': conv}.entries,
+          ),
+        ),
+      );
+      expect(result, isA<EncryptionRequiredException>());
+      expect((result as EncryptionRequiredException).conversationId, conv);
+    });
+
+    test('a malformed conversation_id is dropped', () {
+      for (final bad in ['ABCDEF0123456789abcdef0123456789', 'abc', '$conv ']) {
+        expect(
+          (stale({
+            'generation': '1',
+            'epoch': '1',
+            'conversation_id': bad,
+          }) as StaleEpochException).conversationId,
+          isNull,
+          reason: bad,
+        );
+      }
+    });
 
     test('maps a non-Connect error to NetworkException', () {
       final result = mapConnectError(Exception('socket closed'));

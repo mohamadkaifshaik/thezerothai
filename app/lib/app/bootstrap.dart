@@ -360,6 +360,7 @@ Future<void> bootstrap() async {
         kFeatureE2eeDm,
         onUnexpectedError: reportUnexpectedError,
       ),
+      deviceFacts: () => vaultSession.vault != null,
     ),
     engine: engine,
     currentUid: () => authBloc.state.user?.uid,
