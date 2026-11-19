@@ -63,6 +63,8 @@ type Device struct {
 	// PoolCount is the one-time packages in the pool; HasLastResort is whether a last-resort package is stored.
 	PoolCount     int
 	HasLastResort bool
+	// Inactive is !Active(now), set by ListMine and GetDevices (never stored, so a repository leaves it false).
+	Inactive bool
 }
 
 // Claimed is the answer of a claim for one active device: a one-time package (consumed), else the last-resort package
@@ -85,23 +87,30 @@ type Service interface {
 	// Register publishes (or refreshes) the caller's device. ErrKeyMismatch is VALIDATION signature_public_key, a sixth
 	// device is LIMIT_REACHED key_devices.
 	Register(ctx context.Context, uid, deviceID string, signatureKey []byte) (Device, error)
-	// ListMine returns the caller's devices, at most MaxDevicesPerUser, oldest first, inactive ones included.
+	// ListMine returns the caller's devices, at most MaxDevicesPerUser, oldest first, inactive ones included (Inactive set).
 	ListMine(ctx context.Context, uid string) ([]Device, error)
 	// Remove deletes a device with its pool and last-resort package; a missing device is success.
 	Remove(ctx context.Context, uid, deviceID string) error
 	// Upload adds packages to a registered device's pool (duplicates stored once, excess over MaxPoolSize dropped) and
 	// optionally replaces its last-resort package (nil or empty = keep). It returns the resulting pool size.
 	Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte) (poolCount int, hasLastResort bool, err error)
-	// GetDevices answers the active devices of 1 to 10 distinct users, keyed by every requested id (an empty list for a
-	// user with the flag off or no active device). For every user other than the caller the caller must pass
-	// Permission.CanMessage first; any refusal is the one CANNOT_MESSAGE. PoolCount and HasLastResort are zeroed for
-	// other users. Nothing is written (LastSeenAt is not refreshed).
+	// GetDevices answers the devices of 1 to 10 distinct users, keyed by every requested id. For every user other than
+	// the caller the caller must pass Permission.CanMessage first (in request order, before anything else); any refusal is
+	// the one CANNOT_MESSAGE. Then, per other user: a pair that shares an accepted encrypted conversation
+	// (Permission.SharesEncryptedConversation, whatever either flag says) gets every registered device with Inactive
+	// set; else, when the flag is on for both caller and target, the active devices; else an empty list and no device
+	// read. The caller's own id answers the caller's active devices only when the caller's flag is on, else an empty
+	// list. A failed shared-conversation read is an error, never an empty list. PoolCount, HasLastResort and both
+	// timestamps are zeroed for other users. Nothing is written (LastSeenAt is not refreshed).
 	GetDevices(ctx context.Context, uid string, userIDs []string) (map[string][]Device, error)
 	// Claim takes one key package per active device of targetUID (see Claimed), oldest device first, after the same
-	// permission and flag rules as GetDevices. For the caller's own id excludeDeviceID is required and must be one of the
-	// caller's devices, which is skipped; for another user it must be empty or well-formed and is not used. Not
-	// replayable: a retry consumes fresh packages.
-	Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, error)
+	// permission and flag rules as GetDevices (the shared-conversation rule does not apply: a claim still needs the
+	// caller's flag on, enforced by the handler, and the target's flag on, else an empty success). For the caller's own id
+	// excludeDeviceID is required and must be one of the caller's devices, which is skipped; for another user it must be
+	// empty or well-formed and is not used. conversationID is the id of the (caller, target) conversation on every
+	// success for another user (the flag-off target's empty success included) and "" for a self-claim and with every
+	// error. Not replayable: a retry consumes fresh packages.
+	Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) (claimed []Claimed, conversationID string, err error)
 }
 
 // Repo is the storage seam (repo_firestore.go).

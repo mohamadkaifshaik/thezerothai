@@ -11,8 +11,9 @@ package e2e
 // registers. B claims A (one package, not last-resort, A's key; A's pool is then 2), B looks A up (counts zeroed, no
 // timestamps). A blocks B: B's claim and B's lookup answer CANNOT_MESSAGE, identical on the wire (raw HTTP: status, body
 // bytes, content type) to each other, to the answers for an unknown user and to those for a SUSPENDED user.
-// A caller without the flag (not in the allowlist, flag not globally off) gets FEATURE_DISABLED on the four gated RPCs
-// and can still list. No credentials answer 401 on all six procedures. Account deletion erases users/{A}/keyDevices.
+// A caller without the flag (not in the allowlist, flag not globally off) gets FEATURE_DISABLED on the three gated RPCs
+// and can still list, remove and look up (an empty success without a shared encrypted conversation). No credentials
+// answer 401 on all six procedures. Account deletion erases users/{A}/keyDevices.
 
 import (
 	"bytes"
@@ -297,7 +298,7 @@ func TestE2E_KeysSmoke_RegisterClaimBlockFlag(t *testing.T) {
 		}
 	}
 
-	// Flag off for the caller (C is not on the allowlist): the four gated RPCs answer FEATURE_DISABLED / e2ee_dm before any lookup.
+	// Flag off for the caller (C is not on the allowlist): the three gated RPCs answer FEATURE_DISABLED / e2ee_dm before any lookup.
 	for name, call := range map[string]func() error{
 		"RegisterKeyDevice": func() error {
 			_, err := keys.RegisterKeyDevice(ctx, authedRequest(c.token, &keysv1.RegisterKeyDeviceRequest{IdempotencyKey: keysKey("reg-c"), DeviceId: keysDeviceID("c"), SignaturePublicKey: keysRandBytes(32)}))
@@ -305,10 +306,6 @@ func TestE2E_KeysSmoke_RegisterClaimBlockFlag(t *testing.T) {
 		},
 		"UploadKeyPackages": func() error {
 			_, err := keys.UploadKeyPackages(ctx, authedRequest(c.token, &keysv1.UploadKeyPackagesRequest{IdempotencyKey: keysKey("up-c"), DeviceId: keysDeviceID("c"), KeyPackages: [][]byte{{1}}}))
-			return err
-		},
-		"GetKeyDevices": func() error {
-			_, err := keys.GetKeyDevices(ctx, authedRequest(c.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{a.uid}}))
 			return err
 		},
 		"ClaimKeyPackages": func() error {
@@ -319,6 +316,12 @@ func TestE2E_KeysSmoke_RegisterClaimBlockFlag(t *testing.T) {
 		t.Run("flag off for the caller: "+name, func(t *testing.T) {
 			keysWantReason(t, call(), commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "e2ee_dm")
 		})
+	}
+	// GetKeyDevices also needs only "not globally off": C has no encrypted conversation with A, so the lookup is an empty
+	// success (A's device stays hidden), never FEATURE_DISABLED.
+	if res, err := keys.GetKeyDevices(ctx, authedRequest(c.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{a.uid}})); err != nil ||
+		len(res.Msg.GetUsers()) != 1 || len(res.Msg.GetUsers()[0].GetDevices()) != 0 {
+		t.Errorf("GetKeyDevices without the flag = %v, %v; want an empty success", res, err)
 	}
 	// ListMyKeyDevices and RemoveKeyDevice need only "not globally off": a user off the allowlist still works. (A user who
 	// had a device and was then dropped cannot be expressed here: the allowlist is fixed when the server is built.)

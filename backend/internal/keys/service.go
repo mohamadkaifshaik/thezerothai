@@ -59,6 +59,9 @@ type Deps struct {
 	Flags      FlagChecker
 	// ClaimCap is the per-(caller, target) daily cap on Claim (KEYS_CLAIMS_PER_TARGET_PER_DAY), keyed by claimCapKey.
 	ClaimCap *ratelimit.DailyCap
+	// ConversationID is messaging.ConversationID, injected by the composition root (keys never imports messaging).
+	// Required: newKeysModule fails when nil. A service built without it answers "" as the conversation id of a claim.
+	ConversationID func(callerUID, targetUID string) string
 	// Log receives panics on the lookup's worker goroutines (default slog.Default()).
 	Log *slog.Logger
 }
@@ -69,6 +72,7 @@ type service struct {
 	perm     Permission
 	flags    FlagChecker
 	claimCap *ratelimit.DailyCap
+	convID   func(callerUID, targetUID string) string
 	log      *slog.Logger
 }
 
@@ -82,7 +86,7 @@ func New(d Deps) Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, log: log}
+	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, convID: d.ConversationID, log: log}
 }
 
 var _ Service = (*service)(nil)
@@ -124,16 +128,19 @@ func (s *service) Register(ctx context.Context, uid, deviceID string, signatureK
 	return cloneDevice(d), nil
 }
 
-// ListMine answers the caller's devices, oldest first, inactive ones included.
+// ListMine answers the caller's devices, oldest first, inactive ones included and marked (Inactive, from the clock).
 func (s *service) ListMine(ctx context.Context, uid string) ([]Device, error) {
 	begin(ctx, "list")
 	ds, err := s.repo.List(ctx, uid)
 	if err != nil {
 		return nil, s.mapErr(ctx, "list", uid, err)
 	}
+	now := s.now()
 	out := make([]Device, 0, len(ds))
 	for _, d := range ds {
-		out = append(out, cloneDevice(d))
+		d = cloneDevice(d)
+		d.Inactive = !d.Active(now)
+		out = append(out, d)
 	}
 	logger.SetRequestField(ctx, fieldOutcome, outcomeDone)
 	logger.SetRequestField(ctx, fieldDevices, len(out))
@@ -241,9 +248,13 @@ func (s *service) targetOn(target string) bool {
 	return s.flags != nil && s.flags.Enabled(target, FlagName)
 }
 
-// GetDevices validates the ids, checks permission for every other user in request order (before any flag check or
-// read), then reads the active devices of the caller and of every other user with the flag on, concurrently (at most
-// MaxLookupUsers queries of at most MaxDevicesPerUser documents each).
+// GetDevices, in this order: (1) validates the ids; (2) checks permission for every other user in request order (before
+// any flag check, shared-conversation check or read); (3) asks Permission.SharesEncryptedConversation for every other user
+// in request order (a failure is an error before any device read; a nil Permission is "not shared"); (4) reads devices
+// concurrently, at most MaxLookupUsers queries of at most MaxDevicesPerUser documents each: the caller's own active
+// devices when the caller's flag is on; for another user every registered device (List) when the pair shares an
+// accepted encrypted conversation (a pending message request does not count), else the active devices (ActiveDevices)
+// when the flag is on for both, else nothing; (5) strips another user's device to id, key and the Inactive marker.
 func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) (map[string][]Device, error) {
 	begin(ctx, "get_devices")
 	if len(userIDs) < 1 || len(userIDs) > MaxLookupUsers {
@@ -267,16 +278,43 @@ func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) 
 			}
 		}
 	}
+	callerOn := s.targetOn(uid)
+	shared := make([]bool, len(userIDs))
+	if s.perm != nil {
+		for i, id := range userIDs {
+			if id == uid {
+				continue
+			}
+			ok, err := s.perm.SharesEncryptedConversation(ctx, uid, id)
+			if err != nil {
+				return nil, s.mapErr(ctx, "get_devices", uid, sealPermissionErr(err, uid, id))
+			}
+			shared[i] = ok
+		}
+	}
 	now := s.now()
 	found := make([][]Device, len(userIDs))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(lookupFanout)
 	for i, id := range userIDs {
-		if id != uid && !s.targetOn(id) {
+		var read func(context.Context, string, time.Time) ([]Device, error)
+		switch {
+		case id == uid:
+			if callerOn {
+				read = s.repo.ActiveDevices
+			}
+		case shared[i]:
+			read = func(ctx context.Context, target string, _ time.Time) ([]Device, error) {
+				return s.repo.List(ctx, target)
+			}
+		case callerOn && s.targetOn(id):
+			read = s.repo.ActiveDevices
+		}
+		if read == nil {
 			continue
 		}
 		g.Go(mw.RecoverGo(ctx, s.log, "keys/lookup_worker", func() error {
-			ds, err := s.repo.ActiveDevices(gctx, id, now)
+			ds, err := read(gctx, id, now)
 			if err != nil {
 				return logger.RedactErr(err, id)
 			}
@@ -292,13 +330,15 @@ func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) 
 	for i, id := range userIDs {
 		list := make([]Device, 0, len(found[i]))
 		for _, d := range found[i] {
-			if !d.Active(now) {
-				continue
+			inactive := !d.Active(now)
+			if inactive && !shared[i] {
+				continue // the activity filter of the ActiveDevices paths; a shared pair gets every registered device
 			}
 			d = cloneDevice(d)
+			d.Inactive = inactive
 			if id != uid {
-				// Another user's device: only its id and signature key. No counts and no timestamps (the handler sends
-				// zero times as absent); the activity filter above has already used LastSeenAt.
+				// Another user's device: only its id, signature key and the Inactive marker. No counts and no
+				// timestamps (the handler sends zero times as absent); Inactive has already used LastSeenAt.
 				d.PoolCount, d.HasLastResort = 0, false
 				d.CreatedAt, d.LastSeenAt = time.Time{}, time.Time{}
 			}
@@ -349,40 +389,46 @@ func (s *service) DeviceIDs(ctx context.Context, uid string) ([]string, error) {
 // included), checks permission and the target's flag (another user), then claims through the repository
 // (compare-and-delete per device). The excluded device is passed to the repository only for the caller's own id, where it must exist; for another user
 // a well-formed exclude_device_id is accepted and not used (it exists for a device claiming its own user's others).
-func (s *service) Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, error) {
+//
+// It also returns the id of the (caller, target) conversation (the injected ConversationID) on every nil-error return for
+// another user, the flag-off target's empty success included; "" for a self-claim and with every error.
+func (s *service) Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, string, error) {
 	begin(ctx, "claim")
 	if !ids.ValidUID(targetUID) {
-		return nil, invalid(ctx, "user_id", ids.UIDMessage)
+		return nil, "", invalid(ctx, "user_id", ids.UIDMessage)
 	}
 	self := targetUID == uid
 	if (self || excludeDeviceID != "") && !ValidDeviceID(excludeDeviceID) {
-		return nil, invalid(ctx, "exclude_device_id", excludeMessage)
+		return nil, "", invalid(ctx, "exclude_device_id", excludeMessage)
 	}
 	// The per-(caller, target) daily cap: counted for every well-formed request, self included, before the permission
 	// check, the target's flag or any read, so a capped answer is the same for a blocked, unknown or real target.
 	if s.claimCap != nil && !s.claimCap.Allow(claimCapKey(uid, targetUID)) {
 		logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"rate_limited")
-		return nil, s.claimCap.ExceededError(ctx, LimitClaimsPerTargetDaily)
+		return nil, "", s.claimCap.ExceededError(ctx, LimitClaimsPerTargetDaily)
 	}
-	exclude := ""
+	exclude, convID := "", ""
 	if self {
 		exclude = excludeDeviceID
 	} else {
 		if err := s.permit(ctx, "claim", uid, targetUID); err != nil {
-			return nil, err
+			return nil, "", err
+		}
+		if s.convID != nil {
+			convID = s.convID(uid, targetUID)
 		}
 		if !s.targetOn(targetUID) {
 			logger.SetRequestField(ctx, fieldOutcome, outcomeDone)
 			logger.SetRequestField(ctx, fieldDevices, 0)
-			return []Claimed{}, nil
+			return []Claimed{}, convID, nil
 		}
 	}
 	got, err := s.repo.Claim(ctx, targetUID, exclude, s.now())
 	if errors.Is(err, ErrExcludeNotFound) {
-		return nil, invalid(ctx, "exclude_device_id", excludeMessage)
+		return nil, "", invalid(ctx, "exclude_device_id", excludeMessage)
 	}
 	if err != nil {
-		return nil, s.mapErr(ctx, "claim", uid, logger.RedactErr(err, targetUID))
+		return nil, "", s.mapErr(ctx, "claim", uid, logger.RedactErr(err, targetUID))
 	}
 	out := make([]Claimed, 0, len(got))
 	consumed, lastResort := 0, 0
@@ -399,7 +445,7 @@ func (s *service) Claim(ctx context.Context, uid, targetUID, excludeDeviceID str
 	logger.SetRequestField(ctx, fieldDevices, len(out))
 	logger.SetRequestField(ctx, fieldPackages, consumed)
 	logger.SetRequestField(ctx, fieldLRUsed, lastResort)
-	return out, nil
+	return out, convID, nil
 }
 
 // claimCapKey is the per-target cap's key for the ordered pair (caller, target): the first 32 hex characters of the

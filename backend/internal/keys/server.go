@@ -22,10 +22,11 @@ const rpcDeadline = 8 * time.Second
 type gateClass int
 
 const (
-	// gateOn: RegisterKeyDevice, UploadKeyPackages, GetKeyDevices and ClaimKeyPackages need the flag on for the caller.
+	// gateOn: RegisterKeyDevice, UploadKeyPackages and ClaimKeyPackages need the flag on for the caller.
 	gateOn gateClass = iota
-	// gateNotOff: ListMyKeyDevices and RemoveKeyDevice need it only not globally off, so a user dropped from an
-	// allowlist can still see and remove their devices.
+	// gateNotOff: ListMyKeyDevices, RemoveKeyDevice and GetKeyDevices need it only not globally off, so a user dropped
+	// from an allowlist can still see and remove their devices and look up a peer they share an encrypted
+	// conversation with.
 	gateNotOff
 )
 
@@ -134,10 +135,11 @@ func (s *Server) UploadKeyPackages(ctx context.Context, req *connect.Request[key
 	return connect.NewResponse(&keysv1.UploadKeyPackagesResponse{KeyPackageCount: count32(n), HasLastResort: has}), nil
 }
 
-// GetKeyDevices needs the flag on for the caller. The service answers a map keyed by every requested id; the response
-// lists the users in request order, with an entry (possibly empty) for every requested id.
+// GetKeyDevices needs the flag only not globally off: a caller whose flag is off gets devices only for a peer they share
+// an accepted encrypted conversation with, else an empty success (the service decides). The service answers a map keyed by every
+// requested id; the response lists the users in request order, with an entry (possibly empty) for every requested id.
 func (s *Server) GetKeyDevices(ctx context.Context, req *connect.Request[keysv1.GetKeyDevicesRequest]) (*connect.Response[keysv1.GetKeyDevicesResponse], error) {
-	ctx, cancel, uid, err := s.entry(ctx, "GetKeyDevices", gateOn, nil)
+	ctx, cancel, uid, err := s.entry(ctx, "GetKeyDevices", gateNotOff, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -163,11 +165,11 @@ func (s *Server) ClaimKeyPackages(ctx context.Context, req *connect.Request[keys
 		return nil, err
 	}
 	defer cancel()
-	got, err := s.svc.Claim(ctx, uid, m.GetUserId(), m.GetExcludeDeviceId())
+	got, convID, err := s.svc.Claim(ctx, uid, m.GetUserId(), m.GetExcludeDeviceId())
 	if err != nil {
 		return nil, err
 	}
-	out := &keysv1.ClaimKeyPackagesResponse{KeyPackages: make([]*keysv1.ClaimedKeyPackage, 0, len(got))}
+	out := &keysv1.ClaimKeyPackagesResponse{KeyPackages: make([]*keysv1.ClaimedKeyPackage, 0, len(got)), ConversationId: convID}
 	for _, c := range got {
 		out.KeyPackages = append(out.KeyPackages, &keysv1.ClaimedKeyPackage{
 			DeviceId: c.DeviceID, SignaturePublicKey: c.SignatureKey, KeyPackage: c.KeyPackage,
@@ -188,7 +190,7 @@ func toKeyDevices(ds []Device) []*keysv1.KeyDevice {
 func toKeyDevice(d Device) *keysv1.KeyDevice {
 	return &keysv1.KeyDevice{
 		DeviceId: d.ID, SignaturePublicKey: d.SignatureKey, CreatedAt: ts(d.CreatedAt), LastSeenAt: ts(d.LastSeenAt),
-		KeyPackageCount: count32(d.PoolCount), HasLastResort: d.HasLastResort,
+		KeyPackageCount: count32(d.PoolCount), HasLastResort: d.HasLastResort, Inactive: d.Inactive,
 	}
 }
 

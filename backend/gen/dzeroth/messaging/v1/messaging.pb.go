@@ -104,14 +104,15 @@
 //   on an encrypted conversation (sends, CommitConversation, ListConversationCommits, ListEpochMessages,
 //   ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC, so a participant dropped
 //   from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
-//   are already members. The limits of that, from the key directory (keys.v1): (a) their devices disappear from the
-//   peer's GetKeyDevices and ClaimKeyPackages at once (a target with e2ee_dm off is an empty success there), so no new
-//   device of theirs can be added, and the peer cannot build a reset or an add for them (no key package can be
-//   claimed); the server itself does not check e2ee_dm on welcome devices; (b) they cannot call GetKeyDevices or
-//   ClaimKeyPackages or register a device themselves, so they cannot add devices or reset. A device of theirs that
-//   loses its group state cannot recover until the flag is back on for them. A device stays ACTIVE only while it
-//   registers or uploads key packages at least every 30 days; a user without e2ee_dm cannot do either, so their
-//   devices become inactive after 30 days and can then no longer be addressed by any welcome.
+//   are already members. The limits of that, from the key directory (keys.v1): (a) their devices stay visible in
+//   GetKeyDevices to a peer who shares an accepted encrypted conversation (keys.v1), but cannot be claimed for (a target with
+//   e2ee_dm off is an empty success in ClaimKeyPackages), so no new device of theirs can be added, and the peer
+//   cannot build a reset or an add for them (no key package can be claimed); the server itself does not check e2ee_dm
+//   on welcome devices; (b) they can call GetKeyDevices (same rule) but not ClaimKeyPackages or RegisterKeyDevice, so
+//   they cannot add devices or reset. A device of theirs that loses its group state cannot recover until the flag is
+//   back on for them. A device stays ACTIVE only while it registers or uploads key packages at least every 30 days; a
+//   user without e2ee_dm cannot do either, so their devices become inactive after 30 days and can then no longer be
+//   addressed by any welcome.
 // - What the server can see for an MLS conversation: who the participants are, who sent each message and when, its
 //   message id and state, the ciphertext length (the plaintext is padded to 256-byte blocks, so the length reveals the
 //   number of blocks), unread counts, read times and receipts (as for plaintext), the (generation, epoch) pair of
@@ -194,10 +195,12 @@
 //     packages and wait; they too may reset after 24 hours without a usable welcome, counted from when the device first
 //     saw the conversation at that generation, never earlier. A reset by a device with no state names the current
 //     generation from ListConversationCommits. Member devices make this work: when they open the
-//     conversation and before they send, they reconcile the group's membership against GetKeyDevices for both users
-//     and add missing active devices with an ordinary commit. On STALE_EPOCH (or a success whose pair is later than
-//     expected) for such a commit, the device catches up and runs the reconciliation again on the caught-up group
-//     before building any commit; it never resends a rebuilt copy of the same add.
+//     conversation and before they send, they reconcile the group's membership against the peer's devices from
+//     GetKeyDevices and the caller's own devices from ListMyKeyDevices (GetKeyDevices returns the caller's own devices
+//     only when the caller's flag is on) and add missing active devices with an ordinary
+//     commit. On STALE_EPOCH (or a success whose pair is later than expected) for such a commit, the device catches
+//     up and runs the reconciliation again on the caught-up group before building any commit; it never resends a
+//     rebuilt copy of the same add.
 //   - A reset SHOULD address every active key device of both users that the resetter can obtain a key package for
 //     (its own other devices included); it MUST address at least one device of the peer.
 //   - A success answer whose pair is later than the pair the device expected (a replay answered after other commits,
@@ -837,7 +840,8 @@ func (x *MessagePreview) GetEncrypted() bool {
 
 type Message struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 32 lower-case hex, opaque; derived from the sender and the idempotency_key. Dedupe by it.
+	// 32 lower-case hex. The first 32 hex characters of SHA-256(sender auth uid || "|SendMessage|" || idempotency_key)
+	// (ASCII, lower-case hex). Idempotency keys must carry at least 128 random bits. Dedupe by it.
 	Id             string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	ConversationId string `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	// True when the caller sent it. There is deliberately no sender uid: the peer is Conversation.peer.
@@ -2398,7 +2402,8 @@ type ListConversationCommitsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Ascending by (generation, epoch).
 	Commits []*ConversationCommit `protobuf:"bytes,1,rep,name=commits,proto3" json:"commits,omitempty"`
-	// True when a full page was returned: call again after the last commit's pair.
+	// True when a full page was read and at least one commit is returned: call again after the last returned commit's
+	// pair.
 	More bool `protobuf:"varint,2,opt,name=more,proto3" json:"more,omitempty"`
 	// The conversation's current pair, read fresh; (0, 0) for a NONE conversation.
 	MlsGeneration uint64 `protobuf:"varint,3,opt,name=mls_generation,json=mlsGeneration,proto3" json:"mls_generation,omitempty"`

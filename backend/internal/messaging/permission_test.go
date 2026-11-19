@@ -294,6 +294,80 @@ func TestCanMessage_Unconfigured(t *testing.T) {
 	}
 }
 
+// TestSharesEncryptedConversation: true only for an MLS conversation whose two participants are exactly the two users
+// (either order); no conversation, a plaintext one, an erased peer, an invalid or equal uid and a conversation that
+// belongs to somebody else are false, nil; nothing is written, and the caller's messaging flag plays no part.
+func TestSharesEncryptedConversation(t *testing.T) {
+	id := ConversationID(me, permPeer)
+	mls := func(participants ...string) func(*suggestRig) {
+		return func(r *suggestRig) {
+			r.repo.convs[id] = ConvDoc{Kind: kindDirect, Participants: participants, State: stateAccepted, Encryption: encMLS}
+		}
+	}
+	pending := func(r *suggestRig) {
+		r.repo.convs[id] = ConvDoc{Kind: kindDirect, Participants: sortedPair(me, permPeer), State: stateRequest, Encryption: encMLS}
+	}
+	tests := []struct {
+		name         string
+		caller, peer string
+		mut          func(*suggestRig)
+		want         bool
+	}{
+		{"no conversation", me, permPeer, func(*suggestRig) {}, false},
+		{"plaintext", me, permPeer, func(r *suggestRig) {
+			r.repo.convs[id] = ConvDoc{Kind: kindDirect, Participants: sortedPair(me, permPeer), State: stateAccepted}
+		}, false},
+		{"MLS, caller first", me, permPeer, mls(sortedPair(me, permPeer)...), true},
+		{"MLS, asked the other way round", permPeer, me, mls(sortedPair(me, permPeer)...), true},
+		{"an MLS request not yet accepted: the requester asking", me, permPeer, pending, false},
+		{"an MLS request not yet accepted: the recipient asking", permPeer, me, pending, false},
+		{"MLS with an erased peer", me, permPeer, mls(sortedPair(me, DeletedUID)...), false},
+		{"MLS whose participants are not the pair", me, permPeer, mls(sortedPair(me, "uid-someone-else")...), false},
+		{"MLS with one participant", me, permPeer, mls(me), false},
+		{"equal uids", me, me, mls(sortedPair(me, permPeer)...), false},
+		{"invalid caller uid", "bad uid!", permPeer, mls(sortedPair(me, permPeer)...), false},
+		{"invalid target uid", me, "bad uid!", mls(sortedPair(me, permPeer)...), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Messaging is off for the caller here: the shared-conversation check must not depend on the send gate.
+			r := newSuggestRig(t, []string{me, permPeer}, flags.Spec{Name: FlagName, Mode: flags.Off})
+			tc.mut(r)
+			got, err := r.svc.SharesEncryptedConversation(context.Background(), tc.caller, tc.peer)
+			if err != nil || got != tc.want {
+				t.Fatalf("got %v, %v; want %v, nil", got, err, tc.want)
+			}
+			assertNoWrite(t, r)
+		})
+	}
+}
+
+// A failed conversation read is an error, never false and never a refusal, with both uids and the conversation id hashed
+// out of its text; a service without a repository fails the same way.
+func TestSharesEncryptedConversation_ReadFailure(t *testing.T) {
+	id := ConversationID(me, permPeer)
+	boom := errors.New("boom for " + me + " and " + permPeer + " in " + id)
+	r := newSuggestRig(t, []string{me, permPeer}, permAllOn()...)
+	r.svc.d.Repo = convErrRepo{fakeRepo: r.repo, err: boom}
+	got, err := r.svc.SharesEncryptedConversation(context.Background(), me, permPeer)
+	if err == nil || got {
+		t.Fatalf("got %v, %v; want false with an error", got, err)
+	}
+	var ae *apierr.Error
+	if errors.Is(err, ErrCannotMessage) || errors.As(err, &ae) {
+		t.Fatalf("a failed read is a refusal or a wire error: %v", err)
+	}
+	for _, secret := range []string{me, permPeer, id} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("error text carries %q: %v", secret, err)
+		}
+	}
+	r.svc.d.Repo = nil
+	if got, err := r.svc.SharesEncryptedConversation(context.Background(), me, permPeer); err == nil || got {
+		t.Fatalf("no repository: got %v, %v; want an error", got, err)
+	}
+}
+
 // TestCanMessage_IsThePermission: the service satisfies the exported Permission seam.
 func TestCanMessage_IsThePermission(t *testing.T) {
 	if _, ok := New(nil, Deps{}).(Permission); !ok {

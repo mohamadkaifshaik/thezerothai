@@ -17,6 +17,8 @@ type fakeRepo struct {
 	lastResort map[string][]byte
 	err        error
 	calls      int
+	// listCalls and activeCalls count the device reads of GetDevices (List and ActiveDevices) separately from calls.
+	listCalls, activeCalls int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -71,6 +73,7 @@ func (f *fakeRepo) List(_ context.Context, uid string) ([]Device, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.listCalls++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -139,6 +142,7 @@ func (f *fakeRepo) ActiveDevices(_ context.Context, uid string, now time.Time) (
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.activeCalls++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -190,6 +194,11 @@ type fakePermission struct {
 	refuse map[string]error
 	calls  []string
 	err    error
+	// shares maps a target to "shares an encrypted conversation with the caller"; sharesErr fails every such check;
+	// sharesCalls records the targets asked about.
+	shares      map[string]bool
+	sharesErr   error
+	sharesCalls []string
 }
 
 func (p *fakePermission) CanMessage(_ context.Context, _, targetUID string) error {
@@ -201,6 +210,19 @@ func (p *fakePermission) CanMessage(_ context.Context, _, targetUID string) erro
 	}
 	return p.refuse[targetUID]
 }
+
+func (p *fakePermission) SharesEncryptedConversation(_ context.Context, _, targetUID string) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sharesCalls = append(p.sharesCalls, targetUID)
+	if p.sharesErr != nil {
+		return false, p.sharesErr
+	}
+	return p.shares[targetUID], nil
+}
+
+// fakeConvID is the injected ConversationID: readable, order-dependent, so a test can tell the argument order.
+func fakeConvID(callerUID, targetUID string) string { return "c-" + callerUID + "-" + targetUID }
 
 // fakeFlags is a FlagChecker: on lists the uids the flag is on for; off is the kill switch.
 type fakeFlags struct {

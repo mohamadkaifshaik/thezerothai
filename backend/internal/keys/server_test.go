@@ -37,6 +37,7 @@ type fakeService struct {
 	devices  []Device
 	byUser   map[string][]Device
 	claimed  []Claimed
+	convID   string // the conversation id Claim answers
 	pool     int
 	hasLR    bool
 	err      error
@@ -80,10 +81,10 @@ func (f *fakeService) GetDevices(ctx context.Context, uid string, userIDs []stri
 	return f.byUser, f.err
 }
 
-func (f *fakeService) Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, error) {
+func (f *fakeService) Claim(ctx context.Context, uid, targetUID, excludeDeviceID string) ([]Claimed, string, error) {
 	f.note(ctx, "claim", uid)
 	f.target, f.exclude = targetUID, excludeDeviceID
-	return f.claimed, f.err
+	return f.claimed, f.convID, f.err
 }
 
 var _ Service = (*fakeService)(nil)
@@ -118,7 +119,7 @@ var srvRPCs = []srvRPC{
 		_, err := s.UploadKeyPackages(ctx, connect.NewRequest(&keysv1.UploadKeyPackagesRequest{IdempotencyKey: key, DeviceId: srvDevice, KeyPackages: [][]byte{{1}}}))
 		return err
 	}},
-	{"GetKeyDevices", false, false, func(ctx context.Context, s *Server, _ string) error {
+	{"GetKeyDevices", false, true, func(ctx context.Context, s *Server, _ string) error {
 		_, err := s.GetKeyDevices(ctx, connect.NewRequest(&keysv1.GetKeyDevicesRequest{UserIds: []string{srvOther}}))
 		return err
 	}},
@@ -137,7 +138,7 @@ func wantFeatureDisabled(t *testing.T, err error) {
 }
 
 // TestServer_FlagClasses: every RPC in every flag state. On for the caller: all six run. Off for the caller but not
-// globally off (dropped from an allowlist): only ListMyKeyDevices and RemoveKeyDevice run. Globally off (and a nil
+// globally off (dropped from an allowlist): only ListMyKeyDevices, RemoveKeyDevice and GetKeyDevices run. Globally off (and a nil
 // checker): none. A refused call is FEATURE_DISABLED feature=e2ee_dm and never reaches the service.
 func TestServer_FlagClasses(t *testing.T) {
 	states := []struct {
@@ -256,7 +257,7 @@ func checkWireDevice(t *testing.T, got *keysv1.KeyDevice, want Device) {
 	t.Helper()
 	if got.GetDeviceId() != want.ID || !bytes.Equal(got.GetSignaturePublicKey(), want.SignatureKey) ||
 		!wireTimeIs(got.GetCreatedAt(), want.CreatedAt) || !wireTimeIs(got.GetLastSeenAt(), want.LastSeenAt) ||
-		int(got.GetKeyPackageCount()) != want.PoolCount || got.GetHasLastResort() != want.HasLastResort {
+		int(got.GetKeyPackageCount()) != want.PoolCount || got.GetHasLastResort() != want.HasLastResort || got.GetInactive() != want.Inactive {
 		t.Fatalf("wire device %v, want %+v", got, want)
 	}
 }
@@ -387,9 +388,60 @@ func TestServer_Mapping(t *testing.T) {
 				t.Fatalf("key_packages[%d] = %v, want %+v", i, g, c)
 			}
 		}
-		empty, err := NewServer(on, &fakeService{claimed: []Claimed{}}).ClaimKeyPackages(ctx, connect.NewRequest(&keysv1.ClaimKeyPackagesRequest{IdempotencyKey: srvKey, UserId: srvOther}))
-		if err != nil || len(empty.Msg.GetKeyPackages()) != 0 {
-			t.Fatalf("empty claim = %v, %v", empty.Msg.GetKeyPackages(), err)
+		if res.Msg.GetConversationId() != "" {
+			t.Fatalf("conversation_id = %q, want the service's (empty) answer", res.Msg.GetConversationId())
+		}
+		empty, err := NewServer(on, &fakeService{claimed: []Claimed{}, convID: "conv-x"}).ClaimKeyPackages(ctx, connect.NewRequest(&keysv1.ClaimKeyPackagesRequest{IdempotencyKey: srvKey, UserId: srvOther}))
+		if err != nil || len(empty.Msg.GetKeyPackages()) != 0 || empty.Msg.GetConversationId() != "conv-x" {
+			t.Fatalf("empty claim = %v, %v, conversation_id %q", empty.Msg.GetKeyPackages(), err, empty.Msg.GetConversationId())
 		}
 	})
+}
+
+// TestGetKeyDevices_GateClass: GetKeyDevices needs the flag only not globally off (K1): a caller dropped from the
+// allowlist reaches the service (which answers an empty success without a shared conversation); globally off is
+// FEATURE_DISABLED feature=e2ee_dm and never reaches it.
+func TestGetKeyDevices_GateClass(t *testing.T) {
+	get := func(s *Server) error {
+		_, err := s.GetKeyDevices(srvCtx(srvCaller), connect.NewRequest(&keysv1.GetKeyDevicesRequest{UserIds: []string{srvOther}}))
+		return err
+	}
+	svc := &fakeService{byUser: map[string][]Device{}}
+	if err := get(NewServer(fakeFlags{on: map[string]bool{srvOther: true}}, svc)); err != nil || len(svc.calls) != 1 {
+		t.Fatalf("caller flag off, not globally off: calls=%v err=%v, want the service reached", svc.calls, err)
+	}
+	svc = &fakeService{byUser: map[string][]Device{}}
+	wantFeatureDisabled(t, get(NewServer(fakeFlags{off: true, on: map[string]bool{srvCaller: true}}, svc)))
+	if len(svc.calls) != 0 {
+		t.Fatalf("a globally off call reached the service: %v", svc.calls)
+	}
+}
+
+// TestKeyDevices_InactiveMarker: ListMyKeyDevices and GetKeyDevices put the service's Inactive on the wire (K5) for the
+// caller's own list and for another user's lookup alike.
+func TestKeyDevices_InactiveMarker(t *testing.T) {
+	on := fakeFlags{on: map[string]bool{srvCaller: true}}
+	stale, fresh := srvDev("device-stale000000000", 0, false), srvDev("device-fresh000000000", 0, false)
+	stale.Inactive = true
+	svc := &fakeService{devices: []Device{stale, fresh}, byUser: map[string][]Device{srvOther: {stale, fresh}}}
+	res, err := NewServer(on, svc).ListMyKeyDevices(srvCtx(srvCaller), connect.NewRequest(&keysv1.ListMyKeyDevicesRequest{}))
+	if err != nil || len(res.Msg.GetDevices()) != 2 || !res.Msg.GetDevices()[0].GetInactive() || res.Msg.GetDevices()[1].GetInactive() {
+		t.Fatalf("ListMyKeyDevices = %v, %v; want [inactive, active]", res, err)
+	}
+	got, err := NewServer(on, svc).GetKeyDevices(srvCtx(srvCaller), connect.NewRequest(&keysv1.GetKeyDevicesRequest{UserIds: []string{srvOther}}))
+	if err != nil || len(got.Msg.GetUsers()) != 1 || len(got.Msg.GetUsers()[0].GetDevices()) != 2 ||
+		!got.Msg.GetUsers()[0].GetDevices()[0].GetInactive() || got.Msg.GetUsers()[0].GetDevices()[1].GetInactive() {
+		t.Fatalf("GetKeyDevices = %v, %v; want [inactive, active]", got, err)
+	}
+}
+
+// TestContract_K2K5Fields pins the two additive wire fields of addendum 1: KeyDevice.inactive (K5) and
+// ClaimKeyPackagesResponse.conversation_id (K2).
+func TestContract_K2K5Fields(t *testing.T) {
+	if !(&keysv1.KeyDevice{Inactive: true}).GetInactive() {
+		t.Fatal("KeyDevice.inactive")
+	}
+	if (&keysv1.ClaimKeyPackagesResponse{ConversationId: "x"}).GetConversationId() != "x" {
+		t.Fatal("conversation_id")
+	}
 }

@@ -508,7 +508,8 @@ class Message extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<Message>(Message.$_createMessage);
   static Message? _defaultInstance;
 
-  /// 32 lower-case hex, opaque; derived from the sender and the idempotency_key. Dedupe by it.
+  /// 32 lower-case hex. The first 32 hex characters of SHA-256(sender auth uid || "|SendMessage|" || idempotency_key)
+  /// (ASCII, lower-case hex). Idempotency keys must carry at least 128 random bits. Dedupe by it.
   @$pb.TagNumber(1)
   $core.String get id => $_getSZ(0);
   @$pb.TagNumber(1)
@@ -2664,7 +2665,8 @@ class ListConversationCommitsResponse extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $pb.PbList<ConversationCommit> get commits => $_getList(0);
 
-  /// True when a full page was returned: call again after the last commit's pair.
+  /// True when a full page was read and at least one commit is returned: call again after the last returned commit's
+  /// pair.
   @$pb.TagNumber(2)
   $core.bool get more => $_getBF(1);
   @$pb.TagNumber(2)
@@ -3316,9 +3318,10 @@ class MessagingServiceApi {
   /// to REQUESTS). While REQUEST, the requester may send MESSAGES_REQUEST_MAX_UNANSWERED (3) messages, then
   /// LIMIT_REACHED "request_unanswered"; a message from the recipient of the request accepts it (as on X). The
   /// recipient muted the caller => delivered silently (no unread increment, no push).
-  /// Idempotency (the bend of rules 1 and 4): the message id is derived from (caller,
-  /// idempotency_key) and Created in the send transaction, so a retry returns the stored message and writes nothing; the
-  /// same key with a different body => VALIDATION "idempotency_key". Clients dedupe by message id.
+  /// Idempotency (the bend of rules 1 and 4): the message id is the first 32 hex characters
+  /// of SHA-256(sender auth uid || "|SendMessage|" || idempotency_key) (ASCII, lower-case hex), and Created in the send
+  /// transaction, so a retry returns the stored message and writes nothing; the same key with a different body =>
+  /// VALIDATION "idempotency_key". Idempotency keys must carry at least 128 random bits. Clients dedupe by message id.
   /// Caps: RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
   /// MESSAGES_SENDS_PER_DAY 300 (50 for new accounts) per instance (<= 900/day at 3) => RATE_LIMITED metadata["limit"]
   /// = "messages_daily"; QUOTA_DM_NEW_CONVERSATIONS_PER_DAY 20 new conversations per IST day (5 for new accounts),

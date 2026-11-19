@@ -119,12 +119,48 @@ func (s *service) CanMessage(ctx context.Context, callerUID, targetUID string) e
 	return nil
 }
 
+// SharesEncryptedConversation implements Permission: whether callerUID and targetUID are the two participants of a
+// ACCEPTED conversation whose encryption is MLS. The key directory uses it to let two people who already talk in an
+// accepted encrypted conversation look up each other's devices, whatever either one's FEATURE_E2EE_DM or FEATURE_MESSAGING
+// state (so it applies no flag gate and none of CanMessage's send rules, which are the key directory's separate, earlier
+// check). A conversation still in the request state (a pending message request, for the requester and the recipient
+// alike) or in any other state is false, nil.
+//
+// The conversation id is a pure function of the two uids; the read is s.conversation (cache-first, up to CACHE_TTL = 60 s
+// stale, and the H-1 rule that a non-participant never warms or reads the cache), one document. It writes nothing. An
+// invalid or equal uid, no conversation, a plaintext one, or a document whose other participant is not targetUID (an erased
+// peer reads DeletedUID) is false, nil. A failed read is an error ("messaging: shares encrypted conversation: ...", the
+// uids and conversation id hashed out of its text), never false; a service without a repository returns a plain error
+// (it carries no uid).
+func (s *service) SharesEncryptedConversation(ctx context.Context, callerUID, targetUID string) (bool, error) {
+	if callerUID == targetUID || !ids.ValidUID(callerUID) || !ids.ValidUID(targetUID) {
+		return false, nil
+	}
+	if s.d.Repo == nil {
+		return false, errors.New("messaging: the shared conversation check is not configured")
+	}
+	convID := ConversationID(callerUID, targetUID)
+	c, err := s.conversation(ctx, callerUID, convID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, readFailure("shares encrypted conversation", "conversation", err, callerUID, targetUID, convID)
+	}
+	return c.Encryption == encMLS && c.State == stateAccepted && peerOf(c.Participants, callerUID) == targetUID, nil
+}
+
 // permissionFailure is a failed read of CanMessage: a plain error naming the step, with the uids (and the conversation id)
 // replaced by their hashes. The cause stays in the chain (a deadline or contention keeps its class) unless it is an
 // *apierr.Error or ErrCannotMessage, which is flattened to text so the failure can never be read as a wire answer or a
 // refusal.
 func permissionFailure(step string, err error, redact ...string) error {
-	red := logger.RedactErr(fmt.Errorf("messaging: can message: %s: %w", step, err), redact...)
+	return readFailure("can message", step, err, redact...)
+}
+
+// readFailure is permissionFailure with the operation label of the text ("messaging: <op>: <step>: <cause>").
+func readFailure(op, step string, err error, redact ...string) error {
+	red := logger.RedactErr(fmt.Errorf("messaging: %s: %s: %w", op, step, err), redact...)
 	var ae *apierr.Error
 	if errors.As(err, &ae) || errors.Is(err, ErrCannotMessage) {
 		return errors.New(red.Error())
