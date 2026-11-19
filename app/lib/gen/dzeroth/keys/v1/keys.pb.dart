@@ -27,6 +27,7 @@ class KeyDevice extends $pb.GeneratedMessage {
     $0.Timestamp? lastSeenAt,
     $core.int? keyPackageCount,
     $core.bool? hasLastResort,
+    $core.bool? inactive,
   }) {
     final result = KeyDevice._();
     if (deviceId != null) result.deviceId = deviceId;
@@ -36,6 +37,7 @@ class KeyDevice extends $pb.GeneratedMessage {
     if (lastSeenAt != null) result.lastSeenAt = lastSeenAt;
     if (keyPackageCount != null) result.keyPackageCount = keyPackageCount;
     if (hasLastResort != null) result.hasLastResort = hasLastResort;
+    if (inactive != null) result.inactive = inactive;
     return result;
   }
 
@@ -62,6 +64,7 @@ class KeyDevice extends $pb.GeneratedMessage {
         subBuilder: $0.Timestamp.$_createMessage)
     ..aI(5, _omitFieldNames ? '' : 'keyPackageCount')
     ..aOB(6, _omitFieldNames ? '' : 'hasLastResort')
+    ..aOB(7, _omitFieldNames ? '' : 'inactive')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -148,6 +151,18 @@ class KeyDevice extends $pb.GeneratedMessage {
   $core.bool hasHasLastResort() => $_has(5);
   @$pb.TagNumber(6)
   void clearHasLastResort() => $_clearField(6);
+
+  /// True when the device has not been seen for 30 days at the time of this read (the header's "inactive"). Set by
+  /// ListMyKeyDevices and GetKeyDevices; computed on the server's clock, never stored. An inactive device cannot be
+  /// claimed for or addressed by a welcome; it is still a registered device and is NOT a removed one.
+  @$pb.TagNumber(7)
+  $core.bool get inactive => $_getBF(6);
+  @$pb.TagNumber(7)
+  set inactive($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasInactive() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearInactive() => $_clearField(7);
 }
 
 class RegisterKeyDeviceRequest extends $pb.GeneratedMessage {
@@ -808,7 +823,9 @@ class UserKeyDevices extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   void clearUserId() => $_clearField(1);
 
-  /// Active devices only. For another user: device_id and signature_public_key only (no timestamps, no counts).
+  /// For another user: every registered device (with inactive set) when the caller and the user share an encrypted
+  /// conversation, else active devices only; device_id, signature_public_key and inactive only (no timestamps, no
+  /// counts). The caller's own id: the caller's active devices with every field.
   @$pb.TagNumber(2)
   $pb.PbList<KeyDevice> get devices => $_getList(1);
 }
@@ -1074,9 +1091,11 @@ class ClaimedKeyPackage extends $pb.GeneratedMessage {
 class ClaimKeyPackagesResponse extends $pb.GeneratedMessage {
   factory ClaimKeyPackagesResponse({
     $core.Iterable<ClaimedKeyPackage>? keyPackages,
+    $core.String? conversationId,
   }) {
     final result = ClaimKeyPackagesResponse._();
     if (keyPackages != null) result.keyPackages.addAll(keyPackages);
+    if (conversationId != null) result.conversationId = conversationId;
     return result;
   }
 
@@ -1096,6 +1115,7 @@ class ClaimKeyPackagesResponse extends $pb.GeneratedMessage {
       createEmptyInstance: ClaimKeyPackagesResponse.$_createMessage)
     ..pPM<ClaimedKeyPackage>(1, _omitFieldNames ? '' : 'keyPackages',
         subBuilder: ClaimedKeyPackage.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'conversationId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1127,6 +1147,18 @@ class ClaimKeyPackagesResponse extends $pb.GeneratedMessage {
   /// the caller's own id the excluded device is left out.
   @$pb.TagNumber(1)
   $pb.PbList<ClaimedKeyPackage> get keyPackages => $_getList(0);
+
+  /// The id the 1:1 conversation of the caller and user_id has or will have (32 lower-case hex): set on every
+  /// success for another user, an empty one included; empty for the caller's own id; never sent with an error. Not a
+  /// user reference. A caller can thereby confirm a guessed internal id behind a public id (bounded by the claim caps).
+  @$pb.TagNumber(2)
+  $core.String get conversationId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set conversationId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasConversationId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearConversationId() => $_clearField(2);
 }
 
 class KeyServiceApi {
@@ -1145,7 +1177,7 @@ class KeyServiceApi {
           'RegisterKeyDevice', request, RegisterKeyDeviceResponse());
 
   /// The caller's devices, at most 5, oldest first; inactive ones (not seen for 30 days) are included, flagged by
-  /// last_seen_at. Needs the flag only not globally off. Query of at most 5 device documents (Limit 5). No cursor: the
+  /// last_seen_at and KeyDevice.inactive. Needs the flag only not globally off. Query of at most 5 device documents (Limit 5). No cursor: the
   /// device limit caps the list at 5.
   $async.Future<ListMyKeyDevicesResponse> listMyKeyDevices(
           $pb.ClientContext? ctx, ListMyKeyDevicesRequest request) =>
@@ -1180,19 +1212,26 @@ class KeyServiceApi {
       _client.invoke<UploadKeyPackagesResponse>(ctx, 'KeyService',
           'UploadKeyPackages', request, UploadKeyPackagesResponse());
 
-  /// Active devices of up to 10 users. Needs the flag on for the caller. For each target other than the caller, the
-  /// caller must be allowed to message the target by the messaging send rules; an unknown or non-ACTIVE user, a block in
-  /// either direction and any other refusal answer ONE byte-identical FAILED_PRECONDITION + CANNOT_MESSAGE. A target
-  /// with the flag off or with no active device answers success with an empty device list. One refused target fails the
-  /// whole call with that single CANNOT_MESSAGE (no partial result). Only active devices are returned, oldest first.
-  /// For other users only device_id and signature_public_key are returned: created_at and last_seen_at are absent,
-  /// key_package_count is 0 and has_last_resort is false. The caller's own devices carry every field. Validation: 1-10
-  /// user_ids, each a well-formed user id, no duplicates (the caller's own id twice included), else VALIDATION
-  /// "user_ids". Reads: for each target other than the caller, the send-rules check reads at most 4 documents, all
-  /// cache-first (the caller's graph, the target's profile and, only when the target accepts messages from accounts
-  /// they follow, one follow edge and the conversation), plus the target's graph when the caller has been blocked by so
-  /// many accounts that their own list is truncated (then at most 5); then at most 10 queries of at most 5 devices (the
-  /// caller and each permitted target with the flag on: nothing is read for a refused or flag-off target). No writes.
+  /// Devices of up to 10 users. Needs the flag only not globally off. Validation (1-10 user_ids, each a well-formed
+  /// user id, no duplicates, the caller's own id twice included, else VALIDATION "user_ids") and the send-rules check
+  /// for every id come first and are unchanged: for each target other than the caller, the caller must be allowed to
+  /// message the target by the messaging send rules; an unknown or non-ACTIVE user, a block in either direction and any
+  /// other refusal answer ONE byte-identical FAILED_PRECONDITION + CANNOT_MESSAGE, and one refused target fails the
+  /// whole call with that single CANNOT_MESSAGE (no partial result). Then, per target other than the caller: devices
+  /// are returned when the caller and the target both have the flag on, or the two share an encrypted conversation
+  /// (computed by the server from the two raw uids; the conversation read may be up to 60 s stale); otherwise the
+  /// answer is an empty success, also for a caller whose flag is off (never FEATURE_DISABLED unless the flag is
+  /// globally off). For a pair that shares an encrypted conversation every registered device is returned, each with
+  /// inactive set; otherwise active devices only, oldest first. The caller's own id returns the caller's active
+  /// devices only when the caller's flag is on, else none (use ListMyKeyDevices). For other users only device_id,
+  /// signature_public_key and inactive are returned: created_at and last_seen_at are absent, key_package_count is 0
+  /// and has_last_resort is false. The caller's own devices carry every field. Reads: for each target other than the
+  /// caller, the send-rules check reads at most 4 documents, all cache-first (the caller's graph, the target's profile
+  /// and, only when the target accepts messages from accounts they follow, one follow edge and the conversation), plus
+  /// the target's graph when the caller has been blocked by so many accounts that their own list is truncated (then
+  /// at most 5), plus one cache-first conversation read per target; then at most 10 queries of at most 5 devices (the
+  /// caller and each target whose devices are returned: nothing is read for a refused or empty-success target). A
+  /// failed read is an error, never an empty list. No writes.
   $async.Future<GetKeyDevicesResponse> getKeyDevices(
           $pb.ClientContext? ctx, GetKeyDevicesRequest request) =>
       _client.invoke<GetKeyDevicesResponse>(
@@ -1200,7 +1239,9 @@ class KeyServiceApi {
 
   /// Claim one key package per active device of user_id, devices oldest first. Needs the flag on for the caller. Same
   /// send-rules check and the same single CANNOT_MESSAGE refusal as GetKeyDevices; a target with the flag off is an
-  /// empty success; a malformed user_id is VALIDATION "user_id". For each active device the server consumes one
+  /// empty success, and a flag-off caller cannot claim (FEATURE_DISABLED), so a flag-off target or caller can neither
+  /// be claimed for nor claim; a malformed user_id is VALIDATION "user_id". The response carries conversation_id (see
+  /// ClaimKeyPackagesResponse). Other rules unchanged. For each active device the server consumes one
   /// one-time package (which one is unspecified), else returns the device's last-resort package (last_resort = true,
   /// not consumed), else has_key_package = false. Under heavy contention on one device the last-resort package (or
   /// has_key_package = false) may be returned although one-time packages remain; contention is never an error. A

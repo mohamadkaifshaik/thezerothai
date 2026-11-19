@@ -393,3 +393,14 @@ func TestServer_Mapping(t *testing.T) {
 		}
 	})
 }
+
+// TestContract_K2K5Fields pins the two additive wire fields of addendum 1: KeyDevice.inactive (K5) and
+// ClaimKeyPackagesResponse.conversation_id (K2).
+func TestContract_K2K5Fields(t *testing.T) {
+	if !(&keysv1.KeyDevice{Inactive: true}).GetInactive() {
+		t.Fatal("KeyDevice.inactive")
+	}
+	if (&keysv1.ClaimKeyPackagesResponse{ConversationId: "x"}).GetConversationId() != "x" {
+		t.Fatal("conversation_id")
+	}
+}

@@ -48,6 +48,7 @@ const KeyDevice$json = {
     },
     {'1': 'key_package_count', '3': 5, '4': 1, '5': 5, '10': 'keyPackageCount'},
     {'1': 'has_last_resort', '3': 6, '4': 1, '5': 8, '10': 'hasLastResort'},
+    {'1': 'inactive', '3': 7, '4': 1, '5': 8, '10': 'inactive'},
   ],
 };
 
@@ -58,7 +59,7 @@ final $typed_data.Uint8List keyDeviceDescriptor = $convert.base64Decode(
     'Gi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgljcmVhdGVkQXQSPAoMbGFzdF9zZWVuX2F0GA'
     'QgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIKbGFzdFNlZW5BdBIqChFrZXlfcGFj'
     'a2FnZV9jb3VudBgFIAEoBVIPa2V5UGFja2FnZUNvdW50EiYKD2hhc19sYXN0X3Jlc29ydBgGIA'
-    'EoCFINaGFzTGFzdFJlc29ydA==');
+    'EoCFINaGFzTGFzdFJlc29ydBIaCghpbmFjdGl2ZRgHIAEoCFIIaW5hY3RpdmU=');
 
 @$core.Deprecated('Use registerKeyDeviceRequestDescriptor instead')
 const RegisterKeyDeviceRequest$json = {
@@ -302,14 +303,15 @@ const ClaimKeyPackagesResponse$json = {
       '6': '.dzeroth.keys.v1.ClaimedKeyPackage',
       '10': 'keyPackages'
     },
+    {'1': 'conversation_id', '3': 2, '4': 1, '5': 9, '10': 'conversationId'},
   ],
 };
 
 /// Descriptor for `ClaimKeyPackagesResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List claimKeyPackagesResponseDescriptor =
-    $convert.base64Decode(
-        'ChhDbGFpbUtleVBhY2thZ2VzUmVzcG9uc2USRQoMa2V5X3BhY2thZ2VzGAEgAygLMiIuZHplcm'
-        '90aC5rZXlzLnYxLkNsYWltZWRLZXlQYWNrYWdlUgtrZXlQYWNrYWdlcw==');
+final $typed_data.Uint8List claimKeyPackagesResponseDescriptor = $convert.base64Decode(
+    'ChhDbGFpbUtleVBhY2thZ2VzUmVzcG9uc2USRQoMa2V5X3BhY2thZ2VzGAEgAygLMiIuZHplcm'
+    '90aC5rZXlzLnYxLkNsYWltZWRLZXlQYWNrYWdlUgtrZXlQYWNrYWdlcxInCg9jb252ZXJzYXRp'
+    'b25faWQYAiABKAlSDmNvbnZlcnNhdGlvbklk');
 
 const $core.Map<$core.String, $core.dynamic> KeyServiceBase$json = {
   '1': 'KeyService',

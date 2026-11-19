@@ -104,11 +104,11 @@
 //     on an encrypted conversation (sends, CommitConversation, ListConversationCommits, ListEpochMessages,
 //     ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC, so a participant dropped
 //     from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
-//     are already members. The limits of that, from the key directory (keys.v1): (a) their devices disappear from the
-//     peer's GetKeyDevices and ClaimKeyPackages at once (a target with e2ee_dm off is an empty success there), so no new
-//     device of theirs can be added, and the peer cannot build a reset or an add for them (no key package can be
-//     claimed); the server itself does not check e2ee_dm on welcome devices; (b) they cannot call GetKeyDevices or
-//     ClaimKeyPackages or register a device themselves, so they cannot add devices or reset. A device of theirs that
+//     are already members. The limits of that, from the key directory (keys.v1): (a) their devices stay visible in
+//     GetKeyDevices to a peer who shares an encrypted conversation (keys.v1), but cannot be claimed for (a target with
+//     e2ee_dm off is an empty success in ClaimKeyPackages), so no new device of theirs can be added, and the peer cannot build a reset or an add for them (no key package can be
+//     claimed); the server itself does not check e2ee_dm on welcome devices; (b) they can call GetKeyDevices (same
+//     rule) but not ClaimKeyPackages or RegisterKeyDevice, so they cannot add devices or reset. A device of theirs that
 //     loses its group state cannot recover until the flag is back on for them. A device stays ACTIVE only while it
 //     registers or uploads key packages at least every 30 days; a user without e2ee_dm cannot do either, so their
 //     devices become inactive after 30 days and can then no longer be addressed by any welcome.
@@ -306,9 +306,11 @@ type MessagingServiceClient interface {
 	// to REQUESTS). While REQUEST, the requester may send MESSAGES_REQUEST_MAX_UNANSWERED (3) messages, then
 	// LIMIT_REACHED "request_unanswered"; a message from the recipient of the request accepts it (as on X). The
 	// recipient muted the caller => delivered silently (no unread increment, no push).
-	// Idempotency (the bend of rules 1 and 4): the message id is derived from (caller,
-	// idempotency_key) and Created in the send transaction, so a retry returns the stored message and writes nothing; the
-	// same key with a different body => VALIDATION "idempotency_key". Clients dedupe by message id.
+	// Idempotency (the bend of rules 1 and 4): the message id is the first 32 hex
+	// characters of SHA-256(sender auth uid || "|SendMessage|" || idempotency_key) (ASCII, lower-case hex), and Created
+	// in the send transaction, so a retry returns the stored message and writes nothing; the same key with a different
+	// body => VALIDATION "idempotency_key". Idempotency keys must carry at least 128 random bits. Clients dedupe by
+	// message id.
 	// Caps: RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
 	// MESSAGES_SENDS_PER_DAY 300 (50 for new accounts) per instance (<= 900/day at 3) => RATE_LIMITED metadata["limit"]
 	// = "messages_daily"; QUOTA_DM_NEW_CONVERSATIONS_PER_DAY 20 new conversations per IST day (5 for new accounts),
@@ -810,9 +812,11 @@ type MessagingServiceHandler interface {
 	// to REQUESTS). While REQUEST, the requester may send MESSAGES_REQUEST_MAX_UNANSWERED (3) messages, then
 	// LIMIT_REACHED "request_unanswered"; a message from the recipient of the request accepts it (as on X). The
 	// recipient muted the caller => delivered silently (no unread increment, no push).
-	// Idempotency (the bend of rules 1 and 4): the message id is derived from (caller,
-	// idempotency_key) and Created in the send transaction, so a retry returns the stored message and writes nothing; the
-	// same key with a different body => VALIDATION "idempotency_key". Clients dedupe by message id.
+	// Idempotency (the bend of rules 1 and 4): the message id is the first 32 hex
+	// characters of SHA-256(sender auth uid || "|SendMessage|" || idempotency_key) (ASCII, lower-case hex), and Created
+	// in the send transaction, so a retry returns the stored message and writes nothing; the same key with a different
+	// body => VALIDATION "idempotency_key". Idempotency keys must carry at least 128 random bits. Clients dedupe by
+	// message id.
 	// Caps: RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
 	// MESSAGES_SENDS_PER_DAY 300 (50 for new accounts) per instance (<= 900/day at 3) => RATE_LIMITED metadata["limit"]
 	// = "messages_daily"; QUOTA_DM_NEW_CONVERSATIONS_PER_DAY 20 new conversations per IST day (5 for new accounts),
