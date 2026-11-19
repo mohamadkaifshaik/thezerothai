@@ -209,6 +209,16 @@ String vaultSortKey(int createdAtMicros, String id) {
 /// The creation time inside a [vaultSortKey].
 int vaultSortKeyMicros(String sortKey) => int.parse(sortKey.substring(0, 20));
 
+/// [vaultSortKeyMicros], or null when the stored key is damaged (too short,
+/// not 20 digits followed by `|`, or out of range).
+int? vaultSortKeyMicrosOrNull(String sortKey) {
+  if (sortKey.length < 21 || sortKey[20] != '|') return null;
+  final digits = sortKey.substring(0, 20);
+  if (!RegExp(r'^[0-9]{20}$').hasMatch(digits)) return null;
+  final value = int.tryParse(digits);
+  return value == null || value < 0 ? null : value;
+}
+
 /// The database name of [uid]'s vault: `dzeroth_vault_` and the same 32 hex
 /// digits as the uid's [vaultKeyAlias], so one vault file per user and the
 /// name does not reveal the uid. On native the file is `<name>.sqlite`.

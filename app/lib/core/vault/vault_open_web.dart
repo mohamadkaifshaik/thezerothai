@@ -3,7 +3,8 @@ import 'package:drift/wasm.dart';
 
 import '../storage/app_database.dart' show AppDatabase;
 import 'vault_database.dart';
-import 'vault_open.dart' show chooseVaultWebStorage, wipeVaultDatabase;
+import 'vault_open.dart'
+    show chooseVaultWebStorage, isTrustedVaultWebProbe, wipeVaultDatabase;
 import 'vault_status.dart';
 
 WasmStorageImplementation? _lastWebStorage;
@@ -29,11 +30,22 @@ Future<WasmProbeResult> _probe(String name) => WasmDatabase.probe(
 /// written. drift_flutter's `onResult` is not used: it only runs after
 /// drift has already picked and opened a storage, and a throw there fails
 /// two internal futures nobody listens to (uncaught errors).
+///
+/// A probe whose worker failed (`MissingBrowserFeature.workerError`) is not
+/// trusted: it may not list an existing vault, so it is refused
+/// ([VaultStatus.unavailable]) and nothing is opened.
+///
+/// A refused probe's workers are not closed: drift 2.35.4's
+/// `WasmProbeResult` exposes no way to dispose of them (its workers are
+/// private to drift's opener). The shared worker is the one the cache
+/// database uses anyway; each refused open can leave one idle dedicated
+/// worker until the page unloads, so callers must not retry in a loop.
 Future<DatabaseConnection> openPlatformVaultConnection(String name) async {
   final probed = await _probe(name);
   final chosen = chooseVaultWebStorage(
     available: probed.availableStorages,
     existing: probed.existingDatabases,
+    missingFeatures: probed.missingFeatures,
     name: name,
   );
   _lastWebStorage = chosen;
@@ -56,8 +68,15 @@ Future<DatabaseConnection> openPlatformVaultConnection(String name) async {
 /// A copy whose rows cannot be deleted fails with
 /// [VaultStatus.unavailable] (an OPFS copy that could be deleted instead
 /// is fine).
+///
+/// A probe whose worker failed is refused ([VaultStatus.unavailable]) and
+/// nothing is deleted: it may not list every copy, and a wipe that reports
+/// success while a copy survives would be wrong.
 Future<void> wipePlatformVaultFile(String name) async {
   final probed = await _probe(name);
+  if (!isTrustedVaultWebProbe(probed.missingFeatures)) {
+    throw const VaultOpenException(VaultStatus.unavailable);
+  }
   final ranked = [...probed.availableStorages]
     ..sort((a, b) => a.index - b.index);
   final mine = {

@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:drift/drift.dart' show DatabaseConnection;
 import 'package:drift_flutter/drift_flutter.dart'
-    show ExistingDatabase, WasmStorageImplementation;
+    show ExistingDatabase, MissingBrowserFeature, WasmStorageImplementation;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'secure_vault.dart';
@@ -42,33 +42,52 @@ const Set<WasmStorageImplementation> kVaultAcceptedWebStorages = {
 bool isAcceptedVaultWebStorage(WasmStorageImplementation chosen) =>
     kVaultAcceptedWebStorages.contains(chosen);
 
+/// Whether drift's probe can be trusted to have listed every existing
+/// database: false when one of its workers failed
+/// ([MissingBrowserFeature.workerError]), which drift swallows. Used before
+/// both opening and wiping on the web.
+bool isTrustedVaultWebProbe(Set<MissingBrowserFeature> missingFeatures) =>
+    !missingFeatures.contains(MissingBrowserFeature.workerError);
+
 /// The web storage the vault database [name] opens on, from drift's probe:
-/// the storages this browser offers ([available]) and the drift databases
-/// that already exist ([existing], as `(storage API, name)`).
+/// the storages this browser offers ([available]), the drift databases
+/// that already exist ([existing], as `(storage API, name)`) and what the
+/// probe could not check ([missingFeatures]).
 ///
-/// Mirrors drift's own choice in `WasmDatabase.open`: a database that
-/// already exists stays in its storage API while some storage of that API
-/// is available (the best one is used); otherwise the best available
-/// storage. Then:
+/// - [missingFeatures] contains [MissingBrowserFeature.workerError]: the
+///   probe is not trusted and the result is [VaultOpenException] with
+///   [VaultStatus.unavailable]. drift swallows a failed worker and only
+///   records this flag; the databases that worker would have listed (an
+///   OPFS vault, say) are then missing from [existing], and opening would
+///   create an empty vault next to the real one.
+///
+/// Otherwise this mirrors drift's own choice in `WasmDatabase.open`: a
+/// database that already exists stays in its storage API while some
+/// storage of that API is available (the best one is used); otherwise the
+/// best available storage. Then:
 ///
 /// - a database named [name] exists under another storage API than the
-///   choice (or under two): [VaultOpenException] with
-///   [VaultStatus.storageChanged]. Opening would show an empty vault as
-///   ready while the real one sits in the other storage.
+///   choice (or under two): [VaultStatus.storageChanged]. Opening would
+///   show an empty vault as ready while the real one sits in the other
+///   storage.
 /// - the choice is not in [kVaultAcceptedWebStorages]:
 ///   [VaultStatus.unavailable].
 ///
 /// Never [VaultStatus.keyLost]. Pure, so the VM tests cover every case.
 ///
-/// Known limit: drift lists an IndexedDB database only when probed with its
-/// name (the vault always passes it) and always lists OPFS databases; a
-/// browser whose storage cannot be listed at all (the probe's workers fail)
-/// offers only in-memory storage, which is refused anyway.
+/// Known limit: a probe that reports "not present" WITHOUT an error (a
+/// database that exists but is not listed, with no worker failure) cannot
+/// be detected here; a storage marker kept outside the vault (a later
+/// task) closes that case.
 WasmStorageImplementation chooseVaultWebStorage({
   required Iterable<WasmStorageImplementation> available,
   required Iterable<ExistingDatabase> existing,
+  required Set<MissingBrowserFeature> missingFeatures,
   required String name,
 }) {
+  if (!isTrustedVaultWebProbe(missingFeatures)) {
+    throw const VaultOpenException(VaultStatus.unavailable);
+  }
   final ranked = [...available]..sort((a, b) => a.index - b.index);
   final mine = [
     for (final (api, existingName) in existing)
@@ -146,13 +165,27 @@ Future<SecureVault> openVault({
   required VaultCipher cipher,
 }) async {
   final db = await _openDatabase(uid);
-  return openVaultOnDatabase(db, uid: uid, cipher: cipher);
+  return openVaultOnDatabase(
+    db,
+    uid: uid,
+    cipher: cipher,
+    registerAs: vaultDatabaseName(uid),
+  );
 }
 
-/// Erases [uid]'s vault without a cipher (so it works when the key is lost
-/// or unavailable): after confirmed key loss, on an explicit sign-out, or
-/// for a previous user when another user signs in. Delete the platform key
+/// Erases EVERY copy of [uid]'s vault, under every storage, including a
+/// copy this browser cannot open right now; no cipher is needed (so it
+/// works when the key is lost or unavailable). Delete the platform key
 /// separately (`deleteVaultKey`), after this succeeds.
+///
+/// Call it ONLY for an explicit user reset or sign-out, for a previous user
+/// when a different user signs in, or after a key loss the session has
+/// confirmed. NEVER call it because of [VaultStatus.storageChanged]: that
+/// status means the history exists in another storage, and this would
+/// destroy it.
+///
+/// Throws [StateError] while a vault of [uid] opened by [openVault] is open
+/// in this process (close it first). Another tab is not seen by that check.
 ///
 /// Every row is deleted and the file rebuilt (`VACUUM`, with
 /// `secure_delete` on), then the storage itself is removed where the
@@ -169,6 +202,9 @@ Future<SecureVault> openVault({
 /// [VaultStatus.unavailable] when the rows could not be deleted).
 Future<void> wipeVaultFile({required String uid}) async {
   if (uid.isEmpty) throw ArgumentError.value(uid, 'uid', 'empty');
+  if (isVaultOpenInProcess(vaultDatabaseName(uid))) {
+    throw StateError('wipeVaultFile while the vault is open; close it first.');
+  }
   try {
     await impl
         .wipePlatformVaultFile(vaultDatabaseName(uid))
@@ -182,8 +218,11 @@ Future<void> wipeVaultFile({required String uid}) async {
 
 /// Deletes every row of [db], rebuilds the file, closes [db] and returns the
 /// main file path sqlite reported (null or empty when there is no file).
-/// The common part of [wipeVaultFile]; failures are [VaultOpenException]
-/// with [VaultStatus.unavailable].
+/// The common part of [wipeVaultFile]; a failed row delete is
+/// [VaultOpenException] with [VaultStatus.unavailable]. The rebuild
+/// (`VACUUM`) is best effort, as in [SecureVault.wipe]: once the rows are
+/// deleted (and zeroed by `secure_delete`) a failed VACUUM neither fails the
+/// wipe nor stops the file deletion that follows on Android.
 Future<String?> wipeVaultDatabase(
   VaultDatabase db, {
   Duration timeout = const Duration(seconds: 30),
@@ -191,7 +230,11 @@ Future<String?> wipeVaultDatabase(
   try {
     return await () async {
       await db.deleteAllRows();
-      await db.vacuum();
+      try {
+        await db.vacuum();
+      } catch (_) {
+        // Best effort; see above.
+      }
       return db.mainFilePath();
     }().timeout(timeout);
   } catch (_) {

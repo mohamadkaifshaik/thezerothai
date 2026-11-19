@@ -2,6 +2,14 @@ import 'package:drift/wasm.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/vault/vault_database.dart';
 
+/// Not on Android: there is no vault file.
+Future<({String path, int secureDelete})?> inspectNativeVaultFile(
+  String name,
+) async => null;
+
+/// Not on Android: no files.
+Future<List<String>> existingFilesOf(String path) async => const [];
+
 Future<WasmProbeResult> _probe(String name) => WasmDatabase.probe(
   sqlite3Uri: AppDatabase.sqlite3WasmUri,
   driftWorkerUri: AppDatabase.driftWorkerUri,

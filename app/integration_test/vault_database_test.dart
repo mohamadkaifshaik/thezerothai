@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'support/drift_storage.dart';
 import 'support/vault_db_platform.dart';
 
 final bool _supported =
@@ -276,6 +277,14 @@ void main() {
       final cipher = await cipherFor(uid);
       final vault = await vaultFor(uid, cipher);
       await vault.transaction((tx) => tx.putMessage(_msg('m1', 1)));
+      // While it is open, wipeVaultFile refuses.
+      Object? refused;
+      try {
+        await wipeVaultFile(uid: uid);
+      } catch (e) {
+        refused = e;
+      }
+      expect(refused, isA<StateError>());
       await vault.close();
       open.remove(vault);
       if (kIsWeb) {
@@ -283,9 +292,30 @@ void main() {
         debugPrint('vault databases before wipeVaultFile: $before');
         expect(before, hasLength(1));
       }
+      // Android: the real file, as the production connection sees it.
+      final native = await inspectNativeVaultFile(name);
+      if (!kIsWeb) {
+        expect(native, isNotNull);
+        debugPrint(
+          'vault file ${native!.path}: secure_delete=${native.secureDelete}',
+        );
+        expect(native.secureDelete, 1);
+        expect(native.path, endsWith('$name.sqlite'));
+        expect(await existingFilesOf(native.path), contains(native.path));
+        binding.reportData = {
+          ...?binding.reportData,
+          'android_secure_delete': native.secureDelete,
+          'android_file_name': native.path.split('/').last,
+        };
+      }
 
       await wipeVaultFile(uid: uid);
 
+      if (!kIsWeb) {
+        final left = await existingFilesOf(native!.path);
+        debugPrint('files left after wipeVaultFile: $left');
+        expect(left, isEmpty);
+      }
       if (kIsWeb) {
         final after = await existingWebStorageApis(name);
         debugPrint('vault databases after wipeVaultFile: $after');
@@ -303,9 +333,8 @@ void main() {
     });
 
     testWidgets('web: a vault that also exists in another storage is '
-        'storageChanged, never ready or keyLost, and nothing is lost', (
-      tester,
-    ) async {
+        'storageChanged (never ready or keyLost) and keeps both copies; an '
+        'explicit reset then destroys both', (tester) async {
       if (!kIsWeb) return;
       final uid = newUid();
       final name = vaultDatabaseName(uid);
@@ -336,17 +365,106 @@ void main() {
       expect(status, VaultStatus.storageChanged);
       expect(await existingWebStorageApis(name), ['indexedDb', 'opfs']);
 
-      // Recovery: wipeVaultFile scrubs both copies and deletes the OPFS
-      // one; the next open uses the empty IndexedDB copy as a new vault.
+      // NOT a recovery pattern: an explicit user reset. wipeVaultFile
+      // DESTROYS both copies (the history in the OPFS one included); the
+      // app must never call it because of storageChanged. Afterwards a new,
+      // empty vault opens on the remaining (empty) IndexedDB schema.
       await wipeVaultFile(uid: uid);
       final remaining = await existingWebStorageApis(name);
-      final recovered = await vaultFor(uid, cipher);
-      expect(await recovered.hasMessage('c1', 'm1'), isFalse);
+      final afterReset = await vaultFor(uid, cipher);
+      expect(await afterReset.hasMessage('c1', 'm1'), isFalse);
       binding.reportData = {
         ...?binding.reportData,
         'storage_changed_case': 'storageChanged',
         'after_twin_wipe': remaining,
         'reopened_on': lastVaultWebStorage?.name,
+      };
+    });
+
+    testWidgets('web, sharedIndexedDb: one committed transaction reaches '
+        'IndexedDB without a close, and a second instance reads it', (
+      tester,
+    ) async {
+      if (!kIsWeb) return;
+      final uid = newUid();
+      final name = vaultDatabaseName(uid);
+      final stamp = DateTime.now().microsecondsSinceEpoch;
+      final conversation = 'CONVDURABLE$stamp';
+      final messageId = 'MSGDURABLE$stamp';
+
+      // Forced to sharedIndexedDb (what production Chrome gets) through
+      // drift's public probe API; the vault logic is the production one.
+      final report = OpenedStorage();
+      final first = await openVaultOnDatabase(
+        VaultDatabase(openSharedIndexedDb(name, report)),
+        uid: uid,
+        cipher: await cipherFor(uid),
+      );
+      open.add(first);
+      expect(report.implementation, 'sharedIndexedDb');
+      await first.transaction((tx) async {
+        await tx.putGroup(
+          GroupRecord(
+            conversationId: conversation,
+            generation: 1,
+            epoch: 7,
+            state: _b('group-state'),
+            pendingCommit: false,
+          ),
+        );
+        await tx.putMessage(
+          StoredMessage(
+            conversationId: conversation,
+            messageId: messageId,
+            createdAtMicros: 1,
+            fromSelf: true,
+            state: StoredMessageState.visible,
+            generation: 1,
+            epoch: 7,
+            content: _b('durable text'),
+          ),
+        );
+      });
+
+      // No close. Read the raw IndexedDB copy of the database file (not
+      // through drift or sqlite) and look for the clear ids.
+      final watch = Stopwatch()..start();
+      var found = false;
+      while (watch.elapsed < const Duration(seconds: 5)) {
+        final bytes = await readPersistedFile(name, '/database');
+        if (bytes != null) {
+          final text = latin1.decode(bytes);
+          if (text.contains(conversation) && text.contains(messageId)) {
+            found = true;
+            break;
+          }
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      watch.stop();
+      debugPrint(
+        'committed vault rows in IndexedDB: $found after '
+        '${watch.elapsedMilliseconds} ms',
+      );
+      expect(found, isTrue);
+
+      // "The tab died": no close. A second, independent vault instance
+      // (new database object, new cipher object) reads the rows back. In
+      // drift's shared worker both instances reach the same sqlite
+      // connection for this name, so the raw IndexedDB check above is the
+      // proof of persistence; this checks the reopen path.
+      final second = await openVaultOnDatabase(
+        VaultDatabase(openSharedIndexedDb(name, OpenedStorage())),
+        uid: uid,
+        cipher: await cipherFor(uid),
+      );
+      open.add(second);
+      final read = (await second.message(conversation, messageId))!;
+      expect(_s(read.content), 'durable text');
+      expect((await second.group(conversation))!.epoch, 7);
+      binding.reportData = {
+        ...?binding.reportData,
+        'durable_in_indexeddb_ms': watch.elapsedMilliseconds,
       };
     });
   });

@@ -1075,6 +1075,98 @@ void main() {
       expect(free.data.values.single, 0);
     });
 
+    test('a transaction in flight when wipe() starts never commits after the '
+        'delete', () async {
+      final path = newPath();
+      final fileDatabase = fileDb(path);
+      final fileCipher = FakeVaultCipher();
+      final fileVault = await open(fileDatabase, fileCipher);
+      await fileVault.transaction((tx) => tx.putSetting('a', _b('1')));
+
+      // Case 1: the body is waiting when wipe() starts; its next write is
+      // refused and the transaction rolls back.
+      final gate = Completer<void>();
+      final entered = Completer<void>();
+      final inFlight = fileVault.transaction((tx) async {
+        entered.complete();
+        await gate.future;
+        await tx.putSetting('late', _b('2'));
+      });
+      await entered.future;
+      Map<String, int>? atDestroy;
+      fileCipher.onDestroy = () async =>
+          atDestroy = await _counts(fileDatabase);
+      final wiping = fileVault.wipe();
+      gate.complete();
+      await expectLater(inFlight, throwsStateError);
+      await wiping;
+      expect(
+        atDestroy!.values.every((c) => c == 0),
+        isTrue,
+        reason: '$atDestroy',
+      );
+      final after = fileDb(path);
+      addTearDown(after.close);
+      expect((await _counts(after)).values.every((c) => c == 0), isTrue);
+    });
+
+    test('a transaction that already finished its writes when wipe() starts '
+        'commits first, and the wipe then deletes it', () async {
+      final path = newPath();
+      final fileDatabase = fileDb(path);
+      final fileCipher = FakeVaultCipher();
+      final fileVault = await open(fileDatabase, fileCipher);
+      final wrote = Completer<void>();
+      final release = Completer<void>();
+      final inFlight = fileVault.transaction((tx) async {
+        await tx.putSetting('early', _b('1'));
+        wrote.complete();
+        await release.future;
+      });
+      await wrote.future;
+      final wiping = fileVault.wipe();
+      release.complete();
+      await inFlight; // committed before the delete could run
+      await wiping;
+      final after = fileDb(path);
+      addTearDown(after.close);
+      expect((await _counts(after)).values.every((c) => c == 0), isTrue);
+    });
+
+    test('a corrupt clear sort key: the outbox row is unreadable by key, the '
+        'message comes back undecryptable with its stored sort key', () async {
+      await vault.transaction((tx) async {
+        await tx.putOutbox(_outbox('k1', at: 1));
+        await tx.putOutbox(_outbox('k2', at: 2));
+        await tx.putMessage(_msg('m1', at: 1));
+        await tx.putMessage(_msg('m2', at: 2));
+      });
+      await db.customStatement(
+        "UPDATE vault_outbox SET sort_key = 'garbage' "
+        "WHERE idempotency_key = 'k1'",
+      );
+      await db.customStatement(
+        "UPDATE vault_messages SET sort_key = '0000000000000000000x|m1' "
+        "WHERE message_id = 'm1'",
+      );
+      final read = await vault.outbox();
+      expect(read.items.map((o) => o.idempotencyKey), ['k2']);
+      expect(read.unreadableKeys, ['k1']);
+      final page = await vault.messages('c1');
+      expect(page.map((m) => m.messageId), ['m1', 'm2']);
+      final m1 = page.first;
+      expect(m1.state, StoredMessageState.undecryptable);
+      expect(m1.content, isNull);
+      expect(m1.sortKey, '0000000000000000000x|m1');
+      // Paging past it uses the stored key, so nothing after it is skipped.
+      final next = await vault.messages(
+        'c1',
+        limit: 1,
+        beforeSortKey: m1.sortKey,
+      );
+      expect(next.map((m) => m.messageId), ['m2']);
+    });
+
     test('a wipe in progress refuses new calls and transactions; a failed '
         'wipe lets them through again', () async {
       await vault.transaction((tx) => tx.putSetting('a', _b('1')));

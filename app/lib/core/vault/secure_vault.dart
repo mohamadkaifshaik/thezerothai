@@ -41,10 +41,27 @@ class StoredMessage {
     required this.generation,
     required this.epoch,
     required this.content,
-  });
+  }) : _storedSortKey = null;
+
+  /// A message read back from the vault: [sortKey] is the stored one, so
+  /// paging continues past a row whose clear sort key is damaged.
+  const StoredMessage._read({
+    required this.conversationId,
+    required this.messageId,
+    required this.createdAtMicros,
+    required this.fromSelf,
+    required this.state,
+    required this.generation,
+    required this.epoch,
+    required this.content,
+    required String storedSortKey,
+  }) : _storedSortKey = storedSortKey;
 
   final String conversationId;
   final String messageId;
+
+  /// For a row whose stored sort key is damaged: 0 (and [state] is
+  /// [StoredMessageState.undecryptable]).
   final int createdAtMicros;
   final bool fromSelf;
 
@@ -57,8 +74,12 @@ class StoredMessage {
   /// [StoredMessageState.visible].
   final Uint8List? content;
 
-  /// The key [SecureVault.messages] pages by (`beforeSortKey`).
-  String get sortKey => vaultSortKey(createdAtMicros, messageId);
+  final String? _storedSortKey;
+
+  /// The key [SecureVault.messages] pages by (`beforeSortKey`): the stored
+  /// key for a message read from the vault.
+  String get sortKey =>
+      _storedSortKey ?? vaultSortKey(createdAtMicros, messageId);
 
   @override
   String toString() => 'StoredMessage($conversationId, $messageId)';
@@ -155,7 +176,13 @@ class OutboxRead {
 /// - On the web, after any failed write (a storage or worker error, not a
 ///   failure the body threw itself), close the vault and open it again
 ///   before writing more; do not keep using a connection that failed.
-/// - Never call `wipeVaultFile` for a uid whose vault is open.
+/// - Never call `wipeVaultFile` for a uid whose vault is open (it throws
+///   [StateError] for a vault opened in this process). It erases every
+///   copy of the vault under every storage, including one this browser
+///   cannot open right now: call it only for an explicit user reset or
+///   sign-out, a different user signing in, or a key loss the session has
+///   confirmed. NEVER call it because of [VaultStatus.storageChanged]: that
+///   would destroy the history the status is protecting.
 /// - Setting keys ([VaultTx.putSetting]) are stored in clear: never put a
 ///   user id, a conversation id that is not already a clear column, or any
 ///   content in a key.
@@ -282,18 +309,43 @@ abstract interface class VaultTx {
 ///   [VaultStatus.unavailable], nothing written. After a timeout the
 ///   abandoned open may still finish in the background; at most it stamps
 ///   a new, empty vault for [uid] or rewrites a corrupted owner stamp.
+///
+/// With [registerAs] (`openVault` passes the database name), the open vault
+/// is counted in this process's registry until it is closed or wiped, and
+/// `wipeVaultFile` refuses that name meanwhile ([isVaultOpenInProcess]).
 Future<SecureVault> openVaultOnDatabase(
   VaultDatabase db, {
   required String uid,
   required VaultCipher cipher,
   Duration openTimeout = const Duration(seconds: 30),
+  String? registerAs,
 }) async {
   try {
     await _claim(db, uid, cipher).timeout(openTimeout);
-    return _DriftSecureVault(db, uid, cipher);
   } catch (error) {
     await db.closeQuietly();
     throw VaultOpenException(_statusFor(error));
+  }
+  if (registerAs != null) {
+    _openVaultNames[registerAs] = (_openVaultNames[registerAs] ?? 0) + 1;
+  }
+  return _DriftSecureVault(db, uid, cipher, registerAs);
+}
+
+/// Vault database names open in this process (a name can be open more than
+/// once, e.g. a test opening a second instance), counted.
+final Map<String, int> _openVaultNames = {};
+
+/// Whether a vault opened with `registerAs: name` is still open in this
+/// process. Process-wide only: another tab or isolate is not seen.
+bool isVaultOpenInProcess(String name) => (_openVaultNames[name] ?? 0) > 0;
+
+void _releaseVaultName(String name) {
+  final count = (_openVaultNames[name] ?? 0) - 1;
+  if (count > 0) {
+    _openVaultNames[name] = count;
+  } else {
+    _openVaultNames.remove(name);
   }
 }
 
@@ -386,11 +438,21 @@ Uint8List _text(String value) => Uint8List.fromList(utf8.encode(value));
 String _readText(Uint8List bytes) => utf8.decode(bytes, allowMalformed: true);
 
 class _DriftSecureVault implements SecureVault {
-  _DriftSecureVault(this._db, this.uid, this._cipher);
+  _DriftSecureVault(this._db, this.uid, this._cipher, this._registeredAs);
 
   final VaultDatabase _db;
   final VaultCipher _cipher;
+  String? _registeredAs;
   bool _closed = false;
+
+  /// Marks the vault closed and releases its registry entry (once).
+  void _markClosed() {
+    _closed = true;
+    final name = _registeredAs;
+    _registeredAs = null;
+    if (name != null) _releaseVaultName(name);
+  }
+
   bool _wiping = false;
 
   @override
@@ -558,15 +620,23 @@ class _DriftSecureVault implements SecureVault {
       fromSelf = false;
       content = null;
     }
-    return StoredMessage(
+    final createdAt = vaultSortKeyMicrosOrNull(row.sortKey);
+    if (createdAt == null) {
+      // A damaged clear sort key: the row is kept and shown, not trusted.
+      state = StoredMessageState.undecryptable;
+      fromSelf = false;
+      content = null;
+    }
+    return StoredMessage._read(
       conversationId: row.conversationId,
       messageId: row.messageId,
-      createdAtMicros: vaultSortKeyMicros(row.sortKey),
+      createdAtMicros: createdAt ?? 0,
       fromSelf: fromSelf,
       state: state,
       generation: row.generation,
       epoch: row.epoch,
       content: content,
+      storedSortKey: row.sortKey,
     );
   }
 
@@ -616,6 +686,8 @@ class _DriftSecureVault implements SecureVault {
         _openOrCorrupt(_tOutbox, column, key, value);
     final recipient = row.recipientUserId;
     final lastError = row.lastError;
+    final createdAt = vaultSortKeyMicrosOrNull(row.sortKey);
+    if (createdAt == null) throw const VaultCorruptException(_tOutbox);
     final attempts = int.tryParse(
       _readText(await open('attempts', row.attempts)),
     );
@@ -631,7 +703,7 @@ class _DriftSecureVault implements SecureVault {
       ciphertext: await open('ciphertext', row.ciphertext),
       reportCommitment: await open('report_commitment', row.reportCommitment),
       content: await open('content', row.content),
-      createdAtMicros: vaultSortKeyMicros(row.sortKey),
+      createdAtMicros: createdAt,
       attempts: attempts,
       lastError: lastError == null
           ? null
@@ -665,7 +737,7 @@ class _DriftSecureVault implements SecureVault {
       _wiping = false;
       rethrow;
     }
-    _closed = true;
+    _markClosed();
     try {
       // Rebuild the file so no freed page keeps old ids or sealed bytes.
       // A failed VACUUM does not keep the key: the rows are already gone
@@ -682,7 +754,7 @@ class _DriftSecureVault implements SecureVault {
   @override
   Future<void> close() async {
     if (_closed) return;
-    _closed = true;
+    _markClosed();
     await _db.close();
   }
 }

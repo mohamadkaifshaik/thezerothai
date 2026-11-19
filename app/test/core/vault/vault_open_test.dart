@@ -3,7 +3,11 @@ import 'dart:io';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart'
-    show ExistingDatabase, WasmStorageImplementation, WebStorageApi;
+    show
+        ExistingDatabase,
+        MissingBrowserFeature,
+        WasmStorageImplementation,
+        WebStorageApi;
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_open.dart';
@@ -12,6 +16,21 @@ import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_vault_cipher.dart';
+
+/// Fails `VACUUM` only.
+class _FailVacuum extends QueryInterceptor {
+  @override
+  Future<void> runCustom(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (statement.trim().toUpperCase() == 'VACUUM') {
+      throw StateError('vacuum refused');
+    }
+    return super.runCustom(executor, statement, args);
+  }
+}
 
 Matcher _throwsStatus(VaultStatus status) => throwsA(
   isA<VaultOpenException>().having((e) => e.status, 'status', status),
@@ -54,12 +73,54 @@ void main() {
 
     WasmStorageImplementation choose(
       List<WasmStorageImplementation> available,
-      List<ExistingDatabase> existing,
-    ) => chooseVaultWebStorage(
+      List<ExistingDatabase> existing, {
+      Set<MissingBrowserFeature> missing = const {},
+    }) => chooseVaultWebStorage(
       available: available,
       existing: existing,
+      missingFeatures: missing,
       name: name,
     );
+
+    test('an untrusted probe (a worker failed) is refused, whatever it '
+        'listed', () {
+      const workerError = {MissingBrowserFeature.workerError};
+      for (final existing in <List<ExistingDatabase>>[
+        [],
+        [(idb, name)],
+        [(opfs, name)],
+      ]) {
+        expect(
+          () => choose(
+            [inMemory, opfsLocks, sharedIdb],
+            existing,
+            missing: workerError,
+          ),
+          _throwsStatus(VaultStatus.unavailable),
+          reason: '$existing',
+        );
+      }
+      for (final feature in MissingBrowserFeature.values) {
+        expect(
+          isTrustedVaultWebProbe({feature}),
+          feature != MissingBrowserFeature.workerError,
+          reason: '$feature',
+        );
+      }
+      expect(isTrustedVaultWebProbe({}), isTrue);
+      // Other missing features only narrow the storages; they are trusted.
+      expect(
+        choose(
+          [inMemory, sharedIdb],
+          [],
+          missing: {
+            MissingBrowserFeature.sharedArrayBuffers,
+            MissingBrowserFeature.dedicatedWorkersInSharedWorkers,
+          },
+        ),
+        sharedIdb,
+      );
+    });
 
     test('explicit cases', () {
       // Nothing stored yet: the best accepted storage.
@@ -150,6 +211,16 @@ void main() {
           } on VaultOpenException catch (e) {
             refused = e.status;
           }
+          // The same inputs from a probe with a failed worker: refused.
+          expect(
+            () => choose(
+              available,
+              existing,
+              missing: {MissingBrowserFeature.workerError},
+            ),
+            _throwsStatus(VaultStatus.unavailable),
+            reason: reason,
+          );
           if (chosen != null) {
             expect(isAcceptedVaultWebStorage(chosen), isTrue, reason: reason);
             expect(available, contains(chosen), reason: reason);
@@ -280,6 +351,83 @@ void main() {
     try {
       dir.deleteSync(recursive: true);
     } catch (_) {}
+  });
+
+  test('wipeVaultDatabase: a failed VACUUM after the rows are gone still '
+      'succeeds and reports the file path', () async {
+    final dir = Directory.systemTemp.createTempSync('vault_vacuum');
+    final file = File('${dir.path}${Platform.pathSeparator}v.sqlite');
+    final vault = await openVaultOnDatabase(
+      VaultDatabase.forTesting(NativeDatabase(file)),
+      uid: 'u1',
+      cipher: FakeVaultCipher(),
+    );
+    await vault.transaction((tx) => tx.putSetting('a', Uint8List(1)));
+    await vault.close();
+
+    final noVacuum = VaultDatabase.forTesting(
+      NativeDatabase(file).interceptWith(_FailVacuum()),
+    );
+    final path = await wipeVaultDatabase(noVacuum);
+    expect(path, isNotNull);
+    final check = VaultDatabase.forTesting(NativeDatabase(file));
+    expect(await check.select(check.vaultSettings).get(), isEmpty);
+    expect(await check.select(check.vaultMeta).get(), isEmpty);
+    await check.close();
+    try {
+      dir.deleteSync(recursive: true);
+    } catch (_) {}
+  });
+
+  group('open-vault registry', () {
+    test('wipeVaultFile refuses while that uid\'s vault is open in this '
+        'process, and passes once it is closed or wiped', () async {
+      final name = vaultDatabaseName('u1');
+      final first = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase.memory()),
+        uid: 'u1',
+        cipher: FakeVaultCipher(),
+        registerAs: name,
+      );
+      final second = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase.memory()),
+        uid: 'u1',
+        cipher: FakeVaultCipher(),
+        registerAs: name,
+      );
+      expect(isVaultOpenInProcess(name), isTrue);
+      await expectLater(wipeVaultFile(uid: 'u1'), throwsStateError);
+      // Another uid is not affected (on the VM it then reaches the
+      // platform, which is unsupported).
+      await expectLater(
+        wipeVaultFile(uid: 'u2'),
+        _throwsStatus(VaultStatus.unsupported),
+      );
+      await first.close();
+      await first.close(); // idempotent: counts once
+      expect(isVaultOpenInProcess(name), isTrue);
+      await expectLater(wipeVaultFile(uid: 'u1'), throwsStateError);
+      await second.wipe();
+      expect(isVaultOpenInProcess(name), isFalse);
+      await expectLater(
+        wipeVaultFile(uid: 'u1'),
+        _throwsStatus(VaultStatus.unsupported),
+      );
+    });
+
+    test('a failed open registers nothing', () async {
+      final name = vaultDatabaseName('u3');
+      await expectLater(
+        openVaultOnDatabase(
+          VaultDatabase.forTesting(NativeDatabase.memory()),
+          uid: 'u3',
+          cipher: FakeVaultCipher()..unavailable = true,
+          registerAs: name,
+        ),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      expect(isVaultOpenInProcess(name), isFalse);
+    });
   });
 
   test('wipeVaultDatabase on a failing storage is unavailable', () async {
