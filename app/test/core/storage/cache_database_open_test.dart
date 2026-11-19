@@ -119,8 +119,18 @@ void main() {
       expect(await result.database.readSetting(kCacheOwnerKey), 'a');
       expect(disk.closed, isFalse);
       expect(reportsOf(result), isEmpty);
+      // Native: drift reports no web storage.
+      expect(result.webStorage, isNull);
     },
   );
+
+  test('the default constructor and AppDatabase.named record no web '
+      'storage off the web, and the cache name is pinned', () async {
+    expect(kCacheDatabaseName, 'dzeroth');
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+    expect(db.webStorage, isNull);
+  });
 
   test('an open that throws: start-up goes on in memory, reported once, '
       'with no path', () async {

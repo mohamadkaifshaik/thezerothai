@@ -54,12 +54,28 @@ final class AuthEmailVerificationCheckRequested extends AuthEvent {
 /// The explicit intent to leave the account. [reason] is
 /// [SessionEnd.userSignedOut] for "Sign out" and [SessionEnd.accountDeleted]
 /// for the sign-out the account-deletion flow does; either wipes the
-/// encrypted vault. The intent is bound to the uid signed in when the event
-/// is handled.
+/// encrypted vault.
+///
+/// [uid] is the account the intent was EXPRESSED for (captured where the
+/// person tapped). The intent is armed only when that account is still the
+/// one signed in when the event is handled: a tab that switched users in the
+/// meantime never turns another account's end into a wipe. Without a [uid]
+/// the intent binds to whoever is signed in at handling time; every caller
+/// in the app passes one. Value equality, so tests can verify the uid.
 final class AuthSignOutRequested extends AuthEvent {
-  const AuthSignOutRequested({this.reason = SessionEnd.userSignedOut})
+  const AuthSignOutRequested({this.reason = SessionEnd.userSignedOut, this.uid})
     : assert(reason != SessionEnd.sessionLost);
   final SessionEnd reason;
+  final String? uid;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AuthSignOutRequested &&
+      other.reason == reason &&
+      other.uid == uid;
+
+  @override
+  int get hashCode => Object.hash(reason, uid);
 }
 
 /// Clears a transient [AuthState.failure] after the UI has shown it.

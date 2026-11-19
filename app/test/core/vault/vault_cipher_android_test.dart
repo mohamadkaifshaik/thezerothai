@@ -507,9 +507,40 @@ void main() {
     await expectLater(onHost, throwsUnsupportedError);
   });
 
+  test(
+    'deleteVaultKeyForAlias deletes the same key by alias (no uid '
+    'needed); a string that is not an alias is refused, asynchronously',
+    () async {
+      await _open(engine);
+      keystore.calls.clear();
+      await deleteIoVaultKeyForAlias(
+        alias: vaultKeyAlias('user-1'),
+        isAndroid: true,
+      );
+      expect(keystore.calls.map((c) => c.method), ['delete']);
+      expect(
+        (keystore.calls.single.arguments as Map<Object?, Object?>)['alias'],
+        vaultKeyAlias('user-1'),
+      );
+      expect(keystore.stored, isEmpty);
+      for (final bad in ['user-1', 'dzeroth.vault.xyz', '']) {
+        final refused = deleteVaultKeyForAlias(alias: bad);
+        await expectLater(refused, throwsArgumentError, reason: bad);
+      }
+      expect(isVaultKeyAlias(vaultKeyAlias('anyone')), isTrue);
+      expect(isVaultKeyAlias('anyone'), isFalse);
+      final onHost = deleteVaultKeyForAlias(alias: vaultKeyAlias('user-1'));
+      await expectLater(onHost, throwsUnsupportedError);
+    },
+  );
+
   test('the stub deleteVaultKey fails asynchronously', () async {
     final pending = stub.platformDeleteVaultKey('user-1');
     await expectLater(pending, throwsUnsupportedError);
+    await expectLater(
+      stub.platformDeleteVaultKeyForAlias(vaultKeyAlias('user-1')),
+      throwsUnsupportedError,
+    );
     expect(await stub.platformVaultStoragePersisted(), isFalse);
   });
 

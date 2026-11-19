@@ -295,15 +295,27 @@ Future<void> wipeVaultFile({
   String? expectedStorage,
 }) async {
   if (uid.isEmpty) throw ArgumentError.value(uid, 'uid', 'empty');
-  if (isVaultOpenInProcess(vaultDatabaseName(uid))) {
+  return wipeVaultFileForAlias(
+    alias: vaultKeyAlias(uid),
+    expectedStorage: expectedStorage,
+  );
+}
+
+/// [wipeVaultFile] by the vault's key [alias] ([vaultKeyAlias] of the uid),
+/// for a caller that keeps no uid (the vault session's markers). A value
+/// that is not an alias fails with [ArgumentError]; otherwise the same
+/// contract as [wipeVaultFile].
+Future<void> wipeVaultFileForAlias({
+  required String alias,
+  String? expectedStorage,
+}) async {
+  final name = vaultDatabaseNameForAlias(alias);
+  if (isVaultOpenInProcess(name)) {
     throw StateError('wipeVaultFile while the vault is open; close it first.');
   }
   try {
     await impl
-        .wipePlatformVaultFile(
-          vaultDatabaseName(uid),
-          expectedStorage: expectedStorage,
-        )
+        .wipePlatformVaultFile(name, expectedStorage: expectedStorage)
         .timeout(_platformTimeout * 2);
   } on VaultOpenException {
     rethrow;

@@ -38,6 +38,21 @@ void main() {
         .thenAnswer((_) async => const []);
   });
 
+  test('uid names the user the states belong to: set on authentication, '
+      'cleared on sign-out (the vault binds flag answers to it)', () async {
+    when(() => identityRepository.getMe())
+        .thenAnswer((_) => Completer<identity.GetMeResponse>().future);
+    final bloc = OnboardingBloc(identityRepository: identityRepository);
+    addTearDown(bloc.close);
+    expect(bloc.uid, isNull);
+    bloc.add(const OnboardingUserAuthenticated(user));
+    await pumpEventQueue();
+    expect(bloc.uid, 'uid-1');
+    bloc.add(const OnboardingUserSignedOut());
+    await pumpEventQueue();
+    expect(bloc.uid, isNull);
+  });
+
   group('OnboardingProfileUpdated (P2 edit profile / change handle)', () {
     blocTest<OnboardingBloc, OnboardingState>(
       "swaps in the caller's updated profile and ignores another user's",

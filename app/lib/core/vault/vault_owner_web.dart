@@ -20,6 +20,8 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
+import 'package:dzeroth/core/vault/vault_cipher.dart'
+    show requireVaultKeyAlias, vaultKeyAlias;
 import 'package:dzeroth/core/vault/vault_owner.dart';
 import 'package:dzeroth/core/vault/web_interop.dart' show settle;
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -63,6 +65,7 @@ VaultOwner createPlatformVaultOwner() => WebVaultOwner();
 class _Request {
   _Request(this.uid);
 
+  /// The vault alias of the user (named uid for history; never a raw uid).
   final String uid;
 
   /// True when the callback ran with a lock, false when it ran with null or
@@ -92,14 +95,20 @@ class WebVaultOwner implements VaultOwner {
   Stream<void> get lost => _lost.stream;
 
   @override
-  Future<bool> acquire(String uid) {
+  Future<bool> acquire(String uid) => acquireForAlias(vaultKeyAlias(uid));
+
+  /// Ownership is identified by the alias, so [acquire] and this method
+  /// share one lock (and one "another user" check) for the same user.
+  @override
+  Future<bool> acquireForAlias(String alias) {
+    final uid = requireVaultKeyAlias(alias);
     final current = _current;
     if (current != null) {
       final releasing = current.releasing;
       if (releasing != null) {
         // Never share a hold that is being dropped: wait until the lock is
         // free, then ask again (a fresh request, or an earlier waiter's).
-        return releasing.then((_) => acquire(uid));
+        return releasing.then((_) => acquireForAlias(uid));
       }
       if (current.uid != uid) {
         throw StateError('the vault is owned for another user: release first');
@@ -133,7 +142,7 @@ class WebVaultOwner implements VaultOwner {
         return request.hold.future.toJS;
       }).toJS;
       request.done =
-          settle(locks.request(vaultLockName(uid), options, callback))
+          settle(locks.request(vaultLockNameForAlias(uid), options, callback))
               .then<void>(
                 (_) => _end(request, lost: false),
                 onError: (Object _) => _end(request, lost: true),

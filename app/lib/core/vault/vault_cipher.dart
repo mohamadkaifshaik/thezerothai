@@ -86,6 +86,20 @@ class VaultRowException implements Exception {
 String vaultKeyAlias(String uid) =>
     'dzeroth.vault.${sha256.convert(utf8.encode(uid)).toString().substring(0, 32)}';
 
+final RegExp _aliasPattern = RegExp(r'^dzeroth\.vault\.[0-9a-f]{32}$');
+
+/// Whether [value] has the form of a [vaultKeyAlias] result.
+bool isVaultKeyAlias(String value) => _aliasPattern.hasMatch(value);
+
+/// [value] when it is a vault alias; otherwise [ArgumentError] (the value is
+/// not echoed: it could be a uid).
+String requireVaultKeyAlias(String value) {
+  if (!isVaultKeyAlias(value)) {
+    throw ArgumentError('not a vault key alias', 'alias');
+  }
+  return value;
+}
+
 /// The associated data for a row: `utf8("$table|$rowKey")`.
 Uint8List vaultRowAad(String table, String rowKey) {
   if (table.contains('|')) {
@@ -119,6 +133,13 @@ Future<VaultCipher> openVaultCipher({
 /// session owns that ordering (end the cipher first, then delete).
 Future<void> deleteVaultKey({required String uid}) =>
     impl.platformDeleteVaultKey(uid);
+
+/// [deleteVaultKey] by the key's [alias] ([vaultKeyAlias] of the uid), for a
+/// caller that keeps no uid (the vault session's markers). A value that is
+/// not an alias fails (as a failed Future) with [ArgumentError]; otherwise
+/// the same contract as [deleteVaultKey].
+Future<void> deleteVaultKeyForAlias({required String alias}) async =>
+    impl.platformDeleteVaultKeyForAlias(requireVaultKeyAlias(alias));
 
 /// Whether the platform keeps the vault key safe from eviction: always on
 /// Android (app-private storage), on the web only when the browser granted

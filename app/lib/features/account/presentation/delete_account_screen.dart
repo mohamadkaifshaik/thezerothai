@@ -145,8 +145,12 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     final auth = context.read<AuthBloc>();
     unawaited(
       _forgetAccount().whenComplete(() {
-        router.go(AppRouter.accountDeletedPath);
-        auth.add(const AuthSignOutRequested(reason: SessionEnd.accountDeleted));
+        router.go(AppRouter.accountDeletedPath, extra: _uid);
+        // Bound to the account this screen deleted (captured when it
+        // opened), never to whoever is signed in when the event lands.
+        auth.add(
+          AuthSignOutRequested(reason: SessionEnd.accountDeleted, uid: _uid),
+        );
       }),
     );
   }
@@ -193,7 +197,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
         final router = GoRouter.of(context);
         unawaited(
           _forgetAccount().whenComplete(
-            () => router.go(AppRouter.accountDeletedPath),
+            () => router.go(AppRouter.accountDeletedPath, extra: _uid),
           ),
         );
       },

@@ -295,17 +295,25 @@ void main() {
       await bloc.close();
     });
 
-    test('a failed sign-out disarms the intent: a later revoke is '
-        'sessionLost', () async {
+    test('a failed sign-out (the user still signed in) disarms the intent '
+        'and says so: a later revoke is sessionLost', () async {
       when(() => authRepository.signOut()).thenThrow(StateError('offline'));
+      when(() => authRepository.currentUser).thenReturn(verifiedUser);
       // The failure still reaches the bloc's error handling, as before.
       final errors = <Object>[];
+      var failedCalls = 0;
       final done = Completer<void>();
       runZonedGuarded(() async {
-        final bloc = await signedIn();
-        bloc.add(const AuthSignOutRequested());
+        final bloc = AuthBloc(
+          authRepository: authRepository,
+          onSignOutFailed: (_) => failedCalls++,
+        )..add(const AuthSubscriptionRequested());
+        users.add(verifiedUser);
+        await pumpEventQueue();
+        bloc.add(const AuthSignOutRequested(uid: 'uid-1'));
         await pumpEventQueue();
         expect(bloc.state.user, verifiedUser);
+        expect(failedCalls, 1);
         users.add(null);
         await pumpEventQueue();
         expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
@@ -315,6 +323,84 @@ void main() {
       await done.future;
       expect(errors, [isA<StateError>()]);
     });
+
+    test('a PARTIAL sign-out failure (Firebase signed out, Google failed) '
+        'keeps the intent: the end is still userSignedOut', () async {
+      when(() => authRepository.signOut()).thenAnswer((_) async {
+        users.add(null);
+        throw StateError('google sign-out failed');
+      });
+      when(() => authRepository.currentUser).thenReturn(null);
+      final errors = <Object>[];
+      var failedCalls = 0;
+      final done = Completer<void>();
+      runZonedGuarded(() async {
+        final bloc = AuthBloc(
+          authRepository: authRepository,
+          onSignOutFailed: (_) => failedCalls++,
+        )..add(const AuthSubscriptionRequested());
+        users.add(verifiedUser);
+        await pumpEventQueue();
+        bloc.add(const AuthSignOutRequested(uid: 'uid-1'));
+        await pumpEventQueue();
+        expect(bloc.state.user, isNull);
+        expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+        expect(failedCalls, 0);
+        await bloc.close();
+        done.complete();
+      }, (error, _) => errors.add(error));
+      await done.future;
+      expect(errors, [isA<StateError>()]);
+    });
+
+    test('a sign-out event for uid A handled while B is signed in arms no '
+        'intent (B\'s end is sessionLost) and runs no explicit hook', () async {
+      final explicit = <String>[];
+      final bloc = AuthBloc(
+        authRepository: authRepository,
+        beforeExplicitSignOut: (uid) async => explicit.add(uid),
+      )..add(const AuthSubscriptionRequested());
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      // Expressed for another account (e.g. the tab switched users).
+      bloc.add(const AuthSignOutRequested(uid: 'uid-other'));
+      await pumpEventQueue();
+      expect(bloc.state.user, isNull);
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      expect(explicit, isEmpty);
+      await bloc.close();
+    });
+
+    test('an armed intent runs the explicit hook with its uid', () async {
+      final explicit = <String>[];
+      final bloc = AuthBloc(
+        authRepository: authRepository,
+        beforeExplicitSignOut: (uid) async => explicit.add(uid),
+      )..add(const AuthSubscriptionRequested());
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      bloc.add(const AuthSignOutRequested(uid: 'uid-1'));
+      await pumpEventQueue();
+      expect(explicit, ['uid-1']);
+      expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+      await bloc.close();
+    });
+
+    test(
+      'a sign-out event carrying the signed-in uid arms the intent',
+      () async {
+        final bloc = await signedIn();
+        bloc.add(const AuthSignOutRequested(uid: 'uid-1'));
+        await pumpEventQueue();
+        expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+        expect(
+          const AuthSignOutRequested(uid: 'uid-1'),
+          AuthSignOutRequested(uid: 'uid-1'.toString()),
+          reason: 'value equality, so mocks can verify the uid',
+        );
+        await bloc.close();
+      },
+    );
 
     test('an intent is bound to the uid it was expressed for: a switch to '
         'another user disarms it', () async {

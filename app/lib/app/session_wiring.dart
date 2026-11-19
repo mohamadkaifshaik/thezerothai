@@ -154,8 +154,10 @@ Future<void> wipeSessionData({
 ///   [AuthState.lastSessionEnd] (an explicit sign-out or account deletion
 ///   wipes it; anything else keeps it); a direct switch to another uid ends
 ///   the old one as [SessionEnd.sessionLost] (never explicit); a new uid
-///   signs in with [readE2eeFlag]'s current answer. The cache steps above
-///   are the same for every reason.
+///   signs in with [readE2eeFlag]'s current answer, except after a direct
+///   switch, where that answer is still the previous user's: it signs in
+///   with the flag off and the flag listener opens the vault. The cache
+///   steps above are the same for every reason.
 ///
 /// [initialUser] is the user the app started with (already claimed at startup).
 /// Returns the subscription to [authStates].
@@ -189,8 +191,15 @@ StreamSubscription<AuthState> wireAuthSession({
     cacheOps.then((_) => onboardingBloc.add(OnboardingUserAuthenticated(user))),
   );
 
-  void vaultSignedIn(String uid) => unawaited(
-    vaultSession?.onSignedIn(uid, e2eeEnabled: readE2eeFlag?.call() ?? false),
+  // [switched]: a direct switch from another user. The flag read now is the
+  // previous user's (GetMe has not answered for this one), so it is passed
+  // as off and the flag listener opens the vault once this user's flags
+  // are known.
+  void vaultSignedIn(String uid, {bool switched = false}) => unawaited(
+    vaultSession?.onSignedIn(
+      uid,
+      e2eeEnabled: !switched && (readE2eeFlag?.call() ?? false),
+    ),
   );
 
   if (initialUser != null) {
@@ -229,7 +238,7 @@ StreamSubscription<AuthState> wireAuthSession({
     }
     if (user != null && user.uid != previous?.uid) {
       final uid = user.uid;
-      vaultSignedIn(uid);
+      vaultSignedIn(uid, switched: previous != null);
       chain(() async {
         try {
           await database.claimCacheFor(uid);

@@ -607,7 +607,8 @@ void main() {
           tester,
           find.descendant(of: list, matching: find.text('Sign out')),
         );
-        verify(() => rig.auth.add(const AuthSignOutRequested())).called(1);
+        verify(() => rig.auth.add(const AuthSignOutRequested(uid: 'u-alice')))
+            .called(1);
       });
     }
 

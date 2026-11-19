@@ -20,22 +20,30 @@ typedef VaultOpener = Future<SecureVault> Function({
   String? expectedStorage,
 });
 
-/// Erases a user's vault file(s) (`wipeVaultFile`).
+/// Erases a user's vault file(s) by the vault key alias
+/// (`wipeVaultFileForAlias`): the wipe paths know users only by alias.
 typedef VaultFileWiper = Future<void> Function({
-  required String uid,
+  required String alias,
   String? expectedStorage,
 });
 
-/// Deletes a user's vault key without opening it (`deleteVaultKey`).
-typedef VaultKeyDeleter = Future<void> Function({required String uid});
+/// Deletes a user's vault key by alias without opening it
+/// (`deleteVaultKeyForAlias`).
+typedef VaultKeyDeleter = Future<void> Function({required String alias});
 
 /// How long the directory-removal hook may run when the session itself runs
 /// it (an account deletion that ended the session without a sign-out
 /// request); the same budget as the auth bloc's `beforeSignOut`.
 const Duration kVaultExplicitWipeHookTimeout = Duration(seconds: 3);
 
-/// A step of the vault session failed unexpectedly. Names the step only: no
-/// uid, no path, no message of the original error (which could carry one).
+/// A lost key is confirmed (and the vault wiped) only by a DIFFERENT launch
+/// at least this long after the first observation, on every platform.
+const Duration kVaultKeyLossConfirmAfter = Duration(hours: 1);
+
+/// A step of the vault session failed unexpectedly, or something the owner
+/// must hear about happened (`recreated`: the marked vault was found empty
+/// and a new one made in it). Names the step only: no uid, no path, no
+/// message of the original error (which could carry one).
 class VaultSessionError implements Exception {
   const VaultSessionError(this.step);
 
@@ -51,27 +59,34 @@ class VaultSessionError implements Exception {
 ///
 /// - **Opening** happens only with `e2ee_dm` on, on a supported platform
 ///   (Android, web), with persistent markers ([VaultMarkers.persistent]),
-///   in this order: owner lock -> cipher -> markers -> vault ->
-///   ready -> [onVaultReady]. Anything else leaves [status] at
+///   in this order: owner lock -> cipher -> markers -> vault -> ready, then
+///   [onVaultReady] outside the queue. Anything else leaves [status] at
 ///   [VaultStatus.off] / [VaultStatus.unsupported] / [VaultStatus.unavailable]
 ///   and opens nothing.
 /// - **Wiping** is driven by device facts (a `vault.known` or `vault.wipeOwed`
 ///   marker, or this process opened that vault), whatever the flag reads
 ///   now, and only for: an explicit sign-out or account deletion
-///   ([onSessionEnded]), a different user signing in ([onSignedIn]), an
-///   owed wipe ([start]), a key loss seen on two separate launches, and the
-///   explicit [resetVaultForStorageChange]. Every wipe is journalled first
-///   (`vault.wipeOwed`), and runs file -> key -> markers -> lock.
+///   ([onSessionEnded], [noteAccountDeleted], a pending explicit end found at
+///   [start]), a different user signing in ([onSignedIn]), an owed wipe, a
+///   key loss seen on two separate launches an hour apart, and the explicit
+///   [resetVaultForStorageChange]. Every wipe is journalled first
+///   (`vault.wipeOwed`, with how far its file step got), and runs
+///   file -> key -> markers -> lock.
 /// - [VaultStatus.unavailable], [VaultStatus.storageChanged] and
 ///   [VaultStatus.heldElsewhere] never wipe and never delete a key. A failed
 ///   open is not repeated automatically in this process; [retry] (app
 ///   resume) or the next launch tries again, once.
 /// - A lost session ([SessionEnd.sessionLost]) closes the vault and keeps
 ///   it.
+/// - Markers name users by the vault key alias only, never by uid.
 ///
 /// All work runs one operation at a time, in call order. No method throws
 /// into the UI; unexpected failures go to the error reporter as
 /// [VaultSessionError] (a step name only).
+///
+/// The hooks ([onVaultReady], [beforeExplicitWipe]) must NEVER await a
+/// queued method of this session (they would wait for themselves or for a
+/// later operation), and every vault write goes through [runWrite].
 class VaultSession {
   VaultSession({
     required VaultCipherOpener openCipher,
@@ -111,19 +126,24 @@ class VaultSession {
   final bool _supported;
 
   /// Distinguishes app launches (a new random id per process): key loss is
-  /// confirmed only when a launch with ANOTHER id sees it again.
+  /// confirmed only when a launch with ANOTHER id sees it again, at least
+  /// [kVaultKeyLossConfirmAfter] later by [_now].
   final String _launchId;
   final DateTime Function() _now;
   final Duration _hookTimeout;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
-  /// Runs after a successful open (Task 7: device registration). A failure
-  /// is reported and leaves the vault ready.
+  /// Runs after a successful open, once the vault is published (Task 7:
+  /// device registration), OUTSIDE the session's queue. A failure is
+  /// reported and leaves the vault ready. Must never await a queued session
+  /// method; writes go through [runWrite].
   Future<void> Function(SecureVault vault)? onVaultReady;
 
   /// Best-effort removal of this device from the key directory before an
   /// explicit wipe (Task 7). Runs inside the auth bloc's `beforeSignOut`
-  /// budget ([beforeExplicitSignOut]); a failure never stops the wipe.
+  /// budget ([beforeExplicitSignOut], 3 s) or, for an end without a
+  /// sign-out request, here with [kVaultExplicitWipeHookTimeout]; a failure
+  /// never stops the wipe. Must never await a queued session method.
   Future<void> Function(String uid)? beforeExplicitWipe;
 
   final ValueNotifier<VaultStatus> _status;
@@ -134,12 +154,15 @@ class VaultSession {
   bool _flag = false;
   bool _started = false;
   SecureVault? _vault;
+  bool _historyLost = false;
   VaultOwner? _owner;
-  String? _ownedUid;
+  String? _ownedAlias;
   StreamSubscription<void>? _lostSub;
   bool _lost = false;
   bool _writesOpen = false;
   String? _hookRanFor;
+
+  /// Aliases of the vaults this process opened.
   final Set<String> _openedThisProcess = {};
 
   /// The result of a failed open per uid in this process: not repeated
@@ -152,6 +175,12 @@ class VaultSession {
   /// The open vault while it is ready and writable; null otherwise. Write
   /// through [runWrite] so writes are serialised and stop on a lost lock.
   SecureVault? get vault => _writesOpen ? _vault : null;
+
+  /// True while the open vault was recreated in this open: its marker said
+  /// a vault existed, but the database held no vault (emptied outside the
+  /// app), so the earlier history is gone. Reported once as
+  /// `VaultSessionError('recreated')`.
+  bool get historyLostThisOpen => _vault != null && _historyLost;
 
   /// Runs [body] with the open vault under the session's mutex (one key per
   /// uid). Fails with [StateError] when the vault is not ready, or stopped
@@ -169,10 +198,13 @@ class VaultSession {
     });
   }
 
-  /// Completes the wipes owed from an earlier launch, before anything is
-  /// opened for any user. Called once at app start; every other operation
-  /// waits for it.
-  Future<void> start() => _enqueue('start', _ensureStarted);
+  /// Called once at app start with the user the auth SDK restored (null:
+  /// signed out). Resolves explicit sign-outs a killed launch left pending
+  /// (the same user restored: forgotten; anyone else or nobody: that wipe
+  /// is owed), then completes every owed wipe, before anything is opened.
+  /// Every other operation waits for it.
+  Future<void> start({required String? restoredUid}) =>
+      _enqueue('start', () => _ensureStarted(restoredUid));
 
   /// A user is signed in ([uid]). Completes owed wipes, wipes the vaults of
   /// other users this device still has (a failure there never blocks
@@ -185,8 +217,10 @@ class VaultSession {
         if (!_supported) return _setStatus(VaultStatus.unsupported);
         final open = _vault;
         if (open != null && open.uid != uid) await _closeOpen();
-        if (_ownedUid != null && _ownedUid != uid) await _releaseOwner();
-        await _ensureStarted();
+        if (_ownedAlias != null && _ownedAlias != vaultKeyAlias(uid)) {
+          await _releaseOwner();
+        }
+        await _ensureStarted(uid);
         if (_markers.persistent) {
           if (!await _wipeOthers(uid)) {
             // [uid]'s own wipe is still owed: its vault must not be used.
@@ -200,38 +234,42 @@ class VaultSession {
 
   /// [previousUid]'s session ended. [SessionEnd.userSignedOut] and
   /// [SessionEnd.accountDeleted] wipe that user's vault and key (when this
-  /// device has one): directory hook -> vault rows and key -> markers ->
-  /// lock. [SessionEnd.sessionLost] closes the vault and keeps everything.
+  /// device has one): journal -> directory hook -> vault rows and key ->
+  /// file -> markers -> lock. [SessionEnd.sessionLost] closes the vault and
+  /// keeps everything.
   Future<void> onSessionEnded(String previousUid, SessionEnd reason) =>
       _enqueue('sessionEnd', () async {
         if (_uid == previousUid) _uid = null;
         if (!_supported) return;
         if (reason == SessionEnd.sessionLost) {
-          if (_vault?.uid == previousUid || _ownedUid == previousUid) {
+          if (_vault?.uid == previousUid ||
+              _ownedAlias == vaultKeyAlias(previousUid)) {
             await _closeOpen();
           }
           _hookRanFor = null;
           return _setStatus(VaultStatus.off);
         }
-        await _ensureStarted();
+        await _ensureStarted(null);
         await _wipeExplicit(previousUid);
         _hookRanFor = null;
         _setStatus(VaultStatus.off);
       });
 
-  /// `e2ee_dm` changed for the signed-in user. Off closes the vault WITHOUT
-  /// wiping (markers kept); on opens it again.
-  Future<void> onFlagChanged(bool e2eeEnabled) => _enqueue('flag', () async {
-    if (_flag == e2eeEnabled) return;
-    _flag = e2eeEnabled;
-    final uid = _uid;
-    if (!_supported || uid == null) return;
-    if (!e2eeEnabled) {
-      await _closeOpen();
-      return _setStatus(VaultStatus.off);
-    }
-    if (_vault == null) await _open(uid);
-  });
+  /// `e2ee_dm` changed for [uid]. Ignored unless [uid] is still the signed-in
+  /// user when it runs (a flag answer for a user who has left). Off closes
+  /// the vault WITHOUT wiping (markers kept); on opens it again.
+  Future<void> onFlagChanged(bool e2eeEnabled, {required String? uid}) =>
+      _enqueue('flag', () async {
+        if (uid == null || uid != _uid) return;
+        if (_flag == e2eeEnabled) return;
+        _flag = e2eeEnabled;
+        if (!_supported) return;
+        if (!e2eeEnabled) {
+          await _closeOpen();
+          return _setStatus(VaultStatus.off);
+        }
+        if (_vault == null) await _open(uid);
+      });
 
   /// A deliberate new attempt (app resume): forgets this process's failed
   /// open of the signed-in user and tries once more. Never call it in a
@@ -243,36 +281,87 @@ class VaultSession {
     if (_flag && _vault == null) await _open(uid);
   });
 
-  /// Runs the directory-removal hook for the signed-in user. Called from the
-  /// auth bloc's `beforeSignOut` (its 3 s budget) on an explicit sign-out,
-  /// so [onSessionEnded] does not run it again. Only when this device has
-  /// a vault for that user. Never throws.
-  Future<void> beforeExplicitSignOut() async {
-    final uid = _uid;
-    final hook = beforeExplicitWipe;
-    if (!_supported || uid == null || hook == null) return;
+  /// The auth bloc's explicit-sign-out step for [uid] (its 3 s budget, only
+  /// when the intent was armed for [uid]). When this device has a vault for
+  /// [uid] (and [uid] is the session's user): records a pending explicit
+  /// end FIRST (so a launch killed before the wipe still wipes, see
+  /// [start]), then runs the directory-removal hook, so [onSessionEnded]
+  /// does not run it again. Not queued; never throws.
+  Future<void> beforeExplicitSignOut(String uid) async {
+    if (!_supported || uid != _uid) return;
+    final alias = vaultKeyAlias(uid);
     try {
-      if (!await _hasVaultFacts(uid)) return;
-      _hookRanFor = uid;
+      if (!await _hasVaultFacts(alias)) return;
+    } catch (_, stack) {
+      _report('markers', stack);
+      return;
+    }
+    if (_markers.persistent) {
+      try {
+        await _markers.writePendingEnd(alias);
+      } catch (_, stack) {
+        _report('markers', stack);
+      }
+    }
+    final hook = beforeExplicitWipe;
+    if (hook == null) return;
+    _hookRanFor = uid;
+    try {
       await hook(uid);
     } catch (_) {
       // Best effort (offline, token gone): the wipe goes on regardless.
     }
   }
 
+  /// The explicit sign-out of [uid] failed and [uid] is still signed in:
+  /// forgets the pending end [beforeExplicitSignOut] recorded, and that the
+  /// hook ran (a later end runs it again). Not queued; never throws.
+  Future<void> explicitSignOutFailed(String uid) async {
+    if (_hookRanFor == uid) _hookRanFor = null;
+    if (!_supported || !_markers.persistent) return;
+    try {
+      await _markers.clearPendingEnd(vaultKeyAlias(uid));
+    } catch (_, stack) {
+      _report('markers', stack);
+    }
+  }
+
+  /// The server accepted the deletion of [uid]'s account: journals the wipe
+  /// of [uid]'s vault at once (whatever this device has; an owed wipe of a
+  /// vault that does not exist only deletes nothing), so a launch killed
+  /// before the session ends still wipes it. Not queued (the queue can be
+  /// busy opening); an existing owed record is kept as it is. Never throws.
+  Future<void> noteAccountDeleted(String uid) async {
+    if (!_supported || !_markers.persistent) return;
+    try {
+      await _ensureOwed(vaultKeyAlias(uid));
+    } catch (_, stack) {
+      _report('journal', stack);
+    }
+  }
+
   /// DESTROYS the signed-in user's encrypted history on this device, every
   /// copy the platform lists, and the vault key: the explicit way out of
   /// [VaultStatus.storageChanged] (the history then exists in a storage
-  /// this browser cannot use now, or in two copies). Only the user's own,
-  /// warned choice may call this. Then a fresh vault opens (flag on).
+  /// this browser cannot use now, or in two copies), and of the
+  /// [VaultStatus.unavailable] an owed wipe of this user that cannot finish
+  /// causes. Only the user's own, warned choice may call this. Then a fresh
+  /// vault opens (flag on). A failed reset stays owed and completes at the
+  /// next launch.
   Future<void> resetVaultForStorageChange() => _enqueue('reset', () async {
     final uid = _uid;
     if (!_supported || uid == null) return;
-    if (_status.value != VaultStatus.storageChanged) return;
     if (!_markers.persistent) return;
-    // Nothing is open in this state; any copy listed is erased.
-    final wiped = await _wipeClosed(uid, expectedFromMarker: false);
-    if (!wiped) return _fail(uid, VaultStatus.storageChanged);
+    final alias = vaultKeyAlias(uid);
+    final current = _status.value;
+    final allowed =
+        current == VaultStatus.storageChanged ||
+        (current == VaultStatus.unavailable && await _owedFor(alias) != null);
+    if (!allowed) return;
+    // Nothing is open in these states; any copy listed is erased.
+    if (_vault?.uid == uid) await _closeOpen();
+    final wiped = await _wipeClosed(alias, anyCopy: true);
+    if (!wiped) return _fail(uid, current);
     _blocked.remove(uid);
     if (_flag) {
       await _open(uid);
@@ -302,66 +391,92 @@ class VaultSession {
 
   void _setStatus(VaultStatus status) => _status.value = status;
 
-  Future<void> _ensureStarted() async {
+  /// Once per session: pending explicit ends against [currentUid], then the
+  /// owed wipes.
+  Future<void> _ensureStarted(String? currentUid) async {
     if (_started) return;
     _started = true;
     if (!_supported || !_markers.persistent) return;
+    final current = currentUid == null ? null : vaultKeyAlias(currentUid);
     final List<OwedWipe> owed;
     try {
+      for (final pending in await _markers.pendingEnds()) {
+        if (pending != current) await _ensureOwed(pending);
+        await _markers.clearPendingEnd(pending);
+      }
       owed = await _markers.owedWipes();
     } catch (_, stack) {
-      _report('owedWipes', stack);
+      _report('markers', stack);
       return;
     }
     for (final o in owed) {
-      await _wipeClosed(o.uid);
+      await _wipeClosed(o.alias);
     }
   }
 
-  Future<bool> _hasVaultFacts(String uid) async {
-    if (_vault?.uid == uid || _openedThisProcess.contains(uid)) return true;
+  bool _isOpenFor(String alias) {
+    final open = _vault;
+    return open != null && vaultKeyAlias(open.uid) == alias;
+  }
+
+  Future<bool> _hasVaultFacts(String alias) async {
+    if (_isOpenFor(alias) || _openedThisProcess.contains(alias)) return true;
     if (!_markers.persistent) return false;
-    if (await _markers.known(uid) != null) return true;
-    return await _owedFor(uid) != null;
+    if (await _markers.known(alias) != null) return true;
+    return await _owedFor(alias) != null;
   }
 
   /// Wipes owed vaults and the vaults of every user but [uid]. False when
-  /// [uid]'s own owed wipe could not be completed.
+  /// [uid]'s own owed wipe could not be completed (its open vault is closed
+  /// first).
   Future<bool> _wipeOthers(String uid) async {
+    final own = vaultKeyAlias(uid);
     final Set<String> targets;
     try {
       targets = {
-        for (final o in await _markers.owedWipes()) o.uid,
+        for (final o in await _markers.owedWipes()) o.alias,
         for (final k in await _markers.knownVaults())
-          if (k.uid != uid) k.uid,
+          if (k.alias != own) k.alias,
       };
     } catch (_, stack) {
       _report('markers', stack);
       return false;
     }
     var ownOk = true;
-    for (final other in targets) {
-      final ok = await _wipeClosed(other);
-      if (other == uid && !ok) ownOk = false;
+    for (final alias in targets) {
+      if (alias == own && _isOpenFor(own)) await _closeOpen();
+      final ok = await _wipeClosed(alias);
+      if (alias == own && !ok) ownOk = false;
     }
     return ownOk;
   }
 
   /// The explicit sign-out / account-deletion wipe of [uid].
   Future<void> _wipeExplicit(String uid) async {
+    final alias = vaultKeyAlias(uid);
     final bool facts;
     try {
-      facts = await _hasVaultFacts(uid);
+      facts = await _hasVaultFacts(alias);
     } catch (_, stack) {
       _report('markers', stack);
       return;
     }
     if (!facts) {
       // Nothing of [uid] on this device: no collaborator is called.
-      if (_ownedUid != null || _vault != null) await _closeOpen();
+      if (_ownedAlias != null || _vault != null) await _closeOpen();
       return;
     }
-    // (1) Directory removal, best effort, unless beforeSignOut already ran it.
+    // (1) The journal, before anything else: a crash from here on is
+    // finished at the next launch. A failed journal write is reported and
+    // the wipe still goes on (it is what the person asked for).
+    if (_markers.persistent) {
+      try {
+        await _ensureOwed(alias);
+      } catch (_, stack) {
+        _report('journal', stack);
+      }
+    }
+    // (2) Directory removal, best effort, unless beforeSignOut already ran it.
     final hook = beforeExplicitWipe;
     if (hook != null && _hookRanFor != uid) {
       try {
@@ -371,15 +486,15 @@ class VaultSession {
       }
     }
     final open = _vault;
-    if (open == null || open.uid != uid) {
-      if (_ownedUid != null || open != null) await _closeOpen();
-      await _wipeClosed(uid);
-      _openedThisProcess.remove(uid);
+    if (open == null || open.uid != uid || _lost || _ownedAlias != alias) {
+      // Not open here, or the lock was lost: the closed path (its own lock).
+      if (_ownedAlias != null || open != null) await _closeOpen();
+      await _wipeClosed(alias);
+      _openedThisProcess.remove(alias);
       _blocked.remove(uid);
       return;
     }
-    // (2) The open vault: stop writers, rows -> cipher.destroy (the key).
-    await _journal(uid);
+    // (3) The open vault: stop writers, rows -> cipher.destroy (the key).
     _writesOpen = false;
     _cancelLost();
     var wiped = false;
@@ -393,79 +508,98 @@ class VaultSession {
       } catch (_) {}
     }
     _vault = null;
-    _openedThisProcess.remove(uid);
+    _openedThisProcess.remove(alias);
     _blocked.remove(uid);
-    // (3) Markers, only when everything is gone.
     if (wiped) {
+      // (4) The now-empty database file too (best effort: rows and key are
+      // already gone, so a refusal leaves only an empty file).
       try {
-        await _markers.clearAll(uid);
+        await _wipeVaultFile(alias: alias, expectedStorage: open.storageName);
+      } catch (_) {}
+      // (5) Markers, only when everything that matters is gone.
+      try {
+        await _markers.clearAll(alias);
       } catch (_, stack) {
         _report('markers', stack);
       }
     }
-    // (4) The lock.
+    // (6) The lock.
     await _releaseOwner();
   }
 
-  /// Records the wipe of [uid] as owed before it starts, so a failure or a
-  /// crash in the middle is finished at the next launch.
-  Future<void> _journal(String uid, {bool fileDone = false}) async {
+  /// Writes [wipe] as owed. A failure is reported; the caller goes on.
+  Future<void> _journal(OwedWipe wipe) async {
     try {
-      await _markers.writeWipeOwed(uid, fileDone: fileDone);
+      await _markers.writeWipeOwed(wipe);
     } catch (_, stack) {
       _report('journal', stack);
     }
   }
 
-  Future<OwedWipe?> _owedFor(String uid) async {
+  /// The owed wipe of [alias], journalled now unless one is already
+  /// recorded (its progress is kept); with [anyCopy] the record is marked
+  /// to erase any listed copy. Throws when the markers cannot be read.
+  Future<OwedWipe> _ensureOwed(String alias, {bool anyCopy = false}) async {
+    final owed = await _owedFor(alias);
+    var record = owed ?? OwedWipe(alias);
+    if (anyCopy && !record.anyCopy) record = record.copyWith(anyCopy: true);
+    if (!identical(record, owed)) await _journal(record);
+    return record;
+  }
+
+  Future<OwedWipe?> _owedFor(String alias) async {
     for (final o in await _markers.owedWipes()) {
-      if (o.uid == uid) return o;
+      if (o.alias == alias) return o;
     }
     return null;
   }
 
-  /// Wipes [uid]'s vault while it is not open in this process: owner lock
-  /// -> journal -> file(s) -> journal "file done" -> key -> markers -> lock.
-  /// With [expectedFromMarker] the web wipe refuses (and keeps the key) when
-  /// the marked copy is not listed. An owed wipe whose file step already
-  /// succeeded goes straight to the key (the file may be gone, and the
-  /// marker check would refuse it for good). [cipher], when given, is
-  /// [uid]'s live cipher: it is ended with [VaultCipher.destroy] instead of
-  /// deleting the key behind its back. True when everything was wiped.
-  ///
-  /// Remaining window: a crash after the file is deleted and before "file
-  /// done" is written leaves an owed wipe the web marker check refuses
-  /// (status unavailable for that user until an explicit reset).
+  /// Wipes [alias]'s vault while it is not open in this process: journal ->
+  /// owner lock -> journal "file started" -> file(s) -> journal "file done"
+  /// -> key -> markers -> lock. The first attempt passes the storage
+  /// marker, so the web wipe refuses (and keeps the key) when the marked
+  /// copy is not listed; once the file step has started, or for [anyCopy]
+  /// (the explicit reset), it erases whatever copy is listed, so an owed
+  /// wipe can always be finished by a later launch (the marked copy may be
+  /// gone already, or evicted). An owed wipe whose file step succeeded goes
+  /// straight to the key. [cipher], when given, is the live cipher of the
+  /// lock this session holds: it is ended with [VaultCipher.destroy] instead
+  /// of deleting the key behind its back. True when everything was wiped.
   Future<bool> _wipeClosed(
-    String uid, {
-    bool expectedFromMarker = true,
+    String alias, {
+    bool anyCopy = false,
     VaultCipher? cipher,
   }) async {
     if (!_markers.persistent) return false;
-    final heldBySession = _ownedUid == uid;
+    final heldBySession = !_lost && _ownedAlias == alias;
     VaultOwner? owner;
     try {
-      final owed = await _owedFor(uid);
-      if (owed == null) await _journal(uid);
+      var record = await _ensureOwed(alias, anyCopy: anyCopy);
       if (!heldBySession) {
         owner = _createOwner();
-        if (!await owner.acquire(uid)) return false;
+        if (!await owner.acquireForAlias(alias)) return false;
       }
-      if (!(owed?.fileDone ?? false)) {
-        final known = await _markers.known(uid);
-        await _wipeVaultFile(
-          uid: uid,
-          expectedStorage: expectedFromMarker ? known?.storage : null,
-        );
-        await _journal(uid, fileDone: true);
+      if (!record.fileDone) {
+        String? expected;
+        if (!record.fileStarted && !record.anyCopy) {
+          expected = (await _markers.known(alias))?.storage;
+        }
+        if (!record.fileStarted) {
+          record = record.copyWith(fileStarted: true);
+          await _journal(record);
+        }
+        await _wipeVaultFile(alias: alias, expectedStorage: expected);
+        record = record.copyWith(fileDone: true);
+        await _journal(record);
       }
       // Only after the file(s) are gone.
-      if (cipher != null) {
+      if (cipher != null && heldBySession) {
         await cipher.destroy();
       } else {
-        await _deleteVaultKey(uid: uid);
+        await _deleteVaultKey(alias: alias);
       }
-      await _markers.clearAll(uid);
+      await _markers.clearAll(alias);
+      _openedThisProcess.remove(alias);
       return true;
     } on Exception {
       // VaultOpenException / VaultKeyException: retried at the next launch.
@@ -493,7 +627,7 @@ class VaultSession {
   Future<void> _releaseOwner() async {
     _cancelLost();
     final owner = _owner;
-    _ownedUid = null;
+    _ownedAlias = null;
     if (owner == null) return;
     try {
       await owner.release();
@@ -508,6 +642,7 @@ class VaultSession {
     _cancelLost();
     final open = _vault;
     _vault = null;
+    _historyLost = false;
     if (open != null) {
       try {
         await _mutex.run(open.uid, open.close);
@@ -518,18 +653,23 @@ class VaultSession {
     await _releaseOwner();
   }
 
-  /// A failed open: remember it for this process, release the lock.
+  /// A failed open: remember it for this process, close [uid]'s vault if it
+  /// is open, release the lock.
   Future<void> _fail(String uid, VaultStatus status) async {
     _blocked[uid] = status;
-    await _releaseOwner();
+    if (_vault?.uid == uid) {
+      await _closeOpen();
+    } else {
+      await _releaseOwner();
+    }
     _setStatus(status);
   }
 
   /// Any launch that opens the vault, or answers unavailable or
   /// storageChanged, breaks a key-loss streak.
-  Future<void> _clearStreak(String uid) async {
+  Future<void> _clearStreak(String alias) async {
     try {
-      await _markers.clearKeyLostSeen(uid);
+      await _markers.clearKeyLostSeen(alias);
     } catch (_, stack) {
       _report('markers', stack);
     }
@@ -539,7 +679,7 @@ class VaultSession {
     // Ownership is gone: stop writing at once, close in order.
     _lost = true;
     _writesOpen = false;
-    _ownedUid = null;
+    _ownedAlias = null;
     _blocked[uid] = VaultStatus.heldElsewhere;
     final open = _vault;
     if (open == null || open.uid != uid) return;
@@ -548,6 +688,7 @@ class VaultSession {
       _enqueue('lost', () async {
         if (!identical(_vault, open)) return;
         _vault = null;
+        _historyLost = false;
         _cancelLost();
         try {
           await _mutex.run(uid, open.close);
@@ -559,6 +700,7 @@ class VaultSession {
   }
 
   Future<void> _open(String uid, {bool allowConfirmedWipe = true}) async {
+    final alias = vaultKeyAlias(uid);
     if (!_markers.persistent) {
       // Markers that do not outlive this launch cannot keep the vault safe.
       return _setStatus(VaultStatus.unavailable);
@@ -571,28 +713,31 @@ class VaultSession {
     // open (sign-in, flag on, retry): a half-wiped vault is never used.
     final OwedWipe? owed;
     try {
-      owed = await _owedFor(uid);
+      owed = await _owedFor(alias);
     } catch (_, stack) {
       _report('markers', stack);
       return _fail(uid, VaultStatus.unavailable);
     }
-    if (owed != null && !await _wipeClosed(uid)) {
-      return _fail(uid, VaultStatus.unavailable);
+    if (owed != null) {
+      if (_isOpenFor(alias)) await _closeOpen();
+      if (!await _wipeClosed(alias)) {
+        return _fail(uid, VaultStatus.unavailable);
+      }
     }
 
     // 1. The owner lock.
     final owner = _owner ??= _createOwner();
     final bool acquired;
     try {
-      if (_ownedUid != null && _ownedUid != uid) await _releaseOwner();
+      if (_ownedAlias != null && _ownedAlias != alias) await _releaseOwner();
       _lost = false;
-      acquired = await owner.acquire(uid);
+      acquired = await owner.acquireForAlias(alias);
     } catch (_, stack) {
       _report('acquire', stack);
       return _fail(uid, VaultStatus.unavailable);
     }
     if (!acquired) return _fail(uid, VaultStatus.heldElsewhere);
-    _ownedUid = uid;
+    _ownedAlias = alias;
     _cancelLost();
     // Right after the grant: the lost stream does not replay.
     _lostSub = owner.lost.listen((_) => _onLost(uid));
@@ -605,21 +750,21 @@ class VaultSession {
       if (e.failure == VaultKeyFailure.keyLost) {
         return _onKeyLost(uid, null, allowConfirmedWipe);
       }
-      await _clearStreak(uid);
+      await _clearStreak(alias);
       return _fail(uid, VaultStatus.unavailable);
     } on UnsupportedError {
       await _releaseOwner();
       return _setStatus(VaultStatus.unsupported);
     } catch (_, stack) {
       _report('cipher', stack);
-      await _clearStreak(uid);
+      await _clearStreak(alias);
       return _fail(uid, VaultStatus.unavailable);
     }
 
     // 3. The markers.
     final KnownVault? known;
     try {
-      known = await _markers.known(uid);
+      known = await _markers.known(alias);
     } catch (_, stack) {
       _report('markers', stack);
       return _fail(uid, VaultStatus.unavailable);
@@ -639,18 +784,18 @@ class VaultSession {
         case VaultStatus.keyLost:
           return _onKeyLost(uid, cipher, allowConfirmedWipe);
         case VaultStatus.storageChanged:
-          await _clearStreak(uid);
+          await _clearStreak(alias);
           return _fail(uid, VaultStatus.storageChanged);
         case VaultStatus.unsupported:
           await _releaseOwner();
           return _setStatus(VaultStatus.unsupported);
         default:
-          await _clearStreak(uid);
+          await _clearStreak(alias);
           return _fail(uid, VaultStatus.unavailable);
       }
     } catch (_, stack) {
       _report('open', stack);
-      await _clearStreak(uid);
+      await _clearStreak(alias);
       return _fail(uid, VaultStatus.unavailable);
     }
 
@@ -660,12 +805,15 @@ class VaultSession {
       return _fail(uid, VaultStatus.heldElsewhere);
     }
 
-    // 5. The storage marker: first run of this build, or a new vault.
+    // 5. The storage marker: first run of this build, or a new vault. A
+    // marked vault found empty and made again is ready (nothing else exists
+    // to protect) but reported: its history is gone.
+    final recreated = known != null && vault.createdThisOpen;
     if (known == null || vault.createdThisOpen) {
       try {
         await _markers.writeKnown(
           KnownVault(
-            uid: uid,
+            alias: alias,
             storage: vault.storageName,
             createdAtMicros: _now().microsecondsSinceEpoch,
           ),
@@ -677,22 +825,36 @@ class VaultSession {
         return _fail(uid, VaultStatus.unavailable);
       }
     }
-    await _clearStreak(uid);
+    await _clearStreak(alias);
 
+    // 6. Publish, unless the lock was lost during the steps above (checked
+    // synchronously, right before publishing).
+    if (_lost || _ownedAlias != alias) {
+      await _closeQuietly(vault);
+      return _fail(uid, VaultStatus.heldElsewhere);
+    }
     _vault = vault;
+    _historyLost = recreated;
     _writesOpen = true;
-    _openedThisProcess.add(uid);
+    _openedThisProcess.add(alias);
     _blocked.remove(uid);
     _setStatus(VaultStatus.ready);
+    if (recreated) _report('recreated', StackTrace.current);
 
-    // 6. Task 7's hook.
+    // 7. Task 7's hook, outside the queue: the vault stays ready whatever
+    // it does.
     final ready = onVaultReady;
-    if (ready != null) {
-      try {
-        await ready(vault);
-      } catch (_, stack) {
-        _report('ready', stack);
-      }
+    if (ready != null) unawaited(_runReady(ready, vault));
+  }
+
+  Future<void> _runReady(
+    Future<void> Function(SecureVault vault) ready,
+    SecureVault vault,
+  ) async {
+    try {
+      await ready(vault);
+    } catch (_, stack) {
+      _report('ready', stack);
     }
   }
 
@@ -703,35 +865,46 @@ class VaultSession {
   }
 
   /// The vault's key does not open it. The first launch that sees this
-  /// records it and wipes nothing; only a LATER launch that sees it again
-  /// wipes the file, then the key, then the markers, and opens a fresh
-  /// vault. [cipher] is dropped unused unless the wipe is confirmed.
+  /// records it (launch and time) and wipes nothing; only a DIFFERENT launch
+  /// at least [kVaultKeyLossConfirmAfter] later that sees it again wipes the
+  /// file, then the key, then the markers, and opens a fresh vault. [cipher]
+  /// is dropped unused unless the wipe is confirmed while this session still
+  /// holds the lock.
   Future<void> _onKeyLost(
     String uid,
     VaultCipher? cipher,
     bool allowConfirmedWipe,
   ) async {
-    final String? seen;
+    final alias = vaultKeyAlias(uid);
+    final now = _now().microsecondsSinceEpoch;
+    final KeyLostSeen? seen;
     try {
-      seen = await _markers.keyLostSeen(uid);
+      seen = await _markers.keyLostSeen(alias);
     } catch (_, stack) {
       _report('markers', stack);
       return _fail(uid, VaultStatus.unavailable);
     }
     if (seen == null) {
       try {
-        await _markers.writeKeyLostSeen(uid, _launchId);
+        await _markers.writeKeyLostSeen(
+          alias,
+          KeyLostSeen(launchId: _launchId, atMicros: now),
+        );
       } catch (_, stack) {
         _report('markers', stack);
         return _fail(uid, VaultStatus.unavailable);
       }
       return _fail(uid, VaultStatus.keyLost);
     }
-    if (seen == _launchId || !allowConfirmedWipe) {
-      return _fail(uid, VaultStatus.keyLost);
-    }
-    // Confirmed on a second launch. The lock is held by this session.
-    final wiped = await _wipeClosed(uid, cipher: cipher);
+    final confirmed =
+        allowConfirmedWipe &&
+        seen.launchId != _launchId &&
+        now - seen.atMicros >= kVaultKeyLossConfirmAfter.inMicroseconds;
+    if (!confirmed) return _fail(uid, VaultStatus.keyLost);
+    // Confirmed. With the lock still held the live cipher ends the key;
+    // after a lost lock the closed path takes its own lock (or is refused).
+    final held = !_lost && _ownedAlias == alias;
+    final wiped = await _wipeClosed(alias, cipher: held ? cipher : null);
     if (!wiped) {
       // The key stays (a failed file wipe never deletes it); owed.
       return _fail(uid, VaultStatus.keyLost);

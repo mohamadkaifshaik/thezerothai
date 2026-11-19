@@ -9,6 +9,7 @@ import 'package:drift_flutter/drift_flutter.dart'
         WasmStorageImplementation,
         WebStorageApi;
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/core/vault/vault_cipher.dart' show vaultKeyAlias;
 import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_open.dart';
 import 'package:dzeroth/core/vault/vault_open_io.dart';
@@ -453,6 +454,19 @@ void main() {
       );
     },
   );
+
+  test('alias entry points: the same database name and wipe, by alias '
+      'only; a string that is not an alias is refused', () async {
+    final alias = vaultKeyAlias('u1');
+    expect(vaultDatabaseNameForAlias(alias), vaultDatabaseName('u1'));
+    expect(() => vaultDatabaseNameForAlias('u1'), throwsArgumentError);
+    await expectLater(wipeVaultFileForAlias(alias: 'u1'), throwsArgumentError);
+    // The VM host is not Android.
+    await expectLater(
+      wipeVaultFileForAlias(alias: alias),
+      _throwsStatus(VaultStatus.unsupported),
+    );
+  });
 
   test('an empty uid is refused', () async {
     await expectLater(

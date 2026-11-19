@@ -22,10 +22,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   AuthBloc({
     required AuthRepository authRepository,
     Future<void> Function()? beforeSignOut,
+    Future<void> Function(String uid)? beforeExplicitSignOut,
+    void Function(String uid)? onSignOutFailed,
     Duration? unknownTimeout,
   }) : _authRepository = authRepository,
        _unknownTimeout = unknownTimeout,
        _beforeSignOut = beforeSignOut,
+       _beforeExplicitSignOut = beforeExplicitSignOut,
+       _onSignOutFailed = onSignOutFailed,
        super(const AuthState()) {
     on<AuthSubscriptionRequested>(_onSubscriptionRequested);
     on<AuthUserChanged>(_onUserChanged);
@@ -47,6 +51,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// device), run before the Firebase sign-out. Bounded by
   /// [kBeforeSignOutTimeout]; a failure or a timeout never blocks sign-out.
   final Future<void> Function()? _beforeSignOut;
+
+  /// Runs beside [_beforeSignOut], in the same budget, only when an intent
+  /// was armed for the signed-in uid (the vault records the explicit end
+  /// and removes the device from the key directory). Never for an event
+  /// expressed for another account.
+  final Future<void> Function(String uid)? _beforeExplicitSignOut;
+
+  /// The sign-out failed and that user is still signed in: the armed intent
+  /// was dropped (the vault forgets its pending end).
+  final void Function(String uid)? _onSignOutFailed;
   StreamSubscription<AppUser?>? _userSubscription;
 
   /// When set, a first auth event that has not arrived by then settles the
@@ -211,16 +225,25 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignOutRequested event,
     Emitter<AuthState> emit,
   ) async {
-    // The intent belongs to whoever is signed in now; with nobody signed in
-    // nothing is armed (a stale intent could turn a later revoke into a
-    // wipe).
+    // The intent belongs to the account it was expressed for, and only while
+    // that account is the one signed in; with nobody signed in, or another
+    // account signed in now, nothing is armed (a stale intent could turn a
+    // later revoke, or another user's end, into a wipe). The sign-out itself
+    // still runs.
     final uid = state.user?.uid;
-    final intent = uid == null ? null : (uid: uid, reason: event.reason);
+    final armed = uid != null && (event.uid == null || event.uid == uid);
+    final intent = armed ? (uid: uid, reason: event.reason) : null;
     _intent = intent;
     final before = _beforeSignOut;
-    if (before != null) {
+    final explicit = _beforeExplicitSignOut;
+    final steps = <Future<void>>[
+      if (before != null) _guarded(before),
+      if (explicit != null && intent != null)
+        _guarded(() => explicit(intent.uid)),
+    ];
+    if (steps.isNotEmpty) {
       try {
-        await before().timeout(kBeforeSignOutTimeout);
+        await Future.wait(steps).timeout(kBeforeSignOutTimeout);
       } catch (_) {
         // Never block sign-out on bookkeeping.
       }
@@ -228,8 +251,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       await _authRepository.signOut();
     } catch (_) {
-      if (_intent == intent) _intent = null;
+      // Disarm only when the user is still signed in: a partial failure
+      // (Firebase signed out, the Google sign-out failed) is still the
+      // explicit end, and its null user must read so.
+      if (intent != null &&
+          _intent == intent &&
+          _authRepository.currentUser?.uid == intent.uid) {
+        _intent = null;
+        _onSignOutFailed?.call(intent.uid);
+      }
       rethrow;
+    }
+  }
+
+  static Future<void> _guarded(Future<void> Function() step) async {
+    try {
+      await step();
+    } catch (_) {
+      // Best effort: one failing step never cancels the other.
     }
   }
 

@@ -237,7 +237,8 @@ void main() {
       await pump(tester);
       await tapText(tester, 'Sign out');
       expect(find.text('Sign out?'), findsNothing);
-      verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+      verify(() => authBloc.add(const AuthSignOutRequested(uid: 'uid-1')))
+          .called(1);
     });
 
     testWidgets('Keep signs out and keeps every row', (tester) async {
@@ -245,7 +246,8 @@ void main() {
       await tapText(tester, 'Sign out');
       await tester.tap(find.text('Keep'));
       await tester.pumpAndSettle();
-      verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+      verify(() => authBloc.add(const AuthSignOutRequested(uid: 'uid-1')))
+          .called(1);
       expect(drafts.rows, hasLength(3));
       expect(drafts.wiped, isEmpty);
     });
@@ -259,7 +261,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(drafts.wiped, ['uid-1']);
       expect(drafts.rows.map((d) => '${d.uid}/${d.id}'), ['uid-2/c']);
-      verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+      verify(() => authBloc.add(const AuthSignOutRequested(uid: 'uid-1')))
+          .called(1);
     });
 
     testWidgets('Cancel stays signed in and keeps the rows', (tester) async {

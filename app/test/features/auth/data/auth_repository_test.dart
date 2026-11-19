@@ -80,6 +80,18 @@ void main() {
       repo.clearAccountDeleted('uid-2');
       expect(repo.takeSessionEndIntent('uid-1'), SessionEnd.accountDeleted);
     });
+
+    test('an accepted deletion (noteAccountDeleted) is handed to the '
+        'listener at once (the vault journals the wipe); the client '
+        'delete\'s own provisional record is not', () async {
+      final heard = <String>[];
+      repo.onAccountDeleted = heard.add;
+      when(user.delete).thenThrow(fb.FirebaseAuthException(code: 'network'));
+      await expectLater(repo.deleteCurrentUser(), throwsA(anything));
+      expect(heard, isEmpty);
+      repo.noteAccountDeleted('uid-1');
+      expect(heard, ['uid-1']);
+    });
   });
 
   group('signUpWithEmail', () {

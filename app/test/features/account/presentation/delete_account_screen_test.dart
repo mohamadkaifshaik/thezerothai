@@ -11,12 +11,13 @@ import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/router/routes/auth_routes.dart'
+    show accountDeletedRoute;
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
-import 'package:dzeroth/features/account/presentation/account_deleted_screen.dart';
 import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
@@ -193,10 +194,8 @@ void main() {
               ? const DeleteAccountScreen()
               : _inShell(const DeleteAccountScreen(), floating: floatingBar),
         ),
-        GoRoute(
-          path: AppRouter.accountDeletedPath,
-          builder: (_, _) => const AccountDeletedScreen(),
-        ),
+        // The app's own route: it hands the deleted uid (`extra`) on.
+        accountDeletedRoute(),
         GoRoute(
           path: AppRouter.exportDataPath,
           builder: (_, _) => const Scaffold(body: Text('export stub')),
@@ -298,7 +297,10 @@ void main() {
     ).called(1);
     verify(
       () => authBloc.add(
-        const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
       ),
     ).called(1);
     expect(find.text('A fresh start.'), findsOneWidget);
@@ -306,6 +308,16 @@ void main() {
     await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
     expect(find.text('sign in stub'), findsOneWidget);
+    // The confirmation page got the deleted uid from the flow: its own
+    // sign-out (still authenticated in this rig) is the deletion's again.
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
+      ),
+    ).called(1);
   });
 
   testWidgets('success wipes the deleted uid\'s drafts and only that uid\'s', (
@@ -464,7 +476,10 @@ void main() {
     expect(find.text('A fresh start.'), findsOneWidget);
     verify(
       () => authBloc.add(
-        const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
       ),
     ).called(1);
   });
@@ -483,7 +498,10 @@ void main() {
     expect(find.text('A fresh start.'), findsOneWidget);
     verify(
       () => authBloc.add(
-        const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
       ),
     ).called(1);
   });
@@ -832,11 +850,10 @@ void main() {
     await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
 
-    verify(
-      () => authBloc.add(
-        const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
-      ),
-    ).called(1);
+    // Reached without the deleted uid (a reload): a plain sign-out bound to
+    // the account shown the page (it still wipes that account's vault).
+    verify(() => authBloc.add(const AuthSignOutRequested(uid: 'uid-1')))
+        .called(1);
     expect(find.text('sign in stub'), findsOneWidget);
   });
 

@@ -118,7 +118,7 @@ void main() {
     await tester.tap(find.text('Keep'));
     await tester.pumpAndSettle();
     expect(find.byType(SignOutDraftsDialog), findsNothing);
-    verify(() => auth.add(const AuthSignOutRequested())).called(1);
+    verify(() => auth.add(const AuthSignOutRequested(uid: 'uid-1'))).called(1);
     expect(drafts.wiped, isEmpty);
   });
 

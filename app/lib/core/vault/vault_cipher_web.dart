@@ -96,9 +96,13 @@ Future<VaultCipher> openPlatformVaultCipher({
 /// Deletes the stored vault key of [uid] without opening it (idempotent).
 /// Rows sealed under it can never be opened again. Throws [VaultKeyException]
 /// with [VaultKeyFailure.unavailable] when IndexedDB cannot be used.
-Future<void> deleteWebVaultKey(String uid) async {
+Future<void> deleteWebVaultKey(String uid) =>
+    deleteWebVaultKeyForAlias(vaultKeyAlias(uid));
+
+/// [deleteWebVaultKey] by alias.
+Future<void> deleteWebVaultKeyForAlias(String alias) async {
   final env = _Env.require();
-  await _deleteRecord(env, vaultKeyAlias(uid));
+  await _deleteRecord(env, requireVaultKeyAlias(alias));
 }
 
 /// Whether the browser has granted persistent storage to this origin
@@ -553,6 +557,10 @@ class WebVaultCipher implements VaultCipher {
 
 /// [deleteVaultKey] on the web: [deleteWebVaultKey].
 Future<void> platformDeleteVaultKey(String uid) => deleteWebVaultKey(uid);
+
+/// [deleteVaultKeyForAlias] on the web: [deleteWebVaultKeyForAlias].
+Future<void> platformDeleteVaultKeyForAlias(String alias) =>
+    deleteWebVaultKeyForAlias(alias);
 
 /// [vaultStoragePersisted] on the web: [webVaultStoragePersisted].
 Future<bool> platformVaultStoragePersisted() => webVaultStoragePersisted();

@@ -25,6 +25,12 @@ abstract interface class VaultOwner {
   /// acquire that is released before the browser grants it returns false.
   Future<bool> acquire(String uid);
 
+  /// [acquire] by the vault key [alias] ([vaultKeyAlias] of the uid), for a
+  /// caller that keeps no uid. The same lock and the same rules: for one
+  /// user, [acquire] and this are interchangeable. A value that is not an
+  /// alias throws [ArgumentError] synchronously.
+  Future<bool> acquireForAlias(String alias);
+
   /// Gives ownership up (the lock is free when this completes). A no-op when
   /// not owning.
   Future<void> release();
@@ -43,4 +49,9 @@ abstract interface class VaultOwner {
 VaultOwner createVaultOwner() => impl.createPlatformVaultOwner();
 
 /// The Web Lock name for [uid]: `dzeroth-vault-` and the vault key alias.
-String vaultLockName(String uid) => 'dzeroth-vault-${vaultKeyAlias(uid)}';
+String vaultLockName(String uid) => vaultLockNameForAlias(vaultKeyAlias(uid));
+
+/// [vaultLockName] from the vault key [alias] ([ArgumentError] for a value
+/// that is not an alias).
+String vaultLockNameForAlias(String alias) =>
+    'dzeroth-vault-${requireVaultKeyAlias(alias)}';

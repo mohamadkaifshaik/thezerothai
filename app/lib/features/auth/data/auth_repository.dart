@@ -463,10 +463,20 @@ class AuthRepository implements AuthTokenProvider {
   /// [SessionEnd.accountDeleted] rather than [SessionEnd.sessionLost].
   String? _deletedAccountUid;
 
+  /// Told at once when the account flow records an accepted deletion
+  /// ([noteAccountDeleted]); bootstrap points it at the vault session, which
+  /// journals the wipe before anything else can fail. Not called for
+  /// [deleteCurrentUser]'s provisional record (that delete can still fail).
+  void Function(String uid)? onAccountDeleted;
+
   /// Records that [uid]'s account was deleted (the server accepted
-  /// DeleteAccount, or [deleteCurrentUser] is about to run). Bound to [uid]:
-  /// a later end of another user's session is never read as this one.
-  void noteAccountDeleted(String uid) => _deletedAccountUid = uid;
+  /// DeleteAccount, or the client delete succeeded). Bound to [uid]: a later
+  /// end of another user's session is never read as this one. Tells
+  /// [onAccountDeleted].
+  void noteAccountDeleted(String uid) {
+    _deletedAccountUid = uid;
+    onAccountDeleted?.call(uid);
+  }
 
   /// Withdraws [noteAccountDeleted] for [uid] (the client delete failed).
   void clearAccountDeleted(String uid) {
@@ -493,7 +503,7 @@ class AuthRepository implements AuthTokenProvider {
     if (user == null) return;
     // Recorded first: Firebase can emit the null user before delete()
     // returns, and that end must read as accountDeleted.
-    noteAccountDeleted(user.uid);
+    _deletedAccountUid = user.uid;
     try {
       await user.delete();
     } on fb.FirebaseAuthException catch (e) {

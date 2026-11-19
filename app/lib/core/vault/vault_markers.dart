@@ -1,24 +1,23 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:drift_flutter/drift_flutter.dart'
+    show WasmStorageImplementation;
 
 import '../storage/app_database.dart';
-import 'vault_cipher.dart' show vaultKeyAlias;
+import 'vault_cipher.dart' show isVaultKeyAlias, requireVaultKeyAlias;
+import 'vault_open.dart' show kVaultAcceptedWebStorages;
 
-/// A vault this device has (or had) for one user: the facts the session
-/// needs to wipe it later without that user being signed in.
+/// A vault this device has (or had) for one user, named by its key alias
+/// (`vaultKeyAlias(uid)`), never by the uid.
 class KnownVault {
-  const KnownVault({
-    required this.uid,
+  KnownVault({
+    required String alias,
     required this.storage,
     required this.createdAtMicros,
-  });
+  }) : alias = requireVaultKeyAlias(alias);
 
-  /// The user the vault belongs to. Kept in the marker's VALUE (never its
-  /// key) because `wipeVaultFile` and `deleteVaultKey` need it to wipe the
-  /// vault of a user who is no longer signed in. The marker is deleted with
-  /// the vault.
-  final String uid;
+  final String alias;
 
   /// [SecureVault.storageName] of the open that recorded it.
   final String storage;
@@ -28,169 +27,263 @@ class KnownVault {
   String toString() => 'KnownVault($storage)';
 }
 
-/// The vault's safety markers, kept OUTSIDE the vault (they must survive a
-/// vault that cannot be opened) and keyed by the vault alias, never by a raw
-/// uid:
-///
-/// - `vault.known.<alias>`: this device has a vault for that user.
-/// - `vault.keyLostSeen.<alias>`: the launch id of the launch that first saw
-///   the vault's key as lost (key loss is confirmed on a LATER launch only).
-/// - `vault.wipeOwed.<alias>`: a wipe that started (or failed) and must be
-///   completed before any vault is opened.
-abstract interface class VaultMarkers {
-  /// False when the markers do not outlive this launch (the cache database
-  /// runs in memory): a vault whose markers cannot persist is not opened.
-  bool get persistent;
+/// The first observation of a lost key: which launch saw it, and when.
+class KeyLostSeen {
+  const KeyLostSeen({required this.launchId, required this.atMicros});
 
-  Future<KnownVault?> known(String uid);
-  Future<List<KnownVault>> knownVaults();
-  Future<void> writeKnown(KnownVault vault);
-
-  Future<String?> keyLostSeen(String uid);
-  Future<void> writeKeyLostSeen(String uid, String launchId);
-  Future<void> clearKeyLostSeen(String uid);
-
-  /// The wipes owed.
-  Future<List<OwedWipe>> owedWipes();
-
-  /// Records (or updates) the wipe owed for [uid]. [fileDone]: the vault
-  /// file step already succeeded (a later attempt goes on with the key; the
-  /// file may be gone, so the storage-marker check would refuse it).
-  Future<void> writeWipeOwed(String uid, {bool fileDone = false});
-
-  /// Removes every marker of [uid] (known, keyLostSeen, wipeOwed) at once.
-  Future<void> clearAll(String uid);
+  final String launchId;
+  final int atMicros;
 }
 
 /// A wipe that must be completed (`vault.wipeOwed.<alias>`).
 class OwedWipe {
-  const OwedWipe(this.uid, {this.fileDone = false});
+  OwedWipe(
+    String alias, {
+    this.fileStarted = false,
+    this.fileDone = false,
+    this.anyCopy = false,
+  }) : alias = requireVaultKeyAlias(alias);
 
-  final String uid;
+  final String alias;
 
-  /// The vault file step already succeeded.
+  /// The file step began at least once: a retry erases whatever copy is
+  /// listed (the marked copy may already be gone, or never listed).
+  final bool fileStarted;
+
+  /// The file step succeeded: a retry goes on with the key.
   final bool fileDone;
 
+  /// An explicit reset: erase any listed copy, whatever the storage marker
+  /// says.
+  final bool anyCopy;
+
+  OwedWipe copyWith({bool? fileStarted, bool? fileDone, bool? anyCopy}) =>
+      OwedWipe(
+        alias,
+        fileStarted: fileStarted ?? this.fileStarted,
+        fileDone: fileDone ?? this.fileDone,
+        anyCopy: anyCopy ?? this.anyCopy,
+      );
+
   @override
-  String toString() => 'OwedWipe(fileDone: $fileDone)';
+  String toString() =>
+      'OwedWipe(fileStarted: $fileStarted, fileDone: $fileDone, '
+      'anyCopy: $anyCopy)';
+}
+
+/// The vault's safety markers, kept OUTSIDE the vault (they must survive a
+/// vault that cannot be opened). Keys AND values name a user only by the
+/// vault key alias, never by the uid:
+///
+/// - `vault.known.<alias>`: this device has a vault for that user.
+/// - `vault.keyLostSeen.<alias>`: the first observation of a lost key.
+/// - `vault.wipeOwed.<alias>`: a wipe that started (or failed) and must be
+///   completed before that user's vault is opened again.
+/// - `vault.pendingEnd.<alias>`: an explicit sign-out was asked for; resolved
+///   at the next start-up against the restored user if the app dies first.
+abstract interface class VaultMarkers {
+  /// False when the markers do not outlive this launch (an in-memory cache,
+  /// or a web cache on a storage that is not durable and shared): a vault
+  /// whose markers cannot persist is not opened.
+  bool get persistent;
+
+  Future<KnownVault?> known(String alias);
+  Future<List<KnownVault>> knownVaults();
+  Future<void> writeKnown(KnownVault vault);
+
+  Future<KeyLostSeen?> keyLostSeen(String alias);
+  Future<void> writeKeyLostSeen(String alias, KeyLostSeen seen);
+  Future<void> clearKeyLostSeen(String alias);
+
+  Future<List<OwedWipe>> owedWipes();
+
+  /// Records (or replaces) the wipe owed for [wipe]'s alias.
+  Future<void> writeWipeOwed(OwedWipe wipe);
+
+  /// The aliases with an explicit sign-out not yet resolved.
+  Future<List<String>> pendingEnds();
+  Future<void> writePendingEnd(String alias);
+  Future<void> clearPendingEnd(String alias);
+
+  /// Removes every marker of [alias] at once.
+  Future<void> clearAll(String alias);
 }
 
 const String kVaultKnownPrefix = 'vault.known.';
 const String kVaultKeyLostSeenPrefix = 'vault.keyLostSeen.';
 const String kVaultWipeOwedPrefix = 'vault.wipeOwed.';
+const String kVaultPendingEndPrefix = 'vault.pendingEnd.';
+
+const List<String> _allPrefixes = [
+  kVaultKnownPrefix,
+  kVaultKeyLostSeenPrefix,
+  kVaultWipeOwedPrefix,
+  kVaultPendingEndPrefix,
+];
+
+/// Whether the vault markers in the cache database outlive this launch: never
+/// for the in-memory fallback; on native when the cache is on disk; on the
+/// web only when drift put the cache on a storage the vault itself accepts
+/// ([kVaultAcceptedWebStorages]: durable and shared by every tab). A web
+/// cache in memory, or on the per-tab unsafe IndexedDB, would lose an owed
+/// wipe or let tabs disagree.
+bool vaultMarkersPersistent({
+  required bool cacheInMemory,
+  required bool isWeb,
+  required WasmStorageImplementation? cacheWebStorage,
+}) {
+  if (cacheInMemory) return false;
+  if (!isWeb) return true;
+  return cacheWebStorage != null &&
+      kVaultAcceptedWebStorages.contains(cacheWebStorage);
+}
 
 /// The markers in the cache database's device settings
 /// ([AppSettingEntries]). The keys do not start with
 /// [kAccountSettingPrefix], so [AppDatabase.clearAll] (the sign-out cache
-/// wipe) keeps them. Uses the table through drift directly for the prefix
-/// listing ([AppDatabase] has no prefix read); nothing in the cache API
-/// changes.
+/// wipe) keeps them. Every value repeats its alias; a value whose alias is
+/// not its key's is corrupt: [onCorrupt] gets the key prefix (nothing else)
+/// and the marker reads as absent. Prefix listing uses the table through
+/// drift directly ([AppDatabase] has no prefix read).
 class DriftVaultMarkers implements VaultMarkers {
-  DriftVaultMarkers(this._db, {required bool persistent})
-    : persistent = persistent && !_db.keepsNothing;
+  DriftVaultMarkers(
+    this._db, {
+    required bool persistent,
+    void Function(String prefix)? onCorrupt,
+  }) : persistent = persistent && !_db.keepsNothing,
+       _onCorrupt = onCorrupt;
 
   final AppDatabase _db;
+  final void Function(String prefix)? _onCorrupt;
 
   @override
   final bool persistent;
 
-  static String _key(String prefix, String uid) =>
-      '$prefix${vaultKeyAlias(uid)}';
+  static String _key(String prefix, String alias) =>
+      '$prefix${requireVaultKeyAlias(alias)}';
 
-  Future<List<String>> _values(String prefix) async {
-    final rows = await (_db.select(
-      _db.appSettingEntries,
-    )..where((t) => t.settingKey.like('$prefix%'))).get();
-    return [for (final r in rows) r.settingValue];
-  }
-
-  static KnownVault? _decodeKnown(String? value) {
+  /// The JSON object stored under [key] when its `alias` matches the key;
+  /// null (and a corrupt report when present) otherwise.
+  Map<String, Object?>? _decode(String prefix, String key, String? value) {
     if (value == null) return null;
     try {
       final map = jsonDecode(value) as Map<String, Object?>;
-      final uid = map['uid'];
-      final storage = map['storage'];
-      final at = map['createdAt'];
-      if (uid is! String || uid.isEmpty || storage is! String || at is! int) {
-        return null;
-      }
-      return KnownVault(uid: uid, storage: storage, createdAtMicros: at);
+      final alias = key.substring(prefix.length);
+      if (isVaultKeyAlias(alias) && map['alias'] == alias) return map;
     } on FormatException {
-      return null;
+      // Corrupt below.
     } on TypeError {
-      return null;
+      // Corrupt below.
     }
+    _onCorrupt?.call(prefix);
+    return null;
   }
 
-  static OwedWipe? _decodeOwed(String value) {
-    try {
-      final map = jsonDecode(value) as Map<String, Object?>;
-      final uid = map['uid'];
-      if (uid is! String || uid.isEmpty) return null;
-      return OwedWipe(uid, fileDone: map['fileDone'] == true);
-    } on FormatException {
-      return null;
-    } on TypeError {
-      return null;
-    }
+  Future<Map<String, Object?>?> _read(String prefix, String alias) async {
+    final key = _key(prefix, alias);
+    return _decode(prefix, key, await _db.readSetting(key));
   }
 
-  @override
-  Future<KnownVault?> known(String uid) async {
-    final known = _decodeKnown(
-      await _db.readSetting(_key(kVaultKnownPrefix, uid)),
+  Future<List<Map<String, Object?>>> _list(String prefix) async {
+    final rows = await (_db.select(
+      _db.appSettingEntries,
+    )..where((t) => t.settingKey.like('$prefix%'))).get();
+    return [
+      for (final r in rows) ?_decode(prefix, r.settingKey, r.settingValue),
+    ];
+  }
+
+  Future<void> _write(String prefix, String alias, Map<String, Object?> v) =>
+      _db.writeSetting(_key(prefix, alias), jsonEncode({...v, 'alias': alias}));
+
+  static KnownVault? _known(Map<String, Object?>? m) {
+    if (m == null) return null;
+    final storage = m['storage'];
+    final at = m['createdAt'];
+    if (storage is! String || at is! int) return null;
+    return KnownVault(
+      alias: m['alias']! as String,
+      storage: storage,
+      createdAtMicros: at,
     );
-    // A value naming another uid is not this user's (only corruption).
-    return known?.uid == uid ? known : null;
   }
 
-  @override
-  Future<List<KnownVault>> knownVaults() async => [
-    for (final v in await _values(kVaultKnownPrefix)) ?_decodeKnown(v),
-  ];
-
-  @override
-  Future<void> writeKnown(KnownVault vault) => _db.writeSetting(
-    _key(kVaultKnownPrefix, vault.uid),
-    jsonEncode({
-      'uid': vault.uid,
-      'storage': vault.storage,
-      'createdAt': vault.createdAtMicros,
-    }),
+  static OwedWipe _owed(Map<String, Object?> m) => OwedWipe(
+    m['alias']! as String,
+    fileStarted: m['fileStarted'] == true,
+    fileDone: m['fileDone'] == true,
+    anyCopy: m['anyCopy'] == true,
   );
 
   @override
-  Future<String?> keyLostSeen(String uid) =>
-      _db.readSetting(_key(kVaultKeyLostSeenPrefix, uid));
+  Future<KnownVault?> known(String alias) async =>
+      _known(await _read(kVaultKnownPrefix, alias));
 
   @override
-  Future<void> writeKeyLostSeen(String uid, String launchId) =>
-      _db.writeSetting(_key(kVaultKeyLostSeenPrefix, uid), launchId);
-
-  @override
-  Future<void> clearKeyLostSeen(String uid) =>
-      _db.deleteSetting(_key(kVaultKeyLostSeenPrefix, uid));
-
-  @override
-  Future<List<OwedWipe>> owedWipes() async => [
-    for (final v in await _values(kVaultWipeOwedPrefix)) ?_decodeOwed(v),
+  Future<List<KnownVault>> knownVaults() async => [
+    for (final m in await _list(kVaultKnownPrefix)) ?_known(m),
   ];
 
   @override
-  Future<void> writeWipeOwed(String uid, {bool fileDone = false}) =>
-      _db.writeSetting(
-        _key(kVaultWipeOwedPrefix, uid),
-        jsonEncode({'uid': uid, 'fileDone': fileDone}),
-      );
+  Future<void> writeKnown(KnownVault vault) => _write(
+    kVaultKnownPrefix,
+    vault.alias,
+    {'storage': vault.storage, 'createdAt': vault.createdAtMicros},
+  );
 
   @override
-  Future<void> clearAll(String uid) => _db.transaction(() async {
-    for (final prefix in const [
-      kVaultKnownPrefix,
-      kVaultKeyLostSeenPrefix,
-      kVaultWipeOwedPrefix,
-    ]) {
-      await _db.deleteSetting(_key(prefix, uid));
-    }
-  });
+  Future<KeyLostSeen?> keyLostSeen(String alias) async {
+    final m = await _read(kVaultKeyLostSeenPrefix, alias);
+    final launch = m?['launchId'];
+    final at = m?['at'];
+    if (launch is! String || at is! int) return null;
+    return KeyLostSeen(launchId: launch, atMicros: at);
+  }
+
+  @override
+  Future<void> writeKeyLostSeen(String alias, KeyLostSeen seen) => _write(
+    kVaultKeyLostSeenPrefix,
+    alias,
+    {'launchId': seen.launchId, 'at': seen.atMicros},
+  );
+
+  @override
+  Future<void> clearKeyLostSeen(String alias) =>
+      _db.deleteSetting(_key(kVaultKeyLostSeenPrefix, alias));
+
+  @override
+  Future<List<OwedWipe>> owedWipes() async => [
+    for (final m in await _list(kVaultWipeOwedPrefix)) _owed(m),
+  ];
+
+  @override
+  Future<void> writeWipeOwed(OwedWipe wipe) =>
+      _write(kVaultWipeOwedPrefix, wipe.alias, {
+        'fileStarted': wipe.fileStarted,
+        'fileDone': wipe.fileDone,
+        'anyCopy': wipe.anyCopy,
+      });
+
+  @override
+  Future<List<String>> pendingEnds() async => [
+    for (final m in await _list(kVaultPendingEndPrefix)) m['alias']! as String,
+  ];
+
+  @override
+  Future<void> writePendingEnd(String alias) =>
+      _write(kVaultPendingEndPrefix, alias, const {});
+
+  @override
+  Future<void> clearPendingEnd(String alias) =>
+      _db.deleteSetting(_key(kVaultPendingEndPrefix, alias));
+
+  @override
+  Future<void> clearAll(String alias) async {
+    requireVaultKeyAlias(alias);
+    await _db.transaction(() async {
+      for (final prefix in _allPrefixes) {
+        await _db.deleteSetting(_key(prefix, alias));
+      }
+    });
+  }
 }

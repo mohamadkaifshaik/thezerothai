@@ -39,8 +39,11 @@ Future<void> requestSignOut(BuildContext context) async {
   final auth = context.read<AuthBloc>();
   final uid = auth.state.user?.uid;
   final drafts = context.read<DraftsRepository?>();
+  // Every request carries the uid it was expressed for (captured here,
+  // before any await), so a user switch meanwhile never wipes the other
+  // account's vault.
   if (uid == null || uid.isEmpty || drafts == null) {
-    auth.add(const AuthSignOutRequested());
+    auth.add(AuthSignOutRequested(uid: uid));
     return;
   }
   if (_deciding[auth] ?? false) return;
@@ -62,7 +65,7 @@ Future<void> requestSignOut(BuildContext context) async {
       count = 0;
     }
     if (count == 0) {
-      auth.add(const AuthSignOutRequested());
+      auth.add(AuthSignOutRequested(uid: uid));
       return;
     }
     if (!navigator.mounted) return;
@@ -79,7 +82,7 @@ Future<void> requestSignOut(BuildContext context) async {
         return;
       }
     }
-    auth.add(const AuthSignOutRequested());
+    auth.add(AuthSignOutRequested(uid: uid));
   } finally {
     _deciding[auth] = false;
   }

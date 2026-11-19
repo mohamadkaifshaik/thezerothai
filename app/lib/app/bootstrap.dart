@@ -207,15 +207,21 @@ Future<void> bootstrap() async {
   }
 
   // The encrypted vault (e2ee_dm). Its safety markers live in the cache's
-  // device settings: on an in-memory cache they would not outlive this run,
-  // so no vault opens. Wipes owed by the last run are finished now, before
-  // any vault is opened; nothing opens before a user and the flag are known.
-  // A null restored user is a lost session for the vault: nothing is wiped.
+  // device settings: on an in-memory cache, or a web cache on a storage the
+  // vault would not accept, they would not outlive this run (or would differ
+  // per tab), so no vault opens. An explicit sign-out a killed run left
+  // pending is resolved against the restored user (another user or nobody:
+  // that wipe is owed), then owed wipes are finished, before any vault is
+  // opened; nothing opens before a user and the flag are known. A null
+  // restored user is otherwise a lost session for the vault: nothing wiped.
   final vaultSession = _buildVaultSession(
     cache: cache,
     onUnexpectedError: reportUnexpectedError,
   );
-  unawaited(vaultSession.start());
+  // An accepted account deletion journals the vault wipe at once.
+  authRepository.onAccountDeleted = (uid) =>
+      unawaited(vaultSession.noteAccountDeleted(uid));
+  unawaited(vaultSession.start(restoredUid: restoredUid));
 
   await _activateAppCheck(config);
 
@@ -271,13 +277,13 @@ Future<void> bootstrap() async {
   late final PushCubit pushCubit;
   final authBloc = AuthBloc(
     authRepository: authRepository,
-    // One 3 s budget for both: push unregistration and (explicit sign-out
-    // only, which is every AuthSignOutRequested) the key-directory removal
-    // before the vault is wiped.
-    beforeSignOut: () => Future.wait([
-      pushCubit.unregister(),
-      vaultSession.beforeExplicitSignOut(),
-    ]),
+    // One 3 s budget for both: push unregistration and, only when the
+    // intent was armed for the signed-in uid, the vault's pending-end marker
+    // and key-directory removal before the vault is wiped.
+    beforeSignOut: () => pushCubit.unregister(),
+    beforeExplicitSignOut: vaultSession.beforeExplicitSignOut,
+    onSignOutFailed: (uid) =>
+        unawaited(vaultSession.explicitSignOutFailed(uid)),
     unknownTimeout: kAuthUnknownTimeout,
   )..add(const AuthSubscriptionRequested());
   sessionAuth = authBloc;
@@ -305,9 +311,13 @@ Future<void> bootstrap() async {
       onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm);
   onboardingBloc.stream.listen((state) {
     if (flagsKnown(state)) {
+      // Bound to the user these flags belong to (the onboarding bloc's, not
+      // the auth bloc's, which switches first); ignored if that user is not
+      // the vault session's user when it runs.
       unawaited(
         vaultSession.onFlagChanged(
           state.enabledFeatures.contains(kFeatureE2eeDm),
+          uid: onboardingBloc.uid,
         ),
       );
     }
@@ -678,9 +688,11 @@ class _LocalAppCheckTokenProvider implements AppCheckTokenProvider {
   Future<String?> getAppCheckToken() async => null;
 }
 
-/// The production [VaultSession]: the real cipher, vault, wiper, key
-/// deleter and owner; markers in the cache's device settings (persistent
-/// only when the cache is on disk); Android and web only; a fresh launch id
+/// The production [VaultSession]: the real cipher, vault, wiper and key
+/// deleter (by alias) and owner; markers in the cache's device settings
+/// (persistent only when the cache is on disk and, on the web, on a storage
+/// the vault accepts: [vaultMarkersPersistent]; a corrupt marker is
+/// reported and ignored); Android and web only; a fresh launch id
 /// per process. The crypto engine is created on the first cipher open, so
 /// nothing of it starts while `e2ee_dm` is off.
 VaultSession _buildVaultSession({
@@ -692,10 +704,21 @@ VaultSession _buildVaultSession({
     openCipher: (uid) =>
         openVaultCipher(uid: uid, engine: engine ??= createCryptoEngine()),
     openVault: vault_open.openVault,
-    wipeVaultFile: vault_open.wipeVaultFile,
-    deleteVaultKey: deleteVaultKey,
+    wipeVaultFile: vault_open.wipeVaultFileForAlias,
+    deleteVaultKey: deleteVaultKeyForAlias,
     createOwner: createVaultOwner,
-    markers: DriftVaultMarkers(cache.database, persistent: !cache.inMemory),
+    markers: DriftVaultMarkers(
+      cache.database,
+      persistent: vaultMarkersPersistent(
+        cacheInMemory: cache.inMemory,
+        isWeb: kIsWeb,
+        cacheWebStorage: cache.webStorage,
+      ),
+      onCorrupt: (_) => onUnexpectedError(
+        const VaultSessionError('corruptMarker'),
+        StackTrace.current,
+      ),
+    ),
     supported: kIsWeb || defaultTargetPlatform == TargetPlatform.android,
     launchId: const Uuid().v4(),
     onUnexpectedError: onUnexpectedError,

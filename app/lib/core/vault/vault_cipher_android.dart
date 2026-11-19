@@ -84,6 +84,22 @@ Future<void> deleteIoVaultKey({
   return _serialized(alias, () => _deleteAlias(alias));
 }
 
+/// [deleteVaultKeyForAlias] on dart:io platforms.
+Future<void> platformDeleteVaultKeyForAlias(String alias) =>
+    deleteIoVaultKeyForAlias(alias: alias, isAndroid: Platform.isAndroid);
+
+/// [platformDeleteVaultKeyForAlias] with the platform check passed in: the
+/// same delete as [deleteIoVaultKey], serialised on the same alias.
+@visibleForTesting
+Future<void> deleteIoVaultKeyForAlias({
+  required String alias,
+  required bool isAndroid,
+}) async {
+  _requireAndroid(isAndroid);
+  requireVaultKeyAlias(alias);
+  return _serialized(alias, () => _deleteAlias(alias));
+}
+
 /// [vaultStoragePersisted] on dart:io platforms.
 Future<bool> platformVaultStoragePersisted() =>
     ioVaultStoragePersisted(isAndroid: Platform.isAndroid);

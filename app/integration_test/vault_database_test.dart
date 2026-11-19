@@ -249,10 +249,18 @@ void main() {
       await vaultA.transaction((tx) => tx.putMessage(_msg('a1', 1)));
       expect(await vaultB.hasMessage('c1', 'a1'), isFalse);
 
-      final cache = AppDatabase();
+      // A cache of its own (never the app's), opened exactly as the app's.
+      final cache = AppDatabase.named('dzeroth_vault_database_it');
       try {
         await cache.customSelect('SELECT 1').get();
         expect(await vaultA.hasMessage('c1', 'a1'), isTrue);
+        // The opener records drift's web storage choice (and nothing else).
+        if (kIsWeb) {
+          expect(cache.webStorage, isNotNull);
+          debugPrint('cache web storage: ${cache.webStorage}');
+        } else {
+          expect(cache.webStorage, isNull);
+        }
       } finally {
         await cache.close();
       }

@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
-import 'vault_cipher.dart' show vaultKeyAlias;
+import 'vault_cipher.dart' show requireVaultKeyAlias, vaultKeyAlias;
 
 part 'vault_database.g.dart';
 
@@ -223,7 +223,12 @@ int? vaultSortKeyMicrosOrNull(String sortKey) {
 /// digits as the uid's [vaultKeyAlias], so one vault file per user and the
 /// name does not reveal the uid. On native the file is `<name>.sqlite`.
 String vaultDatabaseName(String uid) =>
-    'dzeroth_vault_${vaultKeyAlias(uid).substring('dzeroth.vault.'.length)}';
+    vaultDatabaseNameForAlias(vaultKeyAlias(uid));
+
+/// [vaultDatabaseName] from the key [alias] ([ArgumentError] for a value that
+/// is not an alias).
+String vaultDatabaseNameForAlias(String alias) =>
+    'dzeroth_vault_${requireVaultKeyAlias(alias).substring('dzeroth.vault.'.length)}';
 
 /// The encrypted, durable vault database of one user. Only `secure_vault.dart`
 /// reads and writes it; this class holds the schema and whole-file helpers.

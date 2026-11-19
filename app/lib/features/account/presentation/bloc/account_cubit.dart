@@ -129,6 +129,9 @@ class AccountCubit extends Cubit<AccountState> {
     bool skipReauth = false,
   }) async {
     if (isClosed || state.status == AccountStatus.working) return;
+    // The account this flow deletes: the one signed in NOW, before any await
+    // (another tab can switch users while a provider UI or the RPC runs).
+    final deletingUid = _auth.currentUser?.uid;
     final generation = ++_generation;
     final key = _deleteKey ??= _uuid.v4();
     emit(const AccountState(status: AccountStatus.working));
@@ -161,9 +164,13 @@ class AccountCubit extends Cubit<AccountState> {
       }
       // The account is gone: the session's end (the screen's sign-out, or a
       // null user from the revoked token first) is an account deletion,
-      // which wipes the encrypted vault. Bound to the uid signed in now.
-      final uid = _auth.currentUser?.uid;
-      if (uid != null) _auth.noteAccountDeleted(uid);
+      // which wipes the encrypted vault. Recorded for the uid captured when
+      // the flow started, and only while no OTHER account is signed in now
+      // (null: the revoked token already signed that account out).
+      final now = _auth.currentUser?.uid;
+      if (deletingUid != null && (now == null || now == deletingUid)) {
+        _auth.noteAccountDeleted(deletingUid);
+      }
       if (_stale(generation)) return;
       _deleteKey = null;
       emit(const AccountState(status: AccountStatus.deleted));

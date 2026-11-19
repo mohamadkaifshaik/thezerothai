@@ -271,7 +271,40 @@ void main() {
       await settle();
       expect(world.calls, isNot(contains('vault.wipe:a')));
       expect(world.calls, containsAllInOrder(['vault.close:a', 'wipeFile:a']));
+      expect(world.files.containsKey('a'), isFalse);
+      // M1: B's flags are not known yet; B opens when they are.
+      expect(vault.status.value, VaultStatus.off);
+      await vault.onFlagChanged(true, uid: 'b');
       expect(world.files.keys, ['b']);
+      expect(vault.status.value, VaultStatus.ready);
+    });
+
+    test(
+      'M1: a direct switch A to B with a STALE flag (A\'s e2ee_dm still '
+      'reads on) does not open B\'s vault; B\'s own flag answer does',
+      () async {
+        wireVault(); // readE2eeFlag answers true throughout (A's flags)
+        auth.add(signedIn('a'));
+        await settle();
+        expect(vault.vault!.uid, 'a');
+        world.calls.clear();
+        auth.add(signedIn('b'));
+        await settle();
+        expect(world.calls, isNot(contains('open:b')));
+        expect(world.calls, isNot(contains('cipher:b')));
+        expect(vault.status.value, VaultStatus.off);
+        // B's GetMe says off: still nothing for B.
+        await vault.onFlagChanged(false, uid: 'b');
+        expect(world.calls, isNot(contains('open:b')));
+        await vault.onFlagChanged(true, uid: 'b');
+        expect(vault.vault!.uid, 'b');
+      },
+    );
+
+    test('a first sign-in (no previous user) still reads the flag', () async {
+      wireVault();
+      auth.add(signedIn('b'));
+      await settle();
       expect(vault.status.value, VaultStatus.ready);
     });
 

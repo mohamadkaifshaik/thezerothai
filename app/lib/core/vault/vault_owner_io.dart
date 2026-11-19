@@ -3,6 +3,7 @@
 // vault_owner.dart (also the default, so no stub is needed).
 import 'dart:async';
 
+import 'package:dzeroth/core/vault/vault_cipher.dart' show requireVaultKeyAlias;
 import 'package:dzeroth/core/vault/vault_owner.dart';
 
 VaultOwner createPlatformVaultOwner() => IoVaultOwner();
@@ -14,6 +15,12 @@ class IoVaultOwner implements VaultOwner {
 
   @override
   Future<bool> acquire(String uid) async => true;
+
+  @override
+  Future<bool> acquireForAlias(String alias) {
+    requireVaultKeyAlias(alias);
+    return Future.value(true);
+  }
 
   @override
   Future<void> release() async {}
