@@ -375,6 +375,18 @@ jobs:
           cd app
           flutter drive --driver=test_driver/integration_test.dart             --target=integration_test/crypto_engine_test.dart             -d web-server --browser-name=chrome --driver-port=4455 --headless
 
+      # The drift web worker (app/web/drift_worker.js) must write a committed transaction to IndexedDB without a clean
+      # close (drift #3864, fixed by the 2.35.4 rebuild in #1052). The VM guard only checks the worker's hash; this is
+      # the test that would catch a worker that loses writes again. It needs no Rust and no vectors.
+      - name: flutter drive (drift worker persists transaction writes)
+        run: |
+          driver="${CHROMEWEBDRIVER:-}/chromedriver"
+          [ -x "$driver" ] || { echo "::error::no chromedriver at $driver (the runner image changed?)"; exit 1; }
+          "$driver" --port=4456 &
+          trap 'kill $!' EXIT
+          cd app
+          flutter drive --driver=test_driver/integration_test.dart             --target=integration_test/drift_persistence_test.dart             -d web-server --browser-name=chrome --driver-port=4456 --headless
+
   # The Android debug build on Linux: Gradle runs `cargo ndk` for the Rust binding (app/rust_builder) for the three ABIs.
   # Pull-request CI otherwise never builds Android, so the first Linux build would be a release. No secrets, no environment.
   android-build:
