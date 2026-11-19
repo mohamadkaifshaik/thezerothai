@@ -116,10 +116,12 @@ var lifecycleCollections = []collectionRow{
 	// A log keyed by post id (state, createdAt, expireAt) whose entries carry
 	// the post author's uid (authorId, a pseudonymous link) so readers can scope them per feed. The posts step deletes
 	// them by authorId (PurgeUser phase 2); the 32-day TTL is only the backstop, so no residue allowlist entry exists.
-	// Security L-6: reports/{id}/evidence/message holds only the copied text of a MESSAGE report and its expireAt (no uid
-	// field). A TTL on the collection group deletes it 180 days after filing, or by resolved + 90 days. PurgeReporter keeps no
-	// reference to it; nothing in it names the reporter, so there is nothing to erase at account deletion.
-	{Name: "evidence", Sub: true, Disposition: notPersonal, Owner: "moderation", Cite: "ADR-0016 note 2026-10-30 (W7-36): text only, no uid field, TTL <= 180 d"},
+	// Security L-6: reports/{id}/evidence/message holds the copied text of a MESSAGE report (empty for undecodable evidence),
+	// its expireAt and, since E2EE plan 3 Task 7, sharedPostId (a post id) and the flags encrypted, verified and undecodable;
+	// no field is a uid. A TTL on the collection group deletes it 180 days after filing, or by resolved + 90 days.
+	// PurgeReporter keeps no reference to it; nothing in it names the reporter, so there is nothing to erase at account
+	// deletion (the disposition is unchanged by the new fields).
+	{Name: "evidence", Sub: true, Disposition: notPersonal, Owner: "moderation", Cite: "ADR-0016 note 2026-10-30 (W7-36): message text, a shared post id and flags (encrypted, verified, undecodable), no uid field, TTL <= 180 d; E2EE plan 3 Task 7"},
 	{Name: "postRemovals", Disposition: erasedByStep, Step: "posts", ExportNote: "operator-internal moderation log (post id, state, timestamps, author uid); not user content, not exported", Owner: "posts", Cite: "ADR-0016 amendment 2026-10-18 (b), ADR-0011 Q10"},
 	// Scheduled posts live under users/{uid}/scheduled, a subcollection that deleting users/{uid}
 	// does not remove. The `scheduled` step (posts.ScheduledEraser, BeforeIdentity after reports) deletes every
@@ -160,7 +162,7 @@ var lifecycleCollections = []collectionRow{
 	// own commit left in a PEER's dmWelcomes holds no uid of the user (the peer's device id, the conversation id hash, the
 	// pair, opaque bytes) and stays until its 30-day expiry, which is why the sweep finds nothing there. Neither is
 	// exported: opaque MLS protocol records the user cannot read. Seeded proof: account_lifecycle_messaging_e2ee_integration_test.go.
-	{Name: "commits", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS commit records the user cannot read, not exported; the messages section notes that encrypted content lives only on the user's devices", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
+	{Name: "commits", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS commit records the user cannot read, not exported; when the messages section holds an encrypted message it notes that encrypted messages can only be read on the user's devices", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
 	{Name: "dmWelcomes", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS Welcomes encrypted to the user's devices, expiring after 30 days, not exported", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
 	// Lists/{listId} (ownerId, memberIds[] holding other users' uids). Deleting users/{uid} removes none of it. The
 	// `lists` step (lists.Eraser, BeforeIdentity after messaging) deletes the user's own lists and then removes the uid from every other

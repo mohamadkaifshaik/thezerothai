@@ -125,15 +125,49 @@ func TestExport_OwnTextReceivedAsTimeOnlyNoPeerUID(t *testing.T) {
 	}
 }
 
-// An empty account exports a valid empty section with no lookup, the note first.
+// An empty account exports a valid empty section with no lookup and no note: exactly the bytes it had before encrypted
+// messages existed.
 func TestExport_Empty(t *testing.T) {
 	h := &fakeHandles{}
 	raw, v := exportOf(t, &fakeExportSource{}, h)
 	if len(v["conversations"].([]any)) != 0 || len(h.calls) != 0 {
 		t.Errorf("section = %s, directory calls %v", raw, h.calls)
 	}
-	if want := `{"note":"` + exportNote + `","conversations":[]}` + "\n"; raw != want {
+	if want := `{"conversations":[]}` + "\n"; raw != want {
 		t.Errorf("section = %q, want %q", raw, want)
+	}
+}
+
+// The note is written only when at least one exported message is encrypted, after the conversations: an export of
+// plaintext conversations has none (byte-identical to an export before encrypted messages existed).
+func TestExport_NoteOnlyWithEncryptedMessages(t *testing.T) {
+	plain := &fakeExportSource{
+		convs: []ExportConv{{ID: "c1", PeerUID: "uid-peer", State: stateAccepted, CreatedAt: ts(10)}},
+		msgs:  map[string][]ExportMsg{"c1": {{ID: "m1", FromSelf: true, Text: "plain words", State: msgVisible, CreatedAt: ts(11)}}},
+	}
+	raw, v := exportOf(t, plain, &fakeHandles{byUID: map[string]string{"uid-peer": "peer"}})
+	if _, ok := v["note"]; ok || strings.Contains(raw, "note") {
+		t.Errorf("a plaintext-only export carries a note:\n%s", raw)
+	}
+	enc := &fakeExportSource{
+		convs: []ExportConv{
+			{ID: "c2", PeerUID: "uid-peer", State: stateAccepted, CreatedAt: ts(20)},
+			{ID: "c1", PeerUID: "uid-peer", State: stateAccepted, CreatedAt: ts(10)},
+		},
+		msgs: map[string][]ExportMsg{
+			"c2": {{ID: "m2", FromSelf: true, Text: "plain", State: msgVisible, CreatedAt: ts(21)}},
+			"c1": {{ID: "m1", FromSelf: false, State: msgVisible, CreatedAt: ts(11), Encrypted: true}},
+		},
+	}
+	raw, v = exportOf(t, enc, &fakeHandles{byUID: map[string]string{"uid-peer": "peer"}})
+	if v["note"] != exportNote {
+		t.Errorf("note = %v, want the encrypted-messages note", v["note"])
+	}
+	if !strings.HasPrefix(raw, `{"conversations":[`) || !strings.HasSuffix(raw, `],"note":"`+exportNote+`"}`+"\n") {
+		t.Errorf("section = %q, want the note after the conversations", raw)
+	}
+	if exportNote != "Encrypted messages can only be read on your devices, so their content is not included in this export." {
+		t.Errorf("note text = %q", exportNote)
 	}
 }
 

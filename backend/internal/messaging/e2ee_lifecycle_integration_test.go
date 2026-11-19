@@ -336,7 +336,7 @@ func TestTakedown_EncryptedMessage(t *testing.T) {
 	}
 }
 
-// The export of an encrypted conversation: no ciphertext, text or post id, the note on top.
+// The export of an encrypted conversation: no ciphertext, text or post id, the note after the conversations.
 func TestExport_EncryptedConversation(t *testing.T) {
 	e := newIT(t, nil)
 	convID := e.e2eeHistory()
@@ -350,7 +350,7 @@ func TestExport_EncryptedConversation(t *testing.T) {
 			t.Errorf("the export contains %q", forbidden)
 		}
 	}
-	if !strings.HasPrefix(out, `{"note":"`+exportNote+`","conversations":[`) || strings.Count(out, `"encrypted":true`) != 4 {
+	if !strings.HasPrefix(out, `{"conversations":[`) || !strings.HasSuffix(out, `],"note":"`+exportNote+`"}`+"\n") || strings.Count(out, `"encrypted":true`) != 4 {
 		t.Errorf("export = %s", out)
 	}
 }

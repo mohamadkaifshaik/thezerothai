@@ -54,8 +54,9 @@ type exportItem struct {
 	Encrypted    bool   `json:"encrypted,omitempty"`
 }
 
-// exportNote is the section's top-level "note": user-visible copy in the export file.
-const exportNote = "Encrypted messages are stored only on your devices and are not included in this export."
+// exportNote is the section's top-level "note": user-visible copy in the export file, written only when the export holds
+// at least one encrypted message.
+const exportNote = "Encrypted messages can only be read on your devices, so their content is not included in this export."
 
 type exporter struct {
 	src     ExportSource
@@ -69,14 +70,15 @@ func NewExporter(src ExportSource, handles HandleSource, social Social) Exporter
 	return &exporter{src: src, handles: handles, social: social}
 }
 
-// ExportUser implements Exporter: {"note":"...","conversations":[...]} streamed to w, conversations newest first (by
-// creation), each with its messages newest first. Own messages carry their full text; received ones only a time and
-// "received" (F5, the peer's words are the peer's data); an encrypted message only its direction, time, state and
-// encrypted = true, and the note says why; no peer uid appears. It reads every conversation and every message of both
-// sides (the section orders the two; the message fields it needs only, never ciphertext), at most 50 peers per directory
-// call. Memory: the conversation list and one page of 500 messages. An encrypted conversation's commit records and the
-// user's welcomes are not exported: they are opaque MLS protocol records the user cannot read (the content is on the
-// user's devices).
+// ExportUser implements Exporter: {"conversations":[...]} streamed to w, conversations newest first (by creation), each
+// with its messages newest first, followed by ,"note":"..." only when at least one exported message is encrypted (an
+// export without one is byte-identical to the section before encrypted messages existed). Own messages carry their full
+// text; received ones only a time and "received" (F5, the peer's words are the peer's data); an encrypted message only its
+// direction, time, state and encrypted = true, and the note says why; no peer uid appears. It reads every conversation
+// and every message of both sides (the section orders the two; the message fields it needs only, never ciphertext), at
+// most 50 peers per directory call. Memory: the conversation list and one page of 500 messages. An encrypted
+// conversation's commit records and the user's welcomes are not exported: they are opaque MLS protocol records the user
+// cannot read.
 func (x *exporter) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	convs, err := x.src.ExportConversations(ctx, uid)
 	if err != nil {
@@ -92,34 +94,42 @@ func (x *exporter) ExportUser(ctx context.Context, uid string, w io.Writer) erro
 	if err != nil {
 		return err
 	}
-	note, err := json.Marshal(exportNote)
-	if err != nil {
-		return fmt.Errorf("messaging: encode messages export note: %w", err)
-	}
-	if _, err := io.WriteString(w, `{"note":`+string(note)+`,"conversations":[`); err != nil {
+	if _, err := io.WriteString(w, `{"conversations":[`); err != nil {
 		return fmt.Errorf("messaging: write messages export: %w", err)
 	}
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false) // a file the user reads: & < > stay as typed
+	anyEncrypted := false
 	for i, c := range convs {
 		if i > 0 {
 			if _, err := io.WriteString(w, ","); err != nil {
 				return fmt.Errorf("messaging: write messages export: %w", err)
 			}
 		}
-		if err := x.writeConversation(ctx, uid, enc, c, handles[c.PeerUID]); err != nil {
+		encrypted, err := x.writeConversation(ctx, uid, enc, c, handles[c.PeerUID])
+		if err != nil {
 			return err
 		}
+		anyEncrypted = anyEncrypted || encrypted
 	}
-	if _, err := io.WriteString(w, "]}\n"); err != nil {
+	tail := "]}\n"
+	if anyEncrypted {
+		note, err := json.Marshal(exportNote)
+		if err != nil {
+			return fmt.Errorf("messaging: encode messages export note: %w", err)
+		}
+		tail = `],"note":` + string(note) + "}\n"
+	}
+	if _, err := io.WriteString(w, tail); err != nil {
 		return fmt.Errorf("messaging: write messages export: %w", err)
 	}
 	return nil
 }
 
-// writeConversation encodes one conversation. Its messages are collected one page at a time and written as a single
-// object, so a conversation's memory is its own messages (at most the user's volume in one conversation).
-func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.Encoder, c ExportConv, handle string) error {
+// writeConversation encodes one conversation and reports whether it holds an encrypted message. Its messages are collected
+// one page at a time and written as a single object, so a conversation's memory is its own messages (at most the user's
+// volume in one conversation).
+func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.Encoder, c ExportConv, handle string) (encrypted bool, err error) {
 	item := exportConversation{PeerHandle: handle, PeerDeleted: c.PeerGone, State: c.State, CreatedAt: c.CreatedAt, Messages: []exportItem{}}
 	if !c.ClearedAt.IsZero() {
 		cleared := c.ClearedAt
@@ -129,7 +139,7 @@ func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.
 	for {
 		page, err := x.src.ExportMessages(ctx, uid, c.ID, after)
 		if err != nil {
-			return err
+			return false, err
 		}
 		for _, m := range page {
 			row := exportItem{Direction: "received", At: m.CreatedAt}
@@ -139,6 +149,7 @@ func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.
 					row.Direction = "sent"
 				}
 				row.State, row.Encrypted = m.State, true
+				encrypted = true
 			case m.FromSelf:
 				text := m.Text
 				row = exportItem{Direction: "sent", At: m.CreatedAt, State: m.State, Text: &text, SharedPostID: m.SharedPostID}
@@ -152,9 +163,9 @@ func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.
 		after = &last
 	}
 	if err := enc.Encode(item); err != nil {
-		return fmt.Errorf("messaging: write messages export: %w", err)
+		return false, fmt.Errorf("messaging: write messages export: %w", err)
 	}
-	return nil
+	return encrypted, nil
 }
 
 // peerHandles maps each peer uid to the handle the export shows. A peer who is blocked either way (the caller's Blocked, the
