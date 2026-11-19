@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' show AppLifecycleState;
 
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
@@ -105,6 +106,12 @@ class _Rig {
   final List<Object> reported = [];
   bool supported = true;
 
+  /// What the service's foreground check answers.
+  bool foreground = true;
+
+  /// The service's client deadline on list/register/upload.
+  Duration rpcTimeout = kDeviceKeysRpcTimeout;
+
   /// The vault device state (per uid) when each upload reached the server.
   final List<Uint8List?> stateAtUpload = [];
 
@@ -151,6 +158,8 @@ class _Rig {
         tick = onTick;
         return _NoTimer();
       },
+      rpcTimeout: rpcTimeout,
+      isForeground: () => foreground,
       onUnexpectedError: (error, _) => reported.add(error),
     );
     session
@@ -1001,5 +1010,191 @@ void main() {
       await rig.signIn(_a);
       expect(rig.timers, 1);
     });
+
+    test('B-M6(5): the periodic tick does nothing while the app is not in '
+        'the foreground', () async {
+      await rig.signIn(_a);
+      rig.advance(const Duration(hours: 2));
+      final before = rig.server.calls.length;
+      rig.foreground = false;
+      rig.tick!();
+      await pumpEventQueue();
+      expect(rig.rpcs(before), isEmpty);
+      rig.foreground = true;
+      rig.tick!();
+      await rig.service.ensureReady(); // joins the tick's run
+      expect(rig.rpcs(before), ['list']);
+    });
+  });
+
+  group('final fix wave', () {
+    test('B-M5: a RATE_LIMITED back-off of user A does not hold back user '
+        "B's first run", () async {
+      rig.server.failNext['register'] = [
+        keyServerError(
+          connect.Code.resourceExhausted,
+          common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+          retryAfter: const Duration(hours: 2),
+        ),
+      ];
+      await rig.signIn(_a);
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      rig.uid = null;
+      await rig.session.onSessionEnded(_a, SessionEnd.sessionLost);
+      final before = rig.server.calls.length;
+      rig.uid = _b;
+      await rig.session.onSignedIn(_b, e2eeEnabled: true);
+      await rig.service.ensureReady();
+      expect(rig.rpcs(before), ['register', 'upload']);
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
+
+    test('B-M6(3): a hung ListMyKeyDevices is given up at the client '
+        "deadline, so the next user's run is not blocked", () async {
+      rig.rpcTimeout = const Duration(milliseconds: 50);
+      rig.launch();
+      await rig.signIn(_a);
+      rig.advance(_hour);
+      rig.server.hold['list'] = Completer<void>(); // never answers
+      unawaited(rig.service.ensureReady());
+      for (var i = 0; i < 20 && !rig.server.calls.contains('list'); i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(rig.server.calls.last, 'list');
+      rig.uid = null;
+      await rig.session.onSessionEnded(_a, SessionEnd.sessionLost);
+      rig.server.hold.remove('list');
+      final before = rig.server.calls.length;
+      rig.uid = _b;
+      await rig.session.onSignedIn(_b, e2eeEnabled: true);
+      await rig.service.ensureReady().timeout(const Duration(seconds: 5));
+      expect(rig.rpcs(before), ['register', 'upload']);
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
+
+    test('B-M6(3): a register past the deadline is an unknown outcome: '
+        'failed(retryable); a removal that started meanwhile removes the '
+        'device again once the call lands', () async {
+      rig.rpcTimeout = const Duration(milliseconds: 50);
+      rig.launch();
+      final hold = rig.server.hold['register'] = Completer<void>();
+      rig.uid = _a;
+      await rig.session.start(restoredUid: null, restoreDefinitive: true);
+      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.service.ensureReady().timeout(const Duration(seconds: 5));
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      final id = rig.storedId()!;
+      expect(rig.devices, isEmpty);
+      // The sign-out hook runs after the deadline, then the call lands.
+      await rig.service.removeThisDevice(_a);
+      rig.server.hold.remove('register');
+      hold.complete();
+      for (var i = 0; i < 50 && rig.server.removals.length < 2; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(rig.devices, isEmpty);
+      expect(rig.server.removals.map((r) => r.deviceId), [id, id]);
+    });
+
+    test('B-M6(3): an upload past the deadline is retried ONCE with the same '
+        'idempotency key', () async {
+      rig.rpcTimeout = const Duration(milliseconds: 50);
+      rig.launch();
+      final hold = rig.server.hold['upload'] = Completer<void>();
+      rig.uid = _a;
+      await rig.session.start(restoredUid: null, restoreDefinitive: true);
+      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.service.ensureReady().timeout(const Duration(seconds: 5));
+      expect(rig.server.uploads, hasLength(2));
+      expect(
+        rig.server.uploads.first.idempotencyKey,
+        rig.server.uploads.last.idempotencyKey,
+      );
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      rig.server.hold.remove('upload');
+      hold.complete();
+    });
+
+    test("B-M6(4): a removal hook for another user than the open vault's "
+        'sets no latch: that user keeps running', () async {
+      await rig.signIn(_a);
+      rig.advance(_hour);
+      await rig.service.removeThisDevice(_b);
+      expect(rig.server.removals, isEmpty);
+      final before = rig.server.calls.length;
+      await rig.service.ensureReady();
+      expect(rig.rpcs(before), ['list']);
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
+
+    for (final liveAtFailure in [false, true]) {
+      test('B-M6(7): a session-changed UNAUTHENTICATED while the run is '
+          '${liveAtFailure ? 'still live -> failed' : 'no longer live -> '
+                    'idle'}', () async {
+        await rig.signIn(_a);
+        rig.advance(_hour);
+        rig.server.failNext['list'] = [
+          connect.ConnectException(connect.Code.unauthenticated, 'changed'),
+        ];
+        rig.server.onCall['list'] = () async {
+          if (!liveAtFailure) rig.uid = null;
+        };
+        await rig.service.ensureReady();
+        expect(
+          rig.service.status.value,
+          liveAtFailure
+              ? const DeviceKeysStatus.failed(retryable: true)
+              : DeviceKeysStatus.idle,
+        );
+        expect(rig.reported, isEmpty);
+      });
+    }
+
+    test('B-M6(8): the removal hook ran, the app was killed before the '
+        'session ended, the same user is restored: the device registers '
+        'again under the SAME id', () async {
+      await rig.signIn(_a);
+      final id = rig.storedId()!;
+      await rig.session.beforeExplicitSignOut(_a);
+      expect(rig.devices, isEmpty);
+
+      // Killed: new session and service objects over the same stores.
+      rig.launch();
+      rig.uid = _a;
+      await rig.session.start(restoredUid: _a, restoreDefinitive: true);
+      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.service.ensureReady();
+
+      expect(rig.session.status.value, VaultStatus.ready);
+      expect(rig.storedId(), id);
+      expect(rig.devices.keys, [id]);
+      expect(rig.devices[id]!.pool, hasLength(50));
+      expect(rig.engine.createdIds, hasLength(1));
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
+  });
+
+  testWidgets('B-M6(5): the default foreground check reads the binding\'s '
+      'lifecycle state', (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    expect(deviceKeysForegroundFromBinding(), isTrue);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    expect(deviceKeysForegroundFromBinding(), isFalse);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    expect(deviceKeysForegroundFromBinding(), isFalse);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    expect(deviceKeysForegroundFromBinding(), isTrue);
   });
 }

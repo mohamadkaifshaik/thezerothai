@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show AppLifecycleState;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'package:uuid/uuid.dart';
 
 import '../../../core/crypto/crypto_engine.dart';
@@ -45,6 +47,23 @@ const Duration kDeviceKeysRemovalWait = Duration(seconds: 30);
 
 /// The back-off after RATE_LIMITED when the server sent no retry hint.
 const Duration kDeviceKeysRateLimitFallback = Duration(minutes: 1);
+
+/// The client deadline on ListMyKeyDevices, RegisterKeyDevice and
+/// UploadKeyPackages. A call past it is an unknown outcome (handled like a
+/// network error); without it a hung call would block every later run,
+/// including the next user's (runs are chained, single flight).
+const Duration kDeviceKeysRpcTimeout = Duration(seconds: 30);
+
+/// Whether the app is in the foreground, from the binding: `resumed`. On
+/// the web a null state also counts (the engine starts `resumed` and
+/// reports `inactive` on blur and `hidden` when the tab is hidden; before
+/// the first report the framework may not have a state yet). On Android a
+/// null state (no lifecycle report yet) is not the foreground.
+bool deviceKeysForegroundFromBinding() {
+  final state = SchedulerBinding.instance.lifecycleState;
+  if (state == null) return kIsWeb;
+  return state == AppLifecycleState.resumed;
+}
 
 /// Vault setting keys (stored in clear: no uid, no device id in them). The
 /// values are sealed by the vault.
@@ -172,8 +191,10 @@ class _Local {
 /// run outside it. Concurrent [ensureReady] calls share one run.
 ///
 /// **Cadence.** At sign-in (a new vault), then at most once an hour on
-/// resume ([onAppResumed]) or the periodic check; RATE_LIMITED backs off by
-/// the server's hint. Never loops.
+/// resume ([onAppResumed]) or the periodic check (foreground only);
+/// RATE_LIMITED backs off by the server's hint, for that user only. Every
+/// list/register/upload has a client deadline ([kDeviceKeysRpcTimeout]).
+/// Never loops.
 ///
 /// Nothing here logs ids, keys, packages or state; unexpected failures go
 /// to `onUnexpectedError` as [DeviceKeysError] (a step name).
@@ -187,6 +208,8 @@ class DeviceKeysService {
     DeviceKeysTimerFactory? periodicTimer,
     String Function()? newIdempotencyKey,
     Duration removeTimeout = kDeviceKeysRemoveTimeout,
+    Duration rpcTimeout = kDeviceKeysRpcTimeout,
+    bool Function() isForeground = deviceKeysForegroundFromBinding,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _session = session,
        _repo = repository,
@@ -196,6 +219,8 @@ class DeviceKeysService {
        _periodic = periodicTimer ?? _defaultPeriodic,
        _newKey = newIdempotencyKey ?? _uuid,
        _removeTimeout = removeTimeout,
+       _rpcTimeout = rpcTimeout,
+       _isForeground = isForeground,
        _onUnexpectedError = onUnexpectedError;
 
   static Timer _defaultPeriodic(Duration period, void Function() onTick) =>
@@ -211,8 +236,13 @@ class DeviceKeysService {
   final DeviceKeysTimerFactory _periodic;
   final String Function() _newKey;
   final Duration _removeTimeout;
+  final Duration _rpcTimeout;
+  final bool Function() _isForeground;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
+  /// The uid of the last vault [onVaultReady] saw: the back-off state below
+  /// ([_notBefore], [_forceRegister]) belongs to that user only.
+  String? _readyUid;
   final ValueNotifier<DeviceKeysStatus> _status = ValueNotifier(
     DeviceKeysStatus.idle,
   );
@@ -258,6 +288,13 @@ class DeviceKeysService {
   /// at once (not throttled). Starts the periodic check on first use.
   Future<void> onVaultReady(SecureVault vault) {
     if (_disposed || !identical(_session.vault, vault)) return Future.value();
+    if (_readyUid != vault.uid) {
+      // Another user's vault: the previous user's RATE_LIMITED back-off and
+      // forced registration do not carry over.
+      _readyUid = vault.uid;
+      _notBefore = null;
+      _forceRegister = false;
+    }
     if (_removing && !identical(vault, _removingVault)) {
       // A vault opened after the removal: that sign-out is over.
       _removing = false;
@@ -271,7 +308,12 @@ class DeviceKeysService {
   /// least an hour ago.
   Future<void> onAppResumed() => _maybeRun();
 
-  void _onTick() => unawaited(_maybeRun());
+  /// The periodic check runs only in the foreground (a backgrounded app
+  /// waits for [onAppResumed]).
+  void _onTick() {
+    if (!_isForeground()) return;
+    unawaited(_maybeRun());
+  }
 
   Future<void> _maybeRun() {
     final last = _lastAttempt;
@@ -329,12 +371,17 @@ class DeviceKeysService {
   /// lookups and claims on its own 30 days after it was last seen
   /// (keys.proto), and stays in the user's device list until removed. With
   /// `e2ee_dm` off nothing is sent either (the repository's gate).
+  ///
+  /// When the open vault belongs to ANOTHER user than [uid], nothing
+  /// happens at all, not even the "removing" latch: that user's runs must
+  /// not stop because of a hook for someone else.
   Future<void> removeThisDevice([String? uid]) async {
+    final vault = _session.vault;
+    if (vault != null && uid != null && vault.uid != uid) return;
     _removing = true;
     _removalEpoch++;
-    final vault = _session.vault;
     _removingVault = vault;
-    if (vault == null || (uid != null && vault.uid != uid)) return;
+    if (vault == null) return;
     final String? id;
     try {
       id = _decodeId(await vault.deviceId());
@@ -440,8 +487,15 @@ class DeviceKeysService {
       // The device vanished between list and upload: register next time.
       _forceRegister = true;
       _status.value = const DeviceKeysStatus.failed(retryable: true);
+    } on UnauthenticatedException {
+      // The account changed while a call waited for its tokens (the API
+      // client's session-changed refusal): this run is over, not failed.
+      _status.value = live()
+          ? const DeviceKeysStatus.failed(retryable: true)
+          : DeviceKeysStatus.idle;
     } on AppException {
-      // Offline, UNAVAILABLE, unknown (the gate reports unknown ones).
+      // Offline, UNAVAILABLE, unknown (the gate reports unknown ones), or a
+      // call past the client deadline ([kDeviceKeysRpcTimeout]).
       _status.value = const DeviceKeysStatus.failed(retryable: true);
     } on _DeviceUnusable catch (_, stack) {
       // Fail closed: nothing written, nothing sent, no new id; latched.
@@ -503,7 +557,7 @@ class DeviceKeysService {
     var hasLastResort = false;
     if (!local.created) {
       check();
-      final list = await _repo.listMine();
+      final list = await _deadline(_repo.listMine());
       check();
       pb.KeyDevice? mine;
       for (final d in list.devices) {
@@ -597,13 +651,40 @@ class DeviceKeysService {
     });
   }
 
-  /// Runs an RPC that can publish this device; if a removal started while
-  /// it ran (whatever its outcome), removes the device again, best effort.
+  /// [call] under the client deadline: past [_rpcTimeout] it is a
+  /// [NetworkException] (an unknown outcome, as a lost connection). The
+  /// call itself is not cancelled.
+  Future<T> _deadline<T>(Future<T> call) => call.timeout(
+    _rpcTimeout,
+    onTimeout: () =>
+        throw const NetworkException('The key directory did not answer.'),
+  );
+
+  /// Runs an RPC that can publish this device, under the client deadline;
+  /// if a removal started while it ran (whatever its outcome), removes the
+  /// device again, best effort. A call past the deadline may still land
+  /// later: if a removal has started by the time it settles, the device is
+  /// removed again then too.
   Future<T> _publish<T>(String id, int epoch, Future<T> Function() rpc) async {
+    final call = rpc();
+    var timedOut = false;
     try {
-      return await rpc();
+      return await call.timeout(
+        _rpcTimeout,
+        onTimeout: () {
+          timedOut = true;
+          throw const NetworkException('The key directory did not answer.');
+        },
+      );
     } finally {
       if (_removing || _removalEpoch != epoch) await _removeQuietly(id);
+      if (timedOut) {
+        unawaited(
+          call.then<void>((_) {}, onError: (Object _) {}).then((_) async {
+            if (_removing || _removalEpoch != epoch) await _removeQuietly(id);
+          }),
+        );
+      }
     }
   }
 
