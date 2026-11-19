@@ -29,7 +29,9 @@ Future<void> main() async {
     request.response.close();
   });
   try {
-    await integrationDriver();
+    // What a test reports (binding.reportData) lands in
+    // build/integration_response_data.json, on failure too.
+    await integrationDriver(writeResponseOnFailure: true);
   } finally {
     await server.close(force: true);
   }
