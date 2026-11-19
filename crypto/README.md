@@ -219,7 +219,10 @@ never trimmed and cannot be rebuilt from the server, so losing it loses history.
 
 **Where the storage key lives.**
 - Android: a random 32-byte data key, wrapped by a non-exportable AES-256-GCM key in the Android Keystore (StrongBox
-  where the device has it, otherwise the TEE). Rows are sealed with the Rust core's `seal` / `open`.
+  where the device has it, otherwise the TEE). Rows are sealed with the Rust core's `seal` / `open`. The data key
+  crosses the Dart↔Rust bridge on every seal and open; those transient copies (the bridge's buffers on both sides)
+  are not zeroized. Only the long-lived Dart copy (zeroed by `destroy`) and the AES key schedule inside the Rust
+  core are.
 - Web: a non-extractable WebCrypto AES-256-GCM `CryptoKey` kept in IndexedDB. Sealing is done by `crypto.subtle`; the
   key bytes never reach Dart or JavaScript.
 
@@ -227,15 +230,38 @@ never trimmed and cannot be rebuilt from the server, so losing it loses history.
 column and row key as associated data, so a value moved to another row or column does not open. Random nonces bound
 one key to about 2^32 seals; a device writes far fewer rows than that over the life of a key.
 
-**Rules a change must not break** (`app/test/guards/vault_guard_test.dart` enforces the first three):
+**Rules a change must not break:**
 - Only `VaultSession` wipes a vault or deletes a key. Nothing else calls the wipe or key-delete functions.
-- Code outside `core/vault` reaches the vault through `VaultSession`, `SecureVault`, `VaultStatus` and `KeyedMutex` only.
+- Code outside `core/vault` reaches the vault through `VaultSession`, `SecureVault`, `VaultStatus` and `KeyedMutex`
+  only, with one exception: at start-up `app/lib/app/bootstrap.dart` wires the production cipher, markers, opener and
+  owner into the session (`openVaultCipher`, `deleteVaultKeyForAlias`, `DriftVaultMarkers`, `vaultMarkersPersistent`,
+  `openVault`, `wipeVaultFileForAlias`, `createVaultOwner`); the guard allowlists exactly those imports and those two
+  destructive tear-offs there.
 - The vault never opens in memory, and on the web never on the per-tab ("unsafe") IndexedDB storage.
 - A lost key (`keyLost`) is acted on only after it is seen on two separate launches at least one hour apart
-  (`kVaultKeyLossConfirmAfter`). `unavailable` and `storageChanged` never wipe.
-- An explicit sign-out or account deletion wipes; a session that ends any other way keeps the vault.
-- When `drift` changes in `app/pubspec.lock`, rebuild the web worker with `make drift-worker` (a guard test fails
-  otherwise). The 2.35.0 worker lost writes made in transactions; see `app/web/DRIFT_WEB_SETUP.md`.
+  (`kVaultKeyLossConfirmAfter`). `unavailable` and `storageChanged` never wipe; every `unavailable` or
+  `storageChanged` launch breaks the streak.
+- An explicit sign-out or account deletion wipes. A DIFFERENT user signing in on the device wipes the previous
+  user's vault. A key loss confirmed as above wipes, and so does the explicit reset of a `storageChanged` vault
+  (`resetVaultForStorageChange`, not yet called by any UI). A session that ends any other way (revoked token, auth
+  stream error, start-up without a restored user) keeps the vault.
+
+What `app/test/guards/vault_guard_test.dart` enforces, each rule with a self-test: who wipes (the `wipeVault*`,
+`deleteVaultKey*`, `.wipe` and `.destroy` names appear outside `core/vault` only in bootstrap's exact wiring); who may
+end or reset the session (`onSessionEnded` only from `app/lib/app/session_wiring.dart`, the session's
+`noteAccountDeleted` only from `bootstrap.dart`, `resetVaultForStorageChange` from nowhere outside `core/vault`); the
+import boundary above; no in-memory database names and no message cap in vault code; no log or report of
+secret-named values and only pinned `toString`s; no app code assigns the vault's `debug*` test hooks. The accepted
+web storages (and the refusal of `inMemory` and `unsafeIndexedDb`) are pinned by `app/test/core/vault/vault_open_test.dart`.
+
+**Durability on the web.** No vault transaction is durable at the instant `transaction()` returns (on IndexedDB,
+drift's worker persists the file asynchronously after the commit). The browser test
+(`app/integration_test/vault_database_test.dart`) proves only that the committed bytes reach IndexedDB, with no hot
+rollback journal, within a few milliseconds and without closing the database. It does NOT prove durability across a
+browser crash, an OS crash or a power loss.
+
+When `drift` changes in `app/pubspec.lock`, rebuild the web worker with `make drift-worker` (a guard test fails
+otherwise). The 2.35.0 worker lost writes made in transactions; see `app/web/DRIFT_WEB_SETUP.md`.
 
 **Not yet proven:** iOS (no binding); Firefox and Safari; Safari storage eviction; StrongBox on a device that has it;
 the Android 13+ branch of the key-loss classification; durability across an OS crash or power loss on the web (the

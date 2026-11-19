@@ -60,6 +60,36 @@ const Map<String, List<String>> _destructiveWiring = {
   ],
 };
 
+/// The session's destructive entry points and the ONLY file outside
+/// lib/core/vault that may reference each (null: none may, until a UI plan
+/// adds a caller and updates this guard). `onSessionEnded` turns an explicit
+/// end into a wipe; `noteAccountDeleted` journals one;
+/// `resetVaultForStorageChange` destroys history on purpose.
+const Map<String, String?> _sessionEntryOwners = {
+  'onSessionEnded': 'lib/app/session_wiring.dart',
+  'noteAccountDeleted': 'lib/app/bootstrap.dart',
+  'resetVaultForStorageChange': null,
+};
+
+/// Same-named members that are NOT the session's: exact fragments removed
+/// before scanning that file. `AuthRepository.noteAccountDeleted` records the
+/// deletion (bootstrap forwards it to the session).
+const Map<String, List<String>> _sessionEntryExempt = {
+  'lib/features/account/presentation/bloc/account_cubit.dart': [
+    '_auth.noteAccountDeleted(',
+  ],
+};
+
+/// The vault layer's test-only top-level hooks: set by tests, never by app
+/// code (a production assignment would disable a check or corrupt a key).
+const Set<String> _vaultDebugHooks = {
+  'debugFailWebVaultKeyCheck',
+  'debugCorruptWebVaultReadBack',
+  'debugBeforeWebVaultKeyDelete',
+  'debugWebCryptoKeyConstructorName',
+  'debugLocksProvider',
+};
+
 /// Every `toString` the vault and keys code may define, and its exact body.
 /// A new one, or a changed body, fails the guard: read it, then add it here
 /// only if it prints no secret. Bodies show ids, counts, step or status names,
@@ -94,6 +124,17 @@ const Map<String, Map<String, String>> _allowedToStrings = {
     'DeviceKeysError': "=> 'DeviceKeysError(\$step)';",
   },
 };
+
+/// The session entry points [source] (at [path], outside lib/core/vault)
+/// references without owning them.
+List<String> _entryViolations(String path, String source) => [
+  for (final name in memberReferences(
+    source,
+    _sessionEntryOwners.keys.toSet(),
+    exemptSnippets: _sessionEntryExempt[path] ?? const [],
+  ))
+    if (_sessionEntryOwners[name] != path) name,
+];
 
 bool _inVaultLayer(String path) =>
     path.startsWith('lib/core/vault/') || path.startsWith('lib/features/keys/');
@@ -249,6 +290,8 @@ void main() {
         'await vault_open.wipeVaultFileForAlias(alias: a);',
         'final f = deleteVaultKey;',
         'await deleteVaultKeyForAlias(alias: a);',
+        'await wipeVaultDatabase(db);', // B-M2: any wipeVault* name
+        'await vault_open.wipeVaultSomethingNew();',
         'await vault.wipe();',
         'await vault?.wipe();',
         'await cipher.destroy();',
@@ -278,6 +321,192 @@ void main() {
         ),
         isNotEmpty,
       );
+    });
+  });
+
+  group('who may end or reset the vault session (B-M1)', () {
+    test('each destructive session entry point is referenced only by its '
+        'owner outside lib/core/vault', () {
+      final bad = <String>[];
+      for (final e in _libFiles().entries) {
+        if (e.key.startsWith('lib/core/vault/')) continue;
+        for (final name in _entryViolations(e.key, e.value)) {
+          bad.add('${e.key}: $name');
+        }
+      }
+      expect(
+        bad,
+        isEmpty,
+        reason:
+            'Only the session wiring ends the vault session '
+            '(onSessionEnded), only bootstrap forwards an account deletion '
+            '(noteAccountDeleted), and nothing calls '
+            'resetVaultForStorageChange yet (a UI plan must update this '
+            'guard). Each can wipe a vault.\n${bad.join('\n')}',
+      );
+    });
+
+    test('each owner still references its entry point exactly once', () {
+      for (final e in _sessionEntryOwners.entries) {
+        final owner = e.value;
+        if (owner == null) continue;
+        expect(memberReferences(File(owner).readAsStringSync(), {e.key}), [
+          e.key,
+        ], reason: '$owner: ${e.key}');
+      }
+    });
+
+    test('the exempt same-named member still exists exactly once', () {
+      for (final e in _sessionEntryExempt.entries) {
+        final text = stripSource(
+          File(e.key).readAsStringSync(),
+          keepStrings: false,
+        );
+        for (final s in e.value) {
+          expect(
+            RegExp(s.split(RegExp(r'\s+')).map(RegExp.escape).join(r'\s*'))
+                .allMatches(text)
+                .length,
+            1,
+            reason: '${e.key}: $s',
+          );
+        }
+      }
+    });
+
+    test('self-test: calls, null-aware calls, cascades and tear-offs are '
+        'flagged; comments, strings, declarations and exempt snippets not', () {
+      final names = _sessionEntryOwners.keys.toSet();
+      for (final bad in [
+        'await session.onSessionEnded(uid, SessionEnd.userSignedOut);',
+        'unawaited(vaultSession?.onSessionEnded(a, b));',
+        'final f = vaultSession.noteAccountDeleted;',
+        'session..resetVaultForStorageChange();',
+        'await s.resetVaultForStorageChange();',
+      ]) {
+        expect(memberReferences(bad, names), isNotEmpty, reason: bad);
+      }
+      for (final ok in [
+        '// vaultSession.onSessionEnded(a, b)',
+        "final s = 'x.resetVaultForStorageChange()';",
+        'void noteAccountDeleted(String uid) {}',
+      ]) {
+        expect(memberReferences(ok, names), isEmpty, reason: ok);
+      }
+      expect(
+        memberReferences(
+          '_auth.noteAccountDeleted(uid);',
+          names,
+          exemptSnippets: ['_auth.noteAccountDeleted('],
+        ),
+        isEmpty,
+      );
+      expect(
+        memberReferences(
+          '_auth.noteAccountDeleted(uid); vaultSession.noteAccountDeleted(u);',
+          names,
+          exemptSnippets: ['_auth.noteAccountDeleted('],
+        ),
+        ['noteAccountDeleted'],
+      );
+      // An owner's allowance covers its own entry point in its own file
+      // only; the exempt snippet only in its own file.
+      const end = 'unawaited(vaultSession?.onSessionEnded(a, b));';
+      expect(_entryViolations('lib/app/session_wiring.dart', end), isEmpty);
+      expect(_entryViolations('lib/app/other.dart', end), ['onSessionEnded']);
+      expect(
+        _entryViolations(
+          'lib/app/session_wiring.dart',
+          'vaultSession.noteAccountDeleted(u);',
+        ),
+        ['noteAccountDeleted'],
+      );
+      expect(
+        _entryViolations(
+          'lib/app/bootstrap.dart',
+          'session.onSessionEnded(a);',
+        ),
+        ['onSessionEnded'],
+      );
+      expect(
+        _entryViolations('lib/app/bootstrap.dart', 'x.noteAccountDeleted(u);'),
+        isEmpty,
+      );
+      expect(
+        _entryViolations('lib/app/other.dart', '_auth.noteAccountDeleted(u);'),
+        ['noteAccountDeleted'],
+      );
+      expect(
+        _entryViolations(
+          'lib/features/account/presentation/bloc/account_cubit.dart',
+          '_auth.noteAccountDeleted(u);',
+        ),
+        isEmpty,
+      );
+      expect(
+        _entryViolations(
+          'lib/app/bootstrap.dart',
+          'session.resetVaultForStorageChange();',
+        ),
+        ['resetVaultForStorageChange'],
+      );
+    });
+  });
+
+  group('vault debug hooks are never set by app code (A-M7)', () {
+    test('no file under lib/ assigns a vault debug* top-level', () {
+      final bad = <String>[];
+      for (final e in _libFiles().entries) {
+        for (final name in assignmentsTo(e.value, _vaultDebugHooks)) {
+          bad.add('${e.key}: $name');
+        }
+      }
+      expect(
+        bad,
+        isEmpty,
+        reason:
+            'The vault debug hooks are for tests only; app code never sets '
+            'them.\n${bad.join('\n')}',
+      );
+    });
+
+    test('every listed hook is still declared in lib/core/vault (the list '
+        'is not stale)', () {
+      final vault = [
+        for (final e in _libFiles().entries)
+          if (e.key.startsWith('lib/core/vault/'))
+            stripSource(e.value, keepStrings: false),
+      ].join('\n');
+      for (final name in _vaultDebugHooks) {
+        expect(
+          RegExp(r'\b' + RegExp.escape(name) + r'\b').hasMatch(vault),
+          isTrue,
+          reason: name,
+        );
+      }
+    });
+
+    test('self-test: assignments are flagged, declarations and reads not', () {
+      for (final bad in [
+        'debugFailWebVaultKeyCheck = true;',
+        'void f() { debugLocksProvider = () => null; }',
+        'web.debugCorruptWebVaultReadBack = true;',
+        "x..debugWebCryptoKeyConstructorName = 'Other';",
+        'debugBeforeWebVaultKeyDelete ??= () {};',
+        'final f = () => debugFailWebVaultKeyCheck = true;',
+      ]) {
+        expect(assignmentsTo(bad, _vaultDebugHooks), isNotEmpty, reason: bad);
+      }
+      for (final ok in [
+        'bool debugFailWebVaultKeyCheck = false;',
+        'JSObject? Function() debugLocksProvider = _realLocks;',
+        'void Function()? debugBeforeWebVaultKeyDelete;',
+        'if (debugFailWebVaultKeyCheck) throw StateError("x");',
+        'final same = debugCorruptWebVaultReadBack == true;',
+        '// debugFailWebVaultKeyCheck = true;',
+      ]) {
+        expect(assignmentsTo(ok, _vaultDebugHooks), isEmpty, reason: ok);
+      }
     });
   });
 

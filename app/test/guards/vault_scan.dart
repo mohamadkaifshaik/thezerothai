@@ -140,8 +140,56 @@ List<String> importViolations(
 }
 
 final RegExp _destructive = RegExp(
-  r'\b(?:wipeVaultFile\w*|deleteVaultKey\w*)\b|\.\s*(?:wipe|destroy)\b',
+  r'\b(?:wipeVault\w*|deleteVaultKey\w*)\b|\.\s*(?:wipe|destroy)\b',
 );
+
+/// Exact fragments (whitespace-insensitive) removed from [text].
+String _removeSnippets(String text, List<String> snippets) {
+  for (final s in snippets) {
+    final pattern = s
+        .trim()
+        .split(RegExp(r'\s+'))
+        .map(RegExp.escape)
+        .join(r'\s*');
+    text = text.replaceAll(RegExp(pattern), ' ');
+  }
+  return text;
+}
+
+/// Member references (`x.name`, `x?.name`, `..name`: calls and tear-offs) to
+/// any of [names] in [source], comments and string contents ignored, after
+/// removing [exemptSnippets] (exact, whitespace-insensitive).
+List<String> memberReferences(
+  String source,
+  Set<String> names, {
+  List<String> exemptSnippets = const [],
+}) {
+  if (names.isEmpty) return const [];
+  final text = _removeSnippets(
+    stripSource(source, keepStrings: false),
+    exemptSnippets,
+  );
+  final pattern = RegExp(
+    r'\.\s*(' + names.map(RegExp.escape).join('|') + r')\b',
+  );
+  return [for (final m in pattern.allMatches(text)) m.group(1)!];
+}
+
+/// Assignments (`=`, `??=`; plain, prefixed `lib.name` or cascade
+/// `..name`) to any of [names] in [source], comments and strings ignored. A
+/// declaration with an initializer (`bool name = false;`, a type before the
+/// name) is not an assignment.
+List<String> assignmentsTo(String source, Set<String> names) {
+  if (names.isEmpty) return const [];
+  final text = stripSource(source, keepStrings: false);
+  final pattern = RegExp(
+    r'(?:^|[;{}(,]|=>|\.\.)\s*(?:[A-Za-z_]\w*\s*\.\s*)?(' +
+        names.map(RegExp.escape).join('|') +
+        r')\s*(?:\?\?=|=(?![=>]))',
+    multiLine: true,
+  );
+  return [for (final m in pattern.allMatches(text)) m.group(1)!];
+}
 
 /// References (calls AND tear-offs) to the destructive vault operations in
 /// [source]. Comments and string contents are ignored. [exemptSnippets] are
@@ -150,15 +198,10 @@ List<String> destructiveReferences(
   String source, {
   List<String> exemptSnippets = const [],
 }) {
-  var text = stripSource(source, keepStrings: false);
-  for (final s in exemptSnippets) {
-    final pattern = s
-        .trim()
-        .split(RegExp(r'\s+'))
-        .map(RegExp.escape)
-        .join(r'\s*');
-    text = text.replaceAll(RegExp(pattern), ' ');
-  }
+  final text = _removeSnippets(
+    stripSource(source, keepStrings: false),
+    exemptSnippets,
+  );
   return [for (final m in _destructive.allMatches(text)) m.group(0)!.trim()];
 }
 
