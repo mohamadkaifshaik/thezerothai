@@ -378,6 +378,32 @@ void main() {
       await bloc.close();
     });
 
+    test('B-I1: a uid-carrying sign-out with NOBODY signed in (account '
+        'deletion after Firebase emitted the null user) still runs '
+        'beforeSignOut and signOut; it arms nothing', () async {
+      final explicit = <String>[];
+      var before = 0;
+      final bloc = AuthBloc(
+        authRepository: authRepository,
+        beforeSignOut: () async => before++,
+        beforeExplicitSignOut: (uid) async => explicit.add(uid),
+      )..add(const AuthSubscriptionRequested());
+      users.add(null);
+      await pumpEventQueue();
+      expect(bloc.state.user, isNull);
+      bloc.add(
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
+      );
+      await pumpEventQueue();
+      expect(before, 1);
+      verify(() => authRepository.signOut()).called(1);
+      expect(explicit, isEmpty);
+      await bloc.close();
+    });
+
     test('m1: an intent already armed for the signed-in user survives a '
         'later mismatched or non-arming event', () async {
       // signOut does not complete the sign-out (the null user comes later).

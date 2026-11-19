@@ -60,7 +60,8 @@ final class AuthEmailVerificationCheckRequested extends AuthEvent {
 /// person tapped). When another account is signed in by the time the event
 /// is handled, the request is dropped: nobody is signed out and nothing is
 /// armed, so a tab that switched users never turns another account's end
-/// into a wipe. Without a [uid] the intent binds to whoever is signed in at
+/// into a wipe. When NOBODY is signed in it still runs the sign-out (push
+/// unregister, provider sign-out) and arms nothing. Without a [uid] the intent binds to whoever is signed in at
 /// handling time; every arming caller in the app passes one. Value
 /// equality, so tests can verify the uid.
 final class AuthSignOutRequested extends AuthEvent {

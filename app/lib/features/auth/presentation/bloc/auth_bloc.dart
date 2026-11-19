@@ -228,8 +228,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     // The request belongs to the account it was expressed for. When another
     // account is signed in now (the tab switched users meanwhile), it is
     // dropped entirely: that account is not signed out, nothing is armed.
+    // With NOBODY signed in it still runs (push unregister, Firebase and
+    // Google sign-out, as before the vault): e.g. the account-deletion
+    // screen's request after Firebase already emitted the null user. Nothing
+    // is armed then (`uid == null`).
     final uid = state.user?.uid;
-    if (event.uid != null && event.uid != uid) return;
+    if (uid != null && event.uid != null && event.uid != uid) return;
     // An intent is armed only for a signed-in user and an arming request; a
     // non-arming one ([AuthSignOutRequested.arm] false) signs out without
     // making the end explicit. An intent already armed is never cleared
