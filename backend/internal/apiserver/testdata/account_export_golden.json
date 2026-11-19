@@ -168,7 +168,8 @@
         "peerHandle": "<handle:f>",
         "state": "ACCEPTED"
       }
-    ]
+    ],
+    "note": "Encrypted messages are stored only on your devices and are not included in this export."
   },
   "notifications": {
     "devices": [],

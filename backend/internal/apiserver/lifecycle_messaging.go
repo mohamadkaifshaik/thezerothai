@@ -1,8 +1,10 @@
 // lifecycle_messaging.go joins direct messages to the account-lifecycle registry: the `messaging` Eraser
-// step (conversations, their messages and users/{uid}/dmInbox and dmRequests, none of which deleting users/{uid} removes)
-// and the `messages` export section (own messages in full, received ones as time and "received", no peer uid, F5). Both
-// are registered whether or not FEATURE_MESSAGING is on, because documents outlive the flag. The step is appended after
-// `follow_requests`: its name is persisted in deletionJob.step, so it never joins another module's checkpoint.
+// step (conversations, their messages and commit records, and users/{uid}/dmInbox, dmRequests and dmWelcomes, none of
+// which deleting users/{uid} removes) and the `messages` export section (own messages in full, received ones as time and
+// "received", an encrypted message as direction, time, state and encrypted only, no peer uid, F5; commit records and
+// welcomes are opaque MLS records and are not exported). Both are registered whether or not FEATURE_MESSAGING is on,
+// because documents outlive the flag. The step is appended after `follow_requests`: its name is persisted in
+// deletionJob.step, so it never joins another module's checkpoint.
 package apiserver
 
 import (

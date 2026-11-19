@@ -189,7 +189,8 @@ func (e *itEnv) dmNew(uid string) int64 {
 	return r.DMNew
 }
 
-// treeDocs lists every document path left under conversations/{id}, the conversation document included.
+// treeDocs lists every document path left under conversations/{id}, the conversation document included: its messages and
+// its commit records.
 func (e *itEnv) treeDocs(id string) []string {
 	e.t.Helper()
 	var out []string
@@ -198,16 +199,18 @@ func (e *itEnv) treeDocs(id string) []string {
 	if snap, err := ref.Get(ctx); err == nil && snap.Exists() {
 		out = append(out, "conversations/"+id)
 	}
-	it := ref.Collection("messages").Documents(ctx)
-	for {
-		d, err := it.Next()
-		if err == iterator.Done {
-			break
+	for _, sub := range []string{messagesCollection, commitsCollection} {
+		it := ref.Collection(sub).Documents(ctx)
+		for {
+			d, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				e.t.Fatal(err)
+			}
+			out = append(out, shortPath(d.Ref.Path))
 		}
-		if err != nil {
-			e.t.Fatal(err)
-		}
-		out = append(out, shortPath(d.Ref.Path))
 	}
 	slices.Sort(out)
 	return out

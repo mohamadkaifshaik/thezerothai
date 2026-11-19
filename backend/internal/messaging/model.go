@@ -53,7 +53,7 @@ const (
 
 // DeletedUID is the one fixed value the `messaging` eraser writes in place of a deleted user's uid everywhere it remains in
 // a surviving peer's copy of a conversation: the conversation's participants, gone, requestFrom and
-// requestTo, the senderId of the user's tombstoned messages and the peer entry's peerId. It can never be a real uid: it begins with "_",
+// requestTo, the senderId of the user's tombstoned messages and of the user's commit records, and the peer entry's peerId. It can never be a real uid: it begins with "_",
 // which ids.ValidUID refuses ("_" is the composite-key separator), so no account can ever take the value (L-2;
 // the first value, "deleted", was a valid uid shape and could have been claimed). Nothing resolves it (Firebase
 // uids are 28 random characters): readers treat it as "Deleted account".
@@ -255,7 +255,8 @@ type MsgDoc struct {
 	// tombstone. Index-exempt (firebase/firestore.indexes.json): never queried.
 	SharedPostID string `firestore:"sharedPostId,omitempty"`
 	// Encrypted messages: text stays empty; Ciphertext (the MLS application message) and Commitment (the 32-byte report
-	// commitment) are blanked by the retention sweep once CtExpireAt passes (CtRemoved then true). MlsKey is
+	// commitment) are blanked by the retention sweep once CtExpireAt passes, and at once (with CtExpireAt) by a moderator
+	// takedown or the sender's account deletion (CtRemoved then true; the pair and MlsKey stay). MlsKey is
 	// mlsKey(MlsGen, MlsEpoch). The server never parses any of them.
 	Ciphertext []byte    `firestore:"ciphertext,omitempty"`
 	Commitment []byte    `firestore:"commitment,omitempty"`

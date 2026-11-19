@@ -809,9 +809,10 @@ func TestCommitIT_Refusals(t *testing.T) {
 	})
 }
 
-// A record left over from an earlier conversation with the same id (both participants erased, the tree deleted without
-// its commits, the conversation created again) never blocks the new one: an mls_init writes over a leftover (1, 0), and a
-// commit on the current pair writes over a leftover record of that pair, which is never taken for a retry.
+// A record left over from an earlier conversation with the same id (seeded directly: the account eraser deletes commit
+// records with the tree since E2EE plan 3 Task 8, so this is defence in depth) never blocks the new one: an mls_init
+// writes over a leftover (1, 0), and a commit on the current pair writes over a leftover record of that pair, which is
+// never taken for a retry.
 func TestCommitIT_LeftoverRecords(t *testing.T) {
 	e := newIT(t, nil)
 	e.withDevices()

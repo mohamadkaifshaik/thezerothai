@@ -467,7 +467,7 @@ func (f *fakeRepo) sendInit(ctx context.Context, p SendParams, conv *ConvDoc, de
 	now := stampAfterClear(wireTime(p.Now), conv)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	// putInit writes the record with Set: a (1, 0) record found here is a leftover of an earlier conversation and is replaced.
+	// putInit replaces a (1, 0) record found here (only a leftover of an earlier conversation can be one; defence in depth).
 	commitKey := p.ConvID + "/" + commitDocID(initGen, initEpoch)
 	var next ConvDoc
 	if dec.CreateConv {

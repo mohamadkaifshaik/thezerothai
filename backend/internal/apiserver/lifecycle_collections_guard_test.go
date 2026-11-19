@@ -153,12 +153,15 @@ var lifecycleCollections = []collectionRow{
 	// conversations/{id}/commits/{gen_epoch} {data (opaque MLS commit), senderId, gen, epoch, createdAt, expireAt} and
 	// users/{uid}/dmWelcomes/{id} {deviceId, convId, gen, epoch, data (opaque MLS Welcome), createdAt, expireAt}, both
 	// written since plan 3 Task 4 (mls_init) and expiring 30 days after creation (TTL policy applied by the owner). The
-	// `messaging` step's handling of them (commits deleted with the conversation tree once both participants are gone;
-	// the user's dmWelcomes deleted, paged and resumable) is plan 3 Task 8, which also decides the export note; these rows
-	// are added with Task 4 because the guard refuses a pendingEraser row for a collection the code writes. The branch
-	// does not merge before Task 8.
-	{Name: "commits", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS records the user cannot read; encrypted content lives on the user's devices (plan 3 Task 8 export note)", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
-	{Name: "dmWelcomes", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS Welcomes encrypted to the user's devices, expiring after 30 days (plan 3 Task 8 export note)", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
+	// `messaging` step (plan 3 Task 8): a commit record whose sender is the deleted user gets senderId = DeletedUID while the
+	// peer lives (paged, in the rewrite phase, before the conversation itself is rewritten), and every commit record is
+	// deleted with the conversation tree once both participants are gone (DeleteTreePage, children before the document);
+	// every document under the user's own dmWelcomes is deleted (paged, the last phase of the step). A welcome the user's
+	// own commit left in a PEER's dmWelcomes holds no uid of the user (the peer's device id, the conversation id hash, the
+	// pair, opaque bytes) and stays until its 30-day expiry, which is why the sweep finds nothing there. Neither is
+	// exported: opaque MLS protocol records the user cannot read. Seeded proof: account_lifecycle_messaging_e2ee_integration_test.go.
+	{Name: "commits", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS commit records the user cannot read, not exported; the messages section notes that encrypted content lives only on the user's devices", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
+	{Name: "dmWelcomes", Sub: true, Disposition: erasedByStep, Step: "messaging", ExportNote: "opaque MLS Welcomes encrypted to the user's devices, expiring after 30 days, not exported", Owner: "messaging", Cite: "ADR-0027 D8 (the messaging step); E2EE DM design 2026-11-18, plan 3 Tasks 4 and 8 (owner-approved right-to-delete path), ADR pending"},
 	// Lists/{listId} (ownerId, memberIds[] holding other users' uids). Deleting users/{uid} removes none of it. The
 	// `lists` step (lists.Eraser, BeforeIdentity after messaging) deletes the user's own lists and then removes the uid from every other
 	// list that names it (memberIds array-contains, ArrayRemove, LastUpdateTime precondition), so the sweep finds no ownerId or memberIds
@@ -602,8 +605,8 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 			t.Error("the scan did not find the lists collection in internal/lists")
 		}
 	})
-	// ... and the guard fails, naming the collection, when any one of the four rows is removed.
-	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
+	// ... and the guard fails, naming the collection, when any one of the six rows is removed (the two E2EE ones included).
+	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests", "commits", "dmWelcomes"} {
 		t.Run("without the "+name+" row", func(t *testing.T) {
 			rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == name })
 			if len(rows) != len(lifecycleCollections)-1 {
@@ -614,12 +617,12 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 			}
 		})
 	}
-	// The scan sees all four collections in messaging's sources (the rows above are what it must be matched against).
+	// The scan sees all six collections in messaging's sources (the rows above are what it must be matched against).
 	seen := map[string]bool{}
 	for _, r := range real {
 		seen[r.Name] = true
 	}
-	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
+	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests", "commits", "dmWelcomes"} {
 		if !seen[name] {
 			t.Errorf("the scan did not find the %q collection in internal/messaging", name)
 		}

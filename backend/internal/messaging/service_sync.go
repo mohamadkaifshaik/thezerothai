@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -41,10 +40,6 @@ const (
 	maxDocPart = 9_999_999_999
 	// afterEverything sorts after every commit document id (all digits and "_"): StartAfter it reads nothing.
 	afterEverything = "~"
-
-	// leftoverClockSkew is how far a commit record's createdAt may lie before its conversation's createdAt and still be
-	// taken as this incarnation's (the two stamps come from the clocks of different instances).
-	leftoverClockSkew = time.Minute
 )
 
 // resetCap draws on the CommitConversation reset cap ("messages_resets_daily", MESSAGES_RESETS_PER_DAY) for a call with
@@ -68,13 +63,13 @@ func (s *service) resetCap(ctx context.Context, uid string, req *messagingv1.Com
 // generation, then epoch). Missing and non-participant answer the one NOT_FOUND before the commits are read; a NONE
 // conversation answers no commits and the pair (0, 0).
 //
-// Records left over from an earlier conversation with the same id (both participants erased, the tree deleted without its
-// commits, the pair meeting again; Task 5's note) are dropped, by Task 5's own invariant plus one timestamp: a record of this
-// incarnation is always at a pair the conversation has LEFT (the record and the move are one transaction), so a record at
-// or after the current pair is a leftover; and one created before the conversation was (createdAt earlier than the
-// conversation's createdAt by more than leftoverClockSkew) is a leftover. more is true when the query returned a full
-// page and at least one record is returned (a full page of leftovers alone answers more = false, so a client never
-// re-asks the same after-pair forever; it is then a gap, handled by the client's catch-up rules).
+// A record at or after the current pair is dropped (defence in depth): a record of this incarnation is always at a pair
+// the conversation has LEFT (the record and the move are one transaction), so such a record can only be a leftover of an
+// earlier conversation with the same id. The account eraser deletes the commit records with the conversation tree when
+// both participants are gone (DeleteTreePage), so tree deletion no longer leaves any; the former second rule (a record
+// created before the conversation, a cross-instance clock comparison) was removed with that change. more is true when the
+// query returned a full page and at least one record is returned (a full page of dropped records alone answers more =
+// false, so a client never re-asks the same after-pair forever; it is then a gap, handled by the client's catch-up rules).
 func (s *service) ListCommits(ctx context.Context, uid string, req *messagingv1.ListConversationCommitsRequest) (*messagingv1.ListConversationCommitsResponse, error) {
 	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
 		return nil, err
@@ -140,13 +135,10 @@ func commitAfter(c CommitDoc, gen, epoch uint64) bool {
 	return g > gen || (g == gen && e > epoch)
 }
 
-// liveCommit reports whether a record belongs to this incarnation of the conversation (see ListCommits): its pair is
-// strictly before the conversation's current pair, and it was not created before the conversation (beyond the skew).
+// liveCommit reports whether a record can belong to this incarnation of the conversation (see ListCommits): its pair is
+// strictly before the conversation's current pair.
 func liveCommit(conv ConvDoc, c CommitDoc) bool {
-	if !pairAfter(conv.MlsGen, conv.MlsEpoch, c.Gen, c.Epoch) {
-		return false
-	}
-	return !c.CreatedAt.Before(conv.CreatedAt.Add(-leftoverClockSkew))
+	return pairAfter(conv.MlsGen, conv.MlsEpoch, c.Gen, c.Epoch)
 }
 
 // epochPageBinding binds a ListEpochMessages page token to the caller, the conversation and the pair.

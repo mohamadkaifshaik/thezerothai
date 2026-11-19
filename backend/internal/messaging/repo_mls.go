@@ -76,10 +76,11 @@ const (
 //
 // The record is a Create when the transaction read none (initLeftover, zero leftover). An init only runs on a conversation
 // that is missing or NONE (encGate), and encryption is one-way, so in this incarnation of the conversation no (1, 0) record
-// can exist: one that does is left over from an earlier conversation with the same id (both participants erased, the tree
-// deleted without its commits, the pair meeting again), and a Create would fail on it forever (AlreadyExists, then "busy"
-// on every retry). Such a leftover is overwritten under its LastUpdateTime (putCommitRecord). The first-wins guard of two
-// racing inits is the conversation document both read and write (or both Create) in their transactions.
+// can exist: one that does is left over from an earlier conversation with the same id, and a Create would fail on it
+// forever (AlreadyExists, then "busy" on every retry). Such a leftover is overwritten under its LastUpdateTime
+// (putCommitRecord). Tree deletion can no longer produce one (since E2EE plan 3 Task 8 the account eraser deletes the
+// commit records with the conversation tree, DeleteTreePage); the handling stays as defence in depth. The first-wins
+// guard of two racing inits is the conversation document both read and write (or both Create) in their transactions.
 func (r *FirestoreRepo) putInit(b store.Batch, p SendParams, earlier []*firestore.DocumentRef, leftover time.Time, now time.Time) {
 	in := p.Enc.Init
 	r.putCommitRecord(b, r.commitRef(p.ConvID, initGen, initEpoch), CommitDoc{
@@ -89,8 +90,8 @@ func (r *FirestoreRepo) putInit(b store.Batch, p SendParams, earlier []*firestor
 }
 
 // initLeftover reads, inside the send transaction of an mls_init and before any write, the (1, 0) record: it can only
-// exist as a leftover of an earlier conversation with the same id (putInit). It returns that record's update time, zero
-// when there is none. 1 read.
+// exist as a leftover of an earlier conversation with the same id (putInit), which tree deletion no longer leaves; the read
+// is kept as defence in depth. It returns that record's update time, zero when there is none. 1 read.
 func (r *FirestoreRepo) initLeftover(tx *firestore.Transaction, convID string) (time.Time, error) {
 	_, updated, err := r.txCommitRecord(tx, convID, initGen, initEpoch)
 	return updated, err
@@ -138,7 +139,8 @@ func newMsgDoc(p SendParams, now time.Time) MsgDoc {
 // device and the delete of each device's earlier welcome: at most 2 + 20. The record is a Create (first wins), except
 // when the transaction read a record at a pair the conversation has not left: such a record cannot have been written in
 // this incarnation of the conversation (the record and the move are one transaction), so it is a leftover of an earlier
-// conversation with the same id and is overwritten under a LastUpdateTime precondition (putCommitRecord). The
+// conversation with the same id and is overwritten under a LastUpdateTime precondition (putCommitRecord); tree deletion
+// no longer leaves such records (DeleteTreePage deletes them), so this is defence in depth. The
 // conversation's updatedAt is stamped strictly after the one it read (commitStamp). Every accepted commit writes the conversation document it read,
 // so two commits on one pair, a commit and a reset, and a commit and an encrypted send (whose transaction reads the
 // conversation too) are serialised by Firestore: the loser re-runs and answers from the winner's state.

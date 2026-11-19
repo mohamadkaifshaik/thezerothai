@@ -26,8 +26,8 @@ import (
 // base is the fixed instant the seeded conversations are built on. It is never compared with the real clock.
 var base = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
-// uidHits lists every document in the project (the three collections and both entry folders of every user) that holds
-// uid in a path, id, field value or nested value.
+// uidHits lists every document in the project (conversations, messages, commit records, both entry folders and the
+// welcomes of every user) that holds uid in a path, id, field value or nested value.
 func (e *itEnv) uidHits(uid string) []string {
 	e.t.Helper()
 	ctx := context.Background()
@@ -42,7 +42,7 @@ func (e *itEnv) uidHits(uid string) []string {
 			}
 		}
 	}
-	for _, cg := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
+	for _, cg := range []string{"conversations", "messages", "dmInbox", "dmRequests", commitsCollection, dmWelcomesCollection} {
 		docs, err := e.fs.CollectionGroup(cg).Documents(ctx).GetAll()
 		if err != nil {
 			e.t.Fatal(err)
@@ -515,8 +515,8 @@ func TestEraser_BothDeletedConcurrently(t *testing.T) {
 func TestEraser_NoConversations(t *testing.T) {
 	e := newIT(t, nil)
 	calls := e.runEraserFor("uid-nobody")
-	if calls != 1 {
-		t.Errorf("calls = %d, want 1", calls)
+	if calls != 2 { // no conversation, then the welcomes phase (an empty page)
+		t.Errorf("calls = %d, want 2", calls)
 	}
 }
 
@@ -542,6 +542,20 @@ func TestExport_MatchesGolden(t *testing.T) {
 	}
 	// dave deleted his account: no profile, so no handle.
 	delete(e.profs.profiles, "uid-dave")
+	// The alice-bob conversation went end-to-end encrypted: one encrypted message each way, and one of alice's taken down.
+	// They export as direction, time, state and encrypted only; the ciphertext and the stored text never appear.
+	encMsgs := map[string]MsgDoc{
+		"e1": {SenderID: alice, State: msgVisible, Text: "SECRET: never stored for encrypted", Ciphertext: []byte("SECRET-ct"), MlsGen: 1, MlsEpoch: 1, MlsKey: "1:1"},
+		"e2": {SenderID: bob, State: msgVisible, Ciphertext: []byte("SECRET-ct"), MlsGen: 1, MlsEpoch: 1, MlsKey: "1:1"},
+		"e3": {SenderID: alice, State: msgRemoved, CtRemoved: true, MlsGen: 1, MlsEpoch: 2, MlsKey: "1:2", SharedPostID: "SECRET-post"},
+	}
+	for i, id := range []string{"e1", "e2", "e3"} {
+		m := encMsgs[id]
+		m.RequestHash, m.CreatedAt = "h", base.Add(time.Duration(10+i)*time.Minute)
+		if _, err := e.fs.Collection("conversations").Doc(cleared).Collection("messages").Doc(fmt.Sprintf("%032x", 0xe0+i)).Set(context.Background(), m); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	var buf bytes.Buffer
 	if err := NewExporter(e.repo, e.profs, e.social).ExportUser(context.Background(), alice, &buf); err != nil {

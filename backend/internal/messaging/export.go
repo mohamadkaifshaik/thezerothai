@@ -42,6 +42,8 @@ type exportConversation struct {
 }
 
 // exportItem is one message: the user's own with its text (F5), a received one as its time and the word "received" only.
+// An end-to-end encrypted message, sent or received, is its direction, time, state and encrypted = true: no text and no
+// post id (the server holds only ciphertext it cannot read).
 type exportItem struct {
 	Direction string    `json:"direction"` // "sent" | "received"
 	At        time.Time `json:"at"`
@@ -49,7 +51,11 @@ type exportItem struct {
 	Text      *string   `json:"text,omitempty"`
 	// SharedPostID is the post a sent message shares (the id only, as stored); never on a received message.
 	SharedPostID string `json:"sharedPostId,omitempty"`
+	Encrypted    bool   `json:"encrypted,omitempty"`
 }
+
+// exportNote is the section's top-level "note": user-visible copy in the export file.
+const exportNote = "Encrypted messages are stored only on your devices and are not included in this export."
 
 type exporter struct {
 	src     ExportSource
@@ -63,10 +69,14 @@ func NewExporter(src ExportSource, handles HandleSource, social Social) Exporter
 	return &exporter{src: src, handles: handles, social: social}
 }
 
-// ExportUser implements Exporter: {"conversations":[...]} streamed to w, conversations newest first (by creation), each
-// with its messages newest first. Own messages carry their full text; received ones only a time and "received" (F5, the
-// peer's words are the peer's data); no peer uid appears. It reads every conversation and every message of both sides
-// (the section orders the two), at most 50 peers per directory call. Memory: the conversation list and one page of 500 messages.
+// ExportUser implements Exporter: {"note":"...","conversations":[...]} streamed to w, conversations newest first (by
+// creation), each with its messages newest first. Own messages carry their full text; received ones only a time and
+// "received" (F5, the peer's words are the peer's data); an encrypted message only its direction, time, state and
+// encrypted = true, and the note says why; no peer uid appears. It reads every conversation and every message of both
+// sides (the section orders the two; the message fields it needs only, never ciphertext), at most 50 peers per directory
+// call. Memory: the conversation list and one page of 500 messages. An encrypted conversation's commit records and the
+// user's welcomes are not exported: they are opaque MLS protocol records the user cannot read (the content is on the
+// user's devices).
 func (x *exporter) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	convs, err := x.src.ExportConversations(ctx, uid)
 	if err != nil {
@@ -82,7 +92,11 @@ func (x *exporter) ExportUser(ctx context.Context, uid string, w io.Writer) erro
 	if err != nil {
 		return err
 	}
-	if _, err := io.WriteString(w, `{"conversations":[`); err != nil {
+	note, err := json.Marshal(exportNote)
+	if err != nil {
+		return fmt.Errorf("messaging: encode messages export note: %w", err)
+	}
+	if _, err := io.WriteString(w, `{"note":`+string(note)+`,"conversations":[`); err != nil {
 		return fmt.Errorf("messaging: write messages export: %w", err)
 	}
 	enc := json.NewEncoder(w)
@@ -119,7 +133,13 @@ func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.
 		}
 		for _, m := range page {
 			row := exportItem{Direction: "received", At: m.CreatedAt}
-			if m.FromSelf {
+			switch {
+			case m.Encrypted:
+				if m.FromSelf {
+					row.Direction = "sent"
+				}
+				row.State, row.Encrypted = m.State, true
+			case m.FromSelf:
 				text := m.Text
 				row = exportItem{Direction: "sent", At: m.CreatedAt, State: m.State, Text: &text, SharedPostID: m.SharedPostID}
 			}

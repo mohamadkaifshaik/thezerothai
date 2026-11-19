@@ -144,8 +144,8 @@ func TestSyncIT_CommitsAcrossAResetAndFreshPair(t *testing.T) {
 	}
 }
 
-// Records of an earlier conversation with the same id are filtered: one at or after the current pair, one created before
-// the conversation (seeded directly, as the eraser leaves them until Task 8 deletes commits with the tree).
+// Records at or after the current pair are filtered (seeded directly: the eraser deletes commit records with the tree, so
+// this is defence in depth). A record below the current pair is returned whatever its createdAt (no clock rule).
 func TestSyncIT_CommitsLeftoversFiltered(t *testing.T) {
 	e := newIT(t, nil)
 	convID := e.initMLS()
@@ -159,11 +159,11 @@ func TestSyncIT_CommitsLeftoversFiltered(t *testing.T) {
 	if got := commitPairs(resp); !slices.Equal(got, []string{"1:0", "1:1"}) || resp.GetMlsEpoch() != 2 {
 		t.Errorf("commits = %v pair (%d, %d), want 1:0 1:1 at (1, 2)", got, resp.GetMlsGeneration(), resp.GetMlsEpoch())
 	}
-	// Below the current pair but older than the conversation: a pair this incarnation skipped with a reset.
+	// After a reset to (2, 1): the record stamped at (1, 2) long before the conversation is now below the current pair and
+	// returned (the former createdAt rule is gone); (1, 9) and (3, 0) are not. The reset's own record is (2, 0).
 	e.mustCommitIT(e.svc, alice, resetReq(ckey(2), convID, 1, "r", devBob1))
-	e.putCommitDoc(convID, 1, 5, old)
-	if got := commitPairs(e.listCommitsOn(e.svc, alice, convID, 0, 0, 0)); !slices.Equal(got, []string{"1:0", "1:1", "2:0"}) {
-		t.Errorf("after the reset = %v, want 1:0 1:1 2:0", got)
+	if got := commitPairs(e.listCommitsOn(e.svc, alice, convID, 0, 0, 0)); !slices.Equal(got, []string{"1:0", "1:1", "1:2", "1:9", "2:0"}) {
+		t.Errorf("after the reset = %v, want 1:0 1:1 1:2 1:9 2:0", got)
 	}
 }
 

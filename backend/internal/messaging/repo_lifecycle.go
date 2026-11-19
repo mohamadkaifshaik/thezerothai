@@ -143,13 +143,18 @@ func (r *FirestoreRepo) MarkGone(ctx context.Context, uid, convID string) (goneR
 // write carries the LastUpdateTime of the document as read: the page fails with FailedPrecondition and the step retries). A replaced message no longer matches `senderId == uid`, so a
 // repeat costs nothing. It returns the last message id seen (the next cursor), how many were handled, and full=true when
 // the page was full and more may follow. The replacement is part of the tombstone write, with no extra write.
+//
+// An encrypted message (one with an mlsGen), whatever its state, also loses its ciphertext, commitment and ctExpireAt
+// (field deletes: nothing is left for the retention sweep) and gets ctRemoved = true; it keeps mlsGen, mlsEpoch and
+// mlsKey, so the tombstone stays in its epoch's completeness set (ListEpochMessages). The page reads only state and
+// mlsGen (Select), never the ciphertext.
 func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after string) (last string, tombstoned int, full bool, err error) {
 	col := r.convRef(convID).Collection(messagesCollection)
 	q := col.Where("senderId", "==", uid).OrderBy(firestore.DocumentID, firestore.Asc)
 	if after != "" {
 		q = q.StartAfter(col.Doc(after))
 	}
-	docs, err := q.Limit(lifecyclePage).Documents(ctx).GetAll()
+	docs, err := q.Select("state", "mlsGen").Limit(lifecyclePage).Documents(ctx).GetAll()
 	if err != nil {
 		return "", 0, false, redactErr(fmt.Errorf("messaging: list messages to tombstone: %w", err), uid, convID, after)
 	}
@@ -165,6 +170,9 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 			ups = append(ups, firestore.Update{Path: "text", Value: ""}, firestore.Update{Path: "requestHash", Value: ""}, firestore.Update{Path: "state", Value: msgDeletedAccount},
 				firestore.Update{Path: "sharedPostId", Value: firestore.Delete}) // the shared post's id goes with the text
 		}
+		if g, _ := d.DataAt("mlsGen"); g != nil {
+			ups = append(ups, ciphertextRemoval()...)
+		}
 		// LastUpdateTime: a moderator takedown that commits between this query and the batch changes the document, the
 		// write fails with FailedPrecondition and the step's retry re-reads it as REMOVED, so a takedown is never
 		// overwritten by DELETED_ACCOUNT.
@@ -177,6 +185,61 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 		}
 	}
 	return docs[len(docs)-1].Ref.ID, tombstoned, len(docs) == lifecyclePage, nil
+}
+
+// ciphertextRemoval is what tombstoning does to an encrypted message's bytes (the eraser's TombstonePage and a moderator
+// takedown): field deletes of ciphertext, commitment and ctExpireAt (never a rewrite of the document) and ctRemoved =
+// true. mlsGen, mlsEpoch and mlsKey stay: a tombstone remains in its epoch's completeness set (ListEpochMessages).
+func ciphertextRemoval() []firestore.Update {
+	return []firestore.Update{
+		{Path: "ciphertext", Value: firestore.Delete}, {Path: "commitment", Value: firestore.Delete},
+		{Path: "ctExpireAt", Value: firestore.Delete}, {Path: "ctRemoved", Value: true},
+	}
+}
+
+// RewriteCommitsPage is the first part of the rewrite phase of a conversation whose peer lives: one page of at most 500
+// of the conversation's commit records sent by uid (`senderId == uid`, an equality on one field: the automatic index;
+// Select, so the record bytes are not read) gets senderId = DeletedUID by a field-level Update (never a Set: a record
+// deleted meanwhile is never recreated). A rewritten record no longer matches, so the caller repeats until a call finds
+// none (0) and needs no cursor; a repeat after a crash costs one empty query. ListConversationCommits computes from_self
+// as senderId == caller, so the surviving peer's own records stay "self" and the deleted user's never are.
+func (r *FirestoreRepo) RewriteCommitsPage(ctx context.Context, uid, convID string) (int, error) {
+	docs, err := r.convRef(convID).Collection(commitsCollection).Where("senderId", "==", uid).Select().Limit(lifecyclePage).Documents(ctx).GetAll()
+	if err != nil {
+		return 0, redactErr(fmt.Errorf("messaging: list commit records to rewrite: %w", err), uid, convID)
+	}
+	if len(docs) == 0 {
+		return 0, nil
+	}
+	b := store.NewFirestoreBatch(r.client)
+	for _, d := range docs {
+		b.Update(d.Ref, []firestore.Update{{Path: "senderId", Value: DeletedUID}})
+	}
+	if cerr := b.Commit(ctx); cerr != nil {
+		return 0, redactErr(fmt.Errorf("messaging: rewrite commit records: %w", cerr), uid, convID)
+	}
+	return len(docs), nil
+}
+
+// DeleteWelcomesPage is the welcomes phase: one page of at most 500 documents under users/{uid}/dmWelcomes (Select, no
+// order: every one goes), deleted in one batch. full is true when the page was full and more may follow. A delete of a
+// missing document is a no-op, so a repeat after a crash costs one query.
+func (r *FirestoreRepo) DeleteWelcomesPage(ctx context.Context, uid string) (int, bool, error) {
+	docs, err := r.welcomesCol(uid).Select().Limit(lifecyclePage).Documents(ctx).GetAll()
+	if err != nil {
+		return 0, false, redactErr(fmt.Errorf("messaging: list welcomes to delete: %w", err), uid)
+	}
+	if len(docs) == 0 {
+		return 0, false, nil
+	}
+	b := store.NewFirestoreBatch(r.client)
+	for _, d := range docs {
+		b.Delete(d.Ref)
+	}
+	if cerr := b.Commit(ctx); cerr != nil {
+		return 0, false, redactErr(fmt.Errorf("messaging: delete welcomes: %w", cerr), uid)
+	}
+	return len(docs), len(docs) == lifecyclePage, nil
 }
 
 // RewriteConversation is the LAST step of one conversation whose peer lives: in one transaction it replaces uid by
@@ -252,13 +315,22 @@ func (r *FirestoreRepo) DeleteEntry(ctx context.Context, uid, convID, folder str
 	return nil
 }
 
-// DeleteTreePage deletes up to 500 messages of the conversation and, once a page comes back short, the conversation
-// document itself (last, so a crash leaves a conversation the cursor query still finds). Used when both participants
-// are gone. done is true when the document was deleted.
+// DeleteTreePage deletes up to 500 children of the conversation, its messages first and then, with what is left of the
+// 500, its commit records (conversations/{id}/commits), and, once a page comes back short, the conversation document
+// itself (last, so a crash leaves a conversation the cursor query still finds, and never a commit record under a deleted
+// conversation document). Used when both participants are gone (no commit or reset can then write a record: a commit
+// to a conversation with a gone participant is refused). done is true when the document was deleted.
 func (r *FirestoreRepo) DeleteTreePage(ctx context.Context, convID string) (deleted int, done bool, err error) {
 	docs, err := r.convRef(convID).Collection(messagesCollection).Select().Limit(lifecyclePage).Documents(ctx).GetAll()
 	if err != nil {
 		return 0, false, redactErr(fmt.Errorf("messaging: list messages to delete: %w", err), convID)
+	}
+	if room := lifecyclePage - len(docs); room > 0 { // Limit(0) would mean no limit: only asked with room left
+		commits, cerr := r.convRef(convID).Collection(commitsCollection).Select().Limit(room).Documents(ctx).GetAll()
+		if cerr != nil {
+			return 0, false, redactErr(fmt.Errorf("messaging: list commit records to delete: %w", cerr), convID)
+		}
+		docs = append(docs, commits...)
 	}
 	b := store.NewFirestoreBatch(r.client)
 	for _, d := range docs {
@@ -266,7 +338,7 @@ func (r *FirestoreRepo) DeleteTreePage(ctx context.Context, convID string) (dele
 	}
 	if len(docs) > 0 {
 		if cerr := b.Commit(ctx); cerr != nil {
-			return 0, false, redactErr(fmt.Errorf("messaging: delete messages: %w", cerr), convID)
+			return 0, false, redactErr(fmt.Errorf("messaging: delete messages and commit records: %w", cerr), convID)
 		}
 	}
 	if len(docs) == lifecyclePage {
@@ -300,7 +372,13 @@ type ExportMsg struct {
 	CreatedAt time.Time
 	// SharedPostID is the post the message shares ("" for none).
 	SharedPostID string
+	// Encrypted is true for an end-to-end encrypted message (it has an mlsGen): the export shows no content for it.
+	Encrypted bool
 }
+
+// exportMsgFields are the message fields the export reads (Select): never ciphertext or commitment, so a page of 500 stays
+// small whatever the messages hold.
+var exportMsgFields = []string{"senderId", "text", "state", "createdAt", "sharedPostId", "mlsGen"}
 
 // ExportConversations returns every conversation of uid, in pages of 500 by __name__ (`participants array-contains
 // uid`).
@@ -343,7 +421,7 @@ func (r *FirestoreRepo) ExportMessages(ctx context.Context, uid, convID string, 
 	if after != nil {
 		q = q.StartAfter(after.CreatedAt, col.Doc(after.ID))
 	}
-	docs, err := q.Limit(lifecyclePage).Documents(ctx).GetAll()
+	docs, err := q.Select(exportMsgFields...).Limit(lifecyclePage).Documents(ctx).GetAll()
 	if err != nil {
 		return nil, redactErr(fmt.Errorf("messaging: export messages: %w", err), uid, convID)
 	}
@@ -353,7 +431,7 @@ func (r *FirestoreRepo) ExportMessages(ctx context.Context, uid, convID string, 
 		if derr := d.DataTo(&m); derr != nil {
 			return nil, redactErr(fmt.Errorf("messaging: decode message %s: %w", d.Ref.ID, derr), uid, convID, d.Ref.ID)
 		}
-		out = append(out, ExportMsg{ID: d.Ref.ID, FromSelf: m.SenderID == uid, Text: m.Text, State: m.State, CreatedAt: m.CreatedAt.UTC(), SharedPostID: m.SharedPostID})
+		out = append(out, ExportMsg{ID: d.Ref.ID, FromSelf: m.SenderID == uid, Text: m.Text, State: m.State, CreatedAt: m.CreatedAt.UTC(), SharedPostID: m.SharedPostID, Encrypted: m.MlsGen >= 1})
 	}
 	return out, nil
 }

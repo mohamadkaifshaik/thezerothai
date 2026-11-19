@@ -138,14 +138,16 @@ func TestListCommits_PageSizeClamp(t *testing.T) {
 	}
 }
 
-// Records left over from an earlier conversation with this id are never returned: one at or after the current pair, and
-// one created before the conversation (beyond the clock skew). A full page made only of leftovers answers more = false.
+// A record at or after the current pair is never returned (it cannot be this incarnation's: defence in depth). The
+// creation time plays no part any more (the cross-instance clock rule went when the eraser started deleting commit records
+// with the conversation tree): a record below the current pair is returned whenever it was created. A full page made only
+// of dropped records answers more = false.
 func TestListCommits_Leftovers(t *testing.T) {
 	r := newRig(t, nil)
 	conv := r.mlsConv(1, 3)
 	live := conv.CreatedAt.Add(time.Minute)
 	r.putCommit(1, 0, alice, conv.CreatedAt)                    // created with the conversation (an mls_init): live
-	r.putCommit(1, 1, bob, conv.CreatedAt.Add(-30*time.Second)) // within the skew of another instance's clock: live
+	r.putCommit(1, 1, bob, conv.CreatedAt.Add(-48*time.Hour))   // below the current pair, stamped long before: returned
 	r.putCommit(1, 2, alice, live)                              // live
 	r.putCommit(1, 3, bob, conv.CreatedAt.Add(-48*time.Hour))   // at the current pair: a leftover
 	r.putCommit(1, 7, bob, live)                                // after the current pair: a leftover whatever its time
@@ -155,19 +157,7 @@ func TestListCommits_Leftovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := pairsOf(resp); !slices.Equal(got, []string{"1:0", "1:1", "1:2"}) {
-		t.Errorf("commits = %v, want the three live records", got)
-	}
-
-	// A record below the current pair but created before the conversation existed: a leftover the new incarnation skipped
-	// with a reset.
-	r2 := newRig(t, nil)
-	conv2 := r2.mlsConv(2, 1)
-	r2.putCommit(1, 0, alice, conv2.CreatedAt)
-	r2.putCommit(1, 5, bob, conv2.CreatedAt.Add(-48*time.Hour)) // the old incarnation reached (1, 5); this one reset at (1, 1)
-	r2.putCommit(2, 0, alice, conv2.CreatedAt.Add(time.Minute))
-	resp, _ = r2.svc.ListCommits(context.Background(), alice, &messagingv1.ListConversationCommitsRequest{ConversationId: aliceBobConv})
-	if got := pairsOf(resp); !slices.Equal(got, []string{"1:0", "2:0"}) {
-		t.Errorf("commits = %v, want 1:0 and 2:0", got)
+		t.Errorf("commits = %v, want the three records below the current pair", got)
 	}
 
 	// A full page of leftovers only.
