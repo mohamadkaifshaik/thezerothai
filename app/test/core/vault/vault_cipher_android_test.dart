@@ -99,6 +99,29 @@ class _BrokenEngine extends _CapturingEngine {
   }
 }
 
+/// seal/open (and randomBytes once [failRandom] is set) fail with [code], as
+/// the guarded engine does on a timeout or when it is unavailable.
+class _DeadlineEngine extends _CapturingEngine {
+  _DeadlineEngine(this.code);
+
+  final MlsErrorCode code;
+  bool failRandom = false;
+
+  @override
+  Future<Uint8List> randomBytes(int length) {
+    if (failRandom) throw MlsException(code, 'engine call timed out');
+    return super.randomBytes(length);
+  }
+
+  @override
+  Future<Uint8List> seal(Uint8List key, Uint8List aad, Uint8List plaintext) =>
+      Future.error(MlsException(code, 'engine call timed out'));
+
+  @override
+  Future<Uint8List> open(Uint8List key, Uint8List aad, Uint8List sealed) =>
+      Future.error(MlsException(code, 'engine call timed out'));
+}
+
 /// randomBytes waits on [gate] (when set), so a test can interleave two
 /// opens there.
 class _GatedRandomEngine extends _CapturingEngine {
@@ -624,6 +647,27 @@ void main() {
     );
     await expectLater(
       cipher.open('messages', 'r1', Uint8List(40)),
+      _keyFailure(VaultKeyFailure.unavailable),
+    );
+  });
+
+  test('a deadline from the engine is unavailable, not keyLost and not a row '
+      'failure', () async {
+    for (final code in [MlsErrorCode.deadline, MlsErrorCode.unavailable]) {
+      final cipher = await _open(_DeadlineEngine(code));
+      await expectLater(
+        cipher.seal('messages', 'r1', _b('x')),
+        _keyFailure(VaultKeyFailure.unavailable),
+      );
+      await expectLater(
+        cipher.open('messages', 'r1', Uint8List(40)),
+        _keyFailure(VaultKeyFailure.unavailable),
+      );
+    }
+    // Opening with no stored key asks the engine for random bytes.
+    final fresh = _DeadlineEngine(MlsErrorCode.deadline)..failRandom = true;
+    await expectLater(
+      _open(fresh, uid: 'user-fresh'),
       _keyFailure(VaultKeyFailure.unavailable),
     );
   });

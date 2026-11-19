@@ -18,6 +18,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/crypto/crypto_engine.dart';
 import '../core/crypto/crypto_engine_factory.dart';
+import '../core/crypto/guarded_crypto_engine.dart';
 import '../core/network/api_client.dart';
 import '../core/vault/vault_cipher.dart';
 import '../core/vault/vault_markers.dart';
@@ -222,8 +223,8 @@ Future<void> bootstrap() async {
   // restored user is otherwise a lost session for the vault: nothing wiped.
   // One crypto engine for the vault cipher and the device keys, created on
   // first use (nothing of it starts while e2ee_dm is off).
-  CryptoEngine? cryptoEngine;
-  CryptoEngine engine() => cryptoEngine ??= createCryptoEngine();
+  final cryptoEngine = GuardedCryptoEngine(create: createCryptoEngine);
+  CryptoEngine engine() => cryptoEngine;
   final vaultSession = _buildVaultSession(
     cache: cache,
     engine: engine,
@@ -368,7 +369,12 @@ Future<void> bootstrap() async {
     ..onVaultReady = deviceKeys.onVaultReady
     ..beforeExplicitWipe = deviceKeys.removeThisDevice;
   // Lives as long as the app (the binding keeps it).
-  AppLifecycleListener(onResume: () => unawaited(deviceKeys.onAppResumed()));
+  AppLifecycleListener(
+    onResume: () {
+      cryptoEngine.onAppResumed();
+      unawaited(deviceKeys.onAppResumed());
+    },
+  );
 
   // Posts + timeline: the gate reads `GetMe.enabled_features` via
   // OnboardingBloc (0 extra reads) and remembers FEATURE_DISABLED answers

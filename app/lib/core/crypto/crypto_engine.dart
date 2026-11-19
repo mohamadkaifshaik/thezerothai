@@ -2,6 +2,13 @@ import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 
+/// An engine that can die and be replaced (the web worker). [failed] is true
+/// once it can answer nothing any more; [close] stops it.
+abstract interface class EngineHealth {
+  bool get failed;
+  void close();
+}
+
 /// The one interface the app uses for end-to-end encryption (MLS, RFC 9420).
 ///
 /// The engine is stateless: every method takes opaque state blobs and returns

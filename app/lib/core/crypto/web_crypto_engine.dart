@@ -31,7 +31,7 @@ external String get _documentBaseUri;
 /// Byte arguments are copied into the worker, so a caller's buffer stays
 /// usable. Byte results arrive in buffers moved out of the worker. Nothing here
 /// logs or keeps arguments, results or state.
-class WebCryptoEngine implements CryptoEngine {
+class WebCryptoEngine implements CryptoEngine, EngineHealth {
   WebCryptoEngine({String scriptPath = 'mls_worker.js'})
     : _scriptPath = scriptPath;
 
@@ -41,8 +41,13 @@ class WebCryptoEngine implements CryptoEngine {
   int _nextId = 0;
   final Map<int, Completer<JSObject>> _pending = {};
 
+  /// True once the worker failed or was closed.
+  @override
+  bool get failed => _failure != null;
+
   /// Stops the worker. Pending and later calls fail with
   /// [MlsErrorCode.internal].
+  @override
   void close() {
     _fail(const MlsException(MlsErrorCode.internal, 'engine is closed'));
   }

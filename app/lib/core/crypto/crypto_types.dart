@@ -34,16 +34,27 @@ enum MlsErrorCode {
   ownLeaf('own_leaf'),
 
   /// An unexpected failure inside the engine.
-  internal('internal');
+  internal('internal'),
+
+  /// Dart-only, never produced by the core: the call did not answer within the
+  /// guarded engine's deadline. [parse] never returns it.
+  deadline('deadline'),
+
+  /// Dart-only, never produced by the core: the engine failed twice since the
+  /// last app resume (or was closed). [parse] never returns it.
+  unavailable('unavailable');
 
   const MlsErrorCode(this.wire);
 
-  /// The string the Rust core uses for this code.
+  /// The string the Rust core uses for this code (the Dart-only codes
+  /// [deadline] and [unavailable] have none the core would send).
   final String wire;
 
-  /// The code for [wire]; an unknown string is [internal].
+  /// The code for [wire]; an unknown string, or one of the Dart-only codes, is
+  /// [internal].
   static MlsErrorCode parse(String wire) {
     for (final code in values) {
+      if (code == deadline || code == unavailable) continue;
       if (code.wire == wire) return code;
     }
     return internal;
