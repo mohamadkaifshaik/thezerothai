@@ -55,6 +55,7 @@ help:
 	@echo "  make cost PROJECT_ID=dzeroth-dev        # also queries live Cloud Logging usage"
 	@echo "  make crypto-test                        # MLS core (crypto/): fmt, clippy, host tests"
 	@echo "  make crypto-web                         # build the MLS wasm binding into app/web/mls/ (not committed)"
+	@echo "  make drift-worker                       # rebuild app/web/drift_worker.js from the locked drift source"
 
 ## proto: buf lint + buf breaking (tolerant of a missing 'main' baseline, e.g. first commit) + generate.
 proto:
@@ -253,3 +254,11 @@ crypto-test:
 ## wasm32-unknown-unknown target and wasm-bindgen CLI 0.2.130. The output is gitignored.
 crypto-web:
 	bash scripts/crypto/build-web.sh
+
+.PHONY: drift-worker
+
+## drift-worker: rebuild app/web/drift_worker.js (dart2js -O4) from app/tool/drift_worker.dart against the drift and
+## sqlite3 in app/pubspec.lock, check app/web/sqlite3.wasm against the hash the locked sqlite3 pins, and write
+## app/web/drift_worker.version (checked by app/test/guards/drift_worker_guard_test.dart). Nothing is downloaded.
+drift-worker:
+	cd $(APP_DIR) && dart run tool/build_drift_worker.dart
