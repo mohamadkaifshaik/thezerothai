@@ -65,7 +65,8 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 
 // GuardNotOff is the not-globally-off gate (ListMyKeyDevices, RemoveKeyDevice, GetKeyDevices), so a user dropped from an
 // allowlist can still see and remove their devices and look up a peer they share an encrypted conversation with (the
-// service answers an empty success for every other peer of a flag-off caller). Same error shape as Guard. A nil checker is off for everyone.
+// service answers an empty success for every other peer of a flag-off caller). Same error shape as Guard. A nil checker
+// is off for everyone.
 func GuardNotOff(ctx context.Context, fc FlagChecker, uid string) error {
 	return guard(ctx, func(_, name string) bool { return fc != nil && !fc.GloballyOff(name) }, uid)
 }

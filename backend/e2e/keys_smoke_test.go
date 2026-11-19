@@ -12,7 +12,8 @@ package e2e
 // timestamps). A blocks B: B's claim and B's lookup answer CANNOT_MESSAGE, identical on the wire (raw HTTP: status, body
 // bytes, content type) to each other, to the answers for an unknown user and to those for a SUSPENDED user.
 // A caller without the flag (not in the allowlist, flag not globally off) gets FEATURE_DISABLED on the three gated RPCs
-// and can still list, remove and look up (an empty success without a shared encrypted conversation). No credentials answer 401 on all six procedures. Account deletion erases users/{A}/keyDevices.
+// and can still list, remove and look up (an empty success without a shared encrypted conversation). No credentials
+// answer 401 on all six procedures. Account deletion erases users/{A}/keyDevices.
 
 import (
 	"bytes"

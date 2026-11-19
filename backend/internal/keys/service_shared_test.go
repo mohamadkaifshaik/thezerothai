@@ -104,6 +104,36 @@ func TestGetDevices_SharedConversationRule(t *testing.T) {
 	}
 }
 
+// TestGetDevices_SharedVerdictIsPerTarget: the shared-conversation answer belongs to each target, not to the request.
+// With the caller's flag off, the unshared carol (flag on) and dan get nothing, shared bob (between them) gets every
+// registered device with the 31-day-old one marked Inactive; one List read and no ActiveDevices read in all.
+func TestGetDevices_SharedVerdictIsPerTarget(t *testing.T) {
+	r := sharedRig(t, false, true, true)
+	r.setFlags(map[string]bool{uidA: false, uidCarol: true, uidBob: true})
+	r.perm.shares = map[string]bool{uidCarol: false, uidBob: true, uidDan: false}
+	got, err := r.svc.GetDevices(context.Background(), uidA, []string{uidCarol, uidBob, uidDan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{uidCarol, uidDan} {
+		if ds, ok := got[id]; !ok || ds == nil || len(ds) != 0 {
+			t.Fatalf("unshared %s: %v (present %v), want an empty list", id, ds, ok)
+		}
+	}
+	bob := got[uidBob]
+	if fmt.Sprint(deviceIDsOf(bob)) != fmt.Sprint([]string{devB1, devB2}) {
+		t.Fatalf("bob's devices %v, want %v", deviceIDsOf(bob), []string{devB1, devB2})
+	}
+	for _, d := range bob {
+		if want := d.ID == devB1; d.Inactive != want {
+			t.Fatalf("device %s Inactive = %v, want %v", d.ID, d.Inactive, want)
+		}
+	}
+	if r.repo.listCalls != 1 || r.repo.activeCalls != 0 {
+		t.Fatalf("list %d active %d, want one List and no ActiveDevices", r.repo.listCalls, r.repo.activeCalls)
+	}
+}
+
 // The caller's own id: asked about only when the caller's flag is on (active devices with every field), else empty with
 // no read; the shared-conversation check is never asked about the caller themselves.
 func TestGetDevices_OwnID(t *testing.T) {

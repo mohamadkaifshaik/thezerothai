@@ -417,9 +417,9 @@ func TestGetKeyDevices_GateClass(t *testing.T) {
 	}
 }
 
-// TestListMyKeyDevices_InactiveMarker: the handler puts the service's Inactive on the wire (K5) for the caller's own
-// list and for another user's lookup alike.
-func TestListMyKeyDevices_InactiveMarker(t *testing.T) {
+// TestKeyDevices_InactiveMarker: ListMyKeyDevices and GetKeyDevices put the service's Inactive on the wire (K5) for the
+// caller's own list and for another user's lookup alike.
+func TestKeyDevices_InactiveMarker(t *testing.T) {
 	on := fakeFlags{on: map[string]bool{srvCaller: true}}
 	stale, fresh := srvDev("device-stale000000000", 0, false), srvDev("device-fresh000000000", 0, false)
 	stale.Inactive = true

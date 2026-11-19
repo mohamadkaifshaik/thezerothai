@@ -647,9 +647,10 @@ type UserKeyDevices struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// A user reference, translated like the others (options.proto, user_ref).
 	UserId string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	// For another user: every registered device (with inactive set) when the caller and the user share an encrypted
-	// conversation, else active devices only; device_id, signature_public_key and inactive only (no timestamps, no
-	// counts). The caller's own id: the caller's active devices with every field.
+	// For another user: every registered device (each carrying its inactive flag) when the caller and the user share an
+	// encrypted conversation, else active devices only; device_id, signature_public_key and inactive only (no
+	// timestamps, no counts). The caller's own id: the caller's active devices with every field, returned only when the
+	// caller's flag is on, else none.
 	Devices       []*KeyDevice `protobuf:"bytes,2,rep,name=devices,proto3" json:"devices,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -896,7 +897,8 @@ type ClaimKeyPackagesResponse struct {
 	KeyPackages []*ClaimedKeyPackage `protobuf:"bytes,1,rep,name=key_packages,json=keyPackages,proto3" json:"key_packages,omitempty"`
 	// The id the 1:1 conversation of the caller and user_id has or will have (32 lower-case hex): set on every
 	// success for another user, an empty one included; empty for the caller's own id; never sent with an error. Not a
-	// user reference. A caller can thereby confirm a guessed internal id behind a public id (bounded by the claim caps).
+	// user reference. A caller can thereby confirm a guessed internal id behind a public id: one claim per target
+	// suffices and the guessing itself is offline; the claim caps bound only how many targets can be probed per day.
 	ConversationId string `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache

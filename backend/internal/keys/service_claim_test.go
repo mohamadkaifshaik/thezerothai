@@ -293,7 +293,7 @@ func TestGetDevicesValidation(t *testing.T) {
 
 // Results are keyed by every requested id (flag-off and device-less users get an empty list), only active devices are
 // returned (exactly 30 days unseen is inactive), other users' pool counts are zeroed and the caller's own are kept, and
-// the caller's own id skips both the permission and the flag check.
+// the caller's own id skips the permission check (own devices are returned only when the caller's flag is on).
 func TestGetDevicesResults(t *testing.T) {
 	r := newClaimRig(t)
 	r.seed(t, uidA, devID, 1, pkgs(0, 4), []byte("alice-lr"))

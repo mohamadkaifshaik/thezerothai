@@ -54,6 +54,9 @@ func TestKeysPermission_SharesEncryptedConversation(t *testing.T) {
 			if got != tc.shares || caller != "uid-a" || target != "uid-b" {
 				t.Fatalf("got %v from (%q, %q), want %v from (uid-a, uid-b)", got, caller, target, tc.shares)
 			}
+			if tc.sharesErr != nil && got {
+				t.Fatalf("got true alongside the error %v, want false", err)
+			}
 			if tc.sharesErr == nil && err != nil {
 				t.Fatalf("err = %v, want nil", err)
 			}

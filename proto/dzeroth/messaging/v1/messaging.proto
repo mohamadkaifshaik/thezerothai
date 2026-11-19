@@ -104,11 +104,11 @@ syntax = "proto3";
 //   GetKeyDevices to a peer who shares an encrypted conversation (keys.v1), but cannot be claimed for (a target with
 //   e2ee_dm off is an empty success in ClaimKeyPackages), so no new device of theirs can be added, and the peer
 //   cannot build a reset or an add for them (no key package can be claimed); the server itself does not check e2ee_dm
-//   on welcome devices; (b) they can call GetKeyDevices (same
-//   rule) but not ClaimKeyPackages or RegisterKeyDevice, so they cannot add devices or reset. A device of theirs that
-//   loses its group state cannot recover until the flag is back on for them. A device stays ACTIVE only while it
-//   registers or uploads key packages at least every 30 days; a user without e2ee_dm cannot do either, so their
-//   devices become inactive after 30 days and can then no longer be addressed by any welcome.
+//   on welcome devices; (b) they can call GetKeyDevices (same rule) but not ClaimKeyPackages or RegisterKeyDevice, so
+//   they cannot add devices or reset. A device of theirs that loses its group state cannot recover until the flag is
+//   back on for them. A device stays ACTIVE only while it registers or uploads key packages at least every 30 days; a
+//   user without e2ee_dm cannot do either, so their devices become inactive after 30 days and can then no longer be
+//   addressed by any welcome.
 // - What the server can see for an MLS conversation: who the participants are, who sent each message and when, its
 //   message id and state, the ciphertext length (the plaintext is padded to 256-byte blocks, so the length reveals the
 //   number of blocks), unread counts, read times and receipts (as for plaintext), the (generation, epoch) pair of
@@ -191,8 +191,9 @@ syntax = "proto3";
 //     packages and wait; they too may reset after 24 hours without a usable welcome, counted from when the device first
 //     saw the conversation at that generation, never earlier. A reset by a device with no state names the current
 //     generation from ListConversationCommits. Member devices make this work: when they open the
-//     conversation and before they send, they reconcile the group's membership against GetKeyDevices for both users
-//     and add missing active devices with an ordinary commit. On STALE_EPOCH (or a success whose pair is later than
+//     conversation and before they send, they reconcile the group's membership against the peer's devices from
+//     GetKeyDevices and the caller's own devices from ListMyKeyDevices (GetKeyDevices returns the caller's own devices
+//     only when the caller's flag is on) and add missing active devices with an ordinary commit. On STALE_EPOCH (or a success whose pair is later than
 //     expected) for such a commit, the device catches up and runs the reconciliation again on the caught-up group
 //     before building any commit; it never resends a rebuilt copy of the same add.
 //   - A reset SHOULD address every active key device of both users that the resetter can obtain a key package for

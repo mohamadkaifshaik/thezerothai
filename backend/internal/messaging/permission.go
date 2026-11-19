@@ -127,8 +127,9 @@ func (s *service) CanMessage(ctx context.Context, callerUID, targetUID string) e
 // The conversation id is a pure function of the two uids; the read is s.conversation (cache-first, up to CACHE_TTL = 60 s
 // stale, and the H-1 rule that a non-participant never warms or reads the cache), one document. It writes nothing. An
 // invalid or equal uid, no conversation, a plaintext one, or a document whose other participant is not targetUID (an erased
-// peer reads DeletedUID) is false, nil. A failed read, or a service without a repository, is an error through
-// permissionFailure (uids and conversation id hashed out of its text), never false.
+// peer reads DeletedUID) is false, nil. A failed read is an error ("messaging: shares encrypted conversation: ...", the
+// uids and conversation id hashed out of its text), never false; a service without a repository returns a plain error
+// (it carries no uid).
 func (s *service) SharesEncryptedConversation(ctx context.Context, callerUID, targetUID string) (bool, error) {
 	if callerUID == targetUID || !ids.ValidUID(callerUID) || !ids.ValidUID(targetUID) {
 		return false, nil
@@ -142,7 +143,7 @@ func (s *service) SharesEncryptedConversation(ctx context.Context, callerUID, ta
 	case errors.Is(err, ErrNotFound):
 		return false, nil
 	case err != nil:
-		return false, permissionFailure("shared conversation", err, callerUID, targetUID, convID)
+		return false, readFailure("shares encrypted conversation", "conversation", err, callerUID, targetUID, convID)
 	}
 	return c.Encryption == encMLS && peerOf(c.Participants, callerUID) == targetUID, nil
 }
@@ -152,7 +153,12 @@ func (s *service) SharesEncryptedConversation(ctx context.Context, callerUID, ta
 // *apierr.Error or ErrCannotMessage, which is flattened to text so the failure can never be read as a wire answer or a
 // refusal.
 func permissionFailure(step string, err error, redact ...string) error {
-	red := logger.RedactErr(fmt.Errorf("messaging: can message: %s: %w", step, err), redact...)
+	return readFailure("can message", step, err, redact...)
+}
+
+// readFailure is permissionFailure with the operation label of the text ("messaging: <op>: <step>: <cause>").
+func readFailure(op, step string, err error, redact ...string) error {
+	red := logger.RedactErr(fmt.Errorf("messaging: %s: %s: %w", op, step, err), redact...)
 	var ae *apierr.Error
 	if errors.As(err, &ae) || errors.Is(err, ErrCannotMessage) {
 		return errors.New(red.Error())

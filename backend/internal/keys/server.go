@@ -136,8 +136,8 @@ func (s *Server) UploadKeyPackages(ctx context.Context, req *connect.Request[key
 }
 
 // GetKeyDevices needs the flag only not globally off: a caller whose flag is off gets devices only for a peer they share
-// an encrypted conversation with, else an empty success (the service decides). The service answers a map keyed by every requested id; the response
-// lists the users in request order, with an entry (possibly empty) for every requested id.
+// an encrypted conversation with, else an empty success (the service decides). The service answers a map keyed by every
+// requested id; the response lists the users in request order, with an entry (possibly empty) for every requested id.
 func (s *Server) GetKeyDevices(ctx context.Context, req *connect.Request[keysv1.GetKeyDevicesRequest]) (*connect.Response[keysv1.GetKeyDevicesResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "GetKeyDevices", gateNotOff, nil)
 	if err != nil {
