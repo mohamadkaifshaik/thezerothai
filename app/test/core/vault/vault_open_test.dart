@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart'
-    show MissingBrowserFeature, WasmDatabaseResult, WasmStorageImplementation;
+    show ExistingDatabase, WasmStorageImplementation, WebStorageApi;
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_open.dart';
@@ -12,14 +12,6 @@ import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_vault_cipher.dart';
-
-/// Counts [close] calls; nothing else is used by the handler.
-class _RecordingExecutor extends Fake implements QueryExecutor {
-  int closes = 0;
-
-  @override
-  Future<void> close() async => closes++;
-}
 
 Matcher _throwsStatus(VaultStatus status) => throwsA(
   isA<VaultOpenException>().having((e) => e.status, 'status', status),
@@ -50,32 +42,151 @@ void main() {
     });
   });
 
-  test('the web result handler refuses in-memory and unsafe IndexedDB, '
-      'closing their connection, and accepts durable storage', () async {
-    for (final storage in WasmStorageImplementation.values) {
-      final executor = _RecordingExecutor();
-      final result = WasmDatabaseResult(
-        DatabaseConnection(executor),
-        storage,
-        storage == WasmStorageImplementation.inMemory
-            ? {MissingBrowserFeature.indexedDb}
-            : const {},
+  group('chooseVaultWebStorage', () {
+    const name = 'dzeroth_vault_x';
+    const opfsShared = WasmStorageImplementation.opfsShared;
+    const opfsLocks = WasmStorageImplementation.opfsLocks;
+    const sharedIdb = WasmStorageImplementation.sharedIndexedDb;
+    const unsafeIdb = WasmStorageImplementation.unsafeIndexedDb;
+    const inMemory = WasmStorageImplementation.inMemory;
+    const opfs = WebStorageApi.opfs;
+    const idb = WebStorageApi.indexedDb;
+
+    WasmStorageImplementation choose(
+      List<WasmStorageImplementation> available,
+      List<ExistingDatabase> existing,
+    ) => chooseVaultWebStorage(
+      available: available,
+      existing: existing,
+      name: name,
+    );
+
+    test('explicit cases', () {
+      // Nothing stored yet: the best accepted storage.
+      expect(
+        choose([inMemory, opfsShared, opfsLocks, sharedIdb], []),
+        opfsShared,
       );
-      if (isAcceptedVaultWebStorage(storage)) {
-        checkVaultWebResult(result);
-        await pumpEventQueue();
-        expect(executor.closes, 0, reason: '$storage');
-      } else {
-        expect(
-          () => checkVaultWebResult(result),
-          _throwsStatus(VaultStatus.unavailable),
-          reason: '$storage',
-        );
-        await pumpEventQueue();
-        expect(executor.closes, 1, reason: '$storage');
+      expect(choose([inMemory, sharedIdb, unsafeIdb], []), sharedIdb);
+      expect(choose([unsafeIdb, inMemory, opfsLocks], []), opfsLocks);
+      expect(
+        () => choose([inMemory, unsafeIdb], []),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      expect(
+        () => choose([inMemory], []),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      // Stored where it is still reachable: stay there (as drift does).
+      expect(
+        choose([inMemory, opfsLocks, sharedIdb], [(idb, name)]),
+        sharedIdb,
+      );
+      expect(
+        choose([inMemory, opfsLocks, sharedIdb], [(opfs, name)]),
+        opfsLocks,
+      );
+      // Stored in IndexedDB, only the unsafe one reachable: refused, and
+      // never moved to OPFS (that would show an empty vault).
+      expect(
+        () => choose([inMemory, opfsLocks, unsafeIdb], [(idb, name)]),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      // Stored in OPFS, OPFS gone (e.g. no cross-origin isolation now).
+      expect(
+        () => choose([inMemory, sharedIdb, unsafeIdb], [(opfs, name)]),
+        _throwsStatus(VaultStatus.storageChanged),
+      );
+      expect(
+        () => choose([inMemory], [(opfs, name)]),
+        _throwsStatus(VaultStatus.storageChanged),
+      );
+      // Copies in both storages: whichever is chosen hides the other.
+      expect(
+        () => choose(
+          [inMemory, opfsLocks, sharedIdb],
+          [(opfs, name), (idb, name)],
+        ),
+        _throwsStatus(VaultStatus.storageChanged),
+      );
+      // Other databases (the cache, other users) do not matter.
+      expect(
+        choose([inMemory, sharedIdb], [(opfs, 'dzeroth'), (opfs, 'other')]),
+        sharedIdb,
+      );
+    });
+
+    test('every combination of available storages and existing databases', () {
+      const optional = [opfsShared, opfsLocks, sharedIdb, unsafeIdb];
+      const candidates = <ExistingDatabase>[
+        (opfs, name),
+        (idb, name),
+        (opfs, 'other'),
+        (idb, 'other'),
+      ];
+      List<List<T>> subsets<T>(List<T> items) => [
+        for (var mask = 0; mask < 1 << items.length; mask++)
+          [
+            for (var i = 0; i < items.length; i++)
+              if (mask & (1 << i) != 0) items[i],
+          ],
+      ];
+      var cases = 0;
+      for (final extra in subsets(optional)) {
+        // drift always lists inMemory; order must not matter.
+        final available = [...extra.reversed, inMemory];
+        final best = ([...available]..sort((a, b) => a.index - b.index)).first;
+        for (final existing in subsets(candidates)) {
+          cases++;
+          final mine = {
+            for (final e in existing)
+              if (e.$2 == name) e.$1,
+          };
+          final reason = '$available / $existing';
+          WasmStorageImplementation? chosen;
+          VaultStatus? refused;
+          try {
+            chosen = choose(available, existing);
+          } on VaultOpenException catch (e) {
+            refused = e.status;
+          }
+          if (chosen != null) {
+            expect(isAcceptedVaultWebStorage(chosen), isTrue, reason: reason);
+            expect(available, contains(chosen), reason: reason);
+            expect(
+              mine.every((api) => api == chosen!.storageApi),
+              isTrue,
+              reason: reason,
+            );
+            if (mine.isEmpty) {
+              expect(chosen, best, reason: reason);
+            } else {
+              // The best available storage of the existing database's API.
+              final sameApi = [
+                for (final s in available)
+                  if (s.storageApi == mine.single) s,
+              ]..sort((a, b) => a.index - b.index);
+              expect(chosen, sameApi.first, reason: reason);
+            }
+          } else {
+            expect(refused, isNot(VaultStatus.keyLost), reason: reason);
+            expect(
+              refused,
+              anyOf(VaultStatus.unavailable, VaultStatus.storageChanged),
+              reason: reason,
+            );
+            if (mine.isEmpty) {
+              expect(refused, VaultStatus.unavailable, reason: reason);
+              expect(isAcceptedVaultWebStorage(best), isFalse, reason: reason);
+            }
+            if (refused == VaultStatus.storageChanged) {
+              expect(mine, isNotEmpty, reason: reason);
+            }
+          }
+        }
       }
-      expect(lastVaultWebStorage, storage);
-    }
+      expect(cases, 256);
+    });
   });
 
   test(
@@ -135,8 +246,12 @@ void main() {
     cipher.throwsEverything = true;
 
     final wiped = VaultDatabase.forTesting(NativeDatabase(file));
-    await wipeVaultDatabase(wiped);
+    final reportedPath = await wipeVaultDatabase(wiped);
     await expectLater(wiped.customSelect('SELECT 1').get(), throwsA(anything));
+    expect(
+      File(reportedPath!).absolute.path.toLowerCase(),
+      file.absolute.path.toLowerCase(),
+    );
 
     final check = VaultDatabase.forTesting(NativeDatabase(file));
     for (final table in check.vaultTables) {
@@ -146,7 +261,22 @@ void main() {
         reason: table.actualTableName,
       );
     }
+    final free = await check.customSelect('PRAGMA freelist_count').getSingle();
+    expect(free.data.values.single, 0);
     await check.close();
+    final bytes = String.fromCharCodes(file.readAsBytesSync());
+    expect(bytes, isNot(contains('m1')));
+
+    // Then the file itself and its sidecars go.
+    for (final suffix in ['-journal', '-wal', '-shm']) {
+      File('${file.path}$suffix').writeAsStringSync('x');
+    }
+    await deleteVaultFilesAt(file.path);
+    for (final suffix in ['', '-journal', '-wal', '-shm']) {
+      expect(File('${file.path}$suffix').existsSync(), isFalse, reason: suffix);
+    }
+    // Idempotent.
+    await deleteVaultFilesAt(file.path);
     try {
       dir.deleteSync(recursive: true);
     } catch (_) {}

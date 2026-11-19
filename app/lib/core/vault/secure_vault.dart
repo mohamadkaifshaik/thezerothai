@@ -118,6 +118,21 @@ class GroupRecord {
   String toString() => 'GroupRecord($conversationId)';
 }
 
+/// What [SecureVault.outbox] could read: the readable [items], oldest first,
+/// and the idempotency keys of rows that no longer open under the vault key
+/// (or hold a malformed value). Those rows are kept; the caller decides,
+/// for example `VaultTx.deleteOutbox(key)`. [toString] shows counts only.
+class OutboxRead {
+  const OutboxRead(this.items, this.unreadableKeys);
+
+  final List<OutboxItem> items;
+  final List<String> unreadableKeys;
+
+  @override
+  String toString() =>
+      'OutboxRead(${items.length} items, ${unreadableKeys.length} unreadable)';
+}
+
 /// The encrypted, durable store of one user's end-to-end encryption state
 /// and decrypted message history. Not a cache: nothing is trimmed, nothing
 /// is dropped because a read failed, and nothing is wiped because of a key
@@ -127,13 +142,28 @@ class GroupRecord {
 /// is sealed with the user's [VaultCipher], bound to its table, column and
 /// row key.
 ///
-/// The vault does NOT serialise its callers: two concurrent [transaction]s
-/// run one after the other inside the database, but nothing orders a read
-/// against a write, or two writers of one conversation. The vault session
-/// (a later task) owns that, with a keyed mutex and, on the web, single-tab
-/// ownership.
+/// Rules for the code that uses it (the vault session and the messaging
+/// engine):
 ///
-/// After [close] or [wipe], every call throws [StateError].
+/// - Write only inside [transaction] bodies, through the [VaultTx] they get.
+///   A read made from outside the body while a transaction is open waits on
+///   drift's lock until the transaction ends.
+/// - The vault does NOT serialise its callers: two concurrent [transaction]s
+///   run one after the other inside the database, but nothing orders a read
+///   against a write, or two writers of one conversation. The vault session
+///   owns that, with a keyed mutex and, on the web, single-tab ownership.
+/// - On the web, after any failed write (a storage or worker error, not a
+///   failure the body threw itself), close the vault and open it again
+///   before writing more; do not keep using a connection that failed.
+/// - Never call `wipeVaultFile` for a uid whose vault is open.
+/// - Setting keys ([VaultTx.putSetting]) are stored in clear: never put a
+///   user id, a conversation id that is not already a clear column, or any
+///   content in a key.
+/// - [OutboxItem.lastError] is sealed but should still be a short error
+///   code, never text returned by the server.
+///
+/// After [close] or [wipe], every call throws [StateError]; while [wipe]
+/// runs, every new call does too.
 abstract interface class SecureVault {
   String get uid;
 
@@ -169,16 +199,23 @@ abstract interface class SecureVault {
   /// it is the dedupe check before decrypting.
   Future<bool> hasMessage(String conversationId, String messageId);
 
-  /// Pending items, oldest first, of one conversation or of all.
-  Future<List<OutboxItem>> outbox({String? conversationId});
+  /// Pending items, oldest first, of one conversation or of all. A row that
+  /// cannot be read does not hide the others: its key is listed in
+  /// [OutboxRead.unreadableKeys] and the row is left in place. A cipher that
+  /// cannot run throws [VaultKeyException] (nothing is reported unreadable
+  /// because of an outage).
+  Future<OutboxRead> outbox({String? conversationId});
 
   /// A value stored with [VaultTx.putSetting], or null.
   Future<Uint8List?> setting(String key);
 
-  /// Deletes every row (one transaction), then destroys the cipher (its
-  /// platform key). If the rows cannot be deleted this throws, the cipher is
-  /// left alone and the vault stays open (nothing was deleted). Once the
-  /// rows are gone the vault is closed, even if destroying the cipher throws.
+  /// Deletes every row (one transaction), compacts the file (`VACUUM`; with
+  /// `secure_delete` on, freed pages are zeroed), then destroys the cipher
+  /// (its platform key). From the start every other call is refused, so no
+  /// transaction can commit rows under the key about to go. If the rows
+  /// cannot be deleted this throws, the cipher is left alone and the vault
+  /// is usable again (nothing was deleted). Once the rows are gone the vault
+  /// is closed, even if compacting or destroying the cipher throws.
   Future<void> wipe();
 
   Future<void> close();
@@ -211,8 +248,9 @@ abstract interface class VaultTx {
   );
 
   /// Delete-for-me: deletes the conversation's messages, all of them or
-  /// those created at or before [upToCreatedAtMicros]. Group state and
-  /// outbox items are not touched ([deleteGroup], [deleteOutbox]).
+  /// those created at or before [upToCreatedAtMicros] (inclusive; a
+  /// negative bound deletes nothing, the largest int deletes all). Group
+  /// state and outbox items are not touched ([deleteGroup], [deleteOutbox]).
   Future<void> deleteConversation(
     String conversationId, {
     int? upToCreatedAtMicros,
@@ -226,24 +264,24 @@ abstract interface class VaultTx {
 /// Opens [uid]'s vault on [db] with [cipher]: the part of `openVault` that
 /// does not depend on the platform. [db] is closed on every failure.
 ///
+/// It never deletes a row.
+///
 /// - No `vault_meta` row and no other rows: a new vault. The owner stamp
 ///   and the sealed sentinel are written in one transaction.
-/// - The owner stamp names another uid: every row is deleted (the vault of
-///   another user is never readable by, or mixed with, this one), then it
-///   is a new vault.
-/// - The sentinel opens to the expected value: ready.
+/// - The sentinel opens to the expected value under [cipher]: ready. When
+///   the owner stamp names another uid (the file is per user, so only
+///   corruption can do that) and the sentinel still opens, the stamp is
+///   rewritten to [uid] in a transaction.
 /// - The sentinel does not authenticate, or holds another value, or there
 ///   are rows but no `vault_meta` row: [VaultOpenException] with
-///   [VaultStatus.keyLost]. Nothing is changed: wiping after key loss is
-///   decided by the caller (it needs the loss confirmed on two launches) and
-///   done with `wipeVaultFile`.
+///   [VaultStatus.keyLost], whatever the owner stamp says. Nothing is
+///   changed: wiping after key loss is decided by the caller (it needs the
+///   loss confirmed on two launches) and done with `wipeVaultFile`.
 /// - The cipher is unavailable, the storage fails, the open takes longer
 ///   than [openTimeout], or the file was stamped by a newer schema:
-///   [VaultStatus.unavailable]. This open writes nothing of this user's
-///   vault, with two exceptions: on the owner-mismatch path the other
-///   owner's rows are already deleted before the sentinel is sealed, and
-///   after a timeout the abandoned open may still finish in the background
-///   (at most it stamps a new, empty vault for this uid).
+///   [VaultStatus.unavailable], nothing written. After a timeout the
+///   abandoned open may still finish in the background; at most it stamps
+///   a new, empty vault for [uid] or rewrites a corrupted owner stamp.
 Future<SecureVault> openVaultOnDatabase(
   VaultDatabase db, {
   required String uid,
@@ -277,11 +315,13 @@ Future<void> _claim(VaultDatabase db, String uid, VaultCipher cipher) async {
     db.vaultMeta,
   )..where((t) => t.metaKey.equals(kVaultMetaKey))).getSingleOrNull();
 
-  if (meta != null && meta.ownerUid == uid) {
+  if (meta != null) {
     if (meta.schemaVersion > kVaultSchemaVersion) {
       // Written by a newer build (an app downgrade): leave it as it is.
       throw const VaultOpenException(VaultStatus.unavailable);
     }
+    // Whatever the owner stamp says, only this user's key decides: a
+    // sentinel that does not open is keyLost and nothing is touched.
     final opened = await cipher.open(
       _sentinelLabel,
       _sentinelRowKey,
@@ -290,13 +330,18 @@ Future<void> _claim(VaultDatabase db, String uid, VaultCipher cipher) async {
     if (utf8.decode(opened, allowMalformed: true) != kVaultSentinel) {
       throw const VaultOpenException(VaultStatus.keyLost);
     }
+    if (meta.ownerUid != uid) {
+      // The key opens it, so it is this user's vault with a damaged stamp.
+      await db.transaction(() async {
+        await (db.update(db.vaultMeta)
+              ..where((t) => t.metaKey.equals(kVaultMetaKey)))
+            .write(VaultMetaCompanion(ownerUid: Value(uid)));
+      });
+    }
     return;
   }
 
-  if (meta != null) {
-    // Another user's stamp: never readable by, or mixed with, this user.
-    await db.deleteAllRows();
-  } else if (await db.hasDataRows()) {
+  if (await db.hasDataRows()) {
     // Rows without a stamp and sentinel: inconsistent, treated as loss.
     throw const VaultOpenException(VaultStatus.keyLost);
   }
@@ -346,12 +391,14 @@ class _DriftSecureVault implements SecureVault {
   final VaultDatabase _db;
   final VaultCipher _cipher;
   bool _closed = false;
+  bool _wiping = false;
 
   @override
   final String uid;
 
   void _checkOpen() {
     if (_closed) throw StateError('The vault is closed.');
+    if (_wiping) throw StateError('The vault is being wiped.');
   }
 
   Future<Uint8List> _seal(
@@ -541,7 +588,7 @@ class _DriftSecureVault implements SecureVault {
   }
 
   @override
-  Future<List<OutboxItem>> outbox({String? conversationId}) async {
+  Future<OutboxRead> outbox({String? conversationId}) async {
     _checkOpen();
     final query = _db.select(_db.vaultOutbox)
       ..orderBy([(t) => OrderingTerm.asc(t.sortKey)]);
@@ -550,36 +597,46 @@ class _DriftSecureVault implements SecureVault {
     }
     final rows = await query.get();
     final items = <OutboxItem>[];
+    final unreadable = <String>[];
     for (final row in rows) {
-      final key = [row.idempotencyKey];
-      Future<Uint8List> open(String column, Uint8List value) =>
-          _openOrCorrupt(_tOutbox, column, key, value);
-      final recipient = row.recipientUserId;
-      final lastError = row.lastError;
-      items.add(
-        OutboxItem(
-          idempotencyKey: row.idempotencyKey,
-          conversationId: row.conversationId,
-          recipientUserId: recipient == null
-              ? null
-              : _readText(await open('recipient_user_id', recipient)),
-          generation: row.generation,
-          epoch: row.epoch,
-          ciphertext: await open('ciphertext', row.ciphertext),
-          reportCommitment: await open(
-            'report_commitment',
-            row.reportCommitment,
-          ),
-          content: await open('content', row.content),
-          createdAtMicros: vaultSortKeyMicros(row.sortKey),
-          attempts: int.parse(_readText(await open('attempts', row.attempts))),
-          lastError: lastError == null
-              ? null
-              : _readText(await open('last_error', lastError)),
-        ),
-      );
+      try {
+        items.add(await _outboxItem(row));
+      } on VaultCorruptException {
+        unreadable.add(row.idempotencyKey);
+      }
     }
-    return items;
+    return OutboxRead(items, unreadable);
+  }
+
+  /// One outbox row; [VaultCorruptException] when a value does not open or
+  /// is malformed (the exception names the table only, never the value).
+  Future<OutboxItem> _outboxItem(VaultOutboxRow row) async {
+    final key = [row.idempotencyKey];
+    Future<Uint8List> open(String column, Uint8List value) =>
+        _openOrCorrupt(_tOutbox, column, key, value);
+    final recipient = row.recipientUserId;
+    final lastError = row.lastError;
+    final attempts = int.tryParse(
+      _readText(await open('attempts', row.attempts)),
+    );
+    if (attempts == null) throw const VaultCorruptException(_tOutbox);
+    return OutboxItem(
+      idempotencyKey: row.idempotencyKey,
+      conversationId: row.conversationId,
+      recipientUserId: recipient == null
+          ? null
+          : _readText(await open('recipient_user_id', recipient)),
+      generation: row.generation,
+      epoch: row.epoch,
+      ciphertext: await open('ciphertext', row.ciphertext),
+      reportCommitment: await open('report_commitment', row.reportCommitment),
+      content: await open('content', row.content),
+      createdAtMicros: vaultSortKeyMicros(row.sortKey),
+      attempts: attempts,
+      lastError: lastError == null
+          ? null
+          : _readText(await open('last_error', lastError)),
+    );
   }
 
   @override
@@ -598,10 +655,24 @@ class _DriftSecureVault implements SecureVault {
     if (Zone.current[_txZoneKey] != null) {
       throw StateError('wipe() inside a vault transaction.');
     }
-    // Rows first; if that fails the key stays, so nothing is half-gone.
-    await _db.deleteAllRows();
+    // Refuse every other call from now on, so no transaction can commit
+    // rows under the key that is about to be destroyed.
+    _wiping = true;
+    try {
+      // Rows first; if that fails the key stays, so nothing is half-gone.
+      await _db.deleteAllRows();
+    } catch (_) {
+      _wiping = false;
+      rethrow;
+    }
     _closed = true;
     try {
+      // Rebuild the file so no freed page keeps old ids or sealed bytes.
+      // A failed VACUUM does not keep the key: the rows are already gone
+      // and secure_delete zeroed their cells.
+      try {
+        await _db.vacuum();
+      } catch (_) {}
       await _cipher.destroy();
     } finally {
       await _db.closeQuietly();
@@ -781,9 +852,14 @@ class _DriftVaultTx implements VaultTx {
     if (upToCreatedAtMicros == null) {
       query.where((t) => t.conversationId.equals(conversationId));
     } else {
-      // Every key of a message created at or before the bound sorts below
-      // the 20-digit prefix of the next microsecond.
-      final below = (upToCreatedAtMicros + 1).toString().padLeft(20, '0');
+      // Inclusive: a message created at exactly the bound is deleted. Every
+      // creation time is >= 0, so a negative bound deletes nothing. No
+      // arithmetic on the bound (the largest int must not wrap): every key
+      // of a message created at or before it starts with its 20 digits
+      // followed by '|', which sorts below the same digits followed by '}';
+      // any later time has a larger digit prefix.
+      if (upToCreatedAtMicros < 0) return;
+      final below = '${upToCreatedAtMicros.toString().padLeft(20, '0')}}';
       query.where(
         (t) =>
             t.conversationId.equals(conversationId) &

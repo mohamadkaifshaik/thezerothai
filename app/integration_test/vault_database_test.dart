@@ -16,12 +16,16 @@ import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_engine_factory.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:drift_flutter/drift_flutter.dart' show WebStorageApi;
 import 'package:dzeroth/core/vault/vault_cipher.dart';
+import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_open.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+
+import 'support/vault_db_platform.dart';
 
 final bool _supported =
     kIsWeb || defaultTargetPlatform == TargetPlatform.android;
@@ -154,7 +158,7 @@ void main() {
       expect(all.first.messageId, 'm119');
       expect(_s(all.last.content), 'hello m0');
       expect(all.last.fromSelf, isTrue);
-      final outbox = await again.outbox();
+      final outbox = (await again.outbox()).items;
       expect(outbox.single.idempotencyKey, 'k1');
       expect(_s(outbox.single.content), 'pending');
       expect(_s(await again.setting('s')), 'v');
@@ -263,6 +267,87 @@ void main() {
       expect(cipher.freshlyCreated, isTrue);
       final reopened = await vaultFor(uid, cipher);
       expect(await reopened.hasMessage('c1', 'm1'), isFalse);
+    });
+
+    testWidgets('wipeVaultFile erases the vault and, on the web, removes '
+        'its database', (tester) async {
+      final uid = newUid();
+      final name = vaultDatabaseName(uid);
+      final cipher = await cipherFor(uid);
+      final vault = await vaultFor(uid, cipher);
+      await vault.transaction((tx) => tx.putMessage(_msg('m1', 1)));
+      await vault.close();
+      open.remove(vault);
+      if (kIsWeb) {
+        final before = await existingWebStorageApis(name);
+        debugPrint('vault databases before wipeVaultFile: $before');
+        expect(before, hasLength(1));
+      }
+
+      await wipeVaultFile(uid: uid);
+
+      if (kIsWeb) {
+        final after = await existingWebStorageApis(name);
+        debugPrint('vault databases after wipeVaultFile: $after');
+        binding.reportData = {
+          ...?binding.reportData,
+          'after_wipe_vault_file': after,
+        };
+        // OPFS copies are deleted; an IndexedDB copy stays, empty.
+        expect(after, isNot(contains('opfs')));
+      }
+      // The key is still there (deleteVaultKey is separate): a new, empty
+      // vault opens under it.
+      final again = await vaultFor(uid, cipher);
+      expect(await again.hasMessage('c1', 'm1'), isFalse);
+    });
+
+    testWidgets('web: a vault that also exists in another storage is '
+        'storageChanged, never ready or keyLost, and nothing is lost', (
+      tester,
+    ) async {
+      if (!kIsWeb) return;
+      final uid = newUid();
+      final name = vaultDatabaseName(uid);
+      final cipher = await cipherFor(uid);
+      final vault = await vaultFor(uid, cipher);
+      final storage = lastVaultWebStorage!;
+      await vault.transaction((tx) => tx.putMessage(_msg('m1', 1)));
+      await vault.close();
+      open.remove(vault);
+      if (storage.storageApi != WebStorageApi.opfs) {
+        // Only an OPFS vault can get an IndexedDB twin in the same browser.
+        debugPrint('storageChanged case not reachable on ${storage.name}');
+        binding.reportData = {
+          ...?binding.reportData,
+          'storage_changed_case': 'not reachable on ${storage.name}',
+        };
+        return;
+      }
+      expect(await createIndexedDbCopy(name), isTrue);
+      expect(await existingWebStorageApis(name), ['indexedDb', 'opfs']);
+
+      VaultStatus? status;
+      try {
+        await vaultFor(uid, cipher);
+      } on VaultOpenException catch (e) {
+        status = e.status;
+      }
+      expect(status, VaultStatus.storageChanged);
+      expect(await existingWebStorageApis(name), ['indexedDb', 'opfs']);
+
+      // Recovery: wipeVaultFile scrubs both copies and deletes the OPFS
+      // one; the next open uses the empty IndexedDB copy as a new vault.
+      await wipeVaultFile(uid: uid);
+      final remaining = await existingWebStorageApis(name);
+      final recovered = await vaultFor(uid, cipher);
+      expect(await recovered.hasMessage('c1', 'm1'), isFalse);
+      binding.reportData = {
+        ...?binding.reportData,
+        'storage_changed_case': 'storageChanged',
+        'after_twin_wipe': remaining,
+        'reopened_on': lastVaultWebStorage?.name,
+      };
     });
   });
 }

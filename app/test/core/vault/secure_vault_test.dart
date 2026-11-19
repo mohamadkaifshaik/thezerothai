@@ -259,26 +259,56 @@ void main() {
       expect(await _count(after, 'vault_meta'), 0);
     });
 
-    test('another owner\'s stamp wipes the file, then stamps it', () async {
+    test('another owner\'s stamp never wipes: a sentinel that opens under '
+        'this cipher is re-stamped and ready, rows kept', () async {
       final path = newPath();
       await seed(path, FakeVaultCipher());
       final db = fileDb(path);
-      final vault = await open(
-        db,
-        FakeVaultCipher(key: 'key-2'),
-        uid: 'user-2',
-      );
+      // Same key material (the stamp alone is wrong, e.g. corrupted).
+      final vault = await open(db, FakeVaultCipher(), uid: 'user-2');
       addTearDown(vault.close);
-      final counts = await _counts(db);
-      expect(counts['vault_meta'], 1);
-      expect(
-        counts.entries
-            .where((e) => e.key != 'vault_meta')
-            .every((e) => e.value == 0),
-        isTrue,
-      );
+      expect((await _counts(db)).values.every((c) => c == 1), isTrue);
       expect((await db.select(db.vaultMeta).getSingle()).ownerUid, 'user-2');
-      expect(await vault.message('c1', 'm1'), isNull);
+      expect(
+        _s((await vault.message('c1', 'm1'))!.content),
+        'secret text of m1',
+      );
+    });
+
+    test('another owner\'s stamp whose sentinel does not open is keyLost, '
+        'file untouched', () async {
+      final path = newPath();
+      await seed(path, FakeVaultCipher());
+      await expectLater(
+        open(fileDb(path), FakeVaultCipher(key: 'key-2'), uid: 'user-2'),
+        throwsStatus(VaultStatus.keyLost),
+      );
+      final after = fileDb(path);
+      addTearDown(after.close);
+      expect((await _counts(after)).values.every((c) => c == 1), isTrue);
+      expect((await after.select(after.vaultMeta).getSingle()).ownerUid, _uid);
+    });
+
+    test('another owner\'s stamp with an unavailable cipher is unavailable, '
+        'file untouched', () async {
+      final path = newPath();
+      await seed(path, FakeVaultCipher());
+      await expectLater(
+        open(fileDb(path), FakeVaultCipher()..unavailable = true, uid: 'u2'),
+        throwsStatus(VaultStatus.unavailable),
+      );
+      final after = fileDb(path);
+      addTearDown(after.close);
+      expect((await _counts(after)).values.every((c) => c == 1), isTrue);
+      expect((await after.select(after.vaultMeta).getSingle()).ownerUid, _uid);
+    });
+
+    test('opening turns on secure_delete', () async {
+      final db = VaultDatabase.forTesting(NativeDatabase.memory());
+      final vault = await open(db, FakeVaultCipher());
+      addTearDown(vault.close);
+      final row = await db.customSelect('PRAGMA secure_delete').getSingle();
+      expect(row.data.values.single, 1);
     });
 
     test('a stamp from a newer schema is unavailable and untouched', () async {
@@ -412,7 +442,9 @@ void main() {
       expect(m2.content, isNull);
       expect(m2.fromSelf, isFalse);
 
-      final out = await vault.outbox();
+      final read = await vault.outbox();
+      expect(read.unreadableKeys, isEmpty);
+      final out = read.items;
       expect(out.map((o) => o.idempotencyKey), ['k1', 'k2']);
       final k1 = out.first;
       expect(k1.conversationId, 'c1');
@@ -428,7 +460,8 @@ void main() {
       expect(out.last.conversationId, isNull);
       expect(out.last.recipientUserId, 'recipient-user-9');
       expect(
-        (await vault.outbox(conversationId: 'c1')).map((o) => o.idempotencyKey),
+        (await vault.outbox(conversationId: 'c1')).items
+            .map((o) => o.idempotencyKey),
         ['k1'],
       );
       expect(_s(await vault.setting('pref')), 'value');
@@ -439,7 +472,7 @@ void main() {
         await tx.deleteOutbox('k1');
       });
       expect(await vault.group('c1'), isNull);
-      expect((await vault.outbox()).map((o) => o.idempotencyKey), ['k2']);
+      expect((await vault.outbox()).items.map((o) => o.idempotencyKey), ['k2']);
     });
 
     test('a device and its state are null before putDevice; putDeviceState '
@@ -649,19 +682,83 @@ void main() {
       await db.customStatement(
         'UPDATE vault_outbox SET content = ciphertext, ciphertext = content',
       );
-      await expectLater(
-        vault.outbox(),
-        throwsA(
-          isA<VaultCorruptException>()
-              .having((e) => e.table, 'table', 'vault_outbox')
-              .having(
-                (e) => e.toString(),
-                'toString',
-                'VaultCorruptException(vault_outbox)',
-              ),
+      final read = await vault.outbox();
+      expect(read.items, isEmpty);
+      expect(read.unreadableKeys, ['k1']);
+      expect(await _count(db, 'vault_outbox'), 1);
+    });
+
+    test('one unreadable outbox row does not block the others, and is '
+        'reported by key, never deleted', () async {
+      await vault.transaction((tx) async {
+        await tx.putOutbox(_outbox('k1', at: 1));
+        await tx.putOutbox(_outbox('k2', at: 2));
+        await tx.putOutbox(_outbox('k3', at: 3));
+      });
+      // k2: a value copied from another row. k3: attempts is not a number.
+      await db.customStatement(
+        'UPDATE vault_outbox SET content = '
+        "(SELECT content FROM vault_outbox WHERE idempotency_key = 'k1') "
+        "WHERE idempotency_key = 'k2'",
+      );
+      final notANumber = await cipher.seal(
+        'vault_outbox.attempts',
+        vaultRowKey(['k3']),
+        _b('SECRET-not-a-number'),
+      );
+      await db.customUpdate(
+        "UPDATE vault_outbox SET attempts = ? WHERE idempotency_key = 'k3'",
+        variables: [Variable.withBlob(notANumber)],
+      );
+      final read = await vault.outbox();
+      expect(read.items.map((o) => o.idempotencyKey), ['k1']);
+      expect(read.unreadableKeys, ['k2', 'k3']);
+      expect(read.toString(), isNot(contains('SECRET')));
+      expect(await _count(db, 'vault_outbox'), 3);
+      // The caller removes them by key.
+      await vault.transaction((tx) async {
+        for (final key in read.unreadableKeys) {
+          await tx.deleteOutbox(key);
+        }
+      });
+      final again = await vault.outbox();
+      expect(again.items.map((o) => o.idempotencyKey), ['k1']);
+      expect(again.unreadableKeys, isEmpty);
+    });
+
+    test('a cipher that becomes unavailable mid-transaction fails it and the '
+        'group is unchanged', () async {
+      await vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: 'c1',
+            generation: 1,
+            epoch: 1,
+            state: _b('old'),
+            pendingCommit: false,
+          ),
         ),
       );
-      expect(await _count(db, 'vault_outbox'), 1);
+      await expectLater(
+        vault.transaction((tx) async {
+          await tx.putGroup(
+            GroupRecord(
+              conversationId: 'c1',
+              generation: 1,
+              epoch: 2,
+              state: _b('new'),
+              pendingCommit: true,
+            ),
+          );
+          cipher.unavailable = true;
+          await tx.putMessage(_msg('m1'));
+        }),
+        throwsA(isA<VaultKeyException>()),
+      );
+      cipher.unavailable = false;
+      final g = (await vault.group('c1'))!;
+      expect([_s(g.state), g.epoch, g.pendingCommit], ['old', 1, false]);
+      expect(await vault.hasMessage('c1', 'm1'), isFalse);
     });
 
     test(
@@ -917,6 +1014,80 @@ void main() {
       expect(await vault.group('c1'), isNotNull);
     });
 
+    test('deleteConversation bounds: inclusive, below zero deletes nothing, '
+        'the largest int deletes everything', () async {
+      // Web numbers stop at 2^53; the VM goes to 2^63 - 1.
+      const big = 9007199254740991;
+      await vault.transaction((tx) async {
+        await tx.putMessage(_msg('zero', at: 0));
+        await tx.putMessage(_msg('a', at: 29));
+        await tx.putMessage(_msg('b', at: 30));
+        await tx.putMessage(_msg('c', at: 31));
+        await tx.putMessage(_msg('big', at: big));
+      });
+      Future<List<String>> ids() async =>
+          (await vault.messages('c1')).map((m) => m.messageId).toList();
+      await vault.transaction(
+        (tx) => tx.deleteConversation('c1', upToCreatedAtMicros: -1),
+      );
+      expect(await ids(), ['big', 'c', 'b', 'a', 'zero']);
+      await vault.transaction(
+        (tx) => tx.deleteConversation('c1', upToCreatedAtMicros: 30),
+      );
+      expect(await ids(), ['big', 'c']);
+      await vault.transaction(
+        (tx) => tx.deleteConversation('c1', upToCreatedAtMicros: big - 1),
+      );
+      expect(await ids(), ['big']);
+      // The VM's int max (2^63 - 1); adding 1 would wrap negative.
+      await vault.transaction(
+        (tx) => tx.deleteConversation(
+          'c1',
+          upToCreatedAtMicros: 9223372036854775807,
+        ),
+      );
+      expect(await ids(), isEmpty);
+    });
+
+    test('wipe scrubs the file: no id, uid or sealed byte survives in it, '
+        'and no free pages remain', () async {
+      final path = newPath();
+      final fileDatabase = fileDb(path);
+      final fileCipher = FakeVaultCipher();
+      final fileVault = await open(fileDatabase, fileCipher, uid: 'OWNERUID');
+      await fileVault.transaction((tx) async {
+        for (var i = 0; i < 200; i++) {
+          await tx.putMessage(_msg('CLEARID$i', conversation: 'CONVID', at: i));
+        }
+        await tx.putSetting('SETTINGKEY', _b('v'));
+      });
+      await fileVault.wipe();
+      expect(fileCipher.destroyCalls, 1);
+      final bytes = latin1.decode(File(path).readAsBytesSync());
+      for (final marker in ['CLEARID', 'CONVID', 'OWNERUID', 'SETTINGKEY']) {
+        expect(bytes, isNot(contains(marker)), reason: marker);
+      }
+      final check = fileDb(path);
+      addTearDown(check.close);
+      final free = await check
+          .customSelect('PRAGMA freelist_count')
+          .getSingle();
+      expect(free.data.values.single, 0);
+    });
+
+    test('a wipe in progress refuses new calls and transactions; a failed '
+        'wipe lets them through again', () async {
+      await vault.transaction((tx) => tx.putSetting('a', _b('1')));
+      final wiping = vault.wipe();
+      await expectLater(
+        vault.transaction((tx) => tx.putSetting('b', _b('2'))),
+        throwsStateError,
+      );
+      await expectLater(vault.setting('a'), throwsStateError);
+      await wiping;
+      expect(cipher.destroyCalls, 1);
+    });
+
     test('wipe empties the database, then destroys the cipher', () async {
       await vault.transaction((tx) async {
         await tx.putDevice(_b('id'), _b('state'));
@@ -952,6 +1123,9 @@ void main() {
         // One transaction: the setting deleted before the failure is back.
         expect(_s(await vault.setting('a')), '1');
         expect(await vault.hasMessage('c1', 'm1'), isTrue);
+        // The wiping flag was cleared: writes work again.
+        await vault.transaction((tx) => tx.putSetting('b', _b('2')));
+        expect(_s(await vault.setting('b')), '2');
       },
     );
 

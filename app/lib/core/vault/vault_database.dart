@@ -248,7 +248,24 @@ class VaultDatabase extends _$VaultDatabase {
       // column and row key names), and add a hand-written migration test
       // from version N-1 in `vault_schema_test.dart`.
     },
+    // Deleted rows are overwritten with zeros instead of lingering in free
+    // pages (on Android it is also set by the connection's setup callback,
+    // before the schema is created). Per connection, so set on every open.
+    beforeOpen: (_) => customStatement('PRAGMA secure_delete = ON'),
   );
+
+  /// Rebuilds the file without free pages. Must run outside a transaction.
+  Future<void> vacuum() => customStatement('VACUUM');
+
+  /// The main database file path as sqlite reports it; empty or null for a
+  /// database with no file (in memory, or a web storage).
+  Future<String?> mainFilePath() async {
+    final rows = await customSelect('PRAGMA database_list').get();
+    for (final row in rows) {
+      if (row.data['name'] == 'main') return row.data['file'] as String?;
+    }
+    return null;
+  }
 
   /// Every vault table (there are no foreign keys, so any order deletes).
   List<TableInfo<Table, Object?>> get vaultTables => [
@@ -261,7 +278,7 @@ class VaultDatabase extends _$VaultDatabase {
   ];
 
   /// Deletes every row of every table in one transaction. Needs no key, so
-  /// it works when the cipher is lost or unavailable.
+  /// it works when the cipher is lost or unavailable. Follow with [vacuum].
   Future<void> deleteAllRows() => transaction(() async {
     for (final table in vaultTables) {
       await delete(table).go();

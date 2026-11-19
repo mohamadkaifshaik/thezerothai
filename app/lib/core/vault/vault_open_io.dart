@@ -1,10 +1,15 @@
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:drift/drift.dart' show DatabaseConnection;
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import 'vault_database.dart';
+import 'vault_open.dart' show wipeVaultDatabase;
 import 'vault_status.dart';
+
+/// Never set on native.
+WasmStorageImplementation? get lastWebStorage => null;
 
 /// The vault database [name] on this platform: Android only.
 Future<DatabaseConnection> openPlatformVaultConnection(String name) async =>
@@ -26,5 +31,38 @@ DatabaseConnection openIoVaultConnection(
   required bool isAndroid,
 }) {
   if (!isAndroid) throw const VaultOpenException(VaultStatus.unsupported);
-  return driftDatabase(name: name, native: const DriftNativeOptions());
+  return driftDatabase(
+    name: name,
+    native: DriftNativeOptions(
+      // Runs on the database isolate before drift creates or reads
+      // anything: deleted rows are zeroed rather than left in free pages.
+      setup: (database) => database.execute('PRAGMA secure_delete = ON'),
+    ),
+  );
+}
+
+/// Android: deletes every row, rebuilds the file, closes it, then deletes
+/// the file and its sidecars (best effort once the rows are gone).
+Future<void> wipePlatformVaultFile(String name) async {
+  final db = VaultDatabase(
+    openIoVaultConnection(name, isAndroid: Platform.isAndroid),
+  );
+  final path = await wipeVaultDatabase(db);
+  if (path != null && path.isNotEmpty) {
+    try {
+      await deleteVaultFilesAt(path);
+    } catch (_) {
+      // The rows are gone and the file rebuilt; an empty file may stay.
+    }
+  }
+}
+
+/// Deletes the database file at [path] and its `-journal`, `-wal` and
+/// `-shm` sidecars; missing files are fine.
+@visibleForTesting
+Future<void> deleteVaultFilesAt(String path) async {
+  for (final suffix in const ['', '-journal', '-wal', '-shm']) {
+    final file = File('$path$suffix');
+    if (await file.exists()) await file.delete();
+  }
 }

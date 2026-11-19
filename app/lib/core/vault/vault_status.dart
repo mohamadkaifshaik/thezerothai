@@ -23,6 +23,14 @@ enum VaultStatus {
   /// The vault could not be opened right now (storage, key store or browser
   /// failure, or a storage that would not keep the data).
   unavailable,
+
+  /// Web only: this vault already exists in another browser storage than
+  /// the one this browser would use now (for example OPFS, after the page
+  /// lost cross-origin isolation). Nothing was opened or written, because
+  /// the new storage would show an empty vault. The data is intact; it
+  /// becomes reachable again when the old storage is available. Never treat
+  /// this as key loss: deleting the key would make that data unreadable.
+  storageChanged,
 }
 
 /// [openVault] or [wipeVaultFile] failed. Carries only the [status].
