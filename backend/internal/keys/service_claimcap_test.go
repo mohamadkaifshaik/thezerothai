@@ -20,7 +20,7 @@ func newCapRig(t *testing.T) (*claimRig, *ratelimit.DailyCap) {
 	t.Helper()
 	r := newClaimRig(t)
 	c := ratelimit.NewDailyCap(testPerTargetCap).WithClock(r.clk.now)
-	r.svc = New(Deps{Repo: r.repo, Now: r.clk.now, Permission: r.perm, Flags: r.flags, ClaimCap: c})
+	r.svc = New(Deps{Repo: r.repo, Now: r.clk.now, Permission: r.perm, Flags: r.flags, ClaimCap: c, ConversationID: fakeConvID})
 	return r, c
 }
 
@@ -38,25 +38,25 @@ func TestClaimPerTargetCap_21stRefusedOtherTargetAllowed(t *testing.T) {
 	r.seed(t, uidCarol, "device-carol-0000001", 3, pkgs(100, 5), nil)
 	ctx := context.Background()
 	for i := 0; i < testPerTargetCap; i++ {
-		if _, err := r.svc.Claim(ctx, uidA, uidBob, ""); err != nil {
+		if _, _, err := r.svc.Claim(ctx, uidA, uidBob, ""); err != nil {
 			t.Fatalf("claim %d: %v", i+1, err)
 		}
 	}
 	asked, pool := len(r.perm.calls), len(r.repo.pool[devKey(uidBob, devB1)])
-	_, err := r.svc.Claim(ctx, uidA, uidBob, "")
+	_, _, err := r.svc.Claim(ctx, uidA, uidBob, "")
 	wantPerTargetCap(t, err)
 	if len(r.perm.calls) != asked || len(r.repo.pool[devKey(uidBob, devB1)]) != pool {
 		t.Fatal("a capped claim asked permission or consumed a package")
 	}
-	if cl, err := r.svc.Claim(ctx, uidA, uidCarol, ""); err != nil || len(cl) != 1 {
+	if cl, _, err := r.svc.Claim(ctx, uidA, uidCarol, ""); err != nil || len(cl) != 1 {
 		t.Fatalf("another target: %+v, %v; want allowed", cl, err)
 	}
-	if cl, err := r.svc.Claim(ctx, uidDan, uidBob, ""); err != nil || len(cl) != 1 {
+	if cl, _, err := r.svc.Claim(ctx, uidDan, uidBob, ""); err != nil || len(cl) != 1 {
 		t.Fatalf("another caller of the same target: %+v, %v; want allowed", cl, err)
 	}
 	// The next IST day the pair is allowed again.
 	r.clk.t = r.clk.t.Add(24 * time.Hour)
-	if _, err := r.svc.Claim(ctx, uidA, uidBob, ""); err != nil {
+	if _, _, err := r.svc.Claim(ctx, uidA, uidBob, ""); err != nil {
 		t.Fatalf("next day: %v", err)
 	}
 }
@@ -73,7 +73,7 @@ func TestClaimPerTargetCap_SameAnswerForEveryTarget(t *testing.T) {
 	ctx := context.Background()
 	for _, target := range []string{uidBob, uidCarol, "uid-unknown"} {
 		for i := 0; i < testPerTargetCap; i++ {
-			_, err := r.svc.Claim(ctx, uidA, target, "")
+			_, _, err := r.svc.Claim(ctx, uidA, target, "")
 			if target == uidBob && err != nil {
 				t.Fatalf("%s claim %d: %v", target, i+1, err)
 			}
@@ -85,7 +85,7 @@ func TestClaimPerTargetCap_SameAnswerForEveryTarget(t *testing.T) {
 	asked := len(r.perm.calls)
 	var want []byte
 	for _, target := range []string{uidBob, uidCarol, "uid-unknown"} {
-		_, err := r.svc.Claim(ctx, uidA, target, "")
+		_, _, err := r.svc.Claim(ctx, uidA, target, "")
 		wantPerTargetCap(t, err)
 		got := wireBytes(t, err)
 		if want == nil {
@@ -100,7 +100,7 @@ func TestClaimPerTargetCap_SameAnswerForEveryTarget(t *testing.T) {
 	}
 	// Lifting the refusal does not give the spent pair a fresh allowance.
 	delete(r.perm.refuse, uidCarol)
-	_, err := r.svc.Claim(ctx, uidA, uidCarol, "")
+	_, _, err := r.svc.Claim(ctx, uidA, uidCarol, "")
 	wantPerTargetCap(t, err)
 }
 
@@ -111,11 +111,11 @@ func TestClaimPerTargetCap_SelfClaimsCount(t *testing.T) {
 	r.seed(t, uidA, devID2, 5, pkgs(0, 50), nil)
 	ctx := context.Background()
 	for i := 0; i < testPerTargetCap; i++ {
-		if _, err := r.svc.Claim(ctx, uidA, uidA, devID); err != nil {
+		if _, _, err := r.svc.Claim(ctx, uidA, uidA, devID); err != nil {
 			t.Fatalf("own claim %d: %v", i+1, err)
 		}
 	}
-	_, err := r.svc.Claim(ctx, uidA, uidA, devID)
+	_, _, err := r.svc.Claim(ctx, uidA, uidA, devID)
 	wantPerTargetCap(t, err)
 	if got := c.Spent(claimCapKey(uidA, uidA)); got != testPerTargetCap {
 		t.Fatalf("spent = %d, want %d", got, testPerTargetCap)
@@ -127,7 +127,7 @@ func TestClaimPerTargetCap_ValidationDoesNotCountAndKeyIsHashed(t *testing.T) {
 	r, c := newCapRig(t)
 	ctx := context.Background()
 	for i := 0; i < testPerTargetCap+5; i++ {
-		_, err := r.svc.Claim(ctx, uidA, uidBob, "bad id!")
+		_, _, err := r.svc.Claim(ctx, uidA, uidBob, "bad id!")
 		wantValidation(t, err, "exclude_device_id")
 	}
 	if got := c.Spent(claimCapKey(uidA, uidBob)); got != 0 {

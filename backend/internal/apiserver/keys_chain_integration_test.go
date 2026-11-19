@@ -102,14 +102,21 @@ func TestKeysChain_LookupClaimAndRefusals(t *testing.T) {
 		}
 	})
 
-	t.Run("a caller without the flag can list and remove, not look up", func(t *testing.T) {
+	t.Run("a caller without the flag can list, remove and look up (empty without a shared conversation)", func(t *testing.T) {
 		if _, err := keysClient.ListMyKeyDevices(ctx, authed(flagOff.token, &keysv1.ListMyKeyDevicesRequest{})); err != nil {
 			t.Fatalf("ListMyKeyDevices without the flag (not globally off): %v", err)
 		}
 		if _, err := keysClient.RemoveKeyDevice(ctx, authed(flagOff.token, &keysv1.RemoveKeyDeviceRequest{IdempotencyKey: contractKey("keys-rm-off"), DeviceId: device})); err != nil {
 			t.Fatalf("RemoveKeyDevice without the flag (not globally off): %v", err)
 		}
-		_, err := keysClient.GetKeyDevices(ctx, authed(flagOff.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{owner.uid}}))
-		wantReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "e2ee_dm")
+		// Not globally off, so the lookup runs: the send rules allow it, there is no shared encrypted conversation, so it is
+		// an empty success, never FEATURE_DISABLED.
+		res, err := keysClient.GetKeyDevices(ctx, authed(flagOff.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{owner.uid}}))
+		if err != nil {
+			t.Fatalf("GetKeyDevices without the flag (not globally off): %v", err)
+		}
+		if users := res.Msg.GetUsers(); len(users) != 1 || users[0].GetUserId() != owner.uid || len(users[0].GetDevices()) != 0 {
+			t.Fatalf("flag-off caller's lookup = %v, want one user with no devices", users)
+		}
 	})
 }

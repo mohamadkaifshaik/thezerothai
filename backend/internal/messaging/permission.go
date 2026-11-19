@@ -119,6 +119,34 @@ func (s *service) CanMessage(ctx context.Context, callerUID, targetUID string) e
 	return nil
 }
 
+// SharesEncryptedConversation implements Permission: whether callerUID and targetUID are the two participants of a
+// conversation whose encryption is MLS. The key directory uses it to let two people who already talk in an encrypted
+// conversation look up each other's devices, whatever either one's FEATURE_E2EE_DM or FEATURE_MESSAGING state (so it applies
+// no flag gate and none of CanMessage's send rules, which are the key directory's separate, earlier check).
+//
+// The conversation id is a pure function of the two uids; the read is s.conversation (cache-first, up to CACHE_TTL = 60 s
+// stale, and the H-1 rule that a non-participant never warms or reads the cache), one document. It writes nothing. An
+// invalid or equal uid, no conversation, a plaintext one, or a document whose other participant is not targetUID (an erased
+// peer reads DeletedUID) is false, nil. A failed read, or a service without a repository, is an error through
+// permissionFailure (uids and conversation id hashed out of its text), never false.
+func (s *service) SharesEncryptedConversation(ctx context.Context, callerUID, targetUID string) (bool, error) {
+	if callerUID == targetUID || !ids.ValidUID(callerUID) || !ids.ValidUID(targetUID) {
+		return false, nil
+	}
+	if s.d.Repo == nil {
+		return false, errors.New("messaging: the shared conversation check is not configured")
+	}
+	convID := ConversationID(callerUID, targetUID)
+	c, err := s.conversation(ctx, callerUID, convID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, permissionFailure("shared conversation", err, callerUID, targetUID, convID)
+	}
+	return c.Encryption == encMLS && peerOf(c.Participants, callerUID) == targetUID, nil
+}
+
 // permissionFailure is a failed read of CanMessage: a plain error naming the step, with the uids (and the conversation id)
 // replaced by their hashes. The cause stays in the chain (a deadline or contention keeps its class) unless it is an
 // *apierr.Error or ErrCannotMessage, which is flattened to text so the failure can never be read as a wire answer or a

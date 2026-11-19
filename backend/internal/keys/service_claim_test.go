@@ -45,7 +45,7 @@ func newClaimRig(t *testing.T) *claimRig {
 		flags: fakeFlags{on: map[string]bool{uidA: true, uidBob: true, uidCarol: true}},
 		clk:   &fakeClock{t: t0},
 	}
-	r.svc = New(Deps{Repo: r.repo, Now: r.clk.now, Permission: r.perm, Flags: r.flags})
+	r.svc = New(Deps{Repo: r.repo, Now: r.clk.now, Permission: r.perm, Flags: r.flags, ConversationID: fakeConvID})
 	return r
 }
 
@@ -120,7 +120,7 @@ func TestRefusalsAreByteIdentical(t *testing.T) {
 	for target := range causes {
 		_, err := r.svc.GetDevices(context.Background(), uidA, []string{target})
 		check("get "+target, err)
-		_, err = r.svc.Claim(context.Background(), uidA, target, "")
+		_, _, err = r.svc.Claim(context.Background(), uidA, target, "")
 		check("claim "+target, err)
 		// A refused target among allowed ones refuses the whole lookup, wherever it sits.
 		_, err = r.svc.GetDevices(context.Background(), uidA, []string{uidA, target})
@@ -154,7 +154,7 @@ func TestPermissionFailureIsNotARefusal(t *testing.T) {
 			t.Fatalf("error text %q contains %q", err.Error(), id)
 		}
 	}
-	_, err = r.svc.Claim(context.Background(), uidA, uidBob, "")
+	_, _, err = r.svc.Claim(context.Background(), uidA, uidBob, "")
 	if err == nil || strings.Contains(err.Error(), uidBob) || strings.Contains(err.Error(), uidA) {
 		t.Fatalf("claim err = %v", err)
 	}
@@ -172,7 +172,7 @@ func TestPermissionSeamErrorsAreSealed(t *testing.T) {
 		r.seed(t, uidBob, devB1, 2, pkgs(0, 2), nil)
 		r.perm.err = seamErr
 		_, gerr := r.svc.GetDevices(ctx, uidA, []string{uidBob})
-		_, cerr := r.svc.Claim(ctx, uidA, uidBob, "")
+		_, _, cerr := r.svc.Claim(ctx, uidA, uidBob, "")
 		if n := len(r.repo.pool[devKey(uidBob, devB1)]); n != 2 {
 			t.Fatalf("a failed permission check consumed packages: pool %d", n)
 		}
@@ -302,7 +302,7 @@ func TestGetDevicesResults(t *testing.T) {
 	r.clk.t = t0.Add(InactiveAfter - time.Second)
 	r.seed(t, uidBob, devB2, 3, pkgs(30, 2), nil) // seen 30 days after devB1
 	r.clk.t = t0.Add(InactiveAfter)               // devB1 and alice's device: exactly 30 days unseen
-	r.flags.on[uidA] = false                      // the handler guards the caller; the service does not ask again
+	// The caller's flag stays on: the service now reads it (own devices and the both-on rule need it).
 	r.svc = New(Deps{Repo: r.repo, Now: r.clk.now, Permission: r.perm, Flags: r.flags})
 
 	req := []string{uidCarol, uidBob, uidDan, uidA}
@@ -370,7 +370,7 @@ func TestLookupAndClaimDoNotTouchLastSeenOrAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	got[uidBob][0].SignatureKey[0] = 0xFF
-	cl, err := r.svc.Claim(context.Background(), uidA, uidBob, "")
+	cl, _, err := r.svc.Claim(context.Background(), uidA, uidBob, "")
 	if err != nil || len(cl) != 1 {
 		t.Fatalf("claim %v, %v", cl, err)
 	}
@@ -407,7 +407,7 @@ func TestClaimConsumesThenLastResort(t *testing.T) {
 
 	seen := map[string]bool{}
 	for i := 0; i < 4; i++ {
-		cl, err := r.svc.Claim(context.Background(), uidA, uidBob, "")
+		cl, _, err := r.svc.Claim(context.Background(), uidA, uidBob, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -446,7 +446,7 @@ func TestReplayedUploadAfterClaimReAddsConsumedPackage(t *testing.T) {
 	if n, _, err := r.svc.Upload(ctx, uidBob, devB1, [][]byte{p}, nil); err != nil || n != 1 {
 		t.Fatalf("upload = %d, %v", n, err)
 	}
-	cl, err := r.svc.Claim(ctx, uidA, uidBob, "")
+	cl, _, err := r.svc.Claim(ctx, uidA, uidBob, "")
 	if err != nil || len(cl) != 1 || !bytes.Equal(cl[0].KeyPackage, p) || cl[0].LastResort {
 		t.Fatalf("claim = %+v, %v; want P", cl, err)
 	}
@@ -461,7 +461,7 @@ func TestReplayedUploadAfterClaimReAddsConsumedPackage(t *testing.T) {
 func TestClaimFlagOffTargetIsEmpty(t *testing.T) {
 	r := newClaimRig(t)
 	r.seed(t, uidDan, "device-dan-00000001", 4, pkgs(0, 3), nil)
-	cl, err := r.svc.Claim(context.Background(), uidA, uidDan, "")
+	cl, _, err := r.svc.Claim(context.Background(), uidA, uidDan, "")
 	if err != nil || len(cl) != 0 {
 		t.Fatalf("claim %v, %v; want empty success", cl, err)
 	}
@@ -479,18 +479,18 @@ func TestClaimValidationAndExclude(t *testing.T) {
 	ctx := context.Background()
 
 	for name, target := range map[string]string{"empty": "", "invalid": "bad uid!", "too long": strings.Repeat("a", 129)} {
-		_, err := r.svc.Claim(ctx, uidA, target, "")
+		_, _, err := r.svc.Claim(ctx, uidA, target, "")
 		wantValidation(t, err, "user_id")
 		_ = name
 	}
 	for name, ex := range map[string]string{"self, none": "", "self, bad format": "short", "self, not my device": devB1} {
-		_, err := r.svc.Claim(ctx, uidA, uidA, ex)
+		_, _, err := r.svc.Claim(ctx, uidA, uidA, ex)
 		if err == nil {
 			t.Fatalf("%s: want validation", name)
 		}
 		wantValidation(t, err, "exclude_device_id")
 	}
-	_, err := r.svc.Claim(ctx, uidA, uidBob, "bad id!")
+	_, _, err := r.svc.Claim(ctx, uidA, uidBob, "bad id!")
 	wantValidation(t, err, "exclude_device_id")
 	if len(r.perm.calls) != 0 {
 		t.Fatalf("validation reached the permission check: %v", r.perm.calls)
@@ -502,7 +502,7 @@ func TestClaimValidationAndExclude(t *testing.T) {
 	}
 
 	// Own claim: the excluded device keeps its pool; permission is not asked.
-	cl, err := r.svc.Claim(ctx, uidA, uidA, devID)
+	cl, _, err := r.svc.Claim(ctx, uidA, uidA, devID)
 	if err != nil || len(cl) != 1 || cl[0].DeviceID != devID2 || !cl[0].HasKeyPackage {
 		t.Fatalf("own claim %+v, %v", cl, err)
 	}
@@ -514,13 +514,13 @@ func TestClaimValidationAndExclude(t *testing.T) {
 	}
 	// Own claim excluding an inactive own device is still allowed (it is one of the caller's devices).
 	r.clk.t = t0.Add(InactiveAfter)
-	if _, err := r.svc.Claim(ctx, uidA, uidA, devID); err != nil {
+	if _, _, err := r.svc.Claim(ctx, uidA, uidA, devID); err != nil {
 		t.Fatalf("exclude of an inactive own device: %v", err)
 	}
 
 	// Another user's claim: a well-formed exclude is accepted and does not stop any device being claimed.
 	r.clk.t = t0.Add(time.Hour)
-	cl, err = r.svc.Claim(ctx, uidA, uidBob, devB1)
+	cl, _, err = r.svc.Claim(ctx, uidA, uidBob, devB1)
 	if err != nil || len(cl) != 2 {
 		t.Fatalf("other-user claim with exclude: %+v, %v", cl, err)
 	}
@@ -559,7 +559,7 @@ func TestClaimAndLookupLogCountsOnly(t *testing.T) {
 	want(info, "keys_op", "get_devices", "outcome", "done", "user_count", 2, "device_count", 2)
 
 	ctx, info = logger.WithRequestInfo(context.Background())
-	if _, err := r.svc.Claim(ctx, uidA, uidBob, ""); err != nil {
+	if _, _, err := r.svc.Claim(ctx, uidA, uidBob, ""); err != nil {
 		t.Fatal(err)
 	}
 	noSecrets(info)
@@ -567,14 +567,14 @@ func TestClaimAndLookupLogCountsOnly(t *testing.T) {
 
 	r.perm.refuse = map[string]error{uidBob: ErrCannotMessage}
 	ctx, info = logger.WithRequestInfo(context.Background())
-	_, _ = r.svc.Claim(ctx, uidA, uidBob, "")
+	_, _, _ = r.svc.Claim(ctx, uidA, uidBob, "")
 	noSecrets(info)
 	want(info, "keys_op", "claim", "outcome", "rejected:cannot_message")
 
 	r.perm.refuse = nil
 	r.repo.err = errors.New("boom " + uidBob + " " + devB1)
 	ctx, info = logger.WithRequestInfo(context.Background())
-	_, err := r.svc.Claim(ctx, uidA, uidBob, "")
+	_, _, err := r.svc.Claim(ctx, uidA, uidBob, "")
 	noSecrets(info)
 	for _, sec := range []string{uidBob, uidA} {
 		if err == nil || strings.Contains(err.Error(), sec) {

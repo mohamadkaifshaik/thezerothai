@@ -72,6 +72,11 @@ type Service interface {
 // other error is a failure to decide (a read failed), never a refusal. See permission.go for the rules and reads.
 type Permission interface {
 	CanMessage(ctx context.Context, callerUID, targetUID string) error
+	// SharesEncryptedConversation reports whether the two users are the participants of a conversation whose
+	// encryption is MLS. One cache-first conversation read (up to 60 s stale); writes nothing. No conversation, a
+	// plaintext one, an invalid or equal uid, or a conversation whose other participant is not targetUID => false, nil.
+	// A failed read is an error built by permissionFailure (uids and conversation id hashed), never false.
+	SharesEncryptedConversation(ctx context.Context, callerUID, targetUID string) (bool, error)
 }
 
 // Eraser is messaging's step in the account-deletion cascade (the `messaging` step between follow_requests and identity).

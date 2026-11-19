@@ -245,6 +245,14 @@ func TestMessagingE2EEChain_EndToEnd(t *testing.T) {
 	}
 	if d := look.Msg.GetUsers()[0].GetDevices()[0]; d.GetDeviceId() != zqDevB1 || d.GetCreatedAt() != nil || d.GetLastSeenAt() != nil || d.GetKeyPackageCount() != 0 || d.GetHasLastResort() {
 		t.Errorf("b's device as a sees it = %v, want the id and key only", d)
+	} else if d.GetInactive() {
+		t.Errorf("b's freshly registered device is marked inactive: %v", d)
+	}
+	// A claim for b before the first send answers the conversation id the send will return (K2), so the sender can derive
+	// the MLS group id before any conversation document exists.
+	if cl, err := keys.ClaimKeyPackages(ctx, authed(a.token, &keysv1.ClaimKeyPackagesRequest{IdempotencyKey: contractKey("e2ee-chain-claim"), UserId: b.uid})); err != nil ||
+		len(cl.Msg.GetKeyPackages()) != 1 || cl.Msg.GetConversationId() != conv {
+		t.Fatalf("a's claim for b = %v, %v; want one package and conversation_id %s", cl, err, conv)
 	}
 
 	// --- 2. mls_init: a starts encryption with b, welcoming b's device. ------------------------------------------
@@ -543,11 +551,35 @@ func TestMessagingE2EEChain_EndToEnd(t *testing.T) {
 			}
 		}
 	}
-	// keys.v1: b's devices vanish from a's lookup (an empty success); b cannot look anyone up.
-	if look, err := offKeys.GetKeyDevices(ctx, authed(a.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{b.uid}})); err != nil || len(look.Msg.GetUsers()) != 1 || len(look.Msg.GetUsers()[0].GetDevices()) != 0 {
-		t.Errorf("a's lookup of b with b off = %v, %v, want an empty success", look, err)
+	// keys.v1 (K1/K5): a and b share the encrypted conversation, so the allowlist drop hides nothing from either of them:
+	// a's lookup of b returns b's registered devices (none inactive), b's lookup of a succeeds with a's devices. A claim is
+	// not covered by the shared-conversation rule: a's claim for b (flag off) is an empty success that still names the
+	// conversation, and b (flag off) cannot claim at all.
+	wantDevices := func(who, peer dmUser, want ...string) {
+		t.Helper()
+		look, err := offKeys.GetKeyDevices(ctx, authed(who.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{peer.uid}}))
+		if err != nil || len(look.Msg.GetUsers()) != 1 {
+			t.Errorf("lookup with e2ee_dm dropped = %v, %v, want a success", look, err)
+			return
+		}
+		var got []string
+		for _, d := range look.Msg.GetUsers()[0].GetDevices() {
+			got = append(got, d.GetDeviceId())
+			if d.GetInactive() {
+				t.Errorf("device %s of a recently seen peer is marked inactive", d.GetDeviceId())
+			}
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("devices %v, want %v", got, want)
+		}
 	}
-	_, err = offKeys.GetKeyDevices(ctx, authed(b.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{a.uid}}))
+	wantDevices(a, b, zqDevB1, zqDevB2)
+	wantDevices(b, a, zqDevA)
+	if cl, err := offKeys.ClaimKeyPackages(ctx, authed(a.token, &keysv1.ClaimKeyPackagesRequest{IdempotencyKey: contractKey("e2ee-chain-claim-off"), UserId: b.uid})); err != nil ||
+		len(cl.Msg.GetKeyPackages()) != 0 || cl.Msg.GetConversationId() != conv {
+		t.Errorf("a's claim for b with b off = %v, %v, want an empty success with conversation_id %s", cl, err, conv)
+	}
+	_, err = offKeys.ClaimKeyPackages(ctx, authed(b.token, &keysv1.ClaimKeyPackagesRequest{IdempotencyKey: contractKey("e2ee-chain-claim-b"), UserId: a.uid}))
 	wantReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "e2ee_dm")
 
 	// --- 12. Privacy sweep: no instance logged a marker, a device id, a uid or any byte value in any encoding. ----
