@@ -250,14 +250,31 @@ class FakeVaultFile {
 
   final String storage;
   int key;
+
+  /// Settings by key (values as char codes).
   final Map<String, String> rows = {};
+
+  /// This device's id and engine state (the device row), or null.
+  Uint8List? deviceId;
+  Uint8List? deviceState;
+
+  /// Committed transactions (a test can count writes).
+  int commits = 0;
 
   /// False for an empty database (no sentinel): what `SecureVault.wipe()`
   /// leaves behind, since it deletes rows but not the file.
   bool stamped = true;
 
   /// No sentinel and no rows.
-  bool get empty => !stamped && rows.isEmpty;
+  bool get empty => !stamped && rows.isEmpty && deviceId == null;
+
+  /// Rows only (settings and the device row): what a database emptied
+  /// outside the app has lost.
+  void clearRows() {
+    rows.clear();
+    deviceId = null;
+    deviceState = null;
+  }
 
   /// The probe cannot list this copy (e.g. OPFS gone).
   bool hidden = false;
@@ -317,10 +334,21 @@ class FakeWorldVault implements SecureVault {
   @override
   String get storageName => _file.storage;
 
+  /// Runs [body]; its writes are applied only when it completes (a body
+  /// that throws leaves nothing), as with the real vault.
   @override
-  Future<T> transaction<T>(Future<T> Function(VaultTx tx) body) {
+  Future<T> transaction<T>(Future<T> Function(VaultTx tx) body) async {
     if (closed) throw StateError('closed');
-    return body(_FakeTx(_file));
+    final tx = _FakeTx(_file);
+    final T result;
+    try {
+      result = await body(tx);
+    } finally {
+      tx.ended = true;
+    }
+    if (closed) throw StateError('closed');
+    tx.commit();
+    return result;
   }
 
   @override
@@ -328,6 +356,20 @@ class FakeWorldVault implements SecureVault {
     if (closed) throw StateError('closed');
     final v = _file.rows[key];
     return v == null ? null : Uint8List.fromList(v.codeUnits);
+  }
+
+  @override
+  Future<Uint8List?> deviceId() async {
+    if (closed) throw StateError('closed');
+    final v = _file.deviceId;
+    return v == null ? null : Uint8List.fromList(v);
+  }
+
+  @override
+  Future<Uint8List?> deviceState() async {
+    if (closed) throw StateError('closed');
+    final v = _file.deviceState;
+    return v == null ? null : Uint8List.fromList(v);
   }
 
   @override
@@ -339,7 +381,7 @@ class FakeWorldVault implements SecureVault {
     closed = true;
     // Rows only: the (empty) database stays, as with the real vault.
     _file
-      ..rows.clear()
+      ..clearRows()
       ..stamped = false;
     await _cipher.destroy();
   }
@@ -360,10 +402,51 @@ class _FakeTx implements VaultTx {
   _FakeTx(this._file);
 
   final FakeVaultFile _file;
+  final List<void Function()> _staged = [];
+  bool ended = false;
+
+  // Reads inside the body see the staged device row (as the real vault's
+  // reads inside a transaction see its writes) only through the file once
+  // committed; the service reads before it writes, so this is enough.
+  bool _hasDevice = false;
+
+  void _stage(void Function() op) {
+    if (ended) throw StateError('transaction ended');
+    _staged.add(op);
+  }
+
+  void commit() {
+    for (final op in _staged) {
+      op();
+    }
+    _file.commits++;
+  }
 
   @override
   Future<void> putSetting(String key, Uint8List value) async {
-    _file.rows[key] = String.fromCharCodes(value);
+    final v = String.fromCharCodes(value);
+    _stage(() => _file.rows[key] = v);
+  }
+
+  @override
+  Future<void> putDevice(Uint8List deviceId, Uint8List deviceState) async {
+    final id = Uint8List.fromList(deviceId);
+    final state = Uint8List.fromList(deviceState);
+    _hasDevice = true;
+    _stage(() {
+      _file
+        ..deviceId = id
+        ..deviceState = state;
+    });
+  }
+
+  @override
+  Future<void> putDeviceState(Uint8List deviceState) async {
+    if (_file.deviceId == null && !_hasDevice) {
+      throw StateError('putDeviceState before putDevice.');
+    }
+    final state = Uint8List.fromList(deviceState);
+    _stage(() => _file.deviceState = state);
   }
 
   @override

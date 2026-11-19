@@ -42,6 +42,8 @@ import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
+import '../features/keys/data/keys_repository.dart';
+import '../features/keys/domain/device_keys_service.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/impressions_repository.dart';
@@ -218,8 +220,13 @@ Future<void> bootstrap() async {
   // finished, before any vault is
   // opened; nothing opens before a user and the flag are known. A null
   // restored user is otherwise a lost session for the vault: nothing wiped.
+  // One crypto engine for the vault cipher and the device keys, created on
+  // first use (nothing of it starts while e2ee_dm is off).
+  CryptoEngine? cryptoEngine;
+  CryptoEngine engine() => cryptoEngine ??= createCryptoEngine();
   final vaultSession = _buildVaultSession(
     cache: cache,
+    engine: engine,
     onUnexpectedError: reportUnexpectedError,
   );
   // An accepted account deletion journals the vault wipe at once.
@@ -284,6 +291,9 @@ Future<void> bootstrap() async {
   // the device while the ID token is still valid; AppWidget gives
   // it the router. It is wired to the notifications repository below.
   late final PushCubit pushCubit;
+  // Built below, once the flag gate exists; a failed sign-out (which can
+  // only follow a user action) re-registers the device the hook removed.
+  late final DeviceKeysService deviceKeys;
   final authBloc = AuthBloc(
     authRepository: authRepository,
     // One 3 s budget for both: push unregistration and, only when the
@@ -291,8 +301,10 @@ Future<void> bootstrap() async {
     // and key-directory removal before the vault is wiped.
     beforeSignOut: () => pushCubit.unregister(),
     beforeExplicitSignOut: vaultSession.beforeExplicitSignOut,
-    onSignOutFailed: (uid) =>
-        unawaited(vaultSession.explicitSignOutFailed(uid)),
+    onSignOutFailed: (uid) {
+      unawaited(vaultSession.explicitSignOutFailed(uid));
+      unawaited(deviceKeys.onSignOutFailed(uid));
+    },
     unknownTimeout: kAuthUnknownTimeout,
   )..add(const AuthSubscriptionRequested());
   sessionAuth = authBloc;
@@ -332,6 +344,31 @@ Future<void> bootstrap() async {
       );
     }
   });
+
+  // E2EE device keys: this install's encryption device in the key directory
+  // and its key-package pool. Runs after each vault open (the session hook,
+  // outside its queue), on resume and at most hourly; removed from the
+  // directory before an explicit wipe. Inert with e2ee_dm off (no vault, and
+  // the gate sends nothing).
+  deviceKeys = DeviceKeysService(
+    session: vaultSession,
+    repository: KeysRepository(
+      apiClient: apiClient,
+      gate: buildServiceGate(
+        onboardingBloc,
+        kFeatureE2eeDm,
+        onUnexpectedError: reportUnexpectedError,
+      ),
+    ),
+    engine: engine,
+    currentUid: () => authBloc.state.user?.uid,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  vaultSession
+    ..onVaultReady = deviceKeys.onVaultReady
+    ..beforeExplicitWipe = deviceKeys.removeThisDevice;
+  // Lives as long as the app (the binding keeps it).
+  AppLifecycleListener(onResume: () => unawaited(deviceKeys.onAppResumed()));
 
   // Posts + timeline: the gate reads `GetMe.enabled_features` via
   // OnboardingBloc (0 extra reads) and remembers FEATURE_DISABLED answers
@@ -707,12 +744,11 @@ class _LocalAppCheckTokenProvider implements AppCheckTokenProvider {
 /// nothing of it starts while `e2ee_dm` is off.
 VaultSession _buildVaultSession({
   required OpenedCacheDatabase cache,
+  required CryptoEngine Function() engine,
   required UnexpectedErrorReporter onUnexpectedError,
 }) {
-  CryptoEngine? engine;
   return VaultSession(
-    openCipher: (uid) =>
-        openVaultCipher(uid: uid, engine: engine ??= createCryptoEngine()),
+    openCipher: (uid) => openVaultCipher(uid: uid, engine: engine()),
     openVault: vault_open.openVault,
     wipeVaultFile: vault_open.wipeVaultFileForAlias,
     deleteVaultKey: deleteVaultKeyForAlias,
