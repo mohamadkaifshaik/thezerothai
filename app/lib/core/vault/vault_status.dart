@@ -27,13 +27,14 @@ enum VaultStatus {
   /// Web only: this vault already exists in another browser storage than
   /// the one this browser would use now (for example OPFS, after the page
   /// lost cross-origin isolation). Nothing was opened or written, because
-  /// the new storage would show an empty vault. The data is intact; it
-  /// becomes reachable again when the old storage is available. Never treat
-  /// this as key loss: deleting the key would make that data unreadable.
-  /// Never answer it with `wipeVaultFile`: that erases every copy, the
-  /// hidden history included. When copies exist under two storages at once
-  /// this state never clears on its own; only an explicit user reset (which
-  /// destroys both) or restoring the old storage ends it.
+  /// the new storage would show an empty vault. The data is intact. With a
+  /// single copy it becomes reachable again when the old storage is
+  /// available. Never treat this as key loss: deleting the key would make
+  /// that data unreadable. Never answer it with `wipeVaultFile`: that erases
+  /// every copy it can find, the hidden history included. When copies exist
+  /// under two storages at once this state never clears on its own, NOT
+  /// EVEN when the old storage returns (both copies are then listed); only
+  /// an explicit user reset, which destroys both, ends it.
   storageChanged,
 }
 

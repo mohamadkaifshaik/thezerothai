@@ -381,10 +381,9 @@ void main() {
       };
     });
 
-    testWidgets('web, sharedIndexedDb: one committed transaction reaches '
-        'IndexedDB without a close, and a second instance reads it', (
-      tester,
-    ) async {
+    testWidgets('web, sharedIndexedDb: one committed transaction is persisted '
+        'to IndexedDB (no hot journal) within the poll window without a '
+        'close, and a second instance reads it', (tester) async {
       if (!kIsWeb) return;
       final uid = newUid();
       final name = vaultDatabaseName(uid);
@@ -426,16 +425,27 @@ void main() {
         );
       });
 
-      // No close. Read the raw IndexedDB copy of the database file (not
-      // through drift or sqlite) and look for the clear ids.
+      // No close. Within a 5 s poll window, read the raw IndexedDB copy of
+      // the files (not through drift or sqlite): the database file must
+      // hold the clear ids AND no rollback journal may be persisted. The
+      // journal check matters: a persisted ("hot") `/database-journal`
+      // would make SQLite roll this transaction back the next time the
+      // database is opened, so rows visible in `/database` alone would not
+      // mean the transaction survives. This shows "persisted within the
+      // poll window", not "durable when transaction() returns".
       final watch = Stopwatch()..start();
-      var found = false;
+      var persisted = false;
+      String? journalSeen;
       while (watch.elapsed < const Duration(seconds: 5)) {
         final bytes = await readPersistedFile(name, '/database');
-        if (bytes != null) {
+        final journal = await readPersistedFile(name, '/database-journal');
+        journalSeen = journal == null ? 'absent' : '${journal.length} bytes';
+        // A zero-length journal is not hot either (SQLite needs a header).
+        final noHotJournal = journal == null || journal.isEmpty;
+        if (bytes != null && noHotJournal) {
           final text = latin1.decode(bytes);
           if (text.contains(conversation) && text.contains(messageId)) {
-            found = true;
+            persisted = true;
             break;
           }
         }
@@ -443,10 +453,10 @@ void main() {
       }
       watch.stop();
       debugPrint(
-        'committed vault rows in IndexedDB: $found after '
-        '${watch.elapsedMilliseconds} ms',
+        'vault rows persisted in IndexedDB: $persisted after '
+        '${watch.elapsedMilliseconds} ms; journal $journalSeen',
       );
-      expect(found, isTrue);
+      expect(persisted, isTrue, reason: 'journal: $journalSeen');
 
       // "The tab died": no close. A second, independent vault instance
       // (new database object, new cipher object) reads the rows back. In
@@ -464,7 +474,8 @@ void main() {
       expect((await second.group(conversation))!.epoch, 7);
       binding.reportData = {
         ...?binding.reportData,
-        'durable_in_indexeddb_ms': watch.elapsedMilliseconds,
+        'persisted_in_indexeddb_ms': watch.elapsedMilliseconds,
+        'journal_after_commit': journalSeen,
       };
     });
   });

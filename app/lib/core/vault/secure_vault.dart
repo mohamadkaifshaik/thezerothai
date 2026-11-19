@@ -31,6 +31,11 @@ abstract final class StoredMessageState {
 }
 
 /// One message of the decrypted history. [toString] shows ids only.
+///
+/// A message read back as [StoredMessageState.undecryptable] (its row did
+/// not open, or its stored sort key is damaged) must never be passed to
+/// [VaultTx.putMessage]: its content is null and [createdAtMicros] may be
+/// 0, so writing it back would destroy the stored ciphertext and sort key.
 class StoredMessage {
   const StoredMessage({
     required this.conversationId,
@@ -178,8 +183,9 @@ class OutboxRead {
 ///   before writing more; do not keep using a connection that failed.
 /// - Never call `wipeVaultFile` for a uid whose vault is open (it throws
 ///   [StateError] for a vault opened in this process). It erases every
-///   copy of the vault under every storage, including one this browser
-///   cannot open right now: call it only for an explicit user reset or
+///   copy the platform can find (on the web: every copy the storage probe
+///   lists; one it cannot list survives): call it only for an explicit
+///   user reset or
 ///   sign-out, a different user signing in, or a key loss the session has
 ///   confirmed. NEVER call it because of [VaultStatus.storageChanged]: that
 ///   would destroy the history the status is protecting.
@@ -213,7 +219,9 @@ abstract interface class SecureVault {
   /// is no cap on history: page with the last returned sort key until the
   /// result is shorter than [limit]. A row that no longer opens under the
   /// vault key comes back as [StoredMessageState.undecryptable] with no
-  /// content; it is never deleted.
+  /// content; it is never deleted. Never write such a message back with
+  /// [VaultTx.putMessage]: its content is null and its time may be 0, so
+  /// that would replace the stored ciphertext and sort key for good.
   Future<List<StoredMessage>> messages(
     String conversationId, {
     int limit = 50,
@@ -445,9 +453,10 @@ class _DriftSecureVault implements SecureVault {
   String? _registeredAs;
   bool _closed = false;
 
-  /// Marks the vault closed and releases its registry entry (once).
-  void _markClosed() {
-    _closed = true;
+  /// Releases the registry entry (once). Called only after the connection
+  /// has finished closing, so `wipeVaultFile` started without awaiting
+  /// [close] or [wipe] still sees the vault as open and refuses.
+  void _releaseRegistration() {
     final name = _registeredAs;
     _registeredAs = null;
     if (name != null) _releaseVaultName(name);
@@ -737,7 +746,7 @@ class _DriftSecureVault implements SecureVault {
       _wiping = false;
       rethrow;
     }
-    _markClosed();
+    _closed = true;
     try {
       // Rebuild the file so no freed page keeps old ids or sealed bytes.
       // A failed VACUUM does not keep the key: the rows are already gone
@@ -748,14 +757,19 @@ class _DriftSecureVault implements SecureVault {
       await _cipher.destroy();
     } finally {
       await _db.closeQuietly();
+      _releaseRegistration();
     }
   }
 
   @override
   Future<void> close() async {
     if (_closed) return;
-    _markClosed();
-    await _db.close();
+    _closed = true;
+    try {
+      await _db.close();
+    } finally {
+      _releaseRegistration();
+    }
   }
 }
 

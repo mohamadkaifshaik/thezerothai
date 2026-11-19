@@ -108,7 +108,9 @@ void main() {
         );
       }
       expect(isTrustedVaultWebProbe({}), isTrue);
-      // Other missing features only narrow the storages; they are trusted.
+      // Only workerError is refused. Other missing features are not
+      // refused here, but they can still hide an existing copy (see
+      // isTrustedVaultWebProbe); the storage-marker task covers them.
       expect(
         choose(
           [inMemory, sharedIdb],
@@ -389,12 +391,15 @@ void main() {
         cipher: FakeVaultCipher(),
         registerAs: name,
       );
+      // A failure below must not leave the name registered for later tests.
+      addTearDown(first.close);
       final second = await openVaultOnDatabase(
         VaultDatabase.forTesting(NativeDatabase.memory()),
         uid: 'u1',
         cipher: FakeVaultCipher(),
         registerAs: name,
       );
+      addTearDown(second.close);
       expect(isVaultOpenInProcess(name), isTrue);
       await expectLater(wipeVaultFile(uid: 'u1'), throwsStateError);
       // Another uid is not affected (on the VM it then reaches the
@@ -413,6 +418,47 @@ void main() {
         wipeVaultFile(uid: 'u1'),
         _throwsStatus(VaultStatus.unsupported),
       );
+    });
+
+    test('the name stays registered until close() and wipe() have finished: '
+        'a wipeVaultFile started without awaiting them is refused', () async {
+      final name = vaultDatabaseName('u4');
+      final vault = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase.memory()),
+        uid: 'u4',
+        cipher: FakeVaultCipher(),
+        registerAs: name,
+      );
+      addTearDown(vault.close);
+      final closing = vault.close();
+      await expectLater(wipeVaultFile(uid: 'u4'), throwsStateError);
+      await closing;
+      expect(isVaultOpenInProcess(name), isFalse);
+      // Past the guard (the VM platform itself is unsupported).
+      await expectLater(
+        wipeVaultFile(uid: 'u4'),
+        _throwsStatus(VaultStatus.unsupported),
+      );
+
+      final cipher = FakeVaultCipher();
+      final wiped = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase.memory()),
+        uid: 'u4',
+        cipher: cipher,
+        registerAs: name,
+      );
+      addTearDown(wiped.close);
+      var destroyed = false;
+      cipher.onDestroy = () async {
+        // Still registered while the key is being destroyed.
+        expect(isVaultOpenInProcess(name), isTrue);
+        destroyed = true;
+      };
+      final wiping = wiped.wipe();
+      await expectLater(wipeVaultFile(uid: 'u4'), throwsStateError);
+      await wiping;
+      expect(destroyed, isTrue);
+      expect(isVaultOpenInProcess(name), isFalse);
     });
 
     test('a failed open registers nothing', () async {

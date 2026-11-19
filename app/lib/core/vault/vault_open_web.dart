@@ -31,9 +31,10 @@ Future<WasmProbeResult> _probe(String name) => WasmDatabase.probe(
 /// drift has already picked and opened a storage, and a throw there fails
 /// two internal futures nobody listens to (uncaught errors).
 ///
-/// A probe whose worker failed (`MissingBrowserFeature.workerError`) is not
-/// trusted: it may not list an existing vault, so it is refused
-/// ([VaultStatus.unavailable]) and nothing is opened.
+/// A probe whose worker failed (`MissingBrowserFeature.workerError`) may
+/// not list an existing vault, so it is refused ([VaultStatus.unavailable])
+/// and nothing is opened. Other gaps that can hide a copy are not detected
+/// (see `isTrustedVaultWebProbe`).
 ///
 /// A refused probe's workers are not closed: drift 2.35.4's
 /// `WasmProbeResult` exposes no way to dispose of them (its workers are

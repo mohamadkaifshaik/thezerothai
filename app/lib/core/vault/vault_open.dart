@@ -42,10 +42,17 @@ const Set<WasmStorageImplementation> kVaultAcceptedWebStorages = {
 bool isAcceptedVaultWebStorage(WasmStorageImplementation chosen) =>
     kVaultAcceptedWebStorages.contains(chosen);
 
-/// Whether drift's probe can be trusted to have listed every existing
-/// database: false when one of its workers failed
-/// ([MissingBrowserFeature.workerError]), which drift swallows. Used before
-/// both opening and wiping on the web.
+/// False when drift's probe reported a failed worker
+/// ([MissingBrowserFeature.workerError], which drift swallows): such a
+/// probe is refused before both opening and wiping on the web.
+///
+/// True does NOT mean every existing copy was listed. Other gaps can also
+/// hide an existing copy and are NOT detected here: a missing
+/// [MissingBrowserFeature.fileSystemAccess] or
+/// [MissingBrowserFeature.indexedDb], missing dedicated workers together
+/// with missing nested workers, and a silent false answer from drift's
+/// existence check. The storage-marker task (outside the vault) covers
+/// those.
 bool isTrustedVaultWebProbe(Set<MissingBrowserFeature> missingFeatures) =>
     !missingFeatures.contains(MissingBrowserFeature.workerError);
 
@@ -55,7 +62,7 @@ bool isTrustedVaultWebProbe(Set<MissingBrowserFeature> missingFeatures) =>
 /// probe could not check ([missingFeatures]).
 ///
 /// - [missingFeatures] contains [MissingBrowserFeature.workerError]: the
-///   probe is not trusted and the result is [VaultOpenException] with
+///   probe is refused and the result is [VaultOpenException] with
 ///   [VaultStatus.unavailable]. drift swallows a failed worker and only
 ///   records this flag; the databases that worker would have listed (an
 ///   OPFS vault, say) are then missing from [existing], and opening would
@@ -75,10 +82,12 @@ bool isTrustedVaultWebProbe(Set<MissingBrowserFeature> missingFeatures) =>
 ///
 /// Never [VaultStatus.keyLost]. Pure, so the VM tests cover every case.
 ///
-/// Known limit: a probe that reports "not present" WITHOUT an error (a
-/// database that exists but is not listed, with no worker failure) cannot
-/// be detected here; a storage marker kept outside the vault (a later
-/// task) closes that case.
+/// Known limit: only `workerError` is detected. A copy can also be missing
+/// from [existing] without it: when `fileSystemAccess` or `indexedDb` is
+/// missing, when dedicated workers are missing together with nested
+/// workers, or when drift's existence check silently answers "not
+/// present". None of these is detected here; a storage marker kept outside
+/// the vault (a later task) closes them.
 WasmStorageImplementation chooseVaultWebStorage({
   required Iterable<WasmStorageImplementation> available,
   required Iterable<ExistingDatabase> existing,
@@ -173,10 +182,13 @@ Future<SecureVault> openVault({
   );
 }
 
-/// Erases EVERY copy of [uid]'s vault, under every storage, including a
-/// copy this browser cannot open right now; no cipher is needed (so it
-/// works when the key is lost or unavailable). Delete the platform key
-/// separately (`deleteVaultKey`), after this succeeds.
+/// Erases every copy of [uid]'s vault that the platform can find: on
+/// Android the one file; on the web every copy drift's storage probe LISTS
+/// (OPFS and IndexedDB). A web copy in a storage the probe cannot list
+/// survives, and this call still succeeds; a later task adds a storage
+/// marker that makes the wipe refuse in that case instead. No cipher is
+/// needed (so it works when the key is lost or unavailable). Delete the
+/// platform key separately (`deleteVaultKey`), after this succeeds.
 ///
 /// Call it ONLY for an explicit user reset or sign-out, for a previous user
 /// when a different user signs in, or after a key loss the session has
