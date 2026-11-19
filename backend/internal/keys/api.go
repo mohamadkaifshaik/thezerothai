@@ -24,9 +24,10 @@ type Permission interface {
 	// CanMessage answers whether caller may message target by the messaging send rules. A refusal is
 	// ErrCannotMessage (possibly wrapped); it never says why. Any other error is a failure to decide, not a refusal.
 	CanMessage(ctx context.Context, callerUID, targetUID string) error
-	// SharesEncryptedConversation reports whether the two users are the participants of a conversation whose
+	// SharesEncryptedConversation reports whether the two users are the participants of an ACCEPTED conversation whose
 	// encryption is MLS. One cache-first conversation read (up to 60 s stale); writes nothing. No conversation, a
-	// plaintext one, an invalid or equal uid, or a conversation whose other participant is not targetUID => false, nil.
+	// plaintext one, a conversation still in the request state (for both participants), an invalid or equal uid, or a
+	// conversation whose other participant is not targetUID => false, nil.
 	// A failed read is an error (uids and conversation id hashed), never false.
 	SharesEncryptedConversation(ctx context.Context, callerUID, targetUID string) (bool, error)
 }
@@ -64,8 +65,8 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 }
 
 // GuardNotOff is the not-globally-off gate (ListMyKeyDevices, RemoveKeyDevice, GetKeyDevices), so a user dropped from an
-// allowlist can still see and remove their devices and look up a peer they share an encrypted conversation with (the
-// service answers an empty success for every other peer of a flag-off caller). Same error shape as Guard. A nil checker
+// allowlist can still see and remove their devices and look up a peer they share an accepted encrypted conversation with
+// (the service answers an empty success for every other peer of a flag-off caller). Same error shape as Guard. A nil checker
 // is off for everyone.
 func GuardNotOff(ctx context.Context, fc FlagChecker, uid string) error {
 	return guard(ctx, func(_, name string) bool { return fc != nil && !fc.GloballyOff(name) }, uid)

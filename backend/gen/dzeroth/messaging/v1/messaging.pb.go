@@ -105,7 +105,7 @@
 //   ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC, so a participant dropped
 //   from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
 //   are already members. The limits of that, from the key directory (keys.v1): (a) their devices stay visible in
-//   GetKeyDevices to a peer who shares an encrypted conversation (keys.v1), but cannot be claimed for (a target with
+//   GetKeyDevices to a peer who shares an accepted encrypted conversation (keys.v1), but cannot be claimed for (a target with
 //   e2ee_dm off is an empty success in ClaimKeyPackages), so no new device of theirs can be added, and the peer
 //   cannot build a reset or an add for them (no key package can be claimed); the server itself does not check e2ee_dm
 //   on welcome devices; (b) they can call GetKeyDevices (same rule) but not ClaimKeyPackages or RegisterKeyDevice, so
@@ -197,9 +197,10 @@
 //     generation from ListConversationCommits. Member devices make this work: when they open the
 //     conversation and before they send, they reconcile the group's membership against the peer's devices from
 //     GetKeyDevices and the caller's own devices from ListMyKeyDevices (GetKeyDevices returns the caller's own devices
-//     only when the caller's flag is on) and add missing active devices with an ordinary commit. On STALE_EPOCH (or a success whose pair is later than
-//     expected) for such a commit, the device catches up and runs the reconciliation again on the caught-up group
-//     before building any commit; it never resends a rebuilt copy of the same add.
+//     only when the caller's flag is on) and add missing active devices with an ordinary
+//     commit. On STALE_EPOCH (or a success whose pair is later than expected) for such a commit, the device catches
+//     up and runs the reconciliation again on the caught-up group before building any commit; it never resends a
+//     rebuilt copy of the same add.
 //   - A reset SHOULD address every active key device of both users that the resetter can obtain a key package for
 //     (its own other devices included); it MUST address at least one device of the peer.
 //   - A success answer whose pair is later than the pair the device expected (a replay answered after other commits,

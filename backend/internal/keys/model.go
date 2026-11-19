@@ -96,7 +96,7 @@ type Service interface {
 	Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte) (poolCount int, hasLastResort bool, err error)
 	// GetDevices answers the devices of 1 to 10 distinct users, keyed by every requested id. For every user other than
 	// the caller the caller must pass Permission.CanMessage first (in request order, before anything else); any refusal is
-	// the one CANNOT_MESSAGE. Then, per other user: a pair that shares an encrypted conversation
+	// the one CANNOT_MESSAGE. Then, per other user: a pair that shares an accepted encrypted conversation
 	// (Permission.SharesEncryptedConversation, whatever either flag says) gets every registered device with Inactive
 	// set; else, when the flag is on for both caller and target, the active devices; else an empty list and no device
 	// read. The caller's own id answers the caller's active devices only when the caller's flag is on, else an empty

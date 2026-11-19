@@ -551,7 +551,7 @@ func TestMessagingE2EEChain_EndToEnd(t *testing.T) {
 			}
 		}
 	}
-	// keys.v1 (K1/K5): a and b share the encrypted conversation, so the allowlist drop hides nothing from either of them:
+	// keys.v1 (K1/K5): a and b share an accepted encrypted conversation (they follow each other, so the first send created it ACCEPTED), so the allowlist drop hides nothing from either of them:
 	// a's lookup of b returns b's registered devices (none inactive), b's lookup of a succeeds with a's devices. A claim is
 	// not covered by the shared-conversation rule: a's claim for b (flag off) is an empty success that still names the
 	// conversation, and b (flag off) cannot claim at all.

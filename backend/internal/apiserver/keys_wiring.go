@@ -53,7 +53,7 @@ func (p keysPermission) CanMessage(ctx context.Context, callerUID, targetUID str
 	return fmt.Errorf("keys: messaging permission: %w", err)
 }
 
-// SharesEncryptedConversation forwards unchanged; a failure is wrapped (messaging already hashed the uids and the
+// SharesEncryptedConversation (true only for an accepted MLS conversation) forwards unchanged; a failure is wrapped (messaging already hashed the uids and the
 // conversation id out of its text), and is never turned into false.
 func (p keysPermission) SharesEncryptedConversation(ctx context.Context, callerUID, targetUID string) (bool, error) {
 	shared, err := p.m.SharesEncryptedConversation(ctx, callerUID, targetUID)

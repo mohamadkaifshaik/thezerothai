@@ -824,7 +824,7 @@ class UserKeyDevices extends $pb.GeneratedMessage {
   void clearUserId() => $_clearField(1);
 
   /// For another user: every registered device (each carrying its inactive flag) when the caller and the user share an
-  /// encrypted conversation, else active devices only; device_id, signature_public_key and inactive only (no
+  /// accepted encrypted conversation, else active devices only; device_id, signature_public_key and inactive only (no
   /// timestamps, no counts). The caller's own id: the caller's active devices with every field, returned only when the
   /// caller's flag is on, else none.
   @$pb.TagNumber(2)
@@ -1220,11 +1220,12 @@ class KeyServiceApi {
   /// message the target by the messaging send rules; an unknown or non-ACTIVE user, a block in either direction and any
   /// other refusal answer ONE byte-identical FAILED_PRECONDITION + CANNOT_MESSAGE, and one refused target fails the
   /// whole call with that single CANNOT_MESSAGE (no partial result). Then, per target other than the caller: devices
-  /// are returned when the caller and the target both have the flag on, or the two share an encrypted conversation
-  /// (computed by the server from the two raw uids; the conversation read may be up to 60 s stale); otherwise the
-  /// answer is an empty success, also for a caller whose flag is off (never FEATURE_DISABLED unless the flag is
-  /// globally off). For a pair that shares an encrypted conversation every registered device is returned, each
-  /// carrying its inactive flag; otherwise active devices only, oldest first. The caller's own id returns the caller's
+  /// are returned when the caller and the target both have the flag on, or the two share an accepted encrypted
+  /// conversation (computed by the server from the two raw uids; the conversation read may be up to 60 s stale);
+  /// otherwise the answer is an empty success, also for a caller whose flag is off (never FEATURE_DISABLED unless the
+  /// flag is globally off). For a pair that shares an accepted encrypted conversation every registered device is
+  /// returned, each carrying its inactive flag; otherwise active devices only, oldest first. A conversation that is
+  /// still a message request (not accepted) does not count: both sides get the ordinary rule. The caller's own id returns the caller's
   /// active devices only when the caller's flag is on, else none (use ListMyKeyDevices). For other users only device_id,
   /// signature_public_key and inactive are returned: created_at and last_seen_at are absent, key_package_count is 0
   /// and has_last_resort is false. The caller's own devices carry every field. Reads: for each target other than the

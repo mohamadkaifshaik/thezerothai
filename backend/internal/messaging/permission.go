@@ -120,9 +120,11 @@ func (s *service) CanMessage(ctx context.Context, callerUID, targetUID string) e
 }
 
 // SharesEncryptedConversation implements Permission: whether callerUID and targetUID are the two participants of a
-// conversation whose encryption is MLS. The key directory uses it to let two people who already talk in an encrypted
-// conversation look up each other's devices, whatever either one's FEATURE_E2EE_DM or FEATURE_MESSAGING state (so it applies
-// no flag gate and none of CanMessage's send rules, which are the key directory's separate, earlier check).
+// ACCEPTED conversation whose encryption is MLS. The key directory uses it to let two people who already talk in an
+// accepted encrypted conversation look up each other's devices, whatever either one's FEATURE_E2EE_DM or FEATURE_MESSAGING
+// state (so it applies no flag gate and none of CanMessage's send rules, which are the key directory's separate, earlier
+// check). A conversation still in the request state (a pending message request, for the requester and the recipient
+// alike) or in any other state is false, nil.
 //
 // The conversation id is a pure function of the two uids; the read is s.conversation (cache-first, up to CACHE_TTL = 60 s
 // stale, and the H-1 rule that a non-participant never warms or reads the cache), one document. It writes nothing. An
@@ -145,7 +147,7 @@ func (s *service) SharesEncryptedConversation(ctx context.Context, callerUID, ta
 	case err != nil:
 		return false, readFailure("shares encrypted conversation", "conversation", err, callerUID, targetUID, convID)
 	}
-	return c.Encryption == encMLS && peerOf(c.Participants, callerUID) == targetUID, nil
+	return c.Encryption == encMLS && c.State == stateAccepted && peerOf(c.Participants, callerUID) == targetUID, nil
 }
 
 // permissionFailure is a failed read of CanMessage: a plain error naming the step, with the uids (and the conversation id)

@@ -304,6 +304,9 @@ func TestSharesEncryptedConversation(t *testing.T) {
 			r.repo.convs[id] = ConvDoc{Kind: kindDirect, Participants: participants, State: stateAccepted, Encryption: encMLS}
 		}
 	}
+	pending := func(r *suggestRig) {
+		r.repo.convs[id] = ConvDoc{Kind: kindDirect, Participants: sortedPair(me, permPeer), State: stateRequest, Encryption: encMLS}
+	}
 	tests := []struct {
 		name         string
 		caller, peer string
@@ -316,6 +319,8 @@ func TestSharesEncryptedConversation(t *testing.T) {
 		}, false},
 		{"MLS, caller first", me, permPeer, mls(sortedPair(me, permPeer)...), true},
 		{"MLS, asked the other way round", permPeer, me, mls(sortedPair(me, permPeer)...), true},
+		{"an MLS request not yet accepted: the requester asking", me, permPeer, pending, false},
+		{"an MLS request not yet accepted: the recipient asking", permPeer, me, pending, false},
 		{"MLS with an erased peer", me, permPeer, mls(sortedPair(me, DeletedUID)...), false},
 		{"MLS whose participants are not the pair", me, permPeer, mls(sortedPair(me, "uid-someone-else")...), false},
 		{"MLS with one participant", me, permPeer, mls(me), false},

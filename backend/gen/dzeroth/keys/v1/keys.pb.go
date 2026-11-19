@@ -22,13 +22,14 @@
 // Flag FEATURE_E2EE_DM (wire name "e2ee_dm", default off). RegisterKeyDevice, UploadKeyPackages and ClaimKeyPackages
 // need it on for the caller. GetKeyDevices, ListMyKeyDevices and RemoveKeyDevice need it only not globally off, so a
 // user dropped from an allowlist can still see and remove their devices and can still look up the devices of a peer
-// they share an encrypted conversation with. Else FAILED_PRECONDITION + FEATURE_DISABLED,
+// they share an accepted encrypted conversation with. Else FAILED_PRECONDITION + FEATURE_DISABLED,
 // metadata["feature"] = "e2ee_dm", before any lookup. A TARGET whose own flag is off is not an error: see GetKeyDevices.
 //
 // Interplay with FEATURE_MESSAGING (wire name "messaging"), for GetKeyDevices and ClaimKeyPackages: a caller with
 // "messaging" off gets CANNOT_MESSAGE for every other user; a target with "messaging" off is CANNOT_MESSAGE; a target
 // with "messaging" on and only "e2ee_dm" off is an empty success (no devices, no packages), except that GetKeyDevices
-// still returns the devices of a target the caller shares an encrypted conversation with (see GetKeyDevices).
+// still returns the devices of a target the caller shares an accepted encrypted conversation with (see
+// GetKeyDevices).
 // ClaimKeyPackages stays an empty success.
 //
 // Limits: device id [A-Za-z0-9_-]{16,64}; signature_public_key exactly 32 bytes (Ed25519); a key package 1-4096 bytes;
@@ -36,12 +37,12 @@
 // not seen for 30 days is inactive (one last seen exactly 30 days ago is inactive); GetKeyDevices takes 1-10 user ids.
 //
 // Inactive devices are flagged at read time (KeyDevice.inactive) and never deleted by the server: an inactive device
-// is left out of ClaimKeyPackages, is left out of GetKeyDevices unless the caller shares an encrypted conversation
-// with its owner (then it is returned with inactive set), still appears in ListMyKeyDevices, still counts toward the
-// cap of 5 until its owner removes it, and becomes active again when it next registers or uploads (same id, same key).
-// Only RegisterKeyDevice and UploadKeyPackages move last_seen_at (at most once per 24 h); lookups, claims, lists and
-// removes never do. A device unseen for 30 days drops out of claims, and out of lookups unless the caller
-// shares an encrypted conversation with its owner, so clients MUST call RegisterKeyDevice periodically (for example
+// is left out of ClaimKeyPackages, is left out of GetKeyDevices unless the caller shares an accepted encrypted
+// conversation with its owner (then it is returned with inactive set), still appears in ListMyKeyDevices, still counts
+// toward the cap of 5 until its owner removes it, and becomes active again when it next registers or uploads (same id,
+// same key). Only RegisterKeyDevice and UploadKeyPackages move last_seen_at (at most once per 24 h); lookups, claims,
+// lists and removes never do. A device unseen for 30 days drops out of claims, and out of lookups unless the caller
+// shares an accepted encrypted conversation with its owner, so clients MUST call RegisterKeyDevice periodically (for example
 // on app open, at most once a day), not only on first install.
 //
 // User references: user_ids (GetKeyDevicesRequest), user_id (UserKeyDevices, ClaimKeyPackagesRequest) carry the
@@ -648,7 +649,7 @@ type UserKeyDevices struct {
 	// A user reference, translated like the others (options.proto, user_ref).
 	UserId string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	// For another user: every registered device (each carrying its inactive flag) when the caller and the user share an
-	// encrypted conversation, else active devices only; device_id, signature_public_key and inactive only (no
+	// accepted encrypted conversation, else active devices only; device_id, signature_public_key and inactive only (no
 	// timestamps, no counts). The caller's own id: the caller's active devices with every field, returned only when the
 	// caller's flag is on, else none.
 	Devices       []*KeyDevice `protobuf:"bytes,2,rep,name=devices,proto3" json:"devices,omitempty"`

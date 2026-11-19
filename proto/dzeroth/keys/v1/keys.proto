@@ -18,13 +18,14 @@ syntax = "proto3";
 // Flag FEATURE_E2EE_DM (wire name "e2ee_dm", default off). RegisterKeyDevice, UploadKeyPackages and ClaimKeyPackages
 // need it on for the caller. GetKeyDevices, ListMyKeyDevices and RemoveKeyDevice need it only not globally off, so a
 // user dropped from an allowlist can still see and remove their devices and can still look up the devices of a peer
-// they share an encrypted conversation with. Else FAILED_PRECONDITION + FEATURE_DISABLED,
+// they share an accepted encrypted conversation with. Else FAILED_PRECONDITION + FEATURE_DISABLED,
 // metadata["feature"] = "e2ee_dm", before any lookup. A TARGET whose own flag is off is not an error: see GetKeyDevices.
 //
 // Interplay with FEATURE_MESSAGING (wire name "messaging"), for GetKeyDevices and ClaimKeyPackages: a caller with
 // "messaging" off gets CANNOT_MESSAGE for every other user; a target with "messaging" off is CANNOT_MESSAGE; a target
 // with "messaging" on and only "e2ee_dm" off is an empty success (no devices, no packages), except that GetKeyDevices
-// still returns the devices of a target the caller shares an encrypted conversation with (see GetKeyDevices).
+// still returns the devices of a target the caller shares an accepted encrypted conversation with (see
+// GetKeyDevices).
 // ClaimKeyPackages stays an empty success.
 //
 // Limits: device id [A-Za-z0-9_-]{16,64}; signature_public_key exactly 32 bytes (Ed25519); a key package 1-4096 bytes;
@@ -32,12 +33,12 @@ syntax = "proto3";
 // not seen for 30 days is inactive (one last seen exactly 30 days ago is inactive); GetKeyDevices takes 1-10 user ids.
 //
 // Inactive devices are flagged at read time (KeyDevice.inactive) and never deleted by the server: an inactive device
-// is left out of ClaimKeyPackages, is left out of GetKeyDevices unless the caller shares an encrypted conversation
-// with its owner (then it is returned with inactive set), still appears in ListMyKeyDevices, still counts toward the
-// cap of 5 until its owner removes it, and becomes active again when it next registers or uploads (same id, same key).
-// Only RegisterKeyDevice and UploadKeyPackages move last_seen_at (at most once per 24 h); lookups, claims, lists and
-// removes never do. A device unseen for 30 days drops out of claims, and out of lookups unless the caller
-// shares an encrypted conversation with its owner, so clients MUST call RegisterKeyDevice periodically (for example
+// is left out of ClaimKeyPackages, is left out of GetKeyDevices unless the caller shares an accepted encrypted
+// conversation with its owner (then it is returned with inactive set), still appears in ListMyKeyDevices, still counts
+// toward the cap of 5 until its owner removes it, and becomes active again when it next registers or uploads (same id,
+// same key). Only RegisterKeyDevice and UploadKeyPackages move last_seen_at (at most once per 24 h); lookups, claims,
+// lists and removes never do. A device unseen for 30 days drops out of claims, and out of lookups unless the caller
+// shares an accepted encrypted conversation with its owner, so clients MUST call RegisterKeyDevice periodically (for example
 // on app open, at most once a day), not only on first install.
 //
 // User references: user_ids (GetKeyDevicesRequest), user_id (UserKeyDevices, ClaimKeyPackagesRequest) carry the
@@ -120,11 +121,12 @@ service KeyService {
   // message the target by the messaging send rules; an unknown or non-ACTIVE user, a block in either direction and any
   // other refusal answer ONE byte-identical FAILED_PRECONDITION + CANNOT_MESSAGE, and one refused target fails the
   // whole call with that single CANNOT_MESSAGE (no partial result). Then, per target other than the caller: devices
-  // are returned when the caller and the target both have the flag on, or the two share an encrypted conversation
-  // (computed by the server from the two raw uids; the conversation read may be up to 60 s stale); otherwise the
-  // answer is an empty success, also for a caller whose flag is off (never FEATURE_DISABLED unless the flag is
-  // globally off). For a pair that shares an encrypted conversation every registered device is returned, each
-  // carrying its inactive flag; otherwise active devices only, oldest first. The caller's own id returns the caller's
+  // are returned when the caller and the target both have the flag on, or the two share an accepted encrypted
+  // conversation (computed by the server from the two raw uids; the conversation read may be up to 60 s stale);
+  // otherwise the answer is an empty success, also for a caller whose flag is off (never FEATURE_DISABLED unless the
+  // flag is globally off). For a pair that shares an accepted encrypted conversation every registered device is
+  // returned, each carrying its inactive flag; otherwise active devices only, oldest first. A conversation that is
+  // still a message request (not accepted) does not count: both sides get the ordinary rule. The caller's own id returns the caller's
   // active devices only when the caller's flag is on, else none (use ListMyKeyDevices). For other users only device_id,
   // signature_public_key and inactive are returned: created_at and last_seen_at are absent, key_package_count is 0
   // and has_last_resort is false. The caller's own devices carry every field. Reads: for each target other than the
@@ -233,7 +235,7 @@ message UserKeyDevices {
   // A user reference, translated like the others (options.proto, user_ref).
   string user_id = 1 [(dzeroth.common.v1.user_ref) = USER_REF_KIND_TRANSLATE];
   // For another user: every registered device (each carrying its inactive flag) when the caller and the user share an
-  // encrypted conversation, else active devices only; device_id, signature_public_key and inactive only (no
+  // accepted encrypted conversation, else active devices only; device_id, signature_public_key and inactive only (no
   // timestamps, no counts). The caller's own id: the caller's active devices with every field, returned only when the
   // caller's flag is on, else none.
   repeated KeyDevice devices = 2;

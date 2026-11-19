@@ -109,7 +109,7 @@ func TestKeysChain_LookupClaimAndRefusals(t *testing.T) {
 		if _, err := keysClient.RemoveKeyDevice(ctx, authed(flagOff.token, &keysv1.RemoveKeyDeviceRequest{IdempotencyKey: contractKey("keys-rm-off"), DeviceId: device})); err != nil {
 			t.Fatalf("RemoveKeyDevice without the flag (not globally off): %v", err)
 		}
-		// Not globally off, so the lookup runs: the send rules allow it, there is no shared encrypted conversation, so it is
+		// Not globally off, so the lookup runs: the send rules allow it, there is no shared accepted encrypted conversation, so it is
 		// an empty success, never FEATURE_DISABLED.
 		res, err := keysClient.GetKeyDevices(ctx, authed(flagOff.token, &keysv1.GetKeyDevicesRequest{UserIds: []string{owner.uid}}))
 		if err != nil {

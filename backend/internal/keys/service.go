@@ -253,8 +253,8 @@ func (s *service) targetOn(target string) bool {
 // in request order (a failure is an error before any device read; a nil Permission is "not shared"); (4) reads devices
 // concurrently, at most MaxLookupUsers queries of at most MaxDevicesPerUser documents each: the caller's own active
 // devices when the caller's flag is on; for another user every registered device (List) when the pair shares an
-// encrypted conversation, else the active devices (ActiveDevices) when the flag is on for both, else nothing; (5) strips
-// another user's device to id, key and the Inactive marker.
+// accepted encrypted conversation (a pending message request does not count), else the active devices (ActiveDevices)
+// when the flag is on for both, else nothing; (5) strips another user's device to id, key and the Inactive marker.
 func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) (map[string][]Device, error) {
 	begin(ctx, "get_devices")
 	if len(userIDs) < 1 || len(userIDs) > MaxLookupUsers {

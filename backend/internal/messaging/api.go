@@ -72,9 +72,10 @@ type Service interface {
 // other error is a failure to decide (a read failed), never a refusal. See permission.go for the rules and reads.
 type Permission interface {
 	CanMessage(ctx context.Context, callerUID, targetUID string) error
-	// SharesEncryptedConversation reports whether the two users are the participants of a conversation whose
+	// SharesEncryptedConversation reports whether the two users are the participants of an ACCEPTED conversation whose
 	// encryption is MLS. One cache-first conversation read (up to 60 s stale); writes nothing. No conversation, a
-	// plaintext one, an invalid or equal uid, or a conversation whose other participant is not targetUID => false, nil.
+	// plaintext one, a conversation still in the request state (for both participants), an invalid or equal uid, or a
+	// conversation whose other participant is not targetUID => false, nil.
 	// A failed read is an error built by permissionFailure (uids and conversation id hashed), never false.
 	SharesEncryptedConversation(ctx context.Context, callerUID, targetUID string) (bool, error)
 }
