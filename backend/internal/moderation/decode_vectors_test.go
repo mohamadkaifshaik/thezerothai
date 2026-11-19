@@ -29,8 +29,10 @@ func TestDecodeContent_SharedVectors(t *testing.T) {
 	if err := json.Unmarshal(b, &f); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Cases) < 6 {
-		t.Fatalf("%d cases, the fixture lost rows", len(f.Cases))
+	// The fixture has 27 rows (shared with the app's decoder tests): fewer means it was truncated or lost rows.
+	const minCases = 27
+	if len(f.Cases) < minCases {
+		t.Fatalf("%d cases, want at least %d: the fixture lost rows", len(f.Cases), minCases)
 	}
 	for _, c := range f.Cases {
 		t.Run(c.Name, func(t *testing.T) {

@@ -79,7 +79,8 @@ func (m encMsg) req(key, conv string, gen, epoch uint64) *messagingv1.SendMessag
 	}
 }
 
-// wantStale asserts STALE_EPOCH with the current pair in metadata (and conversation_id when conv is not empty).
+// wantStale asserts STALE_EPOCH with the current pair in metadata, and conversation_id exactly when conv is not empty (a
+// request addressed by conversation id, a commit included, carries none).
 func wantStale(t *testing.T, err error, gen, epoch uint64, conv string) {
 	t.Helper()
 	d := wireError(t, err, connect.CodeFailedPrecondition)
@@ -87,8 +88,10 @@ func wantStale(t *testing.T, err error, gen, epoch uint64, conv string) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_STALE_EPOCH || md["generation"] != strconv.FormatUint(gen, 10) || md["epoch"] != strconv.FormatUint(epoch, 10) {
 		t.Errorf("STALE_EPOCH: reason %v metadata %v, want the pair (%d, %d)", d.GetReason(), md, gen, epoch)
 	}
-	if conv != "" && md["conversation_id"] != conv {
-		t.Errorf("STALE_EPOCH metadata conversation_id = %q, want %q", md["conversation_id"], conv)
+	if got, ok := md["conversation_id"]; conv != "" && got != conv {
+		t.Errorf("STALE_EPOCH metadata conversation_id = %q, want %q", got, conv)
+	} else if conv == "" && ok {
+		t.Errorf("STALE_EPOCH of an id-addressed request carries conversation_id %q", got)
 	}
 }
 
@@ -411,6 +414,13 @@ func TestMessagingE2EEChain_EndToEnd(t *testing.T) {
 	}
 	if wl, err := listWelcomes(b, zqDevB1); err != nil || len(wl) != 1 || wl[0].GetMlsGeneration() != 2 || wl[0].GetMlsEpoch() != 0 || !bytes.Equal(wl[0].GetWelcome(), resetWelcome) {
 		t.Errorf("b's phone after the reset = %v, %v, want one welcome (2, 0)", wl, err)
+	}
+	// The reset did not address b's tablet, so its (1, 1) welcome from step 5 survives (unacknowledged): it is below the
+	// current generation 2 that ListConversationCommits reports, so it is the useless old-generation welcome a client must
+	// acknowledge and ignore (proto, "Catch-up").
+	if wl, err := listWelcomes(b, zqDevB2); err != nil || len(wl) != 1 || wl[0].GetMlsGeneration() != 1 || wl[0].GetMlsEpoch() != 1 ||
+		!bytes.Equal(wl[0].GetWelcome(), bWelcome) || wl[0].GetMlsGeneration() >= cs.GetMlsGeneration() {
+		t.Errorf("b's tablet after the reset = %v, %v, want its stale (1, 1) welcome, below generation %d", wl, err, cs.GetMlsGeneration())
 	}
 	// Epoch (1, 2) is closed by the reset: its list is complete.
 	if ms := epochMsgs(e, b, 1, 2); len(ms) != 1 || ms[0].GetId() != id12 {

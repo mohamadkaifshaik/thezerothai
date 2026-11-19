@@ -192,7 +192,7 @@ func TestAccountLifecycle_MessagingE2EEOneSideErased(t *testing.T) {
 			}
 		case w.b.uid:
 			intact++
-			if d["state"] != "VISIBLE" || len(fmt.Sprint(d["ciphertext"])) == 0 || d["ctRemoved"] != nil {
+			if ct, ok := d["ciphertext"].([]byte); d["state"] != "VISIBLE" || !ok || len(ct) == 0 || d["ctRemoved"] != nil {
 				t.Errorf("B's message %s was touched: %v", m.Ref.ID[:8], d)
 			}
 		}

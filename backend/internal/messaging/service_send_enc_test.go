@@ -3,6 +3,7 @@ package messaging
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -160,8 +161,16 @@ func TestSendEnc_Refusals(t *testing.T) {
 			if len(r.events.got)+len(r.badge.got) != 0 {
 				t.Errorf("a refused send pushed %d events / evicted %d badges", len(r.events.got), len(r.badge.got))
 			}
-			if !r.repo.lastRes.Msg.CreatedAt.IsZero() {
-				t.Error("the fake transaction reached the write")
+			// The refusal is the transaction's (encGate on the conversation it read), and it wrote nothing: no message, the
+			// conversation unchanged.
+			if len(r.repo.sends) != 1 {
+				t.Errorf("repo send calls = %d, want 1 (the refusal is decided in the transaction)", len(r.repo.sends))
+			}
+			if n := len(r.repo.msgs[convID]); n != 0 {
+				t.Errorf("a refused send stored %d messages", n)
+			}
+			if got, want := r.repo.convs[convID], mlsConv(2, 7); !reflect.DeepEqual(got, want) {
+				t.Errorf("conversation %+v, want unchanged %+v", got, want)
 			}
 		})
 	}

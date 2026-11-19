@@ -6,8 +6,8 @@ package apiserver
 //
 // sweepResidue reads EVERY root collection the project holds (not only the ones in the table, so a collection the
 // table does not know fails the sweep by name), every subcollection under users/{deleted uid}, and the collection
-// groups of the table's subcollection rows, and reports any document whose path, ID or nested string value contains
-// the deleted uid, minus the allowlist (lifecycle_collections_guard_test.go).
+// groups of the table's subcollection rows, and reports any document whose path, ID, nested string or bytes value or
+// nested map key contains the deleted uid, minus the allowlist (lifecycle_collections_guard_test.go).
 //
 // requireInvariants re-derives, from the documents alone, the counters and mirrors the graph and posts modules
 // maintain, for a cohort of uids (the apiserver tests share one Firestore project, so the check is scoped to the
@@ -16,6 +16,7 @@ package apiserver
 // touch (no shared helper package, per the brief).
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -44,16 +45,44 @@ func shortPath(p string) string {
 	return p
 }
 
-// containsUID reports whether v (a decoded Firestore value) holds uid in any nested string.
+// TestSweepResidue_ContainsUIDSelfTest: the residue matcher sees a uid in a string, in bytes, in a map key and in a map
+// value, at any depth, and nowhere else (no emulator needed).
+func TestSweepResidue_ContainsUIDSelfTest(t *testing.T) {
+	const uid = "uid-residue-self"
+	for _, tc := range []struct {
+		name string
+		v    any
+		want bool
+	}{
+		{"string", "x " + uid + " y", true},
+		{"bytes", []byte("opaque-" + uid + "-bytes"), true},
+		{"bytes in an array", []any{[]byte("a"), []byte(uid)}, true},
+		{"map key", map[string]any{uid: true}, true},
+		{"nested map key", map[string]any{"clearedAt": map[string]any{uid: 1}}, true},
+		{"map value", map[string]any{"k": []any{"z", uid}}, true},
+		{"other bytes", []byte("uid-someone-else"), false},
+		{"other key", map[string]any{"uid-someone-else": uid[:5]}, false},
+		{"number", int64(7), false},
+		{"nil", nil, false},
+	} {
+		if got := containsUID(tc.v, uid); got != tc.want {
+			t.Errorf("%s: containsUID = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// containsUID reports whether v (a decoded Firestore value) holds uid in any nested string, bytes value or map key.
 func containsUID(v any, uid string) bool {
 	switch v := v.(type) {
 	case string:
 		return strings.Contains(v, uid)
+	case []byte:
+		return bytes.Contains(v, []byte(uid))
 	case []any:
 		return slices.ContainsFunc(v, func(x any) bool { return containsUID(x, uid) })
 	case map[string]any:
-		for _, x := range v {
-			if containsUID(x, uid) {
+		for k, x := range v {
+			if strings.Contains(k, uid) || containsUID(x, uid) {
 				return true
 			}
 		}

@@ -26,8 +26,56 @@ import (
 // base is the fixed instant the seeded conversations are built on. It is never compared with the real clock.
 var base = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
+// holdsUID reports whether v (a decoded Firestore value) holds uid in a string, a bytes value (an explicit branch:
+// fmt.Sprint prints bytes as numbers) or a map key, at any depth; other values through fmt.Sprint.
+func holdsUID(v any, uid string) bool {
+	switch v := v.(type) {
+	case []byte:
+		return bytes.Contains(v, []byte(uid))
+	case []any:
+		for _, x := range v {
+			if holdsUID(x, uid) {
+				return true
+			}
+		}
+		return false
+	case map[string]any:
+		for k, x := range v {
+			if strings.Contains(k, uid) || holdsUID(x, uid) {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.Contains(fmt.Sprint(v), uid)
+}
+
+// The matcher behind uidHits sees a uid in bytes (which fmt.Sprint alone would print as numbers), in map keys and in
+// nested values, and not in other users' data (no emulator needed).
+func TestEraser_HoldsUIDSelfTest(t *testing.T) {
+	const uid = "uid-holds-self"
+	for _, tc := range []struct {
+		name string
+		v    any
+		want bool
+	}{
+		{"string", "a " + uid, true},
+		{"bytes", []byte("ct-" + uid), true},
+		{"nested bytes", map[string]any{"last": []any{[]byte(uid)}}, true},
+		{"map key", map[string]any{"clearedAt": map[string]any{uid: base}}, true},
+		{"other bytes", []byte("uid-other"), false},
+		{"other map", map[string]any{"uid-other": "x"}, false},
+		{"time", base, false},
+	} {
+		if got := holdsUID(tc.v, uid); got != tc.want {
+			t.Errorf("%s: holdsUID = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 // uidHits lists every document in the project (conversations, messages, commit records, both entry folders and the
-// welcomes of every user) that holds uid in a path, id, field value or nested value.
+// welcomes of every user) that holds uid in a path, id, field name, field value or nested value (bytes and map keys
+// included).
 func (e *itEnv) uidHits(uid string) []string {
 	e.t.Helper()
 	ctx := context.Background()
@@ -37,7 +85,7 @@ func (e *itEnv) uidHits(uid string) []string {
 			hits = append(hits, shortPath(snap.Ref.Path)+"#path")
 		}
 		for k, v := range snap.Data() {
-			if strings.Contains(fmt.Sprint(v), uid) {
+			if strings.Contains(k, uid) || holdsUID(v, uid) {
 				hits = append(hits, shortPath(snap.Ref.Path)+"#"+k)
 			}
 		}
@@ -231,6 +279,18 @@ func TestEraser_DeletedUserLeavesTombstonesForThePeer(t *testing.T) {
 			}
 			if tombstones != 5 || intact != 5 {
 				t.Errorf("tombstones/intact = %d/%d, want 5/5", tombstones, intact)
+			}
+			// A PLAINTEXT tombstone gains none of the encrypted fields (the eraser writes ctRemoved and keeps the mls* pair
+			// only on an encrypted message).
+			for id, raw := range e.docsIn("conversations/" + convID + "/messages") {
+				if raw["senderId"] != DeletedUID {
+					continue
+				}
+				for _, f := range []string{"ctRemoved", "mlsGen", "mlsEpoch", "mlsKey", "ciphertext", "commitment", "ctExpireAt"} {
+					if _, has := raw[f]; has {
+						t.Errorf("plaintext tombstone %s has %s", id[:8], f)
+					}
+				}
 			}
 			peer, ok := e.entry(bob, "dmInbox", convID)
 			if !ok || peer.Peer.DisplayName != DeletedAccountName || peer.Peer.Handle != "" || peer.Peer.AvatarThumbURL != "" {
