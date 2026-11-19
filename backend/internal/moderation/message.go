@@ -8,13 +8,13 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protowire"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 )
@@ -92,12 +92,17 @@ type MessageLookup interface {
 const fieldVerified = "message_verified"
 
 // encryptedEvidence applies the payload rules that depend on the looked-up message (moderation.proto
-// ReportContentRequest.message_payload), after every existing refusal: an encrypted message needs a payload that parses
-// as MessageContent, a plaintext one must have none (VALIDATION message_payload either way). For an encrypted message it
-// replaces the evidence text with the disclosed text and adds the disclosed shared post id and the lookup's verdict.
-// Nothing else of the payload is kept: not report_key, not the raw bytes. The content's shape is the sending app's rule
-// (the server could not check it on send), so it is not refused here: a sender must not be able to make its own message
-// unreportable; a shared post id that is not a 19-digit id is dropped from the evidence instead.
+// ReportContentRequest.message_payload), after every existing refusal: an encrypted message needs a payload, a plaintext
+// one must have none (VALIDATION message_payload either way). For an encrypted message it replaces the evidence text with
+// the disclosed text and adds the disclosed shared post id and the lookup's verdict. Nothing else of the payload is kept:
+// not report_key, not the raw bytes.
+//
+// The content is the SENDER's bytes, which the server could not check on send, so nothing about them may make the
+// message unreportable: the decode is lenient (decodeContent: invalid UTF-8 becomes U+FFFD, as the app's decoder shows
+// it), a shared post id that is not a 19-digit id is dropped, and a payload that is not even well-formed protobuf is
+// accepted when it is exactly what the sender committed to (Verified): it is then kept as "undecodable", with no text.
+// Only bytes that are malformed AND do not match the commitment (the reporter's own garbage) are VALIDATION, with a
+// fixed text that quotes nothing.
 func encryptedEvidence(m ReportedMessage, payload []byte, ev *Evidence) error {
 	if !m.Encrypted {
 		if len(payload) > 0 {
@@ -108,27 +113,63 @@ func encryptedEvidence(m ReportedMessage, payload []byte, ev *Evidence) error {
 	if len(payload) == 0 {
 		return apierr.Validation("message_payload", "message_payload is required to report this message")
 	}
-	c, err := disclosedContent(payload)
-	if err != nil {
-		return err
+	c, ok := decodeContent(payload)
+	if !ok {
+		if !m.Verified {
+			return apierr.Validation("message_payload", "message_payload is not a valid message content")
+		}
+		ev.Text = ""
+		ev.MessageEncrypted, ev.MessageVerified, ev.MessageUndecodable = true, true, true
+		return nil
 	}
-	ev.Text = c.GetText()
-	if id := c.GetSharedPostId(); ids.ValidPostID(id) {
-		ev.SharedPostID = id
+	ev.Text = c.Text
+	if ids.ValidPostID(c.SharedPostID) {
+		ev.SharedPostID = c.SharedPostID
 	}
 	ev.MessageEncrypted, ev.MessageVerified = true, m.Verified
 	return nil
 }
 
-// disclosedContent parses an encrypted message's report payload as messaging.v1 MessageContent. Unknown fields are
-// tolerated (the verification is over the raw bytes, never over a re-serialisation); bytes that do not parse are the
-// VALIDATION message_payload, with a fixed text that never carries the parser's error (it could quote content).
-func disclosedContent(payload []byte) (*messagingv1.MessageContent, error) {
-	var c messagingv1.MessageContent
-	if err := proto.Unmarshal(payload, &c); err != nil {
-		return nil, apierr.Validation("message_payload", "message_payload is not a valid message content")
+// disclosedContent is the lenient decode of a messaging.v1 MessageContent (testdata/report_payload_decode.json holds the
+// vectors the Go and Dart decoders share).
+type disclosedContent struct {
+	Text         string
+	SharedPostID string
+}
+
+// decodeContent walks the protobuf wire format of payload: field 1 (text) and field 2 (shared_post_id) with the
+// length-delimited wire type are taken, the last occurrence winning (proto semantics); every other field, and fields 1
+// and 2 with another wire type, is skipped as unknown. report_key (field 3) is skipped like any other field, never read.
+// Both strings are made valid UTF-8 (each invalid sequence becomes U+FFFD), as Firestore needs and as the app's lenient
+// decoder shows them. ok is false only when the bytes are not well-formed protobuf (a bad tag, a truncated value).
+func decodeContent(payload []byte) (c disclosedContent, ok bool) {
+	var text, shared []byte
+	for b := payload; len(b) > 0; {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			return disclosedContent{}, false
+		}
+		b = b[n:]
+		if (num == 1 || num == 2) && typ == protowire.BytesType {
+			v, m := protowire.ConsumeBytes(b)
+			if m < 0 {
+				return disclosedContent{}, false
+			}
+			if num == 1 {
+				text = v
+			} else {
+				shared = v
+			}
+			b = b[m:]
+			continue
+		}
+		m := protowire.ConsumeFieldValue(num, typ, b)
+		if m < 0 {
+			return disclosedContent{}, false
+		}
+		b = b[m:]
 	}
-	return &c, nil
+	return disclosedContent{Text: strings.ToValidUTF8(string(text), "�"), SharedPostID: strings.ToValidUTF8(string(shared), "�")}, true
 }
 
 // messageNotFound is the one NOT_FOUND of a message report (byte-identical for every cause).

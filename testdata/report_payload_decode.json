@@ -1,0 +1,17 @@
+{
+  "_comment": "Lenient decode of a reported MessageContent (messaging.v1; moderation.v1 ReportContentRequest.message_payload). Field 1 (text) and field 2 (shared_post_id) are taken only with the length-delimited wire type, the last occurrence winning; every other field or wire type is skipped; invalid UTF-8 becomes U+FFFD; want_wire_ok is false only for bytes that are not well-formed protobuf. Go: backend/internal/moderation/decode_vectors_test.go. Dart: the client plan's report decoder runs the same rows (so what the reporter sees is what the moderator gets). Expected strings are after the U+FFFD replacement; want_shared_post_id is before the server's 19-digit check.",
+  "cases": [
+    {"name": "valid text, shared post and report key", "payload_hex": "0a0568656c6c6f1213313233343536373839303132333435363738391a200707070707070707070707070707070707070707070707070707070707070707", "want_text": "hello", "want_shared_post_id": "1234567890123456789", "want_wire_ok": true},
+    {"name": "invalid UTF-8 in text", "payload_hex": "0a036869ff", "want_text": "hi�", "want_shared_post_id": "", "want_wire_ok": true},
+    {"name": "invalid UTF-8 in shared post id", "payload_hex": "120231ff", "want_text": "", "want_shared_post_id": "1�", "want_wire_ok": true},
+    {"name": "duplicate text, last wins", "payload_hex": "0a01610a0162", "want_text": "b", "want_shared_post_id": "", "want_wire_ok": true},
+    {"name": "text as a varint is skipped", "payload_hex": "0805", "want_text": "", "want_shared_post_id": "", "want_wire_ok": true},
+    {"name": "unknown fields around the text", "payload_hex": "782a0a026f6b9a060100", "want_text": "ok", "want_shared_post_id": "", "want_wire_ok": true},
+    {"name": "report key only", "payload_hex": "1a020102", "want_text": "", "want_shared_post_id": "", "want_wire_ok": true},
+    {"name": "fields in reverse order", "payload_hex": "1a0101120131", "want_text": "", "want_shared_post_id": "1", "want_wire_ok": true},
+    {"name": "truncated text", "payload_hex": "0a056869", "want_text": "", "want_shared_post_id": "", "want_wire_ok": false},
+    {"name": "field number zero", "payload_hex": "0001", "want_text": "", "want_shared_post_id": "", "want_wire_ok": false},
+    {"name": "overlong length varint", "payload_hex": "0affffffffffffffffffff01", "want_text": "", "want_shared_post_id": "", "want_wire_ok": false},
+    {"name": "valid text then a truncated unknown field", "payload_hex": "0a026f6b7a05", "want_text": "", "want_shared_post_id": "", "want_wire_ok": false}
+  ]
+}

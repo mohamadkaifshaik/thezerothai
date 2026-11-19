@@ -171,11 +171,32 @@ func TestMessageReport_EncryptedVerification(t *testing.T) {
 		t.Errorf("swept child = %v", c)
 	}
 
+	// The sender cannot make its message unreportable: invalid UTF-8 is kept as U+FFFD and verified; bytes that are not
+	// protobuf at all but are what it committed to are accepted as undecodable, with no text.
+	badUTF8 := rawContent("zqbad\xff", "")
+	m5 := w.sendEncrypted(t, e, badUTF8, "ciphertext-five")
+	r5, err := e.reportWith(w.bob, w.conv, m5, badUTF8)
+	if err != nil {
+		t.Fatalf("invalid UTF-8 report: %v", err)
+	}
+	if _, c := e.storedReport(t, r5.GetReportId()); c["text"] != "zqbad�" || c["verified"] != true || c["undecodable"] != nil {
+		t.Errorf("invalid UTF-8 child = %v", c)
+	}
+	malformed := append(append(protowire.AppendBytes(protowire.AppendTag(nil, 3, protowire.BytesType), e2eeReportKey), 0x0a, 0x7f), "zqmal"...)
+	m6 := w.sendEncrypted(t, e, malformed, "ciphertext-six")
+	r6, err := e.reportWith(w.bob, w.conv, m6, malformed)
+	if err != nil {
+		t.Fatalf("committed malformed report: %v", err)
+	}
+	if _, c := e.storedReport(t, r6.GetReportId()); c["text"] != "" || c["verified"] != true || c["undecodable"] != true || c["encrypted"] != true {
+		t.Errorf("undecodable child = %v", c)
+	}
+
 	// No stored moderation document holds the report key, the raw payload, a ciphertext or a commitment.
-	for _, id := range []string{res.GetReportId(), r2.GetReportId(), r3.GetReportId()} {
+	for _, id := range []string{res.GetReportId(), r2.GetReportId(), r3.GetReportId(), r5.GetReportId(), r6.GetReportId()} {
 		p, c := e.storedReport(t, id)
-		sum := messaging.ReportCommitment(payload)
-		secrets := [][]byte{e2eeReportKey, payload, sum[:], []byte("ciphertext-")}
+		sum, sum5, sum6 := messaging.ReportCommitment(payload), messaging.ReportCommitment(badUTF8), messaging.ReportCommitment(malformed)
+		secrets := [][]byte{e2eeReportKey, payload, badUTF8, malformed, []byte("zqmal"), sum[:], sum5[:], sum6[:], []byte("ciphertext-")}
 		noSecretBytes(t, "reports/"+id, p, secrets...)
 		noSecretBytes(t, "reports/"+id+"/evidence/message", c, secrets...)
 	}
@@ -217,15 +238,15 @@ func TestMessageReport_EncryptedVerification(t *testing.T) {
 			verdicts = append(verdicts, v)
 		}
 	}
-	// verified, one byte changed, swept; the replay stored nothing and logs no verdict.
-	if fmt.Sprint(verdicts) != "[true false false]" {
-		t.Errorf("message_verified fields = %v, want [true false false]", verdicts)
+	// verified, one byte changed, swept, invalid UTF-8, undecodable; the replay stored nothing and logs no verdict.
+	if fmt.Sprint(verdicts) != "[true false false true true]" {
+		t.Errorf("message_verified fields = %v, want [true false false true true]", verdicts)
 	}
 	all := e.logText()
 	sum := messaging.ReportCommitment(payload)
-	secrets := []string{"regret", "1234567890123456789", "zqsec", "zqthird", "something else", "ciphertext-", w.conv, m1, w.alice.uid, w.bob.uid}
-	// Byte values would reach a JSON log as base64 or hex: scan for every form of the key, the payload and the commitment.
-	for _, b := range [][]byte{e2eeReportKey, payload, sum[:]} {
+	secrets := []string{"regret", "1234567890123456789", "zqsec", "zqthird", "zqbad", "zqmal", "something else", "ciphertext-", w.conv, m1, w.alice.uid, w.bob.uid}
+	// Byte values would reach a JSON log as base64 or hex: scan for every form of the key, the payloads and the commitment.
+	for _, b := range [][]byte{e2eeReportKey, payload, badUTF8, malformed, sum[:]} {
 		secrets = append(secrets, string(b), base64.StdEncoding.EncodeToString(b), base64.RawURLEncoding.EncodeToString(b), hex.EncodeToString(b))
 	}
 	for _, secret := range secrets {

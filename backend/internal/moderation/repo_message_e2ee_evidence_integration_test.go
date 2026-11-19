@@ -76,6 +76,35 @@ func TestRepo_EncryptedMessageEvidenceChild(t *testing.T) {
 	}
 }
 
+// Verified bytes that are not protobuf: the child says undecodable, holds no text, and Get reads it back.
+func TestRepo_UndecodableMessageEvidenceChild(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client, quota.New(client))
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	r := sampleReport("u-rep", TargetMessage, "c7:m7", "u-bob", t0)
+	r.Evidence = &Evidence{AuthorHandle: "bob", PostCreatedAt: t0, MessageEncrypted: true, MessageVerified: true, MessageUndecodable: true}
+	if _, err := repo.Create(ctx, CreateParams{Report: r, QuotaLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := client.Collection("reports").Doc(r.ID).Collection("evidence").Doc("message").Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cs.Data()
+	if exp, ok := got["expireAt"].(time.Time); ok {
+		got["expireAt"] = exp.UTC()
+	}
+	want := map[string]any{"text": "", "expireAt": t0.Add(MessageEvidenceRetention), "encrypted": true, "verified": true, "undecodable": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("child = %v, want exactly %v", got, want)
+	}
+	back, err := repo.Get(ctx, r.ID)
+	if err != nil || !back.Evidence.MessageUndecodable || !back.Evidence.MessageVerified || back.Evidence.Text != "" {
+		t.Fatalf("get = %+v err=%v", back.Evidence, err)
+	}
+}
+
 // A plaintext message's child keeps its two fields: no verdict, no encrypted marker.
 func TestRepo_PlaintextMessageEvidenceChildIsUnchanged(t *testing.T) {
 	client := newTestClient(t)

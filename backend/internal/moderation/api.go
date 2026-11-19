@@ -146,6 +146,10 @@ type Evidence struct {
 	MessageEncrypted bool
 	MessageVerified  bool
 	SharedPostID     string
+	// MessageUndecodable: the disclosed bytes are exactly what the sender committed to (MessageVerified is true) but are
+	// not well-formed protobuf, so there is no text: the sender's device sent malformed content. Kept so a hostile sender
+	// cannot make a message unreportable; nothing of the bytes is stored.
+	MessageUndecodable bool
 	// TextExpired is set only by Ops.Get on a MESSAGE report whose child evidence document is gone (its TTL ran):
 	// Text is then empty because the copy was deleted, not because the message was empty. Never stored.
 	TextExpired bool

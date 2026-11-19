@@ -66,7 +66,8 @@ type Service interface {
 
 // Permission is the messaging send rules as a yes/no question for another module (the key directory,
 // internal/keys, through an apiserver adapter): may callerUID message targetUID? It is a separate interface, not part of
-// Service, and the composition root type-asserts the service to it like MessageReporter. CanMessage writes nothing.
+// Service, and the composition root type-asserts the service to it like MessageReporter (report.go, which also holds
+// ReportCommitment and VerifyReportPayload, the one check of a reporter's payload against the sender's commitment). CanMessage writes nothing.
 // Every refusal is ErrCannotMessage itself (never a wire error); ErrSelf is the caller asking about themselves; any
 // other error is a failure to decide (a read failed), never a refusal. See permission.go for the rules and reads.
 type Permission interface {

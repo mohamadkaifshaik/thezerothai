@@ -163,6 +163,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	// A uid already known to be out of quota skips the profile, post and transaction reads. The report id needs no
 	// read, so one point read tells a replay of a report that is already OPEN (AlreadyReported, rule 4: it was
 	// written and needs no quota) from a genuinely new or reopened report, which is QUOTA_EXCEEDED.
+	// This path runs before the target lookup, so it never applies the message_payload rules that depend on the message:
+	// a replay of an OPEN MESSAGE report with an invalid payload answers already_reported here (and VALIDATION on the
+	// normal path), the same divergence a plaintext replay already has for its other target-dependent checks.
 	if e, ok := s.exhausted.Get(uid); ok {
 		now := s.d.Now()
 		if now.Before(e.until) && (e.windowEnds.IsZero() || now.Before(e.windowEnds)) {

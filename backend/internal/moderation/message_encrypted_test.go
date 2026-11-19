@@ -145,12 +145,10 @@ func TestReport_EncryptedPayloadRefusals(t *testing.T) {
 			func(*testing.T) ReportInput { return encInput(nil) }, true},
 		{"payload on a plaintext message", &fakeLookup{msg: plaintext},
 			func(t *testing.T) ReportInput { return encInput(contentPayload(t, "x", "")) }, true},
-		{"payload that does not parse", &fakeLookup{msg: encrypted},
+		{"malformed bytes that do not match the commitment", &fakeLookup{msg: encrypted},
 			func(*testing.T) ReportInput { return encInput([]byte{0xff, 0xff, 0xff}) }, true},
-		{"text that is not UTF-8 does not parse", &fakeLookup{msg: encrypted},
-			func(*testing.T) ReportInput {
-				return encInput(protowire.AppendString(protowire.AppendTag(nil, 1, protowire.BytesType), "\xff\xfe"))
-			}, true},
+		{"truncated text that does not match the commitment", &fakeLookup{msg: encrypted},
+			func(*testing.T) ReportInput { return encInput([]byte{0x0a, 0x05, 'h', 'i'}) }, true},
 		{"payload over 8192 bytes", &fakeLookup{msg: encrypted},
 			func(*testing.T) ReportInput { return encInput(make([]byte, MaxMessagePayloadBytes+1)) }, false},
 		{"payload on a POST report", &fakeLookup{msg: encrypted},
@@ -214,5 +212,55 @@ func TestReport_PayloadKeepsTheExistingRefusals(t *testing.T) {
 	own := answer(encInput(payload), &fakeLookup{err: ErrOwnMessage})
 	if own.Code != connect.CodeInvalidArgument || own.Metadata["field"] != "target_id" {
 		t.Errorf("own message with a payload = %+v, want VALIDATION target_id", own)
+	}
+}
+
+// A sender cannot make its own message unreportable with what it puts in the content: invalid UTF-8 is kept as U+FFFD
+// (what the app's lenient decoder shows), duplicate and mistyped fields decode as protobuf would, and bytes that are not
+// even protobuf are accepted as "undecodable" when they are exactly what the sender committed to. Malformed bytes that do
+// not match the commitment are the reporter's own and stay VALIDATION (TestReport_EncryptedPayloadRefusals).
+func TestReport_EncryptedSenderContentStaysReportable(t *testing.T) {
+	t.Parallel()
+	field := func(b []byte, num protowire.Number, s string) []byte {
+		return protowire.AppendString(protowire.AppendTag(b, num, protowire.BytesType), s)
+	}
+	invalidUTF8 := field(field(nil, 3, string(reportKey)), 1, "abuse\xff")
+	duplicate := field(field(nil, 1, "first"), 1, "last")
+	varintText := protowire.AppendVarint(protowire.AppendTag(field(nil, 3, string(reportKey)), 1, protowire.VarintType), 5)
+	malformed := []byte{0x0a, 0x7f, 'x'} // a length past the end
+	tests := []struct {
+		name      string
+		payload   []byte
+		verified  bool
+		want      *Evidence
+		wantField bool // the request log carries the verdict
+	}{
+		{"invalid UTF-8, verified", invalidUTF8, true, &Evidence{Text: "abuse�", MessageEncrypted: true, MessageVerified: true}, true},
+		{"invalid UTF-8, unverified", invalidUTF8, false, &Evidence{Text: "abuse�", MessageEncrypted: true}, true},
+		{"duplicate text, last wins", duplicate, true, &Evidence{Text: "last", MessageEncrypted: true, MessageVerified: true}, true},
+		{"text as a varint is skipped", varintText, true, &Evidence{MessageEncrypted: true, MessageVerified: true}, true},
+		{"malformed but committed to", malformed, true, &Evidence{MessageEncrypted: true, MessageVerified: true, MessageUndecodable: true}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture()
+			l := &fakeLookup{msg: ReportedMessage{SenderUID: sender, SenderHandle: "mallory", CreatedAt: f.now, Encrypted: true, Verified: tt.verified}}
+			ctx, info := logger.WithRequestInfo(gctx())
+			if _, err := f.msgSvc(l).Report(ctx, reporter, encInput(tt.payload)); err != nil {
+				t.Fatal(err)
+			}
+			want := *tt.want
+			want.AuthorHandle, want.PostCreatedAt = "mallory", f.now
+			if got := f.repo.calls[0].Report.Evidence; !reflect.DeepEqual(got, &want) {
+				t.Errorf("evidence = %+v, want %+v", got, &want)
+			}
+			if v, ok := info.Get(fieldVerified); ok != tt.wantField || (ok && v != tt.verified) {
+				t.Errorf("log verdict = %v (%v)", v, ok)
+			}
+			if logged := requestFields(info); strings.Contains(logged, "abuse") || strings.Contains(logged, string(reportKey)) {
+				t.Errorf("request log carries content: %s", logged)
+			}
+		})
 	}
 }

@@ -244,6 +244,8 @@ type evidenceChild struct {
 	Encrypted    bool      `firestore:"encrypted,omitempty"`
 	Verified     bool      `firestore:"verified,omitempty"`
 	SharedPostID string    `firestore:"sharedPostId,omitempty"`
+	// Undecodable: verified bytes that are not well-formed protobuf (text empty). Present only when true.
+	Undecodable bool `firestore:"undecodable,omitempty"`
 }
 
 // Create implements Repo.
@@ -292,7 +294,8 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 			ev := p.Report.Evidence
 			b.Set(r.evidenceRef(p.Report.ID), evidenceChild{Text: ev.Text,
 				ExpireAt:  p.Report.CreatedAt.Add(MessageEvidenceRetention).UTC(),
-				Encrypted: ev.MessageEncrypted, Verified: ev.MessageEncrypted && ev.MessageVerified, SharedPostID: ev.SharedPostID})
+				Encrypted: ev.MessageEncrypted, Verified: ev.MessageEncrypted && ev.MessageVerified, SharedPostID: ev.SharedPostID,
+				Undecodable: ev.MessageEncrypted && ev.MessageUndecodable})
 		}
 		return b.Err()
 	})
@@ -396,6 +399,7 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Report, error) {
 			}
 			rep.Evidence.Text = c.Text
 			rep.Evidence.MessageEncrypted, rep.Evidence.MessageVerified, rep.Evidence.SharedPostID = c.Encrypted, c.Encrypted && c.Verified, c.SharedPostID
+			rep.Evidence.MessageUndecodable = c.Encrypted && c.Undecodable
 		case status.Code(err) == codes.NotFound:
 			rep.Evidence.TextExpired = true
 		default:
