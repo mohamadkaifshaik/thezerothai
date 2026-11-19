@@ -106,8 +106,9 @@
 //   from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
 //   are already members. The limits of that, from the key directory (keys.v1): (a) their devices stay visible in
 //   GetKeyDevices to a peer who shares an encrypted conversation (keys.v1), but cannot be claimed for (a target with
-//   e2ee_dm off is an empty success in ClaimKeyPackages), so no new device of theirs can be added, and the peer cannot build a reset or an add for them (no key package can be
-//   claimed); the server itself does not check e2ee_dm on welcome devices; (b) they can call GetKeyDevices (same
+//   e2ee_dm off is an empty success in ClaimKeyPackages), so no new device of theirs can be added, and the peer
+//   cannot build a reset or an add for them (no key package can be claimed); the server itself does not check e2ee_dm
+//   on welcome devices; (b) they can call GetKeyDevices (same
 //   rule) but not ClaimKeyPackages or RegisterKeyDevice, so they cannot add devices or reset. A device of theirs that
 //   loses its group state cannot recover until the flag is back on for them. A device stays ACTIVE only while it
 //   registers or uploads key packages at least every 30 days; a user without e2ee_dm cannot do either, so their

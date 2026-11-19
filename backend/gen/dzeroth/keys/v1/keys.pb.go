@@ -27,7 +27,9 @@
 //
 // Interplay with FEATURE_MESSAGING (wire name "messaging"), for GetKeyDevices and ClaimKeyPackages: a caller with
 // "messaging" off gets CANNOT_MESSAGE for every other user; a target with "messaging" off is CANNOT_MESSAGE; a target
-// with "messaging" on and only "e2ee_dm" off is an empty success (no devices).
+// with "messaging" on and only "e2ee_dm" off is an empty success (no devices, no packages), except that GetKeyDevices
+// still returns the devices of a target the caller shares an encrypted conversation with (see GetKeyDevices).
+// ClaimKeyPackages stays an empty success.
 //
 // Limits: device id [A-Za-z0-9_-]{16,64}; signature_public_key exactly 32 bytes (Ed25519); a key package 1-4096 bytes;
 // at most 100 key packages per upload and at most 100 stored per device (the pool); at most 5 devices per user; a device
@@ -38,8 +40,9 @@
 // with its owner (then it is returned with inactive set), still appears in ListMyKeyDevices, still counts toward the
 // cap of 5 until its owner removes it, and becomes active again when it next registers or uploads (same id, same key).
 // Only RegisterKeyDevice and UploadKeyPackages move last_seen_at (at most once per 24 h); lookups, claims, lists and
-// removes never do. A device unseen for 30 days drops out of lookups and claims, so clients MUST call
-// RegisterKeyDevice periodically (for example on app open, at most once a day), not only on first install.
+// removes never do. A device unseen for 30 days drops out of claims, and out of lookups unless the caller
+// shares an encrypted conversation with its owner, so clients MUST call RegisterKeyDevice periodically (for example
+// on app open, at most once a day), not only on first install.
 //
 // User references: user_ids (GetKeyDevicesRequest), user_id (UserKeyDevices, ClaimKeyPackagesRequest) carry the
 // user_ref option (TRANSLATE), so with FEATURE_PUBLIC_IDS on the edge swaps them for public ids in both directions,

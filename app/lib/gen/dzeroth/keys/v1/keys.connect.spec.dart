@@ -23,8 +23,8 @@ abstract final class KeyService {
   );
 
   /// The caller's devices, at most 5, oldest first; inactive ones (not seen for 30 days) are included, flagged by
-  /// last_seen_at and KeyDevice.inactive. Needs the flag only not globally off. Query of at most 5 device documents (Limit 5). No cursor: the
-  /// device limit caps the list at 5.
+  /// last_seen_at and KeyDevice.inactive. Needs the flag only not globally off. Query of at most 5 device documents
+  /// (Limit 5). No cursor: the device limit caps the list at 5.
   static const listMyKeyDevices = connect.Spec(
     '/$name/ListMyKeyDevices',
     connect.StreamType.unary,
