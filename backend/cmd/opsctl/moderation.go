@@ -131,6 +131,21 @@ func reportsCommand(ctx context.Context, b *backends, sub string, a modArgs, out
 	return fmt.Errorf("unknown reports subcommand %q (list, show, resolve)", sub)
 }
 
+// printEncryptedMessageEvidence prints the evidence of an end-to-end encrypted message: the server never held its text,
+// the reporter disclosed it. The verdict line comes first so an unverified text is never read without it.
+func printEncryptedMessageEvidence(out io.Writer, e *moderation.Evidence) {
+	if e.MessageVerified {
+		fmt.Fprintln(out, "evidence ENCRYPTED message: verified against the sender's commitment")
+	} else {
+		fmt.Fprintln(out, "evidence ENCRYPTED message: NOT verified (supplied by the reporter)")
+	}
+	fmt.Fprintf(out, "evidence message from @%s sent %s (PRIVATE text, disclosed by the reporter): %q\n",
+		e.AuthorHandle, e.PostCreatedAt.Format(time.RFC3339), e.Text)
+	if e.SharedPostID != "" {
+		fmt.Fprintf(out, "evidence shared post %s\n", e.SharedPostID)
+	}
+}
+
 func printReport(out io.Writer, r moderation.Report) {
 	fmt.Fprintf(out, "report   %s\nstatus   %s", r.ID, r.Status)
 	if r.Resolution != "" {
@@ -180,6 +195,10 @@ func printReport(out io.Writer, r moderation.Report) {
 			// resolved + 90 days); the report itself is kept.
 			fmt.Fprintf(out, "evidence expired: the copied message text was deleted by its retention limit (message from @%s sent %s)\n",
 				r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339))
+			break
+		}
+		if r.Evidence.MessageEncrypted {
+			printEncryptedMessageEvidence(out, r.Evidence)
 			break
 		}
 		fmt.Fprintf(out, "evidence message from @%s sent %s (PRIVATE text, copied at report time): %q\n",

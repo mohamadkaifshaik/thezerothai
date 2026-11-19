@@ -17,12 +17,16 @@ import (
 
 // Limits of the encrypted-message contract. The server checks sizes and shapes only; it never parses MLS bytes.
 const (
-	MaxCiphertextBytes  = 8192
-	CommitmentBytes     = 32
-	MaxCommitBytes      = 16384
-	MaxWelcomeBytes     = 65536
-	MaxWelcomeDevices   = 10
-	CiphertextRetention = 30 * 24 * time.Hour
+	MaxCiphertextBytes = 8192
+	CommitmentBytes    = 32
+	// ReportCommitmentPrefix is the domain separator of a report commitment: SHA-256 over these 12 ASCII bytes (no
+	// terminator) followed by the exact MessageContent bytes (messaging.proto Message.report_commitment, moderation.proto
+	// ReportContentRequest.message_payload). The one definition; ReportCommitment uses it.
+	ReportCommitmentPrefix = "dz-report-v1"
+	MaxCommitBytes         = 16384
+	MaxWelcomeBytes        = 65536
+	MaxWelcomeDevices      = 10
+	CiphertextRetention    = 30 * 24 * time.Hour
 	// CommitRetention and WelcomeRetention set expireAt on commit and welcome documents (creation + 30 days; global
 	// constraints, "Retention"): the TTL field of a policy the owner applies.
 	CommitRetention  = 30 * 24 * time.Hour

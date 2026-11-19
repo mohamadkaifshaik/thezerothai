@@ -327,12 +327,16 @@ func setEncrypted(m *messagingv1.Message, d MsgDoc) {
 	}
 	m.Text = ""
 	m.MlsGeneration, m.MlsEpoch = wirePair(d.MlsGen), wirePair(d.MlsEpoch)
-	if m.State == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && !d.CtRemoved && len(d.Ciphertext) > 0 {
+	if m.State == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && d.ciphertextKept() {
 		m.Ciphertext, m.ReportCommitment = d.Ciphertext, d.Commitment
 		return
 	}
 	m.CiphertextRemoved = true
 }
+
+// ciphertextKept is the byte half of the "ciphertext and commitment are present" rule: not swept and the ciphertext is
+// there. setEncrypted and the report lookup (report.go) both combine it with the VISIBLE state.
+func (d MsgDoc) ciphertextKept() bool { return !d.CtRemoved && len(d.Ciphertext) > 0 }
 
 // encryptionOf is Conversation.encryption and its current pair as the conversation document has them (NONE with (0, 0)
 // for a plaintext conversation).

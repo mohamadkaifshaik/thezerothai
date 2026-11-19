@@ -234,9 +234,16 @@ func (r *FirestoreRepo) evidenceRef(id string) *firestore.DocumentRef {
 
 // evidenceChild is the child document: the copied message text and the instant the TTL policy deletes it. The text
 // is index-exempt (fieldOverride on the collection group "evidence") and is never logged.
+//
+// An encrypted message's report adds encrypted = true, verified (present only when true: a missing field reads as NOT
+// verified) and sharedPostId (the disclosed id, when there was one). A plaintext report's child keeps its two fields.
+// Nothing else of the reporter's payload is stored (no report_key, no raw bytes) and never the ciphertext or the commitment.
 type evidenceChild struct {
-	Text     string    `firestore:"text"`
-	ExpireAt time.Time `firestore:"expireAt"`
+	Text         string    `firestore:"text"`
+	ExpireAt     time.Time `firestore:"expireAt"`
+	Encrypted    bool      `firestore:"encrypted,omitempty"`
+	Verified     bool      `firestore:"verified,omitempty"`
+	SharedPostID string    `firestore:"sharedPostId,omitempty"`
 }
 
 // Create implements Repo.
@@ -282,8 +289,10 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		// The private text of a MESSAGE report goes to a child document with its own TTL (a full Set, so a reopen
 		// replaces the old copy and a leftover of a TTL-deleted parent cannot make the write fail).
 		if p.Report.TargetType == TargetMessage && p.Report.Evidence != nil {
-			b.Set(r.evidenceRef(p.Report.ID), evidenceChild{Text: p.Report.Evidence.Text,
-				ExpireAt: p.Report.CreatedAt.Add(MessageEvidenceRetention).UTC()})
+			ev := p.Report.Evidence
+			b.Set(r.evidenceRef(p.Report.ID), evidenceChild{Text: ev.Text,
+				ExpireAt:  p.Report.CreatedAt.Add(MessageEvidenceRetention).UTC(),
+				Encrypted: ev.MessageEncrypted, Verified: ev.MessageEncrypted && ev.MessageVerified, SharedPostID: ev.SharedPostID})
 		}
 		return b.Err()
 	})
@@ -386,6 +395,7 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Report, error) {
 				return Report{}, fmt.Errorf("moderation: decode report evidence %s: %w", id, err)
 			}
 			rep.Evidence.Text = c.Text
+			rep.Evidence.MessageEncrypted, rep.Evidence.MessageVerified, rep.Evidence.SharedPostID = c.Encrypted, c.Encrypted && c.Verified, c.SharedPostID
 		case status.Code(err) == codes.NotFound:
 			rep.Evidence.TextExpired = true
 		default:

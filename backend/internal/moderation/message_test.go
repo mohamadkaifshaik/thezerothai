@@ -29,13 +29,15 @@ var (
 
 // fakeLookup is a MessageLookup that records its calls and answers from a script.
 type fakeLookup struct {
-	msg   ReportedMessage
-	err   error
-	calls []string
+	msg      ReportedMessage
+	err      error
+	calls    []string
+	payloads [][]byte
 }
 
-func (f *fakeLookup) ReportableMessage(_ context.Context, callerUID, convID, msgID string) (ReportedMessage, error) {
+func (f *fakeLookup) ReportableMessage(_ context.Context, callerUID, convID, msgID string, payload []byte) (ReportedMessage, error) {
 	f.calls = append(f.calls, callerUID+"|"+convID+"|"+msgID)
+	f.payloads = append(f.payloads, payload)
 	return f.msg, f.err
 }
 

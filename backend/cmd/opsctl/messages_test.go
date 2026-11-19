@@ -300,6 +300,52 @@ func TestReportsShow_MessageEvidence(t *testing.T) {
 	}
 }
 
+// An encrypted message's report says first whether the disclosed text is what the sender sent; a plaintext report
+// prints no verdict (its text is the server's own copy).
+func TestReportsShow_EncryptedMessageEvidence(t *testing.T) {
+	t.Parallel()
+	const verified, unverified = "evidence ENCRYPTED message: verified against the sender's commitment",
+		"evidence ENCRYPTED message: NOT verified (supplied by the reporter)"
+	for _, tt := range []struct {
+		name     string
+		verified bool
+		want     string
+		not      string
+	}{
+		{"verified", true, verified, unverified},
+		{"unverified", false, unverified, verified},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMsgFixture()
+			e := f.ops.report.Evidence
+			e.MessageEncrypted, e.MessageVerified, e.SharedPostID = true, tt.verified, "1234567890123456789"
+			code, out, stderr := f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
+			if code != 0 {
+				t.Fatalf("code=%d stderr=%q", code, stderr)
+			}
+			wantLines := []string{tt.want,
+				"evidence message from @mallory sent 1970-01-01T00:00:07Z (PRIVATE text, disclosed by the reporter): \"you are worthless\"",
+				"evidence shared post 1234567890123456789"}
+			for _, want := range wantLines {
+				if !strings.Contains(out, want) {
+					t.Errorf("output lacks %q:\n%s", want, out)
+				}
+			}
+			if strings.Contains(out, tt.not) || strings.Contains(out, "copied at report time") {
+				t.Errorf("wrong verdict or the plaintext wording:\n%s", out)
+			}
+			if strings.Index(out, tt.want) > strings.Index(out, "you are worthless") {
+				t.Errorf("the verdict must come before the text:\n%s", out)
+			}
+		})
+	}
+	f := newMsgFixture()
+	if _, out, _ := f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); strings.Contains(out, "verified") || strings.Contains(out, "ENCRYPTED") {
+		t.Errorf("a plaintext report printed a verdict:\n%s", out)
+	}
+}
+
 func TestMessagesTakedown_ConversationHashIsKeyedNeverPlain(t *testing.T) {
 	t.Setenv(cursorKeyEnv, "test-cursor-hmac-key")
 	f := newMsgFixture()
