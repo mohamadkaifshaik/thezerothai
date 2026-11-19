@@ -462,7 +462,8 @@ void main() {
       await tester.tap(find.text('Sign out'));
       await tester.pump();
 
-      verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+      verify(() => authBloc.add(const AuthSignOutRequested(uid: 'uid-1')))
+          .called(1);
     });
 
     testWidgets('Privacy Policy still goes through the launcher', (

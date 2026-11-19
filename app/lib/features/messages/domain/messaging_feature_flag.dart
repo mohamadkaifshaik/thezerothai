@@ -8,6 +8,11 @@ const kFeatureMessaging = 'messaging';
 /// a post is drawn as a card whatever this flag says for the viewer.
 const kFeatureDmPostShare = 'dm_post_share';
 
+/// Server feature flag for end-to-end encrypted direct messages, per
+/// caller. While it is off nothing opens the encrypted vault, generates a
+/// key or calls the key directory (`VaultSession`).
+const kFeatureE2eeDm = 'e2ee_dm';
+
 /// The most people one share action may be sent to (design Q7).
 const kSharePostMaxRecipients = 5;
 

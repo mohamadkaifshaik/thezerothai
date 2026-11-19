@@ -5,11 +5,26 @@ import android.app.NotificationManager
 import android.os.Build
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.engine.FlutterEngine
 
 class MainActivity : FlutterFragmentActivity() {
+    private var vaultKeyChannel: VaultKeyChannel? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         createSocialChannel()
+    }
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine) // registers the plugins
+        vaultKeyChannel?.dispose()
+        vaultKeyChannel = VaultKeyChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        vaultKeyChannel?.dispose()
+        vaultKeyChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     /**

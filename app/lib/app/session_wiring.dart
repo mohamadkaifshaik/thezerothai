@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
 
 import '../core/feature_flags/service_feature_gate.dart';
 import '../core/storage/app_database.dart';
+import '../core/vault/vault_session.dart';
 import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/messages/data/messaging_repository.dart';
@@ -147,6 +148,17 @@ Future<void> wipeSessionData({
 ///   overtakes the sign-out wipe before it. A failed step is reported and the
 ///   chain goes on; a failed claim falls back to a plain wipe.
 ///
+/// - The encrypted vault ([vaultSession], optional) follows the same
+///   transitions on its own queue, never on the cache chain: a user going
+///   to null ends that uid's vault session with the state's
+///   [AuthState.lastSessionEnd] (an explicit sign-out or account deletion
+///   wipes it; anything else keeps it); a direct switch to another uid ends
+///   the old one as [SessionEnd.sessionLost] (never explicit); a new uid
+///   signs in with [readE2eeFlag]'s current answer, except after a direct
+///   switch, where that answer is still the previous user's: it signs in
+///   with the flag off and the flag listener opens the vault. The cache
+///   steps above are the same for every reason.
+///
 /// [initialUser] is the user the app started with (already claimed at startup).
 /// Returns the subscription to [authStates].
 StreamSubscription<AuthState> wireAuthSession({
@@ -159,6 +171,8 @@ StreamSubscription<AuthState> wireAuthSession({
   MessagingRepository? messagingRepository,
   AppUser? initialUser,
   UnexpectedErrorReporter onUnexpectedError = reportUnexpectedError,
+  VaultSession? vaultSession,
+  bool Function()? readE2eeFlag,
 }) {
   var cacheOps = Future<void>.value();
   AppUser? lastUser;
@@ -177,10 +191,22 @@ StreamSubscription<AuthState> wireAuthSession({
     cacheOps.then((_) => onboardingBloc.add(OnboardingUserAuthenticated(user))),
   );
 
+  // [switched]: a direct switch from another user. The flag read now is the
+  // previous user's (GetMe has not answered for this one), so it is passed
+  // as off and the flag listener opens the vault once this user's flags
+  // are known.
+  void vaultSignedIn(String uid, {bool switched = false}) => unawaited(
+    vaultSession?.onSignedIn(
+      uid,
+      e2eeEnabled: !switched && (readE2eeFlag?.call() ?? false),
+    ),
+  );
+
   if (initialUser != null) {
     lastUser = initialUser;
     lastStatus = AuthStatus.authenticated;
     authenticate(initialUser);
+    vaultSignedIn(initialUser.uid);
   }
   return authStates.listen((state) {
     final user = state.user;
@@ -189,6 +215,15 @@ StreamSubscription<AuthState> wireAuthSession({
     lastUser = user;
     lastStatus = state.status;
     if (previous != null && (user == null || user.uid != previous.uid)) {
+      // Only a transition to no user can be explicit; a switch never is.
+      unawaited(
+        vaultSession?.onSessionEnded(
+          previous.uid,
+          user == null
+              ? state.lastSessionEnd ?? SessionEnd.sessionLost
+              : SessionEnd.sessionLost,
+        ),
+      );
       onboardingBloc.add(const OnboardingUserSignedOut());
       // Privacy: the privacy rule. The epoch ends now (late writes of the
       // old session are dropped); the wipe is awaited by the next step.
@@ -203,6 +238,7 @@ StreamSubscription<AuthState> wireAuthSession({
     }
     if (user != null && user.uid != previous?.uid) {
       final uid = user.uid;
+      vaultSignedIn(uid, switched: previous != null);
       chain(() async {
         try {
           await database.claimCacheFor(uid);

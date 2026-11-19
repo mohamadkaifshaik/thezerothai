@@ -12,7 +12,11 @@ import '../../auth/presentation/widgets/auth_page_layout.dart' show AuthFrame;
 /// takes the auth pages' frame (AccountDeleted.html): the "Account status"
 /// eyebrow, the headline, what happens next, and the way back to log in.
 class AccountDeletedScreen extends StatelessWidget {
-  const AccountDeletedScreen({super.key});
+  const AccountDeletedScreen({super.key, this.deletedUid});
+
+  /// The account the deletion flow deleted (the route's `extra`); null after
+  /// a reload. The sign-out below is bound to it.
+  final String? deletedUid;
 
   @override
   Widget build(BuildContext context) {
@@ -30,10 +34,22 @@ class AccountDeletedScreen extends StatelessWidget {
         size: AppButtonSize.large,
         onPressed: () {
           // Idempotent: makes sure the session is gone even if the first
-          // sign-out has not landed yet.
+          // sign-out has not landed yet. Bound to the deleted account. With
+          // none known (a reload or a typed URL: the page is reachable while
+          // signed in) the sign-out arms nothing, so whoever is signed in
+          // keeps their encrypted history; a real deletion's wipe was
+          // already journalled when the server accepted it.
           final auth = context.read<AuthBloc>();
           if (auth.state.isAuthenticated) {
-            auth.add(const AuthSignOutRequested());
+            final deleted = deletedUid;
+            auth.add(
+              deleted != null
+                  ? AuthSignOutRequested(
+                      reason: SessionEnd.accountDeleted,
+                      uid: deleted,
+                    )
+                  : const AuthSignOutRequested(arm: false),
+            );
           }
           context.go(AppRouter.signInPath);
         },

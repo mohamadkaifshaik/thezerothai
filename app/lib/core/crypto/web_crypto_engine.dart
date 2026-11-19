@@ -437,4 +437,41 @@ class WebCryptoEngine implements CryptoEngine {
     final r = await _call('securityCode', {'a': _party(a), 'b': _party(b)});
     return _string(r, 'code');
   }
+
+  @override
+  Future<Uint8List> seal(
+    Uint8List key,
+    Uint8List aad,
+    Uint8List plaintext,
+  ) async {
+    final r = await _call('seal', {
+      'key': _js(key),
+      'aad': _js(aad),
+      'plaintext': _js(plaintext),
+    });
+    return _bytes(r, 'sealed');
+  }
+
+  @override
+  Future<Uint8List> open(Uint8List key, Uint8List aad, Uint8List sealed) async {
+    final r = await _call('open', {
+      'key': _js(key),
+      'aad': _js(aad),
+      'sealed': _js(sealed),
+    });
+    return _bytes(r, 'plaintext');
+  }
+
+  @override
+  Future<Uint8List> randomBytes(int length) async {
+    // A JS number would be wrapped to u32 by the binding: refuse it here.
+    if (length < 1 || length > 64) {
+      throw const MlsException(
+        MlsErrorCode.badInput,
+        'random length out of range',
+      );
+    }
+    final r = await _call('randomBytes', {'length': length.toJS});
+    return _bytes(r, 'bytes');
+  }
 }

@@ -57,8 +57,11 @@ List<RouteBase> authRoutes() => [
   ),
 ];
 
-/// Shown after an account was deleted.
+/// Shown after an account was deleted. The deletion screen passes the
+/// deleted uid as `extra` (absent after a reload).
 GoRoute accountDeletedRoute() => GoRoute(
   path: AppRouter.accountDeletedPath,
-  builder: (context, state) => const AccountDeletedScreen(),
+  builder: (context, state) => AccountDeletedScreen(
+    deletedUid: state.extra is String ? state.extra! as String : null,
+  ),
 );

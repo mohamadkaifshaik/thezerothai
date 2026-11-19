@@ -243,3 +243,24 @@ pub fn security_code(a: &JsValue, b: &JsValue) -> Result<JsValue, JsValue> {
     let code = dzmls::security_code(&party(a)?, &party(b)?).map_err(fail)?;
     Ok(object(&[("code", JsValue::from_str(&code))]))
 }
+
+/// `{ sealed }`: `nonce (12) || ciphertext || tag (16)` under a 32-byte key (AES-256-GCM, local storage).
+#[wasm_bindgen]
+pub fn seal(key: &[u8], aad: &[u8], plaintext: &[u8]) -> Result<JsValue, JsValue> {
+    let sealed = dzmls::seal(key, aad, plaintext).map_err(fail)?;
+    Ok(object(&[("sealed", bytes(&sealed))]))
+}
+
+/// `{ plaintext }`. A wrong key, wrong aad or altered bytes throw `bad_input`.
+#[wasm_bindgen]
+pub fn open(key: &[u8], aad: &[u8], sealed: &[u8]) -> Result<JsValue, JsValue> {
+    let plaintext = dzmls::open(key, aad, sealed).map_err(fail)?;
+    Ok(object(&[("plaintext", bytes(&plaintext))]))
+}
+
+/// `{ bytes }`: `length` (1 to 64) random bytes.
+#[wasm_bindgen(js_name = randomBytes)]
+pub fn random_bytes(length: u32) -> Result<JsValue, JsValue> {
+    let b = dzmls::random_bytes(length).map_err(fail)?;
+    Ok(object(&[("bytes", bytes(&b))]))
+}

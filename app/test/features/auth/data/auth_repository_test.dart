@@ -1,3 +1,4 @@
+import 'package:dzeroth/core/session/session_end.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
@@ -33,6 +34,64 @@ void main() {
   setUp(() {
     firebaseAuth = _MockFirebaseAuth();
     googleSignIn = _MockGoogleSignIn();
+  });
+
+  group('account-deletion session end', () {
+    late _MockUser user;
+    late AuthRepository repo;
+
+    setUp(() {
+      user = _MockUser();
+      when(() => user.uid).thenReturn('uid-1');
+      when(() => firebaseAuth.currentUser).thenReturn(user);
+      repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+    });
+
+    test('deleteCurrentUser records accountDeleted for that uid before the '
+        'delete, consumed once', () async {
+      SessionEnd? seenDuringDelete;
+      when(user.delete).thenAnswer((_) async {
+        // Firebase may emit the null user before delete() returns.
+        seenDuringDelete = repo.takeSessionEndIntent('uid-1');
+      });
+      await repo.deleteCurrentUser();
+      expect(seenDuringDelete, SessionEnd.accountDeleted);
+      expect(repo.takeSessionEndIntent('uid-1'), isNull);
+    });
+
+    test('a failed delete withdraws the record', () async {
+      when(user.delete).thenThrow(fb.FirebaseAuthException(code: 'network'));
+      await expectLater(repo.deleteCurrentUser(), throwsA(anything));
+      expect(repo.takeSessionEndIntent('uid-1'), isNull);
+    });
+
+    test('the record is bound to its uid and consumed by any end', () {
+      repo.noteAccountDeleted('uid-1');
+      expect(repo.takeSessionEndIntent('uid-2'), isNull);
+      expect(
+        repo.takeSessionEndIntent('uid-1'),
+        isNull,
+        reason: 'consumed by the first end it was asked about',
+      );
+      repo.noteAccountDeleted('uid-1');
+      repo.clearAccountDeleted('uid-2');
+      expect(repo.takeSessionEndIntent('uid-1'), SessionEnd.accountDeleted);
+    });
+
+    test('an accepted deletion (noteAccountDeleted) is handed to the '
+        'listener at once (the vault journals the wipe); the client '
+        'delete\'s own provisional record is not', () async {
+      final heard = <String>[];
+      repo.onAccountDeleted = heard.add;
+      when(user.delete).thenThrow(fb.FirebaseAuthException(code: 'network'));
+      await expectLater(repo.deleteCurrentUser(), throwsA(anything));
+      expect(heard, isEmpty);
+      repo.noteAccountDeleted('uid-1');
+      expect(heard, ['uid-1']);
+    });
   });
 
   group('signUpWithEmail', () {

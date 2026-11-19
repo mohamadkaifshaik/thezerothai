@@ -401,6 +401,78 @@ void main() {
     await _fails(engine.createDevice(_bytes(1, 3)), MlsErrorCode.badInput);
   });
 
+  testWidgets('seal and open round-trip under a random key', (tester) async {
+    final engine = newEngine();
+    final key = await engine.randomBytes(32);
+    expect(key.length, 32);
+    expect(await engine.randomBytes(32), isNot(key));
+    final aad = _utf8('messages:row-1');
+    final plaintext = _utf8('in the vault');
+    final sealed = await engine.seal(key, aad, plaintext);
+    expect(sealed.length, plaintext.length + 28);
+    expect(await engine.seal(key, aad, plaintext), isNot(sealed));
+    expect(await engine.open(key, aad, sealed), plaintext);
+    await _fails(
+      engine.open(key, _utf8('messages:row-2'), sealed),
+      MlsErrorCode.badInput,
+    );
+    await _fails(engine.randomBytes(65), MlsErrorCode.badInput);
+  });
+
+  testWidgets('a 1 MiB value seals and opens', (tester) async {
+    final engine = newEngine();
+    final key = await engine.randomBytes(32);
+    final aad = _utf8('messages:row-big');
+    final plaintext = Uint8List.fromList(
+      List.generate(1048576, (i) => (i * 31) & 0xff),
+    );
+    final watch = Stopwatch()..start();
+    final sealed = await engine.seal(key, aad, plaintext);
+    final sealMs = watch.elapsedMilliseconds;
+    expect(sealed.length, 1048576 + 28);
+    final opened = await engine.open(key, aad, sealed);
+    watch.stop();
+    expect(opened, plaintext);
+    final openMs = watch.elapsedMilliseconds - sealMs;
+    // The device log shows the print; on the web the driver saves reportData
+    // to build/integration_response_data.json.
+    binding.reportData = {
+      ...?binding.reportData,
+      'seal1MiB': {'sealMs': sealMs, 'openMs': openMs},
+    };
+    // ignore: avoid_print
+    print('SEAL1MIB sealMs=$sealMs openMs=$openMs');
+  });
+
+  testWidgets('open with a wrong key fails with badInput', (tester) async {
+    final engine = newEngine();
+    final key = await engine.randomBytes(32);
+    final aad = _utf8('messages:row-1');
+    final sealed = await engine.seal(key, aad, _utf8('in the vault'));
+    final wrong = Uint8List.fromList(key)..[0] ^= 0x01;
+    await _fails(engine.open(wrong, aad, sealed), MlsErrorCode.badInput);
+  });
+
+  testWidgets('opens the known-answer value from crypto/dzmls/tests/seal.rs', (
+    tester,
+  ) async {
+    // Sealed by Node's crypto (OpenSSL), nonce a0..ab: checks this platform's
+    // AES-GCM backend (software AES on arm and wasm) against another
+    // implementation.
+    final engine = newEngine();
+    final key = _unhex(
+      '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+    );
+    final aad = _unhex('647a76313a6d657373616765733a726f772d3432');
+    final sealed = _unhex(
+      'a0a1a2a3a4a5a6a7a8a9aaab957d1d4120af22d90d17a7a76f1fe0a811d935644bdeda'
+      '484ce25b8360a64f1b39e51a84',
+    );
+    final plaintext = _unhex('7365616c656420666f7220746865207661756c74');
+    expect(await engine.open(key, aad, sealed), plaintext);
+    expect(utf8.decode(plaintext), 'sealed for the vault');
+  });
+
   testWidgets('50 encrypt calls complete while frames keep coming', (
     tester,
   ) async {

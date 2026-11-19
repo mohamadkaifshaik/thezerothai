@@ -4,6 +4,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/presentation/bloc/account_cubit.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
+import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter_test/flutter_test.dart';
@@ -55,6 +56,77 @@ void main() {
   });
 
   group('deleteAccount', () {
+    test('an accepted deletion records accountDeleted for the signed-in uid '
+        '(so a null user before the screen signs out is not sessionLost); '
+        'a failed one records nothing', () async {
+      when(() => auth.currentUser).thenReturn(
+        const AppUser(
+          uid: 'uid-1',
+          email: 'a@example.com',
+          emailVerified: true,
+          isPasswordProvider: true,
+        ),
+      );
+      stubDelete((_) async => throw StateError('server down'));
+      final failing = build();
+      await failing.deleteAccount(promptPassword: _pw);
+      verifyNever(() => auth.noteAccountDeleted(any()));
+
+      stubDelete((_) async => null);
+      final cubit = build();
+      await cubit.deleteAccount(promptPassword: _pw);
+      expect(cubit.state.status, AccountStatus.deleted);
+      verify(() => auth.noteAccountDeleted('uid-1')).called(1);
+    });
+
+    AppUser user(String uid) => AppUser(
+      uid: uid,
+      email: '$uid@example.com',
+      emailVerified: true,
+      isPasswordProvider: true,
+    );
+
+    test(
+      'the deleted uid is the one signed in when the flow STARTED: a '
+      'switch to B during the RPC records nothing (B is not wiped)',
+      () async {
+        var current = user('uid-a');
+        when(() => auth.currentUser).thenAnswer((_) => current);
+        stubDelete((_) async {
+          current = user('uid-b'); // another tab signed B in
+          return null;
+        });
+        final cubit = build();
+        await cubit.deleteAccount(promptPassword: _pw);
+        expect(cubit.state.status, AccountStatus.deleted);
+        verifyNever(() => auth.noteAccountDeleted(any()));
+      },
+    );
+
+    test('a switch during the re-auth records nothing either', () async {
+      var current = user('uid-a');
+      when(() => auth.currentUser).thenAnswer((_) => current);
+      stubReauth((_) async {
+        current = user('uid-b');
+        return const ReauthResult();
+      });
+      stubDelete((_) async => null);
+      await build().deleteAccount(promptPassword: _pw);
+      verifyNever(() => auth.noteAccountDeleted(any()));
+    });
+
+    test('the user already gone (the revoked token signed A out) still '
+        'records A: nobody else is signed in', () async {
+      AppUser? current = user('uid-a');
+      when(() => auth.currentUser).thenAnswer((_) => current);
+      stubDelete((_) async {
+        current = null;
+        return null;
+      });
+      await build().deleteAccount(promptPassword: _pw);
+      verify(() => auth.noteAccountDeleted('uid-a')).called(1);
+    });
+
     test('re-authenticates up front, then sends exactly one call', () async {
       stubDelete((_) async => null);
       final cubit = build();

@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'session_memory_executor.dart';
 import 'session_epoch.dart';
@@ -469,11 +470,22 @@ class UnsentPostPhotoEntries extends Table {
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
+    : this._onDisk(executor, kCacheDatabaseName, _WebStorageRecord());
+
+  /// The on-disk cache under another [name]: device tests that must not
+  /// touch the app's own cache. Opens exactly as the default constructor.
+  @visibleForTesting
+  AppDatabase.named(String name)
+    : this._onDisk(null, name, _WebStorageRecord());
+
+  AppDatabase._onDisk(QueryExecutor? executor, String name, this._webStorage)
     : keepsNothing = false,
-      super(executor ?? _openConnection());
+      super(executor ?? _openConnection(name, _webStorage));
 
   /// Test-only in-memory database.
-  AppDatabase.forTesting(super.executor) : keepsNothing = false;
+  AppDatabase.forTesting(super.executor)
+    : keepsNothing = false,
+      _webStorage = _WebStorageRecord();
 
   /// A cache with no sqlite behind it ([sessionMemoryExecutor]): start-up's
   /// last resort when no sqlite database can be used at all, e.g. on the web
@@ -482,7 +494,17 @@ class AppDatabase extends _$AppDatabase {
   /// messages show what the server returned; nothing is kept past it.
   AppDatabase.keepingNothing()
     : keepsNothing = true,
+      _webStorage = _WebStorageRecord(),
       super(sessionMemoryExecutor());
+
+  final _WebStorageRecord _webStorage;
+
+  /// On the web, the storage drift chose for this cache (reported by
+  /// `DriftWebOptions.onResult` once the database has opened); null before
+  /// that, on native, and for every other constructor. Only recorded: it
+  /// changes nothing about how the cache opens or falls back. The vault
+  /// reads it to decide whether its markers here are durable.
+  WasmStorageImplementation? get webStorage => _webStorage.value;
 
   /// True for [AppDatabase.keepingNothing]: nothing is kept beyond this run
   /// and the store is the minimal pure-Dart one, so the composer treats
@@ -855,14 +877,27 @@ class AppDatabase extends _$AppDatabase {
   static final Uri sqlite3WasmUri = Uri.parse('/sqlite3.wasm');
   static final Uri driftWorkerUri = Uri.parse('/drift_worker.js');
 
-  static QueryExecutor _openConnection() {
+  static QueryExecutor _openConnection(
+    String name,
+    _WebStorageRecord webStorage,
+  ) {
     return driftDatabase(
-      name: 'dzeroth',
+      name: name,
       web: DriftWebOptions(
         sqlite3Wasm: sqlite3WasmUri,
         driftWorker: driftWorkerUri,
+        // Recording only (it replaces drift_flutter's default handler, which
+        // only printed missing browser features).
+        onResult: (result) => webStorage.value = result.chosenImplementation,
       ),
       native: const DriftNativeOptions(),
     );
   }
+}
+
+/// The app's cache database name.
+const String kCacheDatabaseName = 'dzeroth';
+
+class _WebStorageRecord {
+  WasmStorageImplementation? value;
 }

@@ -1,11 +1,13 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 
-/// A deterministic, in-memory stand-in for the real MLS engine, for widget and
+/// An in-memory stand-in for the real MLS engine, deterministic except for
+/// seal and randomBytes (fresh random bytes per call), for widget and
 /// cubit tests. It is NOT secure: "encryption" is a plain header in front of
 /// the plaintext.
 ///
@@ -14,7 +16,9 @@ import 'package:dzeroth/core/crypto/crypto_types.dart';
 /// blobs gives the same result), and it mirrors the Rust core's error codes and
 /// epoch rules (device binding, membership, pending commit, eviction, wrong
 /// epoch, duplicate).
-/// The securityCode is the real algorithm.
+/// The securityCode is the real algorithm. seal/open have the real format,
+/// overhead, limits and failures (wrong key, wrong aad, altered bytes are
+/// badInput) but a reversible, non-secret encoding.
 ///
 /// Known differences from the real engine: ids and keys are derived from the
 /// device id; the blob encoding is a simple length-prefixed format; epochs
@@ -467,6 +471,114 @@ class FakeCryptoEngine implements CryptoEngine {
     final all = _digits(_half(lo)) + _digits(_half(hi));
     return [for (var i = 0; i < 12; i++) all.substring(i * 5, i * 5 + 5)]
         .join(' ');
+  }
+
+  // Sealing ---------------------------------------------------------------
+  //
+  // Same shape, overhead and limits as the real AES-256-GCM seal:
+  // nonce (12) || body || tag (16). The body is the plaintext XORed with
+  // SHA-256(key || nonce) repeated, and the tag is the first 16 bytes of a
+  // SHA-256 over the key, the length-prefixed aad, the nonce and the body.
+  // Reversible and NOT secure, but a wrong key, wrong aad or any altered byte
+  // fails like the real engine.
+
+  static const int _sealKey = 32;
+  static const int _sealNonce = 12;
+  static const int _sealTag = 16;
+  static const int _sealOverhead = _sealNonce + _sealTag;
+  static const int _maxSealPlaintext = 1048576;
+  static const int _maxRandom = 64;
+  static final Random _random = Random.secure();
+
+  @override
+  Future<Uint8List> seal(
+    Uint8List key,
+    Uint8List aad,
+    Uint8List plaintext,
+  ) async {
+    _checkSealKey(key);
+    if (plaintext.length > _maxSealPlaintext) {
+      throw MlsException(
+        MlsErrorCode.badInput,
+        'plaintext is ${plaintext.length} bytes, at most $_maxSealPlaintext',
+      );
+    }
+    final nonce = _randomList(_sealNonce);
+    final body = _mask(key, nonce, plaintext);
+    return Uint8List.fromList([
+      ...nonce,
+      ...body,
+      ..._sealTagFor(key, aad, nonce, body),
+    ]);
+  }
+
+  @override
+  Future<Uint8List> open(Uint8List key, Uint8List aad, Uint8List sealed) async {
+    _checkSealKey(key);
+    if (sealed.length < _sealOverhead ||
+        sealed.length > _maxSealPlaintext + _sealOverhead) {
+      throw MlsException(
+        MlsErrorCode.badInput,
+        'sealed value is ${sealed.length} bytes',
+      );
+    }
+    final nonce = sealed.sublist(0, _sealNonce);
+    final body = sealed.sublist(_sealNonce, sealed.length - _sealTag);
+    final tag = sealed.sublist(sealed.length - _sealTag);
+    if (!_eq(tag, _sealTagFor(key, aad, nonce, body))) {
+      throw const MlsException(
+        MlsErrorCode.badInput,
+        'sealed value does not open',
+      );
+    }
+    return _mask(key, nonce, body);
+  }
+
+  @override
+  Future<Uint8List> randomBytes(int length) async {
+    if (length < 1 || length > _maxRandom) {
+      throw MlsException(
+        MlsErrorCode.badInput,
+        'random length is $length, expected 1 to $_maxRandom',
+      );
+    }
+    return _randomList(length);
+  }
+
+  static Uint8List _randomList(int length) => Uint8List.fromList([
+    for (var i = 0; i < length; i++) _random.nextInt(256),
+  ]);
+
+  static void _checkSealKey(Uint8List key) {
+    if (key.length != _sealKey) {
+      throw MlsException(
+        MlsErrorCode.badInput,
+        'seal key is ${key.length} bytes, expected $_sealKey',
+      );
+    }
+  }
+
+  static Uint8List _mask(List<int> key, List<int> nonce, List<int> input) {
+    final pad = crypto.sha256.convert([...key, ...nonce]).bytes;
+    return Uint8List.fromList([
+      for (var i = 0; i < input.length; i++) input[i] ^ pad[i % pad.length],
+    ]);
+  }
+
+  static List<int> _sealTagFor(
+    List<int> key,
+    List<int> aad,
+    List<int> nonce,
+    List<int> body,
+  ) {
+    final out = BytesBuilder(copy: false)
+      ..add(utf8.encode('fake-seal-v1'))
+      ..add(key);
+    _field(out, aad);
+    out
+      ..add(nonce)
+      ..add(body);
+    return crypto.sha256.convert(out.takeBytes()).bytes.sublist(0, _sealTag);
   }
 
   // Security code ---------------------------------------------------------

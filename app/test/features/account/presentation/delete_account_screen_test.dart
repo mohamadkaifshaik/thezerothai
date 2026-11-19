@@ -11,12 +11,13 @@ import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/router/routes/auth_routes.dart'
+    show accountDeletedRoute;
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
-import 'package:dzeroth/features/account/presentation/account_deleted_screen.dart';
 import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
@@ -193,10 +194,8 @@ void main() {
               ? const DeleteAccountScreen()
               : _inShell(const DeleteAccountScreen(), floating: floatingBar),
         ),
-        GoRoute(
-          path: AppRouter.accountDeletedPath,
-          builder: (_, _) => const AccountDeletedScreen(),
-        ),
+        // The app's own route: it hands the deleted uid (`extra`) on.
+        accountDeletedRoute(),
         GoRoute(
           path: AppRouter.exportDataPath,
           builder: (_, _) => const Scaffold(body: Text('export stub')),
@@ -296,12 +295,29 @@ void main() {
       () =>
           accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
     ).called(1);
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
+      ),
+    ).called(1);
     expect(find.text('A fresh start.'), findsOneWidget);
 
     await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
     expect(find.text('sign in stub'), findsOneWidget);
+    // The confirmation page got the deleted uid from the flow: its own
+    // sign-out (still authenticated in this rig) is the deletion's again.
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
+      ),
+    ).called(1);
   });
 
   testWidgets('success wipes the deleted uid\'s drafts and only that uid\'s', (
@@ -458,7 +474,14 @@ void main() {
     expect(reported, hasLength(1));
     expect(optIn.forgotten, ['uid-1']);
     expect(find.text('A fresh start.'), findsOneWidget);
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
+      ),
+    ).called(1);
   });
 
   testWidgets('a storage failure is reported and never blocks the final page', (
@@ -473,7 +496,14 @@ void main() {
 
     expect(reported, hasLength(1));
     expect(find.text('A fresh start.'), findsOneWidget);
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(
+          reason: SessionEnd.accountDeleted,
+          uid: 'uid-1',
+        ),
+      ),
+    ).called(1);
   });
 
   testWidgets('the client sign-out racing the cubit still forgets the uid', (
@@ -812,6 +842,28 @@ void main() {
     });
   });
 
+  testWidgets('m9: a deletion screen that captured no uid sends a sign-out '
+      'that arms nothing', (tester) async {
+    whenListen(
+      authBloc,
+      const Stream<AuthState>.empty(),
+      initialState: const AuthState(status: AuthStatus.authenticated),
+    );
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+    verify(() => authBloc.add(const AuthSignOutRequested(arm: false)))
+        .called(1);
+    verifyNever(
+      () => authBloc.add(
+        any(
+          that: isA<AuthSignOutRequested>().having((e) => e.arm, 'arm', true),
+        ),
+      ),
+    );
+  });
+
   testWidgets('Back to log in signs out again while still authenticated', (
     tester,
   ) async {
@@ -820,7 +872,18 @@ void main() {
     await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
 
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    // N3: reached without the deleted uid (a reload or a typed URL): the
+    // sign-out arms nothing, so the signed-in user's vault is kept (a real
+    // deletion's wipe is already journalled).
+    verify(() => authBloc.add(const AuthSignOutRequested(arm: false)))
+        .called(1);
+    verifyNever(
+      () => authBloc.add(
+        any(
+          that: isA<AuthSignOutRequested>().having((e) => e.arm, 'arm', true),
+        ),
+      ),
+    );
     expect(find.text('sign in stub'), findsOneWidget);
   });
 

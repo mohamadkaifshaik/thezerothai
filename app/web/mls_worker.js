@@ -14,6 +14,9 @@
 // confirmCommit / discardCommit { deviceState, groupState }; joinFromWelcome { deviceState, welcome };
 // encrypt { deviceState, groupState, plaintext }; process { deviceState, groupState, wire }; describe { groupState };
 // wireEpoch { wire }; securityCode { a, b }.
+// Local-storage sealing (AES-256-GCM, not MLS): seal { key, aad, plaintext } -> { sealed }, where sealed is
+// nonce (12) || ciphertext || tag (16); open { key, aad, sealed } -> { plaintext }; randomBytes { length } -> { bytes }
+// (length 1 to 64). Keys and plaintext are never logged; failures carry codes and sizes only.
 'use strict';
 
 importScripts('mls/dzmls_web.js');
@@ -35,6 +38,9 @@ const ops = {
   describe: (a) => wasm_bindgen.describe(a.groupState),
   wireEpoch: (a) => wasm_bindgen.wireEpoch(a.wire),
   securityCode: (a) => wasm_bindgen.securityCode(a.a, a.b),
+  seal: (a) => wasm_bindgen.seal(a.key, a.aad, a.plaintext),
+  open: (a) => wasm_bindgen.open(a.key, a.aad, a.sealed),
+  randomBytes: (a) => wasm_bindgen.randomBytes(a.length),
 };
 
 // Every Uint8Array reachable from a result, so its buffer can be transferred.

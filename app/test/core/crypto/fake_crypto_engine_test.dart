@@ -810,6 +810,118 @@ void main() {
     });
   });
 
+  group('seal and open', () {
+    final key = _bytes(7, 32);
+    final aad = _utf8('messages:row-1');
+
+    test('round-trips with exactly 28 bytes of overhead', () async {
+      for (final plaintext in [
+        Uint8List(0),
+        _utf8('x'),
+        _utf8('hello vault'),
+        _bytes(0, 4096),
+      ]) {
+        final sealed = await engine.seal(key, aad, plaintext);
+        expect(sealed.length, plaintext.length + 28);
+        expect(await engine.open(key, aad, sealed), plaintext);
+      }
+    });
+
+    test('two seals of the same input differ', () async {
+      final a = await engine.seal(key, aad, _utf8('same'));
+      final b = await engine.seal(key, aad, _utf8('same'));
+      expect(a, isNot(b));
+      expect(a.sublist(0, 12), isNot(b.sublist(0, 12)));
+    });
+
+    test('a wrong key, a wrong aad or a flipped byte is badInput', () async {
+      final sealed = await engine.seal(key, aad, _utf8('secret'));
+      await _fails(
+        engine.open(_bytes(8, 32), aad, sealed),
+        MlsErrorCode.badInput,
+      );
+      await _fails(
+        engine.open(key, _utf8('messages:row-2'), sealed),
+        MlsErrorCode.badInput,
+      );
+      await _fails(
+        engine.open(key, Uint8List(0), sealed),
+        MlsErrorCode.badInput,
+      );
+      for (final i in [0, 11, 12, sealed.length - 1]) {
+        final bad = Uint8List.fromList(sealed)..[i] ^= 1;
+        await _fails(engine.open(key, aad, bad), MlsErrorCode.badInput);
+      }
+    });
+
+    test('a truncated or extended value is badInput', () async {
+      final sealed = await engine.seal(key, aad, _utf8('secret'));
+      for (final n in [0, 1, 12, 27, sealed.length - 1]) {
+        await _fails(
+          engine.open(key, aad, sealed.sublist(0, n)),
+          MlsErrorCode.badInput,
+        );
+      }
+      await _fails(
+        engine.open(key, aad, Uint8List.fromList([...sealed, 0])),
+        MlsErrorCode.badInput,
+      );
+      await _fails(engine.open(key, aad, Uint8List(28)), MlsErrorCode.badInput);
+    });
+
+    test('a key other than 32 bytes is badInput', () async {
+      final sealed = await engine.seal(key, aad, _utf8('secret'));
+      for (final n in [0, 16, 31, 33]) {
+        await _fails(
+          engine.seal(_bytes(7, n), aad, _utf8('secret')),
+          MlsErrorCode.badInput,
+        );
+        await _fails(
+          engine.open(_bytes(7, n), aad, sealed),
+          MlsErrorCode.badInput,
+        );
+      }
+    });
+
+    test('the plaintext cap is 1 MiB inclusive', () async {
+      const cap = 1048576;
+      final atCap = _bytes(0x5a, cap);
+      final sealed = await engine.seal(key, aad, atCap);
+      expect(sealed.length, cap + 28);
+      expect(await engine.open(key, aad, sealed), atCap);
+      await _fails(
+        engine.seal(key, aad, _bytes(0x5a, cap + 1)),
+        MlsErrorCode.badInput,
+      );
+      await _fails(
+        engine.open(key, aad, Uint8List(cap + 29)),
+        MlsErrorCode.badInput,
+      );
+    });
+
+    test('errors carry no key, aad or plaintext', () async {
+      final sealed = await engine.seal(key, aad, _utf8('top-secret'));
+      try {
+        await engine.open(key, _utf8('other-aad'), sealed);
+        fail('expected badInput');
+      } on MlsException catch (e) {
+        expect(e.toString(), isNot(contains('top-secret')));
+        expect(e.toString(), isNot(contains('other-aad')));
+        expect(e.toString(), isNot(contains('messages:row')));
+      }
+    });
+  });
+
+  test('randomBytes gives 1 to 64 fresh bytes', () async {
+    for (final n in [1, 12, 32, 64]) {
+      expect((await engine.randomBytes(n)).length, n);
+    }
+    expect(await engine.randomBytes(32), isNot(await engine.randomBytes(32)));
+    for (final n in [0, 65, -1, 1 << 32]) {
+      await _fails(engine.randomBytes(n), MlsErrorCode.badInput);
+    }
+  });
+
   test('MlsErrorCode.parse maps wire strings and unknown to internal', () {
     expect(MlsErrorCode.parse('wrong_epoch'), MlsErrorCode.wrongEpoch);
     expect(

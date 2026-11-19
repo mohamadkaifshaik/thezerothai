@@ -103,6 +103,25 @@ Future<BigInt> wireEpoch({required List<int> wire}) =>
 Future<String> securityCode({required Party a, required Party b}) =>
     RustLib.instance.api.crateApiSecurityCode(a: a, b: b);
 
+/// AES-256-GCM for local storage: `nonce (12) || ciphertext || tag (16)` under a 32-byte key.
+Future<Uint8List> seal({
+  required List<int> key,
+  required List<int> aad,
+  required List<int> plaintext,
+}) =>
+    RustLib.instance.api.crateApiSeal(key: key, aad: aad, plaintext: plaintext);
+
+/// The inverse of [`seal`]; a wrong key, wrong aad or altered bytes fail with `bad_input`.
+Future<Uint8List> open({
+  required List<int> key,
+  required List<int> aad,
+  required List<int> sealed,
+}) => RustLib.instance.api.crateApiOpen(key: key, aad: aad, sealed: sealed);
+
+/// `length` (1 to 64) random bytes.
+Future<Uint8List> randomBytes({required int length}) =>
+    RustLib.instance.api.crateApiRandomBytes(length: length);
+
 class Commit {
   final Uint8List groupState;
   final Uint8List commit;

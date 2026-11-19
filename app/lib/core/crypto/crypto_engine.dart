@@ -91,4 +91,31 @@ abstract interface class CryptoEngine {
   /// The 60-digit code (12 groups of 5) two users compare out of band.
   /// Symmetric in [a] and [b].
   Future<String> securityCode(SecurityParty a, SecurityParty b);
+
+  // Local-storage sealing ---------------------------------------------------
+  //
+  // AES-256-GCM for values the app stores on the device; not part of MLS.
+  // These calls take no state blob and need no serialization.
+
+  /// Encrypts [plaintext] (0 to 1,048,576 bytes, not the 4096-byte MLS limit)
+  /// under [key] (exactly 32 bytes), authenticating [aad].
+  ///
+  /// Returns `nonce (12 bytes) || ciphertext || tag (16 bytes)`, 28 bytes
+  /// longer than [plaintext]. The nonce is fresh random on every call, so two
+  /// seals of the same input differ. [aad] is not stored: pass the same bytes
+  /// (for example the table and row key) to [open]. Any other key length or a
+  /// larger plaintext fails with [MlsErrorCode.badInput].
+  Future<Uint8List> seal(Uint8List key, Uint8List aad, Uint8List plaintext);
+
+  /// Decrypts a value made by [seal] with the same [key] and [aad].
+  ///
+  /// A wrong key, a wrong [aad], altered bytes, or a [sealed] value shorter
+  /// than 28 bytes or longer than 1,048,576 + 28 bytes all fail with
+  /// [MlsErrorCode.badInput], with the same message for every authentication
+  /// failure.
+  Future<Uint8List> open(Uint8List key, Uint8List aad, Uint8List sealed);
+
+  /// [length] (1 to 64) bytes from the engine's CSPRNG, for example a new
+  /// 32-byte [seal] key. Any other length fails with [MlsErrorCode.badInput].
+  Future<Uint8List> randomBytes(int length);
 }

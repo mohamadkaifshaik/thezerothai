@@ -38,6 +38,31 @@ void main() {
         .thenAnswer((_) async => const []);
   });
 
+  test('m8: uidOf names the user a state was EMITTED for, even when a '
+      'listener reads it after a later sign-out (the vault binds flag '
+      'answers to it)', () async {
+    when(() => identityRepository.getMe()).thenAnswer(
+      (_) async => identity.GetMeResponse(
+        profile: identity.Profile(userId: 'uid-1', handle: 'a'),
+        enabledFeatures: ['e2ee_dm'],
+      ),
+    );
+    final bloc = OnboardingBloc(identityRepository: identityRepository);
+    addTearDown(bloc.close);
+    final seen = <OnboardingState>[];
+    final sub = bloc.stream.listen(seen.add);
+    addTearDown(sub.cancel);
+    bloc.add(const OnboardingUserAuthenticated(user));
+    await pumpEventQueue();
+    final ready = seen.lastWhere((s) => s.status == OnboardingStatus.ready);
+    bloc.add(const OnboardingUserSignedOut());
+    await pumpEventQueue();
+    // Read after the sign-out: still the user it was emitted for.
+    expect(bloc.uidOf(ready), 'uid-1');
+    expect(bloc.uidOf(seen.last), isNull, reason: 'the signed-out state');
+    expect(bloc.uidOf(bloc.state), isNull);
+  });
+
   group('OnboardingProfileUpdated (P2 edit profile / change handle)', () {
     blocTest<OnboardingBloc, OnboardingState>(
       "swaps in the caller's updated profile and ignores another user's",

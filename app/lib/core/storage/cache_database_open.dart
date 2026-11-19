@@ -1,4 +1,6 @@
 import 'package:drift/drift.dart';
+import 'package:drift_flutter/drift_flutter.dart'
+    show WasmStorageImplementation;
 
 import 'app_database.dart';
 import 'memory_executor.dart';
@@ -31,6 +33,12 @@ class OpenedCacheDatabase {
   /// True for both fallbacks: nothing stored this launch outlives it, and
   /// what the last launch stored is absent.
   bool get inMemory => failure != null;
+
+  /// On the web, the storage drift chose for the cache
+  /// ([AppDatabase.webStorage]: recorded during the open, so known once this
+  /// object exists); null on native and for the in-memory fallbacks.
+  WasmStorageImplementation? get webStorage =>
+      inMemory ? null : database.webStorage;
 
   bool _reported = false;
 

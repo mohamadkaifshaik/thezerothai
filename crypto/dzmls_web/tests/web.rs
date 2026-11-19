@@ -355,3 +355,22 @@ fn self_update_confirms_on_one_side_and_processes_on_the_other() {
     .unwrap();
     assert_eq!(js_bytes(&get(&get(&got, "event"), "plaintext")), b"renewed");
 }
+
+#[wasm_bindgen_test]
+fn seal_and_open_round_trip_with_random_key() {
+    let key = js_bytes(&get(&web::random_bytes(32).unwrap(), "bytes"));
+    assert_eq!(key.len(), 32);
+    let other = js_bytes(&get(&web::random_bytes(32).unwrap(), "bytes"));
+    assert_ne!(key, other, "the browser CSPRNG gives fresh bytes");
+    let sealed = js_bytes(&get(
+        &web::seal(&key, b"messages:row-1", b"in the vault").unwrap(),
+        "sealed",
+    ));
+    assert_eq!(sealed.len(), b"in the vault".len() + 28);
+    let opened = web::open(&key, b"messages:row-1", &sealed).unwrap();
+    assert_eq!(js_bytes(&get(&opened, "plaintext")), b"in the vault");
+    let e = web::open(&key, b"messages:row-2", &sealed).expect_err("wrong aad");
+    assert_eq!(err_code(&e), "bad_input");
+    let e = web::random_bytes(0).expect_err("zero length");
+    assert_eq!(err_code(&e), "bad_input");
+}

@@ -14,7 +14,18 @@ import '../features/articles/data/rpc_articles_repository.dart';
 
 import 'package:http/http.dart' as http;
 
+import 'package:uuid/uuid.dart';
+
+import '../core/crypto/crypto_engine.dart';
+import '../core/crypto/crypto_engine_factory.dart';
 import '../core/network/api_client.dart';
+import '../core/vault/vault_cipher.dart';
+import '../core/vault/vault_markers.dart';
+import '../core/vault/vault_open.dart' as vault_open;
+import '../core/vault/vault_owner.dart';
+import '../core/vault/vault_session.dart';
+import '../features/messages/domain/messaging_feature_flag.dart'
+    show kFeatureE2eeDm;
 import '../core/network/auth_token_provider.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/service_paused_cubit.dart';
@@ -31,6 +42,8 @@ import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
+import '../features/keys/data/keys_repository.dart';
+import '../features/keys/domain/device_keys_service.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/impressions_repository.dart';
@@ -86,6 +99,7 @@ import '../firebase_options_prod.dart' as prod_firebase;
 import 'app_config.dart';
 import 'auth_emulator.dart';
 import 'app_widget.dart';
+import 'restored_session.dart';
 import 'session_wiring.dart';
 
 /// Entry point for every flavor/target. Initializes Firebase + App Check,
@@ -139,7 +153,8 @@ Future<void> bootstrap() async {
     appleServiceId: config.appleServiceId,
     appleRedirectUri: config.appleRedirectUri,
   );
-  final restoredUid = await _restoredUid(authRepository);
+  final restored = await readRestoredSession(authRepository);
+  final restoredUid = restored.uid;
 
   // Whose cache is this? (L-4.) Settled before the first cache read: a wipe
   // that the last run missed is done here, for the uid the auth SDK restored
@@ -195,6 +210,35 @@ Future<void> bootstrap() async {
     reportUnexpectedError(error, stack);
   }
 
+  // The encrypted vault (e2ee_dm). Its safety markers live in the cache's
+  // device settings: on an in-memory cache, or a web cache on a storage the
+  // vault would not accept, they would not outlive this run (or would differ
+  // per tab), so no vault opens. An explicit sign-out a killed run left
+  // pending is resolved against the restored user only when the auth SDK
+  // answered definitively (another user or nobody: that wipe is owed;
+  // otherwise the next sign-in or launch resolves it), then owed wipes are
+  // finished, before any vault is
+  // opened; nothing opens before a user and the flag are known. A null
+  // restored user is otherwise a lost session for the vault: nothing wiped.
+  // One crypto engine for the vault cipher and the device keys, created on
+  // first use (nothing of it starts while e2ee_dm is off).
+  CryptoEngine? cryptoEngine;
+  CryptoEngine engine() => cryptoEngine ??= createCryptoEngine();
+  final vaultSession = _buildVaultSession(
+    cache: cache,
+    engine: engine,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  // An accepted account deletion journals the vault wipe at once.
+  authRepository.onAccountDeleted = (uid) =>
+      unawaited(vaultSession.noteAccountDeleted(uid));
+  unawaited(
+    vaultSession.start(
+      restoredUid: restoredUid,
+      restoreDefinitive: restored.definitive,
+    ),
+  );
+
   await _activateAppCheck(config);
 
   // While the API is paused, Google's front end answers HTTP 403;
@@ -247,9 +291,20 @@ Future<void> bootstrap() async {
   // the device while the ID token is still valid; AppWidget gives
   // it the router. It is wired to the notifications repository below.
   late final PushCubit pushCubit;
+  // Built below, once the flag gate exists; a failed sign-out (which can
+  // only follow a user action) re-registers the device the hook removed.
+  late final DeviceKeysService deviceKeys;
   final authBloc = AuthBloc(
     authRepository: authRepository,
+    // One 3 s budget for both: push unregistration and, only when the
+    // intent was armed for the signed-in uid, the vault's pending-end marker
+    // and key-directory removal before the vault is wiped.
     beforeSignOut: () => pushCubit.unregister(),
+    beforeExplicitSignOut: vaultSession.beforeExplicitSignOut,
+    onSignOutFailed: (uid) {
+      unawaited(vaultSession.explicitSignOutFailed(uid));
+      unawaited(deviceKeys.onSignOutFailed(uid));
+    },
     unknownTimeout: kAuthUnknownTimeout,
   )..add(const AuthSubscriptionRequested());
   sessionAuth = authBloc;
@@ -267,6 +322,53 @@ Future<void> bootstrap() async {
       telemetry.onEnabledFeatures(state.enabledFeatures);
     }
   });
+  // e2ee_dm as GetMe answers it for the signed-in user. Only a ready state
+  // whose flags are known decides (flagsPending: not answered yet); a
+  // sign-out ends the vault through wireAuthSession instead.
+  bool flagsKnown(OnboardingState s) =>
+      s.status == OnboardingStatus.ready && !s.flagsPending;
+  bool e2eeEnabled() =>
+      flagsKnown(onboardingBloc.state) &&
+      onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm);
+  onboardingBloc.stream.listen((state) {
+    if (flagsKnown(state)) {
+      // Bound to the user this state was EMITTED for (captured at emission;
+      // not the auth bloc's user, which switches first, nor the onboarding
+      // bloc's user when this listener runs); ignored if that user is not
+      // the vault session's user when it runs.
+      unawaited(
+        vaultSession.onFlagChanged(
+          state.enabledFeatures.contains(kFeatureE2eeDm),
+          uid: onboardingBloc.uidOf(state),
+        ),
+      );
+    }
+  });
+
+  // E2EE device keys: this install's encryption device in the key directory
+  // and its key-package pool. Runs after each vault open (the session hook,
+  // outside its queue), on resume and at most hourly; removed from the
+  // directory before an explicit wipe. Inert with e2ee_dm off (no vault, and
+  // the gate sends nothing).
+  deviceKeys = DeviceKeysService(
+    session: vaultSession,
+    repository: KeysRepository(
+      apiClient: apiClient,
+      gate: buildServiceGate(
+        onboardingBloc,
+        kFeatureE2eeDm,
+        onUnexpectedError: reportUnexpectedError,
+      ),
+    ),
+    engine: engine,
+    currentUid: () => authBloc.state.user?.uid,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  vaultSession
+    ..onVaultReady = deviceKeys.onVaultReady
+    ..beforeExplicitWipe = deviceKeys.removeThisDevice;
+  // Lives as long as the app (the binding keeps it).
+  AppLifecycleListener(onResume: () => unawaited(deviceKeys.onAppResumed()));
 
   // Posts + timeline: the gate reads `GetMe.enabled_features` via
   // OnboardingBloc (0 extra reads) and remembers FEATURE_DISABLED answers
@@ -514,6 +616,8 @@ Future<void> bootstrap() async {
     notificationsRepository: notificationsRepository,
     messagingRepository: messagingRepository,
     initialUser: authBloc.state.isAuthenticated ? authBloc.state.user : null,
+    vaultSession: vaultSession,
+    readE2eeFlag: e2eeEnabled,
   );
 
   runApp(
@@ -631,18 +735,40 @@ class _LocalAppCheckTokenProvider implements AppCheckTokenProvider {
   Future<String?> getAppCheckToken() async => null;
 }
 
-/// The uid the auth SDK restored from disk, or null for a signed-out app. On
-/// web the persisted user arrives with the first auth event, so that is awaited
-/// (briefly); a late event is still handled by the sign-in claim.
-Future<String?> _restoredUid(AuthRepository authRepository) async {
-  try {
-    final user = await authRepository.authStateChanges().first.timeout(
-      const Duration(seconds: 5),
-    );
-    return user?.uid;
-  } catch (_) {
-    return authRepository.currentUser?.uid;
-  }
+/// The production [VaultSession]: the real cipher, vault, wiper and key
+/// deleter (by alias) and owner; markers in the cache's device settings
+/// (persistent only when the cache is on disk and, on the web, on a storage
+/// the vault accepts: [vaultMarkersPersistent]; a corrupt marker is
+/// reported and ignored); Android and web only; a fresh launch id
+/// per process. The crypto engine is created on the first cipher open, so
+/// nothing of it starts while `e2ee_dm` is off.
+VaultSession _buildVaultSession({
+  required OpenedCacheDatabase cache,
+  required CryptoEngine Function() engine,
+  required UnexpectedErrorReporter onUnexpectedError,
+}) {
+  return VaultSession(
+    openCipher: (uid) => openVaultCipher(uid: uid, engine: engine()),
+    openVault: vault_open.openVault,
+    wipeVaultFile: vault_open.wipeVaultFileForAlias,
+    deleteVaultKey: deleteVaultKeyForAlias,
+    createOwner: createVaultOwner,
+    markers: DriftVaultMarkers(
+      cache.database,
+      persistent: vaultMarkersPersistent(
+        cacheInMemory: cache.inMemory,
+        isWeb: kIsWeb,
+        cacheWebStorage: cache.webStorage,
+      ),
+      onCorrupt: (_) => onUnexpectedError(
+        const VaultSessionError('corruptMarker'),
+        StackTrace.current,
+      ),
+    ),
+    supported: kIsWeb || defaultTargetPlatform == TargetPlatform.android,
+    launchId: const Uuid().v4(),
+    onUnexpectedError: onUnexpectedError,
+  );
 }
 
 class _ConfigErrorApp extends StatelessWidget {

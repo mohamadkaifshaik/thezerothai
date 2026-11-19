@@ -69,7 +69,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -77936558;
+  int get rustContentHash => -1806098008;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -126,10 +126,24 @@ abstract class RustLibApi extends BaseApi {
     required List<int> welcome,
   });
 
+  Future<Uint8List> crateApiOpen({
+    required List<int> key,
+    required List<int> aad,
+    required List<int> sealed,
+  });
+
   Future<Processed> crateApiProcess({
     required List<int> deviceState,
     required List<int> groupState,
     required List<int> wire,
+  });
+
+  Future<Uint8List> crateApiRandomBytes({required int length});
+
+  Future<Uint8List> crateApiSeal({
+    required List<int> key,
+    required List<int> aad,
+    required List<int> plaintext,
   });
 
   Future<String> crateApiSecurityCode({required Party a, required Party b});
@@ -486,6 +500,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<Uint8List> crateApiOpen({
+    required List<int> key,
+    required List<int> aad,
+    required List<int> sealed,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(key, serializer);
+          sse_encode_list_prim_u_8_loose(aad, serializer);
+          sse_encode_list_prim_u_8_loose(sealed, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 11,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_mls_error,
+        ),
+        constMeta: kCrateApiOpenConstMeta,
+        argValues: [key, aad, sealed],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiOpenConstMeta => const TaskConstMeta(
+    debugName: "open",
+    argNames: ["key", "aad", "sealed"],
+  );
+
+  @override
   Future<Processed> crateApiProcess({
     required List<int> deviceState,
     required List<int> groupState,
@@ -501,7 +551,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -522,6 +572,70 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<Uint8List> crateApiRandomBytes({required int length}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(length, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_mls_error,
+        ),
+        constMeta: kCrateApiRandomBytesConstMeta,
+        argValues: [length],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRandomBytesConstMeta =>
+      const TaskConstMeta(debugName: "random_bytes", argNames: ["length"]);
+
+  @override
+  Future<Uint8List> crateApiSeal({
+    required List<int> key,
+    required List<int> aad,
+    required List<int> plaintext,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(key, serializer);
+          sse_encode_list_prim_u_8_loose(aad, serializer);
+          sse_encode_list_prim_u_8_loose(plaintext, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_mls_error,
+        ),
+        constMeta: kCrateApiSealConstMeta,
+        argValues: [key, aad, plaintext],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSealConstMeta => const TaskConstMeta(
+    debugName: "seal",
+    argNames: ["key", "aad", "plaintext"],
+  );
+
+  @override
   Future<String> crateApiSecurityCode({required Party a, required Party b}) {
     return handler.executeNormal(
       NormalTask(
@@ -532,7 +646,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 15,
             port: port_,
           );
         },
@@ -564,7 +678,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 16,
             port: port_,
           );
         },
@@ -594,7 +708,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 17,
             port: port_,
           );
         },
