@@ -5,6 +5,7 @@ import '../storage/app_database.dart' show AppDatabase;
 import 'vault_database.dart';
 import 'vault_open.dart'
     show
+        VaultWipeStop,
         checkVaultWipeListed,
         chooseVaultWebStorage,
         isTrustedVaultWebProbe,
@@ -87,11 +88,24 @@ Future<(DatabaseConnection, String)> openPlatformVaultConnection(
 /// success while a copy survives would be wrong. Likewise when
 /// [expectedStorage] is given and no copy is listed under it
 /// ([checkVaultWipeListed]).
+///
+/// [stop] (see `runAbandonableVaultWipe`): the probe and the opens are
+/// unbounded here, so a wipe can resume long after its caller gave up and
+/// the session opened a fresh vault. [stop] is asked after the probe, after
+/// each open (a connection that arrives then is closed unused), inside the
+/// row delete, before `VACUUM` and before each `deleteDatabase`; true is
+/// [VaultStatus.unavailable] and nothing more is deleted.
 Future<void> wipePlatformVaultFile(
   String name, {
   String? expectedStorage,
+  required VaultWipeStop stop,
 }) async {
+  void halt() {
+    if (stop()) throw const VaultOpenException(VaultStatus.unavailable);
+  }
+
   final probed = await _probe(name);
+  halt();
   if (!isTrustedVaultWebProbe(probed.missingFeatures)) {
     throw const VaultOpenException(VaultStatus.unavailable);
   }
@@ -107,18 +121,23 @@ Future<void> wipePlatformVaultFile(
       if (existingName == name) api,
   };
   for (final api in mine) {
+    halt();
     var rowsGone = false;
     final storages = ranked.where((s) => s.storageApi == api);
     if (storages.isNotEmpty) {
       try {
+        // A connection that arrives after [stop] turned true is closed
+        // unused by wipeVaultDatabase (it asks [stop] first, then closes).
         await wipeVaultDatabase(
           VaultDatabase(await probed.open(storages.first, name)),
+          stop: stop,
         );
         rowsGone = true;
       } catch (_) {
-        // An OPFS copy may still be deleted below.
+        // An OPFS copy may still be deleted below (unless stopped).
       }
     }
+    halt();
     var deleted = false;
     if (api == WebStorageApi.opfs) {
       try {

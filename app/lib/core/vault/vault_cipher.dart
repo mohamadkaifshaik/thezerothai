@@ -18,9 +18,18 @@ import 'package:dzeroth/core/vault/vault_cipher_stub.dart'
 /// table fails to open.
 ///
 /// The key never appears in an error, a log or [Object.toString].
+///
+/// [destroy] is the only way to end a cipher, and it also deletes the stored
+/// key. A cipher that is simply dropped (no [destroy]) leaves its in-memory
+/// key bytes (Android) to the garbage collector: they are not zeroed. A
+/// non-destructive `close()` that zeroes without deleting is left for a
+/// later plan.
 abstract interface class VaultCipher {
   /// True when [openVaultCipher] found no stored key for this user and made a
-  /// new one. The vault treats "existing vault data + a fresh key" as key loss.
+  /// new one. Informational only: whether a vault's data is readable is
+  /// decided by the vault's sentinel row (`openVaultOnDatabase` reports
+  /// `VaultStatus.keyLost` when it does not open), and nothing reads this
+  /// flag for that decision.
   bool get freshlyCreated;
 
   /// Seals [plaintext] for the row [rowKey] of [table].
@@ -40,9 +49,10 @@ abstract interface class VaultCipher {
 
   /// Ends this cipher and deletes the stored key for this user. New calls
   /// are refused at once ([StateError], [destroy] included); calls already in
-  /// flight finish first under the key (on the web the wait is at most 5 s).
-  /// Then the in-memory key is dropped (zeroed on Android, where its bytes
-  /// are in memory) and the platform key and stored record are deleted. If
+  /// flight finish first under the key (the wait is at most 5 s; on Android
+  /// a call still running then gets no result, [StateError]). Then the
+  /// in-memory key is dropped (zeroed on Android, where its bytes are in
+  /// memory) and the platform key and stored record are deleted. If
   /// the platform delete fails the cipher is still ended and this throws
   /// [VaultKeyException] with [VaultKeyFailure.unavailable].
   ///

@@ -227,9 +227,24 @@ void main() {
     expect(keystore.calls.map((c) => c.method), ['unwrap']);
   });
 
-  test('an unwrapped key of the wrong length is keyLost', () async {
+  test('A-M2: a SUCCESS unwrap reply of the wrong length or null is an '
+      'anomaly (unavailable), never keyLost, and mints no key', () async {
+    await _open(engine); // a key is stored
+    keystore.calls.clear();
     keystore.unwrapOverride = Uint8List(16);
-    await expectLater(_open(engine), _keyFailure(VaultKeyFailure.keyLost));
+    await expectLater(_open(engine), _keyFailure(VaultKeyFailure.unavailable));
+    keystore.unwrapOverride = null;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_channel, (call) async {
+          if (call.method == 'unwrap') {
+            keystore.calls.add(call);
+            return null;
+          }
+          return keystore.handle(call);
+        });
+    await expectLater(_open(engine), _keyFailure(VaultKeyFailure.unavailable));
+    expect(keystore.calls.map((c) => c.method), ['unwrap', 'unwrap']);
+    expect(engine.keys, hasLength(1));
   });
 
   test(
@@ -282,8 +297,8 @@ void main() {
       );
       await expectLater(cipher.destroy(), throwsStateError);
 
-      // Reopening makes a fresh key; old rows no longer authenticate. The vault
-      // reads freshlyCreated plus existing rows as key loss.
+      // Reopening makes a fresh key; old rows no longer authenticate (the
+      // vault's sentinel, not freshlyCreated, then reports key loss).
       final again = await _open(engine);
       expect(again.freshlyCreated, isTrue);
       await expectLater(
@@ -475,7 +490,26 @@ void main() {
     expect(cipher.freshlyCreated, isFalse);
     await cipher.destroy(); // threw "Cannot modify an unmodifiable list"
     keystore.unwrapOverride = Uint8List(16);
-    await expectLater(_open(engine), _keyFailure(VaultKeyFailure.keyLost));
+    await expectLater(_open(engine), _keyFailure(VaultKeyFailure.unavailable));
+  });
+
+  test('A-M3: destroy waits for a hung seal at most its bound, then zeroes '
+      'and deletes; the late seal returns no result', () async {
+    final late = _LateReadEngine();
+    final cipher = await openIoVaultCipher(
+      uid: 'user-1',
+      engine: late,
+      isAndroid: true,
+      destroyWait: const Duration(milliseconds: 50),
+    );
+    late.sealGate = Completer<void>(); // never answers until released
+    final sealing = cipher.seal('messages', 'r1', _b('in flight'));
+    await pumpEventQueue();
+    await cipher.destroy().timeout(const Duration(seconds: 5));
+    expect(late.keys.single, everyElement(0));
+    expect(keystore.calls.last.method, 'delete');
+    late.sealGate!.complete();
+    await expectLater(sealing, throwsStateError);
   });
 
   test('deleteVaultKey deletes the stored key without creating one', () async {

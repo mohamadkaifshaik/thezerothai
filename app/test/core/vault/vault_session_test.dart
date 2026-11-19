@@ -1155,6 +1155,68 @@ void main() {
       expect(world.markers.keyLostByAlias, isEmpty);
     });
 
+    // B-M3: EVERY unavailable launch breaks the streak.
+    final unavailablePaths = <String, void Function()>{
+      'the owed-wipe marker read fails': () =>
+          world.markers.failOwedReads = true,
+      'an owed wipe fails': () {
+        world.setOwed(_a);
+        world.wipeFileFails.add(_a);
+      },
+      'the lock acquire throws': () => world.acquireThrows.add(_a),
+      'the known-marker read fails': () => world.markers.failKnownReads = true,
+      'the keyLostSeen read fails': () => world.markers.failKeyLostReads = true,
+      'the known-marker write fails': () {
+        world.markers.knownByAlias.remove(vaultKeyAlias(_a));
+        world.keys[_a] = world.files[_a]!.key; // the open succeeds
+        world.markers.failKnownWrites = true;
+      },
+      'the keyLostSeen write fails (an observation from the future)': () {
+        world.markers.keyLostByAlias[vaultKeyAlias(_a)] = KeyLostSeen(
+          launchId: 'launch-x',
+          atMicros: world.nowMicros + _hour.inMicroseconds,
+        );
+        world.markers.failKeyLostWrites = true;
+      },
+    };
+    for (final e in unavailablePaths.entries) {
+      test('B-M3: ${e.key} on the next launch: unavailable, and the streak '
+          'is cleared', () async {
+        await keyLostLaunch();
+        expect(world.keyLost(_a), isNotNull);
+        final s = await signIn(_a, flag: false);
+        e.value();
+        world.calls.clear();
+        await s.onFlagChanged(true, uid: _a);
+        expect(s.status.value, VaultStatus.unavailable);
+        expect(world.markers.keyLostByAlias, isEmpty);
+        expect(world.files[_a]!.rows['k'], 'history');
+        expect(world.calls, isNot(contains('key:$_a')));
+      });
+    }
+
+    test('B-M3: the marker store fails AND the clear fails: tolerated, '
+        'still unavailable, the marker failure reported once', () async {
+      await keyLostLaunch();
+      final reported = <Object>[];
+      final s = world.launch(reported: reported);
+      await s.onSignedIn(_a, e2eeEnabled: false);
+      world.markers
+        ..failKeyLostReads = true
+        ..failKeyLostClears = true;
+      await s.onFlagChanged(true, uid: _a);
+      expect(s.status.value, VaultStatus.unavailable);
+      expect(world.calls, contains('markers.keyLostClear:$_a'));
+      expect(
+        reported
+            .whereType<VaultSessionError>()
+            .where((r) => r.step == 'markers')
+            .length,
+        1,
+      );
+      expect(world.calls.where(_destructive), isEmpty);
+    });
+
     test('the wipe fails on the second keyLost: key NOT deleted, wipe owed '
         '(file started), completed at the next launch before anything '
         'else', () async {

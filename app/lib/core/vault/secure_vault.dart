@@ -328,7 +328,7 @@ abstract interface class VaultTx {
 ///   a new, empty vault for [uid] or rewrites a corrupted owner stamp.
 ///
 /// With [registerAs] (`openVault` passes the database name), the open vault
-/// is counted in this process's registry until it is closed or wiped, and
+/// is counted in this isolate's registry until it is closed or wiped, and
 /// `wipeVaultFile` refuses that name meanwhile ([isVaultOpenInProcess]).
 /// [storageName] becomes [SecureVault.storageName] (`openVault` passes the
 /// storage the platform chose).
@@ -360,12 +360,15 @@ Future<SecureVault> openVaultOnDatabase(
   );
 }
 
-/// Vault database names open in this process (a name can be open more than
-/// once, e.g. a test opening a second instance), counted.
+/// Vault database names open in this ISOLATE (a name can be open more than
+/// once, e.g. a test opening a second instance), counted. A Dart top-level:
+/// each isolate has its own copy.
 final Map<String, int> _openVaultNames = {};
 
-/// Whether a vault opened with `registerAs: name` is still open in this
-/// process. Process-wide only: another tab or isolate is not seen.
+/// Whether a vault opened with `registerAs: name` is still open in THIS
+/// ISOLATE (despite the name, not process-wide): another tab, or another
+/// isolate of the same process (e.g. a background isolate), is not seen.
+/// Only the UI isolate's vault session opens the vault.
 bool isVaultOpenInProcess(String name) => (_openVaultNames[name] ?? 0) > 0;
 
 void _releaseVaultName(String name) {

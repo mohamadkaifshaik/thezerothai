@@ -32,8 +32,9 @@
 //
 // Dart maps key_lost to VaultKeyFailure.keyLost and every other error
 // (unavailable, unknown codes, MissingPluginException: for example in a
-// background FlutterEngine, which has no channel) to unavailable. Only no_key
-// creates a key.
+// background FlutterEngine, which has no channel) to unavailable, as well as a
+// success reply to unwrap that is null or not 32 bytes (an anomaly, not
+// evidence of loss). Only no_key creates a key.
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -48,6 +49,10 @@ const _dataKeyLength = 32;
 const _unavailable = VaultKeyException(VaultKeyFailure.unavailable);
 const _keyLost = VaultKeyException(VaultKeyFailure.keyLost);
 
+/// How long [AndroidVaultCipher.destroy] waits for seal/open calls in flight
+/// (the same bound as the web cipher).
+const _destroyWait = Duration(seconds: 5);
+
 /// The Android vault; other dart:io platforms (iOS, desktop) have none.
 Future<VaultCipher> openPlatformVaultCipher({
   required String uid,
@@ -56,15 +61,20 @@ Future<VaultCipher> openPlatformVaultCipher({
     openIoVaultCipher(uid: uid, engine: engine, isAndroid: Platform.isAndroid);
 
 /// [openPlatformVaultCipher] with the platform check passed in, for tests.
+/// [destroyWait] bounds how long `destroy` waits for calls in flight.
 @visibleForTesting
 Future<VaultCipher> openIoVaultCipher({
   required String uid,
   required CryptoEngine engine,
   required bool isAndroid,
+  Duration destroyWait = _destroyWait,
 }) {
   _requireAndroid(isAndroid);
   final alias = vaultKeyAlias(uid);
-  return _serialized(alias, () => AndroidVaultCipher._open(alias, engine));
+  return _serialized(
+    alias,
+    () => AndroidVaultCipher._open(alias, engine, destroyWait),
+  );
 }
 
 /// [deleteVaultKey] on dart:io platforms.
@@ -157,10 +167,13 @@ Future<Uint8List?> _unwrap(String alias) async {
   } on Object {
     throw _unavailable;
   }
+  // A SUCCESS reply that is null or not 32 bytes is an anomaly of the channel
+  // or the platform side, not evidence that the key is gone: unavailable,
+  // never keyLost (keyLost counts towards a confirmed loss and a wipe).
+  if (key == null || key.length != _dataKeyLength) throw _unavailable;
   // The decoded reply can be a view of the engine's read-only message buffer,
   // which cannot be zeroed (Dart cannot clear that copy), so the cipher keeps
   // its own copy that destroy can zero.
-  if (key == null || key.length != _dataKeyLength) throw _keyLost;
   return Uint8List.fromList(key);
 }
 
@@ -171,10 +184,12 @@ class AndroidVaultCipher implements VaultCipher {
     this._engine,
     this._key,
     this.freshlyCreated,
+    this._destroyWait,
   );
 
   final String _alias;
   final CryptoEngine _engine;
+  final Duration _destroyWait;
 
   // The data key: the one long-lived copy in Dart, never printed or logged.
   // The channel codec makes short-lived copies when it is wrapped or
@@ -187,16 +202,22 @@ class AndroidVaultCipher implements VaultCipher {
   int _inFlight = 0;
   Completer<void>? _drained;
 
+  // Set by destroy right before it zeroes the key: a call still in flight
+  // then (destroy stopped waiting after [_destroyWait]) may have read a
+  // zeroed key, so its result is never handed out.
+  bool _zeroed = false;
+
   @override
   final bool freshlyCreated;
 
   static Future<AndroidVaultCipher> _open(
     String alias,
     CryptoEngine engine,
+    Duration destroyWait,
   ) async {
     final stored = await _unwrap(alias);
     if (stored != null) {
-      return AndroidVaultCipher._(alias, engine, stored, false);
+      return AndroidVaultCipher._(alias, engine, stored, false, destroyWait);
     }
 
     // No stored key: first use for this user on this device.
@@ -211,7 +232,7 @@ class AndroidVaultCipher implements VaultCipher {
         'alias': alias,
         'dataKey': key,
       });
-      return AndroidVaultCipher._(alias, engine, key, true);
+      return AndroidVaultCipher._(alias, engine, key, true, destroyWait);
     } on PlatformException catch (e) {
       // Never hand out a key that is not stored: rows sealed under it would
       // be lost on the next start.
@@ -225,20 +246,27 @@ class AndroidVaultCipher implements VaultCipher {
     // Another writer stored a key first: adopt it.
     final theirs = await _unwrap(alias);
     if (theirs == null) throw _unavailable;
-    return AndroidVaultCipher._(alias, engine, theirs, false);
+    return AndroidVaultCipher._(alias, engine, theirs, false, destroyWait);
   }
 
   // The engine may read the key at any point until its future completes
   // (nothing promises a copy at call time), so seal/open count themselves in
-  // flight and destroy zeroes the key only after they finish.
+  // flight and destroy zeroes the key only after they finish, or after
+  // [_destroyWait]. A call that outlives that bound returns no result: it
+  // fails with StateError (its key may have been zeroed under it).
   Future<T> _run<T>(Future<T> Function(Uint8List key) body) async {
     if (_closed) throw StateError('The vault cipher was destroyed.');
     _inFlight++;
     try {
-      return await body(_key);
+      final result = await body(_key);
+      if (_zeroed) throw StateError('The vault cipher was destroyed.');
+      return result;
     } finally {
       _inFlight--;
-      if (_inFlight == 0) _drained?.complete();
+      final drained = _drained;
+      if (_inFlight == 0 && drained != null && !drained.isCompleted) {
+        drained.complete();
+      }
     }
   }
 
@@ -276,14 +304,20 @@ class AndroidVaultCipher implements VaultCipher {
         }
       });
 
+  /// Refuses new calls at once, waits for the ones in flight at most
+  /// [_destroyWait] (5 s, as on the web: a hung engine call must not hold a
+  /// sign-out's wipe forever), zeroes the key, then deletes the platform
+  /// key. A call still running after the bound gets no result (StateError),
+  /// so nothing sealed or opened after the key was zeroed is ever stored.
   @override
   Future<void> destroy() async {
     if (_closed) throw StateError('The vault cipher was destroyed.');
     _closed = true;
     if (_inFlight > 0) {
       final drained = _drained = Completer<void>();
-      await drained.future;
+      await drained.future.timeout(_destroyWait, onTimeout: () {});
     }
+    _zeroed = true;
     _key.fillRange(0, _key.length, 0);
     await _serialized(_alias, () => _deleteAlias(_alias));
   }

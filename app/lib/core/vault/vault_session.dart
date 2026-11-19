@@ -70,8 +70,16 @@ class VaultSessionError implements Exception {
 ///   [start]), a different user signing in ([onSignedIn]), an owed wipe, a
 ///   key loss seen on two separate launches an hour apart, and the explicit
 ///   [resetVaultForStorageChange]. Every wipe is journalled first
-///   (`vault.wipeOwed`, with how far its file step got), and runs
-///   file -> key -> markers -> lock.
+///   (`vault.wipeOwed`, with how far its file step got). Its order depends
+///   on whether the vault is open in this session:
+///   - a vault that is NOT open (another user's, an owed wipe, a confirmed
+///     key loss, a closed or lost vault): file -> key -> markers -> lock;
+///     the key is deleted only after the file wipe succeeded;
+///   - the OPEN vault of an explicit sign-out or account deletion: writers
+///     stopped -> rows and key ([SecureVault.wipe]: rows deleted, then
+///     `cipher.destroy()`) -> the now-empty file (best effort) -> markers
+///     -> lock. If the rows or the key cannot be deleted, the wipe stays
+///     owed for the next launch.
 /// - [VaultStatus.unavailable], [VaultStatus.storageChanged] and
 ///   [VaultStatus.heldElsewhere] never wipe and never delete a key. A failed
 ///   open is not repeated automatically in this process; [retry] (app
@@ -747,12 +755,16 @@ class VaultSession {
   }
 
   /// Any launch that opens the vault, or answers unavailable or
-  /// storageChanged, breaks a key-loss streak.
-  Future<void> _clearStreak(String alias) async {
+  /// storageChanged, breaks a key-loss streak: EVERY `unavailable` path of
+  /// [_open] and [_onKeyLost] calls this, including those where the marker
+  /// store itself failed. Best effort: a failed clear is tolerated. With
+  /// [quiet] (the path has already reported its marker failure) it is not
+  /// reported again, so one launch reports a broken marker store once.
+  Future<void> _clearStreak(String alias, {bool quiet = false}) async {
     try {
       await _markers.clearKeyLostSeen(alias);
     } catch (_, stack) {
-      _report('markers', stack);
+      if (!quiet) _report('markers', stack);
     }
   }
 
@@ -797,11 +809,13 @@ class VaultSession {
       owed = await _owedFor(alias);
     } catch (_, stack) {
       _report('markers', stack);
+      await _clearStreak(alias, quiet: true);
       return _fail(uid, VaultStatus.unavailable);
     }
     if (owed != null) {
       if (_isOpenFor(alias)) await _closeOpen();
       if (!await _wipeClosed(alias)) {
+        await _clearStreak(alias);
         return _fail(uid, VaultStatus.unavailable);
       }
     }
@@ -815,6 +829,7 @@ class VaultSession {
       acquired = await owner.acquireForAlias(alias);
     } catch (_, stack) {
       _report('acquire', stack);
+      await _clearStreak(alias);
       return _fail(uid, VaultStatus.unavailable);
     }
     if (!acquired) return _fail(uid, VaultStatus.heldElsewhere);
@@ -848,6 +863,7 @@ class VaultSession {
       known = await _markers.known(alias);
     } catch (_, stack) {
       _report('markers', stack);
+      await _clearStreak(alias, quiet: true);
       return _fail(uid, VaultStatus.unavailable);
     }
 
@@ -903,6 +919,7 @@ class VaultSession {
         // A vault without its marker must not be used.
         _report('markers', stack);
         await _closeQuietly(vault);
+        await _clearStreak(alias, quiet: true);
         return _fail(uid, VaultStatus.unavailable);
       }
     }
@@ -963,6 +980,7 @@ class VaultSession {
       seen = await _markers.keyLostSeen(alias);
     } catch (_, stack) {
       _report('markers', stack);
+      await _clearStreak(alias, quiet: true);
       return _fail(uid, VaultStatus.unavailable);
     }
     // No observation yet, or one "from the future" (the clock moved back):
@@ -976,6 +994,9 @@ class VaultSession {
         );
       } catch (_, stack) {
         _report('markers', stack);
+        // An unavailable launch: no observation of it may survive (one
+        // "from the future" would otherwise stay).
+        await _clearStreak(alias, quiet: true);
         return _fail(uid, VaultStatus.unavailable);
       }
       return _fail(uid, VaultStatus.keyLost);

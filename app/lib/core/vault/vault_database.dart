@@ -294,8 +294,14 @@ class VaultDatabase extends _$VaultDatabase {
 
   /// Deletes every row of every table in one transaction. Needs no key, so
   /// it works when the cipher is lost or unavailable. Follow with [vacuum].
-  Future<void> deleteAllRows() => transaction(() async {
+  ///
+  /// [halt] is asked INSIDE the transaction, after the (lazy) connection has
+  /// opened, immediately before each table's delete: true throws
+  /// [StateError] and the transaction rolls back, so a wipe its caller has
+  /// abandoned deletes nothing even when it was stalled in the open.
+  Future<void> deleteAllRows({bool Function()? halt}) => transaction(() async {
     for (final table in vaultTables) {
+      if (halt?.call() ?? false) throw StateError('vault wipe stopped');
       await delete(table).go();
     }
   });

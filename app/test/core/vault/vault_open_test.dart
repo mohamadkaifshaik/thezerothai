@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart'
     show
+        driftDatabase,
         ExistingDatabase,
         MissingBrowserFeature,
         WasmStorageImplementation,
@@ -28,6 +31,27 @@ class _FailVacuum extends QueryInterceptor {
   ) {
     if (statement.trim().toUpperCase() == 'VACUUM') {
       throw StateError('vacuum refused');
+    }
+    return super.runCustom(executor, statement, args);
+  }
+}
+
+/// Holds `VACUUM` until [gate] completes; completes [reached] when it is hit.
+class _StallVacuum extends QueryInterceptor {
+  _StallVacuum(this.gate, this.reached);
+
+  final Future<void> gate;
+  final Completer<void> reached;
+
+  @override
+  Future<void> runCustom(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (statement.trim().toUpperCase() == 'VACUUM') {
+      if (!reached.isCompleted) reached.complete();
+      await gate;
     }
     return super.runCustom(executor, statement, args);
   }
@@ -660,6 +684,239 @@ void main() {
         _throwsStatus(VaultStatus.unavailable),
       );
       expect(isVaultOpenInProcess(name), isFalse);
+    });
+  });
+
+  group('A-I1: an abandoned wipe never resumes into a live vault', () {
+    late Directory dir;
+    late File file;
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('vault_abandon');
+      file = File('${dir.path}${Platform.pathSeparator}v.sqlite');
+    });
+    tearDown(() {
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    Future<void> seed(String uid) async {
+      final v = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase(file)),
+        uid: uid,
+        cipher: FakeVaultCipher(),
+      );
+      await v.transaction((tx) => tx.putSetting('kept', Uint8List(1)));
+      await v.close();
+    }
+
+    Future<int> settingsRows() async {
+      final check = VaultDatabase.forTesting(NativeDatabase(file));
+      final n = (await check.select(check.vaultSettings).get()).length;
+      await check.close();
+      return n;
+    }
+
+    test('stalled in the lazy open: times out, a vault is opened, the wipe '
+        'resumes and deletes nothing', () async {
+      const uid = 'abandon-open';
+      final name = vaultDatabaseName(uid);
+      await seed(uid);
+      final gate = Completer<void>();
+      late Future<String?> inner;
+      await expectLater(
+        runAbandonableVaultWipe(
+          name,
+          (stop) => inner = wipeVaultDatabase(
+            VaultDatabase.forTesting(
+              LazyDatabase(() async {
+                await gate.future;
+                return NativeDatabase(file);
+              }),
+            ),
+            stop: stop,
+            timeout: const Duration(minutes: 5),
+          ),
+          timeout: const Duration(milliseconds: 50),
+        ),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      // The session retries and opens a fresh vault meanwhile.
+      final live = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase(file)),
+        uid: uid,
+        cipher: FakeVaultCipher(),
+        registerAs: name,
+      );
+      addTearDown(live.close);
+      gate.complete();
+      await expectLater(inner, _throwsStatus(VaultStatus.unavailable));
+      expect(await live.setting('kept'), isNotNull);
+      await live.close();
+      expect(await settingsRows(), 1);
+    });
+
+    test('abandoned with NO vault open: the resumed wipe still deletes '
+        'nothing (the flag alone stops it)', () async {
+      const uid = 'abandon-closed';
+      await seed(uid);
+      final gate = Completer<void>();
+      late Future<String?> inner;
+      await expectLater(
+        runAbandonableVaultWipe(
+          vaultDatabaseName(uid),
+          (stop) => inner = wipeVaultDatabase(
+            VaultDatabase.forTesting(
+              LazyDatabase(() async {
+                await gate.future;
+                return NativeDatabase(file);
+              }),
+            ),
+            stop: stop,
+            timeout: const Duration(minutes: 5),
+          ),
+          timeout: const Duration(milliseconds: 50),
+        ),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      gate.complete();
+      await expectLater(inner, _throwsStatus(VaultStatus.unavailable));
+      expect(await settingsRows(), 1);
+    });
+
+    test('Android path stalled in VACUUM: times out, a vault is opened, the '
+        'resumed wipe deletes no file', () async {
+      const uid = 'abandon-vacuum';
+      final name = vaultDatabaseName(uid);
+      await seed(uid);
+      final gate = Completer<void>();
+      final reached = Completer<void>();
+      late Future<void> inner;
+      await expectLater(
+        runAbandonableVaultWipe(
+          name,
+          (stop) => inner = wipeIoVaultFile(
+            VaultDatabase.forTesting(
+              NativeDatabase(file)
+                  .interceptWith(_StallVacuum(gate.future, reached)),
+            ),
+            reportedPath: Future.value(file.path),
+            stop: stop,
+          ),
+          // Long enough to reach VACUUM (where it then stalls).
+          timeout: const Duration(seconds: 2),
+        ),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      expect(reached.isCompleted, isTrue);
+      final live = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase(file)),
+        uid: uid,
+        cipher: FakeVaultCipher(),
+        registerAs: name,
+      );
+      addTearDown(live.close);
+      gate.complete();
+      await expectLater(inner, _throwsStatus(VaultStatus.unavailable));
+      expect(file.existsSync(), isTrue);
+      await live.close();
+    });
+
+    test('a wipe that finished normally is not affected', () async {
+      const uid = 'abandon-none';
+      await seed(uid);
+      await runAbandonableVaultWipe(
+        vaultDatabaseName(uid),
+        (stop) => wipeIoVaultFile(
+          VaultDatabase.forTesting(NativeDatabase(file)),
+          reportedPath: Future.value(null),
+          stop: stop,
+        ),
+      );
+      expect(file.existsSync(), isFalse);
+    });
+  });
+
+  group('A-M1: the Android wipe of a file that is not a database', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('vault_garbage'));
+    tearDown(() {
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    Future<(VaultDatabase, Future<String?>, ReceivePort)> openGarbage(
+      String name,
+    ) async {
+      final file = File('${dir.path}${Platform.pathSeparator}$name.sqlite')
+        ..writeAsStringSync('not a database, ' * 400);
+      for (final s in ['-journal', '-wal']) {
+        File('${file.path}$s').writeAsStringSync('x');
+      }
+      final port = ReceivePort();
+      final reported = port.first.then<String?>(
+        (p) => p is String ? p : null,
+        onError: (Object _) => null,
+      );
+      // drift_flutter's real native path, on a test directory.
+      final db = VaultDatabase(
+        driftDatabase(
+          name: name,
+          native: vaultNativeOptions(
+            reportPath: port.sendPort,
+            directory: () async => dir.path,
+            tempDirectory: () async => null,
+          ),
+        ),
+      );
+      return (db, reported, port);
+    }
+
+    test('the rows cannot be deleted, so the reported file is deleted and '
+        'the wipe succeeds', () async {
+      const name = 'dzeroth_vault_garbage1';
+      final (db, reported, port) = await openGarbage(name);
+      addTearDown(port.close);
+      await wipeIoVaultFile(db, reportedPath: reported, stop: () => false);
+      for (final s in ['', '-journal', '-wal', '-shm']) {
+        expect(
+          File('${dir.path}${Platform.pathSeparator}$name.sqlite$s')
+              .existsSync(),
+          isFalse,
+          reason: s,
+        );
+      }
+    });
+
+    test('stopped (abandoned, or the vault is open again): no file is '
+        'deleted', () async {
+      const name = 'dzeroth_vault_garbage2';
+      final (db, reported, port) = await openGarbage(name);
+      addTearDown(port.close);
+      await expectLater(
+        wipeIoVaultFile(db, reportedPath: reported, stop: () => true),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      expect(
+        File('${dir.path}${Platform.pathSeparator}$name.sqlite').existsSync(),
+        isTrue,
+      );
+    });
+
+    test('no path reported (the open failed before sqlite opened a file): '
+        'unavailable', () async {
+      final db = VaultDatabase.forTesting(
+        LazyDatabase(() async => throw StateError('no storage')),
+      );
+      await expectLater(
+        wipeIoVaultFile(
+          db,
+          reportedPath: Future.value(null),
+          stop: () => false,
+        ),
+        _throwsStatus(VaultStatus.unavailable),
+      );
     });
   });
 

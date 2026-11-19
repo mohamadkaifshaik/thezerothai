@@ -31,11 +31,13 @@ import 'vault_status.dart';
 /// - [WasmStorageImplementation.inMemory]: keeps nothing.
 /// - [WasmStorageImplementation.unsafeIndexedDb]: a per-tab copy of the file
 ///   over IndexedDB with no cross-tab coordination; drift documents it as
-///   unable to prevent data races between tabs. Single-tab ownership of the
-///   vault comes from a Web Lock taken by a later task, which this open
-///   cannot verify; without it two tabs could overwrite each other's MLS
-///   state, which is not recoverable. Widen this set only together with
-///   that guarantee (the vault session holding the lock before opening).
+///   unable to prevent data races between tabs. Single-tab ownership comes
+///   from the Web Lock the vault session takes BEFORE it opens
+///   (`vault_owner_web.dart`), but this function cannot verify that a lock
+///   is held, and a writer that bypasses the session (or a lock lost
+///   mid-write) would let two tabs overwrite each other's MLS state, which
+///   is not recoverable. So it stays refused here; accepting it would need
+///   a check in this open itself, not only the session's lock.
 const Set<WasmStorageImplementation> kVaultAcceptedWebStorages = {
   WasmStorageImplementation.opfsShared,
   WasmStorageImplementation.opfsLocks,
@@ -184,6 +186,9 @@ WasmStorageImplementation? get lastVaultWebStorage => impl.lastWebStorage;
 /// How long opening or wiping the platform storage may take.
 const Duration _platformTimeout = Duration(seconds: 30);
 
+/// How long a whole platform wipe may take (every copy on the web).
+const Duration _wipeTimeout = Duration(seconds: 60);
+
 Future<void> _closeConnection(DatabaseConnection connection) async {
   try {
     await connection.executor.close();
@@ -269,7 +274,9 @@ Future<SecureVault> openVault({
 /// destroy it.
 ///
 /// Throws [StateError] while a vault of [uid] opened by [openVault] is open
-/// in this process (close it first). Another tab is not seen by that check.
+/// in this isolate (close it first). Another tab or isolate is not seen by
+/// that check. A wipe that outlives its timeout is abandoned and deletes
+/// nothing more (see [runAbandonableVaultWipe]).
 ///
 /// Every row is deleted and the file rebuilt (`VACUUM`, with
 /// `secure_delete` on), then the storage itself is removed where the
@@ -313,14 +320,56 @@ Future<void> wipeVaultFileForAlias({
   if (isVaultOpenInProcess(name)) {
     throw StateError('wipeVaultFile while the vault is open; close it first.');
   }
+  return runAbandonableVaultWipe(
+    name,
+    (stop) => impl.wipePlatformVaultFile(
+      name,
+      expectedStorage: expectedStorage,
+      stop: stop,
+    ),
+  );
+}
+
+/// Asked by a running platform wipe immediately before each destructive
+/// step (a row delete, `VACUUM`, a file or database delete): true means
+/// stop at once and delete nothing more.
+typedef VaultWipeStop = bool Function();
+
+/// Runs one platform wipe of the vault database [name] under a [timeout].
+///
+/// A timeout cannot cancel the platform work (a stalled web probe or open,
+/// a hung isolate), and the session may meanwhile retry and open a FRESH
+/// vault under the same name. So the moment [wipe] times out, fails or
+/// finishes it is ABANDONED: the [VaultWipeStop] it was handed answers true
+/// from then on, as it does whenever a vault named [name] is open in this
+/// isolate ([isVaultOpenInProcess]). A late-resuming wipe therefore deletes
+/// nothing: it stops before its next row delete, `VACUUM` or file delete,
+/// and closes any connection that arrives late. A step that had already
+/// started before the timeout is not interrupted (one row-delete
+/// transaction, or one file delete); that window is bounded by the step
+/// itself. A timeout or any other failure is [VaultStatus.unavailable].
+@visibleForTesting
+Future<void> runAbandonableVaultWipe(
+  String name,
+  Future<void> Function(VaultWipeStop stop) wipe, {
+  Duration timeout = _wipeTimeout,
+}) async {
+  var abandoned = false;
+  bool stop() => abandoned || isVaultOpenInProcess(name);
   try {
-    await impl
-        .wipePlatformVaultFile(name, expectedStorage: expectedStorage)
-        .timeout(_platformTimeout * 2);
+    await wipe(stop).timeout(
+      timeout,
+      onTimeout: () {
+        abandoned = true;
+        throw const VaultOpenException(VaultStatus.unavailable);
+      },
+    );
   } on VaultOpenException {
     rethrow;
   } catch (_) {
     throw const VaultOpenException(VaultStatus.unavailable);
+  } finally {
+    abandoned = true;
   }
 }
 
@@ -331,23 +380,41 @@ Future<void> wipeVaultFileForAlias({
 /// (`VACUUM`) is best effort, as in [SecureVault.wipe]: once the rows are
 /// deleted (and zeroed by `secure_delete`) a failed VACUUM neither fails the
 /// wipe nor stops the file deletion that follows on Android.
+///
+/// [stop] (see [runAbandonableVaultWipe]) is asked before the connection is
+/// used, inside the row-delete transaction before each table (so a wipe
+/// stalled in the lazy open rolls back instead of deleting) and before
+/// `VACUUM`; true is [VaultStatus.unavailable] with nothing (more) deleted.
+/// This call's own [timeout] stops its work the same way.
 Future<String?> wipeVaultDatabase(
   VaultDatabase db, {
   Duration timeout = const Duration(seconds: 30),
+  VaultWipeStop? stop,
 }) async {
+  var gaveUp = false;
+  bool halted() => gaveUp || (stop?.call() ?? false);
   try {
     return await () async {
-      await db.deleteAllRows();
+      if (halted()) throw StateError('vault wipe stopped');
+      await db.deleteAllRows(halt: halted);
+      if (halted()) throw StateError('vault wipe stopped');
       try {
         await db.vacuum();
       } catch (_) {
         // Best effort; see above.
       }
       return db.mainFilePath();
-    }().timeout(timeout);
+    }().timeout(
+      timeout,
+      onTimeout: () {
+        gaveUp = true;
+        throw const VaultOpenException(VaultStatus.unavailable);
+      },
+    );
   } catch (_) {
     throw const VaultOpenException(VaultStatus.unavailable);
   } finally {
+    gaveUp = true;
     await db.closeQuietly();
   }
 }

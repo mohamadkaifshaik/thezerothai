@@ -86,6 +86,9 @@ class FakeVaultWorld {
   /// Uids held by another tab (acquire answers false).
   final Set<String> heldElsewhere = {};
 
+  /// Uids whose lock acquire throws (a broken lock API).
+  final Set<String> acquireThrows = {};
+
   final FakeVaultMarkers markers = FakeVaultMarkers();
 
   /// The owners the sessions created, newest last.
@@ -475,6 +478,7 @@ class FakeVaultOwner implements VaultOwner {
     }
     final uid = _world.uidOf(alias);
     _world.calls.add('acquire:$uid');
+    if (_world.acquireThrows.contains(uid)) throw StateError('locks down');
     if (_world.heldElsewhere.contains(uid)) return false;
     owned = alias;
     return true;
@@ -545,6 +549,15 @@ class FakeVaultMarkers implements VaultMarkers {
   /// Runs inside [keyLostSeen] before it answers (to interleave events).
   void Function()? onKeyLostRead;
 
+  /// Only [keyLostSeen] throws while set.
+  bool failKeyLostReads = false;
+
+  /// Only [writeKeyLostSeen] throws while set.
+  bool failKeyLostWrites = false;
+
+  /// Only [clearKeyLostSeen] throws while set (after logging the attempt).
+  bool failKeyLostClears = false;
+
   @override
   Future<KnownVault?> known(String alias) async {
     _read(alias);
@@ -570,12 +583,14 @@ class FakeVaultMarkers implements VaultMarkers {
   Future<KeyLostSeen?> keyLostSeen(String alias) async {
     _read(alias);
     onKeyLostRead?.call();
+    if (failKeyLostReads) throw StateError('markers down');
     return keyLostByAlias[alias];
   }
 
   @override
   Future<void> writeKeyLostSeen(String alias, KeyLostSeen seen) async {
     _write('markers.keyLost', alias);
+    if (failKeyLostWrites) throw StateError('markers down');
     keyLostByAlias[alias] = seen;
   }
 
@@ -583,6 +598,7 @@ class FakeVaultMarkers implements VaultMarkers {
   Future<void> clearKeyLostSeen(String alias) async {
     if (!keyLostByAlias.containsKey(alias)) return;
     _write('markers.keyLostClear', alias);
+    if (failKeyLostClears) throw StateError('markers down');
     keyLostByAlias.remove(alias);
   }
 
