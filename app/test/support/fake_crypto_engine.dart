@@ -79,6 +79,16 @@ class FakeCryptoEngine implements CryptoEngine {
   }
 
   @override
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) async {
+    final member = _parseKeyPackage(keyPackage).member;
+    _checkId(member.deviceId, 'key package identity');
+    return KeyPackageInfo(
+      deviceId: member.deviceId,
+      signaturePublicKey: member.key,
+    );
+  }
+
+  @override
   Future<Uint8List> createGroup(
     Uint8List deviceState,
     Uint8List groupId,
@@ -352,9 +362,11 @@ class FakeCryptoEngine implements CryptoEngine {
       );
     }
     if (_eq(parsed.sender, device.id)) {
+      // This device's own message or commit, pending or not: like the real
+      // engine, decided from the sender alone (not authenticated).
       throw const MlsException(
-        MlsErrorCode.duplicate,
-        'message was sent by this device',
+        MlsErrorCode.ownLeaf,
+        'message names this device as its sender',
       );
     }
     if (!group.hasMember(parsed.sender)) {
@@ -392,7 +404,9 @@ class FakeCryptoEngine implements CryptoEngine {
         groupState: group.encode(),
         event: MlsCommitEvent(
           epoch: group.epoch,
+          committerDeviceId: parsed.sender,
           added: [for (final a in parsed.adds) a.deviceId],
+          addedSignatureKeys: [for (final a in parsed.adds) a.key],
           removed: parsed.removes,
           selfRemoved: selfRemoved,
         ),

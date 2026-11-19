@@ -145,6 +145,7 @@ impl Script {
                 added,
                 removed,
                 self_removed,
+                ..
             } => json!({
                 "event": "commit",
                 "epoch": epoch,

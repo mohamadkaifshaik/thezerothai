@@ -36,6 +36,12 @@ abstract interface class CryptoEngine {
     required bool lastResort,
   });
 
+  /// Reads the device id and signature public key out of a key package
+  /// ([keyPackage] is 1 to 65536 bytes) after full validation: what
+  /// [commitChange] applies to a package it adds, plus the 16 to 64 byte
+  /// identity rule. Any failure is [MlsErrorCode.badInput]. Takes no state.
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage);
+
   /// Creates a group with this device as its only member, at epoch 0.
   Future<Uint8List> createGroup(Uint8List deviceState, Uint8List groupId);
 

@@ -28,6 +28,16 @@ cargo test -p dzmls --locked
 cargo fmt --check && cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
 
+`inspect_key_package` reads a key package's device id and signature public key after the same validation
+`commit_change` applies. A commit event carries the committer's device id and the added devices' signature keys.
+`process` returns `own_leaf` (no state) when the wire message names this device's own leaf as its sender (its own
+message or commit, with or without a pending commit); `duplicate` is only a consumed generation. **The own-leaf result
+is unauthenticated:** OpenMLS decides it from the sender data alone, before decryption or signature checks, and every
+member holds the sender-data secret, so any member can forge it and the server can replay this device's real
+ciphertext. Callers decide what to believe. An own commit received after `confirm_commit` is one epoch behind and is
+`wrong_epoch`, since the epoch is checked first. `self_update` renews the leaf's encryption key and path secrets only;
+it is not compromise recovery (the signature key is unchanged).
+
 **Callers must serialize calls.** The engine keeps no memory between calls. If two calls run on the same blob at
 once, both succeed and one result is lost. Run calls that take or return a device state one at a time per device,
 and calls on a group state one at a time per group.
@@ -280,8 +290,8 @@ has no caller).
 
 `self_update` builds a commit with only an update path (OpenMLS `commit_builder()` with `force_self_update(true)`,
 no proposals, the device's existing signer). The device's new leaf is commit-sourced (`LeafNodeSource::Commit`), so
-it carries no lifetime and no longer expires; the update path also renews the device's path secrets, which is the
-recovery after a key compromise. The device id and the signature key stay the same. Like `commit_change`, the
+it carries no lifetime and no longer expires; the update path also renews the device's path secrets. The device id and the signature key stay the same, so this
+is not recovery after a compromise: the remedy for a compromised device is removing it. Like `commit_change`, the
 commit is pending until `confirm_commit` or `discard_commit`.
 
 Consequences:

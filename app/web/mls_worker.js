@@ -9,7 +9,7 @@
 //                            | { id, ok: false, code: string, message: string }
 // Every Uint8Array in a response is transferred, not copied.
 // Ops and their args (see `ops` below): createDevice { deviceId }; generateKeyPackages { deviceState, count,
-// lastResort }; createGroup { deviceState, groupId }; commitChange { deviceState, groupState, addKeyPackages,
+// lastResort }; inspectKeyPackage { keyPackage } -> { deviceId, signaturePublicKey }; createGroup { deviceState, groupId }; commitChange { deviceState, groupState, addKeyPackages,
 // removeDeviceIds }; selfUpdate { deviceState, groupState } (same result shape as commitChange, welcome null);
 // confirmCommit / discardCommit { deviceState, groupState }; joinFromWelcome { deviceState, welcome };
 // encrypt { deviceState, groupState, plaintext }; process { deviceState, groupState, wire }; describe { groupState };
@@ -26,6 +26,7 @@ const ops = {
   createDevice: (a) => wasm_bindgen.createDevice(a.deviceId),
   generateKeyPackages: (a) =>
     wasm_bindgen.generateKeyPackages(a.deviceState, a.count, a.lastResort),
+  inspectKeyPackage: (a) => wasm_bindgen.inspectKeyPackage(a.keyPackage),
   createGroup: (a) => wasm_bindgen.createGroup(a.deviceState, a.groupId),
   commitChange: (a) =>
     wasm_bindgen.commitChange(a.deviceState, a.groupState, a.addKeyPackages, a.removeDeviceIds),

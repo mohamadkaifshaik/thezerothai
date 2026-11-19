@@ -75,6 +75,7 @@ fn replay_process(i: usize, step: &Value) {
                 added,
                 removed,
                 self_removed,
+                ..
             },
             "commit",
         ) => {

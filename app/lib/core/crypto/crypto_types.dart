@@ -22,8 +22,16 @@ enum MlsErrorCode {
   /// Confirm or discard was called with no commit waiting.
   noPendingCommit('no_pending_commit'),
 
-  /// The message was already processed (a replay, or this device's own echo).
+  /// The message's generation was already consumed (a replay).
   duplicate('duplicate'),
+
+  /// The wire message names this device's own leaf as its sender (its own
+  /// application message or commit, echoed back). **Not authenticated.**
+  /// OpenMLS decides this from the sender data alone, before the content is
+  /// decrypted or the signature checked, and every member holds the
+  /// sender-data secret: any member can forge it and the server can replay
+  /// this device's real ciphertext. Callers decide what to believe.
+  ownLeaf('own_leaf'),
 
   /// An unexpected failure inside the engine.
   internal('internal');
@@ -67,6 +75,17 @@ class DeviceCreated {
   });
 
   final Uint8List deviceState;
+  final Uint8List signaturePublicKey;
+}
+
+/// What a key package says about its device, after full validation.
+class KeyPackageInfo {
+  const KeyPackageInfo({
+    required this.deviceId,
+    required this.signaturePublicKey,
+  });
+
+  final Uint8List deviceId;
   final Uint8List signaturePublicKey;
 }
 
@@ -162,7 +181,9 @@ class MlsMessageEvent extends MlsEvent {
 class MlsCommitEvent extends MlsEvent {
   const MlsCommitEvent({
     required this.epoch,
+    required this.committerDeviceId,
     required this.added,
+    required this.addedSignatureKeys,
     required this.removed,
     required this.selfRemoved,
   });
@@ -170,8 +191,14 @@ class MlsCommitEvent extends MlsEvent {
   /// The epoch the group is in after the commit.
   final int epoch;
 
+  /// The device id of the member that made the commit.
+  final Uint8List committerDeviceId;
+
   /// Device ids added by the commit, in commit order.
   final List<Uint8List> added;
+
+  /// Signature public keys of the added devices, parallel to [added].
+  final List<Uint8List> addedSignatureKeys;
 
   /// Device ids removed by the commit, in commit order.
   final List<Uint8List> removed;

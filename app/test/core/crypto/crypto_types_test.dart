@@ -16,7 +16,9 @@ void main() {
         groupState: bytes,
         event: MlsCommitEvent(
           epoch: 2,
+          committerDeviceId: bytes,
           added: [bytes],
+          addedSignatureKeys: [bytes],
           removed: [bytes],
           selfRemoved: false,
         ),
@@ -26,5 +28,13 @@ void main() {
       expect(p, isNot(contains('171')), reason: p);
       expect(p, isNot(contains('[')), reason: p);
     }
+  });
+
+  test('KeyPackageInfo keeps Object.toString and own_leaf parses', () {
+    final bytes = Uint8List.fromList(List.filled(8, 0xAB));
+    final info = KeyPackageInfo(deviceId: bytes, signaturePublicKey: bytes);
+    expect(info.toString(), "Instance of 'KeyPackageInfo'");
+    expect(MlsErrorCode.parse('own_leaf'), MlsErrorCode.ownLeaf);
+    expect(MlsErrorCode.ownLeaf.wire, 'own_leaf');
   });
 }

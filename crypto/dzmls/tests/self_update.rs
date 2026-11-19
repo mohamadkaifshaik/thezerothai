@@ -65,6 +65,7 @@ fn process_empty_commit(dev: &Dev, group_state: &[u8], commit: &[u8], want_epoch
             added,
             removed,
             self_removed,
+            ..
         } => {
             assert_eq!(epoch, want_epoch);
             assert!(added.is_empty());
@@ -103,6 +104,18 @@ fn self_update_is_pending_then_confirms_to_the_next_epoch() {
     assert!(!info.has_pending_commit);
     // Same device ids and the same signature keys: only the leaf encryption key changed.
     assert_eq!(members(&a2), before);
+}
+
+#[test]
+fn the_own_self_update_commit_is_own_leaf() {
+    let alice = device(1);
+    let mut bob = device(2);
+    let (a, _) = pair(&alice, &mut bob);
+    let c = dzmls::self_update(&alice.state, &a).unwrap();
+    assert_eq!(
+        code(dzmls::process(&alice.state, &c.group_state, &c.commit)),
+        "own_leaf"
+    );
 }
 
 #[test]

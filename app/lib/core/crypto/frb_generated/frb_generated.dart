@@ -69,7 +69,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1806098008;
+  int get rustContentHash => -1976593326;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -120,6 +120,10 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<void> crateApiInitApp();
+
+  Future<KeyPackageInfo> crateApiInspectKeyPackage({
+    required List<int> keyPackage,
+  });
 
   Future<Joined> crateApiJoinFromWelcome({
     required List<int> deviceState,
@@ -466,6 +470,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
+  Future<KeyPackageInfo> crateApiInspectKeyPackage({
+    required List<int> keyPackage,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(keyPackage, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_key_package_info,
+          decodeErrorData: sse_decode_mls_error,
+        ),
+        constMeta: kCrateApiInspectKeyPackageConstMeta,
+        argValues: [keyPackage],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiInspectKeyPackageConstMeta => const TaskConstMeta(
+    debugName: "inspect_key_package",
+    argNames: ["keyPackage"],
+  );
+
+  @override
   Future<Joined> crateApiJoinFromWelcome({
     required List<int> deviceState,
     required List<int> welcome,
@@ -479,7 +515,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -515,7 +551,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -551,7 +587,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 13,
             port: port_,
           );
         },
@@ -581,7 +617,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -615,7 +651,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -646,7 +682,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 16,
             port: port_,
           );
         },
@@ -678,7 +714,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -708,7 +744,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -774,13 +810,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   CommitEvent dco_decode_commit_event(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return CommitEvent(
       epoch: dco_decode_u_64(arr[0]),
-      added: dco_decode_list_list_prim_u_8_strict(arr[1]),
-      removed: dco_decode_list_list_prim_u_8_strict(arr[2]),
-      selfRemoved: dco_decode_bool(arr[3]),
+      committerDeviceId: dco_decode_list_prim_u_8_strict(arr[1]),
+      added: dco_decode_list_list_prim_u_8_strict(arr[2]),
+      addedSignatureKeys: dco_decode_list_list_prim_u_8_strict(arr[3]),
+      removed: dco_decode_list_list_prim_u_8_strict(arr[4]),
+      selfRemoved: dco_decode_bool(arr[5]),
     );
   }
 
@@ -834,6 +872,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       groupState: dco_decode_list_prim_u_8_strict(arr[1]),
       groupId: dco_decode_list_prim_u_8_strict(arr[2]),
       epoch: dco_decode_u_64(arr[3]),
+    );
+  }
+
+  @protected
+  KeyPackageInfo dco_decode_key_package_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return KeyPackageInfo(
+      deviceId: dco_decode_list_prim_u_8_strict(arr[0]),
+      signaturePublicKey: dco_decode_list_prim_u_8_strict(arr[1]),
     );
   }
 
@@ -1030,12 +1080,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   CommitEvent sse_decode_commit_event(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_epoch = sse_decode_u_64(deserializer);
+    var var_committerDeviceId = sse_decode_list_prim_u_8_strict(deserializer);
     var var_added = sse_decode_list_list_prim_u_8_strict(deserializer);
+    var var_addedSignatureKeys = sse_decode_list_list_prim_u_8_strict(
+      deserializer,
+    );
     var var_removed = sse_decode_list_list_prim_u_8_strict(deserializer);
     var var_selfRemoved = sse_decode_bool(deserializer);
     return CommitEvent(
       epoch: var_epoch,
+      committerDeviceId: var_committerDeviceId,
       added: var_added,
+      addedSignatureKeys: var_addedSignatureKeys,
       removed: var_removed,
       selfRemoved: var_selfRemoved,
     );
@@ -1092,6 +1148,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       groupState: var_groupState,
       groupId: var_groupId,
       epoch: var_epoch,
+    );
+  }
+
+  @protected
+  KeyPackageInfo sse_decode_key_package_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_deviceId = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_signaturePublicKey = sse_decode_list_prim_u_8_strict(deserializer);
+    return KeyPackageInfo(
+      deviceId: var_deviceId,
+      signaturePublicKey: var_signaturePublicKey,
     );
   }
 
@@ -1312,7 +1379,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_commit_event(CommitEvent self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_64(self.epoch, serializer);
+    sse_encode_list_prim_u_8_strict(self.committerDeviceId, serializer);
     sse_encode_list_list_prim_u_8_strict(self.added, serializer);
+    sse_encode_list_list_prim_u_8_strict(self.addedSignatureKeys, serializer);
     sse_encode_list_list_prim_u_8_strict(self.removed, serializer);
     sse_encode_bool(self.selfRemoved, serializer);
   }
@@ -1348,6 +1417,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_prim_u_8_strict(self.groupState, serializer);
     sse_encode_list_prim_u_8_strict(self.groupId, serializer);
     sse_encode_u_64(self.epoch, serializer);
+  }
+
+  @protected
+  void sse_encode_key_package_info(
+    KeyPackageInfo self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_8_strict(self.deviceId, serializer);
+    sse_encode_list_prim_u_8_strict(self.signaturePublicKey, serializer);
   }
 
   @protected

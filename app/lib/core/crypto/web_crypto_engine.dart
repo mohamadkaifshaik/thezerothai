@@ -267,6 +267,15 @@ class WebCryptoEngine implements CryptoEngine {
   }
 
   @override
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) async {
+    final r = await _call('inspectKeyPackage', {'keyPackage': _js(keyPackage)});
+    return KeyPackageInfo(
+      deviceId: _bytes(r, 'deviceId'),
+      signaturePublicKey: _bytes(r, 'signaturePublicKey'),
+    );
+  }
+
+  @override
   Future<Uint8List> createGroup(
     Uint8List deviceState,
     Uint8List groupId,
@@ -394,7 +403,9 @@ class WebCryptoEngine implements CryptoEngine {
       case 'commit':
         parsed = MlsCommitEvent(
           epoch: _int(event, 'epoch'),
+          committerDeviceId: _bytes(event, 'committerDeviceId'),
           added: _bytesList(event, 'added'),
+          addedSignatureKeys: _bytesList(event, 'addedSignatureKeys'),
           removed: _bytesList(event, 'removed'),
           selfRemoved: _bool(event, 'selfRemoved'),
         );
