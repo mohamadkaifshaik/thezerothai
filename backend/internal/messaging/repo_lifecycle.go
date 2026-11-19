@@ -188,7 +188,7 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 }
 
 // ciphertextRemoval is what tombstoning does to an encrypted message's bytes (the eraser's TombstonePage and a moderator
-// takedown): field deletes of ciphertext, commitment and ctExpireAt (never a rewrite of the document) and ctRemoved =
+// takedown), and all the retention sweep writes (SweepCiphertext, retention.go): field deletes of ciphertext, commitment and ctExpireAt (never a rewrite of the document) and ctRemoved =
 // true. mlsGen, mlsEpoch and mlsKey stay: a tombstone remains in its epoch's completeness set (ListEpochMessages).
 func ciphertextRemoval() []firestore.Update {
 	return []firestore.Update{
