@@ -211,6 +211,36 @@ The release `.aab` grew by 3,637,650 B (96,259,678 → 99,897,328). That is the 
 the `armeabi-v7a` one that the bundle keeps as debug-symbol metadata. The Dart code (`libapp.so`) is unchanged. A
 device downloads only its own ABI. Two release builds from the same sources produced byte-identical libraries.
 
+## Local storage (the vault)
+
+The vault (`app/lib/core/vault/`) is an encrypted, durable local database holding one user's encryption state on one
+device: the MLS device identity, group state, decrypted message history and the outbox. It is **not a cache**. It is
+never trimmed and cannot be rebuilt from the server, so losing it loses history.
+
+**Where the storage key lives.**
+- Android: a random 32-byte data key, wrapped by a non-exportable AES-256-GCM key in the Android Keystore (StrongBox
+  where the device has it, otherwise the TEE). Rows are sealed with the Rust core's `seal` / `open`.
+- Web: a non-extractable WebCrypto AES-256-GCM `CryptoKey` kept in IndexedDB. Sealing is done by `crypto.subtle`; the
+  key bytes never reach Dart or JavaScript.
+
+**Sealing.** Every sensitive column is sealed with AES-256-GCM under a fresh random 96-bit nonce, with the table,
+column and row key as associated data, so a value moved to another row or column does not open. Random nonces bound
+one key to about 2^32 seals; a device writes far fewer rows than that over the life of a key.
+
+**Rules a change must not break** (`app/test/guards/vault_guard_test.dart` enforces the first three):
+- Only `VaultSession` wipes a vault or deletes a key. Nothing else calls the wipe or key-delete functions.
+- Code outside `core/vault` reaches the vault through `VaultSession`, `SecureVault`, `VaultStatus` and `KeyedMutex` only.
+- The vault never opens in memory, and on the web never on the per-tab ("unsafe") IndexedDB storage.
+- A lost key (`keyLost`) is acted on only after it is seen on two separate launches at least one hour apart
+  (`kVaultKeyLossConfirmAfter`). `unavailable` and `storageChanged` never wipe.
+- An explicit sign-out or account deletion wipes; a session that ends any other way keeps the vault.
+- When `drift` changes in `app/pubspec.lock`, rebuild the web worker with `make drift-worker` (a guard test fails
+  otherwise). The 2.35.0 worker lost writes made in transactions; see `app/web/DRIFT_WEB_SETUP.md`.
+
+**Not yet proven:** iOS (no binding); Firefox and Safari; Safari storage eviction; StrongBox on a device that has it;
+the Android 13+ branch of the key-loss classification; durability across an OS crash or power loss on the web (the
+browser's default IndexedDB durability applies to the database file).
+
 ## Key package and leaf lifetime
 
 Every key package (one-time and last-resort) and a group creator's leaf carry a lifetime of five years
