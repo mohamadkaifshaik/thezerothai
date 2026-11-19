@@ -203,7 +203,9 @@ type ReportContentRequest struct {
 	// bytes the reporter's device decrypted from that message (the bytes as decrypted, never re-serialized: protobuf
 	// encoding is not canonical). Required for an encrypted message, 1-8192 bytes; must be empty for every other target,
 	// a plaintext message included; else INVALID_ARGUMENT + VALIDATION metadata["field"] = "message_payload". Bytes that
-	// do not parse as MessageContent => the same VALIDATION. Every other MESSAGE rule is unchanged (a participant
+	// are not well-formed protobuf wire data are accepted only when they match the commitment (the evidence is then
+	// marked undecodable and no text is stored), else the same VALIDATION; invalid UTF-8 in text is replaced by U+FFFD.
+	// Every other MESSAGE rule is unchanged (a participant
 	// reports the peer's VISIBLE message; FEATURE_MESSAGING not globally off; the reports quota). FEATURE_E2EE_DM is not
 	// needed.
 	// Verification: the server computes SHA-256 over the 12 ASCII bytes "dz-report-v1" (no terminator) followed by these

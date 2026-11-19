@@ -834,6 +834,14 @@ const ListEpochMessagesResponse$json = {
       '10': 'messages'
     },
     {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+    {
+      '1': 'cleared_at',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'clearedAt'
+    },
   ],
 };
 
@@ -841,7 +849,8 @@ const ListEpochMessagesResponse$json = {
 final $typed_data.Uint8List listEpochMessagesResponseDescriptor = $convert.base64Decode(
     'ChlMaXN0RXBvY2hNZXNzYWdlc1Jlc3BvbnNlEjkKCG1lc3NhZ2VzGAEgAygLMh0uZHplcm90aC'
     '5tZXNzYWdpbmcudjEuTWVzc2FnZVIIbWVzc2FnZXMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJ'
-    'Ug1uZXh0UGFnZVRva2Vu');
+    'Ug1uZXh0UGFnZVRva2VuEjkKCmNsZWFyZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVG'
+    'ltZXN0YW1wUgljbGVhcmVkQXQ=');
 
 @$core.Deprecated('Use welcomeDescriptor instead')
 const Welcome$json = {

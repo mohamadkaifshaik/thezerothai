@@ -30,6 +30,8 @@
 //   metadata["feature"] = "messaging", before any lookup) AND for the recipient (else ERROR_REASON_CANNOT_MESSAGE, below).
 // - ListConversations, ListMessages, MarkConversationRead and DeleteConversation need it only NOT GLOBALLY OFF, so a
 //   user dropped from an allowlist can still read and clean up (ReportContent of a MESSAGE target likewise).
+// - CommitConversation needs it on for the caller only (the peer's flag is not checked). ListConversationCommits,
+//   ListEpochMessages, ListWelcomes and AckWelcomes need it only not globally off.
 // - Globally off: every RPC is FEATURE_DISABLED before any lookup; clients hide the destination, its routes and the
 //   profile Message button. Clients learn the flag from IdentityService.GetMe enabled_features.
 // - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
@@ -61,7 +63,15 @@
 //   until the recipient accepts) or "dm_new_daily" (new conversations per IST day).
 // - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets and the in-memory daily call caps, metadata["limit"] =
 //   "messages_daily" for SendMessage, "messages_mark_read_daily" for MarkConversationRead and "messages_mutation_daily"
-//   shared by AcceptMessageRequest and DeleteConversation); honour retry_after.
+//   shared by AcceptMessageRequest and DeleteConversation; CommitConversation's caps are in its comment); honour
+//   retry_after. The per-minute buckets and those interceptor daily caps are decided before the flag: a caller with the
+//   flag off who exceeds one gets RATE_LIMITED, not FEATURE_DISABLED. CommitConversation's two service caps
+//   ("messages_commits_per_conversation_daily", "messages_resets_daily") are decided after the flag, the verified email
+//   and the request's form (step 1 of its comment) and before any lookup.
+// - UNAVAILABLE "busy, please retry" with retry_after (SendMessage, AcceptMessageRequest, DeleteConversation,
+//   CommitConversation): the transaction lost a race or timed out; the outcome is unknown. Unlike the degraded-mode
+//   UNAVAILABLE of common.proto this one IS retried: resend the identical request (same idempotency key and bytes; a
+//   commit with identical bytes). It then answers a replay, a success or STALE_EPOCH.
 // - DEGRADED_MODE=readonly refuses every mutation (SendMessage, MarkConversationRead, AcceptMessageRequest,
 //   DeleteConversation, CommitConversation, AckWelcomes) through the existing interceptor; every list still answers.
 //   It is also the emergency lever for encrypted conversations: there is never a return to plaintext.
@@ -96,10 +106,12 @@
 //   from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
 //   are already members. The limits of that, from the key directory (keys.v1): (a) their devices disappear from the
 //   peer's GetKeyDevices and ClaimKeyPackages at once (a target with e2ee_dm off is an empty success there), so no new
-//   device of theirs can be added, and the peer cannot reset at all (a reset must address one of their devices): a
-//   peer device that would reset keeps waiting until the flag is back; (b) they cannot call GetKeyDevices or
+//   device of theirs can be added, and the peer cannot build a reset or an add for them (no key package can be
+//   claimed); the server itself does not check e2ee_dm on welcome devices; (b) they cannot call GetKeyDevices or
 //   ClaimKeyPackages or register a device themselves, so they cannot add devices or reset. A device of theirs that
-//   loses its group state cannot recover until the flag is back on for them.
+//   loses its group state cannot recover until the flag is back on for them. A device stays ACTIVE only while it
+//   registers or uploads key packages at least every 30 days; a user without e2ee_dm cannot do either, so their
+//   devices become inactive after 30 days and can then no longer be addressed by any welcome.
 // - What the server can see for an MLS conversation: who the participants are, who sent each message and when, its
 //   message id and state, the ciphertext length (the plaintext is padded to 256-byte blocks, so the length reveals the
 //   number of blocks), unread counts, read times and receipts (as for plaintext), the (generation, epoch) pair of
@@ -149,19 +161,20 @@
 //   one. Only the newest (generation, epoch) is kept.
 // - Retention. An encrypted message record stays like any other (id, times, state, paging, tokens, tombstones), but
 //   its ciphertext and report_commitment are blanked 30 days after created_at by a periodic sweep (so possibly a
-//   little later): Message.ciphertext_removed = true, state stays VISIBLE. The message's ctExpireAt is only the
-//   trigger of that sweep, run by the server's daily job; the message record itself is never deleted by it (there is
-//   no database TTL deletion of messages). A device whose epoch messages lost their
-//   ciphertext does NOT reset: it applies the commits and shows "Couldn't decrypt this message" for those messages.
-//   Commit records and welcomes are kept at least 30 days after their creation and then expire; an unacknowledged
-//   welcome is gone after that too. What a device does when a commit it needs is gone is under "Catch-up". Commit and
-//   welcome records are untouched by DeleteConversation and by a moderator takedown.
+//   little later: the sweep can lag): Message.ciphertext_removed = true, state stays VISIBLE. The sweep runs
+//   periodically (hourly); the message record itself is never deleted by it (there is no database TTL deletion of
+//   messages). A device whose epoch messages lost their ciphertext does NOT reset: it applies the commits and shows
+//   "Couldn't decrypt this message" for those messages. Commit records and welcomes (an unacknowledged one included)
+//   are kept at least 30 days after creation and may be deleted at any time after that (deletion is not immediate; a
+//   client must not rely on an old welcome or commit having disappeared). What a device does when a commit it needs is
+//   gone is under "Catch-up". Commit and welcome records are untouched by DeleteConversation and by a moderator
+//   takedown.
 // - Catch-up (rules for the client):
 //   - Within a generation the device applies commits from ListConversationCommits after its own after-pair: the pair
 //     of the last commit it applied, the welcome's pair when it joined through a welcome, (1, 0) for the creator of
 //     an mls_init and (g + 1, 0) for the creator of a reset of generation g.
 //   - A device whose own device id is still a member of the group and whose generation is still the current one, but
-//     which cannot go on (a commit it needs has expired, see ListConversationCommits, or it lost its group state but
+//     which cannot go on (a commit it needs was deleted after its retention, see ListConversationCommits, or it lost its group state but
 //     kept its device id), with no welcome for a later pair in ListWelcomes: the device resets (CommitConversation
 //     reset = true, naming the current generation from ListConversationCommits).
 //   - A newer generation exists (from ListConversationCommits or Conversation.mls_generation): the device joins from
@@ -170,12 +183,17 @@
 //     the rest of g's messages (ListEpochMessages for every epoch it has not completed) and decrypts what it can;
 //     messages of generation g it cannot decrypt are shown as "Couldn't decrypt this message". Joining g + 1 does not
 //     wait on this.
-//   - A newer generation exists and ListWelcomes has no welcome for it: the device does NOT reset. It keeps its key
-//     packages published and waits to be added, showing the conversation as "waiting for this device to be added";
-//     it may reset only after 24 hours without a welcome, counted from when the device first saw that generation. The
-//     same holds for a device removed by a commit (it stops applying commits and waits for a welcome) and for a device
-//     with NO state for the conversation (a new device, or a reinstall under a new device id): it publishes key
-//     packages and waits to be added; it does not reset. Member devices make this work: when they open the
+//   - A welcome whose mls_generation is below the conversation's current generation (ListConversationCommits) is
+//     useless: acknowledge it and wait for one of the current generation. Old-generation welcomes remain for devices a
+//     reset did not address. A welcome the device cannot process is acknowledged too and counts as no welcome.
+//   - A newer generation exists and ListWelcomes has no usable welcome for it: the device does NOT reset at once. It
+//     keeps its key packages published and waits to be added, showing the conversation as "waiting for this device to
+//     be added"; it may reset only after 24 hours without a USABLE welcome for the current generation, counted from
+//     when the device first saw that generation. A device removed by a commit (it stops applying commits) and a device
+//     with NO state for the conversation (a new device, or a reinstall under a new device id) likewise publish key
+//     packages and wait; they too may reset after 24 hours without a usable welcome, counted from when the device first
+//     saw the conversation at that generation, never earlier. A reset by a device with no state names the current
+//     generation from ListConversationCommits. Member devices make this work: when they open the
 //     conversation and before they send, they reconcile the group's membership against GetKeyDevices for both users
 //     and add missing active devices with an ordinary commit. On STALE_EPOCH (or a success whose pair is later than
 //     expected) for such a commit, the device catches up and runs the reconciliation again on the caught-up group
@@ -189,7 +207,8 @@
 //     then id). A device can skip at most 1000 of one sender's messages within an epoch (the client core's forward
 //     limit) and tolerate 50 out of order. A message it cannot decrypt because of these limits or because its
 //     ciphertext was swept is shown as "Couldn't decrypt this message"; a message at or before the caller's own
-//     DeleteConversation time is skipped and not shown at all (ListEpochMessages). Neither ever triggers a reset.
+//     DeleteConversation time (ListEpochMessagesResponse.cleared_at) is not shown or stored at all (it may be decrypted
+//     and discarded: skipping its decryption would spend the forward limit). Neither ever triggers a reset.
 // - The device's store is the only copy of an encrypted conversation's text, so the token contract's "drop the cached
 //   thread" does NOT apply to it: on a retired since_token the device drops the token, keeps its stored messages and
 //   reconciles them by message id with the server's records (state REMOVED or DELETED_ACCOUNT => delete the local copy
@@ -197,8 +216,10 @@
 //   recreated later does not bring them back. The server never returns old text to restore from.
 // - Limits: ciphertext 1-8192 bytes; report_commitment exactly 32 bytes; commit 1-16384 bytes; welcome 1-65536
 //   bytes; 1-10 distinct welcome_device_ids per call, each [A-Za-z0-9_-]{16,64}; AckWelcomes 1-50 ids; page_size of
-//   ListConversationCommits, ListEpochMessages and ListWelcomes 0 or negative => 20, max 50 (clamped), the rule of the
-//   two existing lists.
+//   ListConversationCommits and ListEpochMessages 0 or negative => 20, max 50 (clamped), the rule of the two existing
+//   lists; page_size of ListWelcomes 0 or negative => 10, max 10 (clamped: a welcome is up to 64 KiB);
+//   CommitConversation at most MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY (20) calls per caller and conversation per
+//   day, besides its per-user caps (CommitConversation comment).
 //
 
 package messagingv1
@@ -2530,6 +2551,10 @@ type ListEpochMessagesResponse struct {
 	Messages []*Message `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
 	// "" => no more messages of this epoch (as of now).
 	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	// The caller's own DeleteConversation time for this conversation; unset when the caller never deleted it. A message
+	// with created_at at or before it is returned for completeness only: never show or store it (ListMessages hides the
+	// same messages). From the conversation's 60 s instance copy, like ListMessages' own filter.
+	ClearedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=cleared_at,json=clearedAt,proto3" json:"cleared_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2578,6 +2603,13 @@ func (x *ListEpochMessagesResponse) GetNextPageToken() string {
 	return ""
 }
 
+func (x *ListEpochMessagesResponse) GetClearedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ClearedAt
+	}
+	return nil
+}
+
 // A pending Welcome for one of the caller's devices.
 type Welcome struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2592,7 +2624,8 @@ type Welcome struct {
 	MlsEpoch      uint64 `protobuf:"varint,4,opt,name=mls_epoch,json=mlsEpoch,proto3" json:"mls_epoch,omitempty"`
 	// The MLS Welcome bytes, opaque to the server.
 	Welcome []byte `protobuf:"bytes,5,opt,name=welcome,proto3" json:"welcome,omitempty"`
-	// Server time the welcome was stored; it expires 30 days later.
+	// Server time the welcome was stored. It is kept at least 30 days after it and may be deleted at any time after
+	// that (deletion is not immediate).
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2674,7 +2707,7 @@ type ListWelcomesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// One of the caller's own registered devices.
 	DeviceId string `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	// 0 => 20; max 50 (clamped).
+	// 0 or negative => 10; max 10 (clamped).
 	PageSize      int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3041,10 +3074,12 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\tmls_epoch\x18\x03 \x01(\x04R\bmlsEpoch\x12\x1b\n" +
 	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x05 \x01(\tR\tpageToken\"~\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\"\xb9\x01\n" +
 	"\x19ListEpochMessagesResponse\x129\n" +
 	"\bmessages\x18\x01 \x03(\v2\x1d.dzeroth.messaging.v1.MessageR\bmessages\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xdb\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x129\n" +
+	"\n" +
+	"cleared_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tclearedAt\"\xdb\x01\n" +
 	"\aWelcome\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12%\n" +
@@ -3190,37 +3225,38 @@ var file_dzeroth_messaging_v1_messaging_proto_depIdxs = []int32{
 	39, // 24: dzeroth.messaging.v1.ConversationCommit.created_at:type_name -> google.protobuf.Timestamp
 	28, // 25: dzeroth.messaging.v1.ListConversationCommitsResponse.commits:type_name -> dzeroth.messaging.v1.ConversationCommit
 	8,  // 26: dzeroth.messaging.v1.ListEpochMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
-	39, // 27: dzeroth.messaging.v1.Welcome.created_at:type_name -> google.protobuf.Timestamp
-	33, // 28: dzeroth.messaging.v1.ListWelcomesResponse.welcomes:type_name -> dzeroth.messaging.v1.Welcome
-	10, // 29: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
-	13, // 30: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
-	15, // 31: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
-	17, // 32: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
-	19, // 33: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
-	21, // 34: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
-	23, // 35: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:input_type -> dzeroth.messaging.v1.ListMessageSuggestionsRequest
-	26, // 36: dzeroth.messaging.v1.MessagingService.CommitConversation:input_type -> dzeroth.messaging.v1.CommitConversationRequest
-	29, // 37: dzeroth.messaging.v1.MessagingService.ListConversationCommits:input_type -> dzeroth.messaging.v1.ListConversationCommitsRequest
-	31, // 38: dzeroth.messaging.v1.MessagingService.ListEpochMessages:input_type -> dzeroth.messaging.v1.ListEpochMessagesRequest
-	34, // 39: dzeroth.messaging.v1.MessagingService.ListWelcomes:input_type -> dzeroth.messaging.v1.ListWelcomesRequest
-	36, // 40: dzeroth.messaging.v1.MessagingService.AckWelcomes:input_type -> dzeroth.messaging.v1.AckWelcomesRequest
-	12, // 41: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
-	14, // 42: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
-	16, // 43: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
-	18, // 44: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
-	20, // 45: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
-	22, // 46: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
-	25, // 47: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:output_type -> dzeroth.messaging.v1.ListMessageSuggestionsResponse
-	27, // 48: dzeroth.messaging.v1.MessagingService.CommitConversation:output_type -> dzeroth.messaging.v1.CommitConversationResponse
-	30, // 49: dzeroth.messaging.v1.MessagingService.ListConversationCommits:output_type -> dzeroth.messaging.v1.ListConversationCommitsResponse
-	32, // 50: dzeroth.messaging.v1.MessagingService.ListEpochMessages:output_type -> dzeroth.messaging.v1.ListEpochMessagesResponse
-	35, // 51: dzeroth.messaging.v1.MessagingService.ListWelcomes:output_type -> dzeroth.messaging.v1.ListWelcomesResponse
-	37, // 52: dzeroth.messaging.v1.MessagingService.AckWelcomes:output_type -> dzeroth.messaging.v1.AckWelcomesResponse
-	41, // [41:53] is the sub-list for method output_type
-	29, // [29:41] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	39, // 27: dzeroth.messaging.v1.ListEpochMessagesResponse.cleared_at:type_name -> google.protobuf.Timestamp
+	39, // 28: dzeroth.messaging.v1.Welcome.created_at:type_name -> google.protobuf.Timestamp
+	33, // 29: dzeroth.messaging.v1.ListWelcomesResponse.welcomes:type_name -> dzeroth.messaging.v1.Welcome
+	10, // 30: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
+	13, // 31: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
+	15, // 32: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
+	17, // 33: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
+	19, // 34: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
+	21, // 35: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
+	23, // 36: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:input_type -> dzeroth.messaging.v1.ListMessageSuggestionsRequest
+	26, // 37: dzeroth.messaging.v1.MessagingService.CommitConversation:input_type -> dzeroth.messaging.v1.CommitConversationRequest
+	29, // 38: dzeroth.messaging.v1.MessagingService.ListConversationCommits:input_type -> dzeroth.messaging.v1.ListConversationCommitsRequest
+	31, // 39: dzeroth.messaging.v1.MessagingService.ListEpochMessages:input_type -> dzeroth.messaging.v1.ListEpochMessagesRequest
+	34, // 40: dzeroth.messaging.v1.MessagingService.ListWelcomes:input_type -> dzeroth.messaging.v1.ListWelcomesRequest
+	36, // 41: dzeroth.messaging.v1.MessagingService.AckWelcomes:input_type -> dzeroth.messaging.v1.AckWelcomesRequest
+	12, // 42: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
+	14, // 43: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
+	16, // 44: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
+	18, // 45: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
+	20, // 46: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
+	22, // 47: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
+	25, // 48: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:output_type -> dzeroth.messaging.v1.ListMessageSuggestionsResponse
+	27, // 49: dzeroth.messaging.v1.MessagingService.CommitConversation:output_type -> dzeroth.messaging.v1.CommitConversationResponse
+	30, // 50: dzeroth.messaging.v1.MessagingService.ListConversationCommits:output_type -> dzeroth.messaging.v1.ListConversationCommitsResponse
+	32, // 51: dzeroth.messaging.v1.MessagingService.ListEpochMessages:output_type -> dzeroth.messaging.v1.ListEpochMessagesResponse
+	35, // 52: dzeroth.messaging.v1.MessagingService.ListWelcomes:output_type -> dzeroth.messaging.v1.ListWelcomesResponse
+	37, // 53: dzeroth.messaging.v1.MessagingService.AckWelcomes:output_type -> dzeroth.messaging.v1.AckWelcomesResponse
+	42, // [42:54] is the sub-list for method output_type
+	30, // [30:42] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_messaging_v1_messaging_proto_init() }
