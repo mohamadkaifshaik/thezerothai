@@ -815,8 +815,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
 	})
 
-	// Messaging: SendMessage behind FEATURE_MESSAGING, per caller and per recipient; ListConversations
-	// is not globally off; the other three RPCs check the flag and answer Unimplemented until it ships. Badge evicts identity's cached
+	// Messaging: SendMessage, AcceptMessageRequest and CommitConversation behind FEATURE_MESSAGING per caller (Send and Accept
+	// also per recipient); the lists, MarkConversationRead, DeleteConversation and the MLS sync RPCs (ListConversationCommits,
+	// ListEpochMessages, ListWelcomes, AckWelcomes) need it not globally off. Badge evicts identity's cached
 	// unread_conversation_count; the push event is adapted to notifications.Emitter (a no-op until it ships adds the type).
 	// F30: the plan and community sources of ListMessageSuggestions are bound once beacons and communities exist (below).
 	suggestPlans, suggestCommunities := &latePlanMates{}, &lateCommunityMates{}
@@ -831,6 +832,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			DMNewPerDay:          int64(cfg.Quota.DMNewConversationsPerDay), NewAccountDMNewPerDay: int64(cfg.Quota.NewAccountDMNewConversationsPerDay),
 			NewAccountSendsPerDay: int64(cfg.Messaging.NewAccountSendsPerDay), NewAccountWindow: cfg.Quota.NewAccountWindow,
 			ConversationCacheEntries: cfg.Messaging.ConversationCacheEntries,
+			// The CommitConversation reset cap (messages_resets_daily); the per-call cap is the interceptor's.
+			ResetsPerDay: cfg.RateLimit.MessagesResetsPerDay,
 		},
 		CursorKey: cfg.CursorHMACKey,
 		Log:       log,

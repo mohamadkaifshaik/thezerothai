@@ -507,19 +507,11 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 	// An encrypted message: the pair always; the ciphertext and commitment only while present on a VISIBLE message (a
 	// replay of a swept or taken-down message answers ciphertext_removed instead).
 	encrypted := res.Msg.MlsGen > 0
+	setEncrypted(msg, res.Msg)
 	if encrypted {
-		msg.MlsGeneration, msg.MlsEpoch = wirePair(res.Msg.MlsGen), wirePair(res.Msg.MlsEpoch)
-		if msgState == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && !res.Msg.CtRemoved {
-			msg.Ciphertext, msg.ReportCommitment = res.Msg.Ciphertext, res.Msg.Commitment
-		} else {
-			msg.CiphertextRemoved = true
-		}
+		snippet = ""
 	}
-	convEnc := messagingv1.ConversationEncryption_CONVERSATION_ENCRYPTION_NONE
-	var convGen, convEpoch uint64
-	if res.Conv.encrypted() {
-		convEnc, convGen, convEpoch = messagingv1.ConversationEncryption_CONVERSATION_ENCRYPTION_MLS, wirePair(res.Conv.MlsGen), wirePair(res.Conv.MlsEpoch)
-	}
+	convEnc, convGen, convEpoch := encryptionOf(res.Conv)
 	return &messagingv1.SendMessageResponse{
 		Message: msg,
 		Conversation: &messagingv1.Conversation{
@@ -530,7 +522,7 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 			State: state, Folder: messagingv1.Folder_FOLDER_INBOX,
 			LastMessage: &messagingv1.MessagePreview{
 				Snippet: snippet, FromSelf: true, State: msgState, CreatedAt: created,
-				SharedPost: msgState == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && res.Msg.SharedPostID != "",
+				SharedPost: msgState == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && res.Msg.SharedPostID != "" && !encrypted,
 				Encrypted:  encrypted,
 			},
 			CanReply: true, Silent: callerSilent, UpdatedAt: created,

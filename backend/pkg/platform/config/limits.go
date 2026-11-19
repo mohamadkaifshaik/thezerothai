@@ -89,6 +89,21 @@ type RateLimitConfig struct {
 	// further by the requests there are to answer (3 unanswered per sender, 20 new conversations per sender per day).
 	MessagesMutationsPerDay int64
 
+	// End-to-end encrypted conversations (MLS). MessagesCommitPerUserPerMinute is the CommitConversation bucket, env
+	// RATE_LIMIT_MESSAGES_COMMIT_PER_MIN, default 20; MessagesSyncPerUserPerMinute is ONE bucket shared by
+	// ListConversationCommits, ListEpochMessages, ListWelcomes and AckWelcomes, env RATE_LIMIT_MESSAGES_SYNC_PER_MIN, default
+	// 60 (a device catching up pages commits, then every epoch it has not completed, then its welcomes). Both per instance.
+	MessagesCommitPerUserPerMinute int
+	MessagesSyncPerUserPerMinute   int
+	// MessagesCommitsPerDay is the in-memory daily cap on CommitConversation calls, a reset included (one counter per uid per
+	// instance, ratelimit.DailyCap, drawn on by the interceptor), env MESSAGES_COMMITS_PER_DAY, default 500, logged as
+	// limit_name "messages_commits_daily". MessagesResetsPerDay is the cap on CommitConversation calls with reset = true,
+	// env MESSAGES_RESETS_PER_DAY, default 10, limit_name "messages_resets_daily": the interceptor cannot see the request's
+	// reset field, so the messaging service draws on it before its transaction (a reset counts against both caps). Both
+	// count every call, a recognised retry and a refused one included (the limits run before the transaction).
+	MessagesCommitsPerDay int64
+	MessagesResetsPerDay  int64
+
 	// ListsWritePerUserPerMinute is the bucket shared by the six list mutations (CreateList, UpdateList, DeleteList, AddListMember,
 	// RemoveListMember and SetHomeTabs), env RATE_LIMIT_LISTS_WRITE_PER_MIN, default 30; ListsReadPerUserPerMinute is GetList,
 	// ListUserLists and ListListMembers, env RATE_LIMIT_LISTS_READ_PER_MIN, default 30; ListTimelinePerUserPerMinute is

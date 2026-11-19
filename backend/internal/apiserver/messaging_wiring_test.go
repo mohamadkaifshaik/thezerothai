@@ -114,3 +114,25 @@ func TestLateKeyDevices(t *testing.T) {
 		t.Fatalf("failure = %v, want it passed through", err)
 	}
 }
+
+// TestLateKeyDevices_DeviceIDs: the ListWelcomes / AckWelcomes ownership lookup asks the directory's REGISTERED ids (active
+// or not), never the active ones; unbound it fails (never "not one of your devices"); errors pass through.
+func TestLateKeyDevices_DeviceIDs(t *testing.T) {
+	l := &lateKeyDevices{}
+	if got, err := l.DeviceIDs(context.Background(), "uid-a"); !errors.Is(err, errKeyDevicesUnbound) || got != nil {
+		t.Fatalf("unbound = %v, %v; want errKeyDevicesUnbound", got, err)
+	}
+	dir := &stubDeviceDirectory{ids: map[string][]string{"uid-a": {"device-aaaaaaaaaaaa", "device-bbbbbbbbbbbb"}}}
+	l.dir = dir
+	if got, err := l.DeviceIDs(context.Background(), "uid-a"); err != nil || len(got) != 2 {
+		t.Fatalf("bound = %v, %v", got, err)
+	}
+	if len(dir.asks) != 1 || dir.asks[0] != "all|uid-a" {
+		t.Fatalf("directory calls = %v, want one DeviceIDs", dir.asks)
+	}
+	boom := errors.New("boom")
+	dir.err = boom
+	if _, err := l.DeviceIDs(context.Background(), "uid-a"); !errors.Is(err, boom) {
+		t.Fatalf("failure = %v, want it passed through", err)
+	}
+}

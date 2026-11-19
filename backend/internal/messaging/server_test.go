@@ -71,11 +71,11 @@ func asConnect(err error, target **connect.Error) bool {
 	return ok
 }
 
-// TestServer_AllSixHandlers drives each RPC over the wire in allowlist mode with a caller outside the allowlist:
-// SendMessage and AcceptMessageRequest are FAILED_PRECONDITION FEATURE_DISABLED feature=messaging, the other four reach
-// their own validation (the flag is not globally off). With the flag off, all six are FEATURE_DISABLED. An allowlisted
-// caller gets past the gate on all six: every RPC answers its own validation of the empty request (implemented the
-// last two).
+// TestServer_AllSixHandlers (now eleven: the six originals and the five encrypted-conversation RPCs) drives each RPC over
+// the wire in allowlist mode with a caller outside the allowlist: SendMessage, AcceptMessageRequest and CommitConversation
+// are FAILED_PRECONDITION FEATURE_DISABLED feature=messaging, the others reach their own validation (the flag is not
+// globally off). With the flag off, all are FEATURE_DISABLED. An allowlisted caller gets past the gate on all: every RPC
+// answers its own validation of the empty request. Without an identity every RPC is UNAUTHENTICATED.
 func TestServer_AllSixHandlers(t *testing.T) {
 	ctx := context.Background()
 	calls := map[string]func(c messagingv1connect.MessagingServiceClient, uid string) error{
@@ -103,8 +103,30 @@ func TestServer_AllSixHandlers(t *testing.T) {
 			_, err := c.DeleteConversation(ctx, withUID(&messagingv1.DeleteConversationRequest{}, uid))
 			return err
 		},
+		// The encrypted-conversation RPCs (E2EE plan 3): CommitConversation per caller (as SendMessage); the three sync
+		// lists and AckWelcomes not globally off. None needs e2ee_dm (the registry here does not even define it).
+		"CommitConversation": func(c messagingv1connect.MessagingServiceClient, uid string) error {
+			_, err := c.CommitConversation(ctx, withUID(&messagingv1.CommitConversationRequest{}, uid))
+			return err
+		},
+		"ListConversationCommits": func(c messagingv1connect.MessagingServiceClient, uid string) error {
+			_, err := c.ListConversationCommits(ctx, withUID(&messagingv1.ListConversationCommitsRequest{}, uid))
+			return err
+		},
+		"ListEpochMessages": func(c messagingv1connect.MessagingServiceClient, uid string) error {
+			_, err := c.ListEpochMessages(ctx, withUID(&messagingv1.ListEpochMessagesRequest{}, uid))
+			return err
+		},
+		"ListWelcomes": func(c messagingv1connect.MessagingServiceClient, uid string) error {
+			_, err := c.ListWelcomes(ctx, withUID(&messagingv1.ListWelcomesRequest{}, uid))
+			return err
+		},
+		"AckWelcomes": func(c messagingv1connect.MessagingServiceClient, uid string) error {
+			_, err := c.AckWelcomes(ctx, withUID(&messagingv1.AckWelcomesRequest{}, uid))
+			return err
+		},
 	}
-	perCaller := map[string]bool{"SendMessage": true, "AcceptMessageRequest": true}
+	perCaller := map[string]bool{"SendMessage": true, "AcceptMessageRequest": true, "CommitConversation": true}
 	// open is the code a caller past the gate gets from this RPC: the validation of the empty request.
 	open := func(string) connect.Code { return connect.CodeInvalidArgument }
 
@@ -179,6 +201,14 @@ func TestServer_ReadonlyRefusesTheMutations(t *testing.T) {
 			_, err := c.DeleteConversation(ctx, connect.NewRequest(&messagingv1.DeleteConversationRequest{ConversationId: id}))
 			return err
 		},
+		"CommitConversation": func() error {
+			_, err := c.CommitConversation(ctx, connect.NewRequest(&messagingv1.CommitConversationRequest{ConversationId: id}))
+			return err
+		},
+		"AckWelcomes": func() error {
+			_, err := c.AckWelcomes(ctx, connect.NewRequest(&messagingv1.AckWelcomesRequest{Ids: []string{id}}))
+			return err
+		},
 	} {
 		err := call()
 		if connect.CodeOf(err) != connect.CodeUnavailable {
@@ -189,8 +219,27 @@ func TestServer_ReadonlyRefusesTheMutations(t *testing.T) {
 			t.Errorf("%s: reason = %v, want DEGRADED_MODE", name, reason)
 		}
 	}
-	// A list still reaches the service (its own validation of the empty request).
-	if _, err := c.ListMessages(ctx, connect.NewRequest(&messagingv1.ListMessagesRequest{})); connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("ListMessages under readonly: code = %v (%v), want InvalidArgument", connect.CodeOf(err), err)
+	// A list still reaches the service (its own validation of the empty request), the three sync lists included.
+	for name, call := range map[string]func() error{
+		"ListMessages": func() error {
+			_, err := c.ListMessages(ctx, connect.NewRequest(&messagingv1.ListMessagesRequest{}))
+			return err
+		},
+		"ListConversationCommits": func() error {
+			_, err := c.ListConversationCommits(ctx, connect.NewRequest(&messagingv1.ListConversationCommitsRequest{}))
+			return err
+		},
+		"ListEpochMessages": func() error {
+			_, err := c.ListEpochMessages(ctx, connect.NewRequest(&messagingv1.ListEpochMessagesRequest{}))
+			return err
+		},
+		"ListWelcomes": func() error {
+			_, err := c.ListWelcomes(ctx, connect.NewRequest(&messagingv1.ListWelcomesRequest{}))
+			return err
+		},
+	} {
+		if err := call(); connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Errorf("%s under readonly: code = %v (%v), want InvalidArgument", name, connect.CodeOf(err), err)
+		}
 	}
 }

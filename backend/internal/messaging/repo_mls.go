@@ -229,6 +229,110 @@ func (r *FirestoreRepo) commitTx(ctx context.Context, tx *firestore.Transaction,
 	return res, nil
 }
 
+// ListCommits implements Repo: ONE read-only transaction (a consistent snapshot), so the conversation's current pair and
+// the commit records come from the same instant and "no commit returned while the pair is ahead" is a real gap, never a
+// race between two reads. Reads: the conversation (1; a missing one or a caller who is not one of its two participants is
+// ErrNotFound and nothing else is read), then, for an MLS conversation only, conversations/{id}/commits ordered by
+// document id (commitDocID sorts by generation, then epoch) StartAfter q.AfterID, Limit q.Limit: no field filter, so no
+// index is involved. A NONE conversation is the snapshot with no rows.
+func (r *FirestoreRepo) ListCommits(ctx context.Context, q CommitsQuery) (CommitsPage, error) {
+	var page CommitsPage
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
+		page = CommitsPage{}
+		conv, err := r.txConversation(ctx, tx, q.ConvID)
+		if err != nil {
+			return err
+		}
+		if conv == nil || peerOf(conv.Participants, q.UID) == "" {
+			return ErrNotFound
+		}
+		page.Conv = *conv
+		if !conv.encrypted() {
+			return nil
+		}
+		col := r.convRef(q.ConvID).Collection(commitsCollection)
+		query := col.OrderBy(firestore.DocumentID, firestore.Asc)
+		if q.AfterID != "" {
+			query = query.StartAfter(q.AfterID)
+		}
+		docs, err := tx.Documents(query.Limit(q.Limit)).GetAll()
+		if err != nil {
+			return fmt.Errorf("messaging: list commits: %w", err)
+		}
+		page.Rows = make([]CommitRow, 0, len(docs))
+		for _, d := range docs {
+			var c CommitDoc
+			if err := d.DataTo(&c); err != nil {
+				return fmt.Errorf("messaging: decode commit record: %w", err)
+			}
+			page.Rows = append(page.Rows, CommitRow{ID: d.Ref.ID, CommitDoc: c})
+		}
+		return nil
+	}, firestore.ReadOnly)
+	if err != nil {
+		return CommitsPage{}, err
+	}
+	return page, nil
+}
+
+// ListEpochMessages implements Repo: conversations/{id}/messages where mlsKey == key ordered by document id (ascending),
+// StartAfter afterID, Limit limit. One equality filter plus the implicit __name__ order is served by the automatic
+// single-field index on mlsKey, no composite (the precedent of articles' and billing's `field == x` + document-id pages).
+func (r *FirestoreRepo) ListEpochMessages(ctx context.Context, convID, key, afterID string, limit int) ([]MessageRow, error) {
+	query := r.convRef(convID).Collection(messagesCollection).Where("mlsKey", "==", key).OrderBy(firestore.DocumentID, firestore.Asc)
+	if afterID != "" {
+		query = query.StartAfter(afterID)
+	}
+	docs, err := query.Limit(limit).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("messaging: list epoch messages: %w", err)
+	}
+	out := make([]MessageRow, 0, len(docs))
+	for _, d := range docs {
+		var m MsgDoc
+		if err := d.DataTo(&m); err != nil {
+			return nil, fmt.Errorf("messaging: decode message: %w", err)
+		}
+		out = append(out, MessageRow{ID: d.Ref.ID, MsgDoc: m})
+	}
+	return out, nil
+}
+
+// ListWelcomes implements Repo: users/{uid}/dmWelcomes where deviceId == deviceID ordered by document id, Limit limit (the
+// automatic single-field index on deviceId, no composite). The path comes from the caller's uid, so another user's
+// welcomes are never in reach.
+func (r *FirestoreRepo) ListWelcomes(ctx context.Context, uid, deviceID string, limit int) ([]WelcomeRow, error) {
+	docs, err := r.welcomesCol(uid).Where("deviceId", "==", deviceID).OrderBy(firestore.DocumentID, firestore.Asc).Limit(limit).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("messaging: list welcomes: %w", err)
+	}
+	out := make([]WelcomeRow, 0, len(docs))
+	for _, d := range docs {
+		var w WelcomeDoc
+		if err := d.DataTo(&w); err != nil {
+			return nil, fmt.Errorf("messaging: decode welcome: %w", err)
+		}
+		out = append(out, WelcomeRow{ID: d.Ref.ID, WelcomeDoc: w})
+	}
+	return out, nil
+}
+
+// AckWelcomes implements Repo: one batch deleting users/{uid}/dmWelcomes/{id} for each id, no read. A delete without a
+// precondition of a missing document (already acknowledged, replaced, expired, another user's id) is a no-op.
+func (r *FirestoreRepo) AckWelcomes(ctx context.Context, uid string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	b := store.NewFirestoreBatch(r.client)
+	for _, id := range ids {
+		b.Delete(r.welcomesCol(uid).Doc(id))
+	}
+	if err := b.Commit(ctx); err != nil {
+		return fmt.Errorf("messaging: ack welcomes: %w", err)
+	}
+	return nil
+}
+
 // txCommitRecord reads conversations/{id}/commits/{gen_epoch} through the transaction; nil when it does not exist.
 func (r *FirestoreRepo) txCommitRecord(tx *firestore.Transaction, convID string, gen, epoch int64) (*CommitDoc, error) {
 	snap, err := tx.Get(r.commitRef(convID, gen, epoch))

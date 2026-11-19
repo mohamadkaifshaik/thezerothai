@@ -38,6 +38,10 @@ type Limits struct {
 	NewAccountWindow time.Duration
 	// ConversationCacheEntries is CACHE_MESSAGING_CONVERSATION_ENTRIES.
 	ConversationCacheEntries int
+	// ResetsPerDay is MESSAGES_RESETS_PER_DAY (10): the daily cap "messages_resets_daily" on CommitConversation calls with
+	// reset = true. The interceptor holds the per-call cap "messages_commits_daily" but cannot see the reset field, so the
+	// service draws on this one (resetCap). 0 = no reset cap (unit rigs).
+	ResetsPerDay int64
 }
 
 // Deps are the collaborators of the service. Repo and Social are required for ListConversations, Repo, Social and Profiles for SendMessage; Events and Badge may
@@ -88,6 +92,8 @@ type service struct {
 	// newSends is the new-account tier of the SendMessage daily call cap (Limits.NewAccountSendsPerDay), in memory per
 	// instance like every ratelimit.DailyCap.
 	newSends *ratelimit.DailyCap
+	// resets is the CommitConversation reset cap (Limits.ResetsPerDay), in memory per instance; nil = none.
+	resets *ratelimit.DailyCap
 }
 
 // New builds the Service: the flag gate, then the rules of the six RPCs (SendMessage, ListConversations, ListMessages,
@@ -106,6 +112,9 @@ func New(fc FlagChecker, d Deps) Service {
 	s := &service{flags: fc, d: d, convs: cache.New[string, ConvDoc](entries, convCacheTTL)}
 	if d.Limits.NewAccountSendsPerDay > 0 {
 		s.newSends = ratelimit.NewDailyCap(d.Limits.NewAccountSendsPerDay).WithClock(d.Now)
+	}
+	if d.Limits.ResetsPerDay > 0 {
+		s.resets = ratelimit.NewDailyCap(d.Limits.ResetsPerDay).WithClock(d.Now)
 	}
 	return s
 }

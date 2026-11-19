@@ -641,6 +641,10 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_MESSAGES_READ_PER_MIN", 30, &rl.MessagesReadPerUserPerMinute},
 		// ListMessageSuggestions (F30) has its own bucket, 10/min per instance (30 with 3).
 		{"RATE_LIMIT_DM_SUGGESTIONS_PER_MIN", 10, &rl.DMSuggestionsPerUserPerMinute},
+		// Encrypted conversations: CommitConversation 20/min; the four sync RPCs (ListConversationCommits, ListEpochMessages,
+		// ListWelcomes, AckWelcomes) share 60/min (per instance, x3).
+		{"RATE_LIMIT_MESSAGES_COMMIT_PER_MIN", 20, &rl.MessagesCommitPerUserPerMinute},
+		{"RATE_LIMIT_MESSAGES_SYNC_PER_MIN", 60, &rl.MessagesSyncPerUserPerMinute},
 		// ListNotifications 30/min per instance (90 with 3); it used to fall back to the 60/min default.
 		{"RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", 30, &rl.NotificationsListPerUserPerMinute},
 		// GetMe 30/min per instance (90 with 3); it used to fall back to the 60/min default (L1: the badge's read cost).
@@ -749,6 +753,10 @@ func Load() (Config, error) {
 	}{
 		{&rl.MessagesMarkReadPerDay, "MESSAGES_MARK_READ_PER_DAY", 500},
 		{&rl.MessagesMutationsPerDay, "MESSAGES_MUTATIONS_PER_DAY", 500},
+		// CommitConversation per uid ("messages_commits_daily", every call) and its resets ("messages_resets_daily", drawn on
+		// by the messaging service); a reset counts against both.
+		{&rl.MessagesCommitsPerDay, "MESSAGES_COMMITS_PER_DAY", 500},
+		{&rl.MessagesResetsPerDay, "MESSAGES_RESETS_PER_DAY", 10},
 		// Community mod actions (Hide, SetMemberRole) per actor, CreatePost into one community per uid|cid, SearchPeople alone,
 		// and ListFollowers + ListFollowing together; all in memory per instance.
 		{&rl.CommunityModActionsPerDay, "COMMUNITY_MOD_ACTIONS_PER_DAY", 200},

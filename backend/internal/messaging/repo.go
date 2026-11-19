@@ -45,6 +45,43 @@ type Repo interface {
 	// graph, the commit record of the target pair and the earlier welcome of each addressed device, then moves the pair,
 	// creates the record and stores the welcomes; a recognised retry writes nothing.
 	Commit(ctx context.Context, p CommitParams) (CommitResult, error)
+	// ListCommits reads, in ONE read-only transaction, the conversation (participant check: ErrNotFound for a missing
+	// conversation or a non-participant, before any other read) and, for an MLS conversation, one page of its commit
+	// records after q.AfterID in document-id order. A NONE conversation answers no rows and no query.
+	ListCommits(ctx context.Context, q CommitsQuery) (CommitsPage, error)
+	// ListEpochMessages reads one page of conversations/{id}/messages where mlsKey == key, in document-id order, after
+	// afterID ("" = from the start), at most limit rows.
+	ListEpochMessages(ctx context.Context, convID, key, afterID string, limit int) ([]MessageRow, error)
+	// ListWelcomes reads one page of users/{uid}/dmWelcomes where deviceId == deviceID, in document-id order, at most limit.
+	ListWelcomes(ctx context.Context, uid, deviceID string, limit int) ([]WelcomeRow, error)
+	// AckWelcomes deletes users/{uid}/dmWelcomes/{id} for each id (a missing document is a no-op), in one batch.
+	AckWelcomes(ctx context.Context, uid string, ids []string) error
+}
+
+// CommitsQuery is one ListConversationCommits page: the caller (participant check), the conversation, the exclusive lower
+// bound as a commit document id ("" = from the start) and the page size.
+type CommitsQuery struct {
+	UID, ConvID, AfterID string
+	Limit                int
+}
+
+// CommitsPage is the snapshot ListCommits read: the conversation (its current pair) and the scanned records, in document-id
+// order, before any filtering (len(Rows) == Limit is a full page).
+type CommitsPage struct {
+	Conv ConvDoc
+	Rows []CommitRow
+}
+
+// CommitRow is one stored commit record with its document id.
+type CommitRow struct {
+	ID string
+	CommitDoc
+}
+
+// WelcomeRow is one stored welcome with its document id.
+type WelcomeRow struct {
+	ID string
+	WelcomeDoc
 }
 
 // CommitParams is everything the commit transaction needs; the service has already checked the flag, the verified email,

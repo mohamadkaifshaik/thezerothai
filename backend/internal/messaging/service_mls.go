@@ -36,6 +36,9 @@ const maxCommitGen = math.MaxInt64 - 1
 // recognised retry answers the conversation's current pair and writes nothing. The instance conversation cache is
 // updated from the transaction's result. Nothing is emitted. Neither rev nor any message changes.
 func (s *service) Commit(ctx context.Context, uid string, req *messagingv1.CommitConversationRequest) (*messagingv1.CommitConversationResponse, error) {
+	if err := s.resetCap(ctx, uid, req); err != nil {
+		return nil, err
+	}
 	if err := s.guard(ctx, uid, perCaller); err != nil {
 		return nil, err
 	}

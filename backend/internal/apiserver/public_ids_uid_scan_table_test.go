@@ -156,14 +156,6 @@ var uidScanExcluded = map[string]string{
 		"lifecycle tests, and the response carries no user id",
 	billingv1connect.BillingServiceEnsureBillingIdentityProcedure: "creates a customer at the external billing provider (RevenueCat), which the emulator " +
 		"chain does not have; the other two billing RPCs are called",
-	// TEMPORARY (E2EE plan 3): the contract exists (Task 1) but no handler does yet, so the embedded
-	// UnimplementedMessagingServiceHandler answers them. Task 6 wires the handlers and replaces these five exclusions
-	// with scan cases. None of their requests or responses carries a user id.
-	messagingv1connect.MessagingServiceCommitConversationProcedure:      "no handler until E2EE plan 3 Task 6 (then scanned)",
-	messagingv1connect.MessagingServiceListConversationCommitsProcedure: "no handler until E2EE plan 3 Task 6 (then scanned)",
-	messagingv1connect.MessagingServiceListEpochMessagesProcedure:       "no handler until E2EE plan 3 Task 6 (then scanned)",
-	messagingv1connect.MessagingServiceListWelcomesProcedure:            "no handler until E2EE plan 3 Task 6 (then scanned)",
-	messagingv1connect.MessagingServiceAckWelcomesProcedure:             "no handler until E2EE plan 3 Task 6 (then scanned)",
 }
 
 func uidScanCaseTable() map[string]uidScanCase {
@@ -539,6 +531,29 @@ func uidScanCaseTable() map[string]uidScanCase {
 		messagingv1connect.MessagingServiceListMessageSuggestionsProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
 			return &messagingv1.ListMessageSuggestionsRequest{Limit: 10}
 		}},
+		// The encrypted-conversation RPCs carry no user id in a request or a response (from_self booleans only; device ids
+		// are not user references). The seeded conversations are plaintext, so the reads answer their NONE form and the
+		// commit its refusal; each answer is still scanned.
+		messagingv1connect.MessagingServiceListConversationCommitsProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &messagingv1.ListConversationCommitsRequest{ConversationId: w.ConvA, PageSize: 20}
+		}},
+		messagingv1connect.MessagingServiceListEpochMessagesProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &messagingv1.ListEpochMessagesRequest{ConversationId: w.ConvA, MlsGeneration: 1, MlsEpoch: 1, PageSize: 20}
+		}},
+		messagingv1connect.MessagingServiceListWelcomesProcedure: {Phase: uidScanRead, Want: "error",
+			Why: "the scanner registers its key device in the write phase (KeyService.RegisterKeyDevice), so in the read phase " +
+				"uidScanKeyDevice is not one of its devices: VALIDATION device_id; AckWelcomes (write phase, after the registration) is the success path",
+			Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+				return &messagingv1.ListWelcomesRequest{DeviceId: uidScanKeyDevice, PageSize: 20}
+			}},
+		messagingv1connect.MessagingServiceAckWelcomesProcedure: {Phase: uidScanWrite, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &messagingv1.AckWelcomesRequest{IdempotencyKey: uidScanKey("ackwel"), DeviceId: uidScanKeyDevice, Ids: []string{"0123456789abcdef0123456789abcdef"}}
+		}},
+		messagingv1connect.MessagingServiceCommitConversationProcedure: {Phase: uidScanWrite, Want: "error",
+			Why: "the seeded conversation is plaintext: VALIDATION conversation_id (encryption starts with SendMessage mls_init); the refusal is scanned",
+			Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+				return &messagingv1.CommitConversationRequest{IdempotencyKey: uidScanKey("dmcommit"), ConversationId: w.ConvA, MlsGeneration: 1, MlsEpoch: 1, Commit: []byte("uidscan commit")}
+			}},
 
 		// ---- moderation ----
 		moderationv1connect.ModerationServiceReportContentProcedure: {Phase: uidScanWrite, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {

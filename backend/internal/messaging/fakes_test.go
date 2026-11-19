@@ -75,6 +75,12 @@ type fakeRepo struct {
 	// commitCalls counts Commit calls; commitErr fails them.
 	commitCalls int
 	commitErr   error
+
+	// The sync reads (sync_fakes_test.go): welcomeRows is users/{uid}/dmWelcomes keyed by uid; syncCalls records each sync
+	// repo call ("commits|conv", "epoch|conv|key|after", "welcomes|uid|device", "ack|uid|n"); syncErr fails them all.
+	welcomeRows map[string][]WelcomeRow
+	syncCalls   []string
+	syncErr     error
 }
 
 func (f *fakeRepo) findEntry(uid, folder, convID string) (int, bool) {
@@ -592,12 +598,25 @@ func (f *fakeRepo) Commit(ctx context.Context, p CommitParams) (CommitResult, er
 	return res, nil
 }
 
-// fakeDevices is the key directory seam: the ACTIVE device ids per user; calls records the lookups (uids).
+// fakeDevices is the key directory seam: the ACTIVE device ids per user; calls records the lookups (uids). registered
+// adds devices that are registered but inactive (DeviceIDs answers active + registered); allCalls records DeviceIDs lookups.
 type fakeDevices struct {
-	mu     sync.Mutex
-	active map[string][]string
-	calls  []string
-	err    error
+	mu         sync.Mutex
+	active     map[string][]string
+	registered map[string][]string
+	calls      []string
+	allCalls   []string
+	err        error
+}
+
+func (f *fakeDevices) DeviceIDs(_ context.Context, uid string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.allCalls = append(f.allCalls, uid)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append(slices.Clone(f.active[uid]), f.registered[uid]...), nil
 }
 
 func (f *fakeDevices) ActiveDeviceIDs(_ context.Context, uid string) ([]string, error) {

@@ -110,3 +110,12 @@ func (l *lateKeyDevices) ActiveDeviceIDs(ctx context.Context, uid string) ([]str
 	}
 	return l.dir.ActiveDeviceIDs(ctx, uid)
 }
+
+// DeviceIDs is every registered device id of uid, active or not (the device_id ownership check of ListWelcomes and
+// AckWelcomes). Unbound, it fails like ActiveDeviceIDs: an internal error, never "not one of your devices".
+func (l *lateKeyDevices) DeviceIDs(ctx context.Context, uid string) ([]string, error) {
+	if l.dir == nil {
+		return nil, errKeyDevicesUnbound
+	}
+	return l.dir.DeviceIDs(ctx, uid)
+}
