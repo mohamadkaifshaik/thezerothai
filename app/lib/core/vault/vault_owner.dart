@@ -18,8 +18,8 @@ abstract interface class VaultOwner {
   /// Takes ownership of the vault of [uid] if no other tab holds it. Returns
   /// false when another tab holds it, or when ownership cannot be enforced.
   /// A second call for the same uid while owned returns true without asking
-  /// again. A call for another uid while owning throws [StateError]: call
-  /// [release] first.
+  /// again. A call for another uid while owning throws [StateError]
+  /// synchronously (a caller bug, not a failed future): call [release] first.
   Future<bool> acquire(String uid);
 
   /// Gives ownership up (the lock is free when this completes). A no-op when

@@ -101,6 +101,8 @@ void main() {
       tester,
     ) async {
       expect(await owner.acquire(uid).timeout(_wait), isTrue);
+      // A second request would be refused by our own hold: true proves none.
+      expect(await owner.acquire(uid).timeout(_wait), isTrue);
     });
 
     testWidgets('acquire for another uid while owning throws StateError', (
