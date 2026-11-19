@@ -1054,7 +1054,8 @@ void main() {
 
     test('B-M6(3): a hung ListMyKeyDevices is given up at the client '
         "deadline, so the next user's run is not blocked", () async {
-      rig.rpcTimeout = const Duration(milliseconds: 50);
+      // Real time: long enough for the calls that DO answer under load.
+      rig.rpcTimeout = const Duration(seconds: 1);
       rig.launch();
       await rig.signIn(_a);
       rig.advance(_hour);
@@ -1078,7 +1079,8 @@ void main() {
     test('B-M6(3): a register past the deadline is an unknown outcome: '
         'failed(retryable); a removal that started meanwhile removes the '
         'device again once the call lands', () async {
-      rig.rpcTimeout = const Duration(milliseconds: 50);
+      // Real time: long enough for the calls that DO answer under load.
+      rig.rpcTimeout = const Duration(seconds: 1);
       rig.launch();
       final hold = rig.server.hold['register'] = Completer<void>();
       rig.uid = _a;
@@ -1104,7 +1106,8 @@ void main() {
 
     test('B-M6(3): an upload past the deadline is retried ONCE with the same '
         'idempotency key', () async {
-      rig.rpcTimeout = const Duration(milliseconds: 50);
+      // Real time: long enough for the calls that DO answer under load.
+      rig.rpcTimeout = const Duration(seconds: 1);
       rig.launch();
       final hold = rig.server.hold['upload'] = Completer<void>();
       rig.uid = _a;

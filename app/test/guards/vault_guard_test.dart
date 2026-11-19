@@ -90,6 +90,18 @@ const Set<String> _vaultDebugHooks = {
   'debugLocksProvider',
 };
 
+/// The only `=` on a hook allowed in lib/: each declaration's own
+/// initializer, by file and count (`debugBeforeWebVaultKeyDelete` is
+/// declared without one).
+const Map<String, Map<String, int>> _vaultDebugHookDeclarations = {
+  'lib/core/vault/vault_cipher_web.dart': {
+    'debugFailWebVaultKeyCheck': 1,
+    'debugCorruptWebVaultReadBack': 1,
+    'debugWebCryptoKeyConstructorName': 1,
+  },
+  'lib/core/vault/vault_owner_web.dart': {'debugLocksProvider': 1},
+};
+
 /// Every `toString` the vault and keys code may define, and its exact body.
 /// A new one, or a changed body, fails the guard: read it, then add it here
 /// only if it prints no secret. Bodies show ids, counts, step or status names,
@@ -454,19 +466,22 @@ void main() {
   });
 
   group('vault debug hooks are never set by app code (A-M7)', () {
-    test('no file under lib/ assigns a vault debug* top-level', () {
-      final bad = <String>[];
+    test('no file under lib/ assigns a vault debug* top-level (only the '
+        'pinned declaration initializers)', () {
+      final found = <String, Map<String, int>>{};
       for (final e in _libFiles().entries) {
         for (final name in assignmentsTo(e.value, _vaultDebugHooks)) {
-          bad.add('${e.key}: $name');
+          final counts = found.putIfAbsent(e.key, () => {});
+          counts[name] = (counts[name] ?? 0) + 1;
         }
       }
       expect(
-        bad,
-        isEmpty,
+        found,
+        _vaultDebugHookDeclarations,
         reason:
             'The vault debug hooks are for tests only; app code never sets '
-            'them.\n${bad.join('\n')}',
+            'them. The only `=` allowed is each declaration\'s own '
+            'initializer.',
       );
     });
 
@@ -486,7 +501,8 @@ void main() {
       }
     });
 
-    test('self-test: assignments are flagged, declarations and reads not', () {
+    test('self-test: every assignment form is counted (declarations too, '
+        'which the real-tree test pins); reads and comments are not', () {
       for (final bad in [
         'debugFailWebVaultKeyCheck = true;',
         'void f() { debugLocksProvider = () => null; }',
@@ -494,16 +510,39 @@ void main() {
         "x..debugWebCryptoKeyConstructorName = 'Other';",
         'debugBeforeWebVaultKeyDelete ??= () {};',
         'final f = () => debugFailWebVaultKeyCheck = true;',
+        'if (kDebugMode) debugFailWebVaultKeyCheck = true;',
+        'if (a) {} else debugLocksProvider = f;',
+        'switch (x) { case 1: debugCorruptWebVaultReadBack = true; }',
+        "String g() { return debugWebCryptoKeyConstructorName = 'x'; }",
       ]) {
         expect(assignmentsTo(bad, _vaultDebugHooks), isNotEmpty, reason: bad);
       }
+      // A declaration initializer counts once; the real tree pins exactly
+      // those, so a second `=` in the declaring file is still caught.
+      expect(
+        assignmentsTo(
+          'bool debugFailWebVaultKeyCheck = false;',
+          _vaultDebugHooks,
+        ),
+        ['debugFailWebVaultKeyCheck'],
+      );
+      expect(
+        assignmentsTo(
+          'bool debugFailWebVaultKeyCheck = false;\n'
+          'void f() { if (x) debugFailWebVaultKeyCheck = true; }',
+          _vaultDebugHooks,
+        ),
+        ['debugFailWebVaultKeyCheck', 'debugFailWebVaultKeyCheck'],
+      );
       for (final ok in [
-        'bool debugFailWebVaultKeyCheck = false;',
-        'JSObject? Function() debugLocksProvider = _realLocks;',
         'void Function()? debugBeforeWebVaultKeyDelete;',
         'if (debugFailWebVaultKeyCheck) throw StateError("x");',
         'final same = debugCorruptWebVaultReadBack == true;',
+        'final other = debugCorruptWebVaultReadBack != true;',
+        'final g = () => debugLocksProvider();',
         '// debugFailWebVaultKeyCheck = true;',
+        "final s = 'debugFailWebVaultKeyCheck = true';",
+        'final xdebugFailWebVaultKeyCheck = true;',
       ]) {
         expect(assignmentsTo(ok, _vaultDebugHooks), isEmpty, reason: ok);
       }

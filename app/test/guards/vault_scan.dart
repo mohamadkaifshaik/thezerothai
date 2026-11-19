@@ -175,18 +175,19 @@ List<String> memberReferences(
   return [for (final m in pattern.allMatches(text)) m.group(1)!];
 }
 
-/// Assignments (`=`, `??=`; plain, prefixed `lib.name` or cascade
-/// `..name`) to any of [names] in [source], comments and strings ignored. A
-/// declaration with an initializer (`bool name = false;`, a type before the
-/// name) is not an assignment.
+/// Every `=` / `??=` applied to any of [names] in [source] (plain, prefixed
+/// `lib.name`, cascade `..name`, after `if (...)`, `else`, `case`, `return`
+/// ...), comments and strings ignored. A declaration's initializer
+/// (`bool name = false;`) is counted too: whatever precedes the name is not
+/// classified, so the caller pins the allowed declarations by file and
+/// count. `==`, `=>`, `!=`, `<=`, `>=` are not assignments.
 List<String> assignmentsTo(String source, Set<String> names) {
   if (names.isEmpty) return const [];
   final text = stripSource(source, keepStrings: false);
   final pattern = RegExp(
-    r'(?:^|[;{}(,]|=>|\.\.)\s*(?:[A-Za-z_]\w*\s*\.\s*)?(' +
+    r'(?<![\w$])(' +
         names.map(RegExp.escape).join('|') +
         r')\s*(?:\?\?=|=(?![=>]))',
-    multiLine: true,
   );
   return [for (final m in pattern.allMatches(text)) m.group(1)!];
 }
