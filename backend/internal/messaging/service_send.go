@@ -435,7 +435,7 @@ func isTxOp(op string) bool {
 // failure is the tail every RPC's error mapper shares (mapErr, messagesErr, lifecycleErr), reached after the mapper's own
 // sentinels. In this order: an *apierr.Error is already a wire answer; ErrNotFound is the one byte-identical NOT_FOUND of an
 // unknown id, a non-participant and a deleted conversation (D11); a request whose own context ended; for a transactional
-// op only (send, accept, delete) a lost or timed-out transaction is UNAVAILABLE "busy, please retry" (retry after
+// op only (send, accept, delete, commit) a lost or timed-out transaction is UNAVAILABLE "busy, please retry" (retry after
 // 1 s) with a WARN messaging_<op>_contention line; anything else, including a timeout on a read path (list_messages), is
 // INTERNAL with uid, convID and every id in redact replaced by hashes, because a Firestore error embeds document paths and
 // a path names a uid and a conversation. A read-path timeout stays INTERNAL on purpose: it is not contention, Error

@@ -587,3 +587,62 @@ func TestCommitRules(t *testing.T) {
 		t.Error("reset without a peer device accepted")
 	}
 }
+
+// A failure that names the peer's documents (the peer's graph read in the transaction, the peer's device query) is
+// INTERNAL and its logged chain carries neither uid nor the conversation id, only their hashes (the send path's rule).
+func TestCommit_InternalErrorRedactsThePeer(t *testing.T) {
+	convID := ConversationID(alice, bob)
+	for name, mut := range map[string]func(*rig){
+		"peer graph": func(r *rig) {
+			r.txSocial.err = errors.New("rpc error: projects/p/databases/(default)/documents/graph/" + bob + " for " + alice + " in " + convID)
+		},
+		"peer devices": func(r *rig) {
+			r.devices.err = errors.New("rpc error: documents/users/" + bob + "/keyDevices query for " + alice + " in " + convID)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, _ := commitRig(t, 1, 1, mut)
+			_, err := r.commit(t, alice, commitReq(ckey(1), convID, 1, 1, "c", devBob1))
+			if code, _, _ := reasonOf(t, err); code != connect.CodeInternal {
+				t.Fatalf("code = %v (%v), want internal", code, err)
+			}
+			chain := logger.CauseChain(err)
+			for _, secret := range []string{bob, alice, convID} {
+				if strings.Contains(chain, secret) {
+					t.Errorf("the error chain holds %q: %s", secret, chain)
+				}
+			}
+			if !strings.Contains(chain, logger.HashUID(bob)) {
+				t.Errorf("the error chain %q should carry the peer's uid_hash", chain)
+			}
+		})
+	}
+}
+
+// updatedAt moves strictly forward on a commit, even when the clock equals (or is behind) the stored stamp: a late reader
+// of the pre-commit document (same updatedAt, same rev) can then never put the old pair back in the instance cache.
+func TestCommit_UpdatedAtIsStrictlyLater(t *testing.T) {
+	for name, skew := range map[string]time.Duration{"clock equals the stamp": 0, "clock behind the stamp": time.Second} {
+		t.Run(name, func(t *testing.T) {
+			var old ConvDoc
+			r, convID := commitRig(t, 1, 1, func(r *rig) {
+				c := r.repo.convs[ConversationID(alice, bob)]
+				c.UpdatedAt = r.now.Add(skew)
+				r.repo.convs[ConversationID(alice, bob)] = c
+				old = c
+			})
+			r.mustCommit(t, alice, commitReq(ckey(1), convID, 1, 1, "c"))
+			want := old.UpdatedAt.Add(time.Microsecond)
+			if got := r.repo.convs[convID].UpdatedAt; !got.Equal(want) {
+				t.Errorf("stored updatedAt = %v, want %v", got, want)
+			}
+			r.svc.putConv(convID, old) // a late reader of the pre-commit document
+			if c, ok := r.svc.convs.Get(convID); !ok || c.MlsEpoch != 2 {
+				t.Errorf("cache = (%d, %d), %v; the old pair came back", c.MlsGen, c.MlsEpoch, ok)
+			}
+		})
+	}
+	if got := commitStamp(time.Unix(10, 0), time.Unix(5, 0)); !got.Equal(time.Unix(10, 0)) {
+		t.Errorf("commitStamp with the clock ahead = %v", got)
+	}
+}

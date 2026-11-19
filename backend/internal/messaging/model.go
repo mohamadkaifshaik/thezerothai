@@ -160,7 +160,7 @@ type ConvDoc struct {
 	CreatedAt  time.Time         `firestore:"createdAt"`
 	UpdatedAt  time.Time         `firestore:"updatedAt"`
 	// Rev is the thread revision: incremented by a takedown and by the eraser's RewriteConversation,
-	// sealed into ListMessages since tokens; absent = 0. Never touched by send, accept, delete or mark-read.
+	// sealed into ListMessages since tokens; absent = 0. Never touched by send, accept, delete, mark-read, a commit or a reset.
 	Rev int64 `firestore:"rev,omitempty"`
 	// Encryption is encMLS once the conversation is end-to-end encrypted; absent = plaintext. MlsGen and MlsEpoch are the
 	// current (generation, epoch) pair, written only by mls_init, a commit and a reset (never by an ordinary send).

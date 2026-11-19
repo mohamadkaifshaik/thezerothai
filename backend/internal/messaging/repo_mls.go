@@ -74,17 +74,34 @@ const (
 // putInit buffers what an mls_init stores besides the message and the conversation's encryption fields: the commit
 // record (initGen, initEpoch) and the welcomes for the (initGen, initEpoch) commit.
 //
-// The record is written with Set, not Create. An init only runs on a conversation that is missing or NONE (encGate), and
-// encryption is one-way, so in this incarnation of the conversation no (1, 0) record can exist: one that does is left over
-// from an earlier conversation with the same id (both participants erased, the tree deleted without its commits, the pair
-// meeting again), and a Create would fail on it forever (AlreadyExists, then "busy" on every retry). The first-wins guard
-// of two racing inits is the conversation document both read and write (or both Create) in their transactions.
-func (r *FirestoreRepo) putInit(b store.Batch, p SendParams, earlier []*firestore.DocumentRef, now time.Time) {
+// The record is a Create when the transaction read none (initLeftover, zero leftover). An init only runs on a conversation
+// that is missing or NONE (encGate), and encryption is one-way, so in this incarnation of the conversation no (1, 0) record
+// can exist: one that does is left over from an earlier conversation with the same id (both participants erased, the tree
+// deleted without its commits, the pair meeting again), and a Create would fail on it forever (AlreadyExists, then "busy"
+// on every retry). Such a leftover is overwritten under its LastUpdateTime (putCommitRecord). The first-wins guard of two
+// racing inits is the conversation document both read and write (or both Create) in their transactions.
+func (r *FirestoreRepo) putInit(b store.Batch, p SendParams, earlier []*firestore.DocumentRef, leftover time.Time, now time.Time) {
 	in := p.Enc.Init
-	b.Set(r.commitRef(p.ConvID, initGen, initEpoch), CommitDoc{
+	r.putCommitRecord(b, r.commitRef(p.ConvID, initGen, initEpoch), CommitDoc{
 		Data: in.Commit, SenderID: p.UID, Gen: initGen, Epoch: initEpoch, CreatedAt: now, ExpireAt: now.Add(CommitRetention),
-	})
+	}, leftover)
 	r.putWelcomes(b, p.ConvID, initGen, initEpoch, in.Welcome, in.Targets, earlier, now)
+}
+
+// initLeftover reads, inside the send transaction of an mls_init and before any write, the (1, 0) record: it can only
+// exist as a leftover of an earlier conversation with the same id (putInit). It returns that record's update time, zero
+// when there is none. 1 read.
+func (r *FirestoreRepo) initLeftover(tx *firestore.Transaction, convID string) (time.Time, error) {
+	_, updated, err := r.txCommitRecord(tx, convID, initGen, initEpoch)
+	return updated, err
+}
+
+// commitStamp is the updatedAt a commit or a reset writes: now, but strictly after the updatedAt the transaction read
+// (one microsecond, a Firestore timestamp's resolution, as the moderation takedown does). putConv keeps a cached copy
+// unless the newcomer is not older, and breaks a tie by rev, which a commit never changes; so a stamp equal to the old one
+// would let a late reader of the pre-commit document put the old pair back in the instance cache.
+func commitStamp(now, convUpdated time.Time) time.Time {
+	return notBefore(now, convUpdated.Add(time.Microsecond))
 }
 
 // startEncryption sets the encryption fields an mls_init gives a conversation: MLS at (initGen, initEpoch+1).
@@ -121,7 +138,8 @@ func newMsgDoc(p SendParams, now time.Time) MsgDoc {
 // device and the delete of each device's earlier welcome: at most 2 + 20. The record is a Create (first wins), except
 // when the transaction read a record at a pair the conversation has not left: such a record cannot have been written in
 // this incarnation of the conversation (the record and the move are one transaction), so it is a leftover of an earlier
-// conversation with the same id and is replaced with Set. Every accepted commit writes the conversation document it read,
+// conversation with the same id and is overwritten under a LastUpdateTime precondition (putCommitRecord). The
+// conversation's updatedAt is stamped strictly after the one it read (commitStamp). Every accepted commit writes the conversation document it read,
 // so two commits on one pair, a commit and a reset, and a commit and an encrypted send (whose transaction reads the
 // conversation too) are serialised by Firestore: the loser re-runs and answers from the winner's state.
 func (r *FirestoreRepo) Commit(ctx context.Context, p CommitParams) (CommitResult, error) {
@@ -176,7 +194,7 @@ func (r *FirestoreRepo) commitTx(ctx context.Context, tx *firestore.Transaction,
 
 	// Step 3: retry recognition on the record this request would create.
 	gen, epoch := commitRecordPair(p)
-	rec, err := r.txCommitRecord(tx, p.ConvID, gen, epoch)
+	rec, recUpdated, err := r.txCommitRecord(tx, p.ConvID, gen, epoch)
 	if err != nil {
 		return res, err
 	}
@@ -210,17 +228,15 @@ func (r *FirestoreRepo) commitTx(ctx context.Context, tx *firestore.Transaction,
 	}
 	now := wireTime(p.Now)
 	nextGen, nextEpoch := commitNextPair(p)
-	updatedAt := notBefore(now, conv.UpdatedAt) // only moves forward (putConv)
+	updatedAt := commitStamp(now, conv.UpdatedAt)
 	b := store.NewFirestoreTxBatch(tx)
 	b.Update(r.convRef(p.ConvID), []firestore.Update{
 		{Path: "mlsGen", Value: nextGen}, {Path: "mlsEpoch", Value: nextEpoch}, {Path: "updatedAt", Value: updatedAt},
 	})
+	// A record read here is a leftover of an earlier conversation with this id (see Commit): overwritten under its update
+	// time; none read: Create.
 	doc := CommitDoc{Data: p.Commit, SenderID: p.UID, Gen: gen, Epoch: epoch, CreatedAt: now, ExpireAt: now.Add(CommitRetention)}
-	if rec != nil {
-		b.Set(r.commitRef(p.ConvID, gen, epoch), doc) // a leftover of an earlier conversation with this id (see Commit)
-	} else {
-		b.Create(r.commitRef(p.ConvID, gen, epoch), doc)
-	}
+	r.putCommitRecord(b, r.commitRef(p.ConvID, gen, epoch), doc, recUpdated)
 	r.putWelcomes(b, p.ConvID, gen, epoch, p.Welcome, targets, earlier, now)
 	if berr := b.Err(); berr != nil {
 		return res, berr
@@ -333,19 +349,37 @@ func (r *FirestoreRepo) AckWelcomes(ctx context.Context, uid string, ids []strin
 	return nil
 }
 
-// txCommitRecord reads conversations/{id}/commits/{gen_epoch} through the transaction; nil when it does not exist.
-func (r *FirestoreRepo) txCommitRecord(tx *firestore.Transaction, convID string, gen, epoch int64) (*CommitDoc, error) {
+// txCommitRecord reads conversations/{id}/commits/{gen_epoch} through the transaction; nil (and a zero time) when it does
+// not exist. updated is the snapshot's update time, the precondition of a leftover's overwrite (putCommitRecord).
+func (r *FirestoreRepo) txCommitRecord(tx *firestore.Transaction, convID string, gen, epoch int64) (rec *CommitDoc, updated time.Time, err error) {
 	snap, err := tx.Get(r.commitRef(convID, gen, epoch))
 	switch status.Code(err) {
 	case codes.OK:
 		var c CommitDoc
 		if derr := snap.DataTo(&c); derr != nil {
-			return nil, fmt.Errorf("messaging: decode commit record: %w", derr)
+			return nil, time.Time{}, fmt.Errorf("messaging: decode commit record: %w", derr)
 		}
-		return &c, nil
+		return &c, snap.UpdateTime, nil
 	case codes.NotFound:
-		return nil, nil
+		return nil, time.Time{}, nil
 	default:
-		return nil, fmt.Errorf("messaging: read commit record: %w", err)
+		return nil, time.Time{}, fmt.Errorf("messaging: read commit record: %w", err)
 	}
+}
+
+// putCommitRecord buffers the commit record doc at ref: a Create (first wins) when the transaction read no record there
+// (leftover is zero); otherwise the record it read is a leftover of an earlier conversation with this id (the callers'
+// rule) and is overwritten field by field with an Update carrying a LastUpdateTime precondition equal to the update time
+// the transaction read, so the write still fails if anything changed that record since (a record-level guard on top of
+// the transaction's own read, at no extra read). The six fields are every field a record has, so nothing of the leftover
+// survives.
+func (r *FirestoreRepo) putCommitRecord(b store.Batch, ref *firestore.DocumentRef, doc CommitDoc, leftover time.Time) {
+	if leftover.IsZero() {
+		b.Create(ref, doc)
+		return
+	}
+	b.Update(ref, []firestore.Update{
+		{Path: "data", Value: doc.Data}, {Path: "senderId", Value: doc.SenderID}, {Path: "gen", Value: doc.Gen},
+		{Path: "epoch", Value: doc.Epoch}, {Path: "createdAt", Value: doc.CreatedAt}, {Path: "expireAt", Value: doc.ExpireAt},
+	}, firestore.LastUpdateTime(leftover))
 }

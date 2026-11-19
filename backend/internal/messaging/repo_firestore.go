@@ -154,9 +154,11 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // encrypted preview; it never writes the conversation beyond what a plaintext send writes, except an mls_init.
 //
 // mls_init (p.Enc.Init) reads, after every refusal and before any write, the earlier welcome of each addressed device
-// (at most MaxWelcomeDevices queries, Limit 1 each), and writes in addition: the conversation's encryption fields (in
+// (at most MaxWelcomeDevices queries, Limit 1 each) and the (1, 0) commit record (1 read: only a leftover of an earlier
+// conversation with this id can be there), at most 11 reads, and writes in addition: the conversation's encryption fields (in
 // the conversation Create of a new one, or in the one Update of an existing one, merged with requestCount or state when
-// those are written too: at most 1 extra write), the commit record (1, 0) (Create), one welcome per device (Set) and
+// those are written too: at most 1 extra write), the commit record (1, 0) (Create; over a leftover, an Update under its
+// update time), one welcome per device (Set) and
 // the delete of each device's earlier welcome: at most 1 + 1 + 10 + 10 = 22 writes beyond an ordinary send. The answers
 // it adds (encGate): the welcome-device verdict (computed before the transaction, answered after every existing refusal
 // and after the replay lookup of an existing conversation), then STALE_EPOCH for a conversation already MLS.
@@ -307,10 +309,15 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	// mls_init: the earlier welcome of each addressed device, the last reads before any write (at most MaxWelcomeDevices
 	// queries). Only with a good device verdict: an existing conversation reaches here only past encGate (verdict good,
 	// not yet MLS); a new one with a bad verdict is refused below, after its quota check, and needs no reads for it.
+	// Then the (1, 0) record (1 read): only a leftover of an earlier conversation with this id can be there (putInit).
 	starting := p.Enc != nil && p.Enc.Init != nil
 	var earlier []*firestore.DocumentRef
+	var leftover time.Time
 	if starting && p.Enc.Init.DevicesOK {
 		if earlier, err = r.earlierWelcomes(tx, p.ConvID, p.Enc.Init.Targets); err != nil {
+			return res, err
+		}
+		if leftover, err = r.initLeftover(tx, p.ConvID); err != nil {
 			return res, err
 		}
 	}
@@ -373,7 +380,7 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		}
 	}
 	if starting {
-		r.putInit(b, p, earlier, now)
+		r.putInit(b, p, earlier, leftover, now)
 	}
 	res.RecipientInRequests = dec.RecipientInRequests
 
@@ -579,7 +586,7 @@ func (r *FirestoreRepo) MarkRead(ctx context.Context, uid, convID string, at tim
 	return false, nil
 }
 
-// txRunner is the transaction runner of the send, accept and delete transactions: the client itself, or in a test with the
+// txRunner is the transaction runner of the send, accept, delete and commit transactions: the client itself, or in a test with the
 // commitThenFail seam the client followed by an error after a successful commit.
 func (r *FirestoreRepo) txRunner() store.TxnRunner {
 	if r.hooks == nil || r.hooks.commitThenFail == nil {

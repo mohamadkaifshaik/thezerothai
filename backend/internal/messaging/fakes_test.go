@@ -519,8 +519,9 @@ func (f *fakeRepo) sendInit(ctx context.Context, p SendParams, conv *ConvDoc, de
 // Commit runs commitTx's order over the in-memory documents: the conversation refusals (commitConvRefusal), the peer's
 // in-transaction graph then the caller's cached block, the record of the target pair and retry recognition, the field
 // verdict, the welcome-device check (only with device ids), the pair; then the conversation moves, the record is stored
-// (an existing one is replaced, as commitTx's Set of a leftover) and each device's earlier welcome is replaced. commitErr
-// fails the call before anything when set; commitCalls counts the calls.
+// (an existing one is replaced, as commitTx overwrites a leftover) and each device's earlier welcome is replaced. commitErr
+// fails the call before anything when set; commitCalls counts the calls. NOT atomic and it always overwrites the record:
+// first-wins (one record per pair, the loser STALE_EPOCH) is proven only by the emulator tests (commit_integration_test.go).
 func (f *fakeRepo) Commit(ctx context.Context, p CommitParams) (CommitResult, error) {
 	f.mu.Lock()
 	f.commitCalls++
@@ -578,7 +579,7 @@ func (f *fakeRepo) Commit(ctx context.Context, p CommitParams) (CommitResult, er
 	now := wireTime(p.Now)
 	next := *conv
 	next.MlsGen, next.MlsEpoch = commitNextPair(p)
-	next.UpdatedAt = notBefore(now, conv.UpdatedAt)
+	next.UpdatedAt = commitStamp(now, conv.UpdatedAt)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.convs[p.ConvID] = next

@@ -458,6 +458,8 @@ func TestCommitIT_Resets(t *testing.T) {
 		t.Errorf("records = %d, want 1", n)
 	}
 
+	tally := map[string]int{}
+	defer func() { t.Logf("racing resets: %v", tally) }()
 	for round := range 4 {
 		gen := uint64(2 + round)
 		start, second := make(chan struct{}), make(chan struct{})
@@ -495,6 +497,7 @@ func TestCommitIT_Resets(t *testing.T) {
 		winner := -1
 		for i := range errs {
 			if outcome(errs[i]) == "busy" {
+				tally["busy"]++
 				_, errs[i] = e.commitOn(svcs[i], froms[i], reqs[i])
 			}
 			if errs[i] != nil {
@@ -509,9 +512,19 @@ func TestCommitIT_Resets(t *testing.T) {
 		if winner < 0 {
 			t.Fatalf("round %d: no reset won", round)
 		}
+		tally[fmt.Sprintf("winner%d", winner)]++
 		rec := e.commitsOf(convID)[commitDocID(int64(gen)+1, 0)]
-		if rec["senderId"] != froms[winner] {
-			t.Errorf("round %d: record from %v", round, rec["senderId"])
+		if rec["senderId"] != froms[winner] || string(rec["data"].([]byte)) != string(reqs[winner].GetCommit()) {
+			t.Errorf("round %d: record = %v, want the winner's", round, rec)
+		}
+		// The loser stored nothing of its own: its welcome (alice's reset welcomes devBob1, bob's welcomes devAlice1).
+		st := e.mlsState(convID)
+		loserWelcomes, loserDevice := st.aliceWelcomes, devAlice1
+		if winner == 1 {
+			loserWelcomes, loserDevice = st.bobWelcomes, devBob1
+		}
+		if _, ok := loserWelcomes[welcomeDocID(convID, int64(gen)+1, 0, loserDevice)]; ok {
+			t.Errorf("round %d: the losing reset's welcome was stored", round)
 		}
 		if c, _ := e.conv(convID); c.MlsGen != int64(gen)+1 || c.MlsEpoch != 1 {
 			t.Errorf("round %d: conversation (%d, %d)", round, c.MlsGen, c.MlsEpoch)
@@ -521,6 +534,157 @@ func TestCommitIT_Resets(t *testing.T) {
 				t.Errorf("round %d: two generations made", round)
 			}
 		}
+	}
+}
+
+// afterCommitService is a new service instance on its own repo whose transactions, once committed, call fire before
+// they return (the repo's post-commit seam; no error is injected).
+func (e *itEnv) afterCommitService(fire func()) *service {
+	repo := NewFirestoreRepo(e.fs, quota.New(e.fs))
+	repo.hooks = &raceHooks{commitThenFail: func() error { fire(); return nil }}
+	return New(e.reg, Deps{
+		Repo: repo, Social: e.social, TxSocial: e.txSocial, TxProfiles: e.txProfs, AllowAnonymous: true,
+		Profiles: e.profs, Devices: e.devices, Limits: e.limits, CursorKey: testCursorKey, Now: e.now,
+	}).(*service)
+}
+
+// A commit racing a reset of the same generation g (conversation at (g, 1)), 9 rounds of three kinds: released together
+// (either order); the reset released the moment the commit's transaction committed (commit first); the commit released
+// the moment the reset's committed (reset first). The two legal outcomes, checked on the documents:
+//   - commit first: both succeed; records (g, 1) and (g + 1, 0), the first created before the second; the conversation at
+//     (g + 1, 1); the commit's welcome stored at (g, 1);
+//   - reset first: the commit is STALE_EPOCH (g + 1, 1) and stores nothing (no (g, 1) record, no welcome); the
+//     conversation at (g + 1, 1).
+//
+// The reset always succeeds (it names the current generation either way). Busy answers are retried with the same request
+// and counted. Both outcomes must be observed.
+func TestCommitIT_CommitRacingAReset(t *testing.T) {
+	e := newIT(t, nil)
+	e.withDevices()
+	convID, _ := e.startMLSConversation(1, 1)
+	var hookMu sync.Mutex
+	var afterCommit, afterReset func()
+	fire := func(h *func()) func() {
+		return func() {
+			hookMu.Lock()
+			f := *h
+			hookMu.Unlock()
+			if f != nil {
+				f()
+			}
+		}
+	}
+	commitSvc, resetSvc := e.afterCommitService(fire(&afterCommit)), e.afterCommitService(fire(&afterReset))
+	kinds := []string{"together", "reset after commit", "commit after reset"}
+	tally := map[string]int{}
+	for round := range 9 {
+		kind := kinds[round%3]
+		g := int64(1 + round)
+		commit := commitReq(ckey(300+round), convID, uint64(g), 1, fmt.Sprintf("c%d", round), devBob1)
+		reset := resetReq(ckey(400+round), convID, uint64(g), fmt.Sprintf("r%d", round), devAlice1)
+		commitGo, resetGo := make(chan struct{}), make(chan struct{})
+		var o1, o2 sync.Once
+		releaseCommit := func() { o1.Do(func() { close(commitGo) }) }
+		releaseReset := func() { o2.Do(func() { close(resetGo) }) }
+		hookMu.Lock()
+		afterCommit, afterReset = nil, nil
+		switch round % 3 {
+		case 1:
+			afterCommit = releaseReset
+		case 2:
+			afterReset = releaseCommit
+		}
+		hookMu.Unlock()
+		var (
+			wg                  sync.WaitGroup
+			commitErr, resetErr error
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-commitGo
+			_, commitErr = e.commitOn(commitSvc, alice, commit)
+			releaseReset()
+		}()
+		go func() {
+			defer wg.Done()
+			<-resetGo
+			_, resetErr = e.commitOn(resetSvc, bob, reset)
+			releaseCommit()
+		}()
+		switch round % 3 {
+		case 0:
+			releaseCommit()
+			releaseReset()
+		case 1:
+			releaseCommit()
+		case 2:
+			releaseReset()
+		}
+		wg.Wait()
+		hookMu.Lock()
+		afterCommit, afterReset = nil, nil
+		hookMu.Unlock()
+		if outcome(resetErr) == "busy" {
+			tally["busy"]++
+			_, resetErr = e.commitOn(resetSvc, bob, reset)
+		}
+		if outcome(commitErr) == "busy" {
+			tally["busy"]++
+			_, commitErr = e.commitOn(commitSvc, alice, commit)
+		}
+		if resetErr != nil {
+			t.Fatalf("round %d (%s): reset: %v", round, kind, resetErr)
+		}
+		recs := e.commitsOf(convID)
+		resetRec, ok := recs[commitDocID(g+1, 0)]
+		if !ok || resetRec["senderId"] != bob {
+			t.Fatalf("round %d: reset record = %v", round, resetRec)
+		}
+		_, commitStored := recs[commitDocID(g, 1)]
+		_, welcomeStored := e.mlsState(convID).bobWelcomes[welcomeDocID(convID, g, 1, devBob1)]
+		switch {
+		case commitErr == nil:
+			tally[kind+": commit first"]++
+			if kind == "commit after reset" {
+				t.Errorf("round %d: a commit released after the reset committed was accepted", round)
+			}
+			if !commitStored || !welcomeStored {
+				t.Errorf("round %d: commit ok but record %v welcome %v", round, commitStored, welcomeStored)
+			}
+			c1 := e.docSnap("conversations/" + convID + "/commits/" + commitDocID(g, 1)).CreateTime
+			r0 := e.docSnap("conversations/" + convID + "/commits/" + commitDocID(g+1, 0)).CreateTime
+			if !c1.Before(r0) {
+				t.Errorf("round %d: the commit record (%v) is not before the reset record (%v)", round, c1, r0)
+			}
+		case isStale(t, commitErr):
+			tally[kind+": reset first"]++
+			if kind == "reset after commit" {
+				t.Errorf("round %d: a reset released after the commit committed beat it", round)
+			}
+			wantStale(t, commitErr, g+1, 1)
+			if commitStored || welcomeStored {
+				t.Errorf("round %d: STALE_EPOCH commit stored record %v welcome %v", round, commitStored, welcomeStored)
+			}
+		default:
+			t.Fatalf("round %d (%s): commit: %v", round, kind, commitErr)
+		}
+		if c, _ := e.conv(convID); c.MlsGen != g+1 || c.MlsEpoch != 1 {
+			t.Fatalf("round %d: conversation (%d, %d), want (%d, 1)", round, c.MlsGen, c.MlsEpoch, g+1)
+		}
+	}
+	t.Logf("outcomes: %v", tally)
+	first, second := 0, 0
+	for k, n := range tally {
+		switch {
+		case strings.HasSuffix(k, "commit first"):
+			first += n
+		case strings.HasSuffix(k, "reset first"):
+			second += n
+		}
+	}
+	if first == 0 || second == 0 {
+		t.Errorf("only one order observed (commit first %d, reset first %d)", first, second)
 	}
 }
 

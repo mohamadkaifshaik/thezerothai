@@ -57,25 +57,38 @@ func (s *service) Commit(ctx context.Context, uid string, req *messagingv1.Commi
 	id := req.GetConversationId()
 	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(id))
 	logger.SetRequestField(ctx, fieldReset, req.GetReset_())
+	// peer is the other participant as the transaction named it (every reader below receives it before it can fail), so
+	// a failure that names the peer's documents (graph/{peer}, users/{peer}/dmWelcomes, the peer's device query) is
+	// redacted for the peer too (failure), as on the send path. It is set only by the transaction's own calls.
+	var peer string
+	welcomeTargets := s.commitWelcomeTargets(uid, req.GetWelcomeDeviceIds(), req.GetReset_())
 	p := CommitParams{
 		UID: uid, ConvID: id, Gen: gen, Epoch: epoch, Reset: req.GetReset_(),
 		Commit: req.GetCommit(), Welcome: req.GetWelcome(), DeviceIDs: req.GetWelcomeDeviceIds(),
 		FieldErr: commitFieldErr(req), Now: s.d.Now(),
-		RecipientGraphInTx: func(ctx context.Context, tx *firestore.Transaction, peer string) (graph.Snapshot, error) {
-			return s.d.TxSocial.SnapshotInTx(ctx, tx, peer)
+		RecipientGraphInTx: func(ctx context.Context, tx *firestore.Transaction, p string) (graph.Snapshot, error) {
+			peer = p
+			return s.d.TxSocial.SnapshotInTx(ctx, tx, p)
 		},
-		CallerBlocks: func(ctx context.Context, peer string) (bool, error) {
+		CallerBlocks: func(ctx context.Context, p string) (bool, error) {
+			peer = p
 			mine, err := s.d.Social.Snapshot(ctx, uid)
 			if err != nil {
 				return false, err
 			}
-			return mine.Blocked[peer], nil
+			return mine.Blocked[p], nil
 		},
-		WelcomeTargets: s.commitWelcomeTargets(uid, req.GetWelcomeDeviceIds(), req.GetReset_()),
+		WelcomeTargets: func(ctx context.Context, p string) ([]welcomeTarget, error) {
+			peer = p
+			return welcomeTargets(ctx, p)
+		},
 	}
 	res, err := s.d.Repo.Commit(ctx, p)
 	if err != nil {
-		return nil, s.commitErr(ctx, uid, id, err)
+		if peer == "" {
+			peer = peerOf(res.Conv.Participants, uid)
+		}
+		return nil, s.commitErr(ctx, uid, id, peer, err)
 	}
 	logger.SetRequestField(ctx, fieldReplay, res.Retry)
 	if res.Conv.State != "" && len(res.Conv.Participants) == 2 {
@@ -159,8 +172,9 @@ func (s *service) commitWelcomeTargets(uid string, ids []string, reset bool) fun
 // commitErr turns a Commit repo error into the wire answer: the CANNOT_MESSAGE causes (one answer, told apart only by
 // refused_reason), VALIDATION conversation_id for a NONE conversation, the welcome-device verdict, STALE_EPOCH with the
 // current pair; then the shared tail (failure: an *apierr.Error such as the field verdict passes as is, ErrNotFound is the
-// one NOT_FOUND, contention is "busy").
-func (s *service) commitErr(ctx context.Context, uid, convID string, err error) error {
+// one NOT_FOUND, contention is "busy"; anything else INTERNAL with the caller, the conversation and the peer redacted;
+// peer is "" when the transaction never named one).
+func (s *service) commitErr(ctx context.Context, uid, convID, peer string, err error) error {
 	switch {
 	case errors.Is(err, errBlocked):
 		return s.refuse(ctx, refusedBlocked)
@@ -175,5 +189,8 @@ func (s *service) commitErr(ctx context.Context, uid, convID string, err error) 
 	if errors.As(err, &stale) {
 		return staleEpoch(stale.Gen, stale.Epoch, "")
 	}
-	return s.failure(ctx, "commit", uid, convID, err)
+	if peer == "" {
+		return s.failure(ctx, "commit", uid, convID, err)
+	}
+	return s.failure(ctx, "commit", uid, convID, err, peer)
 }
