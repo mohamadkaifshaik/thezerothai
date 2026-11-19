@@ -2,10 +2,60 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
+import 'package:dzeroth/core/vault/vault_owner_web.dart'
+    show debugLocksProvider;
 import 'package:dzeroth/core/vault/web_interop.dart' show settle;
 
 @JS('navigator.locks')
 external _RawLocks get _locks;
+
+@JS('addEventListener')
+external void _addEventListener(String type, JSFunction listener);
+
+@JS('removeEventListener')
+external void _removeEventListener(String type, JSFunction listener);
+
+/// What the owner sees as `navigator.locks`: `real`, `missing`, `rejecting`
+/// (request() returns a promise that rejects before any grant, like a
+/// SecurityError) or `throwing` (request() throws at once).
+void useLocks(String mode) {
+  switch (mode) {
+    case 'real':
+      debugLocksProvider = () => _locks;
+    case 'missing':
+      debugLocksProvider = () => null;
+    case 'rejecting':
+      debugLocksProvider = () => JSObject()
+        ..setProperty(
+          'request'.toJS,
+          ((JSAny? n, JSAny? o, JSAny? cb) => Future<JSAny?>.error(
+            StateError('SecurityError'),
+          ).toJS).toJS,
+        );
+    case 'throwing':
+      JSAny? thrower(JSAny? n, JSAny? o, JSAny? cb) =>
+          throw StateError('SecurityError');
+      debugLocksProvider = () =>
+          JSObject()..setProperty('request'.toJS, thrower.toJS);
+    default:
+      throw ArgumentError.value(mode, 'mode');
+  }
+}
+
+/// Runs [body] and returns how many `unhandledrejection` events the page saw
+/// during it and a short wait after.
+Future<int> unhandledRejectionsDuring(Future<void> Function() body) async {
+  var count = 0;
+  final listener = ((JSAny? _) => count++).toJS;
+  _addEventListener('unhandledrejection', listener);
+  try {
+    await body();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  } finally {
+    _removeEventListener('unhandledrejection', listener);
+  }
+  return count;
+}
 
 extension type _RawLocks(JSObject _) implements JSObject {
   external JSPromise<JSAny?> request(

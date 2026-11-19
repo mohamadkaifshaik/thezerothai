@@ -29,6 +29,10 @@ abstract interface class VaultOwner {
   /// Emits when ownership was taken away from this owner (another context
   /// requested the lock with `steal`). Ownership is then released; [acquire]
   /// may be tried again. Never emits on Android.
+  ///
+  /// A non-replaying broadcast stream: an event with no listener is dropped,
+  /// so subscribe right after a successful [acquire]. On an event the owner
+  /// must stop writing the vault immediately.
   Stream<void> get lost;
 }
 

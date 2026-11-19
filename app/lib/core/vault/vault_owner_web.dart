@@ -22,6 +22,7 @@ import 'dart:js_interop_unsafe';
 
 import 'package:dzeroth/core/vault/vault_owner.dart';
 import 'package:dzeroth/core/vault/web_interop.dart' show settle;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 @JS('navigator')
 external JSAny? get _navigator;
@@ -34,14 +35,23 @@ extension type _Locks(JSObject _) implements JSObject {
   );
 }
 
+JSObject? _realLocks() {
+  final nav = _navigator;
+  if (nav == null || !nav.isA<JSObject>()) return null;
+  final locks = (nav as JSObject).getProperty<JSAny?>('locks'.toJS);
+  if (locks == null || !locks.isA<JSObject>()) return null;
+  return locks as JSObject;
+}
+
+/// Tests only: the `navigator.locks` object (null: the browser has none).
+/// The default reads the real one.
+@visibleForTesting
+JSObject? Function() debugLocksProvider = _realLocks;
+
 _Locks? _locksOrNull() {
   try {
-    final nav = _navigator;
-    if (nav == null || !nav.isA<JSObject>()) return null;
-    final locks = (nav as JSObject).getProperty<JSAny?>('locks'.toJS);
-    if (locks == null || !locks.isA<JSObject>()) return null;
-    final o = locks as JSObject;
-    if (!o.has('request')) return null;
+    final o = debugLocksProvider();
+    if (o == null || !o.has('request')) return null;
     return _Locks(o);
   } on Object {
     return null;
@@ -60,6 +70,9 @@ class _Request {
   final Completer<bool> granted = Completer<bool>();
 
   bool held = false;
+
+  /// Set synchronously by the first release(); every release() shares it.
+  Future<void>? releasing;
 
   /// Completing it resolves the promise the callback returned: the release.
   final Completer<JSAny?> hold = Completer<JSAny?>();
@@ -82,6 +95,12 @@ class WebVaultOwner implements VaultOwner {
   Future<bool> acquire(String uid) {
     final current = _current;
     if (current != null) {
+      final releasing = current.releasing;
+      if (releasing != null) {
+        // Never share a hold that is being dropped: wait until the lock is
+        // free, then ask again (a fresh request, or an earlier waiter's).
+        return releasing.then((_) => acquire(uid));
+      }
       if (current.uid != uid) {
         throw StateError('the vault is owned for another user: release first');
       }
@@ -125,19 +144,33 @@ class WebVaultOwner implements VaultOwner {
     if (!identical(_current, request)) return;
     _current = null;
     // A rejection of a request that was granted means the lock was taken.
-    if (lost && request.held && !_lost.isClosed) _lost.add(null);
+    if (lost && request.held && request.releasing == null && !_lost.isClosed) {
+      _lost.add(null);
+    }
   }
 
+  /// Gives the lock up. Every caller (also a second, concurrent one) completes
+  /// only when the browser has freed the lock. [_current] stays set until
+  /// then, marked as releasing, so an [acquire] in that window waits and then
+  /// makes a fresh request instead of sharing a hold that is being dropped.
   @override
-  Future<void> release() async {
+  Future<void> release() {
     final request = _current;
-    if (request == null) return;
-    final granted = await request.granted.future;
-    if (!identical(_current, request)) return;
-    _current = null;
-    if (!granted) return;
-    request.hold.complete(null);
-    // The lock is free once the outer promise has settled.
-    await request.done;
+    if (request == null) return Future<void>.value();
+    return request.releasing ??= _releaseRequest(request);
+  }
+
+  Future<void> _releaseRequest(_Request request) async {
+    try {
+      final granted = await request.granted.future;
+      if (granted && !request.hold.isCompleted) {
+        request.hold.complete(null);
+      }
+      // The lock is free once the outer promise has settled (also after a
+      // steal or a refusal, where it already has).
+      await request.done;
+    } finally {
+      if (identical(_current, request)) _current = null;
+    }
   }
 }

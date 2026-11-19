@@ -16,6 +16,12 @@ import 'dart:async';
 /// that outlives the body (a timer, a stream listener) is no longer counted as
 /// holding the key.
 ///
+/// Nesting [run] across DIFFERENT keys can deadlock too (A inside B on one
+/// task, B inside A on another), and nothing detects it: never nest across
+/// keys without one fixed global order of keys. The re-entrancy check above
+/// exists only when asserts are enabled (debug builds); profile and release
+/// builds deadlock instead.
+///
 /// Uses no timers.
 class KeyedMutex {
   final Map<String, Future<void>> _tails = {};
