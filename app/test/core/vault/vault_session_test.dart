@@ -189,7 +189,7 @@ void main() {
         'opened or destroyed', () async {
       final reported = <Object>[];
       final s = world.launch(reported: reported);
-      await s.start(restoredUid: null);
+      await s.start(restoredUid: null, restoreDefinitive: true);
       world.markers.failReads = true;
       await s.onSignedIn(_a, e2eeEnabled: true);
       expect(s.status.value, VaultStatus.unavailable);
@@ -206,9 +206,11 @@ void main() {
         world.setOwed(_b);
         world.markers.failReads = true;
         final s = world.launch(reported: reported);
-        await s.start(restoredUid: null);
+        await s.start(restoredUid: null, restoreDefinitive: true);
         expect(world.calls, isEmpty);
+        // Pending ends and owed wipes: each read failure reported.
         expect(reported.map((e) => e.toString()), [
+          'VaultSessionError(markers)',
           'VaultSessionError(markers)',
         ]);
       },
@@ -232,7 +234,7 @@ void main() {
           supported: supported,
           beforeExplicitWipe: (uid) async => world.calls.add('hook:$uid'),
         );
-        await s.start(restoredUid: _a);
+        await s.start(restoredUid: _a, restoreDefinitive: true);
         await s.onSignedIn(_a, e2eeEnabled: !supported);
         await s.onFlagChanged(!supported, uid: _a);
         await s.retry();
@@ -253,7 +255,7 @@ void main() {
       world.setKnown(_a, 'opfsLocks');
       world.setOwed(_b);
       final s = world.launch(supported: false);
-      await s.start(restoredUid: null);
+      await s.start(restoredUid: null, restoreDefinitive: true);
       await s.onSignedIn(_a, e2eeEnabled: true);
       await s.noteAccountDeleted(_a);
       await s.onSessionEnded(_a, SessionEnd.userSignedOut);
@@ -399,11 +401,12 @@ void main() {
       final s = world.launch(
         beforeExplicitWipe: (uid) async => world.calls.add('hook:$uid'),
       );
-      await s.start(restoredUid: _a);
+      await s.start(restoredUid: _a, restoreDefinitive: true);
       await s.onSignedIn(_a, e2eeEnabled: false);
-      // The key exists from an earlier vault; the deletion was accepted.
+      // The key exists from an earlier vault whose wipe is owed (e.g. a
+      // failed wipe after its known marker was cleared).
       world.keys[_a] = 9;
-      await s.noteAccountDeleted(_a);
+      world.setOwed(_a);
       expect(world.owedUids, {_a});
       expect(world.known(_a), isNull);
       world.calls.clear();
@@ -497,7 +500,7 @@ void main() {
       world.vaultWipeFails.clear();
       world.calls.clear();
       final next = world.launch();
-      unawaited(next.start(restoredUid: _b));
+      unawaited(next.start(restoredUid: _b, restoreDefinitive: true));
       await next.onSignedIn(_b, e2eeEnabled: true);
       expect(world.calls.take(6), [
         'owner.create',
@@ -525,7 +528,7 @@ void main() {
       expect(s.status.value, VaultStatus.off);
       world.keyDeleteFails.clear();
       final next = world.launch();
-      await next.start(restoredUid: null);
+      await next.start(restoredUid: null, restoreDefinitive: true);
       expect(world.owedUids, isEmpty);
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.files.containsKey(_a), isFalse);
@@ -546,7 +549,7 @@ void main() {
       world.keyDeleteFails.clear();
       world.calls.clear();
       final next = world.launch();
-      await next.start(restoredUid: _a);
+      await next.start(restoredUid: _a, restoreDefinitive: true);
       expect(world.calls, isNot(contains('wipeFile:$_a')));
       expect(world.calls, containsAllInOrder(['key:$_a', 'markers.clear:$_a']));
       expect(world.keys.containsKey(_a), isFalse);
@@ -679,7 +682,7 @@ void main() {
       world.setOwed(_a, fileStarted: true);
       world.calls.clear();
       final next = world.launch();
-      await next.start(restoredUid: null);
+      await next.start(restoredUid: null, restoreDefinitive: true);
       expect(world.calls, containsAllInOrder(['wipeFile:$_a', 'key:$_a']));
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.owedUids, isEmpty);
@@ -693,11 +696,11 @@ void main() {
       world.files.remove(_a);
       world.setOwed(_a);
       final next = world.launch();
-      await next.start(restoredUid: null);
+      await next.start(restoredUid: null, restoreDefinitive: true);
       expect(world.keys.containsKey(_a), isTrue);
       expect(world.owed(_a)!.fileStarted, isTrue, reason: 'now started');
       // ...and so the launch after that completes it.
-      await world.launch().start(restoredUid: null);
+      await world.launch().start(restoredUid: null, restoreDefinitive: true);
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.owedUids, isEmpty);
     });
@@ -712,7 +715,7 @@ void main() {
       expect(world.owed(_b)!.fileStarted, isTrue);
       expect(world.keys.containsKey(_b), isTrue);
       final next = world.launch();
-      await next.start(restoredUid: _a);
+      await next.start(restoredUid: _a, restoreDefinitive: true);
       expect(world.keys.containsKey(_b), isFalse);
       expect(world.owedUids, isEmpty);
       expect(world.known(_b), isNull);
@@ -732,7 +735,7 @@ void main() {
       expect(world.keys.containsKey(_a), isTrue);
       world.wipeFileFails.clear();
       final next = world.launch();
-      await next.start(restoredUid: _a);
+      await next.start(restoredUid: _a, restoreDefinitive: true);
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.owedUids, isEmpty);
       await next.onSignedIn(_a, e2eeEnabled: true);
@@ -755,6 +758,218 @@ void main() {
     });
   });
 
+  group('N1/N2: pending ends resolve only on a definite session state', () {
+    /// A launch that recorded a pending explicit end for A (with history)
+    /// and was killed before the sign-out finished.
+    Future<void> pendingForA() async {
+      final s = await signIn(_a);
+      await s.runWrite(
+        (v) => v.transaction((tx) => tx.putSetting('k', _b8('history'))),
+      );
+      await s.beforeExplicitSignOut(_a);
+      await s.close();
+      expect(world.pending(_a), isTrue);
+      world.calls.clear();
+    }
+
+    test('N1: a start whose restore is NOT definitive (slow web restore) '
+        'leaves the pending end alone: nothing destroyed', () async {
+      await pendingForA();
+      final next = world.launch();
+      await next.start(restoredUid: null, restoreDefinitive: false);
+      expect(world.calls.where(_destructive), isEmpty);
+      expect(world.pending(_a), isTrue);
+      expect(world.owedUids, isEmpty);
+      expect(world.keys.containsKey(_a), isTrue);
+    });
+
+    test('N1: ...and when A then signs in, A\'s own pending end is cleared '
+        '(the sign-out did not happen): history intact', () async {
+      await pendingForA();
+      final next = world.launch();
+      await next.start(restoredUid: null, restoreDefinitive: false);
+      await next.onSignedIn(_a, e2eeEnabled: true);
+      expect(world.pending(_a), isFalse);
+      expect(world.calls.where(_destructive), isEmpty);
+      expect(next.status.value, VaultStatus.ready);
+      expect(
+        String.fromCharCodes((await next.vault!.setting('k'))!),
+        'history',
+      );
+    });
+
+    test('N1: ...and when B signs in instead, A is wiped', () async {
+      await pendingForA();
+      final next = world.launch();
+      await next.start(restoredUid: null, restoreDefinitive: false);
+      await next.onSignedIn(_b, e2eeEnabled: false);
+      expect(world.keys.containsKey(_a), isFalse);
+      expect(world.files.containsKey(_a), isFalse);
+      expect(world.pending(_a), isFalse);
+      expect(world.owedUids, isEmpty);
+    });
+
+    test('N1: a definitive start with nobody restored wipes A', () async {
+      await pendingForA();
+      await world.launch().start(restoredUid: null, restoreDefinitive: true);
+      expect(world.keys.containsKey(_a), isFalse);
+      expect(world.pending(_a), isFalse);
+    });
+
+    test('N1: two tabs: tab 2 starts (not definitive) inside tab 1\'s hook '
+        'window, then tab 1\'s sign-out FAILS: A is never wiped', () async {
+      final tab1 = await signIn(_a);
+      await tab1.runWrite(
+        (v) => v.transaction((tx) => tx.putSetting('k', _b8('history'))),
+      );
+      await tab1.beforeExplicitSignOut(_a);
+      final tab2 = world.launch();
+      await tab2.start(restoredUid: null, restoreDefinitive: false);
+      await tab1.explicitSignOutFailed(_a);
+      // Tab 2's auth then restores A; later launches see A too.
+      await tab2.onSignedIn(_a, e2eeEnabled: false);
+      await world.launch().start(restoredUid: _a, restoreDefinitive: true);
+      await world.launch().start(restoredUid: null, restoreDefinitive: false);
+      expect(world.calls.where(_destructive), isEmpty);
+      expect(world.owedUids, isEmpty);
+      expect(world.files[_a]!.rows['k'], 'history');
+      expect(world.keys.containsKey(_a), isTrue);
+    });
+
+    test('N2: the owed write for a pending end fails at start: the pending '
+        'marker is KEPT, and the next launch wipes', () async {
+      await pendingForA();
+      world.markers.failOwedWrites = true;
+      await world.launch().start(restoredUid: null, restoreDefinitive: true);
+      expect(world.pending(_a), isTrue, reason: 'not lost');
+      expect(world.keys.containsKey(_a), isTrue);
+      world.markers.failOwedWrites = false;
+      await world.launch().start(restoredUid: null, restoreDefinitive: true);
+      expect(world.keys.containsKey(_a), isFalse);
+      expect(world.pending(_a), isFalse);
+    });
+
+    test('N2: the same at sign-in of another user: the pending marker is '
+        'kept when its owed write fails', () async {
+      await pendingForA();
+      final next = world.launch();
+      await next.start(restoredUid: null, restoreDefinitive: false);
+      world.markers.failOwedWrites = true;
+      // A's known marker would wipe A anyway (clearing every marker); make
+      // that wipe fail too, so only the pending marker stands for A's end.
+      world.wipeFileFails.add(_a);
+      await next.onSignedIn(_b, e2eeEnabled: false);
+      expect(world.pending(_a), isTrue);
+      expect(world.keys.containsKey(_a), isTrue);
+    });
+  });
+
+  group('fix round 2 minors', () {
+    test('m2: the clock moved BACK before the first key-loss observation: '
+        'the observation is rewritten (never blocked forever)', () async {
+      final s0 = await signIn(_a);
+      await s0.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.loseKey(_a);
+      final first = await signIn(_a);
+      expect(first.status.value, VaultStatus.keyLost);
+      final seenAt = world.keyLost(_a)!.atMicros;
+      world.nowMicros = seenAt - _hour.inMicroseconds; // clock moved back
+      world.loseKey(_a);
+      final second = await signIn(_a);
+      expect(second.status.value, VaultStatus.keyLost);
+      expect(world.keyLost(_a)!.atMicros, world.nowMicros);
+      expect(world.keyLost(_a)!.launchId, 'launch-3');
+      expect(world.calls.where(_destructive), isEmpty);
+      // An hour after the REWRITTEN observation a later launch confirms.
+      world.advance(_hour);
+      world.loseKey(_a);
+      final third = await signIn(_a);
+      expect(third.status.value, VaultStatus.ready);
+      expect(world.calls, contains('wipeFile:$_a'));
+    });
+
+    test('m3: noteAccountDeleted with no vault facts does nothing (a '
+        'flag-off user causes no vault work)', () async {
+      final s = world.launch();
+      await s.start(restoredUid: _a, restoreDefinitive: true);
+      await s.onSignedIn(_a, e2eeEnabled: false);
+      world.calls.clear();
+      await s.noteAccountDeleted(_a);
+      expect(world.calls, isEmpty);
+      expect(world.owedUids, isEmpty);
+    });
+
+    test(
+      'm3: noteAccountDeleted with a known vault journals the wipe',
+      () async {
+        world.setKnown(_a, 'opfsLocks');
+        await world.launch().noteAccountDeleted(_a);
+        expect(world.owedUids, {_a});
+      },
+    );
+
+    test('m3: noteAccountDeleted when the facts cannot be READ journals '
+        '(fail towards wiping)', () async {
+      world.markers.failKnownReads = true;
+      await world.launch().noteAccountDeleted(_a);
+      expect(world.calls, contains('markers.owed:$_a'));
+    });
+
+    test('m5: the open\'s own marker reads fail (the sign-in reads '
+        'succeeded): unavailable, never opened', () async {
+      for (final failKnown in [true, false]) {
+        world = FakeVaultWorld();
+        final s = await signIn(_a, flag: false);
+        world.markers.failKnownReads = failKnown;
+        world.markers.failOwedReads = !failKnown;
+        world.calls.clear();
+        await s.onFlagChanged(true, uid: _a);
+        expect(
+          s.status.value,
+          VaultStatus.unavailable,
+          reason: failKnown ? 'known()' : 'owedWipes()',
+        );
+        expect(world.calls, isNot(contains('open:$_a')));
+        expect(
+          world.owners.every((o) => o.owned == null),
+          isTrue,
+          reason: 'lock released',
+        );
+      }
+    });
+
+    test('m6: the lock is lost while the key loss is being confirmed: the '
+        'wipe takes its own lock, which another tab holds, so nothing is '
+        'destroyed', () async {
+      final s0 = await signIn(_a);
+      await s0.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.loseKey(_a);
+      await signIn(_a); // first observation
+      world.advance(_hour);
+      world.loseKey(_a);
+      world.markers.onKeyLostRead = () {
+        world.markers.onKeyLostRead = null;
+        world.owners.last.steal();
+        world.heldElsewhere.add(_a);
+      };
+      world.calls.clear();
+      final s = await signIn(_a);
+      expect(world.calls.where(_destructive), isEmpty);
+      expect(s.vault, isNull);
+      expect(world.files[_a], isNotNull);
+    });
+
+    test('m7: beforeExplicitSignOut before the queue ran onSignedIn still '
+        'records the pending end for the uid it is given', () async {
+      world.setKnown(_a, 'opfsLocks');
+      final s = world.launch();
+      await s.start(restoredUid: _a, restoreDefinitive: true);
+      // onSignedIn(_a) not run yet.
+      await s.beforeExplicitSignOut(_a);
+      expect(world.pending(_a), isTrue);
+    });
+  });
+
   group('I4: an explicit end survives the app being killed', () {
     test('killed after the pending marker (before the sign-out): the next '
         'launch with nobody restored wipes', () async {
@@ -763,7 +978,7 @@ void main() {
       expect(world.pending(_a), isTrue);
       // Killed. The next launch restores nobody.
       final next = world.launch();
-      await next.start(restoredUid: null);
+      await next.start(restoredUid: null, restoreDefinitive: true);
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.files.containsKey(_a), isFalse);
       expect(world.pending(_a), isFalse);
@@ -773,7 +988,7 @@ void main() {
     test('...or with ANOTHER user restored: wiped too', () async {
       final s = await signIn(_a);
       await s.beforeExplicitSignOut(_a);
-      await world.launch().start(restoredUid: _b);
+      await world.launch().start(restoredUid: _b, restoreDefinitive: true);
       expect(world.keys.containsKey(_a), isFalse);
     });
 
@@ -783,7 +998,7 @@ void main() {
       await s.beforeExplicitSignOut(_a);
       world.calls.clear();
       final next = world.launch();
-      await next.start(restoredUid: _a);
+      await next.start(restoredUid: _a, restoreDefinitive: true);
       expect(world.pending(_a), isFalse);
       expect(world.calls.where(_destructive), isEmpty);
       await next.onSignedIn(_a, e2eeEnabled: true);
@@ -797,7 +1012,7 @@ void main() {
       expect(world.owedUids, {_a});
       expect(world.keys.containsKey(_a), isTrue, reason: 'journal only');
       final next = world.launch();
-      await next.start(restoredUid: _a);
+      await next.start(restoredUid: _a, restoreDefinitive: true);
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.files.containsKey(_a), isFalse);
       expect(world.owedUids, isEmpty);
@@ -957,7 +1172,7 @@ void main() {
       world.wipeFileFails.clear();
       world.calls.clear();
       final next = world.launch();
-      await next.start(restoredUid: _a);
+      await next.start(restoredUid: _a, restoreDefinitive: true);
       expect(world.calls, [
         'owner.create',
         'acquire:$_a',

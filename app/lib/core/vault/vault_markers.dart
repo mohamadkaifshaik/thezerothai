@@ -142,9 +142,13 @@ bool vaultMarkersPersistent({
 /// ([AppSettingEntries]). The keys do not start with
 /// [kAccountSettingPrefix], so [AppDatabase.clearAll] (the sign-out cache
 /// wipe) keeps them. Every value repeats its alias; a value whose alias is
-/// not its key's is corrupt: [onCorrupt] gets the key prefix (nothing else)
-/// and the marker reads as absent. Prefix listing uses the table through
-/// drift directly ([AppDatabase] has no prefix read).
+/// not its key's (or garbage, or a known marker with malformed fields) is
+/// corrupt: [onCorrupt] gets the key prefix (nothing else), the row is
+/// deleted, and the marker reads as absent. Residual limit: a corrupt
+/// `wipeOwed` / `pendingEnd` row drops that wipe until another user signs
+/// in (whose sign-in wipes every known vault) or the `known` marker drives
+/// it. Prefix listing uses the table through drift directly
+/// ([AppDatabase] has no prefix read).
 class DriftVaultMarkers implements VaultMarkers {
   DriftVaultMarkers(
     this._db, {
@@ -163,8 +167,12 @@ class DriftVaultMarkers implements VaultMarkers {
       '$prefix${requireVaultKeyAlias(alias)}';
 
   /// The JSON object stored under [key] when its `alias` matches the key;
-  /// null (and a corrupt report when present) otherwise.
-  Map<String, Object?>? _decode(String prefix, String key, String? value) {
+  /// otherwise null, and a present row is corrupt ([_drop]).
+  Future<Map<String, Object?>?> _decode(
+    String prefix,
+    String key,
+    String? value,
+  ) async {
     if (value == null) return null;
     try {
       final map = jsonDecode(value) as Map<String, Object?>;
@@ -175,8 +183,18 @@ class DriftVaultMarkers implements VaultMarkers {
     } on TypeError {
       // Corrupt below.
     }
-    _onCorrupt?.call(prefix);
+    await _drop(prefix, key);
     return null;
+  }
+
+  /// A corrupt row: reported once (the prefix only), then deleted, so it is
+  /// neither acted on nor reported again. A failed delete is ignored (it is
+  /// reported again on the next read).
+  Future<void> _drop(String prefix, String key) async {
+    _onCorrupt?.call(prefix);
+    try {
+      await _db.deleteSetting(key);
+    } catch (_) {}
   }
 
   Future<Map<String, Object?>?> _read(String prefix, String alias) async {
@@ -184,13 +202,26 @@ class DriftVaultMarkers implements VaultMarkers {
     return _decode(prefix, key, await _db.readSetting(key));
   }
 
-  Future<List<Map<String, Object?>>> _list(String prefix) async {
+  /// The valid rows under [prefix], with their keys.
+  Future<List<(String, Map<String, Object?>)>> _list(String prefix) async {
     final rows = await (_db.select(
       _db.appSettingEntries,
     )..where((t) => t.settingKey.like('$prefix%'))).get();
-    return [
-      for (final r in rows) ?_decode(prefix, r.settingKey, r.settingValue),
-    ];
+    final valid = <(String, Map<String, Object?>)>[];
+    for (final r in rows) {
+      final map = await _decode(prefix, r.settingKey, r.settingValue);
+      if (map != null) valid.add((r.settingKey, map));
+    }
+    return valid;
+  }
+
+  /// [m] as a [KnownVault]; a row with a valid alias but malformed fields is
+  /// corrupt too.
+  Future<KnownVault?> _knownOrDrop(String key, Map<String, Object?>? m) async {
+    if (m == null) return null;
+    final known = _known(m);
+    if (known == null) await _drop(kVaultKnownPrefix, key);
+    return known;
   }
 
   Future<void> _write(String prefix, String alias, Map<String, Object?> v) =>
@@ -216,12 +247,15 @@ class DriftVaultMarkers implements VaultMarkers {
   );
 
   @override
-  Future<KnownVault?> known(String alias) async =>
-      _known(await _read(kVaultKnownPrefix, alias));
+  Future<KnownVault?> known(String alias) async => _knownOrDrop(
+    _key(kVaultKnownPrefix, alias),
+    await _read(kVaultKnownPrefix, alias),
+  );
 
   @override
   Future<List<KnownVault>> knownVaults() async => [
-    for (final m in await _list(kVaultKnownPrefix)) ?_known(m),
+    for (final (key, m) in await _list(kVaultKnownPrefix))
+      ?await _knownOrDrop(key, m),
   ];
 
   @override
@@ -253,7 +287,7 @@ class DriftVaultMarkers implements VaultMarkers {
 
   @override
   Future<List<OwedWipe>> owedWipes() async => [
-    for (final m in await _list(kVaultWipeOwedPrefix)) _owed(m),
+    for (final (_, m) in await _list(kVaultWipeOwedPrefix)) _owed(m),
   ];
 
   @override
@@ -266,7 +300,8 @@ class DriftVaultMarkers implements VaultMarkers {
 
   @override
   Future<List<String>> pendingEnds() async => [
-    for (final m in await _list(kVaultPendingEndPrefix)) m['alias']! as String,
+    for (final (_, m) in await _list(kVaultPendingEndPrefix))
+      m['alias']! as String,
   ];
 
   @override

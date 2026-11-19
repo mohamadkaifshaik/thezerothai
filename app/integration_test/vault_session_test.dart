@@ -133,7 +133,7 @@ void main() {
     ) async {
       final uid = newUid();
       final s = launch();
-      await s.start(restoredUid: uid);
+      await s.start(restoredUid: uid, restoreDefinitive: true);
       await s.onSignedIn(uid, e2eeEnabled: true);
       expect(s.status.value, VaultStatus.ready);
       expect(s.vault, isNotNull);
@@ -215,7 +215,7 @@ void main() {
       // "Killed": the vault is closed without any wipe; a new launch.
       await s.close();
       final next = launch();
-      await next.start(restoredUid: null);
+      await next.start(restoredUid: null, restoreDefinitive: true);
       expect(await markers.pendingEnds(), isNot(contains(vaultKeyAlias(uid))));
       expect(await markers.known(vaultKeyAlias(uid)), isNull);
       final cipher = await openVaultCipher(uid: uid, engine: engine);
@@ -224,21 +224,49 @@ void main() {
     });
 
     testWidgets('an accepted deletion of a user with NO vault on this device '
-        'journals a wipe that the next launch completes (no owed wipe left '
-        'behind)', (tester) async {
-      final uid = newUid();
-      final s = launch();
-      await s.noteAccountDeleted(uid);
+        'journals nothing; with a vault, the next launch wipes it', (
+      tester,
+    ) async {
+      final none = newUid();
+      await launch().noteAccountDeleted(none);
       expect(
         (await markers.owedWipes()).map((o) => o.alias),
-        contains(vaultKeyAlias(uid)),
+        isNot(contains(vaultKeyAlias(none))),
       );
+
+      final uid = newUid();
+      final s = launch();
+      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.noteAccountDeleted(uid);
+      await s.close(); // "killed" before the session ended
       final next = launch();
-      await next.start(restoredUid: null);
+      await next.start(restoredUid: uid, restoreDefinitive: true);
       expect(
         (await markers.owedWipes()).map((o) => o.alias),
         isNot(contains(vaultKeyAlias(uid))),
       );
+      expect(await markers.known(vaultKeyAlias(uid)), isNull);
+      final cipher = await openVaultCipher(uid: uid, engine: engine);
+      expect(cipher.freshlyCreated, isTrue, reason: 'the key is gone');
+      await cipher.destroy();
+    });
+
+    testWidgets('a pending end on a start that is NOT definitive is kept; '
+        'the same user signing in clears it, history intact', (tester) async {
+      final uid = newUid();
+      final s = launch();
+      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.runWrite(
+        (v) => v.transaction((tx) => tx.putSetting('k', _b('kept'))),
+      );
+      await s.beforeExplicitSignOut(uid);
+      await s.close();
+      final next = launch();
+      await next.start(restoredUid: null, restoreDefinitive: false);
+      expect(await markers.pendingEnds(), contains(vaultKeyAlias(uid)));
+      await next.onSignedIn(uid, e2eeEnabled: true);
+      expect(await markers.pendingEnds(), isNot(contains(vaultKeyAlias(uid))));
+      expect(utf8.decode((await next.vault!.setting('k'))!), 'kept');
     });
 
     testWidgets('session lost, then the same user (same launch and a new '
@@ -259,7 +287,7 @@ void main() {
       await s.onSessionEnded(uid, SessionEnd.sessionLost);
 
       final next = launch();
-      await next.start(restoredUid: uid);
+      await next.start(restoredUid: uid, restoreDefinitive: true);
       await next.onSignedIn(uid, e2eeEnabled: true);
       expect(next.status.value, VaultStatus.ready);
       expect(utf8.decode((await next.vault!.setting('k'))!), 'kept');

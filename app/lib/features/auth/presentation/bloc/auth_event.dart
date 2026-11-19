@@ -56,26 +56,37 @@ final class AuthEmailVerificationCheckRequested extends AuthEvent {
 /// for the sign-out the account-deletion flow does; either wipes the
 /// encrypted vault.
 ///
-/// [uid] is the account the intent was EXPRESSED for (captured where the
-/// person tapped). The intent is armed only when that account is still the
-/// one signed in when the event is handled: a tab that switched users in the
-/// meantime never turns another account's end into a wipe. Without a [uid]
-/// the intent binds to whoever is signed in at handling time; every caller
-/// in the app passes one. Value equality, so tests can verify the uid.
+/// [uid] is the account the request was EXPRESSED for (captured where the
+/// person tapped). When another account is signed in by the time the event
+/// is handled, the request is dropped: nobody is signed out and nothing is
+/// armed, so a tab that switched users never turns another account's end
+/// into a wipe. Without a [uid] the intent binds to whoever is signed in at
+/// handling time; every arming caller in the app passes one. Value
+/// equality, so tests can verify the uid.
 final class AuthSignOutRequested extends AuthEvent {
-  const AuthSignOutRequested({this.reason = SessionEnd.userSignedOut, this.uid})
-    : assert(reason != SessionEnd.sessionLost);
+  const AuthSignOutRequested({
+    this.reason = SessionEnd.userSignedOut,
+    this.uid,
+    this.arm = true,
+  }) : assert(reason != SessionEnd.sessionLost);
   final SessionEnd reason;
   final String? uid;
+
+  /// False for a sign-out that must NOT be treated as an explicit end (the
+  /// account-deleted page reached without knowing which account was
+  /// deleted): the user is signed out, but no intent is armed and no
+  /// explicit hook runs, so the vault treats it as a lost session (kept).
+  final bool arm;
 
   @override
   bool operator ==(Object other) =>
       other is AuthSignOutRequested &&
       other.reason == reason &&
-      other.uid == uid;
+      other.uid == uid &&
+      other.arm == arm;
 
   @override
-  int get hashCode => Object.hash(reason, uid);
+  int get hashCode => Object.hash(reason, uid, arm);
 }
 
 /// Clears a transient [AuthState.failure] after the UI has shown it.

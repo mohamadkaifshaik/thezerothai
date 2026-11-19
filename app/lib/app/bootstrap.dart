@@ -97,6 +97,7 @@ import '../firebase_options_prod.dart' as prod_firebase;
 import 'app_config.dart';
 import 'auth_emulator.dart';
 import 'app_widget.dart';
+import 'restored_session.dart';
 import 'session_wiring.dart';
 
 /// Entry point for every flavor/target. Initializes Firebase + App Check,
@@ -150,7 +151,8 @@ Future<void> bootstrap() async {
     appleServiceId: config.appleServiceId,
     appleRedirectUri: config.appleRedirectUri,
   );
-  final restoredUid = await _restoredUid(authRepository);
+  final restored = await readRestoredSession(authRepository);
+  final restoredUid = restored.uid;
 
   // Whose cache is this? (L-4.) Settled before the first cache read: a wipe
   // that the last run missed is done here, for the uid the auth SDK restored
@@ -210,8 +212,10 @@ Future<void> bootstrap() async {
   // device settings: on an in-memory cache, or a web cache on a storage the
   // vault would not accept, they would not outlive this run (or would differ
   // per tab), so no vault opens. An explicit sign-out a killed run left
-  // pending is resolved against the restored user (another user or nobody:
-  // that wipe is owed), then owed wipes are finished, before any vault is
+  // pending is resolved against the restored user only when the auth SDK
+  // answered definitively (another user or nobody: that wipe is owed;
+  // otherwise the next sign-in or launch resolves it), then owed wipes are
+  // finished, before any vault is
   // opened; nothing opens before a user and the flag are known. A null
   // restored user is otherwise a lost session for the vault: nothing wiped.
   final vaultSession = _buildVaultSession(
@@ -221,7 +225,12 @@ Future<void> bootstrap() async {
   // An accepted account deletion journals the vault wipe at once.
   authRepository.onAccountDeleted = (uid) =>
       unawaited(vaultSession.noteAccountDeleted(uid));
-  unawaited(vaultSession.start(restoredUid: restoredUid));
+  unawaited(
+    vaultSession.start(
+      restoredUid: restoredUid,
+      restoreDefinitive: restored.definitive,
+    ),
+  );
 
   await _activateAppCheck(config);
 
@@ -311,13 +320,14 @@ Future<void> bootstrap() async {
       onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm);
   onboardingBloc.stream.listen((state) {
     if (flagsKnown(state)) {
-      // Bound to the user these flags belong to (the onboarding bloc's, not
-      // the auth bloc's, which switches first); ignored if that user is not
+      // Bound to the user this state was EMITTED for (captured at emission;
+      // not the auth bloc's user, which switches first, nor the onboarding
+      // bloc's user when this listener runs); ignored if that user is not
       // the vault session's user when it runs.
       unawaited(
         vaultSession.onFlagChanged(
           state.enabledFeatures.contains(kFeatureE2eeDm),
-          uid: onboardingBloc.uid,
+          uid: onboardingBloc.uidOf(state),
         ),
       );
     }
@@ -723,20 +733,6 @@ VaultSession _buildVaultSession({
     launchId: const Uuid().v4(),
     onUnexpectedError: onUnexpectedError,
   );
-}
-
-/// The uid the auth SDK restored from disk, or null for a signed-out app. On
-/// web the persisted user arrives with the first auth event, so that is awaited
-/// (briefly); a late event is still handled by the sign-in claim.
-Future<String?> _restoredUid(AuthRepository authRepository) async {
-  try {
-    final user = await authRepository.authStateChanges().first.timeout(
-      const Duration(seconds: 5),
-    );
-    return user?.uid;
-  } catch (_) {
-    return authRepository.currentUser?.uid;
-  }
 }
 
 class _ConfigErrorApp extends StatelessWidget {

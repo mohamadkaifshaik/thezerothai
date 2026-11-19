@@ -92,12 +92,25 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   String? _idempotencyKey;
   String? _uid;
 
-  /// The user the current state belongs to (null when signed out). Every
-  /// state this bloc emits is for this uid (a result for an earlier user is
-  /// dropped), so a listener reading it when a state arrives learns whose
-  /// flags those are, which can differ from the auth bloc's user for a
-  /// moment after a switch.
-  String? get uid => _uid;
+  /// The user each emitted state belongs to, captured AT EMISSION
+  /// ([onChange] runs synchronously inside `emit`, before the stream
+  /// delivers the state). A listener reads it later, when [_uid] may
+  /// already be another user's.
+  final Expando<String> _stateUids = Expando<String>('onboardingStateUid');
+
+  /// The user [state] was emitted for (null: signed out, or a state this
+  /// bloc did not emit). Every state is emitted for [_uid] at that moment (a
+  /// result for an earlier user is dropped), so a flag listener learns whose
+  /// flags those are, which can differ from the auth bloc's user, or from
+  /// this bloc's current user, after a switch.
+  String? uidOf(OnboardingState state) => _stateUids[state];
+
+  @override
+  void onChange(Change<OnboardingState> change) {
+    super.onChange(change);
+    // Overwritten for a (const) state emitted again by another user.
+    _stateUids[change.nextState] = _uid;
+  }
 
   /// Whether a `GetMe` answered for [_uid] this session, so
   /// `state.enabledFeatures` is the server's flag set rather than the empty

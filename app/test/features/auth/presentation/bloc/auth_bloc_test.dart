@@ -353,11 +353,13 @@ void main() {
       expect(errors, [isA<StateError>()]);
     });
 
-    test('a sign-out event for uid A handled while B is signed in arms no '
-        'intent (B\'s end is sessionLost) and runs no explicit hook', () async {
+    test('a sign-out event for uid A handled while B is signed in does '
+        'NOTHING: B stays signed in, no hook, no intent', () async {
       final explicit = <String>[];
+      var before = 0;
       final bloc = AuthBloc(
         authRepository: authRepository,
+        beforeSignOut: () async => before++,
         beforeExplicitSignOut: (uid) async => explicit.add(uid),
       )..add(const AuthSubscriptionRequested());
       users.add(verifiedUser);
@@ -365,11 +367,73 @@ void main() {
       // Expressed for another account (e.g. the tab switched users).
       bloc.add(const AuthSignOutRequested(uid: 'uid-other'));
       await pumpEventQueue();
-      expect(bloc.state.user, isNull);
-      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      expect(bloc.state.user, verifiedUser);
       expect(explicit, isEmpty);
+      expect(before, 0);
+      verifyNever(() => authRepository.signOut());
+      // B's later revoke is not an explicit end.
+      users.add(null);
+      await pumpEventQueue();
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
       await bloc.close();
     });
+
+    test('m1: an intent already armed for the signed-in user survives a '
+        'later mismatched or non-arming event', () async {
+      // signOut does not complete the sign-out (the null user comes later).
+      when(() => authRepository.signOut()).thenAnswer((_) async {});
+      for (final later in const [
+        AuthSignOutRequested(uid: 'uid-other'),
+        AuthSignOutRequested(arm: false),
+      ]) {
+        // One stream per bloc (a never-listened controller's close() would
+        // not complete, so it is not awaited).
+        unawaited(users.close());
+        users = StreamController<AppUser?>();
+        final bloc = await signedIn();
+        bloc.add(
+          const AuthSignOutRequested(
+            reason: SessionEnd.accountDeleted,
+            uid: 'uid-1',
+          ),
+        );
+        await pumpEventQueue();
+        bloc.add(later);
+        await pumpEventQueue();
+        users.add(null);
+        await pumpEventQueue();
+        expect(
+          bloc.state.lastSessionEnd,
+          SessionEnd.accountDeleted,
+          reason: 'after ${later.uid} / arm ${later.arm}',
+        );
+        await bloc.close();
+      }
+    });
+
+    test(
+      'N3: a non-arming sign-out (arm: false) signs out as before but '
+      'arms nothing and runs no explicit hook: the end is sessionLost',
+      () async {
+        final explicit = <String>[];
+        final bloc = AuthBloc(
+          authRepository: authRepository,
+          beforeExplicitSignOut: (uid) async => explicit.add(uid),
+        )..add(const AuthSubscriptionRequested());
+        users.add(verifiedUser);
+        await pumpEventQueue();
+        bloc.add(const AuthSignOutRequested(arm: false));
+        await pumpEventQueue();
+        expect(bloc.state.user, isNull);
+        expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+        expect(explicit, isEmpty);
+        expect(
+          const AuthSignOutRequested(arm: false),
+          isNot(const AuthSignOutRequested()),
+        );
+        await bloc.close();
+      },
+    );
 
     test('an armed intent runs the explicit hook with its uid', () async {
       final explicit = <String>[];

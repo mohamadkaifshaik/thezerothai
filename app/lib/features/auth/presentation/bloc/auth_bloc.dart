@@ -225,15 +225,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignOutRequested event,
     Emitter<AuthState> emit,
   ) async {
-    // The intent belongs to the account it was expressed for, and only while
-    // that account is the one signed in; with nobody signed in, or another
-    // account signed in now, nothing is armed (a stale intent could turn a
-    // later revoke, or another user's end, into a wipe). The sign-out itself
-    // still runs.
+    // The request belongs to the account it was expressed for. When another
+    // account is signed in now (the tab switched users meanwhile), it is
+    // dropped entirely: that account is not signed out, nothing is armed.
     final uid = state.user?.uid;
-    final armed = uid != null && (event.uid == null || event.uid == uid);
+    if (event.uid != null && event.uid != uid) return;
+    // An intent is armed only for a signed-in user and an arming request; a
+    // non-arming one ([AuthSignOutRequested.arm] false) signs out without
+    // making the end explicit. An intent already armed is never cleared
+    // here (only replaced by a new armed one).
+    final armed = uid != null && event.arm;
     final intent = armed ? (uid: uid, reason: event.reason) : null;
-    _intent = intent;
+    if (intent != null) _intent = intent;
     final before = _beforeSignOut;
     final explicit = _beforeExplicitSignOut;
     final steps = <Future<void>>[

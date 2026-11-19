@@ -135,15 +135,30 @@ class VaultSession {
 
   /// Runs after a successful open, once the vault is published (Task 7:
   /// device registration), OUTSIDE the session's queue. A failure is
-  /// reported and leaves the vault ready. Must never await a queued session
-  /// method; writes go through [runWrite].
+  /// reported and leaves the vault ready.
+  ///
+  /// Contract for the implementer:
+  /// - The vault it is handed may ALREADY be closed, wiped or replaced by
+  ///   the time it runs (sign-out, flag off, lost lock, another user).
+  /// - It writes ONLY through [runWrite], and first checks
+  ///   `identical(session.vault, vault)` and the uid it expects.
+  /// - A [StateError] from [runWrite] (or the vault) means "cancelled":
+  ///   stop quietly.
+  /// - It must never await a queued session method (it would wait for a
+  ///   later operation, or for itself).
   Future<void> Function(SecureVault vault)? onVaultReady;
 
   /// Best-effort removal of this device from the key directory before an
-  /// explicit wipe (Task 7). Runs inside the auth bloc's `beforeSignOut`
-  /// budget ([beforeExplicitSignOut], 3 s) or, for an end without a
-  /// sign-out request, here with [kVaultExplicitWipeHookTimeout]; a failure
-  /// never stops the wipe. Must never await a queued session method.
+  /// explicit wipe (Task 7). Runs from [beforeExplicitSignOut] inside the
+  /// auth bloc's 3 s budget or, for an end without a sign-out request, here
+  /// with [kVaultExplicitWipeHookTimeout]; a failure never stops the wipe.
+  ///
+  /// Contract for the implementer:
+  /// - It may keep running after its budget ends (the timeout only stops
+  ///   waiting), so it must be idempotent and safe to run again.
+  /// - It must not assume the vault is open (it may run for a vault that
+  ///   is closed, or before the session opened it).
+  /// - It must never await a queued session method.
   Future<void> Function(String uid)? beforeExplicitWipe;
 
   final ValueNotifier<VaultStatus> _status;
@@ -203,8 +218,19 @@ class VaultSession {
   /// (the same user restored: forgotten; anyone else or nobody: that wipe
   /// is owed), then completes every owed wipe, before anything is opened.
   /// Every other operation waits for it.
-  Future<void> start({required String? restoredUid}) =>
-      _enqueue('start', () => _ensureStarted(restoredUid));
+  ///
+  /// [restoreDefinitive] says whether [restoredUid] came from the auth SDK's
+  /// first real event. When it did not (a slow web restore timed out, or
+  /// the SDK failed), a null [restoredUid] may only mean "not loaded yet":
+  /// pending ends are then left alone (only owed wipes run) and are
+  /// resolved by [onSignedIn], or by the next launch.
+  Future<void> start({
+    required String? restoredUid,
+    required bool restoreDefinitive,
+  }) => _enqueue(
+    'start',
+    () => _ensureStarted(restoredUid, resolvePending: restoreDefinitive),
+  );
 
   /// A user is signed in ([uid]). Completes owed wipes, wipes the vaults of
   /// other users this device still has (a failure there never blocks
@@ -222,6 +248,9 @@ class VaultSession {
         }
         await _ensureStarted(uid);
         if (_markers.persistent) {
+          // [uid] is signed in: its own pending end did not happen; every
+          // other user's pending end is now a wipe owed.
+          await _resolvePending(uid);
           if (!await _wipeOthers(uid)) {
             // [uid]'s own wipe is still owed: its vault must not be used.
             return _fail(uid, VaultStatus.unavailable);
@@ -283,12 +312,17 @@ class VaultSession {
 
   /// The auth bloc's explicit-sign-out step for [uid] (its 3 s budget, only
   /// when the intent was armed for [uid]). When this device has a vault for
-  /// [uid] (and [uid] is the session's user): records a pending explicit
-  /// end FIRST (so a launch killed before the wipe still wipes, see
-  /// [start]), then runs the directory-removal hook, so [onSessionEnded]
-  /// does not run it again. Not queued; never throws.
+  /// [uid] (and [uid] is the session's user, or the session has no user
+  /// yet): records a pending explicit end FIRST (so a launch killed before
+  /// the wipe still wipes, see [start]), then runs the directory-removal
+  /// hook, so [onSessionEnded] does not run it again. Not queued; never
+  /// throws. The hook may outlive the bloc's budget (see
+  /// [beforeExplicitWipe]).
   Future<void> beforeExplicitSignOut(String uid) async {
-    if (!_supported || uid != _uid) return;
+    // Another user known to be the session's: not this one's to end. A
+    // session that has not yet run onSignedIn (null) still records the end
+    // for the uid it is given (kill safety).
+    if (!_supported || (_uid != null && uid != _uid)) return;
     final alias = vaultKeyAlias(uid);
     try {
       if (!await _hasVaultFacts(alias)) return;
@@ -326,17 +360,29 @@ class VaultSession {
     }
   }
 
-  /// The server accepted the deletion of [uid]'s account: journals the wipe
-  /// of [uid]'s vault at once (whatever this device has; an owed wipe of a
-  /// vault that does not exist only deletes nothing), so a launch killed
-  /// before the session ends still wipes it. Not queued (the queue can be
-  /// busy opening); an existing owed record is kept as it is. Never throws.
+  /// The server accepted the deletion of [uid]'s account: when this device
+  /// has a vault for [uid] (a known marker, an owed wipe, or a vault opened
+  /// this process), journals its wipe at once, so a launch killed before the
+  /// session ends still wipes it. No facts: nothing (a user who never had
+  /// the vault causes no vault work). Facts that cannot be read: journals
+  /// anyway (fail towards wiping). Not queued (the queue can be busy
+  /// opening); an existing owed record is kept as it is. Never throws.
   Future<void> noteAccountDeleted(String uid) async {
     if (!_supported || !_markers.persistent) return;
+    final alias = vaultKeyAlias(uid);
+    var facts = true;
     try {
-      await _ensureOwed(vaultKeyAlias(uid));
+      facts = await _hasVaultFacts(alias);
     } catch (_, stack) {
+      _report('markers', stack);
+    }
+    if (!facts) return;
+    try {
+      await _ensureOwed(alias);
+    } catch (_, stack) {
+      // The owed list could not be read: write a fresh record.
       _report('journal', stack);
+      await _journal(OwedWipe(alias));
     }
   }
 
@@ -391,19 +437,18 @@ class VaultSession {
 
   void _setStatus(VaultStatus status) => _status.value = status;
 
-  /// Once per session: pending explicit ends against [currentUid], then the
-  /// owed wipes.
-  Future<void> _ensureStarted(String? currentUid) async {
+  /// Once per session: with [resolvePending] (a definite session state),
+  /// pending explicit ends against [currentUid]; then the owed wipes.
+  Future<void> _ensureStarted(
+    String? currentUid, {
+    bool resolvePending = false,
+  }) async {
     if (_started) return;
     _started = true;
     if (!_supported || !_markers.persistent) return;
-    final current = currentUid == null ? null : vaultKeyAlias(currentUid);
+    if (resolvePending) await _resolvePending(currentUid);
     final List<OwedWipe> owed;
     try {
-      for (final pending in await _markers.pendingEnds()) {
-        if (pending != current) await _ensureOwed(pending);
-        await _markers.clearPendingEnd(pending);
-      }
       owed = await _markers.owedWipes();
     } catch (_, stack) {
       _report('markers', stack);
@@ -411,6 +456,30 @@ class VaultSession {
     }
     for (final o in owed) {
       await _wipeClosed(o.alias);
+    }
+  }
+
+  /// Resolves pending explicit ends against [currentUid], the user known to
+  /// be signed in now (null: known to be nobody): its own is cleared (that
+  /// sign-out did not happen); every other becomes an owed wipe, and its
+  /// pending marker is cleared only once that record is written (a failed
+  /// write keeps the pending marker for a later resolution).
+  Future<void> _resolvePending(String? currentUid) async {
+    final current = currentUid == null ? null : vaultKeyAlias(currentUid);
+    final List<String> pending;
+    try {
+      pending = await _markers.pendingEnds();
+    } catch (_, stack) {
+      _report('markers', stack);
+      return;
+    }
+    for (final alias in pending) {
+      try {
+        if (alias != current) await _ensureOwed(alias, strict: true);
+        await _markers.clearPendingEnd(alias);
+      } catch (_, stack) {
+        _report('markers', stack);
+      }
     }
   }
 
@@ -538,12 +607,24 @@ class VaultSession {
 
   /// The owed wipe of [alias], journalled now unless one is already
   /// recorded (its progress is kept); with [anyCopy] the record is marked
-  /// to erase any listed copy. Throws when the markers cannot be read.
-  Future<OwedWipe> _ensureOwed(String alias, {bool anyCopy = false}) async {
+  /// to erase any listed copy. Throws when the markers cannot be read; with
+  /// [strict], also when the record cannot be written (otherwise a failed
+  /// write is reported and the caller goes on).
+  Future<OwedWipe> _ensureOwed(
+    String alias, {
+    bool anyCopy = false,
+    bool strict = false,
+  }) async {
     final owed = await _owedFor(alias);
     var record = owed ?? OwedWipe(alias);
     if (anyCopy && !record.anyCopy) record = record.copyWith(anyCopy: true);
-    if (!identical(record, owed)) await _journal(record);
+    if (!identical(record, owed)) {
+      if (strict) {
+        await _markers.writeWipeOwed(record);
+      } else {
+        await _journal(record);
+      }
+    }
     return record;
   }
 
@@ -884,7 +965,10 @@ class VaultSession {
       _report('markers', stack);
       return _fail(uid, VaultStatus.unavailable);
     }
-    if (seen == null) {
+    // No observation yet, or one "from the future" (the clock moved back):
+    // this launch records (or restarts) it, so confirmation is never
+    // blocked for good.
+    if (seen == null || now < seen.atMicros) {
       try {
         await _markers.writeKeyLostSeen(
           alias,

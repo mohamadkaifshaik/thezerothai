@@ -452,9 +452,20 @@ class FakeVaultMarkers implements VaultMarkers {
     if (failReads) throw StateError('markers down');
   }
 
+  /// Only [known] (one user's marker, as the open reads it) throws while
+  /// set; [knownVaults] still answers.
+  bool failKnownReads = false;
+
+  /// Only [owedWipes] throws while set.
+  bool failOwedReads = false;
+
+  /// Runs inside [keyLostSeen] before it answers (to interleave events).
+  void Function()? onKeyLostRead;
+
   @override
   Future<KnownVault?> known(String alias) async {
     _read(alias);
+    if (failKnownReads) throw StateError('markers down');
     return knownByAlias[alias];
   }
 
@@ -475,6 +486,7 @@ class FakeVaultMarkers implements VaultMarkers {
   @override
   Future<KeyLostSeen?> keyLostSeen(String alias) async {
     _read(alias);
+    onKeyLostRead?.call();
     return keyLostByAlias[alias];
   }
 
@@ -493,7 +505,7 @@ class FakeVaultMarkers implements VaultMarkers {
 
   @override
   Future<List<OwedWipe>> owedWipes() async {
-    if (failReads) throw StateError('markers down');
+    if (failReads || failOwedReads) throw StateError('markers down');
     return [...owedByAlias.values];
   }
 

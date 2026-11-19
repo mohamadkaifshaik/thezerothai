@@ -842,6 +842,28 @@ void main() {
     });
   });
 
+  testWidgets('m9: a deletion screen that captured no uid sends a sign-out '
+      'that arms nothing', (tester) async {
+    whenListen(
+      authBloc,
+      const Stream<AuthState>.empty(),
+      initialState: const AuthState(status: AuthStatus.authenticated),
+    );
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+    verify(() => authBloc.add(const AuthSignOutRequested(arm: false)))
+        .called(1);
+    verifyNever(
+      () => authBloc.add(
+        any(
+          that: isA<AuthSignOutRequested>().having((e) => e.arm, 'arm', true),
+        ),
+      ),
+    );
+  });
+
   testWidgets('Back to log in signs out again while still authenticated', (
     tester,
   ) async {
@@ -850,10 +872,18 @@ void main() {
     await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
 
-    // Reached without the deleted uid (a reload): a plain sign-out bound to
-    // the account shown the page (it still wipes that account's vault).
-    verify(() => authBloc.add(const AuthSignOutRequested(uid: 'uid-1')))
+    // N3: reached without the deleted uid (a reload or a typed URL): the
+    // sign-out arms nothing, so the signed-in user's vault is kept (a real
+    // deletion's wipe is already journalled).
+    verify(() => authBloc.add(const AuthSignOutRequested(arm: false)))
         .called(1);
+    verifyNever(
+      () => authBloc.add(
+        any(
+          that: isA<AuthSignOutRequested>().having((e) => e.arm, 'arm', true),
+        ),
+      ),
+    );
     expect(find.text('sign in stub'), findsOneWidget);
   });
 

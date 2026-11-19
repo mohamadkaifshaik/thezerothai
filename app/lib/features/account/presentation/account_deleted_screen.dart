@@ -34,9 +34,11 @@ class AccountDeletedScreen extends StatelessWidget {
         size: AppButtonSize.large,
         onPressed: () {
           // Idempotent: makes sure the session is gone even if the first
-          // sign-out has not landed yet. Bound to the deleted account; with
-          // none known (a reload) it is a plain sign-out of the account
-          // shown this page, which still wipes that account's vault.
+          // sign-out has not landed yet. Bound to the deleted account. With
+          // none known (a reload or a typed URL: the page is reachable while
+          // signed in) the sign-out arms nothing, so whoever is signed in
+          // keeps their encrypted history; a real deletion's wipe was
+          // already journalled when the server accepted it.
           final auth = context.read<AuthBloc>();
           if (auth.state.isAuthenticated) {
             final deleted = deletedUid;
@@ -46,7 +48,7 @@ class AccountDeletedScreen extends StatelessWidget {
                       reason: SessionEnd.accountDeleted,
                       uid: deleted,
                     )
-                  : AuthSignOutRequested(uid: auth.state.user?.uid),
+                  : const AuthSignOutRequested(arm: false),
             );
           }
           context.go(AppRouter.signInPath);

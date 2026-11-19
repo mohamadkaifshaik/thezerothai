@@ -128,6 +128,36 @@ void main() {
     expect(corrupt, ['vault.known.']);
   });
 
+  test('m4: a corrupt row is reported ONCE and deleted (not re-reported '
+      'forever)', () async {
+    await db.writeSetting('vault.known.$_alias', 'not json');
+    await db.writeSetting(
+      'vault.wipeOwed.$_alias',
+      '{"alias": "${vaultKeyAlias('someone-else')}"}',
+    );
+    expect(await markers.known(_alias), isNull);
+    expect(await markers.owedWipes(), isEmpty);
+    expect(corrupt, ['vault.known.', 'vault.wipeOwed.']);
+    expect(await db.readSetting('vault.known.$_alias'), isNull);
+    expect(await db.readSetting('vault.wipeOwed.$_alias'), isNull);
+    corrupt.clear();
+    expect(await markers.known(_alias), isNull);
+    expect(await markers.owedWipes(), isEmpty);
+    expect(corrupt, isEmpty);
+  });
+
+  test('m4: a known row with a valid alias but malformed fields is '
+      'reported and deleted too', () async {
+    await db.writeSetting(
+      'vault.known.$_alias',
+      '{"alias": "$_alias", "storage": 5, "createdAt": "x"}',
+    );
+    expect(await markers.known(_alias), isNull);
+    expect(await markers.knownVaults(), isEmpty);
+    expect(corrupt, ['vault.known.']);
+    expect(await db.readSetting('vault.known.$_alias'), isNull);
+  });
+
   test('a non-alias argument is refused', () async {
     await expectLater(markers.known(_uid), throwsArgumentError);
     await expectLater(markers.clearAll(_uid), throwsArgumentError);
