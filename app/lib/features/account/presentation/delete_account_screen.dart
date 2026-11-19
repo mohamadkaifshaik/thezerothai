@@ -146,7 +146,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     unawaited(
       _forgetAccount().whenComplete(() {
         router.go(AppRouter.accountDeletedPath);
-        auth.add(const AuthSignOutRequested());
+        auth.add(const AuthSignOutRequested(reason: SessionEnd.accountDeleted));
       }),
     );
   }

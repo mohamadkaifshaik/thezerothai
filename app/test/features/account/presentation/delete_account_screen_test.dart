@@ -296,7 +296,11 @@ void main() {
       () =>
           accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
     ).called(1);
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
+      ),
+    ).called(1);
     expect(find.text('A fresh start.'), findsOneWidget);
 
     await tester.tap(find.text('Back to log in'));
@@ -458,7 +462,11 @@ void main() {
     expect(reported, hasLength(1));
     expect(optIn.forgotten, ['uid-1']);
     expect(find.text('A fresh start.'), findsOneWidget);
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
+      ),
+    ).called(1);
   });
 
   testWidgets('a storage failure is reported and never blocks the final page', (
@@ -473,7 +481,11 @@ void main() {
 
     expect(reported, hasLength(1));
     expect(find.text('A fresh start.'), findsOneWidget);
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
+      ),
+    ).called(1);
   });
 
   testWidgets('the client sign-out racing the cubit still forgets the uid', (
@@ -820,7 +832,11 @@ void main() {
     await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
 
-    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    verify(
+      () => authBloc.add(
+        const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
+      ),
+    ).called(1);
     expect(find.text('sign in stub'), findsOneWidget);
   });
 

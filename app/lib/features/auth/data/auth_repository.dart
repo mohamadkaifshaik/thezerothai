@@ -9,6 +9,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../../core/network/auth_token_provider.dart';
+import '../../../core/session/session_end.dart';
 import '../domain/app_user.dart';
 import '../domain/auth_failure.dart';
 
@@ -456,6 +457,30 @@ class AuthRepository implements AuthTokenProvider {
     }
   }
 
+  /// The account deleted on this device, recorded by the account-deletion
+  /// flow so the null user that follows (from [deleteCurrentUser], or a
+  /// token the server revoked) ends the session as
+  /// [SessionEnd.accountDeleted] rather than [SessionEnd.sessionLost].
+  String? _deletedAccountUid;
+
+  /// Records that [uid]'s account was deleted (the server accepted
+  /// DeleteAccount, or [deleteCurrentUser] is about to run). Bound to [uid]:
+  /// a later end of another user's session is never read as this one.
+  void noteAccountDeleted(String uid) => _deletedAccountUid = uid;
+
+  /// Withdraws [noteAccountDeleted] for [uid] (the client delete failed).
+  void clearAccountDeleted(String uid) {
+    if (_deletedAccountUid == uid) _deletedAccountUid = null;
+  }
+
+  /// How [uid]'s session that just ended was ended by the account flow, or
+  /// null (the auth bloc then decides). Consumes the record.
+  SessionEnd? takeSessionEndIntent(String uid) {
+    final deleted = _deletedAccountUid;
+    _deletedAccountUid = null;
+    return deleted == uid ? SessionEnd.accountDeleted : null;
+  }
+
   /// Deletes the signed-in Firebase Auth user from the client (L-5: the
   /// account has no profile, so the server cannot delete it). Call right after
   /// [reauthenticate]. Firebase then emits a signed-out user, which wipes the
@@ -466,10 +491,17 @@ class AuthRepository implements AuthTokenProvider {
   Future<void> deleteCurrentUser() async {
     final user = _firebaseAuth.currentUser;
     if (user == null) return;
+    // Recorded first: Firebase can emit the null user before delete()
+    // returns, and that end must read as accountDeleted.
+    noteAccountDeleted(user.uid);
     try {
       await user.delete();
     } on fb.FirebaseAuthException catch (e) {
+      clearAccountDeleted(user.uid);
       throw _mapFirebaseAuthException(e);
+    } catch (_) {
+      clearAccountDeleted(user.uid);
+      rethrow;
     }
     // Drop the Google session too (best effort), as sign-out does.
     if (_googleInitialized) {

@@ -33,7 +33,9 @@ class AccountDeletedScreen extends StatelessWidget {
           // sign-out has not landed yet.
           final auth = context.read<AuthBloc>();
           if (auth.state.isAuthenticated) {
-            auth.add(const AuthSignOutRequested());
+            auth.add(
+              const AuthSignOutRequested(reason: SessionEnd.accountDeleted),
+            );
           }
           context.go(AppRouter.signInPath);
         },

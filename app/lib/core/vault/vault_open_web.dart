@@ -4,7 +4,11 @@ import 'package:drift/wasm.dart';
 import '../storage/app_database.dart' show AppDatabase;
 import 'vault_database.dart';
 import 'vault_open.dart'
-    show chooseVaultWebStorage, isTrustedVaultWebProbe, wipeVaultDatabase;
+    show
+        checkVaultWipeListed,
+        chooseVaultWebStorage,
+        isTrustedVaultWebProbe,
+        wipeVaultDatabase;
 import 'vault_status.dart';
 
 WasmStorageImplementation? _lastWebStorage;
@@ -41,16 +45,24 @@ Future<WasmProbeResult> _probe(String name) => WasmDatabase.probe(
 /// private to drift's opener). The shared worker is the one the cache
 /// database uses anyway; each refused open can leave one idle dedicated
 /// worker until the page unloads, so callers must not retry in a loop.
-Future<DatabaseConnection> openPlatformVaultConnection(String name) async {
+///
+/// [expectedStorage] (the session's storage marker) goes to the chooser:
+/// a marked vault that is not listed there is refused before anything is
+/// created. Returns the connection and the chosen storage's name.
+Future<(DatabaseConnection, String)> openPlatformVaultConnection(
+  String name, {
+  String? expectedStorage,
+}) async {
   final probed = await _probe(name);
   final chosen = chooseVaultWebStorage(
     available: probed.availableStorages,
     existing: probed.existingDatabases,
     missingFeatures: probed.missingFeatures,
     name: name,
+    expectedStorage: expectedStorage,
   );
   _lastWebStorage = chosen;
-  return probed.open(chosen, name);
+  return (await probed.open(chosen, name), chosen.name);
 }
 
 /// Web: every drift database named [name] loses its rows (opened with any
@@ -72,12 +84,22 @@ Future<DatabaseConnection> openPlatformVaultConnection(String name) async {
 ///
 /// A probe whose worker failed is refused ([VaultStatus.unavailable]) and
 /// nothing is deleted: it may not list every copy, and a wipe that reports
-/// success while a copy survives would be wrong.
-Future<void> wipePlatformVaultFile(String name) async {
+/// success while a copy survives would be wrong. Likewise when
+/// [expectedStorage] is given and no copy is listed under it
+/// ([checkVaultWipeListed]).
+Future<void> wipePlatformVaultFile(
+  String name, {
+  String? expectedStorage,
+}) async {
   final probed = await _probe(name);
   if (!isTrustedVaultWebProbe(probed.missingFeatures)) {
     throw const VaultOpenException(VaultStatus.unavailable);
   }
+  checkVaultWipeListed(
+    existing: probed.existingDatabases,
+    name: name,
+    expectedStorage: expectedStorage,
+  );
   final ranked = [...probed.availableStorages]
     ..sort((a, b) => a.index - b.index);
   final mine = {

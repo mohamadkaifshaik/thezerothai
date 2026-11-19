@@ -5,15 +5,21 @@ import 'package:drift_flutter/drift_flutter.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'vault_database.dart';
-import 'vault_open.dart' show wipeVaultDatabase;
+import 'vault_open.dart' show kVaultNativeStorage, wipeVaultDatabase;
 import 'vault_status.dart';
 
 /// Never set on native.
 WasmStorageImplementation? get lastWebStorage => null;
 
-/// The vault database [name] on this platform: Android only.
-Future<DatabaseConnection> openPlatformVaultConnection(String name) async =>
-    openIoVaultConnection(name, isAndroid: Platform.isAndroid);
+/// The vault database [name] on this platform: Android only. The storage is
+/// always `native`; [expectedStorage] (a web storage marker) is ignored.
+Future<(DatabaseConnection, String)> openPlatformVaultConnection(
+  String name, {
+  String? expectedStorage,
+}) async => (
+  openIoVaultConnection(name, isAndroid: Platform.isAndroid),
+  kVaultNativeStorage,
+);
 
 /// [openPlatformVaultConnection] with the platform check passed in.
 ///
@@ -43,7 +49,11 @@ DatabaseConnection openIoVaultConnection(
 
 /// Android: deletes every row, rebuilds the file, closes it, then deletes
 /// the file and its sidecars (best effort once the rows are gone).
-Future<void> wipePlatformVaultFile(String name) async {
+/// [expectedStorage] is ignored (one file, one place).
+Future<void> wipePlatformVaultFile(
+  String name, {
+  String? expectedStorage,
+}) async {
   final db = VaultDatabase(
     openIoVaultConnection(name, isAndroid: Platform.isAndroid),
   );

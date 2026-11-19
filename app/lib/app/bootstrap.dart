@@ -14,7 +14,18 @@ import '../features/articles/data/rpc_articles_repository.dart';
 
 import 'package:http/http.dart' as http;
 
+import 'package:uuid/uuid.dart';
+
+import '../core/crypto/crypto_engine.dart';
+import '../core/crypto/crypto_engine_factory.dart';
 import '../core/network/api_client.dart';
+import '../core/vault/vault_cipher.dart';
+import '../core/vault/vault_markers.dart';
+import '../core/vault/vault_open.dart' as vault_open;
+import '../core/vault/vault_owner.dart';
+import '../core/vault/vault_session.dart';
+import '../features/messages/domain/messaging_feature_flag.dart'
+    show kFeatureE2eeDm;
 import '../core/network/auth_token_provider.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/service_paused_cubit.dart';
@@ -195,6 +206,17 @@ Future<void> bootstrap() async {
     reportUnexpectedError(error, stack);
   }
 
+  // The encrypted vault (e2ee_dm). Its safety markers live in the cache's
+  // device settings: on an in-memory cache they would not outlive this run,
+  // so no vault opens. Wipes owed by the last run are finished now, before
+  // any vault is opened; nothing opens before a user and the flag are known.
+  // A null restored user is a lost session for the vault: nothing is wiped.
+  final vaultSession = _buildVaultSession(
+    cache: cache,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  unawaited(vaultSession.start());
+
   await _activateAppCheck(config);
 
   // While the API is paused, Google's front end answers HTTP 403;
@@ -249,7 +271,13 @@ Future<void> bootstrap() async {
   late final PushCubit pushCubit;
   final authBloc = AuthBloc(
     authRepository: authRepository,
-    beforeSignOut: () => pushCubit.unregister(),
+    // One 3 s budget for both: push unregistration and (explicit sign-out
+    // only, which is every AuthSignOutRequested) the key-directory removal
+    // before the vault is wiped.
+    beforeSignOut: () => Future.wait([
+      pushCubit.unregister(),
+      vaultSession.beforeExplicitSignOut(),
+    ]),
     unknownTimeout: kAuthUnknownTimeout,
   )..add(const AuthSubscriptionRequested());
   sessionAuth = authBloc;
@@ -265,6 +293,23 @@ Future<void> bootstrap() async {
   onboardingBloc.stream.listen((state) {
     if (state.status == OnboardingStatus.ready) {
       telemetry.onEnabledFeatures(state.enabledFeatures);
+    }
+  });
+  // e2ee_dm as GetMe answers it for the signed-in user. Only a ready state
+  // whose flags are known decides (flagsPending: not answered yet); a
+  // sign-out ends the vault through wireAuthSession instead.
+  bool flagsKnown(OnboardingState s) =>
+      s.status == OnboardingStatus.ready && !s.flagsPending;
+  bool e2eeEnabled() =>
+      flagsKnown(onboardingBloc.state) &&
+      onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm);
+  onboardingBloc.stream.listen((state) {
+    if (flagsKnown(state)) {
+      unawaited(
+        vaultSession.onFlagChanged(
+          state.enabledFeatures.contains(kFeatureE2eeDm),
+        ),
+      );
     }
   });
 
@@ -514,6 +559,8 @@ Future<void> bootstrap() async {
     notificationsRepository: notificationsRepository,
     messagingRepository: messagingRepository,
     initialUser: authBloc.state.isAuthenticated ? authBloc.state.user : null,
+    vaultSession: vaultSession,
+    readE2eeFlag: e2eeEnabled,
   );
 
   runApp(
@@ -629,6 +676,30 @@ class _LocalAppCheckTokenProvider implements AppCheckTokenProvider {
 
   @override
   Future<String?> getAppCheckToken() async => null;
+}
+
+/// The production [VaultSession]: the real cipher, vault, wiper, key
+/// deleter and owner; markers in the cache's device settings (persistent
+/// only when the cache is on disk); Android and web only; a fresh launch id
+/// per process. The crypto engine is created on the first cipher open, so
+/// nothing of it starts while `e2ee_dm` is off.
+VaultSession _buildVaultSession({
+  required OpenedCacheDatabase cache,
+  required UnexpectedErrorReporter onUnexpectedError,
+}) {
+  CryptoEngine? engine;
+  return VaultSession(
+    openCipher: (uid) =>
+        openVaultCipher(uid: uid, engine: engine ??= createCryptoEngine()),
+    openVault: vault_open.openVault,
+    wipeVaultFile: vault_open.wipeVaultFile,
+    deleteVaultKey: deleteVaultKey,
+    createOwner: createVaultOwner,
+    markers: DriftVaultMarkers(cache.database, persistent: !cache.inMemory),
+    supported: kIsWeb || defaultTargetPlatform == TargetPlatform.android,
+    launchId: const Uuid().v4(),
+    onUnexpectedError: onUnexpectedError,
+  );
 }
 
 /// The uid the auth SDK restored from disk, or null for a signed-out app. On

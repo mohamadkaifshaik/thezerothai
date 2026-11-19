@@ -200,6 +200,15 @@ class OutboxRead {
 abstract interface class SecureVault {
   String get uid;
 
+  /// The storage this vault lives in: on the web the drift storage's name
+  /// (`opfsShared`, `opfsLocks`, `sharedIndexedDb`), on Android `native`.
+  /// The vault session records it outside the vault (the storage marker).
+  String get storageName;
+
+  /// True when this open found no vault and wrote a new owner stamp and
+  /// sentinel; false when it opened an existing one.
+  bool get createdThisOpen;
+
   /// Runs [body] in one database transaction: if [body] throws, nothing it
   /// wrote is kept. [tx] must only be used inside [body] (otherwise
   /// [StateError]). Transactions do not nest ([StateError]). Reads made
@@ -321,15 +330,19 @@ abstract interface class VaultTx {
 /// With [registerAs] (`openVault` passes the database name), the open vault
 /// is counted in this process's registry until it is closed or wiped, and
 /// `wipeVaultFile` refuses that name meanwhile ([isVaultOpenInProcess]).
+/// [storageName] becomes [SecureVault.storageName] (`openVault` passes the
+/// storage the platform chose).
 Future<SecureVault> openVaultOnDatabase(
   VaultDatabase db, {
   required String uid,
   required VaultCipher cipher,
   Duration openTimeout = const Duration(seconds: 30),
   String? registerAs,
+  String storageName = 'native',
 }) async {
+  final bool created;
   try {
-    await _claim(db, uid, cipher).timeout(openTimeout);
+    created = await _claim(db, uid, cipher).timeout(openTimeout);
   } catch (error) {
     await db.closeQuietly();
     throw VaultOpenException(_statusFor(error));
@@ -337,7 +350,14 @@ Future<SecureVault> openVaultOnDatabase(
   if (registerAs != null) {
     _openVaultNames[registerAs] = (_openVaultNames[registerAs] ?? 0) + 1;
   }
-  return _DriftSecureVault(db, uid, cipher, registerAs);
+  return _DriftSecureVault(
+    db,
+    uid,
+    cipher,
+    registerAs,
+    storageName: storageName,
+    createdThisOpen: created,
+  );
 }
 
 /// Vault database names open in this process (a name can be open more than
@@ -369,7 +389,8 @@ VaultStatus _statusFor(Object error) => switch (error) {
 final _sentinelLabel = vaultSealLabel('vault_meta', 'sentinel');
 final _sentinelRowKey = vaultRowKey([kVaultMetaKey]);
 
-Future<void> _claim(VaultDatabase db, String uid, VaultCipher cipher) async {
+/// True when this claim created the vault (wrote the stamp and sentinel).
+Future<bool> _claim(VaultDatabase db, String uid, VaultCipher cipher) async {
   // The first query opens the file (and, on the web, checks the storage).
   final meta = await (db.select(
     db.vaultMeta,
@@ -398,7 +419,7 @@ Future<void> _claim(VaultDatabase db, String uid, VaultCipher cipher) async {
             .write(VaultMetaCompanion(ownerUid: Value(uid)));
       });
     }
-    return;
+    return false;
   }
 
   if (await db.hasDataRows()) {
@@ -429,6 +450,7 @@ Future<void> _claim(VaultDatabase db, String uid, VaultCipher cipher) async {
           mode: InsertMode.insert,
         );
   });
+  return true;
 }
 
 /// The zone value that marks code running inside a vault transaction body.
@@ -446,7 +468,20 @@ Uint8List _text(String value) => Uint8List.fromList(utf8.encode(value));
 String _readText(Uint8List bytes) => utf8.decode(bytes, allowMalformed: true);
 
 class _DriftSecureVault implements SecureVault {
-  _DriftSecureVault(this._db, this.uid, this._cipher, this._registeredAs);
+  _DriftSecureVault(
+    this._db,
+    this.uid,
+    this._cipher,
+    this._registeredAs, {
+    required this.storageName,
+    required this.createdThisOpen,
+  });
+
+  @override
+  final String storageName;
+
+  @override
+  final bool createdThisOpen;
 
   final VaultDatabase _db;
   final VaultCipher _cipher;

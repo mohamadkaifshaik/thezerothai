@@ -159,6 +159,11 @@ class AccountCubit extends Cubit<AccountState> {
         // The Apple token was already revoked by the re-auth above.
         await _deleteAuthUserFromClient();
       }
+      // The account is gone: the session's end (the screen's sign-out, or a
+      // null user from the revoked token first) is an account deletion,
+      // which wipes the encrypted vault. Bound to the uid signed in now.
+      final uid = _auth.currentUser?.uid;
+      if (uid != null) _auth.noteAccountDeleted(uid);
       if (_stale(generation)) return;
       _deleteKey = null;
       emit(const AccountState(status: AccountStatus.deleted));

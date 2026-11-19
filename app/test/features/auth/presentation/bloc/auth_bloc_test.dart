@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
@@ -59,7 +61,13 @@ void main() {
       },
       build: () => AuthBloc(authRepository: authRepository),
       act: (bloc) => bloc.add(const AuthSubscriptionRequested()),
-      expect: () => [const AuthState(status: AuthStatus.unauthenticated)],
+      // A stream error is a lost session, never an explicit sign-out.
+      expect: () => [
+        const AuthState(
+          status: AuthStatus.unauthenticated,
+          lastSessionEnd: SessionEnd.sessionLost,
+        ),
+      ],
     );
 
     blocTest<AuthBloc, AuthState>(
@@ -207,5 +215,158 @@ void main() {
         verify(() => authRepository.signOut()).called(1);
       },
     );
+  });
+
+  group('lastSessionEnd', () {
+    const otherUser = AppUser(
+      uid: 'uid-2',
+      email: 'b@example.com',
+      emailVerified: true,
+      isPasswordProvider: true,
+    );
+    late StreamController<AppUser?> users;
+
+    setUp(() {
+      users = StreamController<AppUser?>();
+      when(() => authRepository.authStateChanges())
+          .thenAnswer((_) => users.stream);
+      // Firebase emits the null user once sign-out completes.
+      when(() => authRepository.signOut()).thenAnswer((_) async {
+        users.add(null);
+      });
+    });
+    tearDown(() => users.close());
+
+    Future<AuthBloc> signedIn() async {
+      final bloc = AuthBloc(authRepository: authRepository)
+        ..add(const AuthSubscriptionRequested());
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      expect(bloc.state.user, verifiedUser);
+      expect(bloc.state.lastSessionEnd, isNull);
+      return bloc;
+    }
+
+    test('an explicit sign-out ends as userSignedOut', () async {
+      final bloc = await signedIn();
+      bloc.add(const AuthSignOutRequested());
+      await pumpEventQueue();
+      expect(bloc.state.status, AuthStatus.unauthenticated);
+      expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+      await bloc.close();
+    });
+
+    test('the account-deletion screens end as accountDeleted', () async {
+      final bloc = await signedIn();
+      bloc.add(const AuthSignOutRequested(reason: SessionEnd.accountDeleted));
+      await pumpEventQueue();
+      expect(bloc.state.lastSessionEnd, SessionEnd.accountDeleted);
+      await bloc.close();
+    });
+
+    test('a stream error ends as sessionLost', () async {
+      final bloc = await signedIn();
+      users.addError(StateError('auth broke'));
+      await pumpEventQueue();
+      expect(bloc.state.status, AuthStatus.unauthenticated);
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      await bloc.close();
+    });
+
+    test('a null user without a request (revoked token) ends as '
+        'sessionLost', () async {
+      final bloc = await signedIn();
+      users.add(null);
+      await pumpEventQueue();
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      await bloc.close();
+    });
+
+    test('account deletion that nulls the user without a sign-out request '
+        '(deleteCurrentUser) ends as accountDeleted, from the repository '
+        'intent for that uid', () async {
+      when(() => authRepository.takeSessionEndIntent('uid-1'))
+          .thenReturn(SessionEnd.accountDeleted);
+      final bloc = await signedIn();
+      users.add(null);
+      await pumpEventQueue();
+      expect(bloc.state.lastSessionEnd, SessionEnd.accountDeleted);
+      verify(() => authRepository.takeSessionEndIntent('uid-1')).called(1);
+      await bloc.close();
+    });
+
+    test('a failed sign-out disarms the intent: a later revoke is '
+        'sessionLost', () async {
+      when(() => authRepository.signOut()).thenThrow(StateError('offline'));
+      // The failure still reaches the bloc's error handling, as before.
+      final errors = <Object>[];
+      final done = Completer<void>();
+      runZonedGuarded(() async {
+        final bloc = await signedIn();
+        bloc.add(const AuthSignOutRequested());
+        await pumpEventQueue();
+        expect(bloc.state.user, verifiedUser);
+        users.add(null);
+        await pumpEventQueue();
+        expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+        await bloc.close();
+        done.complete();
+      }, (error, _) => errors.add(error));
+      await done.future;
+      expect(errors, [isA<StateError>()]);
+    });
+
+    test('an intent is bound to the uid it was expressed for: a switch to '
+        'another user disarms it', () async {
+      // signOut does not complete the sign-out; the SDK switches users.
+      when(() => authRepository.signOut()).thenAnswer((_) async {});
+      final bloc = await signedIn();
+      bloc.add(const AuthSignOutRequested());
+      await pumpEventQueue();
+      users.add(otherUser);
+      await pumpEventQueue();
+      expect(bloc.state.user, otherUser);
+      expect(
+        bloc.state.lastSessionEnd,
+        isNull,
+        reason: 'a switch is not a transition to no user',
+      );
+      // uid-2's session is later lost: never treated as uid-1's sign-out.
+      users.add(null);
+      await pumpEventQueue();
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      await bloc.close();
+    });
+
+    test('a sign-out request with nobody signed in arms nothing', () async {
+      when(() => authRepository.signOut()).thenAnswer((_) async {});
+      final bloc = AuthBloc(authRepository: authRepository)
+        ..add(const AuthSubscriptionRequested());
+      users.add(null);
+      await pumpEventQueue();
+      bloc.add(const AuthSignOutRequested());
+      await pumpEventQueue();
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      users.add(null);
+      await pumpEventQueue();
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      await bloc.close();
+    });
+
+    test('the same user signing in again keeps lastSessionEnd until the '
+        'next end', () async {
+      final bloc = await signedIn();
+      bloc.add(const AuthSignOutRequested());
+      await pumpEventQueue();
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      expect(bloc.state.user, verifiedUser);
+      expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+      users.add(null);
+      await pumpEventQueue();
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      await bloc.close();
+    });
   });
 }

@@ -15,7 +15,12 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$AuthState {
 
- AuthStatus get status; AppUser? get user; bool get isSubmitting; AuthFailure? get failure;
+ AuthStatus get status; AppUser? get user; bool get isSubmitting; AuthFailure? get failure;/// How the last signed-in session ended: [SessionEnd.userSignedOut]
+/// after an `AuthSignOutRequested`, [SessionEnd.accountDeleted] after the
+/// account-deletion flow, [SessionEnd.sessionLost] for every other
+/// transition to no user (an auth stream error included). Set in the
+/// same state that drops the user; null until a session has ended.
+ SessionEnd? get lastSessionEnd;
 /// Create a copy of AuthState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +32,20 @@ $AuthStateCopyWith<AuthState> get copyWith => _$AuthStateCopyWithImpl<AuthState>
 @override
 bool operator ==(Object other) {
   final _this = this as AuthState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AuthState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.user, _this.user) || other.user == _this.user)&&(identical(other.isSubmitting, _this.isSubmitting) || other.isSubmitting == _this.isSubmitting)&&(identical(other.failure, _this.failure) || other.failure == _this.failure));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AuthState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.user, _this.user) || other.user == _this.user)&&(identical(other.isSubmitting, _this.isSubmitting) || other.isSubmitting == _this.isSubmitting)&&(identical(other.failure, _this.failure) || other.failure == _this.failure)&&(identical(other.lastSessionEnd, _this.lastSessionEnd) || other.lastSessionEnd == _this.lastSessionEnd));
 }
 
 
 @override
 int get hashCode {
   final _this = this as AuthState;
-  return Object.hash(runtimeType,_this.status,_this.user,_this.isSubmitting,_this.failure);
+  return Object.hash(runtimeType,_this.status,_this.user,_this.isSubmitting,_this.failure,_this.lastSessionEnd);
 }
 
 @override
 String toString() {
   final _this = this as AuthState;
-  return 'AuthState(status: ${_this.status}, user: ${_this.user}, isSubmitting: ${_this.isSubmitting}, failure: ${_this.failure})';
+  return 'AuthState(status: ${_this.status}, user: ${_this.user}, isSubmitting: ${_this.isSubmitting}, failure: ${_this.failure}, lastSessionEnd: ${_this.lastSessionEnd})';
 }
 
 
@@ -51,7 +56,7 @@ abstract mixin class $AuthStateCopyWith<$Res>  {
   factory $AuthStateCopyWith(AuthState value, $Res Function(AuthState) _then) = _$AuthStateCopyWithImpl;
 @useResult
 $Res call({
- AuthStatus status, AppUser? user, bool isSubmitting, AuthFailure? failure
+ AuthStatus status, AppUser? user, bool isSubmitting, AuthFailure? failure, SessionEnd? lastSessionEnd
 });
 
 
@@ -68,13 +73,14 @@ class _$AuthStateCopyWithImpl<$Res>
 
 /// Create a copy of AuthState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? user = freezed,Object? isSubmitting = null,Object? failure = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? user = freezed,Object? isSubmitting = null,Object? failure = freezed,Object? lastSessionEnd = freezed,}) {
   return _then(AuthState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as AuthStatus,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
 as AppUser?,isSubmitting: null == isSubmitting ? _self.isSubmitting : isSubmitting // ignore: cast_nullable_to_non_nullable
 as bool,failure: freezed == failure ? _self.failure : failure // ignore: cast_nullable_to_non_nullable
-as AuthFailure?,
+as AuthFailure?,lastSessionEnd: freezed == lastSessionEnd ? _self.lastSessionEnd : lastSessionEnd // ignore: cast_nullable_to_non_nullable
+as SessionEnd?,
   ));
 }
 /// Create a copy of AuthState
@@ -183,10 +189,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _AuthState() when $default != null:
-return $default(_that.status,_that.user,_that.isSubmitting,_that.failure);case _:
+return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd);case _:
   return orElse();
 
 }
@@ -204,10 +210,10 @@ return $default(_that.status,_that.user,_that.isSubmitting,_that.failure);case _
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd)  $default,) {final _that = this;
 switch (_that) {
 case _AuthState():
-return $default(_that.status,_that.user,_that.isSubmitting,_that.failure);case _:
+return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -224,10 +230,10 @@ return $default(_that.status,_that.user,_that.isSubmitting,_that.failure);case _
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd)?  $default,) {final _that = this;
 switch (_that) {
 case _AuthState() when $default != null:
-return $default(_that.status,_that.user,_that.isSubmitting,_that.failure);case _:
+return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd);case _:
   return null;
 
 }
@@ -239,13 +245,19 @@ return $default(_that.status,_that.user,_that.isSubmitting,_that.failure);case _
 
 
 class _AuthState extends AuthState {
-  const _AuthState({this.status = AuthStatus.unknown, this.user, this.isSubmitting = false, this.failure}): super._();
+  const _AuthState({this.status = AuthStatus.unknown, this.user, this.isSubmitting = false, this.failure, this.lastSessionEnd}): super._();
   
 
 @override@JsonKey() final  AuthStatus status;
 @override final  AppUser? user;
 @override@JsonKey() final  bool isSubmitting;
 @override final  AuthFailure? failure;
+/// How the last signed-in session ended: [SessionEnd.userSignedOut]
+/// after an `AuthSignOutRequested`, [SessionEnd.accountDeleted] after the
+/// account-deletion flow, [SessionEnd.sessionLost] for every other
+/// transition to no user (an auth stream error included). Set in the
+/// same state that drops the user; null until a session has ended.
+@override final  SessionEnd? lastSessionEnd;
 
 /// Create a copy of AuthState
 /// with the given fields replaced by the non-null parameter values.
@@ -257,18 +269,18 @@ _$AuthStateCopyWith<_AuthState> get copyWith => __$AuthStateCopyWithImpl<_AuthSt
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AuthState&&(identical(other.status, status) || other.status == status)&&(identical(other.user, user) || other.user == user)&&(identical(other.isSubmitting, isSubmitting) || other.isSubmitting == isSubmitting)&&(identical(other.failure, failure) || other.failure == failure));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AuthState&&(identical(other.status, status) || other.status == status)&&(identical(other.user, user) || other.user == user)&&(identical(other.isSubmitting, isSubmitting) || other.isSubmitting == isSubmitting)&&(identical(other.failure, failure) || other.failure == failure)&&(identical(other.lastSessionEnd, lastSessionEnd) || other.lastSessionEnd == lastSessionEnd));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,user,isSubmitting,failure);
+    return Object.hash(runtimeType,status,user,isSubmitting,failure,lastSessionEnd);
 }
 
 @override
 String toString() {
-    return 'AuthState(status: $status, user: $user, isSubmitting: $isSubmitting, failure: $failure)';
+    return 'AuthState(status: $status, user: $user, isSubmitting: $isSubmitting, failure: $failure, lastSessionEnd: $lastSessionEnd)';
 }
 
 
@@ -279,7 +291,7 @@ abstract mixin class _$AuthStateCopyWith<$Res> implements $AuthStateCopyWith<$Re
   factory _$AuthStateCopyWith(_AuthState value, $Res Function(_AuthState) _then) = __$AuthStateCopyWithImpl;
 @override @useResult
 $Res call({
- AuthStatus status, AppUser? user, bool isSubmitting, AuthFailure? failure
+ AuthStatus status, AppUser? user, bool isSubmitting, AuthFailure? failure, SessionEnd? lastSessionEnd
 });
 
 
@@ -296,13 +308,14 @@ class __$AuthStateCopyWithImpl<$Res>
 
 /// Create a copy of AuthState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? user = freezed,Object? isSubmitting = null,Object? failure = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? user = freezed,Object? isSubmitting = null,Object? failure = freezed,Object? lastSessionEnd = freezed,}) {
   return _then(_AuthState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as AuthStatus,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
 as AppUser?,isSubmitting: null == isSubmitting ? _self.isSubmitting : isSubmitting // ignore: cast_nullable_to_non_nullable
 as bool,failure: freezed == failure ? _self.failure : failure // ignore: cast_nullable_to_non_nullable
-as AuthFailure?,
+as AuthFailure?,lastSessionEnd: freezed == lastSessionEnd ? _self.lastSessionEnd : lastSessionEnd // ignore: cast_nullable_to_non_nullable
+as SessionEnd?,
   ));
 }
 

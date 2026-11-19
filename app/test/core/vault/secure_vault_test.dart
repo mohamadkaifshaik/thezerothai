@@ -125,6 +125,31 @@ void main() {
   }
 
   group('open and the sentinel', () {
+    test('createdThisOpen is true only for the open that wrote the '
+        'sentinel; storageName is what the opener passed', () async {
+      final path = newPath();
+      final cipher = FakeVaultCipher();
+      final first = await openVaultOnDatabase(
+        fileDb(path),
+        uid: _uid,
+        cipher: cipher,
+        storageName: 'opfsLocks',
+      );
+      expect(first.createdThisOpen, isTrue);
+      expect(first.storageName, 'opfsLocks');
+      await first.close();
+      final again = await open(fileDb(path), cipher);
+      expect(again.createdThisOpen, isFalse);
+      expect(again.storageName, 'native', reason: 'the default');
+      await again.close();
+      // A vault with rows, reopened: not created either.
+      final seeded = newPath();
+      await seed(seeded, cipher);
+      final reopened = await open(fileDb(seeded), cipher);
+      expect(reopened.createdThisOpen, isFalse);
+      await reopened.close();
+    });
+
     test('a new vault stamps the owner and writes a sealed sentinel', () async {
       final db = fileDb(newPath());
       final cipher = FakeVaultCipher(freshlyCreated: true);

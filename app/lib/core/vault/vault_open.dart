@@ -2,7 +2,11 @@ import 'dart:async';
 
 import 'package:drift/drift.dart' show DatabaseConnection;
 import 'package:drift_flutter/drift_flutter.dart'
-    show ExistingDatabase, MissingBrowserFeature, WasmStorageImplementation;
+    show
+        ExistingDatabase,
+        MissingBrowserFeature,
+        WasmStorageImplementation,
+        WebStorageApi;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'secure_vault.dart';
@@ -80,19 +84,31 @@ bool isTrustedVaultWebProbe(Set<MissingBrowserFeature> missingFeatures) =>
 /// - the choice is not in [kVaultAcceptedWebStorages]:
 ///   [VaultStatus.unavailable].
 ///
+/// - [expectedStorage] (the storage marker the vault session keeps outside
+///   the vault: the [WasmStorageImplementation.name] the vault was created
+///   in) is given and no copy of [name] is listed under that storage's API,
+///   or the storage this would choose is of another API:
+///   [VaultStatus.storageChanged], decided BEFORE anything is opened or
+///   created. This closes the probe gaps listed below: a copy the probe
+///   cannot see is never answered with a new, empty vault. Storages are
+///   compared by API ([WebStorageApi]): `opfsShared` and `opfsLocks` reach
+///   the same OPFS file. A name that is not an accepted web storage is
+///   [VaultStatus.unavailable] (fail closed). Null: no marker (a first run).
+///
 /// Never [VaultStatus.keyLost]. Pure, so the VM tests cover every case.
 ///
-/// Known limit: only `workerError` is detected. A copy can also be missing
-/// from [existing] without it: when `fileSystemAccess` or `indexedDb` is
-/// missing, when dedicated workers are missing together with nested
-/// workers, or when drift's existence check silently answers "not
-/// present". None of these is detected here; a storage marker kept outside
-/// the vault (a later task) closes them.
+/// Known limit without [expectedStorage]: only `workerError` is detected. A
+/// copy can also be missing from [existing] without it: when
+/// `fileSystemAccess` or `indexedDb` is missing, when dedicated workers are
+/// missing together with nested workers, or when drift's existence check
+/// silently answers "not present". The storage marker ([expectedStorage])
+/// closes them.
 WasmStorageImplementation chooseVaultWebStorage({
   required Iterable<WasmStorageImplementation> available,
   required Iterable<ExistingDatabase> existing,
   required Set<MissingBrowserFeature> missingFeatures,
   required String name,
+  String? expectedStorage,
 }) {
   if (!isTrustedVaultWebProbe(missingFeatures)) {
     throw const VaultOpenException(VaultStatus.unavailable);
@@ -112,6 +128,15 @@ WasmStorageImplementation chooseVaultWebStorage({
       break;
     }
   }
+  if (expectedStorage != null) {
+    final expectedApi = vaultWebStorageApi(expectedStorage);
+    if (expectedApi == null) {
+      throw const VaultOpenException(VaultStatus.unavailable);
+    }
+    if (!mine.contains(expectedApi) || chosen.storageApi != expectedApi) {
+      throw const VaultOpenException(VaultStatus.storageChanged);
+    }
+  }
   if (mine.any((api) => api != chosen.storageApi)) {
     throw const VaultOpenException(VaultStatus.storageChanged);
   }
@@ -120,6 +145,36 @@ WasmStorageImplementation chooseVaultWebStorage({
   }
   return chosen;
 }
+
+/// The storage API of an accepted web storage name
+/// ([WasmStorageImplementation.name] in [kVaultAcceptedWebStorages]); null
+/// for any other name (`native`, `inMemory`, `unsafeIndexedDb`, garbage).
+WebStorageApi? vaultWebStorageApi(String storageName) {
+  for (final s in kVaultAcceptedWebStorages) {
+    if (s.name == storageName) return s.storageApi;
+  }
+  return null;
+}
+
+/// The web wipe's marker check: throws [VaultOpenException] with
+/// [VaultStatus.unavailable] when [expectedStorage] is given and no copy of
+/// [name] is listed under its storage API (or the name is not an accepted
+/// web storage). Null passes. Pure, for the VM tests.
+void checkVaultWipeListed({
+  required Iterable<ExistingDatabase> existing,
+  required String name,
+  required String? expectedStorage,
+}) {
+  if (expectedStorage == null) return;
+  final api = vaultWebStorageApi(expectedStorage);
+  final listed = existing.any((e) => e.$1 == api && e.$2 == name);
+  if (api == null || !listed) {
+    throw const VaultOpenException(VaultStatus.unavailable);
+  }
+}
+
+/// The value of [SecureVault.storageName] for a vault on Android.
+const String kVaultNativeStorage = 'native';
 
 /// The storage chosen for the last vault database opened on the web; null
 /// elsewhere or before any open.
@@ -137,18 +192,27 @@ Future<void> _closeConnection(DatabaseConnection connection) async {
   }
 }
 
-/// Opens the platform connection of [uid]'s vault; failures are
-/// [VaultOpenException]. A connection that arrives after the timeout is
-/// closed.
-Future<VaultDatabase> _openDatabase(String uid) async {
+/// Opens the platform connection of [uid]'s vault and names the storage it
+/// is on; failures are [VaultOpenException]. A connection that arrives
+/// after the timeout is closed.
+Future<(VaultDatabase, String)> _openDatabase(
+  String uid,
+  String? expectedStorage,
+) async {
   if (uid.isEmpty) throw ArgumentError.value(uid, 'uid', 'empty');
-  final pending = impl.openPlatformVaultConnection(vaultDatabaseName(uid));
+  final pending = impl.openPlatformVaultConnection(
+    vaultDatabaseName(uid),
+    expectedStorage: expectedStorage,
+  );
   try {
-    return VaultDatabase(await pending.timeout(_platformTimeout));
+    final (connection, storage) = await pending.timeout(_platformTimeout);
+    return (VaultDatabase(connection), storage);
   } on VaultOpenException {
     rethrow;
   } on TimeoutException {
-    unawaited(pending.then(_closeConnection, onError: (Object _) {}));
+    unawaited(
+      pending.then((r) => _closeConnection(r.$1), onError: (Object _) {}),
+    );
     throw const VaultOpenException(VaultStatus.unavailable);
   } catch (_) {
     throw const VaultOpenException(VaultStatus.unavailable);
@@ -162,9 +226,15 @@ Future<VaultDatabase> _openDatabase(String uid) async {
 /// OPFS file or a shared-worker IndexedDB database (see
 /// [chooseVaultWebStorage]). Never in memory. Never deletes a row.
 ///
+/// [expectedStorage] is the storage marker the session keeps outside the
+/// vault ([SecureVault.storageName] of the open that created it). On the web
+/// it is checked by [chooseVaultWebStorage] before anything is opened or
+/// created; null keeps the plain probe decision. Ignored on Android.
+///
 /// Throws [VaultOpenException]: [VaultStatus.unsupported] on any platform
 /// but Android and the web; [VaultStatus.storageChanged] on the web when
-/// the vault exists in another storage than this browser would use now;
+/// the vault exists in another storage than this browser would use now, or
+/// is not listed under [expectedStorage];
 /// [VaultStatus.unavailable] when the storage cannot be opened or is not
 /// durable, or the cipher cannot run; [VaultStatus.keyLost] when the
 /// sentinel shows the key no longer opens this vault (the file is left
@@ -172,21 +242,23 @@ Future<VaultDatabase> _openDatabase(String uid) async {
 Future<SecureVault> openVault({
   required String uid,
   required VaultCipher cipher,
+  String? expectedStorage,
 }) async {
-  final db = await _openDatabase(uid);
+  final (db, storage) = await _openDatabase(uid, expectedStorage);
   return openVaultOnDatabase(
     db,
     uid: uid,
     cipher: cipher,
     registerAs: vaultDatabaseName(uid),
+    storageName: storage,
   );
 }
 
 /// Erases every copy of [uid]'s vault that the platform can find: on
 /// Android the one file; on the web every copy drift's storage probe LISTS
 /// (OPFS and IndexedDB). A web copy in a storage the probe cannot list
-/// survives, and this call still succeeds; a later task adds a storage
-/// marker that makes the wipe refuse in that case instead. No cipher is
+/// survives, and without [expectedStorage] this call still succeeds; with
+/// it, an unlisted marked copy makes the wipe refuse instead. No cipher is
 /// needed (so it works when the key is lost or unavailable). Delete the
 /// platform key separately (`deleteVaultKey`), after this succeeds.
 ///
@@ -212,14 +284,26 @@ Future<SecureVault> openVault({
 /// Must not run while a [SecureVault] of [uid] is open. Throws
 /// [VaultOpenException] ([VaultStatus.unsupported],
 /// [VaultStatus.unavailable] when the rows could not be deleted).
-Future<void> wipeVaultFile({required String uid}) async {
+///
+/// [expectedStorage] (the session's storage marker): on the web, when no
+/// copy is listed under that storage's API the wipe throws
+/// [VaultStatus.unavailable] and deletes nothing, so it never reports
+/// success while the real copy is unlisted. Null (the explicit reset of a
+/// `storageChanged` vault) erases whatever is listed. Ignored on Android.
+Future<void> wipeVaultFile({
+  required String uid,
+  String? expectedStorage,
+}) async {
   if (uid.isEmpty) throw ArgumentError.value(uid, 'uid', 'empty');
   if (isVaultOpenInProcess(vaultDatabaseName(uid))) {
     throw StateError('wipeVaultFile while the vault is open; close it first.');
   }
   try {
     await impl
-        .wipePlatformVaultFile(vaultDatabaseName(uid))
+        .wipePlatformVaultFile(
+          vaultDatabaseName(uid),
+          expectedStorage: expectedStorage,
+        )
         .timeout(_platformTimeout * 2);
   } on VaultOpenException {
     rethrow;

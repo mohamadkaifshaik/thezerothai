@@ -260,6 +260,179 @@ void main() {
       }
       expect(cases, 256);
     });
+
+    test('with a storage marker: refused (storageChanged) before anything '
+        'is created when the marked copy is not listed or would not be '
+        'chosen', () {
+      WasmStorageImplementation chooseMarked(
+        List<WasmStorageImplementation> available,
+        List<ExistingDatabase> existing,
+        String expected, {
+        Set<MissingBrowserFeature> missing = const {},
+      }) => chooseVaultWebStorage(
+        available: available,
+        existing: existing,
+        missingFeatures: missing,
+        name: name,
+        expectedStorage: expected,
+      );
+      // Marked and listed where it would be chosen: opens as before.
+      expect(
+        chooseMarked([inMemory, sharedIdb], [(idb, name)], 'sharedIndexedDb'),
+        sharedIdb,
+      );
+      // Same OPFS file, another access method: same API, accepted.
+      expect(
+        chooseMarked([inMemory, opfsLocks], [(opfs, name)], 'opfsShared'),
+        opfsLocks,
+      );
+      // Marked in OPFS, the probe lists nothing (a hidden copy): without
+      // the marker a new vault would be created; with it, refused.
+      expect(
+        choose([inMemory, sharedIdb], []),
+        sharedIdb,
+        reason: 'the gap the marker closes',
+      );
+      expect(
+        () => chooseMarked([inMemory, sharedIdb], [], 'opfsLocks'),
+        _throwsStatus(VaultStatus.storageChanged),
+      );
+      expect(
+        () => chooseMarked([inMemory, opfsLocks, sharedIdb], [], 'opfsLocks'),
+        _throwsStatus(VaultStatus.storageChanged),
+      );
+      // Marked in IndexedDB, listed only in OPFS (a stray copy).
+      expect(
+        () => chooseMarked(
+          [inMemory, opfsLocks, sharedIdb],
+          [(opfs, name)],
+          'sharedIndexedDb',
+        ),
+        _throwsStatus(VaultStatus.storageChanged),
+      );
+      // Not a web storage name: fail closed.
+      for (final bad in ['native', 'inMemory', 'unsafeIndexedDb', '']) {
+        expect(
+          () => chooseMarked([inMemory, sharedIdb], [(idb, name)], bad),
+          _throwsStatus(VaultStatus.unavailable),
+          reason: bad,
+        );
+      }
+      // The trust check still comes first.
+      expect(
+        () => chooseMarked(
+          [inMemory, sharedIdb],
+          [],
+          'opfsLocks',
+          missing: {MissingBrowserFeature.workerError},
+        ),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+    });
+
+    test('with a storage marker, every combination: a choice is always of '
+        'the marked API and of a listed copy; null keeps the plain '
+        'decision', () {
+      const optional = [opfsShared, opfsLocks, sharedIdb, unsafeIdb];
+      const candidates = <ExistingDatabase>[
+        (opfs, name),
+        (idb, name),
+        (opfs, 'other'),
+      ];
+      const markers = <String?>[
+        null,
+        'opfsShared',
+        'opfsLocks',
+        'sharedIndexedDb',
+        'native',
+      ];
+      List<List<T>> subsets<T>(List<T> items) => [
+        for (var mask = 0; mask < 1 << items.length; mask++)
+          [
+            for (var i = 0; i < items.length; i++)
+              if (mask & (1 << i) != 0) items[i],
+          ],
+      ];
+      var cases = 0;
+      for (final extra in subsets(optional)) {
+        final available = [...extra, inMemory];
+        for (final existing in subsets(candidates)) {
+          WasmStorageImplementation? plain;
+          VaultStatus? plainRefused;
+          try {
+            plain = choose(available, existing);
+          } on VaultOpenException catch (e) {
+            plainRefused = e.status;
+          }
+          for (final marker in markers) {
+            cases++;
+            final reason = '$available / $existing / $marker';
+            WasmStorageImplementation? chosen;
+            VaultStatus? refused;
+            try {
+              chosen = chooseVaultWebStorage(
+                available: available,
+                existing: existing,
+                missingFeatures: const {},
+                name: name,
+                expectedStorage: marker,
+              );
+            } on VaultOpenException catch (e) {
+              refused = e.status;
+            }
+            expect(refused, isNot(VaultStatus.keyLost), reason: reason);
+            if (marker == null) {
+              expect(chosen, plain, reason: reason);
+              expect(refused, plainRefused, reason: reason);
+              continue;
+            }
+            final api = vaultWebStorageApi(marker);
+            if (api == null) {
+              expect(refused, VaultStatus.unavailable, reason: reason);
+              continue;
+            }
+            if (chosen != null) {
+              // Never a new vault next to a marked one: the marked copy is
+              // listed and is the one opened, exactly as without a marker.
+              expect(chosen.storageApi, api, reason: reason);
+              expect(existing, contains((api, name)), reason: reason);
+              expect(chosen, plain, reason: reason);
+            } else if (!existing.contains((api, name))) {
+              expect(refused, VaultStatus.storageChanged, reason: reason);
+            }
+          }
+        }
+      }
+      expect(cases, 16 * 8 * markers.length);
+    });
+
+    test('the web wipe marker check', () {
+      void check(List<ExistingDatabase> existing, String? expected) =>
+          checkVaultWipeListed(
+            existing: existing,
+            name: name,
+            expectedStorage: expected,
+          );
+      // No marker: whatever is listed (or nothing) is fine.
+      check([], null);
+      check([(opfs, name)], null);
+      // Marker and a listed copy under its API: fine.
+      check([(opfs, name)], 'opfsLocks');
+      check([(opfs, name), (idb, name)], 'sharedIndexedDb');
+      // Marker, copy not listed under it: refused, nothing deleted.
+      for (final (existing, marker) in <(List<ExistingDatabase>, String)>[
+        ([], 'opfsLocks'),
+        ([(idb, name)], 'opfsShared'),
+        ([(opfs, 'other')], 'opfsShared'),
+        ([(opfs, name)], 'native'),
+      ]) {
+        expect(
+          () => check(existing, marker),
+          _throwsStatus(VaultStatus.unavailable),
+          reason: '$existing / $marker',
+        );
+      }
+    });
   });
 
   test(

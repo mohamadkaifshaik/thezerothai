@@ -73,9 +73,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       (user) => add(AuthUserChanged(user)),
       // A failing auth stream must not leave the app on the splash screen
       // (status unknown) for good: fall back to signed out.
-      onError: (Object _, StackTrace _) => add(const AuthUserChanged(null)),
+      // A stream error is a lost session (never an explicit sign-out).
+      onError: (Object _, StackTrace _) =>
+          add(const AuthUserChanged(null, fromStreamError: true)),
     );
   }
+
+  /// The explicit sign-out intent, bound to the uid signed in when it was
+  /// expressed. Consumed by the next end of that uid's session; dropped by
+  /// a failed sign-out and by any change of user.
+  ({String uid, SessionEnd reason})? _intent;
 
   void _onUserChanged(AuthUserChanged event, Emitter<AuthState> emit) {
     _unknownTimer?.cancel();
@@ -87,7 +94,41 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         AuthStatus.needsEmailVerification,
       _ => AuthStatus.authenticated,
     };
-    emit(state.copyWith(status: status, user: user, isSubmitting: false));
+    final previous = state.user;
+    var lastSessionEnd = state.lastSessionEnd;
+    if (user?.uid != previous?.uid) {
+      final intent = _intent;
+      _intent = null;
+      if (user == null) {
+        lastSessionEnd = _endOf(previous?.uid, intent, event.fromStreamError);
+      }
+    } else if (event.fromStreamError) {
+      lastSessionEnd = SessionEnd.sessionLost;
+    }
+    emit(
+      state.copyWith(
+        status: status,
+        user: user,
+        isSubmitting: false,
+        lastSessionEnd: lastSessionEnd,
+      ),
+    );
+  }
+
+  /// Why the session of [uid] ended: the explicit intent for that uid, the
+  /// account flow's record ([AuthRepository.takeSessionEndIntent]), else
+  /// lost. A stream error is always lost.
+  SessionEnd _endOf(
+    String? uid,
+    ({String uid, SessionEnd reason})? intent,
+    bool fromStreamError,
+  ) {
+    if (uid == null) return SessionEnd.sessionLost;
+    // Consumed whatever the outcome, so it cannot apply to a later end.
+    final recorded = _authRepository.takeSessionEndIntent(uid);
+    if (fromStreamError) return SessionEnd.sessionLost;
+    if (intent != null && intent.uid == uid) return intent.reason;
+    return recorded ?? SessionEnd.sessionLost;
   }
 
   Future<void> _onEmailSignUpRequested(
@@ -170,6 +211,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignOutRequested event,
     Emitter<AuthState> emit,
   ) async {
+    // The intent belongs to whoever is signed in now; with nobody signed in
+    // nothing is armed (a stale intent could turn a later revoke into a
+    // wipe).
+    final uid = state.user?.uid;
+    final intent = uid == null ? null : (uid: uid, reason: event.reason);
+    _intent = intent;
     final before = _beforeSignOut;
     if (before != null) {
       try {
@@ -178,7 +225,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         // Never block sign-out on bookkeeping.
       }
     }
-    await _authRepository.signOut();
+    try {
+      await _authRepository.signOut();
+    } catch (_) {
+      if (_intent == intent) _intent = null;
+      rethrow;
+    }
   }
 
   /// Runs [action], turning a thrown [AuthFailure] into `state.failure` and

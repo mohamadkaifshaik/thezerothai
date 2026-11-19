@@ -4,6 +4,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/presentation/bloc/account_cubit.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
+import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter_test/flutter_test.dart';
@@ -55,6 +56,29 @@ void main() {
   });
 
   group('deleteAccount', () {
+    test('an accepted deletion records accountDeleted for the signed-in uid '
+        '(so a null user before the screen signs out is not sessionLost); '
+        'a failed one records nothing', () async {
+      when(() => auth.currentUser).thenReturn(
+        const AppUser(
+          uid: 'uid-1',
+          email: 'a@example.com',
+          emailVerified: true,
+          isPasswordProvider: true,
+        ),
+      );
+      stubDelete((_) async => throw StateError('server down'));
+      final failing = build();
+      await failing.deleteAccount(promptPassword: _pw);
+      verifyNever(() => auth.noteAccountDeleted(any()));
+
+      stubDelete((_) async => null);
+      final cubit = build();
+      await cubit.deleteAccount(promptPassword: _pw);
+      expect(cubit.state.status, AccountStatus.deleted);
+      verify(() => auth.noteAccountDeleted('uid-1')).called(1);
+    });
+
     test('re-authenticates up front, then sends exactly one call', () async {
       stubDelete((_) async => null);
       final cubit = build();
