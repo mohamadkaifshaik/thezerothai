@@ -240,6 +240,9 @@ func TestReport_EncryptedSenderContentStaysReportable(t *testing.T) {
 		{"duplicate text, last wins", duplicate, true, &Evidence{Text: "last", MessageEncrypted: true, MessageVerified: true}, true},
 		{"text as a varint is skipped", varintText, true, &Evidence{MessageEncrypted: true, MessageVerified: true}, true},
 		{"malformed but committed to", malformed, true, &Evidence{MessageEncrypted: true, MessageVerified: true, MessageUndecodable: true}, true},
+		// The app (32-bit tags) shows field 1 = "ok"; skipping it would file a verified report with an empty text.
+		{"tag above 32 bits, committed to", []byte{0x8a, 0x80, 0x80, 0x80, 0x10, 0x02, 'o', 'k'}, true,
+			&Evidence{MessageEncrypted: true, MessageVerified: true, MessageUndecodable: true}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

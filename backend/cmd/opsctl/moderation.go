@@ -151,7 +151,7 @@ func printReportVerdict(out io.Writer, r moderation.Report) {
 	}
 	switch {
 	case r.Evidence.TextExpired:
-		fmt.Fprintln(out, "evidence expired: verification status no longer available")
+		fmt.Fprintln(out, "evidence expired (verdict, if any, no longer available)") // plaintext or encrypted: the child said which
 	case r.Evidence.MessageEncrypted:
 		fmt.Fprintln(out, encryptedVerdictLine(r.Evidence))
 	}

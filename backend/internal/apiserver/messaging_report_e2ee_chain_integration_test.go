@@ -192,8 +192,22 @@ func TestMessageReport_EncryptedVerification(t *testing.T) {
 		t.Errorf("undecodable child = %v", c)
 	}
 
+	// A NUL inside the text (valid UTF-8) is stored as is: Firestore accepts it, opsctl prints it escaped (%q).
+	nulText := rawContent("zqn\x00ul", "")
+	m7 := w.sendEncrypted(t, e, nulText, "ciphertext-seven")
+	r7, err := e.reportWith(w.bob, w.conv, m7, nulText)
+	if err != nil {
+		t.Fatalf("NUL report: %v", err)
+	}
+	if _, c := e.storedReport(t, r7.GetReportId()); c["text"] != "zqn\x00ul" || c["verified"] != true {
+		t.Errorf("NUL child = %q", c)
+	}
+	if got, err := moderation.NewFirestoreRepo(e.fs, nil).Get(ctx, r7.GetReportId()); err != nil || got.Evidence.Text != "zqn\x00ul" {
+		t.Errorf("NUL Ops.Get = %+v, %v", got.Evidence, err)
+	}
+
 	// No stored moderation document holds the report key, the raw payload, a ciphertext or a commitment.
-	for _, id := range []string{res.GetReportId(), r2.GetReportId(), r3.GetReportId(), r5.GetReportId(), r6.GetReportId()} {
+	for _, id := range []string{res.GetReportId(), r2.GetReportId(), r3.GetReportId(), r5.GetReportId(), r6.GetReportId(), r7.GetReportId()} {
 		p, c := e.storedReport(t, id)
 		sum, sum5, sum6 := messaging.ReportCommitment(payload), messaging.ReportCommitment(badUTF8), messaging.ReportCommitment(malformed)
 		secrets := [][]byte{e2eeReportKey, payload, badUTF8, malformed, []byte("zqmal"), sum[:], sum5[:], sum6[:], []byte("ciphertext-")}
@@ -239,12 +253,12 @@ func TestMessageReport_EncryptedVerification(t *testing.T) {
 		}
 	}
 	// verified, one byte changed, swept, invalid UTF-8, undecodable; the replay stored nothing and logs no verdict.
-	if fmt.Sprint(verdicts) != "[true false false true true]" {
-		t.Errorf("message_verified fields = %v, want [true false false true true]", verdicts)
+	if fmt.Sprint(verdicts) != "[true false false true true true]" {
+		t.Errorf("message_verified fields = %v, want [true false false true true true] (… NUL)", verdicts)
 	}
 	all := e.logText()
 	sum := messaging.ReportCommitment(payload)
-	secrets := []string{"regret", "1234567890123456789", "zqsec", "zqthird", "zqbad", "zqmal", "something else", "ciphertext-", w.conv, m1, w.alice.uid, w.bob.uid}
+	secrets := []string{"regret", "1234567890123456789", "zqsec", "zqthird", "zqbad", "zqmal", "zqn", "something else", "ciphertext-", w.conv, m1, w.alice.uid, w.bob.uid}
 	// Byte values would reach a JSON log as base64 or hex: scan for every form of the key, the payloads and the commitment.
 	for _, b := range [][]byte{e2eeReportKey, payload, badUTF8, malformed, sum[:]} {
 		secrets = append(secrets, string(b), base64.StdEncoding.EncodeToString(b), base64.RawURLEncoding.EncodeToString(b), hex.EncodeToString(b))

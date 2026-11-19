@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -140,13 +141,17 @@ type disclosedContent struct {
 // decodeContent walks the protobuf wire format of payload: field 1 (text) and field 2 (shared_post_id) with the
 // length-delimited wire type are taken, the last occurrence winning (proto semantics); every other field, and fields 1
 // and 2 with another wire type, is skipped as unknown. report_key (field 3) is skipped like any other field, never read.
-// Both strings are made valid UTF-8 (each invalid sequence becomes U+FFFD), as Firestore needs and as the app's lenient
-// decoder shows them. ok is false only when the bytes are not well-formed protobuf (a bad tag, a truncated value).
+// Both strings are made valid UTF-8 (replaceInvalidUTF8: one U+FFFD per decoding error), as Firestore needs and as the
+// app's lenient decoder shows them. ok is false only when the bytes are not well-formed protobuf (a bad or out-of-range
+// tag, a truncated or overflowing value, a reserved wire type, an unbalanced group).
 func decodeContent(payload []byte) (c disclosedContent, ok bool) {
 	var text, shared []byte
 	for b := payload; len(b) > 0; {
 		num, typ, n := protowire.ConsumeTag(b)
-		if n < 0 {
+		// ConsumeTag accepts field numbers up to MaxInt32, but a tag above 2^29-1 is out of range, and the app's Dart
+		// decoder reads tags as 32-bit varints (bits above 32 dropped): it would see another field than this walk skips.
+		// Such bytes are malformed, never silently skipped.
+		if n < 0 || num > protowire.MaxValidNumber {
 			return disclosedContent{}, false
 		}
 		b = b[n:]
@@ -169,7 +174,29 @@ func decodeContent(payload []byte) (c disclosedContent, ok bool) {
 		}
 		b = b[m:]
 	}
-	return disclosedContent{Text: strings.ToValidUTF8(string(text), "�"), SharedPostID: strings.ToValidUTF8(string(shared), "�")}, true
+	return disclosedContent{Text: replaceInvalidUTF8(text), SharedPostID: replaceInvalidUTF8(shared)}, true
+}
+
+// replaceInvalidUTF8 replaces each byte utf8.DecodeRuneInString rejects (it reports width 1 for every decoding error) with
+// U+FFFD, one replacement per error, not one per run (strings.ToValidUTF8 would collapse a run), to match the app's
+// lenient decoder; testdata/report_payload_decode.json pins the counts.
+func replaceInvalidUTF8(b []byte) string {
+	s := string(b)
+	if utf8.ValidString(s) {
+		return s
+	}
+	var out strings.Builder
+	out.Grow(len(s) + 8)
+	for s != "" {
+		r, w := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && w == 1 {
+			out.WriteRune(utf8.RuneError)
+		} else {
+			out.WriteString(s[:w])
+		}
+		s = s[w:]
+	}
+	return out.String()
 }
 
 // messageNotFound is the one NOT_FOUND of a message report (byte-identical for every cause).

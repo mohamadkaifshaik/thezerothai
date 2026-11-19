@@ -360,6 +360,13 @@ func TestReportsShow_EncryptedMessageEvidence(t *testing.T) {
 	if strings.Contains(out, "PRIVATE text") || strings.Contains(out, "NOT verified") {
 		t.Errorf("undecodable output:\n%s", out)
 	}
+	// A NUL (or any control character) in disclosed text is printed escaped, never raw to the terminal.
+	f = newMsgFixture()
+	f.ops.report.Evidence.MessageEncrypted, f.ops.report.Evidence.MessageVerified, f.ops.report.Evidence.Text = true, true, "a\x00b\x1b[2J"
+	_, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
+	if !strings.Contains(out, `"a\x00b\x1b[2J"`) || strings.ContainsAny(out, "\x00\x1b") {
+		t.Errorf("NUL text not escaped:\n%q", out)
+	}
 }
 
 // Every command that acts on a MESSAGE report prints the report's verdict first (the reports show line), so an operator
@@ -371,7 +378,7 @@ func TestReportGuard_PrintsTheVerdictBeforeActing(t *testing.T) {
 		verified    = "evidence ENCRYPTED message: verified against the sender's commitment"
 		unverified  = "evidence ENCRYPTED message: NOT verified (supplied by the reporter)"
 		undecodable = "evidence ENCRYPTED message: content could not be decoded; the sender's device sent malformed content (verified against the sender's commitment)"
-		expired     = "evidence expired: verification status no longer available"
+		expired     = "evidence expired (verdict, if any, no longer available)"
 	)
 	all := []string{verified, unverified, undecodable, expired}
 	cases := []struct {
