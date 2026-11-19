@@ -18,6 +18,7 @@ import (
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
@@ -36,10 +37,12 @@ type itEnv struct {
 	txProfs  identity.TxProfiles
 	events   *recEvents
 	badge    *recBadge
-	limits   Limits
-	reg      *flags.Registry
-	clock    atomic.Int64 // unix micro; advance with tick
-	svc      *service
+	// devices is the key directory seam (ACTIVE device ids per user) of an mls_init.
+	devices *fakeDevices
+	limits  Limits
+	reg     *flags.Registry
+	clock   atomic.Int64 // unix micro; advance with tick
+	svc     *service
 }
 
 func newIT(t *testing.T, mut func(*itEnv)) *itEnv {
@@ -54,9 +57,10 @@ func newIT(t *testing.T, mut func(*itEnv)) *itEnv {
 	t.Cleanup(func() { _ = fs.Close() })
 	e := &itEnv{
 		t: t, fs: fs, repo: NewFirestoreRepo(fs, quota.New(fs)),
-		social: &fakeSocial{snaps: map[string]graph.Snapshot{}}, events: &recEvents{}, badge: &recBadge{},
+		social: &fakeSocial{snaps: map[string]graph.Snapshot{}}, events: &recEvents{}, badge: &recBadge{}, devices: &fakeDevices{active: map[string][]string{}},
 		limits: Limits{RequestMaxUnanswered: 3, DMNewPerDay: 20, NewAccountDMNewPerDay: 5, NewAccountSendsPerDay: 50, NewAccountWindow: 72 * time.Hour, ConversationCacheEntries: 100},
-		reg:    flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}),
+		// e2ee_dm is on for everyone here: it only gates mls_init, which only the init tests send.
+		reg: flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, flags.Spec{Name: keys.FlagName, Mode: flags.On}),
 	}
 	graphRepo := graph.NewFirestoreRepo(fs)
 	e.txSocial, e.txProfs = graphRepo, identity.NewFirestoreRepo(fs, graphRepo)
@@ -82,7 +86,7 @@ func (e *itEnv) tick(d time.Duration) time.Time {
 func (e *itEnv) newService() *service {
 	return New(e.reg, Deps{
 		Repo: e.repo, Social: e.social, TxSocial: e.txSocial, TxProfiles: e.txProfs, AllowAnonymous: true,
-		Profiles: e.profs, Events: e.events, Badge: e.badge, Limits: e.limits, CursorKey: testCursorKey, Now: e.now,
+		Profiles: e.profs, Events: e.events, Badge: e.badge, Devices: e.devices, Limits: e.limits, CursorKey: testCursorKey, Now: e.now,
 	}).(*service)
 }
 
@@ -185,7 +189,8 @@ func (e *itEnv) dmNew(uid string) int64 {
 	return r.DMNew
 }
 
-// treeDocs lists every document path left under conversations/{id}, the conversation document included.
+// treeDocs lists every document path left under conversations/{id}, the conversation document included: its messages and
+// its commit records.
 func (e *itEnv) treeDocs(id string) []string {
 	e.t.Helper()
 	var out []string
@@ -194,16 +199,18 @@ func (e *itEnv) treeDocs(id string) []string {
 	if snap, err := ref.Get(ctx); err == nil && snap.Exists() {
 		out = append(out, "conversations/"+id)
 	}
-	it := ref.Collection("messages").Documents(ctx)
-	for {
-		d, err := it.Next()
-		if err == iterator.Done {
-			break
+	for _, sub := range []string{messagesCollection, commitsCollection} {
+		it := ref.Collection(sub).Documents(ctx)
+		for {
+			d, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				e.t.Fatal(err)
+			}
+			out = append(out, shortPath(d.Ref.Path))
 		}
-		if err != nil {
-			e.t.Fatal(err)
-		}
-		out = append(out, shortPath(d.Ref.Path))
 	}
 	slices.Sort(out)
 	return out

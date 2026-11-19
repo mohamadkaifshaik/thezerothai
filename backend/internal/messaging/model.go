@@ -3,7 +3,9 @@ package messaging
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +19,10 @@ const (
 	dmInboxCollection       = "dmInbox"
 	dmRequestsCollection    = "dmRequests"
 	usersCollection         = "users"
+	// commitsCollection is conversations/{id}/commits/{commitDocID(gen, epoch)}; dmWelcomesCollection is
+	// users/{uid}/dmWelcomes/{welcomeDocID(...)}. Both are written only by mls_init, a commit and a reset.
+	commitsCollection    = "commits"
+	dmWelcomesCollection = "dmWelcomes"
 )
 
 // Stored states. They are the proto enum names without the prefix, so a stored value maps one to one.
@@ -29,6 +35,10 @@ const (
 	msgVisible        = "VISIBLE"
 	msgDeletedAccount = "DELETED_ACCOUNT"
 	msgRemoved        = "REMOVED"
+
+	// Conversation encryption modes (ConvDoc.Encryption). Absent reads as encNone; encMLS never returns to encNone.
+	encNone = "NONE"
+	encMLS  = "MLS"
 )
 
 // SnippetMaxRunes is the longest snippet an inbox entry holds (at most 100 code points).
@@ -43,7 +53,7 @@ const (
 
 // DeletedUID is the one fixed value the `messaging` eraser writes in place of a deleted user's uid everywhere it remains in
 // a surviving peer's copy of a conversation: the conversation's participants, gone, requestFrom and
-// requestTo, the senderId of the user's tombstoned messages and the peer entry's peerId. It can never be a real uid: it begins with "_",
+// requestTo, the senderId of the user's tombstoned messages and of the user's commit records, and the peer entry's peerId. It can never be a real uid: it begins with "_",
 // which ids.ValidUID refuses ("_" is the composite-key separator), so no account can ever take the value (L-2;
 // the first value, "deleted", was a valid uid shape and could have been claimed). Nothing resolves it (Firebase
 // uids are 28 random characters): readers treat it as "Deleted account".
@@ -150,8 +160,66 @@ type ConvDoc struct {
 	CreatedAt  time.Time         `firestore:"createdAt"`
 	UpdatedAt  time.Time         `firestore:"updatedAt"`
 	// Rev is the thread revision: incremented by a takedown and by the eraser's RewriteConversation,
-	// sealed into ListMessages since tokens; absent = 0. Never touched by send, accept, delete or mark-read.
+	// sealed into ListMessages since tokens; absent = 0. Never touched by send, accept, delete, mark-read, a commit or a reset.
 	Rev int64 `firestore:"rev,omitempty"`
+	// Encryption is encMLS once the conversation is end-to-end encrypted; absent = plaintext. MlsGen and MlsEpoch are the
+	// current (generation, epoch) pair, written only by mls_init, a commit and a reset (never by an ordinary send).
+	Encryption string `firestore:"encryption,omitempty"`
+	MlsGen     int64  `firestore:"mlsGen,omitempty"`
+	MlsEpoch   int64  `firestore:"mlsEpoch,omitempty"`
+}
+
+// encrypted reports whether the conversation is end-to-end encrypted.
+func (c ConvDoc) encrypted() bool { return c.Encryption == encMLS }
+
+// mlsKey is the equality key ListEpochMessages queries: the (generation, epoch) pair as "gen:epoch".
+func mlsKey(gen, epoch int64) string { return fmt.Sprintf("%d:%d", gen, epoch) }
+
+// commitDocID is the id of conversations/{id}/commits/{gen_epoch}: zero-padded so ids sort by generation, then epoch.
+func commitDocID(gen, epoch int64) string { return fmt.Sprintf("%010d_%010d", gen, epoch) }
+
+// CommitDoc is conversations/{convId}/commits/{commitDocID(gen, epoch)}: the MLS commit built on (Gen, Epoch), created
+// once (first wins) by mls_init (the group creation, (1, 0)), a commit or a reset. Data is opaque to the server. Epoch
+// is 0 for the commit of an mls_init or a reset, so it has no omitempty. ExpireAt = CreatedAt + CommitRetention (a TTL
+// field once the owner applies the policy).
+type CommitDoc struct {
+	Data      []byte    `firestore:"data"`
+	SenderID  string    `firestore:"senderId"`
+	Gen       int64     `firestore:"gen"`
+	Epoch     int64     `firestore:"epoch"`
+	CreatedAt time.Time `firestore:"createdAt"`
+	ExpireAt  time.Time `firestore:"expireAt"`
+}
+
+// WelcomeDoc is users/{uid}/dmWelcomes/{welcomeDocID(convId, gen, epoch, deviceId)}: the MLS Welcome for one device of
+// uid, accompanying the commit built on (Gen, Epoch). At most one per (conversation, device): a newer one replaces it in
+// the same transaction. Data is opaque. ExpireAt = CreatedAt + WelcomeRetention. convId and deviceId stay indexed (the
+// replacement query filters on both); data is never queried.
+type WelcomeDoc struct {
+	DeviceID  string    `firestore:"deviceId"`
+	ConvID    string    `firestore:"convId"`
+	Gen       int64     `firestore:"gen"`
+	Epoch     int64     `firestore:"epoch"`
+	Data      []byte    `firestore:"data"`
+	CreatedAt time.Time `firestore:"createdAt"`
+	ExpireAt  time.Time `firestore:"expireAt"`
+}
+
+// welcomeDocID is the id of a welcome document: the first 32 hex characters of the SHA-256 of the length-prefixed parts
+// (convId, gen, epoch, deviceId), so no two inputs share an encoding.
+func welcomeDocID(convID string, gen, epoch int64, deviceID string) string {
+	return digest32(lengthPrefixed("welcome1", convID, strconv.FormatInt(gen, 10), strconv.FormatInt(epoch, 10), deviceID))
+}
+
+// lengthPrefixed joins parts as "<len>:<part>" each, an unambiguous encoding of any strings.
+func lengthPrefixed(parts ...string) string {
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(strconv.Itoa(len(p)))
+		b.WriteByte(':')
+		b.WriteString(p)
+	}
+	return b.String()
 }
 
 func (c ConvDoc) hasParticipant(uid string) bool {
@@ -186,6 +254,17 @@ type MsgDoc struct {
 	// the post. The card is decided for each reader at read time. Cleared with text by a takedown and by the eraser's
 	// tombstone. Index-exempt (firebase/firestore.indexes.json): never queried.
 	SharedPostID string `firestore:"sharedPostId,omitempty"`
+	// Encrypted messages: text stays empty; Ciphertext (the MLS application message) and Commitment (the 32-byte report
+	// commitment) are blanked by the retention sweep once CtExpireAt passes, and at once (with CtExpireAt) by a moderator
+	// takedown or the sender's account deletion (CtRemoved then true; the pair and MlsKey stay). MlsKey is
+	// mlsKey(MlsGen, MlsEpoch). The server never parses any of them.
+	Ciphertext []byte    `firestore:"ciphertext,omitempty"`
+	Commitment []byte    `firestore:"commitment,omitempty"`
+	MlsGen     int64     `firestore:"mlsGen,omitempty"`
+	MlsEpoch   int64     `firestore:"mlsEpoch,omitempty"`
+	MlsKey     string    `firestore:"mlsKey,omitempty"`
+	CtExpireAt time.Time `firestore:"ctExpireAt,omitempty"`
+	CtRemoved  bool      `firestore:"ctRemoved,omitempty"`
 }
 
 // PeerDoc is the peer snapshot an inbox entry holds (index-exempt).
@@ -209,12 +288,14 @@ type LastDoc struct {
 	// SharedPost is true when the message shares a post (MessagePreview.shared_post). The snippet stays the sender's own
 	// text, never the post's. Absent on older entries (false).
 	SharedPost bool `firestore:"sharedPost"`
+	// Encrypted is true when the last message is end-to-end encrypted (the snippet is then empty). Always written.
+	Encrypted bool `firestore:"encrypted"`
 }
 
 // fields is the whole preview map. Every leaf is always written (sharedPost included) because the entry is written with
 // MergeAll, which merges nested maps leaf by leaf: a leaf left out would survive from the previous message.
 func (l LastDoc) fields() map[string]any {
-	return map[string]any{"messageId": l.MessageID, "fromSelf": l.FromSelf, "snippet": l.Snippet, "state": l.State, "sharedPost": l.SharedPost}
+	return map[string]any{"messageId": l.MessageID, "fromSelf": l.FromSelf, "snippet": l.Snippet, "state": l.State, "sharedPost": l.SharedPost, "encrypted": l.Encrypted}
 }
 
 // EntryDoc is users/{uid}/dmInbox/{convId} and users/{uid}/dmRequests/{convId} (same shape).

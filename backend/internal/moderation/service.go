@@ -143,6 +143,14 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 			return ReportResult{}, apierr.Validation("target_id", "target_id must be a 19-digit beacon id")
 		}
 	}
+	// The payload's format rules that do not depend on the target's state come before any read. Whether a MESSAGE target
+	// needs one (encrypted) is decided after the lookup, so a non-participant gets the one NOT_FOUND and learns nothing.
+	if len(in.MessagePayload) > MaxMessagePayloadBytes {
+		return ReportResult{}, apierr.Validation("message_payload", "message_payload must be at most 8192 bytes")
+	}
+	if in.TargetType != TargetMessage && len(in.MessagePayload) > 0 {
+		return ReportResult{}, apierr.Validation("message_payload", "message_payload must be empty for this target")
+	}
 	note, err := normalizeNote(in.Note)
 	if err != nil {
 		return ReportResult{}, err
@@ -155,6 +163,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	// A uid already known to be out of quota skips the profile, post and transaction reads. The report id needs no
 	// read, so one point read tells a replay of a report that is already OPEN (AlreadyReported, rule 4: it was
 	// written and needs no quota) from a genuinely new or reopened report, which is QUOTA_EXCEEDED.
+	// This path runs before the target lookup, so it never applies the message_payload rules that depend on the message:
+	// a replay of an OPEN MESSAGE report with an invalid payload answers already_reported here (and VALIDATION on the
+	// normal path), the same divergence a plaintext replay already has for its other target-dependent checks.
 	if e, ok := s.exhausted.Get(uid); ok {
 		now := s.d.Now()
 		if now.Before(e.until) && (e.windowEnds.IsZero() || now.Before(e.windowEnds)) {
@@ -220,7 +231,7 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		rep.Evidence = &Evidence{AuthorHandle: prof.Handle, DisplayName: prof.DisplayName, Bio: prof.Bio,
 			Location: prof.Location, Website: prof.Website, AvatarURL: prof.AvatarURL}
 	case TargetMessage:
-		m, err := s.reportedMessage(ctx, uid, in.TargetID)
+		m, err := s.reportedMessage(ctx, uid, in.TargetID, in.MessagePayload)
 		if err != nil {
 			return ReportResult{}, err
 		}
@@ -228,6 +239,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		// the conversation. The text is private content; it is never logged.
 		rep.TargetOwnerID = m.SenderUID
 		rep.Evidence = &Evidence{Text: m.Text, AuthorHandle: m.SenderHandle, PostCreatedAt: m.CreatedAt}
+		if err := encryptedEvidence(m, in.MessagePayload, rep.Evidence); err != nil {
+			return ReportResult{}, err
+		}
 	case TargetList:
 		l, err := s.reportedList(ctx, uid, in.TargetID)
 		if err != nil {
@@ -287,18 +301,22 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	default:
 		logger.SetRequestField(ctx, fieldOutcome, "created")
 	}
+	// The verdict of what was stored: a duplicate stored nothing, so its own bytes' verdict would mislead.
+	if ev := rep.Evidence; ev != nil && ev.MessageEncrypted && !cr.Existing {
+		logger.SetRequestField(ctx, fieldVerified, ev.MessageVerified)
+	}
 	return ReportResult{ReportID: rep.ID, AlreadyReported: cr.Existing}, nil
 }
 
 // reportedMessage asks the MessageLookup for the message of a MESSAGE target (already shape-checked). Every
 // "unreportable" cause is the one NOT_FOUND built here, so the bytes never say which rule refused; the caller's own
 // message is the VALIDATION target_id. Anything else is an internal error whose ids are redacted.
-func (s *service) reportedMessage(ctx context.Context, uid, targetID string) (ReportedMessage, error) {
+func (s *service) reportedMessage(ctx context.Context, uid, targetID string, payload []byte) (ReportedMessage, error) {
 	if s.d.Messages == nil {
 		return ReportedMessage{}, errors.New("moderation: message reports are not wired")
 	}
 	convID, msgID, _ := ParseMessageTarget(targetID)
-	m, err := s.d.Messages.ReportableMessage(ctx, uid, convID, msgID)
+	m, err := s.d.Messages.ReportableMessage(ctx, uid, convID, msgID, payload)
 	switch {
 	case errors.Is(err, ErrOwnMessage):
 		return ReportedMessage{}, apierr.Validation("target_id", "you cannot report your own message")

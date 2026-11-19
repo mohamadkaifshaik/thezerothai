@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -297,6 +298,141 @@ func TestReportsShow_MessageEvidence(t *testing.T) {
 	f.ops.report.Evidence = nil
 	if _, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); !strings.Contains(out, "evidence none") {
 		t.Errorf("no evidence:\n%s", out)
+	}
+}
+
+// An encrypted message's report says first whether the disclosed text is what the sender sent; a plaintext report
+// prints no verdict (its text is the server's own copy).
+func TestReportsShow_EncryptedMessageEvidence(t *testing.T) {
+	t.Parallel()
+	const verified, unverified = "evidence ENCRYPTED message: verified against the sender's commitment",
+		"evidence ENCRYPTED message: NOT verified (supplied by the reporter)"
+	for _, tt := range []struct {
+		name     string
+		verified bool
+		want     string
+		not      string
+	}{
+		{"verified", true, verified, unverified},
+		{"unverified", false, unverified, verified},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMsgFixture()
+			e := f.ops.report.Evidence
+			e.MessageEncrypted, e.MessageVerified, e.SharedPostID = true, tt.verified, "1234567890123456789"
+			code, out, stderr := f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
+			if code != 0 {
+				t.Fatalf("code=%d stderr=%q", code, stderr)
+			}
+			wantLines := []string{tt.want,
+				"evidence message from @mallory sent 1970-01-01T00:00:07Z (PRIVATE text, disclosed by the reporter): \"you are worthless\"",
+				"evidence shared post 1234567890123456789"}
+			for _, want := range wantLines {
+				if !strings.Contains(out, want) {
+					t.Errorf("output lacks %q:\n%s", want, out)
+				}
+			}
+			if strings.Contains(out, tt.not) || strings.Contains(out, "copied at report time") {
+				t.Errorf("wrong verdict or the plaintext wording:\n%s", out)
+			}
+			if strings.Index(out, tt.want) > strings.Index(out, "you are worthless") {
+				t.Errorf("the verdict must come before the text:\n%s", out)
+			}
+		})
+	}
+	f := newMsgFixture()
+	if _, out, _ := f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); strings.Contains(out, "verified") || strings.Contains(out, "ENCRYPTED") {
+		t.Errorf("a plaintext report printed a verdict:\n%s", out)
+	}
+	// Verified bytes that are not protobuf: the verdict says so and no text line is printed.
+	f = newMsgFixture()
+	f.ops.report.Evidence = &moderation.Evidence{AuthorHandle: "mallory", PostCreatedAt: time.Unix(7, 0).UTC(), MessageEncrypted: true, MessageVerified: true, MessageUndecodable: true}
+	_, out, _ := f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
+	for _, want := range []string{
+		"evidence ENCRYPTED message: content could not be decoded; the sender's device sent malformed content (verified against the sender's commitment)",
+		"evidence message from @mallory sent 1970-01-01T00:00:07Z (no text kept)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("undecodable output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "PRIVATE text") || strings.Contains(out, "NOT verified") {
+		t.Errorf("undecodable output:\n%s", out)
+	}
+	// A NUL (or any control character) in disclosed text is printed escaped, never raw to the terminal.
+	f = newMsgFixture()
+	f.ops.report.Evidence.MessageEncrypted, f.ops.report.Evidence.MessageVerified, f.ops.report.Evidence.Text = true, true, "a\x00b\x1b[2J"
+	_, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
+	if !strings.Contains(out, `"a\x00b\x1b[2J"`) || strings.ContainsAny(out, "\x00\x1b") {
+		t.Errorf("NUL text not escaped:\n%q", out)
+	}
+}
+
+// Every command that acts on a MESSAGE report prints the report's verdict first (the reports show line), so an operator
+// never takes down or suspends on reporter-supplied text unawares; expired evidence says the verdict is gone; a plaintext
+// report prints none.
+func TestReportGuard_PrintsTheVerdictBeforeActing(t *testing.T) {
+	t.Parallel()
+	const (
+		verified    = "evidence ENCRYPTED message: verified against the sender's commitment"
+		unverified  = "evidence ENCRYPTED message: NOT verified (supplied by the reporter)"
+		undecodable = "evidence ENCRYPTED message: content could not be decoded; the sender's device sent malformed content (verified against the sender's commitment)"
+		expired     = "evidence expired (verdict, if any, no longer available)"
+	)
+	all := []string{verified, unverified, undecodable, expired}
+	cases := []struct {
+		name string
+		ev   moderation.Evidence
+		want string // "" = no verdict line
+	}{
+		{"verified", moderation.Evidence{Text: "t", MessageEncrypted: true, MessageVerified: true}, verified},
+		{"unverified", moderation.Evidence{Text: "t", MessageEncrypted: true}, unverified},
+		{"undecodable", moderation.Evidence{MessageEncrypted: true, MessageVerified: true, MessageUndecodable: true}, undecodable},
+		{"expired", moderation.Evidence{TextExpired: true}, expired},
+		{"plaintext", moderation.Evidence{Text: "t"}, ""},
+	}
+	report := func(ev moderation.Evidence) *moderation.Report {
+		return &moderation.Report{TargetType: moderation.TargetMessage, TargetID: testMsgTarget, TargetOwnerID: "u2", Status: moderation.StatusOpen, Evidence: &ev}
+	}
+	check := func(t *testing.T, cmd, out, want string) {
+		t.Helper()
+		for _, line := range all {
+			if has := strings.Contains(out, line); has != (line == want) {
+				t.Errorf("%s: line %q present = %v, want %v:\n%s", cmd, line, has, line == want, out)
+			}
+		}
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mf := newMsgFixture()
+			mf.ops.report = report(tt.ev)
+			code, out, stderr := mf.run("", "messages", "takedown", testMsgTarget, "--project", "dzeroth-dev", "--report", testReportID)
+			if code != 0 {
+				t.Fatalf("takedown: code=%d stderr=%q", code, stderr)
+			}
+			check(t, "messages takedown", out, tt.want)
+			if tt.want != "" && strings.Index(out, tt.want) > strings.Index(out, "REMOVED") {
+				t.Errorf("the verdict must come before the action:\n%s", out)
+			}
+			for _, dry := range []bool{true, false} {
+				f := newModFixture()
+				f.ops.report = report(tt.ev)
+				args := []string{"suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--report", testReportID}
+				if dry {
+					args = append(args, "--dry-run")
+				}
+				code, out, stderr := f.run("", args...)
+				if code != 0 {
+					t.Fatalf("suspend-user dry=%v: code=%d stderr=%q", dry, code, stderr)
+				}
+				check(t, fmt.Sprintf("suspend-user dry-run=%v", dry), out, tt.want)
+				if dry && len(f.acc.calls) != 0 {
+					t.Errorf("a dry run wrote: %v", f.acc.calls)
+				}
+			}
+		})
 	}
 }
 

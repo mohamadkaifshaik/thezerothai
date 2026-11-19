@@ -26,6 +26,21 @@ type Permission interface {
 	CanMessage(ctx context.Context, callerUID, targetUID string) error
 }
 
+// DeviceDirectory is the server-internal device lookup another module uses through the composition root (messaging: the
+// welcome-device check of mls_init, and later ListWelcomes / AckWelcomes). It is NOT an RPC and runs without any check:
+// no permission (Permission.CanMessage), no FEATURE_E2EE_DM gate for the caller or the target, and nothing on the request
+// line (it runs inside another module's RPC). The caller of this interface has already applied its own rules. Each method
+// is one query of at most MaxDevicesPerUser device documents and writes nothing; a read failure is an error (with the
+// uid hashed), never an empty answer. Device ids are returned for comparison only: they are never logged. The service
+// built by New implements it; the composition root type-asserts it, like messaging.Permission.
+type DeviceDirectory interface {
+	// ActiveDeviceIDs returns the ids of uid's ACTIVE devices (seen within InactiveAfter), oldest first, at most
+	// MaxDevicesPerUser.
+	ActiveDeviceIDs(ctx context.Context, uid string) ([]string, error)
+	// DeviceIDs returns the ids of every registered device of uid, active or not, oldest first, at most MaxDevicesPerUser.
+	DeviceIDs(ctx context.Context, uid string) ([]string, error)
+}
+
 // ErrCannotMessage is Permission's refusal: an unknown or non-ACTIVE target, a block in either direction or any other
 // refusal by the messaging send rules. The service answers every one with the same CANNOT_MESSAGE.
 var ErrCannotMessage = errors.New("keys: cannot message")

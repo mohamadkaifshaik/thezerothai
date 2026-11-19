@@ -1,7 +1,10 @@
 package messaging
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"time"
@@ -23,6 +26,37 @@ type ReportedMessage struct {
 	SenderHandle string
 	Text         string
 	CreatedAt    time.Time
+	// Encrypted is set for a message of an end-to-end encrypted conversation (it carries an MLS pair): Text is then
+	// empty and a report must disclose the content (moderation.proto ReportContentRequest.message_payload). A swept
+	// message stays Encrypted.
+	Encrypted bool
+	// Commitment is the sender's 32-byte report commitment while the message still has it: VISIBLE, not swept, the
+	// ciphertext present (the rule of setEncrypted). nil otherwise, whatever bytes remain stored. It never leaves
+	// messaging and the composition root: VerifyReportPayload is the one consumer.
+	Commitment []byte
+}
+
+// ReportCommitment is SHA-256(ReportCommitmentPrefix || payload) over the payload's raw bytes (never re-serialised:
+// protobuf encoding is not canonical).
+func ReportCommitment(payload []byte) [sha256.Size]byte {
+	h := sha256.New()
+	h.Write([]byte(ReportCommitmentPrefix))
+	h.Write(payload)
+	var out [sha256.Size]byte
+	h.Sum(out[:0])
+	return out
+}
+
+// VerifyReportPayload says whether payload is exactly what the sender committed to: m carries a 32-byte commitment and
+// ReportCommitment(payload) equals it, compared in constant time. A message without a commitment (plaintext, swept, a
+// tombstone) or an empty payload never verifies. It checks nothing inside the payload (report_key's length is the
+// receiving app's check, not the server's).
+func VerifyReportPayload(m ReportedMessage, payload []byte) bool {
+	if len(m.Commitment) != CommitmentBytes || len(payload) == 0 {
+		return false
+	}
+	sum := ReportCommitment(payload)
+	return subtle.ConstantTimeCompare(sum[:], m.Commitment) == 1
 }
 
 // MessageReporter is the part of the service a message report needs. The apiserver adapts it to moderation.MessageLookup
@@ -84,7 +118,14 @@ func (s *service) ReportableMessage(ctx context.Context, uid, convID, msgID stri
 	if p, ok := got[peer]; ok {
 		handle = p.Handle
 	}
-	return ReportedMessage{SenderUID: peer, SenderHandle: handle, Text: msg.Text, CreatedAt: msg.CreatedAt}, nil
+	out := ReportedMessage{SenderUID: peer, SenderHandle: handle, Text: msg.Text, CreatedAt: msg.CreatedAt, Encrypted: msg.MlsGen >= 1}
+	if out.Encrypted {
+		out.Text = "" // an encrypted message has no server-side text
+		if msg.ciphertextKept() && len(msg.Commitment) == CommitmentBytes {
+			out.Commitment = bytes.Clone(msg.Commitment) // the state is VISIBLE here (checked above)
+		}
+	}
+	return out, nil
 }
 
 // reportLookupErr passes ErrNotFound through and redacts every id from anything else that may reach a log.

@@ -21,7 +21,9 @@ var _ moderation.MessageLookup = (*lateMessageLookup)(nil)
 
 // ReportableMessage maps messaging's answer to moderation's: ErrNotFound and ErrOwnMessage become moderation's sentinels
 // (moderation builds the one wire NOT_FOUND from them), the evidence is copied field by field, anything else passes through.
-func (l *lateMessageLookup) ReportableMessage(ctx context.Context, callerUID, convID, msgID string) (moderation.ReportedMessage, error) {
+// The commitment stops here: messaging.VerifyReportPayload compares it with the reporter's payload and only the verdict
+// (Verified) crosses into moderation, so the commitment bytes are never in a moderation value, document or log.
+func (l *lateMessageLookup) ReportableMessage(ctx context.Context, callerUID, convID, msgID string, payload []byte) (moderation.ReportedMessage, error) {
 	if l.r == nil {
 		return moderation.ReportedMessage{}, errors.New("message reports are not wired")
 	}
@@ -34,5 +36,6 @@ func (l *lateMessageLookup) ReportableMessage(ctx context.Context, callerUID, co
 	case err != nil:
 		return moderation.ReportedMessage{}, err
 	}
-	return moderation.ReportedMessage{SenderUID: m.SenderUID, SenderHandle: m.SenderHandle, Text: m.Text, CreatedAt: m.CreatedAt}, nil
+	return moderation.ReportedMessage{SenderUID: m.SenderUID, SenderHandle: m.SenderHandle, Text: m.Text, CreatedAt: m.CreatedAt,
+		Encrypted: m.Encrypted, Verified: m.Encrypted && messaging.VerifyReportPayload(m, payload)}, nil
 }

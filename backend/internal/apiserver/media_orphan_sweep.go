@@ -1,6 +1,6 @@
 // media_orphan_sweep.go is the daily step that deletes READY images nothing ever attached (media/orphan_sweep.go). It
-// rides the daily-maintenance cron like the poll vote sweep (no new Cloud Scheduler job, no Terraform job), as the LAST step
-// of the chain so it never takes time from the trends refresh: it gets min(mediaOrphanSweepMax, what the chain has left)
+// rides the daily-maintenance cron like the poll vote sweep (no new Cloud Scheduler job, no Terraform job), after the trends
+// refresh (only the ciphertext sweep, ciphertext_sweep.go, comes after it) so it never takes time from it: it gets min(mediaOrphanSweepMax, what the chain has left)
 // and is skipped below mediaOrphanSweepMin. Inside that budget it runs page after page (at most mediaOrphanSweepMaxPages)
 // while a page is full and moved something. Its outcome is for the logs, never the HTTP status; a partial run resumes the
 // next day (every phase is idempotent and the due query returns what is left).

@@ -26,7 +26,9 @@ class ReportTargetType extends $pb.ProtobufEnum {
   /// A direct message. target_id = "<convId>:<msgId>": the conversation id and the message id, 32
   /// lower-case hex each, joined by ":". Only a participant may report, and only the peer's message (own => VALIDATION
   /// "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
-  /// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
+  /// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies. For a message of an
+  /// end-to-end encrypted conversation the server holds no text: the reporter sends the decrypted content in
+  /// ReportContentRequest.message_payload, which the server checks against the sender's commitment.
   static const ReportTargetType REPORT_TARGET_TYPE_MESSAGE =
       ReportTargetType._(3, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_MESSAGE');
 

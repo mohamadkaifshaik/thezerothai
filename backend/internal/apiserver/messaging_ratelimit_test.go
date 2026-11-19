@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -205,5 +206,146 @@ func TestMessagingDailyCapWiring(t *testing.T) {
 	}
 	if mark.Cap == accept.Cap || mark.Cap == send.Cap || accept.Cap == send.Cap {
 		t.Error("the mark-read, mutation and send caps must be separate counters")
+	}
+}
+
+// The encrypted-conversation procedures: CommitConversation on its own bucket and the daily call cap
+// messages_commits_daily; ListConversationCommits, ListEpochMessages, ListWelcomes and AckWelcomes on ONE shared sync
+// bucket and no daily cap.
+var (
+	messagesCommitProcedure = messagingv1connect.MessagingServiceCommitConversationProcedure
+	messagesSyncProcedures  = []string{
+		messagingv1connect.MessagingServiceListConversationCommitsProcedure,
+		messagingv1connect.MessagingServiceListEpochMessagesProcedure,
+		messagingv1connect.MessagingServiceListWelcomesProcedure,
+		messagingv1connect.MessagingServiceAckWelcomesProcedure,
+	}
+)
+
+// messagingE2EERateLimitViolations asserts that wiring: the commit bucket and the sync bucket exist, are distinct from each
+// other and from every other messaging bucket, every sync procedure is on the one sync bucket, CommitConversation carries
+// messages_commits_daily (and nothing else draws on it), and no sync procedure has a daily cap.
+func messagingE2EERateLimitViolations(rl ratelimit.Config) []string {
+	var out []string
+	commit, sync := rl.PerProcedure[messagesCommitProcedure], rl.PerProcedure[messagesSyncProcedures[0]]
+	if commit == nil {
+		out = append(out, "CommitConversation is not mapped")
+	}
+	if sync == nil {
+		out = append(out, "the sync bucket is not mapped")
+	}
+	for _, p := range messagesSyncProcedures {
+		if rl.PerProcedure[p] != sync {
+			out = append(out, p+" does not share the sync bucket")
+		}
+		if _, capped := rl.DailyCaps[p]; capped {
+			out = append(out, p+" must not be on a daily cap")
+		}
+	}
+	if commit != nil && commit == sync {
+		out = append(out, "the commit and sync buckets must be different limiters")
+	}
+	for _, other := range []string{
+		messagingv1connect.MessagingServiceSendMessageProcedure, messagingv1connect.MessagingServiceListMessagesProcedure,
+		messagingv1connect.MessagingServiceListMessageSuggestionsProcedure,
+	} {
+		if b := rl.PerProcedure[other]; b != nil && (b == commit || b == sync) {
+			out = append(out, other+" shares an encrypted-conversation bucket")
+		}
+	}
+	if rl.Default != nil && (commit == rl.Default || sync == rl.Default) {
+		out = append(out, "an encrypted-conversation bucket is the default limiter")
+	}
+	if named, ok := rl.DailyCaps[messagesCommitProcedure]; !ok || named.Cap == nil || named.Name != "messages_commits_daily" {
+		out = append(out, "CommitConversation has no messages_commits_daily cap")
+	}
+	for p, named := range rl.DailyCaps {
+		if named.Name == "messages_commits_daily" && p != messagesCommitProcedure {
+			out = append(out, "messages_commits_daily is drawn on by "+p)
+		}
+	}
+	return out
+}
+
+// TestMessagingE2EERateLimit_Guard proves the guard passes on the shipped wiring and can fail.
+func TestMessagingE2EERateLimit_Guard(t *testing.T) {
+	lw := messagingv1connect.MessagingServiceListWelcomesProcedure
+	ack := messagingv1connect.MessagingServiceAckWelcomesProcedure
+	tests := []struct {
+		name   string
+		mutate func(*ratelimit.Config)
+		want   string
+	}{
+		{"unmutated", func(*ratelimit.Config) {}, ""},
+		{"commit loses its bucket", func(c *ratelimit.Config) { delete(c.PerProcedure, messagesCommitProcedure) }, "CommitConversation is not mapped"},
+		{"ack gets its own bucket", func(c *ratelimit.Config) { c.PerProcedure[ack] = ratelimit.NewLimiter(60, idleBucketTTL) }, "does not share the sync bucket"},
+		{"list welcomes falls to the default", func(c *ratelimit.Config) { delete(c.PerProcedure, lw) }, "does not share the sync bucket"},
+		{"commit shares the sync bucket", func(c *ratelimit.Config) { c.PerProcedure[messagesCommitProcedure] = c.PerProcedure[lw] }, "must be different limiters"},
+		{"commit loses its daily cap", func(c *ratelimit.Config) { delete(c.DailyCaps, messagesCommitProcedure) }, "no messages_commits_daily cap"},
+		{"ack joins the commits cap", func(c *ratelimit.Config) { c.DailyCaps[ack] = c.DailyCaps[messagesCommitProcedure] }, "must not be on a daily cap"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rl := RateLimitConfig(defaultRateLimitCfg())
+			tt.mutate(&rl)
+			got := strings.Join(messagingE2EERateLimitViolations(rl), "\n")
+			if tt.want == "" && got != "" {
+				t.Fatalf("unexpected violations: %s", got)
+			}
+			if tt.want != "" && !strings.Contains(got, tt.want) {
+				t.Fatalf("violations %q do not contain %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestMessagingE2EERateLimit_Buckets: through the limiters, the commit bucket is 20/min and the sync bucket one budget of
+// 60/min across its four procedures; another user is untouched.
+func TestMessagingE2EERateLimit_Buckets(t *testing.T) {
+	rl := RateLimitConfig(defaultRateLimitCfg())
+	for _, g := range []struct {
+		procs []string
+		n     int
+	}{{[]string{messagesCommitProcedure}, 20}, {messagesSyncProcedures, 60}} {
+		for i := range g.n {
+			if ok, _ := rl.PerProcedure[g.procs[i%len(g.procs)]].Allow("uid-e2ee"); !ok {
+				t.Fatalf("%v call %d refused, want the first %d allowed", g.procs, i+1, g.n)
+			}
+		}
+		for _, p := range g.procs {
+			if ok, retry := rl.PerProcedure[p].Allow("uid-e2ee"); ok || retry <= 0 {
+				t.Errorf("%s after %d calls in the group = %v retry %v, want refused", p, g.n, ok, retry)
+			}
+		}
+		if ok, _ := rl.PerProcedure[g.procs[0]].Allow("uid-e2ee-other"); !ok {
+			t.Errorf("%v: another user was refused", g.procs)
+		}
+	}
+}
+
+// TestMessagingCommitsDailyCap: through the real interceptor the (cap+1)-th CommitConversation of a uid is RATE_LIMITED
+// with metadata limit=messages_commits_daily (the interceptor runs before the service, so every call counts, a retry
+// included), another uid is untouched, and a sync RPC (no daily cap) still passes.
+func TestMessagingCommitsDailyCap(t *testing.T) {
+	const dailyCap = 3
+	cfg := defaultRateLimitCfg()
+	cfg.RateLimit.MessagesCommitsPerDay = dailyCap
+	cfg.RateLimit.MessagesCommitPerUserPerMinute = 1_000_000
+	cfg.RateLimit.MessagesSyncPerUserPerMinute = 1_000_000
+	lw := messagingv1connect.MessagingServiceListWelcomesProcedure
+	invoke := messagingCapInvoker(t, cfg, messagesCommitProcedure, lw)
+	for i := range dailyCap {
+		if err := invoke("uid-committer", messagesCommitProcedure); err != nil {
+			t.Fatalf("commit %d must pass: %v", i+1, err)
+		}
+	}
+	wantCapRefusal(t, invoke("uid-committer", messagesCommitProcedure), "messages_commits_daily")
+	for i := range dailyCap + 2 {
+		if err := invoke("uid-committer", lw); err != nil {
+			t.Fatalf("ListWelcomes %d must pass (no daily cap): %v", i+1, err)
+		}
+	}
+	if err := invoke("uid-other", messagesCommitProcedure); err != nil {
+		t.Fatalf("another user must not share the counter: %v", err)
 	}
 }

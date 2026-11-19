@@ -237,7 +237,7 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 	msgs := make([]*messagingv1.Message, 0, len(rows))
 	for _, r := range rows {
 		m := messageOf(r, in.convID, uid)
-		if m.State == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && r.SharedPostID != "" {
+		if m.State == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && r.SharedPostID != "" && r.MlsGen < 1 { // never on an encrypted message
 			m.SharedPost = cards[r.SharedPostID]
 		}
 		msgs = append(msgs, m)
@@ -312,7 +312,39 @@ func messageOf(r MessageRow, convID, uid string) *messagingv1.Message {
 	case msgRemoved:
 		m.State = messagingv1.MessageState_MESSAGE_STATE_REMOVED
 	}
+	setEncrypted(m, r.MsgDoc)
 	return m
+}
+
+// setEncrypted fills the encrypted-message fields of a wire Message from the stored one (every place a stored message
+// becomes a Message: ListMessages, ListEpochMessages, the SendMessage answer). A plaintext message (no pair) is left
+// alone. An encrypted one always carries its pair and never text; its ciphertext and report commitment only while the
+// message is VISIBLE, not swept and the bytes are there. Otherwise (a tombstone, whatever its stored bytes still say; a
+// swept message; no bytes) ciphertext_removed is set and both stay empty.
+func setEncrypted(m *messagingv1.Message, d MsgDoc) {
+	if d.MlsGen < 1 {
+		return
+	}
+	m.Text = ""
+	m.MlsGeneration, m.MlsEpoch = wirePair(d.MlsGen), wirePair(d.MlsEpoch)
+	if m.State == messagingv1.MessageState_MESSAGE_STATE_VISIBLE && d.ciphertextKept() {
+		m.Ciphertext, m.ReportCommitment = d.Ciphertext, d.Commitment
+		return
+	}
+	m.CiphertextRemoved = true
+}
+
+// ciphertextKept is the byte half of the "ciphertext and commitment are present" rule: not swept and the ciphertext is
+// there. setEncrypted and the report lookup (report.go) both combine it with the VISIBLE state.
+func (d MsgDoc) ciphertextKept() bool { return !d.CtRemoved && len(d.Ciphertext) > 0 }
+
+// encryptionOf is Conversation.encryption and its current pair as the conversation document has them (NONE with (0, 0)
+// for a plaintext conversation).
+func encryptionOf(c ConvDoc) (messagingv1.ConversationEncryption, uint64, uint64) {
+	if !c.encrypted() {
+		return messagingv1.ConversationEncryption_CONVERSATION_ENCRYPTION_NONE, 0, 0
+	}
+	return messagingv1.ConversationEncryption_CONVERSATION_ENCRYPTION_MLS, wirePair(c.MlsGen), wirePair(c.MlsEpoch)
 }
 
 // threadConversation is Conversation as ListMessages carries it: identity, peer, state, folder and can_reply. The counters
@@ -328,6 +360,8 @@ func threadConversation(convID string, conv ConvDoc, uid, peer string, prof iden
 		Id: convID, Kind: messagingv1.ConversationKind_CONVERSATION_KIND_DIRECT,
 		State: messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, Folder: messagingv1.Folder_FOLDER_INBOX,
 	}
+	// Encryption and the pair from the conversation (the 60 s instance copy), before any of the early returns below.
+	c.Encryption, c.MlsGeneration, c.MlsEpoch = encryptionOf(conv)
 	if conv.State == stateRequest {
 		c.State = messagingv1.ConversationState_CONVERSATION_STATE_REQUEST
 		if conv.RequestTo == uid {

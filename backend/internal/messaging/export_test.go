@@ -125,12 +125,83 @@ func TestExport_OwnTextReceivedAsTimeOnlyNoPeerUID(t *testing.T) {
 	}
 }
 
-// An empty account exports a valid empty section with no lookup.
+// An empty account exports a valid empty section with no lookup and no note: exactly the bytes it had before encrypted
+// messages existed.
 func TestExport_Empty(t *testing.T) {
 	h := &fakeHandles{}
 	raw, v := exportOf(t, &fakeExportSource{}, h)
 	if len(v["conversations"].([]any)) != 0 || len(h.calls) != 0 {
 		t.Errorf("section = %s, directory calls %v", raw, h.calls)
+	}
+	if want := `{"conversations":[]}` + "\n"; raw != want {
+		t.Errorf("section = %q, want %q", raw, want)
+	}
+}
+
+// The note is written only when at least one exported message is encrypted, after the conversations: an export of
+// plaintext conversations has none (byte-identical to an export before encrypted messages existed).
+func TestExport_NoteOnlyWithEncryptedMessages(t *testing.T) {
+	plain := &fakeExportSource{
+		convs: []ExportConv{{ID: "c1", PeerUID: "uid-peer", State: stateAccepted, CreatedAt: ts(10)}},
+		msgs:  map[string][]ExportMsg{"c1": {{ID: "m1", FromSelf: true, Text: "plain words", State: msgVisible, CreatedAt: ts(11)}}},
+	}
+	raw, v := exportOf(t, plain, &fakeHandles{byUID: map[string]string{"uid-peer": "peer"}})
+	if _, ok := v["note"]; ok || strings.Contains(raw, "note") {
+		t.Errorf("a plaintext-only export carries a note:\n%s", raw)
+	}
+	enc := &fakeExportSource{
+		convs: []ExportConv{
+			{ID: "c2", PeerUID: "uid-peer", State: stateAccepted, CreatedAt: ts(20)},
+			{ID: "c1", PeerUID: "uid-peer", State: stateAccepted, CreatedAt: ts(10)},
+		},
+		msgs: map[string][]ExportMsg{
+			"c2": {{ID: "m2", FromSelf: true, Text: "plain", State: msgVisible, CreatedAt: ts(21)}},
+			"c1": {{ID: "m1", FromSelf: false, State: msgVisible, CreatedAt: ts(11), Encrypted: true}},
+		},
+	}
+	raw, v = exportOf(t, enc, &fakeHandles{byUID: map[string]string{"uid-peer": "peer"}})
+	if v["note"] != exportNote {
+		t.Errorf("note = %v, want the encrypted-messages note", v["note"])
+	}
+	if !strings.HasPrefix(raw, `{"conversations":[`) || !strings.HasSuffix(raw, `],"note":"`+exportNote+`"}`+"\n") {
+		t.Errorf("section = %q, want the note after the conversations", raw)
+	}
+	if exportNote != "Encrypted messages can only be read on your devices, so their content is not included in this export." {
+		t.Errorf("note text = %q", exportNote)
+	}
+}
+
+// An encrypted message, sent or received, is exactly {direction, at, state, encrypted: true}: no text and no post id,
+// whatever the stored text field says; plaintext rows next to it keep their shape.
+func TestExport_EncryptedMessages(t *testing.T) {
+	src := &fakeExportSource{
+		convs: []ExportConv{{ID: "c1", PeerUID: "uid-peer", State: stateAccepted, CreatedAt: ts(10)}},
+		msgs: map[string][]ExportMsg{"c1": {
+			{ID: "m4", FromSelf: false, Text: "NEVER", State: msgVisible, CreatedAt: ts(14), Encrypted: true},
+			{ID: "m3", FromSelf: true, Text: "NEVER", State: msgRemoved, CreatedAt: ts(13), SharedPostID: "post-NEVER", Encrypted: true},
+			{ID: "m2", FromSelf: true, State: msgVisible, CreatedAt: ts(12), Encrypted: true},
+			{ID: "m1", FromSelf: true, Text: "plain words", State: msgVisible, CreatedAt: ts(11)},
+		}},
+	}
+	raw, v := exportOf(t, src, &fakeHandles{byUID: map[string]string{"uid-peer": "peer"}})
+	if strings.Contains(raw, "NEVER") {
+		t.Errorf("an encrypted message carried text or a post id:\n%s", raw)
+	}
+	if v["note"] != exportNote {
+		t.Errorf("note = %v", v["note"])
+	}
+	msgs := v["conversations"].([]any)[0].(map[string]any)["messages"].([]any)
+	want := []string{
+		`{"at":"2023-11-14T22:13:34Z","direction":"received","encrypted":true,"state":"VISIBLE"}`,
+		`{"at":"2023-11-14T22:13:33Z","direction":"sent","encrypted":true,"state":"REMOVED"}`,
+		`{"at":"2023-11-14T22:13:32Z","direction":"sent","encrypted":true,"state":"VISIBLE"}`,
+		`{"at":"2023-11-14T22:13:31Z","direction":"sent","state":"VISIBLE","text":"plain words"}`,
+	}
+	for i, m := range msgs {
+		got, _ := json.Marshal(m)
+		if string(got) != want[i] {
+			t.Errorf("message %d = %s, want %s", i, got, want[i])
+		}
 	}
 }
 

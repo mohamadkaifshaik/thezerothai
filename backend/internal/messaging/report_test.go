@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -89,7 +90,7 @@ func TestReportableMessage_ParticipantMatrix(t *testing.T) {
 				if !errors.Is(err, tt.want) || err != tt.want { //nolint:errorlint // the sentinel itself is the contract: one value per cause class
 					t.Fatalf("err = %v, want exactly %v", err, tt.want)
 				}
-				if got != (ReportedMessage{}) {
+				if !reflect.DeepEqual(got, ReportedMessage{}) {
 					t.Errorf("a refusal returned evidence: %+v", got)
 				}
 				return

@@ -49,7 +49,8 @@ var _ Moderator = (*FirestoreRepo)(nil)
 
 // TakedownMessage implements Moderator. One transaction reads everything first, then writes: the message becomes `REMOVED`
 // with its text and request digest cleared (field-level Update, never Set, so a message deleted meanwhile is never
-// recreated), and every participant's entry whose preview (`last.messageId`) is this message gets its snippet replaced and
+// recreated; an encrypted message also loses its ciphertext, commitment and ctExpireAt and gets ctRemoved, keeping its
+// pair and mlsKey; its conversation's commit and welcome records are untouched), and every participant's entry whose preview (`last.messageId`) is this message gets its snippet replaced and
 // its `last.state` set to REMOVED. lastMessageAt is not touched (the inbox keeps its order). A takedown reaches devices that
 // cached the thread or the inbox: the conversation gets `rev` +1 (a ListMessages since token
 // issued before it is retired at the next poll, the client cold-opens and drops the cached text) and `updatedAt` strictly
@@ -135,11 +136,17 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 			}
 
 			b := store.NewFirestoreTxBatch(tx)
-			b.Update(r.msgRef(convID, msgID), []firestore.Update{
+			ups := []firestore.Update{
 				{Path: "state", Value: msgRemoved}, {Path: "text", Value: ""}, {Path: "requestHash", Value: ""},
 				{Path: "sharedPostId", Value: firestore.Delete}, // the shared post's id goes with the text
 				{Path: "removedAt", Value: firestore.ServerTimestamp},
-			})
+			}
+			if msg.MlsGen >= 1 {
+				// An encrypted message's bytes go with it: ciphertext, commitment and ctExpireAt deleted, ctRemoved set; its
+				// pair and mlsKey stay (it remains in its epoch's completeness set).
+				ups = append(ups, ciphertextRemoval()...)
+			}
+			b.Update(r.msgRef(convID, msgID), ups)
 			// The thread revision: every ListMessages since token issued before this commit is retired at its next poll, even
 			// when no inbox preview shows the message (the thread still did). updatedAt moves strictly forward so the instance
 			// cache, which never replaces a copy with an older updatedAt (putConv), cannot restore a pre-takedown one. The stamp

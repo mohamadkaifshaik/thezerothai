@@ -91,6 +91,42 @@ class Folder extends $pb.ProtobufEnum {
   const Folder._(super.value, super.name);
 }
 
+/// Whether a conversation is end-to-end encrypted. One-way: NONE becomes MLS once and never returns (file comment).
+/// Additive.
+class ConversationEncryption extends $pb.ProtobufEnum {
+  /// Not reported: a ListConversations row (the folder entry does not carry it; use MessagePreview.encrypted there,
+  /// and ListMessages for the conversation's own value), a ListMessages since response, or a server older than this
+  /// field (treat as NONE).
+  static const ConversationEncryption CONVERSATION_ENCRYPTION_UNSPECIFIED =
+      ConversationEncryption._(
+          0, _omitEnumNames ? '' : 'CONVERSATION_ENCRYPTION_UNSPECIFIED');
+
+  /// Plaintext: the server holds the text.
+  static const ConversationEncryption CONVERSATION_ENCRYPTION_NONE =
+      ConversationEncryption._(
+          1, _omitEnumNames ? '' : 'CONVERSATION_ENCRYPTION_NONE');
+
+  /// An MLS group of all devices of both participants; messages are ciphertext only. Plaintext sends are refused
+  /// (ENCRYPTION_REQUIRED).
+  static const ConversationEncryption CONVERSATION_ENCRYPTION_MLS =
+      ConversationEncryption._(
+          2, _omitEnumNames ? '' : 'CONVERSATION_ENCRYPTION_MLS');
+
+  static const $core.List<ConversationEncryption> values =
+      <ConversationEncryption>[
+    CONVERSATION_ENCRYPTION_UNSPECIFIED,
+    CONVERSATION_ENCRYPTION_NONE,
+    CONVERSATION_ENCRYPTION_MLS,
+  ];
+
+  static final $core.List<ConversationEncryption?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static ConversationEncryption? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const ConversationEncryption._(super.value, super.name);
+}
+
 class MessageState extends $pb.ProtobufEnum {
   static const MessageState MESSAGE_STATE_UNSPECIFIED =
       MessageState._(0, _omitEnumNames ? '' : 'MESSAGE_STATE_UNSPECIFIED');

@@ -133,6 +133,12 @@ AppException mapConnectError(Object error) {
         return CommunityStateException(
           CommunityStateReason.fromWire(detail.metadata['reason']),
         );
+      // End-to-end encrypted conversations (messaging.v1). No released client sends ciphertext yet; the
+      // encrypted-messaging client gives both their own types. Until then they are a generic error, never the
+      // FAILED_PRECONDITION code fallback (ProfileRequired).
+      case common.ErrorReason.ERROR_REASON_STALE_EPOCH:
+      case common.ErrorReason.ERROR_REASON_ENCRYPTION_REQUIRED:
+        return UnknownApiException(message);
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         // A state conflict keyed by `metadata["reason"]` (the beacons backend): typed, never
         // "profile required". Without a reason the code mapping below still applies.

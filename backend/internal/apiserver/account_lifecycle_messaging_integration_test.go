@@ -93,15 +93,17 @@ func (e *lifecycleEnv) seedGoneConversation(t *testing.T, a string) string {
 	return e.seedConversation(t, a, ghost, "ACCEPTED", "", ghost, dmMsg{a, "hello ghost"}, dmMsg{ghost, "hello a"}, dmMsg{a, "bye"})
 }
 
-// requireMessagingGone: nothing of the conversation tree survives.
+// requireMessagingGone: nothing of the conversation tree survives (the document, its messages, its commit records).
 func (e *lifecycleEnv) requireMessagingGone(t *testing.T, convID string) {
 	t.Helper()
 	ctx := context.Background()
 	if fsDocExists(t, e.fs, "conversations/"+convID) {
 		t.Errorf("conversations/%s survived", convID[:8])
 	}
-	if docs, err := e.fs.Collection("conversations").Doc(convID).Collection("messages").Limit(1).Documents(ctx).GetAll(); err != nil || len(docs) != 0 {
-		t.Errorf("conversations/%s/messages survived: %d docs, err %v", convID[:8], len(docs), err)
+	for _, sub := range []string{"messages", "commits"} {
+		if docs, err := e.fs.Collection("conversations").Doc(convID).Collection(sub).Limit(1).Documents(ctx).GetAll(); err != nil || len(docs) != 0 {
+			t.Errorf("conversations/%s/%s survived: %d docs, err %v", convID[:8], sub, len(docs), err)
+		}
 	}
 }
 

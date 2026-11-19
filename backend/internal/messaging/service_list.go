@@ -323,7 +323,8 @@ func peerSnapshotOf(peerID string, p PeerDoc) *commonv1.AuthorSnapshot {
 }
 
 // previewOf is the last-message line. A tombstone (the sender deleted the account, or a moderator removed it) has an
-// empty snippet; the client renders "Message deleted".
+// empty snippet; the client renders "Message deleted". An encrypted last message (last.encrypted) is encrypted = true with
+// an empty snippet and shared_post false, whatever else the entry holds: the server never has text for it.
 func previewOf(r EntryRow) *messagingv1.MessagePreview {
 	p := &messagingv1.MessagePreview{FromSelf: r.Last.FromSelf, CreatedAt: timestamppb.New(r.LastMessageAt)}
 	switch r.Last.State {
@@ -333,6 +334,9 @@ func previewOf(r EntryRow) *messagingv1.MessagePreview {
 		p.State = messagingv1.MessageState_MESSAGE_STATE_DELETED_ACCOUNT
 	case msgRemoved:
 		p.State = messagingv1.MessageState_MESSAGE_STATE_REMOVED
+	}
+	if r.Last.Encrypted {
+		p.Encrypted, p.Snippet, p.SharedPost = true, "", false
 	}
 	return p
 }

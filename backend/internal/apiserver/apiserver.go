@@ -815,11 +815,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
 	})
 
-	// Messaging: SendMessage behind FEATURE_MESSAGING, per caller and per recipient; ListConversations
-	// is not globally off; the other three RPCs check the flag and answer Unimplemented until it ships. Badge evicts identity's cached
+	// Messaging: SendMessage, AcceptMessageRequest and CommitConversation behind FEATURE_MESSAGING per caller (Send and Accept
+	// also per recipient); the lists, MarkConversationRead, DeleteConversation and the MLS sync RPCs (ListConversationCommits,
+	// ListEpochMessages, ListWelcomes, AckWelcomes) need it not globally off. Badge evicts identity's cached
 	// unread_conversation_count; the push event is adapted to notifications.Emitter (a no-op until it ships adds the type).
 	// F30: the plan and community sources of ListMessageSuggestions are bound once beacons and communities exist (below).
 	suggestPlans, suggestCommunities := &latePlanMates{}, &lateCommunityMates{}
+	// The mls_init welcome-device check reads the key directory, bound below once keys is built.
+	keyDevices := &lateKeyDevices{}
 	messagingSvc := messaging.New(featureFlags, messaging.Deps{
 		Repo: messagingRepo, Social: graphSvc, Profiles: identitySvc.(identity.Directory), Events: messageNotifier{slot: notifSlot},
 		TxSocial: graphRepo, TxProfiles: identityRepo, AllowAnonymous: cfg.AuthEmulator, // Recipient graph and users doc in the send transaction
@@ -829,6 +832,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			DMNewPerDay:          int64(cfg.Quota.DMNewConversationsPerDay), NewAccountDMNewPerDay: int64(cfg.Quota.NewAccountDMNewConversationsPerDay),
 			NewAccountSendsPerDay: int64(cfg.Messaging.NewAccountSendsPerDay), NewAccountWindow: cfg.Quota.NewAccountWindow,
 			ConversationCacheEntries: cfg.Messaging.ConversationCacheEntries,
+			// The CommitConversation reset cap (messages_resets_daily) and per-(caller, conversation) cap
+			// (messages_commits_per_conversation_daily); the per-call cap is the interceptor's.
+			ResetsPerDay:                 cfg.RateLimit.MessagesResetsPerDay,
+			CommitsPerConversationPerDay: cfg.RateLimit.MessagesCommitsPerConversationPerDay,
 		},
 		CursorKey: cfg.CursorHMACKey,
 		Log:       log,
@@ -839,6 +846,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Shares:    engagementMod,
 		// F30: follow-back answers from graph's batched edge lookup; plans and communities late-bound.
 		Suggestions: messaging.SuggestionDeps{Follows: graphSvc, Plans: suggestPlans, Communities: suggestCommunities},
+		Devices:     keyDevices,
 	})
 	reporter, ok := messagingSvc.(messaging.MessageReporter)
 	if !ok {
@@ -973,6 +981,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
+	keyDir, ok := keysMod.svc.(keys.DeviceDirectory)
+	if !ok {
+		return nil, nil, errors.New("keys service does not implement DeviceDirectory")
+	}
+	keyDevices.dir = keyDir
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return keysv1connect.NewKeyServiceHandler(keysMod.server, o...)
 	})
@@ -1032,14 +1045,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
 	routes.internal("/internal/pubsub/jobs", lifecycle.JobsHandler())
 	// The same route also runs the trends refresh after the backstop, but its status is the
-	// backstop's alone. The poll vote sweep runs first, the media orphan sweep last (it takes only what trends left). The
+	// backstop's alone. The poll vote sweep runs first, then trends, the media orphan sweep and, last, the ciphertext
+	// retention sweep (each of the last two takes only what is left). The
 	// standalone route is for dev (no Scheduler jobs there) and a later hourly job.
+	// The ciphertext sweep also rides the hourly trends-refresh tick (the one hourly job in dev AND prod), after the
+	// refresh and on its leftover time only, never changing the route's response (ciphertext_sweep.go).
+	ciphertextStep := ciphertextSweepStep{sweeper: messagingRepo, limit: messaging.CiphertextSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now}
 	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), stepChain{
 		pollVoteSweepStep{sweeper: engagementRepo, ttl: cfg.Composer.PollVoteTTLAfterClose, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 		trendsRefresher,
 		mediaOrphanSweepStep{sweeper: mediaMod.orphans, mode: cfg.MediaOrphanSweep, limit: media.OrphanSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
+		ciphertextStep,
 	}, log, cfg.ProjectID, time.Now))
-	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
+	routes.internal("/internal/cron/trends-refresh", withCiphertextSweep(search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID), ciphertextStep, cfg.ProjectID, time.Now))
 	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline and panic
 	// recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and
 	// DEGRADED_MODE=readonly are checked inside the sweep, which then answers 204.

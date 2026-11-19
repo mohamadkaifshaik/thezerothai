@@ -76,6 +76,24 @@ void main() {
   });
 
   group('mapConnectError', () {
+    for (final reason in [
+      common.ErrorReason.ERROR_REASON_STALE_EPOCH,
+      common.ErrorReason.ERROR_REASON_ENCRYPTION_REQUIRED,
+    ]) {
+      test('$reason is a generic error, never ProfileRequired', () {
+        final result = mapConnectError(
+          _withDetail(
+            connect.Code.failedPrecondition,
+            'fallback',
+            common.ErrorDetail(reason: reason, message: 'Try again'),
+          ),
+        );
+
+        expect(result, isA<UnknownApiException>());
+        expect(result.message, 'Try again');
+      });
+    }
+
     test('maps a non-Connect error to NetworkException', () {
       final result = mapConnectError(Exception('socket closed'));
       expect(result, isA<NetworkException>());

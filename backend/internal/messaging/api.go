@@ -1,12 +1,15 @@
 // Package messaging is the direct-message module: 1:1 text conversations, pull plus push, no realtime
-// transport, no end-to-end encryption. It owns conversations/{convId}, conversations/{convId}/messages/{msgId},
-// users/{uid}/dmInbox/{convId} and users/{uid}/dmRequests/{convId}. Other modules reach it through the interfaces in
+// transport, plaintext or end-to-end encrypted (MLS). It owns conversations/{convId}, conversations/{convId}/messages/{msgId},
+// conversations/{convId}/commits/{gen_epoch}, users/{uid}/dmInbox/{convId}, users/{uid}/dmRequests/{convId} and
+// users/{uid}/dmWelcomes/{welcomeId}. Other modules reach it through the interfaces in
 // this file only.
 //
-// Layout: the flag gate (FEATURE_MESSAGING, D6) and the six Connect handlers (server.go); SendMessage
+// Layout: the flag gate (FEATURE_MESSAGING, D6) and the Connect handlers of every MessagingService RPC (server.go); SendMessage
 // (service_send.go, repo_firestore.go) and the lifecycle (eraser.go, export.go), ListConversations
 // (service_list.go), ListMessages and MarkConversationRead (service_messages.go), AcceptMessageRequest and
-// DeleteConversation (service_accept_delete.go, repo_accept_delete.go).
+// DeleteConversation (service_accept_delete.go, repo_accept_delete.go); end-to-end encryption (MLS): mls_init in the send,
+// CommitConversation (service_mls.go) and the sync RPCs ListConversationCommits, ListEpochMessages, ListWelcomes and
+// AckWelcomes (service_sync.go), all on the commit and welcome documents of repo_mls.go.
 package messaging
 
 import (
@@ -50,11 +53,21 @@ type Service interface {
 	Delete(ctx context.Context, uid string, req *messagingv1.DeleteConversationRequest) (*messagingv1.DeleteConversationResponse, error)
 	// ListSuggestions answers ListMessageSuggestions (F30): messaging and dm_suggestions on for the caller; nothing stored.
 	ListSuggestions(ctx context.Context, uid string, req *messagingv1.ListMessageSuggestionsRequest) (*messagingv1.ListMessageSuggestionsResponse, error)
+	// Commit answers CommitConversation (a commit or a reset of an encrypted conversation): messaging on for the caller
+	// (perCaller, as Send), verified email; see service_mls.go and the RPC comment for the order of answers.
+	Commit(ctx context.Context, uid string, req *messagingv1.CommitConversationRequest) (*messagingv1.CommitConversationResponse, error)
+	// The MLS sync reads and AckWelcomes (service_sync.go): "messaging" only not globally off (a caller dropped from the
+	// allowlist keeps catching up); e2ee_dm is never needed.
+	ListCommits(ctx context.Context, uid string, req *messagingv1.ListConversationCommitsRequest) (*messagingv1.ListConversationCommitsResponse, error)
+	ListEpochMessages(ctx context.Context, uid string, req *messagingv1.ListEpochMessagesRequest) (*messagingv1.ListEpochMessagesResponse, error)
+	ListWelcomes(ctx context.Context, uid string, req *messagingv1.ListWelcomesRequest) (*messagingv1.ListWelcomesResponse, error)
+	AckWelcomes(ctx context.Context, uid string, req *messagingv1.AckWelcomesRequest) (*messagingv1.AckWelcomesResponse, error)
 }
 
 // Permission is the messaging send rules as a yes/no question for another module (the key directory,
 // internal/keys, through an apiserver adapter): may callerUID message targetUID? It is a separate interface, not part of
-// Service, and the composition root type-asserts the service to it like MessageReporter. CanMessage writes nothing.
+// Service, and the composition root type-asserts the service to it like MessageReporter (report.go, which also holds
+// ReportCommitment and VerifyReportPayload, the one check of a reporter's payload against the sender's commitment). CanMessage writes nothing.
 // Every refusal is ErrCannotMessage itself (never a wire error); ErrSelf is the caller asking about themselves; any
 // other error is a failure to decide (a read failed), never a refusal. See permission.go for the rules and reads.
 type Permission interface {
@@ -127,6 +140,18 @@ func NewUnreadBadge(c UnreadCounter) *UnreadBadge { return &UnreadBadge{counter:
 // UnreadConversations returns the unread conversation count, at most 100; it never writes.
 func (b *UnreadBadge) UnreadConversations(ctx context.Context, uid string) (int64, error) {
 	return b.counter.CountUnreadConversations(ctx, uid)
+}
+
+// Devices is the seam to the key directory (keys.DeviceDirectory, adapted by the composition root; messaging does not
+// call the keys service): the ACTIVE encryption device ids of a user, at most 5, from one bounded query, without any
+// permission or e2ee_dm check (messaging applies its own rules first). It is read for the welcome-device check only:
+// before the send transaction of an mls_init, and during the CommitConversation transaction (after its conversation read
+// names the peer; not a transactional read). A read failure is an error, never "no devices". Device ids are never logged.
+// DeviceIDs is every REGISTERED device id of a user, active or not (at most 5, one bounded query): the ownership check of
+// ListWelcomes and AckWelcomes device_id.
+type Devices interface {
+	ActiveDeviceIDs(ctx context.Context, uid string) ([]string, error)
+	DeviceIDs(ctx context.Context, uid string) ([]string, error)
 }
 
 // TxSocial is the seam to graph.TxReader (*graph.FirestoreRepo satisfies it): the recipient's graph/{uid} read INSIDE

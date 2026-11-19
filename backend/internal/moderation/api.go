@@ -138,6 +138,18 @@ type Evidence struct {
 	// PollChoices are the labels of the reported post's poll, empty for a post without one; for a REPOST report they are
 	// the original's (from its frozen embed). Labels only: no counts, no voters.
 	PollChoices []string
+	// MESSAGE reports of an end-to-end encrypted message only (kept in the evidence child with Text, same retention):
+	// MessageEncrypted says Text and SharedPostID were disclosed by the reporter (ReportContentRequest.message_payload);
+	// MessageVerified says they hash to the sender's report commitment. An encrypted report without MessageVerified is
+	// the reporter's word only and must be shown as NOT verified. SharedPostID is the disclosed shared post id (19 digits)
+	// or "" (none, or not a post id). The payload's report_key, the raw payload, the ciphertext and the commitment are never kept.
+	MessageEncrypted bool
+	MessageVerified  bool
+	SharedPostID     string
+	// MessageUndecodable: the disclosed bytes are exactly what the sender committed to (MessageVerified is true) but are
+	// not well-formed protobuf, so there is no text: the sender's device sent malformed content. Kept so a hostile sender
+	// cannot make a message unreportable; nothing of the bytes is stored.
+	MessageUndecodable bool
 	// TextExpired is set only by Ops.Get on a MESSAGE report whose child evidence document is gone (its TTL ran):
 	// Text is then empty because the copy was deleted, not because the message was empty. Never stored.
 	TextExpired bool
@@ -168,6 +180,9 @@ type ReportInput struct {
 	TargetID       string
 	Reason         Reason
 	Note           string
+	// MessagePayload is ReportContentRequest.message_payload: a MESSAGE report of an encrypted message only. Private
+	// content: never logged, never stored as such (only the parsed text and shared post id reach the evidence).
+	MessagePayload []byte
 }
 
 // ReportResult is the ReportContent outcome.

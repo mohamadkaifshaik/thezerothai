@@ -35,6 +35,16 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $4.DeleteConversationRequest request);
   $async.Future<$4.ListMessageSuggestionsResponse> listMessageSuggestions(
       $pb.ServerContext ctx, $4.ListMessageSuggestionsRequest request);
+  $async.Future<$4.CommitConversationResponse> commitConversation(
+      $pb.ServerContext ctx, $4.CommitConversationRequest request);
+  $async.Future<$4.ListConversationCommitsResponse> listConversationCommits(
+      $pb.ServerContext ctx, $4.ListConversationCommitsRequest request);
+  $async.Future<$4.ListEpochMessagesResponse> listEpochMessages(
+      $pb.ServerContext ctx, $4.ListEpochMessagesRequest request);
+  $async.Future<$4.ListWelcomesResponse> listWelcomes(
+      $pb.ServerContext ctx, $4.ListWelcomesRequest request);
+  $async.Future<$4.AckWelcomesResponse> ackWelcomes(
+      $pb.ServerContext ctx, $4.AckWelcomesRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -52,6 +62,16 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
         return $4.DeleteConversationRequest();
       case 'ListMessageSuggestions':
         return $4.ListMessageSuggestionsRequest();
+      case 'CommitConversation':
+        return $4.CommitConversationRequest();
+      case 'ListConversationCommits':
+        return $4.ListConversationCommitsRequest();
+      case 'ListEpochMessages':
+        return $4.ListEpochMessagesRequest();
+      case 'ListWelcomes':
+        return $4.ListWelcomesRequest();
+      case 'AckWelcomes':
+        return $4.AckWelcomesRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -77,6 +97,17 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
       case 'ListMessageSuggestions':
         return listMessageSuggestions(
             ctx, request as $4.ListMessageSuggestionsRequest);
+      case 'CommitConversation':
+        return commitConversation(ctx, request as $4.CommitConversationRequest);
+      case 'ListConversationCommits':
+        return listConversationCommits(
+            ctx, request as $4.ListConversationCommitsRequest);
+      case 'ListEpochMessages':
+        return listEpochMessages(ctx, request as $4.ListEpochMessagesRequest);
+      case 'ListWelcomes':
+        return listWelcomes(ctx, request as $4.ListWelcomesRequest);
+      case 'AckWelcomes':
+        return ackWelcomes(ctx, request as $4.AckWelcomesRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

@@ -19,9 +19,9 @@ import (
 // rpcDeadline bounds one messaging call (<= 10 s).
 const rpcDeadline = 8 * time.Second
 
-// Server adapts Service to messagingv1connect.MessagingServiceHandler.
+// Server adapts Service to messagingv1connect.MessagingServiceHandler. It embeds no Unimplemented handler: every
+// procedure of the service is implemented here, and a new one fails the build until it is.
 type Server struct {
-	messagingv1connect.UnimplementedMessagingServiceHandler
 	svc Service
 }
 
@@ -78,4 +78,29 @@ func (s *Server) DeleteConversation(ctx context.Context, req *connect.Request[me
 // ListMessageSuggestions implements the RPC; the rules are Service.ListSuggestions.
 func (s *Server) ListMessageSuggestions(ctx context.Context, req *connect.Request[messagingv1.ListMessageSuggestionsRequest]) (*connect.Response[messagingv1.ListMessageSuggestionsResponse], error) {
 	return call(ctx, req, s.svc.ListSuggestions)
+}
+
+// CommitConversation implements the RPC; the rules (flag per caller, verified email, the reset cap) are Service.Commit.
+func (s *Server) CommitConversation(ctx context.Context, req *connect.Request[messagingv1.CommitConversationRequest]) (*connect.Response[messagingv1.CommitConversationResponse], error) {
+	return call(ctx, req, s.svc.Commit)
+}
+
+// ListConversationCommits implements the RPC; the rules are Service.ListCommits.
+func (s *Server) ListConversationCommits(ctx context.Context, req *connect.Request[messagingv1.ListConversationCommitsRequest]) (*connect.Response[messagingv1.ListConversationCommitsResponse], error) {
+	return call(ctx, req, s.svc.ListCommits)
+}
+
+// ListEpochMessages implements the RPC; the rules are Service.ListEpochMessages.
+func (s *Server) ListEpochMessages(ctx context.Context, req *connect.Request[messagingv1.ListEpochMessagesRequest]) (*connect.Response[messagingv1.ListEpochMessagesResponse], error) {
+	return call(ctx, req, s.svc.ListEpochMessages)
+}
+
+// ListWelcomes implements the RPC; the rules are Service.ListWelcomes.
+func (s *Server) ListWelcomes(ctx context.Context, req *connect.Request[messagingv1.ListWelcomesRequest]) (*connect.Response[messagingv1.ListWelcomesResponse], error) {
+	return call(ctx, req, s.svc.ListWelcomes)
+}
+
+// AckWelcomes implements the RPC; the rules are Service.AckWelcomes.
+func (s *Server) AckWelcomes(ctx context.Context, req *connect.Request[messagingv1.AckWelcomesRequest]) (*connect.Response[messagingv1.AckWelcomesResponse], error) {
+	return call(ctx, req, s.svc.AckWelcomes)
 }
