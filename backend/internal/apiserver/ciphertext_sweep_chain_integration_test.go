@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"testing"
 	"time"
 
@@ -18,6 +19,20 @@ import (
 )
 
 func TestCiphertextSweepChain_DailyStepBlanksExpired(t *testing.T) {
+	testCiphertextSweepOnRoute(t, func(e *lifecycleEnv) { e.runDailyMaintenance(t) })
+}
+
+// The hourly tick: /internal/cron/trends-refresh answers as before (the refresh's status) and then blanks the expired message.
+func TestCiphertextSweepChain_HourlyTrendsTickBlanksExpired(t *testing.T) {
+	testCiphertextSweepOnRoute(t, func(e *lifecycleEnv) {
+		if got := postRoute(t, e.url+"/internal/cron/trends-refresh", http.MethodPost); got != http.StatusNoContent {
+			t.Fatalf("trends-refresh = %d, want 204", got)
+		}
+	})
+}
+
+func testCiphertextSweepOnRoute(t *testing.T, call func(e *lifecycleEnv)) {
+	t.Helper()
 	ctx := context.Background()
 	e := newLifecycleEnvCfg(t, nil, nil)
 	conv := fmt.Sprintf("%016x%016x", rand.Uint64(), rand.Uint64())
@@ -34,7 +49,7 @@ func TestCiphertextSweepChain_DailyStepBlanksExpired(t *testing.T) {
 	seed("expired", now.Add(-time.Minute))
 	seed("young", now.Add(time.Hour))
 
-	e.runDailyMaintenance(t)
+	call(e)
 
 	get := func(id string) map[string]any {
 		t.Helper()

@@ -1046,13 +1046,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// backstop's alone. The poll vote sweep runs first, then trends, the media orphan sweep and, last, the ciphertext
 	// retention sweep (each of the last two takes only what is left). The
 	// standalone route is for dev (no Scheduler jobs there) and a later hourly job.
+	// The ciphertext sweep also rides the hourly trends-refresh tick (the one hourly job in dev AND prod), after the
+	// refresh and on its leftover time only, never changing the route's response (ciphertext_sweep.go).
+	ciphertextStep := ciphertextSweepStep{sweeper: messagingRepo, limit: messaging.CiphertextSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now}
 	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), stepChain{
 		pollVoteSweepStep{sweeper: engagementRepo, ttl: cfg.Composer.PollVoteTTLAfterClose, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 		trendsRefresher,
 		mediaOrphanSweepStep{sweeper: mediaMod.orphans, mode: cfg.MediaOrphanSweep, limit: media.OrphanSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
-		ciphertextSweepStep{sweeper: messagingRepo, limit: messaging.CiphertextSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
+		ciphertextStep,
 	}, log, cfg.ProjectID, time.Now))
-	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
+	routes.internal("/internal/cron/trends-refresh", withCiphertextSweep(search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID), ciphertextStep, cfg.ProjectID, time.Now))
 	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline and panic
 	// recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and
 	// DEGRADED_MODE=readonly are checked inside the sweep, which then answers 204.

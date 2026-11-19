@@ -130,11 +130,12 @@ func outboxSweepHandler(step outboxSweepStep, log *slog.Logger, projectID string
 }
 
 // cronStepBudget is the time budget of a step that rides another cron route: it gets min(max, cutoff - elapsed) and is
-// skipped (one `event` line, outcome skipped_deadline) below min.
+// skipped (one `event` line, outcome skipped_deadline, at skipLevel: the zero value is Info) below min.
 type cronStepBudget struct {
-	event    string
-	cutoff   time.Duration
-	max, min time.Duration
+	event     string
+	cutoff    time.Duration
+	max, min  time.Duration
+	skipLevel slog.Level
 }
 
 // withCronStep runs inner through a status-capturing writer, then run under the budget, then writes inner's captured
@@ -151,7 +152,7 @@ func withCronStep(inner http.Handler, b cronStepBudget, run func(context.Context
 
 		ctx := logger.WithTrace(r.Context(), logger.TraceFromRequest(r, projectID))
 		if left := b.cutoff - now().Sub(started); left < b.min {
-			log.InfoContext(ctx, b.event, append([]any{"outcome", "skipped_deadline", "left_ms", left.Milliseconds()}, logger.TraceAttrs(ctx)...)...)
+			log.Log(ctx, b.skipLevel, b.event, append([]any{"outcome", "skipped_deadline", "left_ms", left.Milliseconds()}, logger.TraceAttrs(ctx)...)...)
 		} else {
 			sctx, cancel := context.WithTimeout(ctx, min(b.max, left))
 			_ = run(sctx) // logged and reported by run; never the route's status

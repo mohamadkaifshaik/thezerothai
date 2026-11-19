@@ -28,7 +28,15 @@ func (e *itEnv) ctExpireAtOf(convID, msgID string) time.Time {
 	return at
 }
 
+// sweep runs one call and returns its counts (OldestDue zeroed, so results compare with ==); sweepFull keeps OldestDue.
 func (e *itEnv) sweep(now time.Time, limit int) CiphertextSweepResult {
+	e.t.Helper()
+	res := e.sweepFull(now, limit)
+	res.OldestDue = time.Time{}
+	return res
+}
+
+func (e *itEnv) sweepFull(now time.Time, limit int) CiphertextSweepResult {
 	e.t.Helper()
 	res, err := e.repo.SweepCiphertext(context.Background(), now, limit)
 	if err != nil {
@@ -73,7 +81,17 @@ func TestSweepCiphertext_BlanksAfter30Days(t *testing.T) {
 	if want := oldBefore["createdAt"].(time.Time).Add(CiphertextRetention); !now.Equal(want) {
 		t.Fatalf("ctExpireAt %v, want createdAt + 30 days %v", now, want)
 	}
-	res := e.sweep(now, CiphertextSweepPage)
+	initAt := time.Time{}
+	for id, d := range e.rawMsgs(convID) {
+		if id != old && id != young {
+			initAt = d["ctExpireAt"].(time.Time)
+		}
+	}
+	res := e.sweepFull(now, CiphertextSweepPage)
+	if !res.OldestDue.Equal(initAt) || !initAt.Before(now) {
+		t.Errorf("OldestDue = %v, want the init message's ctExpireAt %v (before %v)", res.OldestDue, initAt, now)
+	}
+	res.OldestDue = time.Time{}
 	if want := (CiphertextSweepResult{Due: 2, Swept: 2}); res != want { // the init message and old
 		t.Fatalf("sweep = %+v, want %+v", res, want)
 	}
@@ -255,8 +273,18 @@ func TestSweepCiphertext_LimitAndContinuation(t *testing.T) {
 		return out
 	}
 	for i, want := range []CiphertextSweepResult{{Due: 3, Swept: 3, More: true}, {Due: 3, Swept: 3, More: true}, {Due: 1, Swept: 1}, {}} {
-		if res := e.sweep(now, 3); res != want {
-			t.Fatalf("call %d = %+v, want %+v", i+1, res, want)
+		full := e.sweepFull(now, 3)
+		// OldestDue is the ctExpireAt of the oldest message still due when the call ran (zero once nothing is).
+		var wantOldest time.Time
+		if 3*i < len(due) {
+			wantOldest = due[3*i].at
+		}
+		if !full.OldestDue.Equal(wantOldest) {
+			t.Errorf("call %d OldestDue = %v, want %v", i+1, full.OldestDue, wantOldest)
+		}
+		full.OldestDue = time.Time{}
+		if full != want {
+			t.Fatalf("call %d = %+v, want %+v", i+1, full, want)
 		}
 		got := swept()
 		// Oldest first: after call k exactly the min(3k, 7) oldest due messages are blanked.

@@ -40,14 +40,20 @@ type CiphertextSweepResult struct {
 	Skipped int
 	// More is true when the page was full, so more may be due.
 	More bool
+	// OldestDue is the ctExpireAt of the page's first (oldest) due document, zero when nothing was due: now - OldestDue is
+	// how far the sweep is behind the 30-day promise.
+	OldestDue time.Time
 }
 
-// Add sums b into r (More is the last page's).
+// Add sums b into r (More is the last page's; OldestDue the first page's that had one).
 func (r *CiphertextSweepResult) Add(b CiphertextSweepResult) {
 	r.Due += b.Due
 	r.Swept += b.Swept
 	r.Skipped += b.Skipped
 	r.More = b.More
+	if r.OldestDue.IsZero() {
+		r.OldestDue = b.OldestDue
+	}
 }
 
 // CiphertextSweeper blanks the ciphertext of encrypted messages past their ctExpireAt (*FirestoreRepo implements it).
@@ -59,7 +65,7 @@ var _ CiphertextSweeper = (*FirestoreRepo)(nil)
 
 // SweepCiphertext runs one bounded page: the collection-group query `messages WHERE ctExpireAt <= now ORDER BY ctExpireAt
 // LIMIT limit` (the COLLECTION_GROUP ascending single-field index on messages.ctExpireAt, firebase/firestore.indexes.json;
-// Select with no fields, so no ciphertext is read), then one field-level Update per hit with the fields of
+// Select("ctExpireAt"), a timestamp: no ciphertext is read; the first one is OldestDue), then one field-level Update per hit with the fields of
 // ciphertextRemoval (the same as a takedown's and the eraser's tombstone) and a LastUpdateTime precondition equal to the
 // snapshot's: a message taken down, tombstoned or otherwise changed after the query is not rewritten but counted as
 // Skipped (FailedPrecondition), as is one deleted meanwhile (NotFound: Update never recreates it). It writes nothing else:
@@ -74,11 +80,16 @@ func (r *FirestoreRepo) SweepCiphertext(ctx context.Context, now time.Time, limi
 		return res, nil
 	}
 	docs, err := r.client.CollectionGroup(messagesCollection).Where("ctExpireAt", "<=", now).OrderBy("ctExpireAt", firestore.Asc).
-		Select().Limit(limit).Documents(ctx).GetAll()
+		Select("ctExpireAt").Limit(limit).Documents(ctx).GetAll()
 	if err != nil {
 		return res, fmt.Errorf("messaging: ciphertext sweep query: %w", err)
 	}
 	res.Due, res.More = len(docs), len(docs) == limit
+	if len(docs) > 0 {
+		if at, ok := docs[0].Data()["ctExpireAt"].(time.Time); ok {
+			res.OldestDue = at.UTC()
+		}
+	}
 	r.hooks.ciphertextSweepRead()
 
 	var (
