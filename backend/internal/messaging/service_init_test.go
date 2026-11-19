@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -320,7 +321,7 @@ func TestSendInit_Upgrade(t *testing.T) {
 	convID := ConversationID(alice, bob)
 	t.Run("accepted", func(t *testing.T) {
 		r := e2eeRig(t, nil, func(r *rig) {
-			r.repo.convs[convID] = ConvDoc{Kind: kindDirect, Participants: sortedPair(alice, bob), State: stateAccepted, UpdatedAt: r.now.Add(-1)}
+			r.repo.convs[convID] = ConvDoc{Kind: kindDirect, Participants: sortedPair(alice, bob), State: stateAccepted, UpdatedAt: r.now.Add(-time.Microsecond)} // Firestore's resolution: commitStamp answers r.now
 		})
 		resp, err := r.svc.Send(verifiedCtx(), alice, initSend(ikey(1), convID, "ct", devBob1))
 		if err != nil {

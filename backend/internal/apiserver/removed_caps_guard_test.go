@@ -37,9 +37,10 @@ var expectedDailyCaps = map[string][]string{
 	"messages_mutation_daily": {
 		messagingv1connect.MessagingServiceAcceptMessageRequestProcedure, messagingv1connect.MessagingServiceDeleteConversationProcedure,
 	},
-	// CommitConversation (E2EE, MESSAGES_COMMITS_PER_DAY): every call, a reset included. Its reset cap
-	// "messages_resets_daily" is drawn on by the messaging service (it reads the request's reset field), so it is not here;
-	// TestMessagingResetCap pins it.
+	// CommitConversation (E2EE, MESSAGES_COMMITS_PER_DAY): every call, a reset included. Its per-(caller, conversation) cap
+	// "messages_commits_per_conversation_daily" and its reset cap "messages_resets_daily" are drawn on by the messaging
+	// service (it reads the request's conversation id and reset field), so they are not here;
+	// TestMessagingSyncChain_CommitAndResetCaps pins both through the wired server.
 	"messages_commits_daily": {messagingv1connect.MessagingServiceCommitConversationProcedure},
 	"profile_update_daily":   {identityv1connect.IdentityServiceUpdateProfileProcedure},
 	"community_mod_actions_daily": {

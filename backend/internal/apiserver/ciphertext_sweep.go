@@ -93,9 +93,9 @@ func (s ciphertextSweepStep) Refresh(ctx context.Context) error {
 	switch {
 	case err != nil && ctx.Err() == nil:
 		outcome, level = "failed", slog.LevelError
-	case last.Due > 0 && last.Swept == 0:
+	case last.Due > 0 && last.Swept == 0 && ctx.Err() == nil:
 		// Every hit of the last page was skipped (changed between query and update): they stay due and come back first, so
-		// the run stopped rather than repeat them.
+		// the run stopped rather than repeat them. A page the budget cut short is partial instead (below).
 		outcome, level = "stalled", slog.LevelWarn
 	case err != nil || total.More:
 		// The budget or the page cap ran out with more due: the next run continues.

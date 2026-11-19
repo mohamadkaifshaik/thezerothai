@@ -209,6 +209,163 @@ func TestInit_UpgradesAPlaintextConversation(t *testing.T) {
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ENCRYPTION_REQUIRED, nil)
 }
 
+// initByConv is an mls_init by conversation id (the upgrade of an existing NONE conversation), welcoming ids.
+func initByConv(key, convID, tag string, ids ...string) *messagingv1.SendMessageRequest {
+	return &messagingv1.SendMessageRequest{
+		IdempotencyKey: key, Target: &messagingv1.SendMessageRequest_ConversationId{ConversationId: convID},
+		Ciphertext: []byte("ct:" + tag), ReportCommitment: itCommitment, MlsGeneration: 1, MlsEpoch: 1,
+		MlsInit: &messagingv1.MlsInit{Commit: []byte("commit:" + tag), Welcome: []byte("welcome:" + tag), WelcomeDeviceIds: ids},
+	}
+}
+
+// The upgrade stamps updatedAt strictly after the one its transaction read (commitStamp), whichever arm of the existing
+// conversation's update it takes: a plain upgrade, the requester's next message in a REQUEST (requestCount + 1) and the
+// recipient's accepting reply. The clock does not move between the plaintext send and the init: the tie. A stamp equal to
+// the old one would let the 60 s instance cache keep the NONE copy (putConv keeps a copy unless the newcomer is newer).
+func TestInit_UpgradeStampsStrictlyLater(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		mutual     bool
+		from       string
+		ids        []string
+		wantState  string
+		wantReqCnt int64
+	}{
+		{"plain upgrade", true, bob, []string{devAlice1}, stateAccepted, 0},
+		{"requester's next message", false, alice, []string{devBob1}, stateRequest, 2},
+		{"recipient's accepting reply", false, bob, []string{devAlice1}, stateAccepted, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newIT(t, nil)
+			e.withDevices()
+			if tc.mutual {
+				e.mutual(alice, bob)
+			} else {
+				e.setSocial(alice, graph.Snapshot{Following: map[string]bool{bob: true}})
+			}
+			convID := e.must(alice, toUser(skey(1), bob, "plain")).GetConversation().GetId()
+			before, _ := e.conv(convID)
+			if _, err := e.send(tc.from, initByConv(skey(2), convID, "u", tc.ids...)); err != nil {
+				t.Fatal(err)
+			}
+			after, _ := e.conv(convID)
+			if !after.encrypted() || after.State != tc.wantState || after.RequestCount != tc.wantReqCnt {
+				t.Errorf("conversation = %+v", after)
+			}
+			if !after.UpdatedAt.After(before.UpdatedAt) {
+				t.Errorf("updatedAt %v -> %v, want strictly later", before.UpdatedAt, after.UpdatedAt)
+			}
+		})
+	}
+}
+
+// Two upgrades of one existing NONE conversation at once, both by conversation id (alice welcoming bob's device, bob
+// welcoming alice's), each on its own instance, 6 rounds of three kinds with per-round expectations:
+//   - "together": both released at once; either may win;
+//   - "second inside first": the second released from inside the first's transaction, after its conversation read; either
+//     may win (it depends on which transaction commits first);
+//   - "second after first committed": the second released the moment the first's transaction committed: the first wins.
+//
+// Every round: exactly one winner; the loser is STALE_EPOCH (1, 1) with NO conversation_id metadata (it addressed the
+// conversation by id) and wrote nothing (no message, no welcome, the one commit record and the conversation's pair are the
+// winner's); the plaintext history stays. A busy answer is retried with the same request (then STALE_EPOCH).
+func TestInit_ConcurrentUpgradesOneWins(t *testing.T) {
+	kinds := []string{"together", "second inside first", "second after first committed"}
+	tally := map[string]int{}
+	for round := range 6 {
+		kind := kinds[round%3]
+		e := newIT(t, nil)
+		e.withDevices()
+		e.mutual(alice, bob)
+		plain := e.must(alice, toUser(skey(1), bob, "plain"))
+		convID := plain.GetConversation().GetId()
+		e.tick(time.Second)
+		froms := [2]string{alice, bob}
+		reqs := [2]*messagingv1.SendMessageRequest{initByConv(skey(10), convID, "a", devBob1), initByConv(skey(11), convID, "b", devAlice1)}
+		start, second := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		release := func() { once.Do(func() { close(second) }) }
+		var first *service
+		switch round % 3 {
+		case 0:
+			first = e.newService()
+			release()
+		case 1:
+			first = e.signalledService(release)
+		case 2:
+			first = e.afterCommitService(release)
+		}
+		svcs := [2]*service{first, e.newService()}
+		var errs [2]error
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[0] = e.sendOn(svcs[0], froms[0], reqs[0])
+			release() // ended without reaching its seam: let the second run anyway
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			<-second
+			_, errs[1] = e.sendOn(svcs[1], froms[1], reqs[1])
+		}()
+		close(start)
+		wg.Wait()
+		for i := range errs {
+			if outcome(errs[i]) == "busy" {
+				tally["busy"]++
+				_, errs[i] = e.sendOn(svcs[i], froms[i], reqs[i])
+			}
+		}
+		winner := -1
+		for i, err := range errs {
+			if err == nil {
+				if winner >= 0 {
+					t.Fatalf("round %d (%s): both upgrades succeeded", round, kind)
+				}
+				winner = i
+				continue
+			}
+			wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_STALE_EPOCH, map[string]string{"generation": "1", "epoch": "1"})
+			if _, _, meta := reasonOf(t, err); len(meta) != 2 {
+				t.Errorf("round %d (%s): STALE_EPOCH metadata = %v, want only the pair (addressed by conversation id)", round, kind, meta)
+			}
+		}
+		if winner < 0 {
+			t.Fatalf("round %d (%s): no upgrade won: %v", round, kind, errs)
+		}
+		if kind == "second after first committed" && winner != 0 {
+			t.Errorf("round %d: the upgrade released after the first committed won", round)
+		}
+		tally[fmt.Sprintf("%s: winner %d", kind, winner)]++
+		w, l := winner, 1-winner
+		st := e.mlsState(convID)
+		rec := st.commits[commitDocID(1, 0)]
+		if len(st.commits) != 1 || rec["senderId"] != froms[w] || string(rec["data"].([]byte)) != string(reqs[w].GetMlsInit().GetCommit()) {
+			t.Errorf("round %d: commits = %v, want only the winner's (1, 0)", round, st.commits)
+		}
+		loserWelcomes := st.aliceWelcomes
+		if l == 0 {
+			loserWelcomes = st.bobWelcomes
+		}
+		if len(loserWelcomes) != 0 || len(st.aliceWelcomes)+len(st.bobWelcomes) != 1 {
+			t.Errorf("round %d: welcomes alice %d bob %d, want only the winner's one", round, len(st.aliceWelcomes), len(st.bobWelcomes))
+		}
+		if _, ok := st.msgs[MessageID(froms[l], reqs[l].GetIdempotencyKey())]; ok {
+			t.Errorf("round %d: the loser's message was stored", round)
+		}
+		if _, ok := st.msgs[MessageID(froms[w], reqs[w].GetIdempotencyKey())]; !ok || len(st.msgs) != 2 {
+			t.Errorf("round %d: messages = %d, want the plaintext one and the winner's", round, len(st.msgs))
+		}
+		if c, _ := e.conv(convID); !c.encrypted() || c.MlsGen != 1 || c.MlsEpoch != 1 {
+			t.Errorf("round %d: conversation = %+v", round, c)
+		}
+	}
+	t.Logf("tally %v", tally)
+}
+
 // An init to someone who does not follow back opens a request exactly like a plaintext first message: the recipient's entry
 // in dmRequests, no push, requestCount 1; the requester's next encrypted messages count, and the fourth is
 // request_unanswered.

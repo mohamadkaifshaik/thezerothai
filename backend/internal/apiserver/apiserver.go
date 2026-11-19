@@ -832,8 +832,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			DMNewPerDay:          int64(cfg.Quota.DMNewConversationsPerDay), NewAccountDMNewPerDay: int64(cfg.Quota.NewAccountDMNewConversationsPerDay),
 			NewAccountSendsPerDay: int64(cfg.Messaging.NewAccountSendsPerDay), NewAccountWindow: cfg.Quota.NewAccountWindow,
 			ConversationCacheEntries: cfg.Messaging.ConversationCacheEntries,
-			// The CommitConversation reset cap (messages_resets_daily); the per-call cap is the interceptor's.
-			ResetsPerDay: cfg.RateLimit.MessagesResetsPerDay,
+			// The CommitConversation reset cap (messages_resets_daily) and per-(caller, conversation) cap
+			// (messages_commits_per_conversation_daily); the per-call cap is the interceptor's.
+			ResetsPerDay:                 cfg.RateLimit.MessagesResetsPerDay,
+			CommitsPerConversationPerDay: cfg.RateLimit.MessagesCommitsPerConversationPerDay,
 		},
 		CursorKey: cfg.CursorHMACKey,
 		Log:       log,

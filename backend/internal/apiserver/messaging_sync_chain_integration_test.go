@@ -241,3 +241,33 @@ func TestMessagingSyncChain_CommitAndResetCaps(t *testing.T) {
 		t.Errorf("bob's commit: %v", err)
 	}
 }
+
+// Build wires the per-(caller, conversation) cap messages_commits_per_conversation_daily (here 2): alice's third call on
+// the conversation is refused while bob still commits on it; a stranger draws only on their own counter (NOT_FOUND until
+// it runs out, then the same RATE_LIMITED for the real and an unknown conversation id; byte identity, retry_after
+// included, is pinned on a frozen clock by the unit test TestCommit_PerConversationCap).
+func TestMessagingSyncChain_PerConversationCommitCap(t *testing.T) {
+	w := newE2EEWorld(t)
+	e := newDMChain(t, func(c *config.Config) { c.RateLimit.MessagesCommitsPerConversationPerDay = 2 })
+	if err := w.commit(e, w.alice, 1, 1, "c11", false); err != nil {
+		t.Fatalf("first commit: %v", err)
+	}
+	if err := w.commit(e, w.alice, 1, 2, "c12", false); err != nil {
+		t.Fatalf("second commit: %v", err)
+	}
+	wantReason(t, w.commit(e, w.alice, 1, 3, "c13", false), connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "limit", "messages_commits_per_conversation_daily")
+	if err := w.commit(e, w.bob, 1, 3, "b13", false); err != nil {
+		t.Errorf("bob's commit on the same conversation: %v", err)
+	}
+	carol := e.user(t)
+	for _, id := range []string{w.conv, "0123456789abcdef0123456789abcdef"} {
+		stranger := w
+		stranger.conv = id
+		for i := range 2 {
+			if err := stranger.commit(e, carol, 1, 4, "x", false); connect.CodeOf(err) != connect.CodeNotFound {
+				t.Fatalf("stranger's commit %d on %s = %v, want NOT_FOUND", i+1, id[:8], err)
+			}
+		}
+		wantReason(t, stranger.commit(e, carol, 1, 4, "x", false), connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "limit", "messages_commits_per_conversation_daily")
+	}
+}

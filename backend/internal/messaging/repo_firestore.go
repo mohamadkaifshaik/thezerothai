@@ -375,10 +375,11 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		case dec.AcceptNow:
 			ups = append(ups, firestore.Update{Path: "state", Value: stateAccepted})
 			res.Conv.State, res.AcceptedByReply = stateAccepted, true
-		case starting:
-			updatedAt = notBefore(now, conv.UpdatedAt) // only moves forward (putConv)
 		}
 		if starting {
+			// Strictly after the updatedAt this transaction read, whichever arm above ran (commitStamp): an equal stamp would
+			// let the instance cache keep the NONE copy for up to 60 s (putConv keeps a copy unless the newcomer is newer).
+			updatedAt = commitStamp(now, conv.UpdatedAt)
 			ups = append(ups, initUpdates()...)
 			startEncryption(&res.Conv)
 			res.Conv.UpdatedAt = updatedAt

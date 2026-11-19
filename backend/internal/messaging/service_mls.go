@@ -30,15 +30,13 @@ const maxCommitGen = math.MaxInt64 - 1
 // Commit implements Service.Commit: CommitConversation (proto, the RPC comment's numbered order).
 //
 // Flag: "messaging" on for the caller (perCaller, as SendMessage; e2ee_dm is not needed), then the verified email, both
-// before any lookup. Step 1 (key, conversation id, the pair's form) is answered here before any read; the rest of the
-// order runs in the repo's one transaction (Repo.Commit): the NOT_FOUND / VALIDATION conversation_id / CANNOT_MESSAGE
-// refusals, retry recognition, the field verdict computed here (commitFieldErr), the welcome-device check, the pair. A
-// recognised retry answers the conversation's current pair and writes nothing. The instance conversation cache is
-// updated from the transaction's result. Nothing is emitted. Neither rev nor any message changes.
+// before any lookup. Step 1 (key, conversation id, the pair's form) is answered here before any read; then the two service
+// caps (commitCaps: per (caller, conversation), then the reset cap), still before any read. The rest of the order runs in
+// the repo's one transaction (Repo.Commit): the NOT_FOUND / VALIDATION conversation_id / CANNOT_MESSAGE refusals, retry
+// recognition, the field verdict computed here (commitFieldErr), the welcome-device check, the pair. A recognised retry
+// answers the conversation's current pair and writes nothing. The instance conversation cache is updated from the
+// transaction's result. Nothing is emitted. Neither rev nor any message changes.
 func (s *service) Commit(ctx context.Context, uid string, req *messagingv1.CommitConversationRequest) (*messagingv1.CommitConversationResponse, error) {
-	if err := s.resetCap(ctx, uid, req); err != nil {
-		return nil, err
-	}
 	if err := s.guard(ctx, uid, perCaller); err != nil {
 		return nil, err
 	}
@@ -49,6 +47,9 @@ func (s *service) Commit(ctx context.Context, uid string, req *messagingv1.Commi
 	}
 	gen, epoch, err := validateCommitForm(req)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.commitCaps(ctx, uid, req); err != nil {
 		return nil, err
 	}
 	if s.d.Repo == nil || s.d.Social == nil || s.d.TxSocial == nil {

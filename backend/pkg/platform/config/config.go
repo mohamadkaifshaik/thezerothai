@@ -753,9 +753,11 @@ func Load() (Config, error) {
 	}{
 		{&rl.MessagesMarkReadPerDay, "MESSAGES_MARK_READ_PER_DAY", 500},
 		{&rl.MessagesMutationsPerDay, "MESSAGES_MUTATIONS_PER_DAY", 500},
-		// CommitConversation per uid ("messages_commits_daily", every call) and its resets ("messages_resets_daily", drawn on
-		// by the messaging service); a reset counts against both.
+		// CommitConversation per uid ("messages_commits_daily", every call), per (uid, conversation)
+		// ("messages_commits_per_conversation_daily", drawn on by the messaging service) and its resets
+		// ("messages_resets_daily", drawn on by the messaging service); a reset counts against all three.
 		{&rl.MessagesCommitsPerDay, "MESSAGES_COMMITS_PER_DAY", 500},
+		{&rl.MessagesCommitsPerConversationPerDay, "MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY", 20},
 		{&rl.MessagesResetsPerDay, "MESSAGES_RESETS_PER_DAY", 10},
 		// Community mod actions (Hide, SetMemberRole) per actor, CreatePost into one community per uid|cid, SearchPeople alone,
 		// and ListFollowers + ListFollowing together; all in memory per instance.

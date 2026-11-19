@@ -197,7 +197,8 @@ type SendParams struct {
 	// SharedPostID is the original post this message shares ("" for none): stored on the message, flagged on both previews.
 	SharedPostID string
 	// Enc is the validated encrypted request (nil: plaintext). Text and SharedPostID are then empty and RequestHash is
-	// encRequestHash. The transaction applies encGate to the conversation it reads. Enc.Init is not handled yet (Task 4).
+	// encRequestHash. The transaction applies encGate to the conversation it reads; with Enc.Init (mls_init) it also starts
+	// encryption: the conversation's encryption fields, the (1, 0) commit record and the welcomes (putInit).
 	Enc *encSend
 	Now time.Time
 	// CallerFollowsPeer: the caller follows the recipient (from the caller.s cached graph, 60 s). Mutual = this AND the

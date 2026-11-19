@@ -4,7 +4,7 @@
 // users/{uid}/dmWelcomes/{welcomeId}. Other modules reach it through the interfaces in
 // this file only.
 //
-// Layout: the flag gate (FEATURE_MESSAGING, D6) and the six Connect handlers (server.go); SendMessage
+// Layout: the flag gate (FEATURE_MESSAGING, D6) and the Connect handlers of every MessagingService RPC (server.go); SendMessage
 // (service_send.go, repo_firestore.go) and the lifecycle (eraser.go, export.go), ListConversations
 // (service_list.go), ListMessages and MarkConversationRead (service_messages.go), AcceptMessageRequest and
 // DeleteConversation (service_accept_delete.go, repo_accept_delete.go); end-to-end encryption (MLS): mls_init in the send,

@@ -467,7 +467,8 @@ func (f *fakeRepo) sendInit(ctx context.Context, p SendParams, conv *ConvDoc, de
 	now := stampAfterClear(wireTime(p.Now), conv)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	// putInit replaces a (1, 0) record found here (only a leftover of an earlier conversation can be one; defence in depth).
+	// putInit overwrites a (1, 0) record found here field by field under its LastUpdateTime (putCommitRecord), never with
+	// Set (only a leftover of an earlier conversation can be one; defence in depth). The fake simply replaces it.
 	commitKey := p.ConvID + "/" + commitDocID(initGen, initEpoch)
 	var next ConvDoc
 	if dec.CreateConv {
@@ -488,9 +489,8 @@ func (f *fakeRepo) sendInit(ctx context.Context, p SendParams, conv *ConvDoc, de
 			next.UpdatedAt = now
 		case dec.AcceptNow:
 			next.State, next.UpdatedAt, res.AcceptedByReply = stateAccepted, now, true
-		default:
-			next.UpdatedAt = notBefore(now, conv.UpdatedAt)
 		}
+		next.UpdatedAt = commitStamp(now, conv.UpdatedAt) // every arm of an upgrade, as the repo
 	}
 	startEncryption(&next)
 	f.convs[p.ConvID] = next

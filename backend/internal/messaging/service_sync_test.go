@@ -378,6 +378,13 @@ func TestListEpochMessages_Mapping(t *testing.T) {
 	if err != nil || len(resp.GetMessages()) != 6 {
 		t.Fatalf("resp = %v, %v; want all six (the cleared one included)", resp, err)
 	}
+	// cleared_at: the caller's own clear time; unset for bob, who never deleted the conversation.
+	if c := resp.GetClearedAt(); c == nil || !c.AsTime().Equal(r.now) {
+		t.Errorf("cleared_at = %v, want %v", c, r.now)
+	}
+	if b, err := r.svc.ListEpochMessages(context.Background(), bob, &messagingv1.ListEpochMessagesRequest{ConversationId: aliceBobConv, MlsGeneration: 1, MlsEpoch: 1}); err != nil || b.GetClearedAt() != nil {
+		t.Errorf("bob's cleared_at = %v, %v; want unset", b.GetClearedAt(), err)
+	}
 	for i, m := range resp.GetMessages() {
 		present := i == 0 || i == 5
 		if m.GetText() != "" || m.GetSharedPost() != nil || m.GetMlsGeneration() != 1 || m.GetMlsEpoch() != 1 {
@@ -479,6 +486,30 @@ func (r *rig) putWelcomes() {
 	}
 }
 
+// ListWelcomes pages at most 10 welcomes (each up to 64 KiB): 0 or negative => 10, above 10 => 10; a smaller size is kept.
+// The other sync lists keep 20 / 50.
+func TestListWelcomes_PageSizeClamp(t *testing.T) {
+	r := newRig(t, nil)
+	r.devices.active[alice] = []string{devAlice1}
+	var rows []WelcomeRow
+	for i := range 25 {
+		rows = append(rows, WelcomeRow{ID: fmt.Sprintf("%032x", i), WelcomeDoc: WelcomeDoc{DeviceID: devAlice1, ConvID: aliceBobConv, Gen: 1, Data: []byte("w"), CreatedAt: r.now}})
+	}
+	r.repo.welcomeRows = map[string][]WelcomeRow{alice: rows}
+	for _, tt := range []struct {
+		size int32
+		want int
+	}{{0, 10}, {-3, 10}, {11, 10}, {50, 10}, {1 << 30, 10}, {7, 7}, {10, 10}} {
+		resp, err := r.svc.ListWelcomes(context.Background(), alice, &messagingv1.ListWelcomesRequest{DeviceId: devAlice1, PageSize: tt.size})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.GetWelcomes()) != tt.want || !resp.GetMore() {
+			t.Errorf("page_size %d: %d welcomes (more %v), want %d and more", tt.size, len(resp.GetWelcomes()), resp.GetMore(), tt.want)
+		}
+	}
+}
+
 func TestListWelcomes_OnlyThatDeviceOfTheCaller(t *testing.T) {
 	r := newRig(t, nil)
 	r.putWelcomes()
@@ -571,34 +602,140 @@ func TestAckWelcomes(t *testing.T) {
 	}
 }
 
-// The reset cap (messages_resets_daily): drawn on only by reset = true calls, before anything else (a refused or
-// malformed reset counts too); ordinary commits never draw on it; another user is untouched.
+// wantCapLimit asserts a RATE_LIMITED refusal naming limit.
+func wantCapLimit(t *testing.T, err error, limit string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("no error, want RATE_LIMITED %s", limit)
+	}
+	code, reason, meta := reasonOf(t, err)
+	if code != connect.CodeResourceExhausted || reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED || meta["limit"] != limit {
+		t.Fatalf("got %v (%v %v %v), want RATE_LIMITED %s", err, code, reason, meta, limit)
+	}
+}
+
+// The reset cap (messages_resets_daily): drawn on only by reset = true calls, after the flag, the verified email and the
+// step-1 form (a malformed reset does not burn it) and before any lookup (a refused well-formed reset counts); ordinary
+// commits never draw on it; another user is untouched; a caller with the flag off never reaches it.
 func TestCommit_ResetCap(t *testing.T) {
 	r := newRig(t, func(r *rig) { r.limits.ResetsPerDay = 2 })
 	ctx := verifiedCtx()
-	reset := &messagingv1.CommitConversationRequest{IdempotencyKey: ckey(1), ConversationId: "not-hex", MlsGeneration: 1, Reset_: true}
+	malformed := &messagingv1.CommitConversationRequest{IdempotencyKey: ckey(1), ConversationId: "not-hex", MlsGeneration: 1, Reset_: true}
+	for range 3 {
+		_, err := r.svc.Commit(ctx, alice, malformed)
+		wantValidation(t, err, "conversation_id") // not counted
+	}
+	// Well-formed resets of a conversation that does not exist: counted, then NOT_FOUND; the third is capped.
+	unknown := ConversationID(alice, "uid-nobody")
+	reset := resetReq(ckey(2), unknown, 1, "r", devBob1)
 	for range 2 {
 		_, err := r.svc.Commit(ctx, alice, reset)
-		wantValidation(t, err, "conversation_id") // counted, then refused by validation
+		if !bytes.Equal(wireBytes(t, err), wireBytes(t, notFound())) {
+			t.Fatalf("reset of an unknown conversation = %v, want NOT_FOUND", err)
+		}
 	}
 	_, err := r.svc.Commit(ctx, alice, reset)
-	code, reason, meta := reasonOf(t, err)
-	if code != connect.CodeResourceExhausted || reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED || meta["limit"] != "messages_resets_daily" {
-		t.Fatalf("third reset = %v (%v %v %v), want RATE_LIMITED messages_resets_daily", err, code, reason, meta)
+	wantCapLimit(t, err, "messages_resets_daily")
+	if r.repo.commitCalls != 2 {
+		t.Errorf("repo calls = %d, want 2 (the capped reset never reached it)", r.repo.commitCalls)
 	}
-	// An ordinary commit is not on the reset cap.
-	_, err = r.svc.Commit(ctx, alice, &messagingv1.CommitConversationRequest{IdempotencyKey: ckey(2), ConversationId: "not-hex", MlsGeneration: 1, MlsEpoch: 1})
-	wantValidation(t, err, "conversation_id")
+	// An ordinary commit is not on the reset cap; another user has their own.
+	_, err = r.svc.Commit(ctx, alice, commitReq(ckey(3), unknown, 1, 1, "c"))
+	if !bytes.Equal(wireBytes(t, err), wireBytes(t, notFound())) {
+		t.Errorf("ordinary commit = %v, want NOT_FOUND", err)
+	}
 	_, err = r.svc.Commit(ctx, bob, reset)
-	wantValidation(t, err, "conversation_id")
-	// The cap runs before the flag gate, like the interceptor's caps.
+	if !bytes.Equal(wireBytes(t, err), wireBytes(t, notFound())) {
+		t.Errorf("bob's reset = %v, want NOT_FOUND", err)
+	}
+	// The flag answers first: a caller with messaging off is FEATURE_DISABLED every time and never draws on the cap.
 	off := newRig(t, func(r *rig) {
 		r.limits.ResetsPerDay = 1
 		r.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.Off})
 	})
-	_, _ = off.svc.Commit(ctx, alice, reset)
-	_, err = off.svc.Commit(ctx, alice, reset)
-	if _, reason, _ := reasonOf(t, err); reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED {
-		t.Errorf("flag off, second reset = %v, want RATE_LIMITED", err)
+	for range 3 {
+		_, err = off.svc.Commit(ctx, alice, reset)
+		if _, reason, _ := reasonOf(t, err); reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
+			t.Fatalf("flag off reset = %v, want FEATURE_DISABLED", err)
+		}
+	}
+	if !off.svc.resets.Allow(alice) {
+		t.Error("a flag-off caller drew on the reset cap")
+	}
+}
+
+// The per-(caller, conversation) commit cap (messages_commits_per_conversation_daily, default 20): drawn on by every
+// well-formed CommitConversation (a reset included), after the step-1 form and before any lookup, keyed by caller and
+// conversation id. The 21st commit on one conversation is RATE_LIMITED while another conversation still commits; a
+// malformed call does not count; a non-participant's calls draw only on their own counter (NOT_FOUND until the cap, then
+// RATE_LIMITED with the same bytes for an existing and an unknown conversation id) and leave the participants' alone.
+func TestCommit_PerConversationCap(t *testing.T) {
+	const perConv = 20
+	other := ConversationID(alice, carolUID)
+	r, convID := commitRig(t, 1, 1, func(r *rig) {
+		r.limits.CommitsPerConversationPerDay = perConv
+		r.profs.profiles[carolUID] = activeProfile(carolUID, "carol", r.now.Add(-30*24*time.Hour))
+		r.devices.active[carolUID] = []string{devCarol1}
+		c := commitConvAt(1, 1, r.now)
+		c.Participants = sortedPair(alice, carolUID)
+		r.repo.convs[other] = c
+	})
+	ctx := verifiedCtx()
+	// Malformed calls on the conversation: not counted.
+	for i := range 5 {
+		_, err := r.svc.Commit(ctx, alice, commitReq(ckey(900+i), convID, 0, 1, "bad"))
+		wantValidation(t, err, "mls_generation")
+	}
+	for i := range perConv {
+		wantPair(t, r.mustCommit(t, alice, commitReq(ckey(i+1), convID, 1, uint64(i+1), fmt.Sprint(i))), 1, uint64(i+2))
+	}
+	calls := r.repo.commitCalls
+	_, err := r.svc.Commit(ctx, alice, commitReq(ckey(100), convID, 1, perConv+1, "over"))
+	wantCapLimit(t, err, limitCommitsPerConvDaily)
+	// A reset on the same conversation is refused by the same cap (and does not reach the repo).
+	_, err = r.svc.Commit(ctx, alice, resetReq(ckey(101), convID, 1, "reset", devBob1))
+	wantCapLimit(t, err, limitCommitsPerConvDaily)
+	if r.repo.commitCalls != calls {
+		t.Errorf("a capped commit reached the repo")
+	}
+	// Another conversation of the same caller, and the peer on the same conversation, still commit.
+	wantPair(t, r.mustCommit(t, alice, commitReq(ckey(200), other, 1, 1, "other")), 1, 2)
+	wantPair(t, r.mustCommit(t, bob, commitReq(ckey(201), convID, 1, perConv+1, "bob")), 1, perConv+2)
+
+	// A non-participant: NOT_FOUND until their own counter runs out, then RATE_LIMITED, byte-identical for an existing and an
+	// unknown conversation id.
+	unknown := ConversationID(carolUID, "uid-nobody")
+	var capped [][]byte
+	for _, id := range []string{convID, unknown} {
+		for i := range perConv {
+			_, err := r.svc.Commit(ctx, carolUID, commitReq(ckey(300+i), id, 1, 1, "x"))
+			if !bytes.Equal(wireBytes(t, err), wireBytes(t, notFound())) {
+				t.Fatalf("carol's commit %d on %s = %v, want NOT_FOUND", i+1, id[:8], err)
+			}
+		}
+		_, err := r.svc.Commit(ctx, carolUID, commitReq(ckey(400), id, 1, 1, "x"))
+		wantCapLimit(t, err, limitCommitsPerConvDaily)
+		capped = append(capped, wireBytes(t, err))
+	}
+	if !bytes.Equal(capped[0], capped[1]) {
+		t.Errorf("capped answer depends on the conversation: %q vs %q", capped[0], capped[1])
+	}
+	// Carol's calls drew nothing from bob's counter on the conversation.
+	wantPair(t, r.mustCommit(t, bob, commitReq(ckey(500), convID, 1, perConv+2, "bob2")), 1, perConv+3)
+}
+
+// The two service caps' order: the per-conversation cap is drawn first, so a reset it refuses leaves the reset cap
+// untouched.
+func TestCommit_CapOrder(t *testing.T) {
+	r, convID := commitRig(t, 1, 1, func(r *rig) {
+		r.limits.CommitsPerConversationPerDay = 1
+		r.limits.ResetsPerDay = 1
+	})
+	ctx := verifiedCtx()
+	wantPair(t, r.mustCommit(t, alice, commitReq(ckey(1), convID, 1, 1, "c")), 1, 2)
+	_, err := r.svc.Commit(ctx, alice, resetReq(ckey(2), convID, 1, "r", devBob1))
+	wantCapLimit(t, err, limitCommitsPerConvDaily)
+	if !r.svc.resets.Allow(alice) {
+		t.Error("a reset refused by the per-conversation cap drew on the reset cap")
 	}
 }

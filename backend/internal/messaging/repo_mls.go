@@ -14,9 +14,10 @@ import (
 )
 
 // The MLS documents of a conversation: the commit records (conversations/{id}/commits) and the per-device welcomes
-// (users/{uid}/dmWelcomes). Every writer of either (mls_init in the send transaction; later a commit and a reset) also
-// writes the conversation document it read in the same transaction, so two writers for one conversation are serialised
-// by Firestore and the "one welcome per (conversation, device)" lookup below cannot race another writer.
+// (users/{uid}/dmWelcomes). Every writer that creates either (mls_init in the send transaction, CommitConversation's
+// commit and reset in Repo.Commit) also writes the conversation document it read in the same transaction, so two writers
+// for one conversation are serialised by Firestore and the "one welcome per (conversation, device)" lookup below cannot
+// race another writer. Only deletions skip it: AckWelcomes (the caller's own welcomes by id) and the account eraser.
 
 func (r *FirestoreRepo) commitRef(convID string, gen, epoch int64) *firestore.DocumentRef {
 	return r.convRef(convID).Collection(commitsCollection).Doc(commitDocID(gen, epoch))

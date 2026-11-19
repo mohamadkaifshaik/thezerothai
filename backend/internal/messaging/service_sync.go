@@ -1,12 +1,14 @@
 package messaging
 
 // The MLS sync RPCs of an encrypted conversation: ListConversationCommits, ListEpochMessages, ListWelcomes and AckWelcomes
-// (proto, each RPC comment), and the reset cap of CommitConversation. Flag: "messaging" not globally off for all four
-// (a caller dropped from the allowlist keeps catching up); e2ee_dm is never needed. Request lines carry counts and enums
-// only: never commit, welcome or message bytes, a device id or a uid.
+// (proto, each RPC comment), and the service caps of CommitConversation (commitCaps). Flag: "messaging" not globally off
+// for all four (a caller dropped from the allowlist keeps catching up); e2ee_dm is never needed. Request lines carry
+// counts and enums only: never commit, welcome or message bytes, a device id or a uid.
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -31,9 +33,15 @@ const (
 
 	// MaxAckWelcomes is the most welcome ids one AckWelcomes call deletes.
 	MaxAckWelcomes = 50
+	// MaxWelcomesPage is ListWelcomes' page size, default and maximum: a welcome is up to 64 KiB, so 10 bound one answer
+	// to about 640 KiB (the 20 / 50 of the other lists would allow 3.2 MB).
+	MaxWelcomesPage = 10
 
 	// limitResetsDaily is the limit name of the CommitConversation reset cap (Limits.ResetsPerDay).
 	limitResetsDaily = "messages_resets_daily"
+	// limitCommitsPerConvDaily is the limit name of the CommitConversation per-(caller, conversation) cap
+	// (Limits.CommitsPerConversationPerDay).
+	limitCommitsPerConvDaily = "messages_commits_per_conversation_daily"
 
 	// maxDocPart is the largest generation or epoch commitDocID writes in its 10 zero-padded digits (so ids sort by pair).
 	// A stored pair never comes near it (10^10 commits or resets); an after-pair beyond it is clamped (commitsAfterID).
@@ -42,15 +50,32 @@ const (
 	afterEverything = "~"
 )
 
-// resetCap draws on the CommitConversation reset cap ("messages_resets_daily", MESSAGES_RESETS_PER_DAY) for a call with
-// reset = true, before anything else of the service runs: like the interceptor's per-call cap "messages_commits_daily",
-// which every call (a reset included) has already drawn on, it counts every reset call, a recognised retry and a refused one
-// included. A refusal is RATE_LIMITED with metadata["limit"] = "messages_resets_daily" and retry_after the next IST day.
-func (s *service) resetCap(ctx context.Context, uid string, req *messagingv1.CommitConversationRequest) error {
-	if !req.GetReset_() || s.resets == nil || s.resets.Allow(uid) {
-		return nil
+// commitCaps draws on CommitConversation's two service caps, in this order, after the flag, the verified email and the
+// step-1 form (a malformed call burns neither) and before any lookup (so a refusal says nothing about the conversation):
+//
+//  1. "messages_commits_per_conversation_daily" (MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY) for every call, a reset
+//     included, keyed by a hash of caller and conversation id (convCommitKey): a non-participant or an unknown id draws only
+//     on the caller's own counter for that id;
+//  2. "messages_resets_daily" (MESSAGES_RESETS_PER_DAY) for a call with reset = true only.
+//
+// Like the interceptor's per-call cap "messages_commits_daily" (and its per-minute bucket), which every call has already
+// drawn on before the flag, they count every such call, a recognised retry and a refused one included. A call refused by
+// the first does not draw on the second. A refusal is RATE_LIMITED with metadata["limit"] = the cap's name and retry_after
+// the next IST day.
+func (s *service) commitCaps(ctx context.Context, uid string, req *messagingv1.CommitConversationRequest) error {
+	if s.convCommits != nil && !s.convCommits.Allow(convCommitKey(uid, req.GetConversationId())) {
+		return s.convCommits.ExceededError(ctx, limitCommitsPerConvDaily)
 	}
-	return s.resets.ExceededError(ctx, limitResetsDaily)
+	if req.GetReset_() && s.resets != nil && !s.resets.Allow(uid) {
+		return s.resets.ExceededError(ctx, limitResetsDaily)
+	}
+	return nil
+}
+
+// convCommitKey is the per-(caller, conversation) cap's counter key: a hash, so the in-memory map holds no uid.
+func convCommitKey(uid, convID string) string {
+	sum := sha256.Sum256([]byte(uid + "|" + convID))
+	return hex.EncodeToString(sum[:16])
 }
 
 // ListCommits implements Service.ListCommits (ListConversationCommits).
@@ -153,7 +178,8 @@ func epochPageBinding(uid, convID, key string) string {
 // token is VALIDATION page_token). Then the participant check through the 60 s instance copy (the one NOT_FOUND), then ONE
 // query: messages where mlsKey == "gen:epoch" in document-id order after the token's id, Limit page_size. The query runs
 // even when the cached copy says NONE (it can be 60 s stale, and an empty answer reads as "complete"). Messages at or
-// before the caller's clearedAt ARE returned (completeness counting; the client skips them), with the same mapping as
+// before the caller's clearedAt ARE returned (completeness counting; the client never shows or stores them) and that
+// time is answered as cleared_at (from the same conversation copy, no extra read), with the same mapping as
 // ListMessages: a tombstone or swept message has no ciphertext (ciphertext_removed), shared_post is never set.
 // next_page_token is set when the page was full.
 func (s *service) ListEpochMessages(ctx context.Context, uid string, req *messagingv1.ListEpochMessagesRequest) (*messagingv1.ListEpochMessagesResponse, error) {
@@ -201,6 +227,11 @@ func (s *service) ListEpochMessages(ctx context.Context, uid string, req *messag
 		return nil, s.failure(ctx, kindEpochMessages, uid, id, err)
 	}
 	resp := &messagingv1.ListEpochMessagesResponse{Messages: make([]*messagingv1.Message, 0, len(rows))}
+	// cleared_at: the caller's own DeleteConversation time from the conversation already read for the participant check
+	// (the 60 s instance copy, like ListMessages' own filter); no extra read.
+	if c := conv.ClearedAt[uid]; !c.IsZero() {
+		resp.ClearedAt = timestamppb.New(c)
+	}
 	for _, r := range rows {
 		resp.Messages = append(resp.Messages, messageOf(r, id, uid))
 	}
@@ -236,9 +267,9 @@ func (s *service) ownDevice(ctx context.Context, op, uid, deviceID string) error
 
 // ListWelcomes implements Service.ListWelcomes.
 //
-// Validation: device_id's format (VALIDATION device_id), page_size (0 => 20, max 50). Then the device check (ownDevice),
-// then ONE query of the caller's own users/{uid}/dmWelcomes where deviceId == device_id in welcome-id order (ids are
-// hashes: not time order), Limit page_size. No cursor: acknowledging advances the list; more is true on a full page. The
+// Validation: device_id's format (VALIDATION device_id), page_size (0 or negative => 10, max 10: welcomesPageSize). Then
+// the device check (ownDevice), then ONE query of the caller's own users/{uid}/dmWelcomes where deviceId == device_id in
+// welcome-id order (ids are hashes: not time order), Limit page_size. No cursor: acknowledging advances the list; more is true on a full page. The
 // path comes from the caller's uid, so another user's welcomes are out of reach, and the deviceId filter keeps the caller's
 // other devices' welcomes out. A welcome for a generation the conversation has since left is returned as stored (dropping
 // it would cost a conversation read per welcome, beyond the proto's cost): the client ignores a welcome below the current
@@ -252,7 +283,7 @@ func (s *service) ListWelcomes(ctx context.Context, uid string, req *messagingv1
 	if !keys.ValidDeviceID(dev) {
 		return nil, deviceIDInvalid()
 	}
-	limit := clampPageSize(req.GetPageSize())
+	limit := welcomesPageSize(req.GetPageSize())
 	if s.d.Repo == nil || s.d.Devices == nil {
 		return nil, errors.New("messaging: list welcomes is not configured")
 	}
@@ -273,6 +304,14 @@ func (s *service) ListWelcomes(ctx context.Context, uid string, req *messagingv1
 	logger.SetRequestField(ctx, fieldResults, len(rows))
 	logger.SetRequestField(ctx, fieldMore, resp.More)
 	return resp, nil
+}
+
+// welcomesPageSize is ListWelcomes' page size: 0 or negative => MaxWelcomesPage, at most MaxWelcomesPage.
+func welcomesPageSize(n int32) int {
+	if n <= 0 || n > MaxWelcomesPage {
+		return MaxWelcomesPage
+	}
+	return int(n)
 }
 
 // AckWelcomes implements Service.AckWelcomes.

@@ -31,8 +31,8 @@ const idleBucketTTL = 10 * time.Minute
 // keysClaimsDailyName is the limit_name (RATE_LIMITED metadata["limit"]) of the ClaimKeyPackages daily cap.
 const keysClaimsDailyName = "keys_claims_daily"
 
-// messagesCommitsDailyName is the limit_name of the CommitConversation daily call cap (the reset cap,
-// "messages_resets_daily", is the messaging service's).
+// messagesCommitsDailyName is the limit_name of the CommitConversation daily call cap (the per-conversation cap,
+// "messages_commits_per_conversation_daily", and the reset cap, "messages_resets_daily", are the messaging service's).
 const messagesCommitsDailyName = "messages_commits_daily"
 
 // RateLimitConfig builds the post-auth rate-limit interceptor's config: per-minute buckets, the per-uid daily
@@ -147,8 +147,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
 	// Encrypted conversations: CommitConversation has its own bucket (RATE_LIMIT_MESSAGES_COMMIT_PER_MIN, 20/min per instance)
 	// and the per-uid daily call cap "messages_commits_daily" (MESSAGES_COMMITS_PER_DAY, 500), which every call draws on, a
-	// reset and a recognised retry included. The reset cap "messages_resets_daily" (MESSAGES_RESETS_PER_DAY, 10) is drawn on
-	// by the messaging service (it needs the request's reset field), so a reset counts against both. The four sync RPCs
+	// reset and a recognised retry included. The per-(uid, conversation) cap "messages_commits_per_conversation_daily"
+	// (MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY, 20) and the reset cap "messages_resets_daily" (MESSAGES_RESETS_PER_DAY, 10)
+	// are drawn on by the messaging service (they need the request's conversation id and reset field), after the flag and the
+	// request's form, so a reset counts against all three. The four sync RPCs
 	// (ListConversationCommits, ListEpochMessages, ListWelcomes, AckWelcomes) share ONE bucket
 	// (RATE_LIMIT_MESSAGES_SYNC_PER_MIN, 60/min); no daily cap (AckWelcomes only deletes the caller's own welcomes).
 	rlMessagesCommit := ratelimit.NewLimiter(cfg.RateLimit.MessagesCommitPerUserPerMinute, idleBucketTTL)

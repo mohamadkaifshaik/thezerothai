@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -39,8 +40,16 @@ func (f *fakeCiphertextSweeper) SweepCiphertext(ctx context.Context, now time.Ti
 	if f.panics {
 		panic("boom")
 	}
+	if f.err == errUntilBudget {
+		// The budget ends mid-page: the page is answered with what it had done (nothing swept) and the context's error.
+		<-ctx.Done()
+		return f.pages[min(f.calls, len(f.pages))-1], ctx.Err()
+	}
 	return f.pages[min(f.calls, len(f.pages))-1], f.err
 }
+
+// errUntilBudget makes fakeCiphertextSweeper wait for the step's own deadline and then fail with it.
+var errUntilBudget = errors.New("wait for the budget to end")
 
 var sweepClock = time.Date(2026, 12, 20, 3, 0, 0, 0, time.UTC)
 
@@ -106,6 +115,8 @@ func TestCiphertextSweepStep_OutcomesAndLevels(t *testing.T) {
 		{"page cap with more due", []messaging.CiphertextSweepResult{full}, nil, false, false, 0, ciphertextSweepMaxPages, "partial", "WARN", 2, true},
 		{"stalled: a page swept nothing", []messaging.CiphertextSweepResult{full, {Due: 9, Skipped: 9, More: true}}, nil, false, false, 0, 2, "stalled", "WARN", 2, false},
 		{"stalled: a short page all skipped", []messaging.CiphertextSweepResult{{Due: 2, Skipped: 2, OldestDue: due(time.Hour)}}, nil, false, false, 0, 1, "stalled", "WARN", 1, false},
+		// The budget ends mid-page (nothing of it swept yet): partial, not stalled; the next run continues.
+		{"budget ends mid-page", []messaging.CiphertextSweepResult{{Due: 5, More: true, OldestDue: due(time.Hour)}}, errUntilBudget, false, false, 1100 * time.Millisecond, 1, "partial", "WARN", 1, false},
 		{"missing index", []messaging.CiphertextSweepResult{{}}, missingIndex, false, false, 0, 1, "failed", "ERROR", 0, false},
 		{"panic", []messaging.CiphertextSweepResult{{}}, nil, true, false, 0, 1, "failed", "ERROR", -1, false},
 		{"readonly does nothing", nil, nil, false, true, 0, 0, "skipped_readonly", "INFO", -1, false},

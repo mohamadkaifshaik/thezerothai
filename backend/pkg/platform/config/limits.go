@@ -97,12 +97,19 @@ type RateLimitConfig struct {
 	MessagesSyncPerUserPerMinute   int
 	// MessagesCommitsPerDay is the in-memory daily cap on CommitConversation calls, a reset included (one counter per uid per
 	// instance, ratelimit.DailyCap, drawn on by the interceptor), env MESSAGES_COMMITS_PER_DAY, default 500, logged as
-	// limit_name "messages_commits_daily". MessagesResetsPerDay is the cap on CommitConversation calls with reset = true,
-	// env MESSAGES_RESETS_PER_DAY, default 10, limit_name "messages_resets_daily": the interceptor cannot see the request's
-	// reset field, so the messaging service draws on it before its transaction (a reset counts against both caps). Both
-	// count every call, a recognised retry and a refused one included (the limits run before the transaction).
-	MessagesCommitsPerDay int64
-	MessagesResetsPerDay  int64
+	// limit_name "messages_commits_daily". MessagesCommitsPerConversationPerDay is the cap on CommitConversation calls per
+	// caller and conversation id (keyed by a hash of the pair), a reset included, env
+	// MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY, default 20, limit_name "messages_commits_per_conversation_daily": it bounds
+	// what one caller can store against one conversation in a day (a requester in an unaccepted request, or the peer of a
+	// suspended user, could otherwise store 500 commits a day that the other side's devices must download).
+	// MessagesResetsPerDay is the cap on CommitConversation calls with reset = true, env MESSAGES_RESETS_PER_DAY, default
+	// 10, limit_name "messages_resets_daily". The interceptor sees neither the conversation id nor the reset field, so the
+	// messaging service draws on these two after the flag and the request's form and before any read (the per-conversation
+	// cap first; a reset counts against all three caps). All three count every such call, a recognised retry and a
+	// refused one included (the limits run before the transaction).
+	MessagesCommitsPerDay                int64
+	MessagesCommitsPerConversationPerDay int64
+	MessagesResetsPerDay                 int64
 
 	// ListsWritePerUserPerMinute is the bucket shared by the six list mutations (CreateList, UpdateList, DeleteList, AddListMember,
 	// RemoveListMember and SetHomeTabs), env RATE_LIMIT_LISTS_WRITE_PER_MIN, default 30; ListsReadPerUserPerMinute is GetList,

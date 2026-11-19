@@ -160,7 +160,7 @@ func TestSyncIT_CommitsLeftoversFiltered(t *testing.T) {
 		t.Errorf("commits = %v pair (%d, %d), want 1:0 1:1 at (1, 2)", got, resp.GetMlsGeneration(), resp.GetMlsEpoch())
 	}
 	// After a reset to (2, 1): the record stamped at (1, 2) long before the conversation is now below the current pair and
-	// returned (the former createdAt rule is gone); (1, 9) and (3, 0) are not. The reset's own record is (2, 0).
+	// returned (the former createdAt rule is gone), and so is (1, 9); (3, 0) is not. The reset's own record is (2, 0).
 	e.mustCommitIT(e.svc, alice, resetReq(ckey(2), convID, 1, "r", devBob1))
 	if got := commitPairs(e.listCommitsOn(e.svc, alice, convID, 0, 0, 0)); !slices.Equal(got, []string{"1:0", "1:1", "1:2", "1:9", "2:0"}) {
 		t.Errorf("after the reset = %v, want 1:0 1:1 1:2 1:9 2:0", got)
@@ -232,7 +232,16 @@ func TestSyncIT_EpochMessages(t *testing.T) {
 			t.Fatal(err)
 		}
 		pages++
+		// The second instance ("another device") is told alice's clear time, and every message of the epoch is at or
+		// before it (returned for completeness, never shown or stored).
+		cleared := resp.GetClearedAt()
+		if cleared == nil {
+			t.Fatal("cleared_at unset after alice's DeleteConversation")
+		}
 		for _, m := range resp.GetMessages() {
+			if m.GetCreatedAt().AsTime().After(cleared.AsTime()) {
+				t.Errorf("message %s at %v is after cleared_at %v", m.GetId(), m.GetCreatedAt().AsTime(), cleared.AsTime())
+			}
 			got[m.GetId()]++
 			order = append(order, m.GetId())
 			if m.GetMlsGeneration() != 1 || m.GetMlsEpoch() != 2 || m.GetText() != "" || m.GetSharedPost() != nil {
@@ -274,7 +283,7 @@ func TestSyncIT_EpochMessages(t *testing.T) {
 		want  int
 	}{{2, 2, 4}, {1, 1, 4}, {2, 1, 0}, {3, 2, 0}} {
 		resp, err := reader.ListEpochMessages(context.Background(), bob, &messagingv1.ListEpochMessagesRequest{ConversationId: convID, MlsGeneration: p.g, MlsEpoch: p.ep, PageSize: 50})
-		if err != nil || len(resp.GetMessages()) != p.want || resp.GetNextPageToken() != "" {
+		if err != nil || len(resp.GetMessages()) != p.want || resp.GetNextPageToken() != "" || resp.GetClearedAt() != nil {
 			t.Errorf("(%d, %d) = %d messages, %v; want %d", p.g, p.ep, len(resp.GetMessages()), err, p.want)
 		}
 	}

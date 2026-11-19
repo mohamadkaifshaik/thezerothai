@@ -28,6 +28,10 @@ func TestLoad_MessagingDefaults(t *testing.T) {
 	if rl := cfg.RateLimit; rl.MessagesCommitPerUserPerMinute != 20 || rl.MessagesSyncPerUserPerMinute != 60 || rl.MessagesCommitsPerDay != 500 || rl.MessagesResetsPerDay != 10 {
 		t.Errorf("encrypted conversation limits = %d/%d/%d/%d, want 20/60/500/10", rl.MessagesCommitPerUserPerMinute, rl.MessagesSyncPerUserPerMinute, rl.MessagesCommitsPerDay, rl.MessagesResetsPerDay)
 	}
+	// 20 commits a day per caller and conversation (the final review's abuse bound; for the owner to confirm).
+	if got := cfg.RateLimit.MessagesCommitsPerConversationPerDay; got != 20 {
+		t.Errorf("MessagesCommitsPerConversationPerDay = %d, want 20", got)
+	}
 	if m := cfg.Messaging; m.NewAccountSendsPerDay != 50 || m.RequestMaxUnanswered != 3 || m.PushesPerRecipientPerHour != 20 || m.ConversationCacheEntries != 5000 {
 		t.Errorf("messaging config = %+v, want 50/3/20/5000", m)
 	}
@@ -50,6 +54,7 @@ func TestLoad_MessagingOverridesAndValidation(t *testing.T) {
 		t.Setenv("RATE_LIMIT_MESSAGES_SYNC_PER_MIN", "14")
 		t.Setenv("MESSAGES_COMMITS_PER_DAY", "15")
 		t.Setenv("MESSAGES_RESETS_PER_DAY", "16")
+		t.Setenv("MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY", "17")
 		t.Setenv("MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY", "2")
 		t.Setenv("QUOTA_DM_NEW_CONVERSATIONS_PER_DAY", "6")
 		t.Setenv("QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY", "1")
@@ -71,6 +76,9 @@ func TestLoad_MessagingOverridesAndValidation(t *testing.T) {
 		if rl := cfg.RateLimit; rl.MessagesCommitPerUserPerMinute != 13 || rl.MessagesSyncPerUserPerMinute != 14 || rl.MessagesCommitsPerDay != 15 || rl.MessagesResetsPerDay != 16 {
 			t.Errorf("encrypted conversation override = %d/%d/%d/%d, want 13/14/15/16", rl.MessagesCommitPerUserPerMinute, rl.MessagesSyncPerUserPerMinute, rl.MessagesCommitsPerDay, rl.MessagesResetsPerDay)
 		}
+		if got := cfg.RateLimit.MessagesCommitsPerConversationPerDay; got != 17 {
+			t.Errorf("per-conversation commit cap override = %d, want 17", got)
+		}
 		if q := cfg.Quota; q.DMNewConversationsPerDay != 6 || q.NewAccountDMNewConversationsPerDay != 1 {
 			t.Errorf("quota override = %d/%d", q.DMNewConversationsPerDay, q.NewAccountDMNewConversationsPerDay)
 		}
@@ -89,7 +97,7 @@ func TestLoad_MessagingOverridesAndValidation(t *testing.T) {
 	keys := []string{
 		"RATE_LIMIT_MESSAGES_SEND_PER_MIN", "RATE_LIMIT_MESSAGES_READ_PER_MIN", "RATE_LIMIT_DM_SUGGESTIONS_PER_MIN", "MESSAGES_SENDS_PER_DAY", "MESSAGES_MARK_READ_PER_DAY", "MESSAGES_MUTATIONS_PER_DAY",
 		"RATE_LIMIT_MESSAGES_COMMIT_PER_MIN", "RATE_LIMIT_MESSAGES_SYNC_PER_MIN", "MESSAGES_COMMITS_PER_DAY", "MESSAGES_RESETS_PER_DAY",
-		"MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY", "QUOTA_DM_NEW_CONVERSATIONS_PER_DAY",
+		"MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY", "MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY", "QUOTA_DM_NEW_CONVERSATIONS_PER_DAY",
 		"QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY", "MESSAGES_REQUEST_MAX_UNANSWERED",
 		"MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR", "CACHE_MESSAGING_CONVERSATION_ENTRIES",
 	}
