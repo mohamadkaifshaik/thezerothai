@@ -155,6 +155,70 @@ func TestServer_AllSixHandlers(t *testing.T) {
 	}
 }
 
+// TestServer_CheckPostShare drives CheckPostShare over the wire: no identity is UNAUTHENTICATED; "messaging" off for the
+// caller is FEATURE_DISABLED messaging; "messaging" on with dm_share_check off is FEATURE_DISABLED dm_share_check; with
+// both on (and posts, dm_post_share) an empty post id reaches the service's VALIDATION "post_id". Under
+// DEGRADED_MODE=readonly it still reaches the service (NO_SIDE_EFFECTS), never DEGRADED_MODE.
+func TestServer_CheckPostShare(t *testing.T) {
+	ctx := context.Background()
+	all := flags.NewRegistry(
+		flags.Spec{Name: messaging.FlagName, Mode: flags.On}, flags.Spec{Name: messaging.ShareCheckFlagName, Mode: flags.On},
+		flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: messaging.PostShareFlagName, Mode: flags.On},
+	)
+	check := func(c messagingv1connect.MessagingServiceClient, uid string) error {
+		_, err := c.CheckPostShare(ctx, withUID(&messagingv1.CheckPostShareRequest{}, uid))
+		return err
+	}
+	tests := []struct {
+		name    string
+		reg     *flags.Registry
+		uid     string
+		code    connect.Code
+		reason  commonv1.ErrorReason
+		feature string
+	}{
+		{"no identity", all, "", connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, ""},
+		{"messaging outside the allowlist", registry(flags.Allowlist, 0), outList, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "messaging"},
+		{"dm_share_check off", registry(flags.On, 0), inList, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, messaging.ShareCheckFlagName},
+		{"every flag on reaches the id check", all, inList, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := check(newClient(t, tt.reg), tt.uid)
+			if connect.CodeOf(err) != tt.code {
+				t.Fatalf("code = %v (%v), want %v", connect.CodeOf(err), err, tt.code)
+			}
+			if tt.code == connect.CodeUnauthenticated {
+				return
+			}
+			reason, meta := reasonOf(t, err)
+			if reason != tt.reason || meta["feature"] != tt.feature {
+				t.Fatalf("reason = %v meta = %v, want %v feature=%q", reason, meta, tt.reason, tt.feature)
+			}
+			if tt.reason == commonv1.ErrorReason_ERROR_REASON_VALIDATION && meta["field"] != "post_id" {
+				t.Fatalf("field = %q, want post_id", meta["field"])
+			}
+		})
+	}
+
+	t.Run("answers under readonly", func(t *testing.T) {
+		uidOf := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+			return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+				return next(authn.WithClaims(ctx, authn.Claims{UID: inList, SignInProvider: authn.SignInProviderGoogle}), req)
+			}
+		})
+		mux := http.NewServeMux()
+		mux.Handle(messagingv1connect.NewMessagingServiceHandler(messaging.NewServer(messaging.New(all, messaging.Deps{})),
+			connect.WithInterceptors(degraded.Interceptor(config.DegradedReadonly, nil), uidOf, mw.ErrorMapping(slog.New(slog.NewTextHandler(io.Discard, nil))))))
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		err := check(messagingv1connect.NewMessagingServiceClient(srv.Client(), srv.URL), "")
+		if connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Fatalf("CheckPostShare under readonly: code = %v (%v), want the service's InvalidArgument", connect.CodeOf(err), err)
+		}
+	})
+}
+
 func wantDisabled(t *testing.T, err error) {
 	t.Helper()
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {

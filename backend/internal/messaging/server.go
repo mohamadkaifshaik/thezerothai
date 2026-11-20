@@ -50,6 +50,11 @@ func (s *Server) SendMessage(ctx context.Context, req *connect.Request[messaging
 	return call(ctx, req, s.svc.Send)
 }
 
+// CheckPostShare implements the RPC; the rules are Service.CheckPostShare.
+func (s *Server) CheckPostShare(ctx context.Context, req *connect.Request[messagingv1.CheckPostShareRequest]) (*connect.Response[messagingv1.CheckPostShareResponse], error) {
+	return call(ctx, req, s.svc.CheckPostShare)
+}
+
 // ListConversations implements the RPC; the rules are Service.ListConversations.
 func (s *Server) ListConversations(ctx context.Context, req *connect.Request[messagingv1.ListConversationsRequest]) (*connect.Response[messagingv1.ListConversationsResponse], error) {
 	return call(ctx, req, s.svc.ListConversations)

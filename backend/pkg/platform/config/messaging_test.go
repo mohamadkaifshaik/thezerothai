@@ -38,6 +38,33 @@ func TestLoad_MessagingDefaults(t *testing.T) {
 	if cfg.FeatureMessaging.Name != "messaging" || cfg.FeatureMessaging.Mode != flags.Off {
 		t.Errorf("FeatureMessaging = %+v, want name messaging, mode off", cfg.FeatureMessaging)
 	}
+	// CheckPostShare (owner decision 2026-11-20): 10 checks a minute, 300 a day; the flag off.
+	if rl := cfg.RateLimit; rl.MessagesShareCheckPerUserPerMinute != 10 || rl.MessagesShareChecksPerDay != 300 {
+		t.Errorf("share check limits = %d/%d, want 10/300", rl.MessagesShareCheckPerUserPerMinute, rl.MessagesShareChecksPerDay)
+	}
+	if cfg.FeatureDMShareCheck.Name != "dm_share_check" || cfg.FeatureDMShareCheck.Mode != flags.Off {
+		t.Errorf("FeatureDMShareCheck = %+v, want name dm_share_check, mode off", cfg.FeatureDMShareCheck)
+	}
+}
+
+// TestLoad_ShareCheckOverrides: both CheckPostShare limits and the flag are overridable.
+func TestLoad_ShareCheckOverrides(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("RATE_LIMIT_MESSAGES_SHARE_CHECK_PER_MIN", "3")
+	t.Setenv("MESSAGES_SHARE_CHECKS_PER_DAY", "4")
+	t.Setenv("FEATURE_DM_SHARE_CHECK", "allowlist")
+	t.Setenv("FEATURE_DM_SHARE_CHECK_ALLOWLIST", "uid-a")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if rl := cfg.RateLimit; rl.MessagesShareCheckPerUserPerMinute != 3 || rl.MessagesShareChecksPerDay != 4 {
+		t.Errorf("share check overrides = %d/%d, want 3/4", rl.MessagesShareCheckPerUserPerMinute, rl.MessagesShareChecksPerDay)
+	}
+	reg := flags.NewRegistry(cfg.FeatureDMShareCheck)
+	if !reg.Enabled("uid-a", "dm_share_check") || reg.Enabled("uid-z", "dm_share_check") {
+		t.Error("FEATURE_DM_SHARE_CHECK allowlist not applied")
+	}
 }
 
 // TestLoad_MessagingOverridesAndValidation: every key is overridable, a zero, negative or unparseable value fails startup
@@ -100,6 +127,7 @@ func TestLoad_MessagingOverridesAndValidation(t *testing.T) {
 		"MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY", "MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY", "QUOTA_DM_NEW_CONVERSATIONS_PER_DAY",
 		"QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY", "MESSAGES_REQUEST_MAX_UNANSWERED",
 		"MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR", "CACHE_MESSAGING_CONVERSATION_ENTRIES",
+		"RATE_LIMIT_MESSAGES_SHARE_CHECK_PER_MIN", "MESSAGES_SHARE_CHECKS_PER_DAY",
 	}
 	for _, key := range keys {
 		for _, val := range []string{"0", "-1", "many"} {

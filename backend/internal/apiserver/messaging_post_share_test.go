@@ -20,6 +20,8 @@ type sharePosts struct {
 	protected map[string]bool
 	blocks    map[string]string // caller uid => the author uid that caller blocked (ViewableMany drops it, Viewable shows it)
 	manyErr   error
+	// refuseErr is RefuseShare's answer for another author's post (the protected set could not be read), when set.
+	refuseErr error
 }
 
 func (f sharePosts) Viewable(_ context.Context, _, id string) (*posts.Post, error) {
@@ -35,7 +37,7 @@ func (f sharePosts) ViewableMany(_ context.Context, caller string, ids []string)
 	}
 	out := map[string]*posts.Post{}
 	for _, id := range ids {
-		if p, ok := f.visible[id]; ok && p.Kind != posts.KindRepost && f.blocks[caller] != p.AuthorID {
+		if p, ok := f.visible[id]; ok && p.Kind != posts.KindRepost && f.blocks[caller] != p.AuthorID && (p.EmbeddedAuthor() == "" || f.blocks[caller] != p.EmbeddedAuthor()) {
 			out[id] = p
 		}
 	}
@@ -43,6 +45,9 @@ func (f sharePosts) ViewableMany(_ context.Context, caller string, ids []string)
 }
 
 func (f sharePosts) RefuseShare(_ context.Context, caller string, p *posts.Post) error {
+	if f.refuseErr != nil && p.AuthorID != caller {
+		return f.refuseErr
+	}
 	if f.protected[p.AuthorID] && p.AuthorID != caller {
 		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT, "this account's posts are protected")
 	}

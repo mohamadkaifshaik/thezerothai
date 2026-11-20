@@ -23,6 +23,8 @@ export 'messaging.pb.dart';
 abstract class MessagingServiceBase extends $pb.GeneratedService {
   $async.Future<$4.SendMessageResponse> sendMessage(
       $pb.ServerContext ctx, $4.SendMessageRequest request);
+  $async.Future<$4.CheckPostShareResponse> checkPostShare(
+      $pb.ServerContext ctx, $4.CheckPostShareRequest request);
   $async.Future<$4.ListConversationsResponse> listConversations(
       $pb.ServerContext ctx, $4.ListConversationsRequest request);
   $async.Future<$4.ListMessagesResponse> listMessages(
@@ -50,6 +52,8 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
     switch (methodName) {
       case 'SendMessage':
         return $4.SendMessageRequest();
+      case 'CheckPostShare':
+        return $4.CheckPostShareRequest();
       case 'ListConversations':
         return $4.ListConversationsRequest();
       case 'ListMessages':
@@ -82,6 +86,8 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
     switch (methodName) {
       case 'SendMessage':
         return sendMessage(ctx, request as $4.SendMessageRequest);
+      case 'CheckPostShare':
+        return checkPostShare(ctx, request as $4.CheckPostShareRequest);
       case 'ListConversations':
         return listConversations(ctx, request as $4.ListConversationsRequest);
       case 'ListMessages':

@@ -72,10 +72,17 @@ func postNotFound() *apierr.Error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, postNotFoundText)
 }
 
-// guardPostShare is the flag gate of a send that sets shared_post_id: FEATURE_POSTS and FEATURE_DM_POST_SHARE on for the
-// caller, before any lookup (FAILED_PRECONDITION + FEATURE_DISABLED, metadata feature=posts | dm_post_share), then the
-// id shape (VALIDATION shared_post_id). The recipient needs messaging only: the URL text covers an older client.
-func (s *service) guardPostShare(ctx context.Context, uid, postID string) error {
+// The VALIDATION field of a malformed post id: SendMessage's shared_post_id, CheckPostShare's post_id.
+const (
+	fieldSharedPostID = "shared_post_id"
+	fieldPostID       = "post_id"
+)
+
+// guardPostShare is the flag gate of a send that sets shared_post_id (and of CheckPostShare): FEATURE_POSTS and
+// FEATURE_DM_POST_SHARE on for the caller, before any lookup (FAILED_PRECONDITION + FEATURE_DISABLED, metadata
+// feature=posts | dm_post_share), then the id shape (VALIDATION field: fieldSharedPostID for a send, fieldPostID for a
+// check). The recipient needs messaging only: the URL text covers an older client.
+func (s *service) guardPostShare(ctx context.Context, uid, postID, field string) error {
 	for _, name := range []string{postsFlagName, PostShareFlagName} {
 		if s.flags == nil || !s.flags.Enabled(uid, name) {
 			logger.SetRequestField(ctx, "feature_disabled", true)
@@ -84,7 +91,7 @@ func (s *service) guardPostShare(ctx context.Context, uid, postID string) error 
 		}
 	}
 	if !ids.ValidPostID(postID) {
-		return apierr.Validation("shared_post_id", "shared_post_id must be a 19-digit post id")
+		return apierr.Validation(field, field+" must be a 19-digit post id")
 	}
 	return nil
 }

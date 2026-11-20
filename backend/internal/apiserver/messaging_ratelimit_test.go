@@ -55,6 +55,67 @@ func TestMessagingRateLimitWiring(t *testing.T) {
 
 }
 
+// TestMessagingShareCheckRateLimit: CheckPostShare has its own 10/min bucket (no other messaging RPC and not the
+// default) and its own daily cap messages_share_checks_daily (300 by default, nothing else draws on it). Through the real
+// interceptor the (cap+1)-th check of a uid is RATE_LIMITED with that name, another uid is untouched, and a spent check
+// budget leaves SendMessage open (separate counters both ways).
+func TestMessagingShareCheckRateLimit(t *testing.T) {
+	check := messagingv1connect.MessagingServiceCheckPostShareProcedure
+	send := messagingv1connect.MessagingServiceSendMessageProcedure
+	t.Run("wiring", func(t *testing.T) {
+		rl := RateLimitConfig(defaultRateLimitCfg())
+		b := rl.PerProcedure[check]
+		if b == nil || b == rl.Default {
+			t.Fatal("CheckPostShare needs its own per-procedure bucket")
+		}
+		for _, p := range []string{
+			send, messagingv1connect.MessagingServiceListMessagesProcedure, messagingv1connect.MessagingServiceListMessageSuggestionsProcedure,
+			messagingv1connect.MessagingServiceCommitConversationProcedure, messagingv1connect.MessagingServiceListWelcomesProcedure,
+		} {
+			if rl.PerProcedure[p] == b {
+				t.Errorf("%s shares the CheckPostShare bucket", p)
+			}
+		}
+		named, ok := rl.DailyCaps[check]
+		if !ok || named.Name != "messages_share_checks_daily" || named.Cap == nil {
+			t.Fatalf("CheckPostShare daily cap = %+v, want messages_share_checks_daily", named)
+		}
+		for p, other := range rl.DailyCaps {
+			if p != check && (other.Cap == named.Cap || other.Name == named.Name) {
+				t.Errorf("%s draws on the CheckPostShare cap", p)
+			}
+		}
+		for i := range 10 {
+			if ok, _ := b.Allow("uid-checker"); !ok {
+				t.Fatalf("check %d refused, want the first 10 allowed", i+1)
+			}
+		}
+		if ok, retry := b.Allow("uid-checker"); ok || retry <= 0 {
+			t.Errorf("check 11 = %v retry %v, want refused with a retry-after", ok, retry)
+		}
+	})
+	t.Run("daily cap through the interceptor", func(t *testing.T) {
+		const dailyCap = 3
+		cfg := defaultRateLimitCfg()
+		cfg.RateLimit.MessagesShareChecksPerDay = dailyCap
+		cfg.RateLimit.MessagesShareCheckPerUserPerMinute = 1_000_000
+		cfg.RateLimit.MessagesSendPerUserPerMinute = 1_000_000
+		invoke := messagingCapInvoker(t, cfg, check, send)
+		for i := range dailyCap {
+			if err := invoke("uid-checker", check); err != nil {
+				t.Fatalf("check %d must pass: %v", i+1, err)
+			}
+		}
+		wantCapRefusal(t, invoke("uid-checker", check), "messages_share_checks_daily")
+		if err := invoke("uid-checker", send); err != nil {
+			t.Fatalf("SendMessage after the check cap: %v", err)
+		}
+		if err := invoke("uid-other", check); err != nil {
+			t.Fatalf("another user must not share the counter: %v", err)
+		}
+	})
+}
+
 // TestMessagingReadBucketLimitsPolls: the 31st ListMessages call of one user inside a minute is refused by the
 // shared read bucket (30/min per instance), and another user's bucket is untouched.
 func TestMessagingReadBucketLimitsPolls(t *testing.T) {

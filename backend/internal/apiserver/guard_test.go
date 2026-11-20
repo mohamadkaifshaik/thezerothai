@@ -62,6 +62,8 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.MessagesCommitsPerDay = 500
 	cfg.RateLimit.MessagesResetsPerDay = 10
 	cfg.RateLimit.MessagesCommitsPerConversationPerDay = 20
+	cfg.RateLimit.MessagesShareCheckPerUserPerMinute = 10 // CheckPostShare
+	cfg.RateLimit.MessagesShareChecksPerDay = 300
 	cfg.RateLimit.NotificationsListPerUserPerMinute = 30 // ListNotifications (the config.Load default)
 	cfg.RateLimit.GetMePerUserPerMinute = 60             // GetMe (the config.Load default, L1)
 	cfg.RateLimit.CreatorInsightsPerUserPerMinute = 10   // GetCreatorInsights (the config.Load default, F2)

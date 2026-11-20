@@ -531,6 +531,10 @@ func uidScanCaseTable() map[string]uidScanCase {
 		messagingv1connect.MessagingServiceListMessageSuggestionsProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
 			return &messagingv1.ListMessageSuggestionsRequest{Limit: 10}
 		}},
+		// The answer is a post id only (the original's); no user reference in the request or the response.
+		messagingv1connect.MessagingServiceCheckPostShareProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &messagingv1.CheckPostShareRequest{PostId: w.APost}
+		}},
 		// The encrypted-conversation RPCs carry no user id in a request or a response (from_self booleans only; device ids
 		// are not user references). The seeded conversations are plaintext, so the reads answer their NONE form and the
 		// commit its refusal; each answer is still scanned.
