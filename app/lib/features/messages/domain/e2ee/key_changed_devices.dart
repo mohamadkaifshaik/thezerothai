@@ -17,12 +17,20 @@ const String kVaultSettingKeyChanged = 'messages.e2ee.keyChanged';
 /// never pins a marked (device id, key): it stays an unknown device; an
 /// ordinary unknown device (not marked) is attributed once a list shows it.
 ///
-/// Written in the transaction that sees the key differ. An entry goes only
-/// when its device leaves the conversation's pins (removed by a commit,
-/// `selfRemoved`, a later join that no longer holds it); nothing else clears
-/// it. Every method takes the vault the caller's `runWrite` body checked and
+/// Written in the transaction that sees the key differ. A mark, once written,
+/// stays for the life of the conversation's local state: a device leaving
+/// (removed by a commit, `selfRemoved`, a join or generation without it, a
+/// provisional discard) never removes it, because the former pins keep the
+/// NEW key and a re-add or rejoin on it would otherwise compare equal (the
+/// membership rule: a known device id with a new key is refused, also at a
+/// reset). It would go only with the deletion of the conversation's whole
+/// local state (pins AND former pins together); no code deletes that today.
+/// Cost, accepted: a device that really did change its key under the same
+/// id stays an unknown device in that conversation.
+///
+/// Every method takes the vault the caller's `runWrite` body checked and
 /// reads the stored record FRESH (a vault-wide setting written under
-/// per-conversation locks); call [updateIn] only inside that body's
+/// per-conversation locks); call [markIn] only inside that body's
 /// transaction.
 ///
 /// Fails closed: an unreadable value marks EVERY member of every
@@ -45,41 +53,29 @@ class KeyChangedDevices {
     return KeyChangedMarks._(all[conversationId] ?? const {});
   }
 
-  /// One edit of [conversationId]'s entry, in this order: [clear] drops it
-  /// all; [keepOnly] (device id hex) drops every device not in it; [drop]
-  /// (device id hex) drops those; [mark] (device id hex to new key) records
-  /// those. Reads the stored record fresh; writes nothing when nothing
-  /// changed or when the stored value is unreadable.
-  Future<void> updateIn(
+  /// Records [mark] (device id hex to the newest key) in [conversationId]'s
+  /// entry; a device marked before keeps its entry, with the newest key.
+  /// Reads the stored record fresh; writes nothing when nothing changed or
+  /// when the stored value is unreadable.
+  Future<void> markIn(
     VaultTx tx,
     SecureVault vault,
-    String conversationId, {
-    bool clear = false,
-    Set<String>? keepOnly,
-    Iterable<String> drop = const [],
-    Map<String, Uint8List> mark = const {},
-  }) async {
+    String conversationId,
+    Map<String, Uint8List> mark,
+  ) async {
+    if (mark.isEmpty) return;
     final stored = await _read(vault);
     if (stored == null) return;
     final before = stored[conversationId] ?? const <String, String>{};
-    final entry = clear ? <String, String>{} : {...before};
-    if (keepOnly != null) {
-      entry.removeWhere((hex, _) => !keepOnly.contains(hex));
-    }
-    for (final hex in drop) {
-      entry.remove(hex);
-    }
+    final entry = {...before};
     for (final e in mark.entries) {
       entry[e.key] = base64Encode(e.value);
     }
     if (_sameEntry(before, entry)) return;
-    final all = {...stored};
-    if (entry.isEmpty) {
-      all.remove(conversationId);
-    } else {
-      all[conversationId] = entry;
-    }
-    await tx.putSetting(kVaultSettingKeyChanged, _encode(all));
+    await tx.putSetting(
+      kVaultSettingKeyChanged,
+      _encode({...stored, conversationId: entry}),
+    );
   }
 
   /// Null: the stored value cannot be read.

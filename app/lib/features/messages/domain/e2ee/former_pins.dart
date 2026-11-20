@@ -19,6 +19,9 @@ const String kVaultSettingFormerPins = 'messages.e2ee.formerPins';
 /// the session's current one: across a sign-out and sign-in another user's
 /// vault could be published while an old body still runs). Never logs. No
 /// `toString`.
+///
+/// Any future writer of former pins must keep the conversation's key-changed
+/// marks (`KeyChangedDevices`): a former pin holds a changed key's NEW key.
 class FormerPins {
   const FormerPins();
 

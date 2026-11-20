@@ -559,6 +559,9 @@ class ConversationCrypto {
     ];
     final needKnown = !_known.contains(id);
     final groups = await v.groups(id);
+    // Read fresh in this body, for the key comparison.
+    final former = await _formerPins.of(v, id);
+    final marks = await _keyChanged.of(v, id);
     var newMember = false;
     try {
       await v.transaction((tx) async {
@@ -574,8 +577,8 @@ class ConversationCrypto {
           await _formerPins.putIn(tx, v, id, pins);
           // The rejoin is never a first join: no baseline is kept.
           await _baselines.deleteIn(tx, v, id);
-          // Every device left the pins: its key-changed marks go.
-          await _keyChanged.updateIn(tx, v, id, clear: true);
+          // The key-changed marks stay ([KeyChangedDevices]): the former
+          // pins keep the new keys, and a rejoin on one must stay unknown.
           if (MlsPair.above(at, record?.afterPair)) {
             await tx.setAfterPair(id, at);
           }
@@ -594,6 +597,9 @@ class ConversationCrypto {
           return;
         }
         final byHex = {for (final p in pins) vaultDeviceIdHex(p.deviceId): p};
+        // The pins as they were before this commit's removals: one commit may
+        // remove and add the same id (with another key).
+        final before = {...byHex};
         final thisHex = vaultDeviceIdHex(thisDevice);
         final members = described?.members ?? const <GroupMember>[];
         final inGroup = {for (final m in members) vaultDeviceIdHex(m.deviceId)};
@@ -628,7 +634,10 @@ class ConversationCrypto {
         // changed key is marked in this same transaction whatever the
         // acceptance state (attribution never pins a marked (id, key)); its
         // unknownDevice row, display only, is written here in accepted
-        // conversations and by attribution once one is accepted.
+        // conversations and by attribution once one is accepted. "Changed":
+        // the pin before this commit's removals has another key, or (no such
+        // pin) a former pin of that id has, or the id is already marked with
+        // another key (marked again with the newest key).
         final marked = <String, Uint8List>{};
         final added = <String, Uint8List>{};
         if (event != null) {
@@ -661,7 +670,17 @@ class ConversationCrypto {
               since: nextPair,
             ),
           );
-          if (pinned == null) continue;
+          final was = before[entry.key];
+          final changed = was != null
+              ? !_sameBytes(was.signatureKey, entry.value)
+              : former.any(
+                  (p) =>
+                      vaultDeviceIdHex(p.deviceId) == entry.key &&
+                      !_sameBytes(p.signatureKey, entry.value),
+                );
+          if (!changed && !marks.marksOtherKey(entry.key, entry.value)) {
+            continue;
+          }
           marked[entry.key] = entry.value;
           if (accepted) {
             final row = _systemRow(
@@ -676,9 +695,8 @@ class ConversationCrypto {
             }
           }
         }
-        // A removed device leaves the pins: its mark goes (read fresh, one
-        // write with the new marks).
-        await _keyChanged.updateIn(tx, v, id, drop: removed, mark: marked);
+        // Read fresh, one write; a removed device keeps its mark.
+        await _keyChanged.markIn(tx, v, id, marked);
         await tx.putGroup(
           GroupRecord(
             conversationId: id,
@@ -1348,8 +1366,8 @@ class ConversationCrypto {
   ///
   /// A member whose device id a current OR former pin holds with another key
   /// (or that is already marked with another key) is marked in the
-  /// key-changed marker, in this transaction, and pinned unattributed; marks
-  /// of devices the group no longer holds go.
+  /// key-changed marker, in this transaction, and pinned unattributed. Marks
+  /// of devices the group no longer holds stay.
   Future<void> _pinJoined(
     VaultTx tx,
     SecureVault v,
@@ -1411,7 +1429,8 @@ class ConversationCrypto {
         await tx.deleteMember(id, p.deviceId);
       }
     }
-    await _keyChanged.updateIn(tx, v, id, keepOnly: inGroup, mark: marked);
+    // A device the group no longer holds keeps its mark.
+    await _keyChanged.markIn(tx, v, id, marked);
   }
 
   /// Step 4: `bad_input` while the device clock is behind the welcome's

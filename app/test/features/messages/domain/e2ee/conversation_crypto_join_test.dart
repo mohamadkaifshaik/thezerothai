@@ -1080,14 +1080,140 @@ void main() {
       isNot(contains(SystemLine.deviceAdded)),
     );
 
-    // Generation 4 no longer holds carol: her mark goes with her pin.
+    // Generation 4 no longer holds carol: her pin goes, her mark stays (for
+    // the life of the conversation's local state).
     await rig.offer(_c1, bob, generation: 4);
     expect(await rig.crypto.processWelcomes(), [_c1]);
     expect(
       (await v.members(_c1)).where((m) => rigEq(m.deviceId, carol.id)),
       isEmpty,
     );
-    expect(await markedOf(_c1), isNull);
+    expect(await markedOf(_c1), {
+      vaultDeviceIdHex(carol.id): base64Encode(newKey),
+    });
+  });
+
+  test('a rejoin on a third key is marked against the former pin', () async {
+    final carol = await RigPeer.create('carol');
+    final k2 = Uint8List.fromList(List.filled(32, 2));
+    final k3 = Uint8List.fromList(List.filled(32, 3));
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(carol.idString, k3),
+    ];
+    rig.header(_c1, 'ref-bob');
+    // This device left generation 1, where carol was pinned theirs on k2;
+    // no mark was ever written.
+    const formerPins = FormerPins();
+    final v = rig.device.vault;
+    await v.transaction((tx) async {
+      await tx.putConversationSync(
+        _c1,
+        const ConversationSync(requestAccepted: true),
+      );
+      await tx.setAfterPair(_c1, const MlsPair(1, 3));
+      await tx.setJoinHighWater(_c1, const MlsPair(1, 0));
+      await formerPins.putIn(tx, v, _c1, [
+        MemberRecord(
+          conversationId: _c1,
+          deviceId: bob.id,
+          signatureKey: bob.key,
+          side: MemberSide.theirs,
+          since: const MlsPair(1, 1),
+        ),
+        MemberRecord(
+          conversationId: _c1,
+          deviceId: carol.id,
+          signatureKey: k2,
+          side: MemberSide.theirs,
+          since: const MlsPair(1, 1),
+        ),
+      ]);
+    });
+
+    // The rejoin holds carol on k3, which the directory lists.
+    await rig.offer(
+      _c1,
+      bob,
+      generation: 2,
+      others: [await carol.keyPackage()],
+    );
+    rig.device.engine.describeMembers = (real) => [
+      for (final m in real)
+        rigEq(m.deviceId, carol.id)
+            ? GroupMember(deviceId: carol.id, signaturePublicKey: k3)
+            : m,
+    ];
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    rig.device.engine.describeMembers = null;
+    rig.clock.advance(const Duration(minutes: 3));
+    await rig.crypto.attributeMembers(_c1);
+
+    final carolPin = (await v.members(_c1))
+        .singleWhere((m) => rigEq(m.deviceId, carol.id));
+    expect(carolPin.side, MemberSide.unattributed);
+    expect(await markedOf(_c1), {vaultDeviceIdHex(carol.id): base64Encode(k3)});
+    expect(
+      linesOf(await rig.lines(_c1), carol.id),
+      isNot(contains(SystemLine.deviceAdded)),
+    );
+  });
+
+  test('a marked device that changes key again at a join is marked with the '
+      'newest key', () async {
+    final carol = await RigPeer.create('carol');
+    final k2 = Uint8List.fromList(List.filled(32, 2));
+    final k3 = Uint8List.fromList(List.filled(32, 3));
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(carol.idString, k3),
+    ];
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    final v = rig.device.vault;
+    // Carol was marked on k2 earlier and holds no pin now (she left), and
+    // no former pin holds her: only the mark knows her old key.
+    await v.transaction(
+      (tx) => tx.putSetting(
+        'messages.e2ee.keyChanged',
+        rigBytes(
+          jsonEncode({
+            'v': 1,
+            'byConv': {
+              _c1: {vaultDeviceIdHex(carol.id): base64Encode(k2)},
+            },
+          }),
+        ),
+      ),
+    );
+
+    await rig.offer(
+      _c1,
+      bob,
+      generation: 2,
+      others: [await carol.keyPackage()],
+    );
+    rig.device.engine.describeMembers = (real) => [
+      for (final m in real)
+        rigEq(m.deviceId, carol.id)
+            ? GroupMember(deviceId: carol.id, signaturePublicKey: k3)
+            : m,
+    ];
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    rig.device.engine.describeMembers = null;
+    rig.clock.advance(const Duration(minutes: 3));
+    await rig.crypto.attributeMembers(_c1);
+
+    final carolPin = (await v.members(_c1))
+        .singleWhere((m) => rigEq(m.deviceId, carol.id));
+    expect(carolPin.side, MemberSide.unattributed);
+    expect(await markedOf(_c1), {vaultDeviceIdHex(carol.id): base64Encode(k3)});
+    expect(
+      linesOf(await rig.lines(_c1), carol.id),
+      isNot(contains(SystemLine.deviceAdded)),
+    );
   });
 
   test('an ordinary unknown device listed later is still attributed (a '
