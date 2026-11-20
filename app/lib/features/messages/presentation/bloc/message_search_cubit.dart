@@ -150,7 +150,11 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
         try {
           // Asked BEFORE the await, while the access still holds (and so
           // also right when the search fails).
-          _encryptedConversation = id != null && _isEncrypted(port, corpus, id);
+          // Fail closed: should the check itself throw, no older pages.
+          _encryptedConversation = id != null;
+          if (id != null) {
+            _encryptedConversation = _isEncrypted(port, corpus, id);
+          }
           final hits = await port.search(query, conversationId: id);
           if (isClosed || generation != _generation) return;
           // A stale answer (the query moved on) is dropped, not published.

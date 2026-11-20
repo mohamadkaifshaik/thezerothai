@@ -534,6 +534,29 @@ void main() {
       expect(rig.reported.single, isA<StateError>());
     });
 
+    test(
+      'a search whose conversation check fails offers no older pages',
+      () async {
+        final rig = EncryptedSearchRig(
+          conversations: [conv('c1')],
+          messages: {
+            'c1': [msg(1, text: 'plain needle')],
+          },
+        );
+        when(() => rig.repo.olderSearchToken('c1'))
+            .thenAnswer((_) async => 'tok');
+        final cubit = _cubit(rig, conversationId: 'c1');
+        cubit.setQuery('needle');
+        await _ready(cubit);
+        expect(cubit.state.canLoadOlder, isTrue, reason: 'not encrypted yet');
+
+        rig.port.failNextOn('hasLocal', StateError('x'));
+        cubit.setQuery('needle two');
+        await _ready(cubit);
+        expect(cubit.state.canLoadOlder, isFalse);
+      },
+    );
+
     test('an older query\'s hits are dropped when the query changed before the '
         'debounce fired', () async {
       final slow = _SlowPort();
