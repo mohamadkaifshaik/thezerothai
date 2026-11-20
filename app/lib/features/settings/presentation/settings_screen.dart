@@ -963,6 +963,8 @@ _SettingsRows _rowsFor(
   // Encrypted messages: with access full or manage only (hidden and
   // unsupported have no row). The subtitle is the status card's title while
   // the status blocks messaging; no device call is made from this list.
+  // `of` is a snapshot read, correct here because the access scope above
+  // rebuilds this list when the access changes.
   final encryptionAccess = EncryptionAccessBuilder.of(context);
   final encryptionStatusLine = context.select<EncryptionStatusCubit?, String?>(
     (cubit) => cubit != null && cubit.state.blocksMessaging

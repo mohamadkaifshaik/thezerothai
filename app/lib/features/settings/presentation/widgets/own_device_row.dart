@@ -16,18 +16,23 @@ import '../../../messages/presentation/e2ee/encryption_copy.dart';
 ///   "removed", still removable).
 /// - In conversations but not in the directory: a danger pill and a note; no Remove (the pipeline removes it).
 /// - In the directory but in no conversation: a neutral pill.
-/// Remove is a separate 48 dp button, shown when [onRemove] is set; [removing] swaps it for a progress indicator.
+/// With [directoryKnown] false the server list could not be read, so "not in your device list" and "not set up" are
+/// unknowable: no pill, no note and no [kDeviceNotSetUp] then.
+/// Remove is a separate 48 dp button, shown when [onRemove] is set; [removing] swaps it for a progress indicator
+/// (a disabled, non-announcing node under the same label).
 class OwnDeviceRow extends StatelessWidget {
   const OwnDeviceRow({
     super.key,
     required this.device,
     required this.now,
+    this.directoryKnown = true,
     this.onRemove,
     this.removing = false,
   });
 
   final OwnDevice device;
   final DateTime now;
+  final bool directoryKnown;
   final VoidCallback? onRemove;
   final bool removing;
 
@@ -37,13 +42,16 @@ class OwnDeviceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final addedAt = device.addedAt;
     final date = addedAt == null ? '' : _date(addedAt);
-    final unlisted = !device.inDirectory && device.inConversations;
-    final notJoined = device.inDirectory && !device.inConversations;
+    final unlisted =
+        directoryKnown && !device.inDirectory && device.inConversations;
+    final notJoined =
+        directoryKnown && device.inDirectory && !device.inConversations;
     final String title;
     final String? subtitle;
     if (device.thisDevice) {
       title = kDeviceThisTitle;
-      subtitle = !device.inDirectory && !device.inConversations
+      subtitle =
+          directoryKnown && !device.inDirectory && !device.inConversations
           ? kDeviceNotSetUp
           : (addedAt == null ? null : deviceAddedSubtitle(date));
     } else {
@@ -86,11 +94,14 @@ class OwnDeviceRow extends StatelessWidget {
                 padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
                 child: removing
                     ? Semantics(
+                        container: true,
+                        button: true,
+                        enabled: false,
                         label: deviceRemoveLabel(date),
-                        liveRegion: true,
+                        excludeSemantics: true,
                         child: const SizedBox(
-                          width: AppSpacing.xxl,
-                          height: AppSpacing.xxl,
+                          width: AppSpacing.minTapTarget,
+                          height: AppSpacing.minTapTarget,
                           child: Center(
                             child: SizedBox(
                               width: SettingsRow.busySize,
@@ -108,8 +119,8 @@ class OwnDeviceRow extends StatelessWidget {
                         onTap: onRemove,
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(
-                            minWidth: AppSpacing.xxl,
-                            minHeight: AppSpacing.xxl,
+                            minWidth: AppSpacing.minTapTarget,
+                            minHeight: AppSpacing.minTapTarget,
                           ),
                           child: TextButton(
                             onPressed: onRemove,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
@@ -79,9 +81,9 @@ void main() {
       addTearDown(c.close);
       await c.load();
       port.calls.clear();
-      expect(await c.remove('ref-other'), isTrue);
+      expect(await c.remove('ref-other'), RemoveOutcome.removed);
       expect(port.removedDevices, ['ref-other']);
-      expect(port.calls, ['removeDevice', 'ownDevices', 'retryDeviceSetup']);
+      expect(port.calls, ['removeDevice', 'ownDevices']);
       expect(c.state.removing, isNull);
       expect(c.state.status, EncryptionDevicesStatus.ready);
     },
@@ -93,7 +95,7 @@ void main() {
     await c.load();
     final before = c.state.list;
     port.failNextOn('removeDevice', const NetworkException('x'));
-    expect(await c.remove('ref-other'), isFalse);
+    expect(await c.remove('ref-other'), RemoveOutcome.failed);
     expect(c.state.list, same(before));
     expect(c.state.error, isA<NetworkException>());
     expect(c.state.removing, isNull);
@@ -105,9 +107,82 @@ void main() {
     addTearDown(c.close);
     await c.load();
     port.failNextOn('ownDevices', const NetworkException('x'));
-    expect(await c.remove('ref-other'), isTrue);
+    expect(await c.remove('ref-other'), RemoveOutcome.removed);
     expect(c.state.status, EncryptionDevicesStatus.ready);
     expect(c.state.list, isNotNull);
+    // An ordinary network error on the reload is not an unexpected error.
+    expect(reported, isEmpty);
+  });
+
+  test('a reload failing with a non-typed error after a removal is reported '
+      'as a fixed StateError', () async {
+    final c = make();
+    addTearDown(c.close);
+    await c.load();
+    port.failNextOn('ownDevices', ArgumentError.value('ref-secret'));
+    expect(await c.remove('ref-other'), RemoveOutcome.removed);
+    expect(reported.single, isA<StateError>());
+    expect(reported.single.toString(), isNot(contains('ref-secret')));
+  });
+
+  test('a removal off the device limit never calls retryDeviceSetup', () async {
+    final c = make();
+    addTearDown(c.close);
+    await c.load();
+    await c.remove('ref-other');
+    expect(port.retryDeviceSetupCalls, 0);
+  });
+
+  test('at the device limit the list is reloaded after the retry', () async {
+    final c = make();
+    addTearDown(c.close);
+    await c.load();
+    port.calls.clear();
+    expect(
+      await c.remove('ref-other', retrySetup: true),
+      RemoveOutcome.removed,
+    );
+    expect(port.calls, ['removeDevice', 'retryDeviceSetup', 'ownDevices']);
+  });
+
+  test(
+    'a second remove during a removal calls nothing and is not attempted',
+    () async {
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.holdRemoveDevice = Completer<void>();
+      final first = c.remove('ref-other');
+      await Future<void>.delayed(Duration.zero);
+      // Not cleared: the fake reads `calls.last` to find the method it serves.
+      final callsBefore = port.calls.length;
+      expect(await c.remove('ref-other'), RemoveOutcome.notAttempted);
+      expect(port.calls, hasLength(callsBefore));
+      port.holdRemoveDevice!.complete();
+      expect(await first, RemoveOutcome.removed);
+    },
+  );
+
+  test('a closed cubit does not attempt a removal', () async {
+    final c = make();
+    await c.close();
+    expect(await c.remove('ref-other'), RemoveOutcome.notAttempted);
+    expect(port.calls, isEmpty);
+  });
+
+  test('Try again during a removal keeps the removal guard', () async {
+    final c = make();
+    addTearDown(c.close);
+    await c.load();
+    port.holdRemoveDevice = Completer<void>();
+    final first = c.remove('ref-other');
+    await Future<void>.delayed(Duration.zero);
+    await c.load();
+    expect(c.state.removing, 'ref-other');
+    expect(await c.remove('ref-older'), RemoveOutcome.notAttempted);
+    port.holdRemoveDevice!.complete();
+    await first;
+    expect(c.state.removing, isNull);
   });
 
   test('removalsPending follows the port\'s listenable', () async {
@@ -125,13 +200,15 @@ void main() {
     final c = make();
     addTearDown(c.close);
     await c.load();
-    await c.remove('ref-other');
+    await c.remove('ref-other', retrySetup: true);
     expect(port.retryDeviceSetupCalls, 1);
   });
 
   test('closing the cubit stops listening', () async {
     final c = make();
+    expect(port.removalsPending.listenerCount, 1);
     await c.close();
+    expect(port.removalsPending.listenerCount, 0);
     port.removalsPending.value = 5;
     expect(c.state.removalsPending, 0);
   });

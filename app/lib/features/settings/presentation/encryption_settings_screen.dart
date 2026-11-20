@@ -90,10 +90,9 @@ class _EncryptionPage extends StatelessWidget {
     final cubit = context.watch<EncryptionStatusCubit?>();
     final port = context.read<EncryptedMessaging?>();
     return ListView(
-      padding: EdgeInsets.only(
-        top: AppSpacing.md,
-        bottom: AppSpacing.lg + MediaQuery.paddingOf(context).bottom,
-      ),
+      padding:
+          const EdgeInsets.only(top: AppSpacing.md, bottom: AppSpacing.lg) +
+          shellBottomInsets(context),
       children: [
         if (cubit != null)
           BlocBuilder<EncryptionStatusCubit, EncryptionStatus>(
@@ -166,6 +165,7 @@ class _DevicesView extends StatelessWidget {
     OwnDevice device,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
+    final status = context.read<EncryptionStatusCubit?>();
     final confirmed = await showAppAlertConfirm(
       context,
       title: kDeviceRemoveTitle,
@@ -174,12 +174,22 @@ class _DevicesView extends StatelessWidget {
       destructive: true,
     );
     if (!confirmed) return;
-    final done = await cubit.remove(device.ref);
+    // Registering this device again is only asked for at the 5-device limit
+    // (read now, after the dialog), never from `manage` access.
+    final atLimit =
+        status?.state.kind == EncryptionStatusKind.deviceLimitReached;
+    final outcome = await cubit.remove(device.ref, retrySetup: atLimit);
+    // Nothing was attempted (a removal was already running): nothing to say.
+    if (outcome == RemoveOutcome.notAttempted) return;
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(done ? kDeviceRemovedText : kDeviceRemoveFailedText),
+          content: Text(
+            outcome == RemoveOutcome.removed
+                ? kDeviceRemovedText
+                : kDeviceRemoveFailedText,
+          ),
         ),
       );
   }
@@ -224,8 +234,10 @@ class _DevicesView extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(
+                      // The port cannot say why the list was not read
+                      // (offline or a server failure), so no offline note.
                       child: Text(
-                        kDevicesOfflineNote,
+                        kDevicesLoadFailed,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -250,6 +262,7 @@ class _DevicesView extends StatelessWidget {
                         inDirectory: false,
                       ),
                   now: at,
+                  directoryKnown: list.directoryKnown,
                 ),
               ],
             ),
@@ -259,14 +272,19 @@ class _DevicesView extends StatelessWidget {
                   child: AppSectionHeader(title: kDevicesOthersHeader),
                 ),
                 if (list.directoryKnown)
-                  Padding(
-                    padding: const EdgeInsetsDirectional.only(
-                      end: AppSpacing.md,
-                    ),
-                    child: Text(
-                      devicesCount(listed),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                  // Flexible: at a large text size the count wraps instead
+                  // of pushing the row past the edge.
+                  Flexible(
+                    child: Padding(
+                      padding: const EdgeInsetsDirectional.only(
+                        end: AppSpacing.md,
+                      ),
+                      child: Text(
+                        devicesCount(listed),
+                        textAlign: TextAlign.end,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ),
@@ -284,8 +302,14 @@ class _DevicesView extends StatelessWidget {
                     OwnDeviceRow(
                       device: d,
                       now: at,
+                      directoryKnown: list.directoryKnown,
                       removing: state.removing == d.ref,
-                      onRemove: d.inDirectory
+                      // No Remove while the directory is unread or while
+                      // any removal runs.
+                      onRemove:
+                          d.inDirectory &&
+                              list.directoryKnown &&
+                              state.removing == null
                           ? () => _remove(context, cubit, d)
                           : null,
                     ),

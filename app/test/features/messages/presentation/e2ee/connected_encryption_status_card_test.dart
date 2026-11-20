@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_error_messages.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -346,6 +348,44 @@ void main() {
     await confirmSetUp(tester);
     expect(reported, hasLength(2));
     expect(reported.last.toString(), 'Bad state: setUpDeviceAgain');
+  });
+
+  testWidgets('a failed Set up again shows the error text', (tester) async {
+    messaging.removedElsewhere.value = true;
+    await pump(tester);
+    messaging.failNextOn('setUpDeviceAgain', const NetworkException('secret'));
+    await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    await confirmSetUp(tester);
+    await tester.pump();
+    expect(
+      find.text(encryptionErrorMessage(const NetworkException('x'))),
+      findsOneWidget,
+    );
+    expect(find.textContaining('secret'), findsNothing);
+    // The report stays the fixed step, never the error.
+    expect(reported.single.toString(), 'Bad state: setUpDeviceAgain');
+    await tester.pumpAndSettle();
+
+    // An error that is not typed shows the generic text.
+    messaging.failNextOn('setUpDeviceAgain', Exception('secret'));
+    await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    await confirmSetUp(tester);
+    await tester.pump();
+    expect(
+      find.text(encryptionErrorMessage(const UnknownApiException(''))),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a failed Check again shows no snackbar', (tester) async {
+    messaging.removedElsewhere.value = true;
+    messaging.failNextOn('checkRemovedAgain', const NetworkException('x'));
+    await pump(tester);
+    await tap(tester, kStatusCheckAgain);
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
   });
 
   testWidgets('no port: the card still renders with the remaining buttons', (

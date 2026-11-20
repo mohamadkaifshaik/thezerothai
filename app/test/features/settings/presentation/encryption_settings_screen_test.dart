@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/features/settings/presentation/bloc/encryption_devices_cubit.dart';
+import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -25,6 +29,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_encryption_device.dart';
+import '../../../support/settings_tablet_rig.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -84,9 +89,11 @@ void main() {
     bool withDevice = true,
     bool withStatus = true,
     double textScale = 1,
+    double width = 900,
+    bool settle = true,
   }) async {
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(900, 2400);
+    tester.view.physicalSize = Size(width, 2400);
     addTearDown(tester.view.reset);
     final onboarding = _MockOnboardingBloc();
     whenListen(
@@ -140,8 +147,43 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+    }
   }
+
+  /// Taps Remove on the first row and confirms; one frame, no settle (the
+  /// spinner never settles).
+  Future<void> confirmRemoveFirst(WidgetTester tester) async {
+    await tester.tap(_removeButtons().first);
+    await tester.pumpAndSettle();
+    await tester.tap(_inDialog(kDeviceRemoveAction));
+    await tester.pump();
+    await tester.pump();
+  }
+
+  /// The Settings list itself (the page under the row), for the access tests:
+  /// the row lives in the Settings screen, not on this page.
+  Future<void> pumpSettingsRow(
+    WidgetTester tester, {
+    required bool flagOn,
+  }) async {
+    await SettingsTabletRig().pump(
+      tester,
+      width: 390,
+      height: 1800,
+      flags: flagOn
+          ? {...kSettingsTabletFlags, kFeatureE2eeDm}
+          : kSettingsTabletFlags,
+      encryptionDevice: device,
+      encryptedMessaging: port,
+    );
+  }
+
+  Finder settingsRow() =>
+      find.widgetWithText(SettingsRow, kEncryptionSettingsTitle);
 
   void manageAccess() {
     device.flag = E2eeFlag.off;
@@ -155,6 +197,9 @@ void main() {
         await pump(tester, flagOn: false);
         expect(find.text(kEncryptionSettingsUnavailableTitle), findsOneWidget);
         expect(find.text(kEncryptionSettingsUnavailableBody), findsOneWidget);
+        expect(port.calls, isEmpty);
+        await pumpSettingsRow(tester, flagOn: false);
+        expect(settingsRow(), findsNothing);
         expect(port.calls, isEmpty);
       },
     );
@@ -187,6 +232,12 @@ void main() {
         await tester.tap(_inDialog(kDeviceRemoveAction));
         await tester.pumpAndSettle();
         expect(port.removedDevices, ['ref-older']);
+        expect(find.text(kDeviceRemovedText), findsOneWidget);
+        // Manage access never starts encryption: no retry, no set up.
+        expect(port.retryDeviceSetupCalls, 0);
+        expect(port.setUpAgainCalls, 0);
+        await pumpSettingsRow(tester, flagOn: false);
+        expect(settingsRow(), findsOneWidget);
       },
     );
 
@@ -389,7 +440,7 @@ void main() {
 
   group('list reading', () {
     testWidgets(
-      'directoryKnown false shows the offline note and the vault rows',
+      'directoryKnown false says the list could not be read, with Try again, and shows no false warning',
       (tester) async {
         port.setOwnDevices(
           OwnDeviceList(
@@ -398,11 +449,50 @@ void main() {
           ),
         );
         await pump(tester);
-        expect(find.text(kDevicesOfflineNote), findsOneWidget);
+        expect(find.text(kDevicesLoadFailed), findsOneWidget);
+        expect(find.text(kStatusTryAgain), findsOneWidget);
+        // The port cannot say why, so never the offline note.
+        expect(find.text(kDevicesOfflineNote), findsNothing);
         expect(find.text(kDeviceThisTitle), findsNWidgets(2));
         expect(find.textContaining('of 5 devices'), findsNothing);
+        // A device the directory could not confirm is not "unlisted".
+        expect(find.text(kDeviceUnlistedPill), findsNothing);
+        expect(find.text(kDeviceUnlistedNote), findsNothing);
+        expect(find.text(kDeviceNotSetUp), findsNothing);
       },
     );
+
+    testWidgets(
+      'directoryKnown false with this device missing from the list does not say "Not set up"',
+      (tester) async {
+        port.setOwnDevices(const OwnDeviceList(directoryKnown: false));
+        await pump(tester);
+        expect(find.text(kDeviceNotSetUp), findsNothing);
+        expect(find.text(kDeviceUnlistedPill), findsNothing);
+      },
+    );
+
+    testWidgets('no other device shows Remove while the directory is unread', (
+      tester,
+    ) async {
+      port.setOwnDevices(
+        OwnDeviceList(devices: [_mine, _older, _newer], directoryKnown: false),
+      );
+      await pump(tester);
+      expect(_removeButtons(), findsNothing);
+    });
+
+    testWidgets('Try again reads the list again', (tester) async {
+      port.setOwnDevices(
+        OwnDeviceList(devices: [_mine, _older], directoryKnown: false),
+      );
+      await pump(tester);
+      port.setOwnDevices(OwnDeviceList(devices: [_mine, _older]));
+      await tester.tap(find.text(kStatusTryAgain));
+      await tester.pumpAndSettle();
+      expect(find.text(kDevicesLoadFailed), findsNothing);
+      expect(_removeButtons(), findsOneWidget);
+    });
 
     testWidgets('a rate-limited answer shows no warning', (tester) async {
       await pump(tester);
@@ -521,10 +611,128 @@ void main() {
     );
   });
 
-  testWidgets('text scale 2.0 lays out without overflow', (tester) async {
-    await pump(tester, textScale: 2);
-    expect(tester.takeException(), isNull);
+  group('removal in flight', () {
+    testWidgets(
+      'while a removal is in flight every Remove is disabled and the row shows its spinner',
+      (tester) async {
+        await pump(tester);
+        port.holdRemoveDevice = Completer<void>();
+        await confirmRemoveFirst(tester);
+        expect(port.removedDevices, ['ref-older']);
+        expect(_removeButtons(), findsNothing);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        port.holdRemoveDevice!.complete();
+        await tester.pumpAndSettle();
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.text(kDeviceRemovedText), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the spinner is a disabled node under the row label, not a live announcement',
+      (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(tester);
+        port.holdRemoveDevice = Completer<void>();
+        await confirmRemoveFirst(tester);
+        final label = deviceRemoveLabel(_date(_older.addedAt!));
+        final node = find.bySemanticsLabel(label);
+        expect(node, findsOneWidget);
+        expect(
+          tester.getSemantics(node),
+          isSemantics(
+            label: label,
+            isButton: true,
+            hasEnabledState: true,
+            isEnabled: false,
+          ),
+        );
+        expect(
+          tester.getSemantics(node),
+          isNot(isSemantics(isLiveRegion: true)),
+        );
+        port.holdRemoveDevice!.complete();
+        await tester.pumpAndSettle();
+        handle.dispose();
+      },
+    );
+
+    testWidgets(
+      'a second confirm during a removal calls nothing and shows no failure',
+      (tester) async {
+        await pump(tester);
+        // Open the dialog on a row, then a removal starts elsewhere.
+        await tester.tap(_removeButtons().last);
+        await tester.pumpAndSettle();
+        final cubit = BlocProvider.of<EncryptionDevicesCubit>(
+          tester.element(find.text(kDevicesOthersHeader)),
+        );
+        port.holdRemoveDevice = Completer<void>();
+        unawaited(cubit.remove('ref-older'));
+        await tester.pump();
+        final callsBefore = port.calls.length;
+        await tester.tap(_inDialog(kDeviceRemoveAction));
+        await tester.pump();
+        await tester.pump();
+        expect(port.calls, hasLength(callsBefore));
+        expect(port.removedDevices, ['ref-older']);
+        expect(find.text(kDeviceRemoveFailedText), findsNothing);
+        expect(find.text(kDeviceRemovedText), findsNothing);
+        port.holdRemoveDevice!.complete();
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets('a removal off the device limit never calls retryDeviceSetup', (
+      tester,
+    ) async {
+      await pump(tester);
+      await confirmRemoveFirst(tester);
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, ['ref-older']);
+      expect(port.retryDeviceSetupCalls, 0);
+    });
+
+    testWidgets('at the device limit the list is reloaded after the retry', (
+      tester,
+    ) async {
+      device.deviceKeys.value = DeviceKeysStatus.deviceLimitReached;
+      await pump(tester);
+      port.calls.clear();
+      await confirmRemoveFirst(tester);
+      await tester.pumpAndSettle();
+      expect(port.calls, ['removeDevice', 'retryDeviceSetup', 'ownDevices']);
+    });
   });
+
+  group('loading and summary', () {
+    testWidgets('the loading placeholder shows while the list is read', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      port.holdOwnDevices = Completer<void>();
+      await pump(tester, settle: false);
+      expect(find.byType(SettingsGroupPlaceholder), findsOneWidget);
+      expect(find.bySemanticsLabel(kDevicesLoading), findsOneWidget);
+      expect(find.text(kDevicesOthersHeader), findsNothing);
+      port.holdOwnDevices!.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsGroupPlaceholder), findsNothing);
+      expect(find.text(kDevicesOthersHeader), findsOneWidget);
+      handle.dispose();
+    });
+  });
+
+  for (final width in const [900.0, 390.0]) {
+    testWidgets(
+      'text scale 2.0 lays out without overflow at ${width.toInt()} dp',
+      (tester) async {
+        await pump(tester, textScale: 2, width: width);
+        final error = tester.takeException();
+        expect(error, isNull, reason: error?.toString());
+      },
+    );
+  }
 }
 
 extension on OwnDevice {

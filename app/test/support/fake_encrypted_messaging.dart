@@ -86,7 +86,15 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   @override
   final ValueNotifier<bool> removedElsewhere = ValueNotifier(false);
   @override
-  final ValueNotifier<int> removalsPending = ValueNotifier(0);
+  final CountingNotifier removalsPending = CountingNotifier(0);
+
+  /// When set, `removeDevice` records the call, then awaits it before
+  /// answering.
+  Completer<void>? holdRemoveDevice;
+
+  /// When set, `ownDevices` records the call, then awaits it before
+  /// answering.
+  Completer<void>? holdOwnDevices;
 
   final List<({ThreadRef to, String localId, String text, String sharedPostId})>
   sent = [];
@@ -364,6 +372,8 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   @override
   Future<OwnDeviceList> ownDevices() async {
     calls.add('ownDevices');
+    final hold = holdOwnDevices;
+    if (hold != null) await hold.future;
     _throwIfFailing();
     return _own;
   }
@@ -375,6 +385,30 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
       throw ArgumentError.value(ref, 'ref', 'is this device');
     }
     removedDevices.add(ref);
+    final hold = holdRemoveDevice;
+    if (hold != null) await hold.future;
     _throwIfFailing();
+  }
+}
+
+/// A [ValueNotifier] that counts its listeners, so a test can prove a
+/// listener was removed.
+class CountingNotifier extends ValueNotifier<int> {
+  CountingNotifier(super.value);
+
+  int listenerCount = 0;
+
+  @override
+  void addListener(VoidCallback listener) {
+    listenerCount++;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    // Only a listener that was added counts down (the base ignores others).
+    final before = hasListeners;
+    super.removeListener(listener);
+    if (before && listenerCount > 0) listenerCount--;
   }
 }

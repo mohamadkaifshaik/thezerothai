@@ -3,6 +3,9 @@ import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
+import 'package:dzeroth/features/settings/presentation/encryption_settings_screen.dart';
+import 'package:dzeroth/features/settings/presentation/settings_screen.dart'
+    show SettingsDesktopDetail;
 import 'package:dzeroth/features/settings/presentation/widgets/own_device_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,10 +76,43 @@ void main() {
         } else {
           expect(findCategoriesPane(), findsNothing);
         }
-        // The readable column: 680 on the tablet layouts, 600 on the phone.
+        // The readable column per band: the whole phone width, 680 on the
+        // tablet bands, 600 beside the list on the desktop.
+        final column = tester.getSize(
+          find
+              .descendant(
+                of: find.byType(EncryptionSettingsScreen),
+                matching: find.byType(ListView),
+              )
+              .first,
+        );
+        // The column is the page's width up to its cap: so it equals the
+        // page below the cap and equals the cap above it.
+        final page = tester.getSize(find.byType(EncryptionSettingsScreen));
+        final cap = width >= 1200 ? 600.0 : (width >= 600 ? 680.0 : 600.0);
+        expect(
+          column.width,
+          moreOrLessEquals(page.width < cap ? page.width : cap),
+          reason: 'column width at $width dp (page ${page.width}, cap $cap)',
+        );
+        if (width < 600) {
+          expect(column.width, moreOrLessEquals(width));
+        }
         for (final row in tester.widgetList(find.byType(OwnDeviceRow))) {
           final size = tester.getSize(find.byWidget(row));
-          expect(size.width, lessThanOrEqualTo(680));
+          expect(size.width, lessThanOrEqualTo(column.width));
+        }
+        // The desktop's leaf pages replace the detail pane (the shell routes
+        // them there; `SettingsDesktopDetail` is only the /settings root):
+        // the page sits to the right of the categories pane.
+        if (width >= 1200) {
+          expect(
+            tester.getTopLeft(find.byType(EncryptionSettingsScreen)).dx,
+            greaterThanOrEqualTo(
+              tester.getTopRight(findCategoriesPane()).dx - 0.5,
+            ),
+          );
+          expect(find.byType(SettingsDesktopDetail), findsNothing);
         }
         expect(port.calls.where((c) => c == 'ownDevices'), hasLength(1));
       });
@@ -145,6 +181,41 @@ void main() {
         expect(row(), findsNothing);
       });
     }
+
+    testWidgets('the Privacy summary names encrypted messages with access', (
+      tester,
+    ) async {
+      await pumpAt(tester, 1300, flags: flagsOn);
+      Finder privacy() => find.descendant(
+        of: findCategoriesPane(),
+        matching: find.byWidgetPredicate(
+          (w) => w is SettingsRow && w.title == 'Privacy & safety',
+        ),
+      );
+      expect(
+        tester.widget<SettingsRow>(privacy()).subtitle,
+        contains('encrypted messages'),
+      );
+    });
+
+    testWidgets('the Privacy summary omits it without access', (tester) async {
+      await pumpAt(
+        tester,
+        1300,
+        flags: kSettingsTabletFlags,
+        vaultKnown: false,
+      );
+      final privacy = find.descendant(
+        of: findCategoriesPane(),
+        matching: find.byWidgetPredicate(
+          (w) => w is SettingsRow && w.title == 'Privacy & safety',
+        ),
+      );
+      expect(
+        tester.widget<SettingsRow>(privacy).subtitle,
+        isNot(contains('encrypted messages')),
+      );
+    });
 
     testWidgets('a blocking status is the subtitle', (tester) async {
       await pumpAt(tester, 390, flags: flagsOn, status: VaultStatus.keyLost);

@@ -6,6 +6,10 @@ import '../../../messages/domain/e2ee/encrypted_messaging.dart';
 
 enum EncryptionDevicesStatus { loading, ready, failed }
 
+/// What [EncryptionDevicesCubit.remove] did: the directory removal answered, it failed, or nothing was attempted
+/// (the cubit is closed or another removal is running).
+enum RemoveOutcome { removed, failed, notAttempted }
+
 /// The device list of Settings > Encrypted messages. A plain class on purpose: it holds device refs, so it has no
 /// `toString` (R14), no `==` and no generated code.
 @immutable
@@ -70,6 +74,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
       EncryptionDevicesState(
         status: EncryptionDevicesStatus.loading,
         list: before.list,
+        removing: before.removing,
         removalsPending: before.removalsPending,
       ),
     );
@@ -80,6 +85,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         EncryptionDevicesState(
           status: EncryptionDevicesStatus.ready,
           list: list,
+          removing: state.removing,
           removalsPending: state.removalsPending,
         ),
       );
@@ -89,6 +95,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
       emit(
         EncryptionDevicesState(
           status: EncryptionDevicesStatus.failed,
+          removing: state.removing,
           removalsPending: state.removalsPending,
           error: e is AppException ? e : null,
         ),
@@ -96,10 +103,14 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     }
   }
 
-  /// True when the directory removal answered (whatever the reload or the device setup does after it). On a failure
-  /// the list stays and [EncryptionDevicesState.error] carries the typed error.
-  Future<bool> remove(String ref) async {
-    if (isClosed || state.removing != null) return false;
+  /// [RemoveOutcome.removed] when the directory removal answered (whatever the reload or the device setup does
+  /// after it); [RemoveOutcome.failed] when it did not (the list stays and [EncryptionDevicesState.error] carries
+  /// the typed error); [RemoveOutcome.notAttempted] when the cubit is closed or another removal is running.
+  ///
+  /// [retrySetup] (the screen sets it only at the 5-device limit) asks the port to register this device again after
+  /// the removal. Order: remove, retry (when asked), reload.
+  Future<RemoveOutcome> remove(String ref, {bool retrySetup = false}) async {
+    if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
     final before = state;
     emit(
       EncryptionDevicesState(
@@ -123,19 +134,21 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
           ),
         );
       }
-      return false;
+      return RemoveOutcome.failed;
+    }
+    // The 5-device latch: registering again is only a request, never part of the removal's answer.
+    if (retrySetup) {
+      try {
+        await _messaging.retryDeviceSetup();
+      } catch (_, stack) {
+        _report('retryDeviceSetup', stack);
+      }
     }
     OwnDeviceList? list = before.list;
     try {
       list = await _messaging.ownDevices();
-    } catch (_, stack) {
-      _report('ownDevicesAfterRemove', stack);
-    }
-    // The 5-device latch: registering again is only a request, never part of the removal's answer.
-    try {
-      await _messaging.retryDeviceSetup();
-    } catch (_, stack) {
-      _report('retryDeviceSetup', stack);
+    } catch (e, stack) {
+      if (e is! AppException) _report('ownDevicesAfterRemove', stack);
     }
     if (!isClosed) {
       emit(
@@ -146,7 +159,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         ),
       );
     }
-    return true;
+    return RemoveOutcome.removed;
   }
 
   @override
