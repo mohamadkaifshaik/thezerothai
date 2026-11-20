@@ -151,6 +151,23 @@ void main() {
     expect(rig.keys.getCalls.length, callsBefore);
   });
 
+  test('own returns deferred at once while the budget is paused', () async {
+    final rig = _Rig();
+    final first = await rig.directory.own();
+    expect(first.readable, isTrue);
+    rig.keys.onList = () => Future.error(
+      const RateLimitedException('x', retryAfter: Duration(minutes: 5)),
+    );
+    final deferred = await rig.directory.own(fresh: true);
+    expect(deferred.state, ListState.deferred);
+    expect(deferred.devices, hasLength(1));
+    final calls = rig.keys.listCalls;
+    final again = await rig.directory.own(fresh: true);
+    expect(again.state, ListState.deferred);
+    expect(again.devices, hasLength(1));
+    expect(rig.keys.listCalls, calls);
+  });
+
   test('RATE_LIMITED with no list yet is deferred with no devices; with no '
       'hint the pause is one minute', () async {
     final rig = _Rig();

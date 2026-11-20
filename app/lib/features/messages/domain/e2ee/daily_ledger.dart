@@ -29,6 +29,7 @@ class DailyRecord {
     this.did = const {},
     this.lostSendUpdate = const {},
     this.emptyClaim = const {},
+    this.exhausted = false,
   });
 
   /// An empty record for [day] (`YYYY-MM-DD`, IST).
@@ -36,7 +37,17 @@ class DailyRecord {
     : undone = const {},
       did = const {},
       lostSendUpdate = const {},
-      emptyClaim = const {};
+      emptyClaim = const {},
+      exhausted = false;
+
+  /// The record that stands for a stored value that could not be read: every
+  /// counter answers at its cap for [day].
+  const DailyRecord.capped(this.day)
+    : undone = const {},
+      did = const {},
+      lostSendUpdate = const {},
+      emptyClaim = const {},
+      exhausted = true;
 
   /// The IST day this record counts.
   final String day;
@@ -53,6 +64,10 @@ class DailyRecord {
   /// Device ids (hex) whose empty claim was retried today (R3).
   final Set<String> emptyClaim;
 
+  /// True when the value stored for this day could not be read: the ledger
+  /// then answers as if every counter were at its cap until the next IST day.
+  final bool exhausted;
+
   DailyRecord copyWith({
     Map<String, int>? undone,
     Map<String, DailyDevices>? did,
@@ -64,13 +79,26 @@ class DailyRecord {
     did: did ?? this.did,
     lostSendUpdate: lostSendUpdate ?? this.lostSendUpdate,
     emptyClaim: emptyClaim ?? this.emptyClaim,
+    exhausted: exhausted,
   );
 
-  Uint8List encode() => Uint8List.fromList(
+  /// The sealed JSON. [ArgumentError] for a counter outside
+  /// 0..[kMaxPairComponent] (what [decode] accepts).
+  Uint8List encode() {
+    for (final n in undone.values) {
+      if (n < 0 || n > kMaxPairComponent) {
+        throw ArgumentError('A daily counter is out of range.');
+      }
+    }
+    return _encode();
+  }
+
+  Uint8List _encode() => Uint8List.fromList(
     utf8.encode(
       jsonEncode({
         'v': 1,
         'day': day,
+        if (exhausted) 'exhausted': true,
         'undone': undone,
         'did': {
           for (final e in did.entries)
@@ -105,6 +133,7 @@ class DailyRecord {
         },
         lostSendUpdate: _strings(m['lostSendUpdate']),
         emptyClaim: _strings(m['emptyClaim']),
+        exhausted: m['exhausted'] == null ? false : _bool(m['exhausted']),
       );
     } catch (_) {
       throw const VaultCorruptException('vault_settings');
@@ -121,6 +150,11 @@ class DailyRecord {
     throw const FormatException('string');
   }
 
+  static bool _bool(Object? v) {
+    if (v is bool) return v;
+    throw const FormatException('bool');
+  }
+
   static int _int(Object? v) {
     if (v is int && v >= 0 && v <= kMaxPairComponent) return v;
     throw const FormatException('int');
@@ -132,9 +166,23 @@ class DailyRecord {
   }
 }
 
+/// Undos of this device's own changes allowed a day in one conversation (M5).
+const int kAntiFlapUndosPerDay = 2;
+
 /// The counters that limit what this device does in one IST day (R3, R7, M5),
 /// kept in one sealed vault setting. Everything goes through
 /// `session.runWrite` and one vault transaction.
+///
+/// **Fails closed.** These counters bound automatic resets, undos, lost-send
+/// self-updates and empty-claim retries. A stored value that cannot be read
+/// (corrupt, or another `v`) must not reopen them: for the rest of that IST
+/// day every counter answers at its cap ([kAntiFlapUndosPerDay] undos, the
+/// lost-send update and every empty claim done), the failure is reported once
+/// as `E2eePipelineError('daily.read')`, and a record carrying the
+/// [DailyRecord.exhausted] marker is stored so the answer survives a restart.
+/// The next IST day starts an empty record. A stored record dated AFTER today
+/// (the clock moved back) is kept and its counters apply; only an older one is
+/// replaced.
 ///
 /// Never call a method here from inside a `runWrite` body (the mutex is not
 /// re-entrant): read before the body ([read]), and write atomically with a
@@ -153,8 +201,11 @@ class DailyLedger {
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   bool _reportedUnreadable = false;
 
-  Future<int> undone(String conversationId) async =>
-      (await read()).undone[conversationId] ?? 0;
+  Future<int> undone(String conversationId) async {
+    final r = await read();
+    final n = r.undone[conversationId] ?? 0;
+    return r.exhausted && n < kAntiFlapUndosPerDay ? kAntiFlapUndosPerDay : n;
+  }
 
   Future<void> addUndone(String conversationId) => _update(
     (r) => r.copyWith(
@@ -165,24 +216,29 @@ class DailyLedger {
     ),
   );
 
-  Future<bool> lostSendUpdateDone(String conversationId) async =>
-      (await read()).lostSendUpdate.contains(conversationId);
+  Future<bool> lostSendUpdateDone(String conversationId) async {
+    final r = await read();
+    return r.exhausted || r.lostSendUpdate.contains(conversationId);
+  }
 
   Future<void> markLostSendUpdate(String conversationId) => _update(
     (r) => r.copyWith(lostSendUpdate: {...r.lostSendUpdate, conversationId}),
   );
 
-  Future<bool> emptyClaimTried(Uint8List deviceId) async =>
-      (await read()).emptyClaim.contains(vaultDeviceIdHex(deviceId));
+  Future<bool> emptyClaimTried(Uint8List deviceId) async {
+    final r = await read();
+    return r.exhausted || r.emptyClaim.contains(vaultDeviceIdHex(deviceId));
+  }
 
   Future<void> markEmptyClaim(Uint8List deviceId) => _update(
     (r) =>
         r.copyWith(emptyClaim: {...r.emptyClaim, vaultDeviceIdHex(deviceId)}),
   );
 
-  /// The record of today: an empty one when none is stored, when the stored
-  /// one is of another IST day, or when it cannot be read (reported once).
-  /// Throws [StateError] when the vault is not ready. Not for a `runWrite`
+  /// The record of today: an empty one when none is stored or the stored one
+  /// is of an earlier IST day; the stored one when it is dated today or later;
+  /// a record with [DailyRecord.exhausted] set (and stored) when the value
+  /// cannot be read (reported once). Throws [StateError] when the vault is not ready. Not for a `runWrite`
   /// body.
   Future<DailyRecord> read() => _session.runWrite((vault) async {
     _checkVault(vault);
@@ -199,7 +255,10 @@ class DailyLedger {
     DailyRecord Function(DailyRecord) change,
   ) {
     final today = istDay(_now());
-    final base = current.day == today ? current : DailyRecord.empty(today);
+    // 'YYYY-MM-DD' strings order like the days they name.
+    final base = current.day.compareTo(today) < 0
+        ? DailyRecord.empty(today)
+        : current;
     return tx.putSetting(kVaultSettingE2eeDaily, change(base).encode());
   }
 
@@ -230,8 +289,16 @@ class DailyLedger {
         _reportedUnreadable = true;
         _onUnexpectedError?.call(const E2eePipelineError('daily.read'), stack);
       }
+      // Fail closed, and keep it so for the rest of the day (and a restart).
+      final capped = DailyRecord.capped(today);
+      await vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingE2eeDaily, capped.encode()),
+      );
+      return capped;
     }
-    if (stored == null || stored.day != today) return DailyRecord.empty(today);
+    if (stored == null || stored.day.compareTo(today) < 0) {
+      return DailyRecord.empty(today);
+    }
     return stored;
   }
 }

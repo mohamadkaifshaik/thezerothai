@@ -102,6 +102,14 @@ class SyncBudget {
     _timer?.cancel();
     _timer = null;
     final now = _now();
+    // A clock set back leaves stamps in the future: such a call counts as
+    // made now, so the wait is never longer than one window.
+    if (_calls.isNotEmpty && _calls.last.isAfter(now)) {
+      final clamped = [for (final c in _calls) c.isAfter(now) ? now : c];
+      _calls
+        ..clear()
+        ..addAll(clamped);
+    }
     while (_calls.isNotEmpty && now.difference(_calls.first) >= _window) {
       _calls.removeFirst();
     }

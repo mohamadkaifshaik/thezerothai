@@ -27,7 +27,11 @@ class _Rig {
   late final SyncBudget budget;
   final List<String> served = [];
 
-  DateTime now() => _epoch.add(async.elapsed);
+  /// Moves the injected clock without moving the fake timers (a clock that
+  /// was set forward or back).
+  Duration skew = Duration.zero;
+
+  DateTime now() => _epoch.add(async.elapsed).add(skew);
 
   void take(String label, [BudgetPriority p = BudgetPriority.background]) {
     budget.take(p).then((_) => served.add(label));
@@ -161,6 +165,24 @@ void main() {
       async.elapse(const Duration(minutes: 5));
       expect(rig.served, ['a', 'b', 'c']);
       expect(async.pendingTimers, isEmpty);
+    });
+  });
+
+  test('a clock moved back never blocks longer than one window', () {
+    fakeAsync((async) {
+      final rig = _Rig(async, perMinute: 2);
+      rig.skew = const Duration(hours: 2);
+      rig.take('a');
+      rig.take('b');
+      rig.settle();
+      expect(rig.served, ['a', 'b']);
+      // The clock is set back two hours: the stamps are now in the future.
+      rig.skew = Duration.zero;
+      rig.take('c');
+      rig.settle();
+      expect(rig.served, ['a', 'b']);
+      async.elapse(const Duration(minutes: 1));
+      expect(rig.served, ['a', 'b', 'c']);
     });
   });
 

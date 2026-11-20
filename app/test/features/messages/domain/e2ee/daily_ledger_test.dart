@@ -131,28 +131,110 @@ void main() {
     expect(jsonDecode(plain)['v'], 1);
   });
 
+  Future<void> store(Uint8List bytes) => session.runWrite(
+    (v) => v.transaction((tx) => tx.putSetting(kVaultSettingE2eeDaily, bytes)),
+  );
+
+  Future<void> storeGarbage() =>
+      store(Uint8List.fromList(utf8.encode('not json')));
+
+  String dayOffset(int days) => istDay(clock.add(Duration(days: days)));
+
+  test('an unreadable value reads every counter at its cap for the rest of '
+      'the day and is reported once', () async {
+    await storeGarbage();
+    final l = ledger();
+    expect(await l.undone(_conv), kAntiFlapUndosPerDay);
+    expect(await l.undone('other'), kAntiFlapUndosPerDay);
+    expect(await l.lostSendUpdateDone(_conv), isTrue);
+    expect(await l.lostSendUpdateDone('other'), isTrue);
+    expect(await l.emptyClaimTried(Uint8List.fromList([9])), isTrue);
+    expect((await l.read()).exhausted, isTrue);
+    expect(reported, hasLength(1));
+    expect(reported.single, isA<E2eePipelineError>());
+    // A write keeps the marker: the cap is not reopened.
+    await l.addUndone(_conv);
+    expect(await l.undone('other'), kAntiFlapUndosPerDay);
+    expect(reported, hasLength(1));
+  });
+
+  test('another version of the value is unreadable too', () async {
+    await store(Uint8List.fromList(utf8.encode('{"v":2,"day":"x"}')));
+    expect(await ledger().lostSendUpdateDone(_conv), isTrue);
+    expect(reported, hasLength(1));
+  });
+
   test(
-    'an unreadable value is treated as an empty record and reported once',
+    'the exhausted marker survives a reopen and clears the next day',
     () async {
-      await session.runWrite(
-        (v) => v.transaction(
-          (tx) => tx.putSetting(
-            kVaultSettingE2eeDaily,
-            Uint8List.fromList(utf8.encode('not json')),
-          ),
-        ),
-      );
-      final l = ledger();
-      expect(await l.undone(_conv), 0);
-      expect(await l.lostSendUpdateDone(_conv), isFalse);
+      await storeGarbage();
+      expect(await ledger().undone(_conv), kAntiFlapUndosPerDay);
+      final reopened = ledger();
+      expect(await reopened.undone(_conv), kAntiFlapUndosPerDay);
+      expect(await reopened.lostSendUpdateDone(_conv), isTrue);
       expect(reported, hasLength(1));
-      expect(reported.single, isA<E2eePipelineError>());
-      // The next write replaces it with a readable record.
-      await l.addUndone(_conv);
-      expect(await l.undone(_conv), 1);
-      expect(reported, hasLength(1));
+      clock = clock.add(const Duration(days: 1));
+      expect(await reopened.undone(_conv), 0);
+      expect(await reopened.lostSendUpdateDone(_conv), isFalse);
+      expect((await reopened.read()).exhausted, isFalse);
     },
   );
+
+  test('a record dated after today is kept and its counters apply', () async {
+    await store(
+      DailyRecord(
+        day: dayOffset(1),
+        undone: {_conv: 1},
+        lostSendUpdate: {_conv},
+      ).encode(),
+    );
+    final l = ledger();
+    expect(await l.undone(_conv), 1);
+    expect(await l.lostSendUpdateDone(_conv), isTrue);
+    await l.addUndone(_conv);
+    expect(await l.undone(_conv), 2);
+    expect((await l.read()).day, dayOffset(1));
+  });
+
+  test('a record dated before today is replaced', () async {
+    await store(
+      DailyRecord(
+        day: dayOffset(-1),
+        undone: {_conv: 1},
+        lostSendUpdate: {_conv},
+      ).encode(),
+    );
+    final l = ledger();
+    expect(await l.undone(_conv), 0);
+    expect(await l.lostSendUpdateDone(_conv), isFalse);
+    expect((await l.read()).day, dayOffset(0));
+  });
+
+  test('a counter outside 0..2^53-1 is refused on write', () async {
+    final l = ledger();
+    final current = await l.read();
+    expect(
+      session.runWrite(
+        (v) => v.transaction(
+          (tx) =>
+              l.writeIn(tx, current, (r) => r.copyWith(undone: {_conv: -1})),
+        ),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      session.runWrite(
+        (v) => v.transaction(
+          (tx) => l.writeIn(
+            tx,
+            current,
+            (r) => r.copyWith(undone: {_conv: 9007199254740992}),
+          ),
+        ),
+      ),
+      throwsArgumentError,
+    );
+  });
 
   test('writeIn applies the change through the caller transaction', () async {
     final l = ledger();
