@@ -437,7 +437,7 @@ const kDeviceUnlistedPill = 'Not in your device list';
 /// Note for the same.
 const kDeviceUnlistedNote =
     'This device is in your conversations but not in your device list. Your '
-    'devices remove it from each conversation as they update it.';
+    'devices try to remove it from each conversation as they update it.';
 
 /// Pill of a device in the list but in no conversation.
 const kDeviceNotJoinedPill = 'Not in your conversations yet';

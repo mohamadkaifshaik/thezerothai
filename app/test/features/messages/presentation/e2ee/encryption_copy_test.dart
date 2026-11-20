@@ -26,6 +26,15 @@ void main() {
     expect(split.toLowerCase().contains('nobody can read'), isTrue);
   });
 
+  test('the unlisted-device note says devices try to remove it', () {
+    expect(
+      kDeviceUnlistedNote,
+      'This device is in your conversations but not in your device list. '
+      'Your devices try to remove it from each conversation as they update '
+      'it.',
+    );
+  });
+
   test('the fixed strings are verbatim', () {
     expect(kLineEncryptionReset, 'Encryption was reset');
     expect(kLineUnknownDevice, 'An unknown device was added');
