@@ -125,12 +125,18 @@ class MessagingFeatureGate extends ServiceFeatureGate {
   /// `GetMe`. It is rethrown to the caller by [run] all the same.
   @override
   void recordDisabled(FeatureDisabledException exception) {
-    if (exception.feature == kFeatureDmPostShare ||
-        exception.feature == kFeatureE2eeDm) {
-      return;
-    }
+    if (_isSubFeature(exception)) return;
     super.recordDisabled(exception);
   }
+
+  bool _isSubFeature(FeatureDisabledException exception) =>
+      exception.feature == kFeatureDmPostShare ||
+      exception.feature == kFeatureE2eeDm;
+
+  /// Reports an unexpected failure outside an API call (a step name only,
+  /// never an id or content) through the same path as an unknown API error.
+  void reportUnexpected(Object error, StackTrace stack) =>
+      _report?.call(error, stack);
 
   /// Whether this caller may send and accept (the per-caller flag).
   bool get canSend => enabled;
@@ -147,6 +153,9 @@ class MessagingFeatureGate extends ServiceFeatureGate {
     try {
       return await guardApiCall(call);
     } on FeatureDisabledException catch (error) {
+      // A sub-feature (dm_post_share, e2ee_dm) is not the messaging service:
+      // it never turns reads off, exactly as [recordDisabled] ignores it.
+      if (_isSubFeature(error)) rethrow;
       final alreadyRecorded = disabledByServer;
       _globallyOff = true;
       // The kill switch outlives reset(): readOnly needs a new probe.

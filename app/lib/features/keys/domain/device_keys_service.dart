@@ -83,7 +83,14 @@ typedef DeviceKeysTimerFactory = Timer Function(
   void Function() onTick,
 );
 
-enum DeviceKeysPhase { idle, ready, deviceLimitReached, failed, dormant }
+enum DeviceKeysPhase {
+  idle,
+  ready,
+  deviceLimitReached,
+  failed,
+  dormant,
+  removedElsewhere,
+}
 
 /// Where this device stands in the key directory. [idle]: nothing to do or
 /// not allowed now (no vault, signed out, cancelled, or the flag is not on
@@ -92,7 +99,9 @@ enum DeviceKeysPhase { idle, ready, deviceLimitReached, failed, dormant }
 /// device is registered with a full pool; [deviceLimitReached]: the user
 /// has 5 devices and must remove one (UI in a later plan); failed: the last
 /// attempt failed, [retryable] when a later attempt (hourly or on resume)
-/// may succeed.
+/// may succeed; `removedElsewhere`: this device is missing from the
+/// account's key-device list (removed from another device); its behaviour
+/// arrives in Task 12, and nothing is deleted until the user chooses.
 @immutable
 class DeviceKeysStatus {
   const DeviceKeysStatus._(this.phase) : retryable = false;
