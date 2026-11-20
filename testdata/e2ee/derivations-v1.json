@@ -1,0 +1,13 @@
+{
+  "_comment": "Client and server derivations for encrypted messages. message_id and report_commitment are computed by the server too (Go: backend/internal/messaging/derivation_vectors_test.go); group_id and party_id are client-only. Dart: app/test/core/crypto/mls_derivations_test.dart.",
+  "message_id": [{"uid": "AbCdEfGhIjKlMnOpQrStUvWxYz01", "idempotency_key": "0123456789abcdef0123456789abcdef", "want": "1a688a943d0378b81dae9ca728093038"}],
+  "report_commitment": [{"content_hex": "0a0568656c6c6f", "want_hex": "70230efe2959eb3d585cadc7fb706e47cee7c83cd00d2925ca9ed2aa8a3a62d7"}],
+  "group_id": [
+    {"conversation_id": "00112233445566778899aabbccddeeff", "generation": 1, "want_hex": "d7586ddae340d593fb3b871795c70964edf35c04611124ecac9b8917526cdc80"},
+    {"conversation_id": "00112233445566778899aabbccddeeff", "generation": 2, "want_hex": "91281c72a0404a41f0d160456aed880feb1bd08cb9c406c79f2ad196211035e1"},
+    {"conversation_id": "00112233445566778899aabbccddeeff", "generation": 4294967296, "want_hex": "86d1d333fb3cabcb83fc03bd878a95783baa6c186dc69c6e19d23750299e3c3b"}
+  ],
+  "party_id": [{"conversation_id": "00112233445566778899aabbccddeeff",
+    "device_keys_hex": ["0202020202020202020202020202020202020202020202020202020202020202", "0101010101010101010101010101010101010101010101010101010101010101", "0101010101010101010101010101010101010101010101010101010101010101"],
+    "want": "444b67f86668ca7dd80c8d2000b4937f34e06a19ea1adee4a6e2e1af735f056a"}]
+}
