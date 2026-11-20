@@ -5,20 +5,24 @@ import '../messaging_error_messages.dart';
 import '../widgets/outgoing_bubble.dart';
 import 'encryption_copy.dart';
 
+const _featureDisabledText = "Encrypted messages aren't available right now.";
+const _degradedText =
+    'The app is in a limited mode right now, so this is paused. Please try '
+    'again shortly.';
+const _networkText = 'No connection. Check your network and try again.';
+const _genericText = "Couldn't complete that. Please try again.";
+
 /// Friendly, typed text for a failed encryption action (device list, removal, set up again, conversation reset,
 /// security code). Branches on the exception type only; never shows or logs the server text.
 String encryptionErrorMessage(AppException error) {
   return switch (error) {
     LimitReachedException(quota: 'key_devices') => kStatusDeviceLimitBody,
     final RateLimitedException e => rateLimitedMessage(e),
-    FeatureDisabledException() =>
-      "Encrypted messages aren't available right now.",
-    DegradedModeException() =>
-      'The app is in a limited mode right now, so this is paused. Please try '
-          'again shortly.',
-    NetworkException() => 'No connection. Check your network and try again.',
+    FeatureDisabledException() => _featureDisabledText,
+    DegradedModeException() => _degradedText,
+    NetworkException() => _networkText,
     CannotMessageException() => CannotMessageException.userMessage,
-    _ => "Couldn't complete that. Please try again.",
+    _ => _genericText,
   };
 }
 
@@ -26,16 +30,17 @@ String encryptionErrorMessage(AppException error) {
 /// encryptionErrorMessage, anything else kConversationResetFailed.
 String conversationResetErrorMessage(Object error) {
   return switch (error) {
-    ResetRefusedException(reason: ResetRefusal.notAccepted) =>
-      kConversationResetNotAcceptedText,
-    ResetRefusedException(reason: ResetRefusal.peerHasNoDevice) =>
-      kStatePeerNoDeviceText,
+    final ResetRefusedException e => switch (e.reason) {
+      ResetRefusal.notAccepted => kConversationResetNotAcceptedText,
+      ResetRefusal.peerHasNoDevice => kStatePeerNoDeviceText,
+    },
     final AppException e => encryptionErrorMessage(e),
     _ => kConversationResetFailed,
   };
 }
 
 /// The status line of an own row that is not delivered (Task 4). A delivered row has no status line (empty).
+/// Exhaustive over both enums: a new value is a compile error here, never a silent "Tap to retry".
 String sendStatusText(
   SendProgress progress,
   SendProblem problem,
@@ -46,12 +51,15 @@ String sendStatusText(
     SendProgress.sending => kOutgoingSendingText,
     SendProgress.waiting => kOutgoingWaitingText,
     SendProgress.notSent => switch (problem) {
+      SendProblem.none || SendProblem.retryable => kOutgoingNotSentText,
       SendProblem.blocked => kOutgoingNotSentBlockedText,
       SendProblem.peerHasNoDevice => kStatePeerNoDeviceText,
       SendProblem.tryTomorrow => kOutgoingTryTomorrowText,
-      SendProblem.refused when error != null => messagingErrorMessage(error),
-      // retryable, none, and a refusal that carries no typed reason: the row can be retried.
-      _ => kOutgoingNotSentText,
+      // A refusal is definitive: with no typed reason the row says "Not sent" and promises no retry.
+      SendProblem.refused =>
+        error == null
+            ? kOutgoingNotSentBlockedText
+            : messagingErrorMessage(error),
     },
   };
 }

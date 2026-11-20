@@ -42,7 +42,16 @@ void main() {
   });
 
   test('no string overclaims', () {
-    final source = _codeOnly();
+    final source =
+        _codeOnly() +
+        File(
+              'lib/features/messages/presentation/e2ee/'
+              'encryption_error_messages.dart',
+            )
+            .readAsLinesSync()
+            .where((l) => !l.trimLeft().startsWith('//'))
+            .join('\n')
+            .toLowerCase();
     for (final banned in [
       'is verified',
       'verified contact',

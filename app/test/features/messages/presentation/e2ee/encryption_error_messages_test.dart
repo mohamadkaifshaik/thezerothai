@@ -82,9 +82,29 @@ void main() {
       expect(t(SendProblem.refused, e), messagingErrorMessage(e));
     });
 
-    test('a refusal without a typed reason can still be retried', () {
+    test(
+      'a refusal without a typed reason says Not sent and offers no retry',
+      () {
+        final text = sendStatusText(
+          SendProgress.notSent,
+          SendProblem.refused,
+          null,
+        );
+        expect(text, 'Not sent');
+        expect(text, isNot(contains('retry')));
+      },
+    );
+
+    test('a delivered row has no status line', () {
       expect(
-        sendStatusText(SendProgress.notSent, SendProblem.refused, null),
+        sendStatusText(SendProgress.delivered, SendProblem.none, null),
+        '',
+      );
+    });
+
+    test('none and retryable both offer the retry', () {
+      expect(
+        sendStatusText(SendProgress.notSent, SendProblem.none, null),
         'Not sent. Tap to retry',
       );
     });
