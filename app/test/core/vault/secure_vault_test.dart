@@ -65,6 +65,20 @@ OutboxItem _outbox(String key, {String? conversation = 'c1', int at = 10}) =>
       lastError: 'network down $key',
     );
 
+/// A pair that skips [MlsPair]'s asserts (they are off in release builds),
+/// to prove the vault's own range checks.
+class _RawPair implements MlsPair {
+  _RawPair(this.generation, this.epoch);
+
+  @override
+  final int generation;
+  @override
+  final int epoch;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 Future<int> _count(VaultDatabase db, String table) async =>
     (await db.customSelect('SELECT COUNT(*) AS n FROM $table').getSingle())
         .read<int>('n');
@@ -1545,6 +1559,50 @@ void main() {
       expect(big.welcomeDeviceIds, hasLength(10));
     });
 
+    test('putGroup refuses a pending builtOn out of range and '
+        'putConversationSync refuses integers the decoder would refuse; '
+        'nothing is stored', () async {
+      await expectLater(
+        vault.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: 'c1',
+              generation: 1,
+              epoch: 1,
+              state: _b('x'),
+              pending: PendingCommit(
+                kind: PendingKind.change,
+                builtOn: _RawPair(-1, 0),
+                commit: Uint8List(1),
+              ),
+            ),
+          ),
+        ),
+        throwsArgumentError,
+      );
+      expect(await _count(db, 'vault_group_states'), 0);
+      final refused = <String, ConversationSync>{
+        'negative commitCallsToday': const ConversationSync(
+          commitCallsToday: -1,
+        ),
+        'micros above 2^53 - 1': const ConversationSync(
+          lastSelfUpdateAtMicros: kMaxPairComponent + 1,
+        ),
+        'a completed epoch out of range': ConversationSync(
+          completedEpochs: [_RawPair(0, kMaxPairComponent + 1)],
+        ),
+      };
+      for (final e in refused.entries) {
+        await expectLater(
+          vault.transaction((tx) => tx.putConversationSync('c1', e.value)),
+          throwsArgumentError,
+          reason: e.key,
+        );
+      }
+      expect(await vault.conversation('c1'), isNull);
+      expect(await _count(db, 'vault_conversations'), 0);
+    });
+
     test('a provisional group writes no mark, and deleting it leaves the '
         'earlier marks', () async {
       await vault.transaction((tx) async {
@@ -1685,6 +1743,29 @@ void main() {
             ),
       ]) {
         await expectLater(vault.transaction(attempt), throwsStateError);
+      }
+      expect((await vault.group('c1', 2))!.provisional, isTrue);
+      expect(await markRow(), before);
+    });
+
+    test('clearProvisional refuses marks of another generation (ArgumentError) '
+        'and writes nothing', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1));
+        await tx.setAfterPair('c1', const MlsPair(1, 5));
+        await tx.putGroup(group(2, provisional: true));
+      });
+      final before = await markRow();
+      for (final attempt in <Future<void> Function(VaultTx)>[
+        (tx) => tx.clearProvisional('c1', 2, afterPair: const MlsPair(3, 0)),
+        (tx) => tx.clearProvisional(
+          'c1',
+          2,
+          afterPair: const MlsPair(2, 0),
+          joinHighWater: const MlsPair(3, 0),
+        ),
+      ]) {
+        await expectLater(vault.transaction(attempt), throwsArgumentError);
       }
       expect((await vault.group('c1', 2))!.provisional, isTrue);
       expect(await markRow(), before);
@@ -2045,6 +2126,29 @@ void main() {
       expect(decoded.line, SystemLine.deviceAdded);
       expect(decoded.deviceId, deviceId);
       expect(decoded.side, MemberSide.theirs);
+    });
+
+    test('putOutbox refuses an empty localId or expectedMessageId', () async {
+      OutboxItem item({String localId = 'l1', String? expected}) => OutboxItem(
+        idempotencyKey: 'k1',
+        localId: localId,
+        expectedMessageId: expected ?? expectedMessageId(_uid, 'k1'),
+        conversationId: 'c1',
+        generation: 0,
+        epoch: 0,
+        ciphertext: Uint8List(0),
+        reportCommitment: Uint8List(0),
+        content: _b('plain content'),
+        createdAtMicros: 5,
+        stage: OutboxStage.plain,
+      );
+      for (final bad in [item(localId: ''), item(expected: '')]) {
+        await expectLater(
+          vault.transaction((tx) => tx.putOutbox(bad)),
+          throwsArgumentError,
+        );
+      }
+      expect(await _count(db, 'vault_outbox'), 0);
     });
 
     test('putOutbox refuses a plain row with ciphertext and an encrypted row '

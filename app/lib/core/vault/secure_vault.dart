@@ -367,8 +367,9 @@ abstract interface class VaultTx {
 
   /// Makes a provisional group final and writes the marks, all in this
   /// transaction. [StateError] when the group is absent or not provisional,
-  /// or when a mark is not strictly above the stored one (nothing is written
-  /// then).
+  /// or when a mark is not strictly above the stored one; [ArgumentError]
+  /// when [afterPair] or [joinHighWater] is of another generation than
+  /// [generation] (nothing is written then).
   Future<void> clearProvisional(
     String conversationId,
     int generation, {
@@ -385,7 +386,8 @@ abstract interface class VaultTx {
   /// Raises the join high-water mark; the same rules as [setAfterPair].
   Future<void> setJoinHighWater(String conversationId, MlsPair pair);
 
-  /// Replaces the sync record only; never touches the marks.
+  /// Replaces the sync record only; never touches the marks. [ArgumentError]
+  /// for an integer or a completed epoch outside 0..2^53 - 1.
   Future<void> putConversationSync(
     String conversationId,
     ConversationSync sync,
@@ -424,6 +426,8 @@ abstract interface class VaultTx {
     int? upToCreatedAtMicros,
   });
 
+  /// [ArgumentError] for an empty local id or expected message id, among
+  /// the stage rules.
   Future<void> putOutbox(OutboxItem item);
   Future<void> deleteOutbox(String idempotencyKey);
   Future<void> putSetting(String key, Uint8List value);
@@ -454,9 +458,9 @@ abstract interface class VaultTx {
 /// - A file below schema version 2 is migrated here: the additive SQL ran
 ///   when drift opened it; the sealed step (`_migrateSealedV1`) runs only
 ///   after the sentinel opened, under [openTimeout]. On a timeout the
-///   database is closed, so the step's one transaction rolls back (the stamp
-///   stays 1) and starts over at the next open; it does not finish late. It
-///   never deletes a row.
+///   database is closed, so the step never half-applies: it is one
+///   transaction, which either commits whole or rolls back (the stamp stays
+///   1) and starts over at the next open. It never deletes a row.
 ///
 /// With [registerAs] (`openVault` passes the database name), the open vault
 /// is counted in this isolate's registry until it is closed or wiped, and
@@ -731,8 +735,10 @@ Uint8List _text(String value) => Uint8List.fromList(utf8.encode(value));
 
 /// [ArgumentError] unless [p] is within the wire limits: commit 1-16384
 /// bytes; a welcome 1-65536 bytes with 1-10 device ids, and no device ids
-/// without a welcome.
+/// without a welcome; `builtOn` within the pair range (the decoder refuses
+/// anything else).
 void _requirePendingLimits(PendingCommit p) {
+  _requirePair(p.builtOn);
   final welcome = p.welcome;
   final ok =
       p.commit.isNotEmpty &&
@@ -747,6 +753,26 @@ void _requirePendingLimits(PendingCommit p) {
 }
 
 bool _inPairRange(int v) => v >= 0 && v <= kMaxPairComponent;
+
+/// [ArgumentError] unless every integer of [sync] is one its decoder accepts
+/// (0..2^53 - 1), so a caller bug cannot store a record that never reads
+/// back.
+void _requireSync(ConversationSync sync) {
+  for (final v in [
+    sync.firstSawGeneration,
+    sync.firstSawGenerationAtMicros,
+    sync.lastSelfUpdateAtMicros,
+    sync.clearedAtMicros,
+    sync.commitCallsToday,
+  ]) {
+    if (v != null && !_inPairRange(v)) {
+      throw ArgumentError('A sync value is out of range.');
+    }
+  }
+  for (final p in sync.completedEpochs) {
+    _requirePair(p);
+  }
+}
 
 /// [ArgumentError] unless both components are within 0..2^53 - 1 (the asserts
 /// of [MlsPair] are off in release builds, and the web cannot hold more).
@@ -1487,6 +1513,12 @@ class _DriftVaultTx implements VaultTx {
         exceptGeneration: generation,
       );
     }
+    // The marks of a cleared group are its own generation's: a pair of
+    // another generation would move a mark past welcomes still to come.
+    if (afterPair.generation != generation ||
+        (joinHighWater != null && joinHighWater.generation != generation)) {
+      throw ArgumentError('A mark is not of the cleared generation.');
+    }
     await (_db.update(_db.vaultGroupStates)..where(
           (t) =>
               t.conversationId.equals(conversationId) &
@@ -1563,6 +1595,7 @@ class _DriftVaultTx implements VaultTx {
     ConversationSync sync,
   ) async {
     _check();
+    _requireSync(sync);
     final sealed = await _vault._seal(_tConversations, 'sync', [
       conversationId,
     ], sync.encode());
@@ -1770,6 +1803,11 @@ class _DriftVaultTx implements VaultTx {
   @override
   Future<void> putOutbox(OutboxItem item) async {
     _check();
+    if (item.localId.isEmpty || item.expectedMessageId.isEmpty) {
+      throw ArgumentError(
+        'An outbox item needs a local id and an expected message id.',
+      );
+    }
     if ((item.conversationId == null) == (item.recipientUserId == null)) {
       throw ArgumentError(
         'An outbox item has a conversation id or a recipient, not both.',
