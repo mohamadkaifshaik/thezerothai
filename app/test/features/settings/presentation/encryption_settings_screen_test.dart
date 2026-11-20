@@ -5,6 +5,7 @@ import 'package:dzeroth/features/settings/presentation/bloc/encryption_devices_c
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -24,6 +25,7 @@ import 'package:dzeroth/features/settings/presentation/encryption_settings_scree
 import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -91,6 +93,7 @@ void main() {
     double textScale = 1,
     double width = 900,
     bool settle = true,
+    GoRouter? router,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, 2400);
@@ -135,15 +138,20 @@ void main() {
               value: (e, _) => reported.add(e),
             ),
           ],
-          child: MaterialApp(
-            theme: buildAppTheme(brightness: Brightness.light),
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
-              child: child!,
-            ),
-            home: EncryptionSettingsScreen(now: () => _now),
-          ),
+          child: router == null
+              ? MaterialApp(
+                  theme: buildAppTheme(brightness: Brightness.light),
+                  builder: (context, child) => MediaQuery(
+                    data: MediaQuery.of(context)
+                        .copyWith(textScaler: TextScaler.linear(textScale)),
+                    child: child!,
+                  ),
+                  home: EncryptionSettingsScreen(now: () => _now),
+                )
+              : MaterialApp.router(
+                  theme: buildAppTheme(brightness: Brightness.light),
+                  routerConfig: router,
+                ),
         ),
       ),
     );
@@ -609,6 +617,32 @@ void main() {
         expect(find.text(kDevicesAboutHeader), findsOneWidget);
       },
     );
+
+    testWidgets('Reset on the status card opens the reset route', (
+      tester,
+    ) async {
+      device.vaultStatus.value = VaultStatus.keyLost;
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) =>
+                EncryptionSettingsScreen(now: () => _now),
+          ),
+          GoRoute(
+            path: AppRouter.resetEncryptionPath,
+            builder: (context, state) =>
+                const Scaffold(body: Text('reset page')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await pump(tester, router: router);
+      await tester.tap(find.text(kStatusReset));
+      await tester.pumpAndSettle();
+      expect(router.state.uri.path, AppRouter.resetEncryptionPath);
+      expect(find.text('reset page'), findsOneWidget);
+    });
   });
 
   group('removal in flight', () {

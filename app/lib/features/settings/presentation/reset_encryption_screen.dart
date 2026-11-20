@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
+import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/vault/vault_session.dart';
@@ -60,6 +61,7 @@ class ResetEncryptionCubit extends Cubit<ResetEncryptionPhase> {
 ///
 /// Nothing is deleted before every confirmation the status needs (one; two when the device may not start again,
 /// read again after the first closes) has been given. While it runs the button is busy and leaving is disabled.
+/// (Stateful, not stateless as first briefed: it keeps the run's cubit, the confirmation latch and the status.)
 class ResetEncryptionScreen extends StatefulWidget {
   const ResetEncryptionScreen({super.key});
 
@@ -70,13 +72,20 @@ class ResetEncryptionScreen extends StatefulWidget {
 class _ResetEncryptionScreenState extends State<ResetEncryptionScreen> {
   ResetEncryptionCubit? _cubit;
   StreamSubscription<ResetEncryptionPhase>? _sub;
+  EncryptionStatusCubit? _status;
   bool _asking = false;
 
   /// Created the first time a reset is offered (the only place the session is read) and kept after, so a status
-  /// change caused by the wipe itself cannot drop a running reset.
-  ResetEncryptionCubit _ensureCubit(BuildContext context) {
+  /// change caused by the wipe itself cannot drop a running reset. It runs inside `build` on purpose: it only
+  /// reads providers, never emits or calls the session, and the cubit must exist for the very build that shows
+  /// the form.
+  ResetEncryptionCubit _ensureCubit(
+    BuildContext context,
+    EncryptionStatusCubit status,
+  ) {
     final existing = _cubit;
     if (existing != null) return existing;
+    _status = status;
     final cubit = ResetEncryptionCubit(
       reset: context.read<VaultSession>().resetByUser,
       onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
@@ -101,14 +110,46 @@ class _ResetEncryptionScreenState extends State<ResetEncryptionScreen> {
         messenger
           ..hideCurrentSnackBar()
           ..showSnackBar(const SnackBar(content: Text(kResetFailedText)));
+        // A failed wipe can leave a status that no longer offers a reset (for example `unavailable`): this page
+        // would then say "Nothing to reset" beside the failure, so go where the status card explains it.
+        final status = _status;
+        if (status != null) {
+          status.refresh();
+          if (!status.state.offersReset) {
+            context.go(AppRouter.encryptionSettingsPath);
+          }
+        }
       case ResetEncryptionPhase.idle:
       case ResetEncryptionPhase.running:
         break;
     }
   }
 
+  /// One confirmation dialog. A dialog that cannot be shown is `false` (nothing is deleted) and reports a fixed
+  /// `StateError('resetConfirm')`, never the error itself.
+  Future<bool> _confirm(
+    UnexpectedErrorReporter? report, {
+    required String title,
+    required String message,
+    required String confirmLabel,
+  }) async {
+    try {
+      return await showAppAlertConfirm(
+        context,
+        title: title,
+        message: message,
+        confirmLabel: confirmLabel,
+        destructive: true,
+      );
+    } catch (_, stack) {
+      report?.call(StateError('resetConfirm'), stack);
+      return false;
+    }
+  }
+
   /// Asks, then runs. One tap at a time (the guard covers the dialogs). Nothing runs unless every required
-  /// dialog is confirmed and the status still offers the reset.
+  /// dialog is confirmed, the same account is still signed in and a status read afresh still offers the reset.
+  /// The status cubit only changes on a listener or `refresh()`, so it is refreshed before each decision.
   Future<void> _start(
     EncryptionStatusCubit status,
     ResetEncryptionCubit cubit,
@@ -116,26 +157,32 @@ class _ResetEncryptionScreenState extends State<ResetEncryptionScreen> {
     if (_asking || cubit.state == ResetEncryptionPhase.running) return;
     _asking = true;
     try {
-      final first = await showAppAlertConfirm(
-        context,
+      // Read before the first await (the sign-out flow does the same): the account the user confirmed for.
+      final auth = context.read<AuthBloc>();
+      final uid = auth.state.user?.uid;
+      final report = context.read<UnexpectedErrorReporter?>();
+      final first = await _confirm(
+        report,
         title: kResetConfirmTitle,
         message: kResetConfirmMessage,
         confirmLabel: kResetConfirmLabel,
-        destructive: true,
       );
       if (!first || !mounted) return;
-      // The flag may have changed while the dialog was open.
+      // The flag may have changed since the status was last computed.
+      status.refresh();
       if (!status.state.mayStart) {
-        final second = await showAppAlertConfirm(
-          context,
+        final second = await _confirm(
+          report,
           title: kResetSecondTitle,
           message: '$kResetNoRestartWarning.',
           confirmLabel: kResetSecondLabel,
-          destructive: true,
         );
         if (!second || !mounted) return;
       }
-      // The status the user confirmed must still offer the reset.
+      // No await from here to the call. A different account, or a status that no longer offers the reset
+      // (the vault reopened while a dialog was open), deletes nothing.
+      if (auth.state.user?.uid != uid) return;
+      status.refresh();
       if (!status.state.offersReset) return;
       await cubit.run();
     } finally {
@@ -166,14 +213,22 @@ class _ResetEncryptionScreenState extends State<ResetEncryptionScreen> {
     final running = existing?.state == ResetEncryptionPhase.running;
     final offered = state != null && state.offersReset;
     final showForm = status != null && (offered || running);
-    final cubit = showForm ? _ensureCubit(context) : null;
+    final cubit = showForm ? _ensureCubit(context, status) : null;
+    final up = settingsUpButton(context, AppRouter.encryptionSettingsPath);
+    // While it runs, the arrow is shown disabled only where one would be shown at all.
+    final hasArrow = up != null || (ModalRoute.of(context)?.canPop ?? false);
     return PopScope(
       canPop: !running,
       child: Scaffold(
         appBar: AppBar(
           leading: running
-              ? const IconButton(onPressed: null, icon: Icon(Icons.arrow_back))
-              : settingsUpButton(context, AppRouter.encryptionSettingsPath),
+              ? (hasArrow
+                    ? const IconButton(
+                        onPressed: null,
+                        icon: Icon(Icons.arrow_back),
+                      )
+                    : null)
+              : up,
           title: const Text(kResetTitle),
         ),
         body: SafeArea(

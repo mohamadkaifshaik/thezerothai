@@ -1,10 +1,15 @@
 import 'dart:async';
 
+import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/auth/domain/app_user.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/keys/domain/device_keys_service.dart'
     show DeviceKeysStatus;
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
@@ -22,6 +27,19 @@ import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_encryption_device.dart';
 
 class _MockVaultSession extends Mock implements VaultSession {}
+
+class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
+    implements AuthBloc {}
+
+AuthState _signedIn(String uid) => AuthState(
+  status: AuthStatus.authenticated,
+  user: AppUser(
+    uid: uid,
+    email: 'a@example.com',
+    emailVerified: true,
+    isPasswordProvider: true,
+  ),
+);
 
 Finder _action() => find.widgetWithText(AppPillButton, kResetAction);
 
@@ -44,6 +62,7 @@ void main() {
   late List<Object> reported;
   late EncryptionStatusCubit status;
   late GoRouter router;
+  late _MockAuthBloc auth;
 
   setUp(() {
     // A device whose key was lost: the reset is offered, the flag is on.
@@ -51,7 +70,16 @@ void main() {
     session = _MockVaultSession();
     when(() => session.resetByUser()).thenAnswer((_) async => true);
     reported = [];
+    auth = _MockAuthBloc();
+    when(() => auth.add(any())).thenReturn(null);
+    whenListen(
+      auth,
+      const Stream<AuthState>.empty(),
+      initialState: _signedIn('uid-1'),
+    );
   });
+
+  setUpAll(() => registerFallbackValue(const AuthSignOutRequested()));
 
   Future<void> pump(
     WidgetTester tester, {
@@ -60,6 +88,11 @@ void main() {
     bool flagOn = true,
     bool removedElsewhere = false,
     double width = 390,
+    // Starts on the encryption page and pushes the reset route over it, so a
+    // system back has something to pop to.
+    bool pushed = false,
+    // The screen sits with no Navigator above it: showDialog throws.
+    bool noNavigator = false,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, 2400);
@@ -72,8 +105,47 @@ void main() {
       flagOn: () => flagOn,
     );
     addTearDown(status.close);
+    if (noNavigator) {
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<VaultSession>.value(value: session),
+            RepositoryProvider<UnexpectedErrorReporter?>.value(
+              value: (e, _) => reported.add(e),
+            ),
+          ],
+          child: BlocProvider<AuthBloc>.value(
+            value: auth,
+            child: BlocProvider<EncryptionStatusCubit>.value(
+              value: status,
+              child: MediaQuery(
+                data: MediaQueryData(size: Size(width, 2400)),
+                child: Theme(
+                  data: buildAppTheme(brightness: Brightness.light),
+                  child: Localizations(
+                    locale: const Locale('en'),
+                    delegates: const [
+                      DefaultWidgetsLocalizations.delegate,
+                      DefaultMaterialLocalizations.delegate,
+                    ],
+                    child: const Directionality(
+                      textDirection: TextDirection.ltr,
+                      child: Material(child: ResetEncryptionScreen()),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return;
+    }
     router = GoRouter(
-      initialLocation: AppRouter.resetEncryptionPath,
+      initialLocation: pushed
+          ? AppRouter.encryptionSettingsPath
+          : AppRouter.resetEncryptionPath,
       routes: [
         GoRoute(
           path: AppRouter.resetEncryptionPath,
@@ -99,6 +171,7 @@ void main() {
         routerConfig: router,
       ),
     );
+    app = BlocProvider<AuthBloc>.value(value: auth, child: app);
     if (withStatus) {
       app = BlocProvider<EncryptionStatusCubit>.value(
         value: status,
@@ -107,6 +180,10 @@ void main() {
     }
     await tester.pumpWidget(app);
     await tester.pumpAndSettle();
+    if (pushed) {
+      unawaited(router.push(AppRouter.resetEncryptionPath));
+      await tester.pumpAndSettle();
+    }
   }
 
   Future<void> confirmFirst(WidgetTester tester) async {
@@ -149,6 +226,7 @@ void main() {
       await pump(tester, removedElsewhere: true);
       expect(find.text(kResetNothingTitle), findsOneWidget);
       expect(_action(), findsNothing);
+      verifyNever(() => session.resetByUser());
     });
 
     testWidgets('no status cubit and no session: harmless', (tester) async {
@@ -173,6 +251,21 @@ void main() {
         expect(_action(), findsOneWidget);
       },
     );
+
+    testWidgets('the no-restart warning is a live region', (tester) async {
+      final handle = tester.ensureSemantics();
+      device.flag = E2eeFlag.off;
+      await pump(tester);
+      final region = find.ancestor(
+        of: find.text(kResetNoRestartWarning),
+        matching: find.byWidgetPredicate(
+          (w) => w is Semantics && w.properties.liveRegion == true,
+        ),
+      );
+      expect(region, findsOneWidget);
+      expect(tester.getSemantics(region).flagsCollection.isLiveRegion, isTrue);
+      handle.dispose();
+    });
 
     for (final flag in [E2eeFlag.off, E2eeFlag.unknown]) {
       testWidgets(
@@ -253,6 +346,101 @@ void main() {
       },
     );
 
+    testWidgets(
+      'a flag that turned off before Reset was pressed still asks the second confirmation',
+      (tester) async {
+        await pump(tester);
+        // The device's plain flag changed and nobody called status.refresh().
+        device.flag = E2eeFlag.off;
+        expect(status.state.mayStart, isTrue);
+        await tester.ensureVisible(_action());
+        await tester.tap(_action());
+        await tester.pumpAndSettle();
+        await tester.tap(_inDialog(kResetConfirmLabel));
+        await tester.pumpAndSettle();
+        expect(_inDialog(kResetSecondTitle), findsOneWidget);
+        verifyNever(() => session.resetByUser());
+        await tester.tap(_inDialog(kResetSecondLabel));
+        await tester.pumpAndSettle();
+        verify(() => session.resetByUser()).called(1);
+      },
+    );
+
+    testWidgets(
+      'a vault that became healthy while the dialog was open is not reset',
+      (tester) async {
+        await pump(tester);
+        await tester.ensureVisible(_action());
+        await tester.tap(_action());
+        await tester.pumpAndSettle();
+        device.vaultStatus.value = VaultStatus.ready;
+        await tester.pump();
+        await tester.tap(_inDialog(kResetConfirmLabel));
+        await tester.pumpAndSettle();
+        verifyNever(() => session.resetByUser());
+        expect(find.text(kResetNothingTitle), findsOneWidget);
+        expect(_action(), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'two taps before the dialog shows open one dialog and call once',
+      (tester) async {
+        await pump(tester);
+        await tester.ensureVisible(_action());
+        // Two presses in the same frame: a real second tap would already hit
+        // the dialog's barrier, so call the button's own handler twice.
+        final press = tester.widget<AppPillButton>(_action()).onPressed!;
+        press();
+        press();
+        await tester.pumpAndSettle();
+        // A second dialog would sit offstage under the first.
+        expect(
+          find.byType(AppConfirmDialog, skipOffstage: false),
+          findsOneWidget,
+        );
+        await tester.tap(_inDialog(kResetConfirmLabel));
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(AppConfirmDialog, skipOffstage: false),
+          findsNothing,
+        );
+        verify(() => session.resetByUser()).called(1);
+      },
+    );
+
+    testWidgets(
+      'a confirmation that cannot be shown resets nothing and reports no detail',
+      (tester) async {
+        await pump(tester, noNavigator: true);
+        await tester.ensureVisible(_action());
+        await tester.tap(_action());
+        await tester.pumpAndSettle();
+        expect(reported, hasLength(1));
+        expect(reported.single, isA<StateError>());
+        expect(reported.single.toString(), 'Bad state: resetConfirm');
+        expect(tester.takeException(), isNull);
+        verifyNever(() => session.resetByUser());
+        // Nothing is stuck: the button is still there and enabled.
+        expect(tester.widget<AppPillButton>(_action()).onPressed, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'a confirmation given before an account change resets nothing',
+      (tester) async {
+        await pump(tester);
+        await tester.ensureVisible(_action());
+        await tester.tap(_action());
+        await tester.pumpAndSettle();
+        when(() => auth.state).thenReturn(_signedIn('uid-2'));
+        await tester.tap(_inDialog(kResetConfirmLabel));
+        await tester.pumpAndSettle();
+        verifyNever(() => session.resetByUser());
+        expect(reported, isEmpty);
+      },
+    );
+
     testWidgets('cancelling the first dialog calls nothing', (tester) async {
       await pump(tester);
       await tester.ensureVisible(_action());
@@ -291,6 +479,8 @@ void main() {
         matching: find.byWidgetPredicate((w) => w is PopScope),
       );
       expect((tester.widget(pop.first) as PopScope).canPop, isFalse);
+      // This route cannot pop and has no up button here: no arrow at all.
+      expect(find.byIcon(Icons.arrow_back), findsNothing);
       hold.complete(true);
       await _settle(tester);
     });
@@ -307,6 +497,58 @@ void main() {
       hold.complete(true);
       await _settle(tester);
     });
+
+    testWidgets('a system back while the reset runs changes nothing', (
+      tester,
+    ) async {
+      await pump(tester, pushed: true);
+      expect(router.state.uri.path, AppRouter.resetEncryptionPath);
+      await confirmFirst(tester);
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(router.state.uri.path, AppRouter.resetEncryptionPath);
+      expect(
+        tester.widget<AppPillButton>(find.byType(AppPillButton).first).busy,
+        isTrue,
+      );
+      verify(() => session.resetByUser()).called(1);
+      // A route that can pop shows the arrow, disabled.
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.arrow_back),
+            )
+            .onPressed,
+        isNull,
+      );
+      hold.complete(true);
+      await _settle(tester);
+    });
+
+    testWidgets(
+      'a failed reset that no longer offers a reset returns to Encrypted messages with the failure text',
+      (tester) async {
+        // The local device record is unusable, so the reset is offered.
+        device.vaultStatus.value = VaultStatus.ready;
+        device.deviceKeys.value = const DeviceKeysStatus.failed(
+          retryable: false,
+        );
+        device.localRecordUnusable = true;
+        await pump(tester);
+        expect(_action(), findsOneWidget);
+        await confirmFirst(tester);
+        // The failed wipe ends in an unavailable vault: nothing to reset.
+        device.vaultStatus.value = VaultStatus.unavailable;
+        await tester.pump();
+        hold.complete(false);
+        await _settle(tester);
+        expect(find.text(kResetFailedText), findsOneWidget);
+        expect(router.state.uri.path, AppRouter.encryptionSettingsPath);
+        expect(find.text('encryption page'), findsOneWidget);
+        expect(find.text(kResetNothingTitle), findsNothing);
+        verify(() => session.resetByUser()).called(1);
+      },
+    );
 
     testWidgets('true shows the done text and goes to the encryption page', (
       tester,
@@ -368,6 +610,27 @@ void main() {
   });
 
   group('ResetEncryptionCubit', () {
+    test('run called again while running does nothing', () async {
+      final hold = Completer<bool>();
+      var calls = 0;
+      final cubit = ResetEncryptionCubit(
+        reset: () {
+          calls++;
+          return hold.future;
+        },
+      );
+      final first = cubit.run();
+      final second = cubit.run();
+      await second;
+      expect(calls, 1);
+      expect(cubit.state, ResetEncryptionPhase.running);
+      hold.complete(true);
+      await first;
+      expect(cubit.state, ResetEncryptionPhase.done);
+      expect(calls, 1);
+      await cubit.close();
+    });
+
     test('idle -> running -> done, and failed can run again', () async {
       var results = [false, true];
       final cubit = ResetEncryptionCubit(
