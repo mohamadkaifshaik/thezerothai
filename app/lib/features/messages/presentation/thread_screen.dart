@@ -308,6 +308,13 @@ class ThreadScreen extends StatelessWidget {
 
 enum _MenuAction { viewProfile, encryption, block, report, delete }
 
+/// How the thread names the peer in its copy: the display name, else the
+/// `@handle`.
+String _peerLabel(common.AuthorSnapshot? peer) =>
+    peer == null || peer.displayName.isEmpty
+    ? '@${peer?.handle ?? ''}'
+    : peer.displayName;
+
 /// The Encryption entry: an encrypted thread whose security is known and is
 /// not an incoming request (nothing to compare there).
 bool _showEncryptionEntry(ThreadState state) {
@@ -705,9 +712,11 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
           showConversationEncryption(
             context,
             conversationId: cubit.conversationId,
-            peerName: conversation.peer.displayName,
+            peerName: _peerLabel(conversation.peer),
             initialSecurity: cubit.state.security,
             securityChanges: cubit.stream.map((s) => s.security),
+            initialEntries: cubit.state.entries,
+            entryChanges: cubit.stream.map((s) => s.entries),
           ),
         );
       case _MenuAction.block:
@@ -1187,9 +1196,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         : buildThreadItems(state.messages);
     final conversation = state.conversation;
     final peer = conversation?.peer;
-    final peerName = peer == null || peer.displayName.isEmpty
-        ? '@${peer?.handle ?? ''}'
-        : peer.displayName;
+    final peerName = _peerLabel(peer);
     final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
     final seenId = _seenMessageId(state, conversation);
     // Row keys must be unique: the day separator above the earlier plaintext

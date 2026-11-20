@@ -1,14 +1,21 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
-import 'package:dzeroth/features/messages/domain/e2ee/encryption_access.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encryption_device.dart';
+import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/conversation_encryption_panel.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_sheet.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../../support/fake_encrypted_messaging.dart';
+import '../../../../support/fake_encryption_device.dart';
+import '../../../../support/scheduled_flags.dart';
 
 const _digits =
     '11111222223333344444555556666677777888889999900000'
@@ -22,7 +29,9 @@ void main() {
     double width, {
     double height = 900,
     double textScale = 1,
-    bool tabletLayout = false,
+    // Null: the default decision (the band and the tablet flags).
+    bool? tabletLayout,
+    Set<String> flags = const {kFeatureE2eeDm, 'ui_shell', 'ui_tablet'},
   }) async {
     final port = FakeEncryptedMessaging();
     addTearDown(port.dispose);
@@ -30,31 +39,42 @@ void main() {
       'c1',
       const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
     );
+    final changes = StreamController<ConversationSecurity?>.broadcast();
+    addTearDown(changes.close);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, height);
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      MaterialApp(
-        theme: appLightTheme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: TextScaler.linear(textScale)),
-          child: child!,
-        ),
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              onPressed: () => showConversationEncryption(
-                context,
-                messaging: port,
-                conversationId: 'c1',
-                peerName: 'Sam',
-                access: EncryptionAccess.full,
-                securityChanges: const Stream.empty(),
-                isWeb: false,
-                tabletLayout: tabletLayout,
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<EncryptedMessaging>.value(value: port),
+          RepositoryProvider<EncryptionDevice>.value(
+            value: FakeEncryptionDevice(),
+          ),
+        ],
+        child: BlocProvider<OnboardingBloc>.value(
+          value: onboardingWithFlags(flags),
+          child: MaterialApp(
+            theme: appLightTheme,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => showConversationEncryption(
+                    context,
+                    conversationId: 'c1',
+                    peerName: 'Sam',
+                    securityChanges: changes.stream,
+                    isWeb: false,
+                    tabletLayout: tabletLayout,
+                  ),
+                  child: const Text('open'),
+                ),
               ),
-              child: const Text('open'),
             ),
           ),
         ),
@@ -97,6 +117,25 @@ void main() {
       expect(header.left, greaterThanOrEqualTo(width - AppSize.sideSheet));
       expect(tester.takeException(), isNull);
       expect(columns(tester), 3);
+    });
+  }
+
+  for (final width in [700.0, 1000.0]) {
+    testWidgets('$width dp with the tablet flags and no override: the side '
+        'sheet', (tester) async {
+      await open(tester, width);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(AppDialog), findsNothing);
+      final header = tester.getRect(find.text(kSecurityCodeHeader));
+      expect(header.left, greaterThanOrEqualTo(width - AppSize.sideSheet));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('$width dp without ui_tablet and no override: the bottom '
+        'sheet', (tester) async {
+      await open(tester, width, flags: const {kFeatureE2eeDm, 'ui_shell'});
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   }
 

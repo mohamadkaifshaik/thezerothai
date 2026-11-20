@@ -17,8 +17,10 @@ import '../../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../../shared/widgets/primitives/app_sheet.dart';
 import '../../../../shared/widgets/primitives/app_side_sheet.dart';
+import '../../../../core/vault/vault_status.dart';
 import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/e2ee/encryption_access.dart';
+import '../../domain/e2ee/encryption_device.dart';
 import 'encryption_access_builder.dart';
 import 'encryption_copy.dart';
 import 'encryption_error_messages.dart';
@@ -65,6 +67,12 @@ class SecurityCodeCubit extends Cubit<SecurityCodeState> {
   final UnexpectedErrorReporter? onUnexpectedError;
   int _generation = 0;
 
+  /// Drops the code at once and ignores any answer still in flight.
+  void clear() {
+    _generation++;
+    if (!isClosed) emit(const SecurityCodeState());
+  }
+
   /// Shows `loading` (no code), then the answer. An answer (or error) of an
   /// older request is dropped.
   Future<void> load() async {
@@ -92,42 +100,40 @@ class SecurityCodeCubit extends Cubit<SecurityCodeState> {
   }
 }
 
-bool _securityChanged(ConversationSecurity? a, ConversationSecurity? b) {
-  if (a == null || b == null) return (a == null) != (b == null);
-  return a.state != b.state ||
-      a.myDevices != b.myDevices ||
-      a.theirDevices != b.theirDevices;
-}
-
 /// Opens the panel of [conversationId] in the presentation of the layout:
 /// phone (< 600): a full-height bottom sheet; the tablet layout (600-1199 dp
 /// with `ui_shell` and `ui_tablet`): the side sheet; desktop (>= 1200): a
 /// dialog 560 dp wide at most. The same content and actions in all three.
 ///
-/// [securityChanges] is the thread's security: the code reloads whenever it
-/// emits another state or other device counts than the last one seen
-/// ([initialSecurity] seeds that). The port, the access, the platform and
-/// the presentation are read from [context] unless given. Nothing is shown
-/// without a port or with access `hidden`.
+/// [securityChanges] is the thread's security: the code reloads on every
+/// value that is not the identical object as the last one seen
+/// ([initialSecurity] seeds that), and when it ends the panel closes.
+/// [entryChanges] is the thread's rows: a system line not seen before
+/// reloads the code. The port, the access rule and the device are read from
+/// [context]; nothing is shown without a port or with access `hidden`.
 Future<void> showConversationEncryption(
   BuildContext context, {
   required String conversationId,
   required String peerName,
   required Stream<ConversationSecurity?> securityChanges,
   ConversationSecurity? initialSecurity,
-  EncryptedMessaging? messaging,
-  EncryptionAccess? access,
+  Stream<List<ThreadEntry>>? entryChanges,
+  List<ThreadEntry> initialEntries = const [],
   bool? isWeb,
   bool? tabletLayout,
 }) {
-  final resolvedAccess = access ?? EncryptionAccessBuilder.of(context);
-  final port =
-      messaging ??
-      (resolvedAccess == EncryptionAccess.hidden
-          ? null
-          : context.read<EncryptedMessaging?>());
+  final resolvedAccess = EncryptionAccessBuilder.of(context);
+  final port = resolvedAccess == EncryptionAccess.hidden
+      ? null
+      : context.read<EncryptedMessaging?>();
   if (port == null || resolvedAccess == EncryptionAccess.hidden) {
     return Future<void>.value();
+  }
+  EncryptionDevice? device;
+  try {
+    device = context.read<EncryptionDevice>();
+  } on ProviderNotFoundException {
+    device = null;
   }
   UnexpectedErrorReporter? report;
   try {
@@ -148,8 +154,11 @@ Future<void> showConversationEncryption(
     conversationId: conversationId,
     peerName: peerName,
     access: resolvedAccess,
+    device: device,
     securityChanges: securityChanges,
     initialSecurity: initialSecurity,
+    entryChanges: entryChanges,
+    initialEntries: initialEntries,
     isWeb: isWeb ?? kIsWeb,
     router: router,
     onUnexpectedError: report,
@@ -181,7 +190,9 @@ Future<void> showConversationEncryption(
   );
 }
 
-/// Owns the cubit and the subscription of one open panel.
+/// Owns the cubit and the subscriptions of one open panel. Public for tests
+/// only: production code opens the panel through [showConversationEncryption],
+/// which resolves the port and the access rule from the context.
 class ConversationEncryptionHost extends StatefulWidget {
   const ConversationEncryptionHost({
     super.key,
@@ -190,7 +201,10 @@ class ConversationEncryptionHost extends StatefulWidget {
     required this.peerName,
     required this.access,
     required this.securityChanges,
+    this.device,
     this.initialSecurity,
+    this.entryChanges,
+    this.initialEntries = const [],
     this.isWeb = kIsWeb,
     this.router,
     this.onUnexpectedError,
@@ -201,7 +215,12 @@ class ConversationEncryptionHost extends StatefulWidget {
   final String peerName;
   final EncryptionAccess access;
   final Stream<ConversationSecurity?> securityChanges;
+
+  /// The device whose vault the access rule reads (null: none to watch).
+  final EncryptionDevice? device;
   final ConversationSecurity? initialSecurity;
+  final Stream<List<ThreadEntry>>? entryChanges;
+  final List<ThreadEntry> initialEntries;
   final bool isWeb;
   final GoRouter? router;
   final UnexpectedErrorReporter? onUnexpectedError;
@@ -215,28 +234,82 @@ class _ConversationEncryptionHostState
     extends State<ConversationEncryptionHost> {
   late final SecurityCodeCubit _cubit;
   StreamSubscription<ConversationSecurity?>? _subscription;
+  StreamSubscription<List<ThreadEntry>>? _entrySubscription;
   ConversationSecurity? _last;
+  final Set<String> _seenLines = {};
+  bool _closing = false;
 
   @override
   void initState() {
     super.initState();
     _last = widget.initialSecurity;
+    _seenLines.addAll(_lineIds(widget.initialEntries));
     _cubit = SecurityCodeCubit(
       messaging: widget.messaging,
       conversationId: widget.conversationId,
       onUnexpectedError: widget.onUnexpectedError,
     );
     unawaited(_cubit.load());
+    // Any value that is not the identical object reloads: a device swap or a
+    // reset keeps the state and the counts, and a stale code is the one
+    // thing this panel must not show.
     _subscription = widget.securityChanges.listen((next) {
-      if (!_securityChanged(_last, next)) return;
+      if (_closing || identical(_last, next)) return;
       _last = next;
       unawaited(_cubit.load());
+    }, onDone: _close);
+    _entrySubscription = widget.entryChanges?.listen((entries) {
+      if (_closing) return;
+      final fresh = _lineIds(entries).difference(_seenLines);
+      if (fresh.isEmpty) return;
+      _seenLines.addAll(fresh);
+      unawaited(_cubit.load());
     });
+    widget.device?.vaultStatus.addListener(_accessChanged);
+    widget.messaging.removedElsewhere.addListener(_accessChanged);
+  }
+
+  static Set<String> _lineIds(List<ThreadEntry> entries) => {
+    for (final e in entries)
+      if (e is SystemLineEntry) e.id,
+  };
+
+  /// Encryption access is lost while the panel is open: the vault is not
+  /// ready any more, the access rule turned hidden, or this device was
+  /// removed elsewhere.
+  void _accessChanged() {
+    if (_closing) return;
+    final device = widget.device;
+    final lost =
+        widget.messaging.removedElsewhere.value ||
+        (device != null &&
+            (device.vaultStatus.value != VaultStatus.ready ||
+                encryptionAccessOf(
+                      flagOn: widget.access == EncryptionAccess.full,
+                      vaultKnown: device.vaultKnown,
+                      status: device.vaultStatus.value,
+                    ) ==
+                    EncryptionAccess.hidden));
+    if (lost) _close();
+  }
+
+  /// Clears the code, then pops, once. The digits are gone before the route
+  /// animates out.
+  void _close() {
+    if (_closing) return;
+    _closing = true;
+    _cubit.clear();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
   void dispose() {
+    widget.device?.vaultStatus.removeListener(_accessChanged);
+    widget.messaging.removedElsewhere.removeListener(_accessChanged);
     unawaited(_subscription?.cancel());
+    unawaited(_entrySubscription?.cancel());
     unawaited(_cubit.close());
     super.dispose();
   }
@@ -375,10 +448,10 @@ class ConversationEncryptionPanel extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     final desktop = width >= AppBreakpoints.tablet;
     final figure = desktop
-        ? 20.0
+        ? AppTextStyles.securityCodeFigureDesktop
         : width >= AppBreakpoints.mobile
-        ? 16.0
-        : 18.0;
+        ? AppTextStyles.securityCodeFigureTablet
+        : AppTextStyles.securityCodeFigurePhone;
     final showCounts =
         code != null &&
         (digits != null ||
@@ -409,7 +482,7 @@ class ConversationEncryptionPanel extends StatelessWidget {
             _CodeGrid(
               digits: digits,
               figureSize: figure,
-              maxWidth: desktop ? 360 : double.infinity,
+              maxWidth: desktop ? AppSize.securityCodeGridMax : double.infinity,
             ),
             const SizedBox(height: AppSpacing.sm),
             _line(theme, kSecurityCodeMeaning),
@@ -506,15 +579,18 @@ class _CodeGrid extends StatelessWidget {
     final theme = Theme.of(context);
     final style = AppTextStyles.securityCodeFigure(theme, size: figureSize);
     final groups = securityCodeGroups(digits);
-    final painter = TextPainter(
-      text: TextSpan(text: '00000', style: style),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-    )..layout();
-    final cell = painter.width;
-    painter.dispose();
+    final direction = Directionality.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Measured once per layout, then released.
+        final painter = TextPainter(
+          text: TextSpan(text: '00000', style: style),
+          textDirection: direction,
+          textScaler: scaler,
+        )..layout();
+        final cell = painter.width;
+        painter.dispose();
         const gutter = AppSpacing.md;
         final available = math.min(constraints.maxWidth, maxWidth);
         final columns = 3 * cell + 2 * gutter <= available ? 3 : 2;
