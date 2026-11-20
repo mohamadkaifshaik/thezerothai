@@ -8,9 +8,11 @@
 #   flutter    flutter analyze + test shards                 app
 #   promotion  promotion scripts (shellcheck, actionlint, fixture tests, flag registry, until-dates)
 #                                                            backend (config.go), infra (flag registry, until-dates)
-#   crypto     MLS core (Rust): crypto job + web integration  crypto, app/rust, app/lib/core/crypto, app/lib/core/vault,
-#                                                            app/lib/features/keys, app/integration_test, app/web
+#   crypto     MLS core (Rust): the crypto job (in make-ci)  crypto, app/rust, app/lib/core/crypto, app/integration_test,
+#                                                            app/web
 #                                                            (testdata/mls and scripts/crypto are shared paths: everything runs)
+#   crypto_web the advisory web integration job (not in make-ci)  whenever crypto is on, and app/lib/core/vault,
+#                                                            app/lib/features/keys (Dart only: no Rust job for them)
 #   android    Android debug build on Linux (Rust via cargo-ndk)  crypto, app/rust, app/rust_builder, app/android,
 #                                                            app/pubspec.yaml, app/pubspec.lock (not other app code; .github is shared: everything runs)
 # Every path is classified by its first match; anything that is not clearly one of the kinds below, anything shared
@@ -19,7 +21,7 @@
 # scratchpad/, README.md, releases/*.md) needs no job at all.
 set -uo pipefail
 
-groups="go_checks go_unit int flutter promotion crypto android"
+groups="go_checks go_unit int flutter promotion crypto crypto_web android"
 
 emit_all() {
 	local g
@@ -31,7 +33,7 @@ if [ "${1:-}" = "--all" ]; then
 	exit 0
 fi
 
-backend=0 app=0 infra=0 crypto=0 android=0 other=0 seen=0
+backend=0 app=0 infra=0 crypto=0 crypto_web=0 android=0 other=0 seen=0
 while IFS= read -r p || [ -n "$p" ]; do
 	p=${p%$'\r'}
 	[ -n "$p" ] || continue
@@ -41,7 +43,8 @@ while IFS= read -r p || [ -n "$p" ]; do
 	backend/*) backend=1 ;;
 	crypto/*) crypto=1 android=1 ;;
 	app/rust/*) app=1 crypto=1 android=1 ;;
-	app/lib/core/crypto/* | app/lib/core/vault/* | app/lib/features/keys/* | app/integration_test/* | app/web/*) app=1 crypto=1 ;;
+	app/lib/core/crypto/* | app/integration_test/* | app/web/*) app=1 crypto=1 ;;
+	app/lib/core/vault/* | app/lib/features/keys/*) app=1 crypto_web=1 ;;
 	app/rust_builder/* | app/android/* | app/pubspec.yaml | app/pubspec.lock) app=1 android=1 ;;
 	app/*) app=1 ;;
 	infra/terraform/*) infra=1 ;;
@@ -61,4 +64,5 @@ echo "int=$(flag "$backend")"
 echo "flutter=$(flag "$app")"
 echo "promotion=$(flag $((backend | infra)))"
 echo "crypto=$(flag "$crypto")"
+echo "crypto_web=$(flag $((crypto | crypto_web)))"
 echo "android=$(flag "$android")"
