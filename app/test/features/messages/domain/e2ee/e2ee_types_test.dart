@@ -93,6 +93,42 @@ void main() {
     expect(text, isNot(contains('conv')));
   });
 
+  test('the key history flags default to false and take part in equality '
+      'and toString', () {
+    ConversationCryptoState make({
+      bool closed = false,
+      bool mayAllow = false,
+    }) => ConversationCryptoState(
+      phase: ConversationPhase.ready,
+      sendBlock: SendBlock.none,
+      requestAccepted: true,
+      incomingRequest: false,
+      deviceListUnverifiable: false,
+      unknownDevicePresent: false,
+      committingPausedToday: false,
+      unattributedPresent: false,
+      myDeviceCount: 1,
+      theirDeviceCount: 2,
+      canReset: false,
+      keyHistoryClosed: closed,
+      mayAllowMoreDevices: mayAllow,
+    );
+    expect(_ready().keyHistoryClosed, isFalse);
+    expect(_ready().mayAllowMoreDevices, isFalse);
+    expect(ConversationCryptoState.initial.keyHistoryClosed, isFalse);
+    expect(ConversationCryptoState.initial.mayAllowMoreDevices, isFalse);
+    expect(make(), _ready());
+    expect(make(closed: true) == make(), isFalse);
+    expect(make(closed: true, mayAllow: true) == make(closed: true), isFalse);
+    expect(
+      make(closed: true, mayAllow: true).hashCode,
+      make(closed: true, mayAllow: true).hashCode,
+    );
+    final text = make(closed: true).toString();
+    expect(text, contains('keyHistoryClosed: true'));
+    expect(text, contains('mayAllowMoreDevices: false'));
+  });
+
   test('E2eePipelineError names the step only', () {
     expect(
       const E2eePipelineError('join').toString(),
