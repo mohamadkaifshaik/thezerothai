@@ -5,13 +5,25 @@ import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
+import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/keys/data/keys_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_context.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:drift/native.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
@@ -628,4 +640,238 @@ Future<RigAdd> rigCommit(
     commit.groupState,
   );
   return RigAdd(commit.commit, commit.welcome ?? Uint8List(0), group);
+}
+
+/// One one-time key package of [device], its device state saved first (the
+/// package's private part is then in the vault, as Plan 4 does).
+Future<Uint8List> rigKeyPackage(RigDevice device) async {
+  final state = await device.vault.deviceState();
+  if (state == null) throw StateError('The rig device has no state.');
+  final r = await device.engine.inner.generateKeyPackages(
+    state,
+    count: 1,
+    lastResort: false,
+  );
+  await device.vault.transaction((tx) => tx.putDeviceState(r.deviceState));
+  return r.keyPackages.single;
+}
+
+/// A key directory entry.
+kpb.KeyDevice rigKeyDevice(String deviceId, Uint8List key) =>
+    kpb.KeyDevice(deviceId: deviceId, signaturePublicKey: key);
+
+/// A scripted key directory: `ListMyKeyDevices` answers [own],
+/// `GetKeyDevices` answers [peers] by reference (empty for an unknown one).
+class RigKeys implements KeysRepository {
+  final List<kpb.KeyDevice> own = [];
+  final Map<String, List<kpb.KeyDevice>> peers = {};
+  bool ownFails = false;
+  bool peerFails = false;
+  int listCalls = 0;
+  final List<List<String>> getCalls = [];
+
+  @override
+  Future<kpb.ListMyKeyDevicesResponse> listMine() async {
+    listCalls++;
+    if (ownFails) throw const NetworkException('rig');
+    return kpb.ListMyKeyDevicesResponse(devices: own);
+  }
+
+  @override
+  Future<kpb.GetKeyDevicesResponse> getDevices(List<String> userIds) async {
+    getCalls.add([...userIds]);
+    if (peerFails) throw const NetworkException('rig');
+    return kpb.GetKeyDevicesResponse(
+      users: [
+        for (final id in userIds)
+          kpb.UserKeyDevices(userId: id, devices: peers[id] ?? const []),
+      ],
+    );
+  }
+
+  @override
+  Object? noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+/// What [RigCrypto.offer] stored on the server.
+class RigOffer {
+  const RigOffer(this.welcomeId, this.add, this.label);
+
+  final String welcomeId;
+  final RigAdd add;
+  final MlsPair label;
+}
+
+/// One device under test with a [ConversationCrypto] over the rig server, a
+/// scripted key directory and real budgets.
+class RigCrypto {
+  RigCrypto._(this.dir, this.clock, this.server);
+
+  final Directory dir;
+  final RigClock clock;
+  final RigServer server;
+  late RigDevice device;
+  late RigMessaging messaging;
+  final RigKeys keys = RigKeys();
+  late SyncBudget syncBudget;
+  late DeviceDirectory directory;
+  final ConversationLocks locks = ConversationLocks();
+  final ConversationContexts contexts = ConversationContexts();
+  late KnownConversations known;
+  late ConversationCrypto crypto;
+  final List<String> changed = [];
+  final List<Object> unexpected = [];
+
+  /// [messaging] replaces the repository view of user `user-a`.
+  static Future<RigCrypto> create({
+    RigMessaging Function(RigServer server)? messaging,
+  }) async {
+    final clock = RigClock();
+    final rig = RigCrypto._(
+      Directory.systemTemp.createTempSync('e2ee_crypto'),
+      clock,
+      RigServer(clock),
+    );
+    rig.device = await RigDevice.create(dir: rig.dir, clock: clock);
+    rig.messaging = messaging == null
+        ? rig.server.viewFor('user-a')
+        : messaging(rig.server);
+    rig.syncBudget = SyncBudget(
+      perMinute: 100000,
+      ownDeviceCount: () => 1,
+      now: clock.now,
+    );
+    rig.directory = DeviceDirectory(
+      keys: rig.keys,
+      budget: SyncBudget(
+        perMinute: 100000,
+        ownDeviceCount: () => 1,
+        now: clock.now,
+      ),
+      now: clock.now,
+    );
+    rig.keys.own.add(
+      rigKeyDevice(rig.device.deviceIdString, rig.device.signatureKey),
+    );
+    await rig._wire();
+    return rig;
+  }
+
+  Future<void> _wire() async {
+    known = KnownConversations(session: device.session);
+    await known.load(device.vault);
+    crypto = ConversationCrypto(
+      session: device.session,
+      engine: () => device.engine,
+      messaging: messaging,
+      directory: directory,
+      syncBudget: syncBudget,
+      locks: locks,
+      contexts: contexts,
+      known: known,
+      now: clock.now,
+      onChanged: changed.add,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+  }
+
+  /// An app restart: the vault file is opened again; memory starts again.
+  Future<void> restart() async {
+    await device.restart();
+    contexts.clear();
+    directory.clear();
+    await _wire();
+  }
+
+  Future<void> dispose() async {
+    await device.dispose();
+    try {
+      dir.deleteSync(recursive: true);
+    } on Object {
+      // Windows can hold the file briefly.
+    }
+  }
+
+  /// [owner] builds the group of [conversationId] at [generation] (its id
+  /// [groupId] when given) with this device and the devices behind
+  /// [others]; the server stores the commit at (generation, 0) unless
+  /// [storeCommit] is false, and the welcome for this device labelled
+  /// [label] (default (generation, 0)).
+  Future<RigOffer> offer(
+    String conversationId,
+    RigPeer owner, {
+    List<Uint8List> others = const [],
+    int generation = 1,
+    Uint8List? groupId,
+    MlsPair? label,
+    DateTime? createdAt,
+    bool storeCommit = true,
+  }) async {
+    final kp = await rigKeyPackage(device);
+    final add = await rigCreateAndAdd(
+      owner,
+      groupId ?? mlsGroupId(conversationId, generation),
+      [kp, ...others],
+    );
+    final at = MlsPair(generation, 0);
+    if (storeCommit) {
+      server.addCommit(conversationId, at, add.commit, fromUser: 'user-b');
+    }
+    final id = server.addWelcome(
+      device.deviceIdString,
+      conversationId,
+      label ?? at,
+      add.welcome,
+      createdAt: createdAt,
+    );
+    return RigOffer(id, add, label ?? at);
+  }
+
+  /// The conversation is accepted (its stored sync record says so).
+  Future<void> accept(String conversationId) => device.vault.transaction(
+    (tx) => tx.putConversationSync(
+      conversationId,
+      const ConversationSync(requestAccepted: true),
+    ),
+  );
+
+  /// The server's header row of [conversationId] names [peerRef].
+  void header(String conversationId, String peerRef) {
+    server.rows[conversationId] = pb.Conversation(
+      id: conversationId,
+      peer: common.AuthorSnapshot(userId: peerRef),
+      folder: Folder.FOLDER_INBOX,
+      canReply: true,
+    );
+  }
+
+  /// Every stored row of the vault's tables, as text (for "byte-identical").
+  Future<String> dump() async {
+    const tables = [
+      'vault_device',
+      'vault_group_states',
+      'vault_conversations',
+      'vault_members',
+      'vault_sent',
+      'vault_messages',
+      'vault_outbox',
+      'vault_settings',
+    ];
+    final out = StringBuffer();
+    for (final t in tables) {
+      final rows = await device.db
+          .customSelect('SELECT * FROM $t ORDER BY rowid')
+          .get();
+      out.writeln('$t ${[for (final r in rows) r.data]}');
+    }
+    return out.toString();
+  }
+
+  /// The system rows of [conversationId], decoded.
+  Future<List<SystemLineContent>> lines(String conversationId) async => [
+    for (final m in await device.vault.messages(conversationId, limit: 500))
+      if (m.kind == StoredMessageKind.system)
+        ?SystemLineContent.decode(m.content!),
+  ];
 }

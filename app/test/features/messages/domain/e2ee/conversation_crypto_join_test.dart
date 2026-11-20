@@ -1,0 +1,759 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dzeroth/core/crypto/crypto_types.dart';
+import 'package:dzeroth/core/crypto/mls_derivations.dart';
+import 'package:dzeroth/core/crypto/mls_pair.dart';
+import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:fixnum/fixnum.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../support/e2ee_pipeline_rig.dart';
+
+const _c1 = '11111111111111111111111111111111';
+const _c2 = '22222222222222222222222222222222';
+const _c3 = '33333333333333333333333333333333';
+
+String _conv(int n) => n.toRadixString(16).padLeft(32, 'a');
+
+const _mlsBadInput = MlsException(MlsErrorCode.badInput, 'rig');
+
+/// A repository whose one `ListWelcomes` page holds 60 welcomes with a label
+/// the client refuses (each is permanent, without an engine call).
+class _BigPage extends RigMessaging {
+  _BigPage(RigServer server) : super(server, 'user-a');
+
+  @override
+  Future<pb.ListWelcomesResponse> listWelcomes({
+    required String deviceId,
+  }) async {
+    final acked = {for (final a in acks) ...a};
+    return pb.ListWelcomesResponse(
+      welcomes: [
+        for (var i = 0; i < 60; i++)
+          if (!acked.contains(_conv(i)))
+            pb.Welcome(
+              id: _conv(i),
+              conversationId: _conv(i),
+              mlsGeneration: Int64(-1),
+              mlsEpoch: Int64.ZERO,
+              welcome: Uint8List(4),
+            ),
+      ],
+    );
+  }
+
+  final List<List<String>> acks = [];
+
+  @override
+  Future<void> ackWelcomes({
+    required String idempotencyKey,
+    required String deviceId,
+    required List<String> ids,
+  }) async {
+    acks.add([...ids]);
+    await super.ackWelcomes(
+      idempotencyKey: idempotencyKey,
+      deviceId: deviceId,
+      ids: ids,
+    );
+  }
+}
+
+void main() {
+  late RigCrypto rig;
+  late RigPeer bob;
+
+  setUp(() async {
+    rig = await RigCrypto.create();
+    bob = await RigPeer.create('bob');
+  });
+
+  tearDown(() async {
+    await rig.dispose();
+  });
+
+  Future<List<String>> ackedIds() async => [
+    for (final a in rig.server.acks) ...a.ids,
+  ];
+
+  test('a welcome is joined, stored with marks and pins, then '
+      'acknowledged', () async {
+    final offer = await rig.offer(_c1, bob);
+    final joined = await rig.crypto.processWelcomes();
+    expect(joined, [_c1]);
+
+    final v = rig.device.vault;
+    final group = await v.group(_c1, 1);
+    expect(group, isNotNull);
+    expect(group!.epoch, 1);
+    expect(group.provisional, isFalse);
+    final conv = await v.conversation(_c1);
+    expect(conv!.afterPair, const MlsPair(1, 0));
+    expect(conv.joinHighWater, const MlsPair(1, 0));
+    expect(
+      conv.sync.lastSelfUpdateAtMicros,
+      rig.clock.now().microsecondsSinceEpoch,
+    );
+    final members = await v.members(_c1);
+    expect(members, hasLength(2));
+    final me = members.singleWhere(
+      (m) => rigEq(m.deviceId, rig.device.deviceId),
+    );
+    expect(me.side, MemberSide.mine);
+    final peer = members.singleWhere((m) => rigEq(m.deviceId, bob.id));
+    expect(peer.side, MemberSide.unattributed);
+    expect(peer.since, const MlsPair(1, 1));
+    expect(rigEq(peer.signatureKey, bob.key), isTrue);
+
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(rig.server.welcomesFor(rig.device.deviceIdString), isEmpty);
+    // The join came before the acknowledgement.
+    final calls = rig.server.calls;
+    expect(calls.indexOf('ackWelcomes'), greaterThan(0));
+    expect(rig.unexpected, isEmpty);
+  });
+
+  test('the ack is sent only after the join transaction returned', () async {
+    final offer = await rig.offer(_c1, bob);
+    final before = await rig.dump();
+    // The known set is unloaded during the join, so its write fails after
+    // the device state, the group and the pins were written: the whole
+    // transaction must roll back.
+    rig.device.engine.describeMembers = (real) {
+      rig.known.clear();
+      return real;
+    };
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    rig.device.engine.describeMembers = null;
+
+    expect(rig.server.acks, isEmpty);
+    expect(await rig.dump(), before);
+    expect(rig.server.welcomesFor(rig.device.deviceIdString), hasLength(1));
+
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(await rig.device.vault.group(_c1, 1), isNotNull);
+  });
+
+  test('a replayed welcome at the after-pair is acknowledged without an '
+      'engine call and changes nothing', () async {
+    final first = await rig.offer(_c1, bob);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    // The server hands out the same welcome again.
+    final again = rig.server.addWelcome(
+      rig.device.deviceIdString,
+      _c1,
+      const MlsPair(1, 0),
+      first.add.welcome,
+    );
+    final before = await rig.dump();
+    rig.device.engine.calls.clear();
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(await ackedIds(), [first.welcomeId, again]);
+    expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+    expect(await rig.dump(), before);
+  });
+
+  test("a welcome for another conversation's group id is acknowledged and "
+      'nothing is stored', () async {
+    final offer = await rig.offer(_c2, bob, groupId: mlsGroupId(_c1, 1));
+    final before = await rig.dump();
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(await rig.dump(), before);
+    expect(await rig.device.vault.group(_c2, 1), isNull);
+    expect(await rig.device.vault.conversation(_c2), isNull);
+    expect(rig.known.contains(_c2), isFalse);
+  });
+
+  test('epoch not label + 1 is permanent', () async {
+    final offer = await rig.offer(_c1, bob, label: const MlsPair(1, 1));
+    final before = await rig.dump();
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(await rig.dump(), before);
+  });
+
+  test('eleven members, a repeated key and only-own members are '
+      'permanent', () async {
+    final sib = await RigPeer.create('sib');
+    rig.keys.own.add(rigKeyDevice(sib.idString, sib.key));
+    final cases = <String, List<GroupMember> Function(List<GroupMember>)>{
+      _c1: (real) => [
+        ...real,
+        for (var i = 0; i < 9; i++)
+          GroupMember(
+            deviceId: rigBytes('extra-device-$i-000000'),
+            signaturePublicKey: Uint8List.fromList(List.filled(32, i + 1)),
+          ),
+      ],
+      _c2: (real) => [
+        for (final m in real)
+          GroupMember(
+            deviceId: m.deviceId,
+            signaturePublicKey: rig.device.signatureKey,
+          ),
+      ],
+      _c3: (real) => [
+        for (final m in real)
+          rigEq(m.deviceId, bob.id)
+              ? GroupMember(deviceId: sib.id, signaturePublicKey: sib.key)
+              : m,
+      ],
+    };
+    for (final e in cases.entries) {
+      rig.server.acks.clear();
+      final offer = await rig.offer(e.key, bob);
+      final before = await rig.dump();
+      rig.device.engine.describeMembers = e.value;
+      expect(await rig.crypto.processWelcomes(), isEmpty);
+      rig.device.engine.describeMembers = null;
+      expect(await ackedIds(), [offer.welcomeId]);
+      expect(await rig.dump(), before);
+      expect(await rig.device.vault.group(e.key, 1), isNull);
+    }
+  });
+
+  test('engine bad_input is acknowledged and counts as none', () async {
+    final offer = await rig.offer(
+      _c1,
+      bob,
+      createdAt: rig.clock.now().subtract(const Duration(minutes: 1)),
+    );
+    final before = await rig.dump();
+    rig.device.engine.failNext['joinFromWelcome'] = _mlsBadInput;
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(await rig.dump(), before);
+  });
+
+  test('engine bad_input with the device clock behind created_at is not '
+      'acknowledged', () async {
+    await rig.offer(
+      _c1,
+      bob,
+      createdAt: rig.clock.now().add(const Duration(hours: 1)),
+    );
+    rig.device.engine.failNext['joinFromWelcome'] = _mlsBadInput;
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(rig.server.acks, isEmpty);
+    expect(rig.server.welcomesFor(rig.device.deviceIdString), hasLength(1));
+    expect(await rig.device.vault.group(_c1, 1), isNull);
+  });
+
+  test('a deadline, an unavailable engine and a closed vault are not '
+      'acknowledged and are retried', () async {
+    // A deadline.
+    final w1 = await rig.offer(_c1, bob);
+    rig.device.engine.failNext['joinFromWelcome'] = const MlsException(
+      MlsErrorCode.deadline,
+      'rig',
+    );
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    expect(rig.server.acks, isEmpty);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    expect(await ackedIds(), [w1.welcomeId]);
+
+    // An unavailable engine.
+    rig.server.acks.clear();
+    final w2 = await rig.offer(_c2, bob);
+    rig.device.engine.failNext['joinFromWelcome'] = const MlsException(
+      MlsErrorCode.unavailable,
+      'rig',
+    );
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    expect(rig.server.acks, isEmpty);
+    expect(await rig.crypto.processWelcomes(), [_c2]);
+    expect(await ackedIds(), [w2.welcomeId]);
+
+    // A closed vault.
+    rig.server.acks.clear();
+    final w3 = await rig.offer(_c3, bob);
+    // The vault closes once the welcome was listed.
+    rig.server.onCall = (call) async {
+      if (call == 'listWelcomes') await rig.device.vault.close();
+    };
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    rig.server.onCall = null;
+    expect(rig.server.listedFor, isNotEmpty);
+    expect(rig.server.acks, isEmpty);
+    await rig.restart();
+    expect(await rig.crypto.processWelcomes(), [_c3]);
+    expect(await ackedIds(), [w3.welcomeId]);
+  });
+
+  test('ListWelcomes and AckWelcomes name this device only', () async {
+    final sib = await RigPeer.create('sib');
+    rig.keys.own.add(rigKeyDevice(sib.idString, sib.key));
+    await rig.offer(_c1, bob);
+    // A welcome for my other device stays where it is.
+    rig.server.addWelcome(sib.idString, _c2, const MlsPair(1, 0), Uint8List(8));
+
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    expect(rig.server.listedFor, everyElement(rig.device.deviceIdString));
+    expect(rig.server.listedFor, isNotEmpty);
+    expect([
+      for (final a in rig.server.acks) a.deviceId,
+    ], everyElement(rig.device.deviceIdString));
+    expect(rig.server.welcomesFor(sib.idString), hasLength(1));
+  });
+
+  test('a full page is acknowledged and the next page is read', () async {
+    final ids = [for (var i = 0; i < 12; i++) _conv(i)];
+    for (final id in ids) {
+      await rig.offer(id, bob);
+    }
+
+    final joined = await rig.crypto.processWelcomes();
+
+    expect(joined.toSet(), ids.toSet());
+    expect(rig.server.listedFor, hasLength(2));
+    expect([for (final a in rig.server.acks) a.ids.length], [10, 2]);
+    expect(rig.server.welcomesFor(rig.device.deviceIdString), isEmpty);
+  });
+
+  test('a transient welcome is retried at the next poll, not on the next '
+      'page of the same poll', () async {
+    // Listed first (lowest id): unusable while the clock is behind it.
+    final skewed = rig.server.addWelcome(
+      rig.device.deviceIdString,
+      _c1,
+      const MlsPair(1, 0),
+      Uint8List(4),
+      createdAt: rig.clock.now().add(const Duration(hours: 1)),
+    );
+    for (var i = 0; i < 12; i++) {
+      await rig.offer(_conv(i), bob);
+    }
+
+    final joined = await rig.crypto.processWelcomes();
+
+    expect(joined, hasLength(12));
+    expect(await ackedIds(), isNot(contains(skewed)));
+    final raw = await rig.device.vault.setting(kVaultSettingWelcomeSkew);
+    final n =
+        (jsonDecode(utf8.decode(raw!)) as Map<String, Object?>)['n']!
+            as Map<String, Object?>;
+    expect(n[skewed], 1);
+  });
+
+  test('ack batches never exceed 50 ids', () async {
+    await rig.dispose();
+    late _BigPage view;
+    rig = await RigCrypto.create(messaging: (s) => view = _BigPage(s));
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect([for (final a in view.acks) a.length], [50, 10]);
+    expect(
+      {for (final a in view.acks) ...a},
+      {for (var i = 0; i < 60; i++) _conv(i)},
+    );
+  });
+
+  test('a first join writes no device rows for peer-side members', () async {
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+    await rig.offer(_c1, bob);
+
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    final peer = (await rig.device.vault.members(_c1))
+        .singleWhere((m) => rigEq(m.deviceId, bob.id));
+    expect(peer.side, MemberSide.theirs);
+    expect(await rig.lines(_c1), isEmpty);
+  });
+
+  test('a first join alerts for an own-side device this vault has never '
+      'pinned, and not on a brand-new vault', () async {
+    final sib = await RigPeer.create('sib');
+    final sib2 = await RigPeer.create('sib2');
+    rig.keys.own
+      ..add(rigKeyDevice(sib.idString, sib.key))
+      ..add(rigKeyDevice(sib2.idString, sib2.key));
+    rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+
+    // A brand-new vault meets its sibling: no alert.
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob, others: [await sib.keyPackage()]);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    final sibPin = (await rig.device.vault.members(_c1))
+        .singleWhere((m) => rigEq(m.deviceId, sib.id));
+    expect(sibPin.side, MemberSide.mine);
+    expect(await rig.lines(_c1), isEmpty);
+
+    // Now a group of an accepted conversation is stored: sib2 was never
+    // pinned mine, sib was.
+    await rig.accept(_c2);
+    rig.header(_c2, 'ref-bob');
+    await rig.offer(
+      _c2,
+      bob,
+      others: [await sib.keyPackage(), await sib2.keyPackage()],
+    );
+    expect(await rig.crypto.processWelcomes(), [_c2]);
+    final lines = await rig.lines(_c2);
+    expect(lines, hasLength(1));
+    expect(lines.single.line, SystemLine.deviceAdded);
+    expect(lines.single.side, MemberSide.mine);
+    expect(rigEq(lines.single.deviceId!, sib2.id), isTrue);
+  });
+
+  test('a known own device id with a new signature key gets the own-device '
+      'alert', () async {
+    final sib = await RigPeer.create('sib');
+    rig.keys.own.add(rigKeyDevice(sib.idString, sib.key));
+    rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob, others: [await sib.keyPackage()]);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    expect(await rig.lines(_c1), isEmpty);
+
+    // The same id now shows another key, in the group and in my list.
+    final newKey = Uint8List.fromList(List.filled(32, 7));
+    rig.keys.own
+      ..removeWhere((d) => d.deviceId == sib.idString)
+      ..add(rigKeyDevice(sib.idString, newKey));
+    rig.directory.clear();
+    await rig.accept(_c2);
+    rig.header(_c2, 'ref-bob');
+    await rig.offer(_c2, bob, others: [await sib.keyPackage()]);
+    rig.device.engine.describeMembers = (real) => [
+      for (final m in real)
+        rigEq(m.deviceId, sib.id)
+            ? GroupMember(deviceId: sib.id, signaturePublicKey: newKey)
+            : m,
+    ];
+    expect(await rig.crypto.processWelcomes(), [_c2]);
+    rig.device.engine.describeMembers = null;
+
+    final pin = (await rig.device.vault.members(_c2))
+        .singleWhere((m) => rigEq(m.deviceId, sib.id));
+    expect(pin.side, MemberSide.mine);
+    final lines = await rig.lines(_c2);
+    expect(lines, hasLength(1));
+    expect(lines.single.line, SystemLine.deviceAdded);
+    expect(lines.single.side, MemberSide.mine);
+  });
+
+  test('a rejoin after selfRemoved or set up again reports a peer key that '
+      'was not pinned before', () async {
+    final carol = await RigPeer.create('carol');
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(carol.idString, carol.key),
+    ];
+    rig.header(_c1, 'ref-bob');
+    // This device was in generation 1 with bob, then left it: marks and
+    // former pins stay.
+    final formerPins = FormerPins(session: rig.device.session);
+    await rig.device.vault.transaction((tx) async {
+      await tx.putConversationSync(
+        _c1,
+        const ConversationSync(requestAccepted: true),
+      );
+      await tx.setAfterPair(_c1, const MlsPair(1, 3));
+      await tx.setJoinHighWater(_c1, const MlsPair(1, 0));
+      await formerPins.putIn(tx, _c1, [
+        MemberRecord(
+          conversationId: _c1,
+          deviceId: bob.id,
+          signatureKey: bob.key,
+          side: MemberSide.theirs,
+          since: const MlsPair(1, 1),
+        ),
+        MemberRecord(
+          conversationId: _c1,
+          deviceId: rig.device.deviceId,
+          signatureKey: rig.device.signatureKey,
+          side: MemberSide.mine,
+          since: const MlsPair(1, 1),
+        ),
+      ]);
+    });
+
+    await rig.offer(
+      _c1,
+      bob,
+      generation: 2,
+      others: [await carol.keyPackage()],
+    );
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    final members = await rig.device.vault.members(_c1);
+    expect(
+      members.singleWhere((m) => rigEq(m.deviceId, bob.id)).side,
+      MemberSide.theirs,
+    );
+    expect(
+      members.singleWhere((m) => rigEq(m.deviceId, carol.id)).side,
+      MemberSide.theirs,
+    );
+    final lines = await rig.lines(_c1);
+    expect(lines, hasLength(1));
+    expect(lines.single.line, SystemLine.deviceAdded);
+    expect(lines.single.side, MemberSide.theirs);
+    expect(rigEq(lines.single.deviceId!, carol.id), isTrue);
+    // The former pins are current again.
+    expect(await formerPins.of(_c1), isEmpty);
+  });
+
+  test('a welcome for a provisional generation is joined only after the '
+      'provisional outcome is settled', () async {
+    final engine = rig.device.engine.inner;
+    final v = rig.device.vault;
+    final nowMicros = rig.clock.now().microsecondsSinceEpoch;
+
+    // This device's own init for _c1 (generation 1, built on (1, 0)).
+    Future<Uint8List> provisional(String id) async {
+      final state = (await v.deviceState())!;
+      final group = await engine.createGroup(state, mlsGroupId(id, 1));
+      final commit = await engine.commitChange(
+        state,
+        group,
+        addKeyPackages: [await bob.keyPackage()],
+      );
+      final confirmed = await engine.confirmCommit(state, commit.groupState);
+      await v.transaction((tx) async {
+        await tx.putGroup(
+          GroupRecord(
+            conversationId: id,
+            generation: 1,
+            epoch: 1,
+            state: confirmed,
+            provisional: true,
+            provisionalCreatedAtMicros: nowMicros,
+            pending: PendingCommit(
+              kind: PendingKind.init,
+              builtOn: const MlsPair(1, 0),
+              commit: commit.commit,
+              welcome: commit.welcome,
+              welcomeDeviceIds: [bob.idString],
+            ),
+          ),
+        );
+        for (final m in [
+          (rig.device.deviceId, rig.device.signatureKey, MemberSide.mine),
+          (bob.id, bob.key, MemberSide.theirs),
+        ]) {
+          await tx.putMember(
+            MemberRecord(
+              conversationId: id,
+              deviceId: m.$1,
+              signatureKey: m.$2,
+              side: m.$3,
+              since: const MlsPair(1, 1),
+            ),
+          );
+        }
+        await tx.putOutbox(
+          OutboxItem(
+            idempotencyKey: 'k' * 32,
+            localId: 'local-1',
+            expectedMessageId: expectedMessageId('user-a', 'k' * 32),
+            conversationId: id,
+            generation: 1,
+            epoch: 1,
+            ciphertext: Uint8List.fromList([1, 2, 3]),
+            reportCommitment: Uint8List(32),
+            content: rigBytes('hello'),
+            createdAtMicros: nowMicros,
+            init: Uint8List.fromList([9, 9]),
+          ),
+        );
+      });
+      return commit.commit;
+    }
+
+    // 1. The server stored this device's own init: the provisional group is
+    // cleared and the welcome is a replay.
+    final ownCommit = await provisional(_c1);
+    rig.server.addCommit(
+      _c1,
+      const MlsPair(1, 0),
+      ownCommit,
+      fromUser: 'user-a',
+    );
+    final kp = await rigKeyPackage(rig.device);
+    final other = await rigCreateAndAdd(bob, mlsGroupId(_c1, 1), [kp]);
+    final w1 = rig.server.addWelcome(
+      rig.device.deviceIdString,
+      _c1,
+      const MlsPair(1, 0),
+      other.welcome,
+    );
+    rig.device.engine.calls.clear();
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    expect(await ackedIds(), [w1]);
+    expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+    final cleared = await v.group(_c1, 1);
+    expect(cleared!.provisional, isFalse);
+    expect((await v.conversation(_c1))!.afterPair, const MlsPair(1, 0));
+
+    // 2. Another device's init was stored first: the provisional group and
+    // its pins go, the row is back to plain, then the welcome is joined.
+    rig.server.acks.clear();
+    await provisional(_c2);
+    final w2 = await rig.offer(_c2, bob);
+    expect(await rig.crypto.processWelcomes(), [_c2]);
+    expect(await ackedIds(), [w2.welcomeId]);
+    final joined = await v.group(_c2, 1);
+    expect(joined!.provisional, isFalse);
+    expect(joined.pending, isNull);
+    expect((await v.conversation(_c2))!.afterPair, const MlsPair(1, 0));
+    final rows = (await v.outbox(conversationId: _c2)).items;
+    expect(rows, hasLength(1));
+    expect(rows.single.stage, OutboxStage.plain);
+    expect(rows.single.ciphertext, isEmpty);
+    expect(rows.single.init, isNull);
+    expect(rows.single.localId, 'local-1');
+    expect(utf8.decode(rows.single.content), 'hello');
+    final bobPin = (await v.members(_c2))
+        .singleWhere((m) => rigEq(m.deviceId, bob.id));
+    // Re-pinned from the joined group, not kept from the provisional one.
+    expect(bobPin.side, MemberSide.unattributed);
+  });
+
+  test('engine bad_input with the device clock behind created_at is '
+      'transient at most three times per welcome id, across a restart, then '
+      'permanent', () async {
+    final offer = await rig.offer(
+      _c1,
+      bob,
+      createdAt: rig.clock.now().add(const Duration(hours: 1)),
+    );
+    rig.device.engine.failAlways['joinFromWelcome'] = _mlsBadInput;
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    await rig.restart();
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    expect(rig.server.acks, isEmpty);
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    expect(await ackedIds(), [offer.welcomeId]);
+    // The counter entry went with the acknowledgement.
+    final raw = await rig.device.vault.setting(kVaultSettingWelcomeSkew);
+    final n = raw == null
+        ? const <String, Object?>{}
+        : (jsonDecode(utf8.decode(raw)) as Map<String, Object?>)['n']!
+              as Map<String, Object?>;
+    expect(n.containsKey(offer.welcomeId), isFalse);
+  });
+
+  test('a joined welcome puts its conversation in the known set', () async {
+    await rig.offer(_c1, bob);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    expect(rig.known.contains(_c1), isTrue);
+    final again = KnownConversations(session: rig.device.session);
+    await again.load(rig.device.vault);
+    expect(again.contains(_c1), isTrue);
+    expect([for (final n in rig.messaging.noted) n.id], [_c1]);
+    expect(rig.messaging.noted.single.session, rig.messaging.cacheSession);
+  });
+
+  test('a permanent welcome for a cached conversation of this user puts it '
+      'in the known set', () async {
+    rig.header(_c1, 'ref-bob');
+    final offer = await rig.offer(_c1, bob, label: const MlsPair(1, 1));
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(rig.known.contains(_c1), isTrue);
+    final again = KnownConversations(session: rig.device.session);
+    await again.load(rig.device.vault);
+    expect(again.contains(_c1), isTrue);
+    expect(again.peerOf(_c1), isNull);
+    expect([for (final n in rig.messaging.noted) n.id], [_c1]);
+  });
+
+  test('a permanent welcome for an uncached conversation does not extend '
+      'the known set', () async {
+    final offer = await rig.offer(_c1, bob, label: const MlsPair(1, 1));
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(rig.known.contains(_c1), isFalse);
+    expect(rig.messaging.noted, isEmpty);
+  });
+
+  test('a skew counter for a welcome no longer listed is dropped', () async {
+    final first = await rig.offer(
+      _c1,
+      bob,
+      createdAt: rig.clock.now().add(const Duration(hours: 1)),
+    );
+    rig.device.engine.failNext['joinFromWelcome'] = _mlsBadInput;
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    Future<Map<String, Object?>> counters() async {
+      final raw = await rig.device.vault.setting(kVaultSettingWelcomeSkew);
+      if (raw == null) return const {};
+      return (jsonDecode(utf8.decode(raw)) as Map<String, Object?>)['n']!
+          as Map<String, Object?>;
+    }
+
+    expect((await counters())[first.welcomeId], 1);
+
+    // The server replaces that welcome with another one (a new id, here an
+    // unusable one); the old id is no longer listed.
+    final second = rig.server.addWelcome(
+      rig.device.deviceIdString,
+      _c1,
+      const MlsPair(1, 0),
+      Uint8List(4),
+    );
+    await rig.crypto.processWelcomes();
+
+    expect(await ackedIds(), [second]);
+    expect((await counters()).containsKey(first.welcomeId), isFalse);
+    expect(await rig.device.vault.group(_c1, 1), isNull);
+  });
+
+  test('two welcomes for two conversations both keep their device-state '
+      'changes', () async {
+    final w1 = await rig.offer(_c1, bob);
+    final w2 = await rig.offer(_c2, bob);
+
+    expect((await rig.crypto.processWelcomes()).toSet(), {_c1, _c2});
+
+    // Each join consumed its one-time package in the stored device state.
+    final state = (await rig.device.vault.deviceState())!;
+    for (final w in [w1, w2]) {
+      await expectLater(
+        rig.device.engine.inner.joinFromWelcome(state, w.add.welcome),
+        throwsA(
+          isA<MlsException>().having(
+            (e) => e.code,
+            'code',
+            MlsErrorCode.badInput,
+          ),
+        ),
+      );
+    }
+    expect(await rig.device.vault.group(_c1, 1), isNotNull);
+    expect(await rig.device.vault.group(_c2, 1), isNotNull);
+  });
+}

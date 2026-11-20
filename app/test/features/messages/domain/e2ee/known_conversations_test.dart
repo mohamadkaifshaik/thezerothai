@@ -179,4 +179,69 @@ void main() {
     );
     expect(await known.conversationForPeer(device.vault, 'shared-ref'), _c1);
   });
+
+  group('peer refs from a join', () {
+    late RigCrypto rig;
+    late RigPeer bob;
+
+    setUp(() async {
+      rig = await RigCrypto.create();
+      bob = await RigPeer.create('bob');
+    });
+
+    tearDown(() async {
+      await rig.dispose();
+    });
+
+    test("a joined conversation's peer ref is added once the header gives it "
+        "and its theirs-side pins were attributed against that ref's "
+        'list', () async {
+      rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+      // No header yet: the join cannot look the peer up.
+      await rig.offer(_c1, bob);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      expect(rig.known.contains(_c1), isTrue);
+      expect(rig.known.peerOf(_c1), isNull);
+      expect(rig.keys.getCalls, isEmpty);
+
+      // The header arrives; attribution reads that ref's list and pins bob.
+      rig.header(_c1, 'ref-bob');
+      await rig.crypto.attributeMembers(_c1);
+      final pin = (await rig.device.vault.members(_c1))
+          .singleWhere((m) => rigEq(m.deviceId, bob.id));
+      expect(pin.side, MemberSide.theirs);
+      expect(rig.keys.getCalls, [
+        ['ref-bob'],
+      ]);
+      expect(rig.known.peerOf(_c1), 'ref-bob');
+      final again = KnownConversations(session: rig.device.session);
+      await again.load(rig.device.vault);
+      expect(again.peerOf(_c1), 'ref-bob');
+      expect(await again.conversationForPeer(rig.device.vault, 'ref-bob'), _c1);
+    });
+
+    test('a header ref that differs from the ref the theirs-side pins were '
+        'attributed against is not recorded', () async {
+      rig.keys.peers['ref-one'] = [rigKeyDevice(bob.idString, bob.key)];
+      rig.keys.peers['ref-two'] = [rigKeyDevice(bob.idString, bob.key)];
+      // This run looked the peer up as ref-one; the header says ref-two.
+      rig.contexts.of(_c1).peerUserId = 'ref-one';
+      rig.header(_c1, 'ref-two');
+      await rig.offer(_c1, bob);
+
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+
+      expect(rig.keys.getCalls, [
+        ['ref-one'],
+      ]);
+      expect(rig.known.peerOf(_c1), 'ref-one');
+      final again = KnownConversations(session: rig.device.session);
+      await again.load(rig.device.vault);
+      expect(again.peerOf(_c1), 'ref-one');
+      expect(
+        await again.conversationForPeer(rig.device.vault, 'ref-two'),
+        isNull,
+      );
+    });
+  });
 }
