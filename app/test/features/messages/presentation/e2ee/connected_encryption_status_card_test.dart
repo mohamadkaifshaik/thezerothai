@@ -14,6 +14,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/connected_encryption_status_card.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -155,13 +156,101 @@ void main() {
     expect(messaging.setUpAgainCalls, 0);
   });
 
-  testWidgets('Set up again calls the port once', (tester) async {
+  Finder inDialog(String text) => find.descendant(
+    of: find.byType(AppConfirmDialog),
+    matching: find.text(text),
+  );
+
+  Future<void> confirmSetUp(WidgetTester tester) async {
+    await tester.tap(inDialog(kSetUpAgainAction));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('Set up again asks first and calls the port once on confirm', (
+    tester,
+  ) async {
     messaging.removedElsewhere.value = true;
     await pump(tester);
     await tap(tester, kSetUpAgainAction);
     await tester.pumpAndSettle();
+    expect(find.byType(AppConfirmDialog), findsOneWidget);
+    expect(inDialog(kSetUpAgainTitle), findsOneWidget);
+    expect(inDialog(kSetUpAgainMessage), findsOneWidget);
+    expect(inDialog(kSetUpAgainAction), findsOneWidget);
+    expect(messaging.setUpAgainCalls, 0, reason: 'nothing before confirm');
+    await confirmSetUp(tester);
     expect(messaging.setUpAgainCalls, 1);
     expect(messaging.checkRemovedAgainCalls, 0);
+    expect(find.byType(AppConfirmDialog), findsNothing);
+  });
+
+  testWidgets('cancelling the set-up-again confirmation makes no call', (
+    tester,
+  ) async {
+    messaging.removedElsewhere.value = true;
+    await pump(tester);
+    await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    await tester.tap(inDialog('Cancel'));
+    await tester.pumpAndSettle();
+    expect(messaging.setUpAgainCalls, 0);
+    // The barrier dismisses it too, and the next tap asks again.
+    await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(find.byType(AppConfirmDialog), findsNothing);
+    expect(messaging.setUpAgainCalls, 0);
+    await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    expect(find.byType(AppConfirmDialog), findsOneWidget);
+  });
+
+  testWidgets('a dialog that cannot be shown reports a fixed step and makes no '
+      'call', (tester) async {
+    messaging.removedElsewhere.value = true;
+    final cubit = EncryptionStatusCubit(
+      device: device,
+      messaging: messaging,
+      flagOn: () => true,
+    );
+    addTearDown(cubit.close);
+    // No Navigator above the card: showing a dialog throws.
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: MediaQuery(
+          data: const MediaQueryData(size: Size(800, 800)),
+          child: Theme(
+            data: buildAppTheme(brightness: Brightness.light),
+            child: Material(
+              child: MultiRepositoryProvider(
+                providers: [
+                  BlocProvider<EncryptionStatusCubit>.value(value: cubit),
+                  RepositoryProvider<EncryptedMessaging?>.value(
+                    value: messaging,
+                  ),
+                  RepositoryProvider<UnexpectedErrorReporter?>.value(
+                    value: (e, _) => reported.add(e),
+                  ),
+                ],
+                child: const ConnectedEncryptionStatusCard(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tap(tester, kSetUpAgainAction);
+    await tester.pump();
+    expect(messaging.setUpAgainCalls, 0);
+    expect(reported, hasLength(1));
+    expect(reported.single.toString(), 'Bad state: setUpAgainConfirm');
+    // The next tap asks (and fails) again.
+    await tap(tester, kSetUpAgainAction);
+    await tester.pump();
+    expect(reported, hasLength(2));
+    expect(messaging.setUpAgainCalls, 0);
   });
 
   testWidgets('Sign out goes through requestSignOut', (tester) async {
@@ -222,7 +311,13 @@ void main() {
     expect(slow.checkRemovedAgainCalls, 2);
     slow.gate = Completer<void>();
     await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    await confirmSetUp(tester);
+    expect(slow.setUpAgainCalls, 1);
+    // In flight: another tap does nothing (no second dialog, no second call).
     await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    expect(find.byType(AppConfirmDialog), findsNothing);
     expect(slow.setUpAgainCalls, 1);
     slow.gate.complete();
     await tester.pumpAndSettle();
@@ -248,6 +343,7 @@ void main() {
     messaging.failNextOn('setUpDeviceAgain', Exception('secret detail'));
     await tap(tester, kSetUpAgainAction);
     await tester.pumpAndSettle();
+    await confirmSetUp(tester);
     expect(reported, hasLength(2));
     expect(reported.last.toString(), 'Bad state: setUpDeviceAgain');
   });
