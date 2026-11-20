@@ -1432,6 +1432,119 @@ void main() {
       expect(await vault.groupConversationIds(), ['c1', 'c2']);
     });
 
+    test('putGroup refuses to make a provisional group final', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1));
+        await tx.putGroup(group(2, provisional: true));
+      });
+      await expectLater(
+        vault.transaction((tx) => tx.putGroup(group(2, epoch: 4))),
+        throwsStateError,
+      );
+      final stored = (await vault.group('c1', 2))!;
+      expect(stored.provisional, isTrue);
+      expect(stored.epoch, 1);
+      // No mark can be written for it by that route.
+      await expectLater(
+        vault.transaction((tx) => tx.setAfterPair('c1', const MlsPair(2, 0))),
+        throwsStateError,
+      );
+    });
+
+    test('putGroup refuses to make a final group provisional', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1));
+        await tx.setAfterPair('c1', const MlsPair(1, 1));
+      });
+      await expectLater(
+        vault.transaction((tx) => tx.putGroup(group(1, provisional: true))),
+        throwsStateError,
+      );
+      expect((await vault.group('c1', 1))!.provisional, isFalse);
+      // A final group can be re-saved as final.
+      await vault.transaction((tx) => tx.putGroup(group(1, epoch: 3)));
+      expect((await vault.group('c1', 1))!.epoch, 3);
+    });
+
+    test('a provisional group can be re-saved as provisional', () async {
+      await vault.transaction((tx) => tx.putGroup(group(2, provisional: true)));
+      await vault.transaction(
+        (tx) => tx.putGroup(group(2, epoch: 6, provisional: true)),
+      );
+      final stored = (await vault.group('c1', 2))!;
+      expect(stored.provisional, isTrue);
+      expect(stored.epoch, 6);
+      expect(stored.provisionalCreatedAtMicros, 555);
+      // Still provisional: no mark is accepted.
+      await expectLater(
+        vault.transaction(
+          (tx) => tx.setJoinHighWater('c1', const MlsPair(2, 0)),
+        ),
+        throwsStateError,
+      );
+    });
+
+    test('putGroup refuses a pending commit outside the limits', () async {
+      PendingCommit pending({int commit = 10, int? welcome, int ids = 0}) =>
+          PendingCommit(
+            kind: PendingKind.change,
+            builtOn: const MlsPair(1, 1),
+            commit: Uint8List(commit),
+            welcome: welcome == null ? null : Uint8List(welcome),
+            welcomeDeviceIds: [for (var i = 0; i < ids; i++) 'd$i'],
+          );
+      final refused = <String, PendingCommit>{
+        'empty commit': pending(commit: 0),
+        'commit over 16384': pending(commit: 16385),
+        'empty welcome': pending(welcome: 0, ids: 1),
+        'welcome over 65536': pending(welcome: 65537, ids: 1),
+        'welcome without ids': pending(welcome: 5),
+        'more than 10 ids': pending(welcome: 5, ids: 11),
+        'ids without a welcome': pending(ids: 1),
+      };
+      for (final e in refused.entries) {
+        await expectLater(
+          vault.transaction(
+            (tx) => tx.putGroup(
+              GroupRecord(
+                conversationId: 'c1',
+                generation: 1,
+                epoch: 1,
+                state: _b('x'),
+                pending: e.value,
+              ),
+            ),
+          ),
+          throwsArgumentError,
+          reason: e.key,
+        );
+      }
+      expect(await _count(db, 'vault_group_states'), 0);
+      // The edges are accepted.
+      final accepted = [
+        pending(commit: 1),
+        pending(commit: 16384),
+        pending(welcome: 1, ids: 1),
+        pending(welcome: 65536, ids: 10),
+      ];
+      for (var i = 0; i < accepted.length; i++) {
+        await vault.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: 'c1',
+              generation: i,
+              epoch: 1,
+              state: _b('x'),
+              pending: accepted[i],
+            ),
+          ),
+        );
+      }
+      final big = (await vault.group('c1', 3))!.pending!;
+      expect(big.welcome!.length, 65536);
+      expect(big.welcomeDeviceIds, hasLength(10));
+    });
+
     test('a provisional group writes no mark, and deleting it leaves the '
         'earlier marks', () async {
       await vault.transaction((tx) async {

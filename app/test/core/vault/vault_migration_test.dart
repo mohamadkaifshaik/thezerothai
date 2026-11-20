@@ -600,8 +600,49 @@ void main() {
         for (final r in marks['vault_outbox']!)
           r['idempotency_key']: r['local_id'],
       },
-      {'k1': 'k1', 'k2': null},
+      {'k1': 'k1', 'k2': 'k2'},
     );
+  });
+
+  test('a v1 outbox row that does not authenticate still gets localId and '
+      'the expected id, with its sealed bytes unchanged', () async {
+    final path = await v1File(badValues: {'outbox-k2'});
+    final before = await dump(path, 1);
+    final vault = await open(path);
+    addTearDown(vault.close);
+    // The row is unreadable, but the clear id lookup agrees with the
+    // migrated clear columns.
+    final read = await vault.outbox();
+    expect(read.unreadableKeys, ['k2']);
+    expect(read.items.map((o) => o.idempotencyKey), ['k1']);
+    expect(
+      await vault.hasOutboxExpecting(expectedMessageId(_uid, 'k2')),
+      isTrue,
+    );
+    expect(
+      await vault.hasOutboxExpecting(expectedMessageId(_uid, 'k1')),
+      isTrue,
+    );
+    await vault.close();
+
+    final after = await dump(path, 2);
+    for (final table in _v1Columns.keys.where((t) => t != 'vault_meta')) {
+      expect(after[table], before[table], reason: '$table sealed bytes');
+    }
+    final raw = await dump(
+      path,
+      2,
+      columns: {
+        'vault_outbox': ['idempotency_key', 'local_id', 'expected_message_id'],
+      },
+    );
+    for (final r in raw['vault_outbox']!) {
+      expect(r['local_id'], r['idempotency_key']);
+      expect(
+        r['expected_message_id'],
+        expectedMessageId(_uid, r['idempotency_key']! as String),
+      );
+    }
   });
 
   test('a cipher outage during the sealed step leaves the stamp at 1 and a '
@@ -640,7 +681,10 @@ void main() {
     );
 
     // Outages at other points of the step roll back the same way.
-    for (final okOpens in [1, 5, 7]) {
+    // The step opens six values now (the sentinel, 2 groups, 3 messages; the
+    // outbox ids need no open), so these cut it at the start, between the
+    // messages and at the last one.
+    for (final okOpens in [1, 4, 5]) {
       await expectLater(
         openVaultOnDatabase(
           fileDb(path),

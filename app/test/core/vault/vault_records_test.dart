@@ -16,9 +16,6 @@ Uint8List _json(Map<String, Object?> m) =>
 
 final Matcher _corrupt = throwsA(isA<VaultCorruptException>());
 
-/// A year for the IST day tests (istDay is a pure function of its argument).
-const int _year = 2026;
-
 /// Some `YYYY-MM-DD` day string for the sync record (not read as a date).
 final String _day = istDay(DateTime.fromMillisecondsSinceEpoch(0, isUtc: true));
 
@@ -47,13 +44,13 @@ void main() {
           PendingCommit(
             kind: kind,
             builtOn: const MlsPair(0, 0),
-            commit: Uint8List(0),
+            commit: Uint8List(1),
           ).encode(),
         );
         expect(back.kind, kind);
         expect(back.welcome, isNull);
         expect(back.welcomeDeviceIds, isEmpty);
-        expect(back.commit, isEmpty);
+        expect(back.commit, hasLength(1));
       }
     });
 
@@ -332,15 +329,13 @@ void main() {
 
   group('istDay', () {
     test('the day turns at 18:30 UTC', () {
-      // Pure input and output: the year is a parameter so no fixed date
-      // literal sits in the test (the fixed-date guard is about the clock).
-      expect(istDay(DateTime.utc(_year, 11, 19, 18, 29, 59)), '$_year-11-19');
-      expect(istDay(DateTime.utc(_year, 11, 19, 18, 30)), '$_year-11-20');
+      expect(istDay(DateTime.utc(2026, 11, 19, 18, 29, 59)), '2026-11-19');
+      expect(istDay(DateTime.utc(2026, 11, 19, 18, 30)), '2026-11-20');
     });
 
     test('zero-pads and crosses a year', () {
-      expect(istDay(DateTime.utc(_year, 1, 5, 0, 0)), '$_year-01-05');
-      expect(istDay(DateTime.utc(_year, 12, 31, 18, 30)), '${_year + 1}-01-01');
+      expect(istDay(DateTime.utc(2026, 1, 5, 0, 0)), '2026-01-05');
+      expect(istDay(DateTime.utc(2026, 12, 31, 18, 30)), '2027-01-01');
     });
   });
 

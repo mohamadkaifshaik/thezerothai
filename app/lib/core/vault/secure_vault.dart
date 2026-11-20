@@ -449,13 +449,13 @@ abstract interface class VaultTx {
 ///   than [openTimeout], or the file was stamped by a newer schema:
 ///   [VaultStatus.unavailable], nothing written. After a timeout the
 ///   abandoned open may still finish in the background; at most it stamps
-///   a new, empty vault for [uid], rewrites a corrupted owner stamp, or
-///   completes the sealed schema step (one transaction that ends by stamping
-///   version 2: it applies fully or not at all, so finishing late is as safe
-///   as finishing now).
+///   a new, empty vault for [uid] or rewrites a corrupted owner stamp.
 /// - A file below schema version 2 is migrated here: the additive SQL ran
 ///   when drift opened it; the sealed step (`_migrateSealedV1`) runs only
-///   after the sentinel opened, under [openTimeout]. It never deletes a row.
+///   after the sentinel opened, under [openTimeout]. On a timeout the
+///   database is closed, so the step's one transaction rolls back (the stamp
+///   stays 1) and starts over at the next open; it does not finish late. It
+///   never deletes a row.
 ///
 /// With [registerAs] (`openVault` passes the database name), the open vault
 /// is counted in this isolate's registry until it is closed or wiped, and
@@ -678,18 +678,11 @@ Future<void> _migrateSealedV1(
     );
   }
 
-  // (c) outbox: a row is migrated when its content authenticates.
+  // (c) outbox: both ids are clear values derived from the clear idempotency
+  // key, so EVERY row gets them (no sealed value is opened or changed, an
+  // unreadable row included).
   for (final row in await db.select(db.vaultOutbox).get()) {
     if (row.localId != null && row.expectedMessageId != null) continue;
-    try {
-      await cipher.open(
-        vaultSealLabel(_tOutbox, 'content'),
-        vaultRowKey([row.idempotencyKey]),
-        row.content,
-      );
-    } on VaultRowException {
-      continue;
-    }
     await (db.update(
       db.vaultOutbox,
     )..where((t) => t.idempotencyKey.equals(row.idempotencyKey))).write(
@@ -722,6 +715,23 @@ const String _tSettings = 'vault_settings';
 Uint8List _flag(bool value) => Uint8List.fromList([value ? 1 : 0]);
 bool _readFlag(Uint8List bytes) => bytes.length == 1 && bytes[0] == 1;
 Uint8List _text(String value) => Uint8List.fromList(utf8.encode(value));
+
+/// [ArgumentError] unless [p] is within the wire limits: commit 1-16384
+/// bytes; a welcome 1-65536 bytes with 1-10 device ids, and no device ids
+/// without a welcome.
+void _requirePendingLimits(PendingCommit p) {
+  final welcome = p.welcome;
+  final ok =
+      p.commit.isNotEmpty &&
+      p.commit.length <= 16384 &&
+      (welcome == null
+          ? p.welcomeDeviceIds.isEmpty
+          : welcome.isNotEmpty &&
+                welcome.length <= 65536 &&
+                p.welcomeDeviceIds.isNotEmpty &&
+                p.welcomeDeviceIds.length <= 10);
+  if (!ok) throw ArgumentError('A pending commit is outside its limits.');
+}
 
 bool _inPairRange(int v) => v >= 0 && v <= kMaxPairComponent;
 
@@ -1349,9 +1359,19 @@ class _DriftVaultTx implements VaultTx {
         'A provisional group needs provisionalCreatedAtMicros.',
       );
     }
+    final pending = record.pending;
+    if (pending != null) _requirePendingLimits(pending);
+    // `clearProvisional` is the only way from provisional to final (it writes
+    // the marks); nothing makes a final group provisional again.
+    final stored = await _vault._groupRow(
+      record.conversationId,
+      record.generation,
+    );
+    if (stored != null && (stored.provisional == 1) != record.provisional) {
+      throw StateError('putGroup never changes the provisional flag.');
+    }
     final key = [record.conversationId, '${record.generation}'];
     final state = await _vault._seal(_tGroupStates, 'state', key, record.state);
-    final pending = record.pending;
     final sealedPending = pending == null
         ? null
         : await _vault._seal(_tGroupStates, 'pending', key, pending.encode());

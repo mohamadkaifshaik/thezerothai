@@ -1374,6 +1374,35 @@ void main() {
       expect(world.keys.containsKey(_a), isTrue);
     });
 
+    test('the cipher is closed exactly once, never destroyed, when the lock '
+        'is lost while the storage marker is written', () async {
+      world.markers.onWriteKnown = () async {
+        world.markers.onWriteKnown = null;
+        world.owners.single.steal();
+      };
+      final s = await signIn(_a);
+      expect(s.status.value, VaultStatus.heldElsewhere);
+      expect(s.vault, isNull);
+      final cipher = world.ciphers.single;
+      expect(cipher.closeCalls, 1);
+      expect(cipher.closed, isTrue);
+      expect(cipher.destroyed, isFalse);
+      expect(world.keys.containsKey(_a), isTrue);
+    });
+
+    test('the cipher is closed exactly once, never destroyed, when the '
+        'marker write fails', () async {
+      world.markers.failKnownWrites = true;
+      final s = await signIn(_a);
+      expect(s.status.value, VaultStatus.unavailable);
+      expect(s.vault, isNull);
+      final cipher = world.ciphers.single;
+      expect(cipher.closeCalls, 1);
+      expect(cipher.closed, isTrue);
+      expect(cipher.destroyed, isFalse);
+      expect(world.keys.containsKey(_a), isTrue);
+    });
+
     test('owner refused: heldElsewhere, the cipher is never opened', () async {
       world.heldElsewhere.add(_a);
       final s = await signIn(_a);
