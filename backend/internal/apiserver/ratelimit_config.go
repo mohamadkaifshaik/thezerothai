@@ -35,6 +35,9 @@ const keysClaimsDailyName = "keys_claims_daily"
 // "messages_commits_per_conversation_daily", and the reset cap, "messages_resets_daily", are the messaging service's).
 const messagesCommitsDailyName = "messages_commits_daily"
 
+// messagesShareChecksDailyName is the limit_name of the CheckPostShare daily call cap.
+const messagesShareChecksDailyName = "messages_share_checks_daily"
+
 // RateLimitConfig builds the post-auth rate-limit interceptor's config: per-minute buckets, the per-uid daily
 // call caps. It is a function of
 // cfg alone so the guard test (guard_test.go) can inspect exactly what Build wires.
@@ -145,6 +148,11 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	messagesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesSendsPerDay)
 	messagesMarkReadDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMarkReadPerDay)
 	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
+	// CheckPostShare (a read that answers a share's verdict without a recipient) has its own bucket
+	// (RATE_LIMIT_MESSAGES_SHARE_CHECK_PER_MIN, 10/min per instance), so checks never drain the send bucket, and its own
+	// per-uid daily call cap (MESSAGES_SHARE_CHECKS_PER_DAY, 300, limit_name "messages_share_checks_daily").
+	rlMessagesShareCheck := ratelimit.NewLimiter(cfg.RateLimit.MessagesShareCheckPerUserPerMinute, idleBucketTTL)
+	messagesShareChecksDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesShareChecksPerDay)
 	// Encrypted conversations: CommitConversation has its own bucket (RATE_LIMIT_MESSAGES_COMMIT_PER_MIN, 20/min per instance)
 	// and the per-uid daily call cap "messages_commits_daily" (MESSAGES_COMMITS_PER_DAY, 500), which every call draws on, a
 	// reset and a recognised retry included. The per-(uid, conversation) cap "messages_commits_per_conversation_daily"
@@ -287,6 +295,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceListConversationsProcedure:        rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessagesProcedure:             rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessageSuggestionsProcedure:   rlDMSuggestions,
+			messagingv1connect.MessagingServiceCheckPostShareProcedure:           rlMessagesShareCheck,
 			messagingv1connect.MessagingServiceCommitConversationProcedure:       rlMessagesCommit,
 			messagingv1connect.MessagingServiceListConversationCommitsProcedure:  rlMessagesSync,
 			messagingv1connect.MessagingServiceListEpochMessagesProcedure:        rlMessagesSync,
@@ -365,6 +374,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceAcceptMessageRequestProcedure: {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
 			messagingv1connect.MessagingServiceDeleteConversationProcedure:   {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
 			messagingv1connect.MessagingServiceCommitConversationProcedure:   {Name: messagesCommitsDailyName, Cap: messagesCommitsDailyCap},
+			messagingv1connect.MessagingServiceCheckPostShareProcedure:       {Name: messagesShareChecksDailyName, Cap: messagesShareChecksDailyCap},
 
 			identityv1connect.IdentityServiceUpdateProfileProcedure: {Name: "profile_update_daily", Cap: profileUpdateDailyCap},
 

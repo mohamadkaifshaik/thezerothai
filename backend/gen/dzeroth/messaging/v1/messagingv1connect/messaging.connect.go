@@ -35,10 +35,14 @@
 //   - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
 //     off) on for the caller, checked in that order, else FEATURE_DISABLED with metadata["feature"] = the off flag, before
 //     any lookup.
+//   - CheckPostShare needs it on for the caller AND FEATURE_DM_SHARE_CHECK (wire name "dm_share_check", default off) on for
+//     the caller, then "posts" and "dm_post_share" as for a share (its comment), else FEATURE_DISABLED with
+//     metadata["feature"] = the off flag, before any lookup.
 //
 // Errors (clients branch on ErrorDetail.reason):
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in text | conversation_id | recipient_user_id | page_token |
-//     since_token | idempotency_key | shared_post_id (and folder, ListConversations only); before any lookup. The
+//     since_token | idempotency_key | shared_post_id | post_id (CheckPostShare only) (and folder, ListConversations
+//     only); before any lookup. The
 //     encrypted-conversation RPCs and fields add ciphertext | report_commitment | mls_generation | mls_epoch | commit |
 //     welcome | welcome_device_ids | device_id | ids (see each RPC); a byte value is never echoed.
 //   - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "messaging" (or "e2ee_dm" when starting encryption,
@@ -48,12 +52,12 @@
 //   - FAILED_PRECONDITION + ERROR_REASON_ENCRYPTION_REQUIRED: a plaintext SendMessage into an encrypted conversation.
 //     Both are answered after every existing refusal; a SendMessage that addressed recipient_user_id gets
 //     metadata["conversation_id"] with either (SendMessage comment).
-//   - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id may also answer NOT_FOUND
-//     "post not found" (the GetPost bytes) when the caller may not see the post or a block in either direction stands
-//     between the caller and its author.
-//   - FAILED_PRECONDITION + ERROR_REASON_PROTECTED_ACCOUNT: SendMessage sharing a protected account's post by anyone but
-//     that account; FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "dm_post_share" for a share with that
-//     flag off for the caller.
+//   - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id and CheckPostShare may also answer
+//     NOT_FOUND "post not found" (the GetPost bytes) when the caller may not see the post or a block in either direction
+//     stands between the caller and its author.
+//   - FAILED_PRECONDITION + ERROR_REASON_PROTECTED_ACCOUNT: SendMessage sharing (or CheckPostShare checking) a protected
+//     account's post by anyone but that account; FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] =
+//     "dm_post_share" for a share or a check with that flag off for the caller.
 //   - FAILED_PRECONDITION + ERROR_REASON_CANNOT_MESSAGE: one reason, with identical bytes, for a block in either
 //     direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose peer
 //     deleted the account. It is no oracle beyond what GetProfile's NOT_FOUND already reveals.
@@ -61,7 +65,8 @@
 //     until the recipient accepts) or "dm_new_daily" (new conversations per IST day).
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets and the in-memory daily call caps, metadata["limit"] =
 //     "messages_daily" for SendMessage, "messages_mark_read_daily" for MarkConversationRead and "messages_mutation_daily"
-//     shared by AcceptMessageRequest and DeleteConversation; CommitConversation's caps are in its comment); honour
+//     shared by AcceptMessageRequest and DeleteConversation, "messages_share_checks_daily" for CheckPostShare;
+//     CommitConversation's caps are in its comment); honour
 //     retry_after. The per-minute buckets and those interceptor daily caps are decided before the flag: a caller with the
 //     flag off who exceeds one gets RATE_LIMITED, not FEATURE_DISABLED. CommitConversation's two service caps
 //     ("messages_commits_per_conversation_daily", "messages_resets_daily") are decided after the flag, the verified email
@@ -71,7 +76,8 @@
 //     UNAVAILABLE of common.proto this one IS retried: resend the identical request (same idempotency key and bytes; a
 //     commit with identical bytes). It then answers a replay, a success or STALE_EPOCH.
 //   - DEGRADED_MODE=readonly refuses every mutation (SendMessage, MarkConversationRead, AcceptMessageRequest,
-//     DeleteConversation, CommitConversation, AckWelcomes) through the existing interceptor; every list still answers.
+//     DeleteConversation, CommitConversation, AckWelcomes) through the existing interceptor; every list and
+//     CheckPostShare (a read) still answer.
 //     It is also the emergency lever for encrypted conversations: there is never a return to plaintext.
 //
 // Token contract for both lists (the notifications codec; all tokens opaque):
@@ -257,6 +263,9 @@ const (
 	// MessagingServiceSendMessageProcedure is the fully-qualified name of the MessagingService's
 	// SendMessage RPC.
 	MessagingServiceSendMessageProcedure = "/dzeroth.messaging.v1.MessagingService/SendMessage"
+	// MessagingServiceCheckPostShareProcedure is the fully-qualified name of the MessagingService's
+	// CheckPostShare RPC.
+	MessagingServiceCheckPostShareProcedure = "/dzeroth.messaging.v1.MessagingService/CheckPostShare"
 	// MessagingServiceListConversationsProcedure is the fully-qualified name of the MessagingService's
 	// ListConversations RPC.
 	MessagingServiceListConversationsProcedure = "/dzeroth.messaging.v1.MessagingService/ListConversations"
@@ -383,9 +392,9 @@ type MessagingServiceClient interface {
 	//     although the message is stored. The client treats the init as possibly stored and checks ListMessages.
 	//   - Stored and returned: text empty, ciphertext, report_commitment, the pair; no shared post id. The server cannot
 	//     check a shared post's visibility or the protected-author rule for an encrypted message: the sending app applies
-	//     them (and FEATURE_DM_POST_SHARE), the reader's app opens the card through PostService.GetPost, which decides for
-	//     the reader; Post.share_count does not count encrypted shares. Previews: snippet empty, encrypted = true,
-	//     shared_post false. Unread, silent, request routing and push are unchanged (the push carries no content).
+	//     them through CheckPostShare (and FEATURE_DM_POST_SHARE), the reader's app opens the card through
+	//     PostService.GetPost, which decides for the reader; Post.share_count does not count encrypted shares. Previews:
+	//     snippet empty, encrypted = true, shared_post false. Unread, silent, request routing and push are unchanged (the push carries no content).
 	//   - Idempotency: unchanged rule, the message id derives from (caller, idempotency_key); the request identity of an
 	//     encrypted send covers the conversation, the pair, the ciphertext and the report commitment. A lost response is
 	//     retried with the SAME key and the IDENTICAL saved ciphertext, commitment and pair, and returns the stored message
@@ -404,6 +413,27 @@ type MessagingServiceClient interface {
 	//     it, and the (1, 0) commit record) and at most 2 + 20 = 22 more writes (the conversation's encryption fields, 0 when the send already creates
 	//     or updates the conversation; the commit record; per device one welcome and the delete of the earlier one).
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
+	// Answers whether the caller may share a post in a direct message, by the very rules SendMessage applies to
+	// shared_post_id (same function, same order, same bytes), without a recipient or a conversation and writing
+	// nothing. For an ENCRYPTED share the post id travels inside the ciphertext, so the sending app calls this once per
+	// share action before encrypting, and sends only on success. A plaintext share does not need it (SendMessage checks).
+	// Gates, in SendMessage's order, all before any lookup: "messaging" on for the caller; FEATURE_DM_SHARE_CHECK
+	// ("dm_share_check") on for the caller; a verified email (EMAIL_NOT_VERIFIED); "posts" and "dm_post_share" on for the
+	// caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = the off flag); post_id 19 digits (VALIDATION
+	// "post_id").
+	// Answers, byte-identical to SendMessage with shared_post_id except one: a raw read failure (a timeout or contention
+	// reading the post or the directory) is INTERNAL here (SendMessage: UNAVAILABLE "busy, please retry"), so the client's
+	// automatic retry of NO_SIDE_EFFECTS calls on UNAVAILABLE does not fire on it. NOT_FOUND "post not found" when the caller may not see
+	// the post by the GetPost rules or a block stands either way between the caller and its author (or a QUOTE's or the
+	// REPOST original's embedded author); FAILED_PRECONDITION + PROTECTED_ACCOUNT for a protected author's post shared by
+	// anyone else; UNAVAILABLE "temporarily busy, please retry" when the protected set cannot be read. A REPOST id is
+	// checked on itself and on its original, and shared_post_id names the original.
+	// Success is not a promise: the post or the graph can change before the send; the reader's app decides the card again.
+	// Rate limit: RATE_LIMIT_MESSAGES_SHARE_CHECK_PER_MIN 10/min/uid per instance; MESSAGES_SHARE_CHECKS_PER_DAY 300 per
+	// instance (RATE_LIMITED metadata["limit"] = "messages_share_checks_daily"). Answers under DEGRADED_MODE=readonly.
+	// Cost: SendMessage's share check, cache-first: 0-3 reads (the post and, for a REPOST, its original; author status
+	// through the directory, 60 s; caller graph, 60 s; the protected set). Writes nothing; never records a share.
+	CheckPostShare(context.Context, *connect.Request[v1.CheckPostShareRequest]) (*connect.Response[v1.CheckPostShareResponse], error)
 	// The caller's conversations in one folder, most recent activity first. The path comes from the caller's token;
 	// there is no user id parameter. folder must be INBOX or REQUESTS, else VALIDATION "folder".
 	// Read-time rules (caller graph, cached 60 s): REQUESTS drops entries whose peer the caller blocks or mutes, or who
@@ -645,6 +675,13 @@ func NewMessagingServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(messagingServiceMethods.ByName("SendMessage")),
 			connect.WithClientOptions(opts...),
 		),
+		checkPostShare: connect.NewClient[v1.CheckPostShareRequest, v1.CheckPostShareResponse](
+			httpClient,
+			baseURL+MessagingServiceCheckPostShareProcedure,
+			connect.WithSchema(messagingServiceMethods.ByName("CheckPostShare")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		listConversations: connect.NewClient[v1.ListConversationsRequest, v1.ListConversationsResponse](
 			httpClient,
 			baseURL+MessagingServiceListConversationsProcedure,
@@ -723,6 +760,7 @@ func NewMessagingServiceClient(httpClient connect.HTTPClient, baseURL string, op
 // messagingServiceClient implements MessagingServiceClient.
 type messagingServiceClient struct {
 	sendMessage             *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	checkPostShare          *connect.Client[v1.CheckPostShareRequest, v1.CheckPostShareResponse]
 	listConversations       *connect.Client[v1.ListConversationsRequest, v1.ListConversationsResponse]
 	listMessages            *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
 	markConversationRead    *connect.Client[v1.MarkConversationReadRequest, v1.MarkConversationReadResponse]
@@ -739,6 +777,11 @@ type messagingServiceClient struct {
 // SendMessage calls dzeroth.messaging.v1.MessagingService.SendMessage.
 func (c *messagingServiceClient) SendMessage(ctx context.Context, req *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error) {
 	return c.sendMessage.CallUnary(ctx, req)
+}
+
+// CheckPostShare calls dzeroth.messaging.v1.MessagingService.CheckPostShare.
+func (c *messagingServiceClient) CheckPostShare(ctx context.Context, req *connect.Request[v1.CheckPostShareRequest]) (*connect.Response[v1.CheckPostShareResponse], error) {
+	return c.checkPostShare.CallUnary(ctx, req)
 }
 
 // ListConversations calls dzeroth.messaging.v1.MessagingService.ListConversations.
@@ -888,9 +931,9 @@ type MessagingServiceHandler interface {
 	//     although the message is stored. The client treats the init as possibly stored and checks ListMessages.
 	//   - Stored and returned: text empty, ciphertext, report_commitment, the pair; no shared post id. The server cannot
 	//     check a shared post's visibility or the protected-author rule for an encrypted message: the sending app applies
-	//     them (and FEATURE_DM_POST_SHARE), the reader's app opens the card through PostService.GetPost, which decides for
-	//     the reader; Post.share_count does not count encrypted shares. Previews: snippet empty, encrypted = true,
-	//     shared_post false. Unread, silent, request routing and push are unchanged (the push carries no content).
+	//     them through CheckPostShare (and FEATURE_DM_POST_SHARE), the reader's app opens the card through
+	//     PostService.GetPost, which decides for the reader; Post.share_count does not count encrypted shares. Previews:
+	//     snippet empty, encrypted = true, shared_post false. Unread, silent, request routing and push are unchanged (the push carries no content).
 	//   - Idempotency: unchanged rule, the message id derives from (caller, idempotency_key); the request identity of an
 	//     encrypted send covers the conversation, the pair, the ciphertext and the report commitment. A lost response is
 	//     retried with the SAME key and the IDENTICAL saved ciphertext, commitment and pair, and returns the stored message
@@ -909,6 +952,27 @@ type MessagingServiceHandler interface {
 	//     it, and the (1, 0) commit record) and at most 2 + 20 = 22 more writes (the conversation's encryption fields, 0 when the send already creates
 	//     or updates the conversation; the commit record; per device one welcome and the delete of the earlier one).
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
+	// Answers whether the caller may share a post in a direct message, by the very rules SendMessage applies to
+	// shared_post_id (same function, same order, same bytes), without a recipient or a conversation and writing
+	// nothing. For an ENCRYPTED share the post id travels inside the ciphertext, so the sending app calls this once per
+	// share action before encrypting, and sends only on success. A plaintext share does not need it (SendMessage checks).
+	// Gates, in SendMessage's order, all before any lookup: "messaging" on for the caller; FEATURE_DM_SHARE_CHECK
+	// ("dm_share_check") on for the caller; a verified email (EMAIL_NOT_VERIFIED); "posts" and "dm_post_share" on for the
+	// caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = the off flag); post_id 19 digits (VALIDATION
+	// "post_id").
+	// Answers, byte-identical to SendMessage with shared_post_id except one: a raw read failure (a timeout or contention
+	// reading the post or the directory) is INTERNAL here (SendMessage: UNAVAILABLE "busy, please retry"), so the client's
+	// automatic retry of NO_SIDE_EFFECTS calls on UNAVAILABLE does not fire on it. NOT_FOUND "post not found" when the caller may not see
+	// the post by the GetPost rules or a block stands either way between the caller and its author (or a QUOTE's or the
+	// REPOST original's embedded author); FAILED_PRECONDITION + PROTECTED_ACCOUNT for a protected author's post shared by
+	// anyone else; UNAVAILABLE "temporarily busy, please retry" when the protected set cannot be read. A REPOST id is
+	// checked on itself and on its original, and shared_post_id names the original.
+	// Success is not a promise: the post or the graph can change before the send; the reader's app decides the card again.
+	// Rate limit: RATE_LIMIT_MESSAGES_SHARE_CHECK_PER_MIN 10/min/uid per instance; MESSAGES_SHARE_CHECKS_PER_DAY 300 per
+	// instance (RATE_LIMITED metadata["limit"] = "messages_share_checks_daily"). Answers under DEGRADED_MODE=readonly.
+	// Cost: SendMessage's share check, cache-first: 0-3 reads (the post and, for a REPOST, its original; author status
+	// through the directory, 60 s; caller graph, 60 s; the protected set). Writes nothing; never records a share.
+	CheckPostShare(context.Context, *connect.Request[v1.CheckPostShareRequest]) (*connect.Response[v1.CheckPostShareResponse], error)
 	// The caller's conversations in one folder, most recent activity first. The path comes from the caller's token;
 	// there is no user id parameter. folder must be INBOX or REQUESTS, else VALIDATION "folder".
 	// Read-time rules (caller graph, cached 60 s): REQUESTS drops entries whose peer the caller blocks or mutes, or who
@@ -1146,6 +1210,13 @@ func NewMessagingServiceHandler(svc MessagingServiceHandler, opts ...connect.Han
 		connect.WithSchema(messagingServiceMethods.ByName("SendMessage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	messagingServiceCheckPostShareHandler := connect.NewUnaryHandler(
+		MessagingServiceCheckPostShareProcedure,
+		svc.CheckPostShare,
+		connect.WithSchema(messagingServiceMethods.ByName("CheckPostShare")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	messagingServiceListConversationsHandler := connect.NewUnaryHandler(
 		MessagingServiceListConversationsProcedure,
 		svc.ListConversations,
@@ -1222,6 +1293,8 @@ func NewMessagingServiceHandler(svc MessagingServiceHandler, opts ...connect.Han
 		switch r.URL.Path {
 		case MessagingServiceSendMessageProcedure:
 			messagingServiceSendMessageHandler.ServeHTTP(w, r)
+		case MessagingServiceCheckPostShareProcedure:
+			messagingServiceCheckPostShareHandler.ServeHTTP(w, r)
 		case MessagingServiceListConversationsProcedure:
 			messagingServiceListConversationsHandler.ServeHTTP(w, r)
 		case MessagingServiceListMessagesProcedure:
@@ -1255,6 +1328,10 @@ type UnimplementedMessagingServiceHandler struct{}
 
 func (UnimplementedMessagingServiceHandler) SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.messaging.v1.MessagingService.SendMessage is not implemented"))
+}
+
+func (UnimplementedMessagingServiceHandler) CheckPostShare(context.Context, *connect.Request[v1.CheckPostShareRequest]) (*connect.Response[v1.CheckPostShareResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.messaging.v1.MessagingService.CheckPostShare is not implemented"))
 }
 
 func (UnimplementedMessagingServiceHandler) ListConversations(context.Context, *connect.Request[v1.ListConversationsRequest]) (*connect.Response[v1.ListConversationsResponse], error) {

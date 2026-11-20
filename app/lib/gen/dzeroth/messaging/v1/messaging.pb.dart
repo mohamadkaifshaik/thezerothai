@@ -1113,6 +1113,131 @@ class SendMessageResponse extends $pb.GeneratedMessage {
   Conversation ensureConversation() => $_ensure(1);
 }
 
+/// The post a share would carry. No idempotency_key: the RPC is read-only (NO_SIDE_EFFECTS), the convention covers
+/// mutations, and a retry is the same question.
+class CheckPostShareRequest extends $pb.GeneratedMessage {
+  factory CheckPostShareRequest({
+    $core.String? postId,
+  }) {
+    final result = CheckPostShareRequest._();
+    if (postId != null) result.postId = postId;
+    return result;
+  }
+
+  CheckPostShareRequest._();
+
+  factory CheckPostShareRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CheckPostShareRequest()..mergeFromBuffer(data, registry);
+  factory CheckPostShareRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CheckPostShareRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CheckPostShareRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.messaging.v1'),
+      createEmptyInstance: CheckPostShareRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'postId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CheckPostShareRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CheckPostShareRequest copyWith(
+          void Function(CheckPostShareRequest) updates) =>
+      super.copyWith((message) => updates(message as CheckPostShareRequest))
+          as CheckPostShareRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use CheckPostShareRequest() / CheckPostShareRequest.new instead')
+  static CheckPostShareRequest create() => CheckPostShareRequest._();
+  static $pb.GeneratedMessage $_createMessage() => CheckPostShareRequest._();
+  @$core.override
+  CheckPostShareRequest createEmptyInstance() => CheckPostShareRequest._();
+  @$core.pragma('dart2js:noInline')
+  static CheckPostShareRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CheckPostShareRequest>(
+          CheckPostShareRequest.$_createMessage);
+  static CheckPostShareRequest? _defaultInstance;
+
+  /// 19-digit post id; a REPOST id is checked on itself and on its original.
+  @$pb.TagNumber(1)
+  $core.String get postId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set postId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPostId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPostId() => $_clearField(1);
+}
+
+/// Present only when the share is allowed; every refusal is an error (the SendMessage bytes).
+class CheckPostShareResponse extends $pb.GeneratedMessage {
+  factory CheckPostShareResponse({
+    $core.String? sharedPostId,
+  }) {
+    final result = CheckPostShareResponse._();
+    if (sharedPostId != null) result.sharedPostId = sharedPostId;
+    return result;
+  }
+
+  CheckPostShareResponse._();
+
+  factory CheckPostShareResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CheckPostShareResponse()..mergeFromBuffer(data, registry);
+  factory CheckPostShareResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CheckPostShareResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CheckPostShareResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.messaging.v1'),
+      createEmptyInstance: CheckPostShareResponse.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'sharedPostId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CheckPostShareResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CheckPostShareResponse copyWith(
+          void Function(CheckPostShareResponse) updates) =>
+      super.copyWith((message) => updates(message as CheckPostShareResponse))
+          as CheckPostShareResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use CheckPostShareResponse() / CheckPostShareResponse.new instead')
+  static CheckPostShareResponse create() => CheckPostShareResponse._();
+  static $pb.GeneratedMessage $_createMessage() => CheckPostShareResponse._();
+  @$core.override
+  CheckPostShareResponse createEmptyInstance() => CheckPostShareResponse._();
+  @$core.pragma('dart2js:noInline')
+  static CheckPostShareResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CheckPostShareResponse>(
+          CheckPostShareResponse.$_createMessage);
+  static CheckPostShareResponse? _defaultInstance;
+
+  /// The id SendMessage would store: the original's for a REPOST id, else post_id. Put this in MessageContent.
+  @$pb.TagNumber(1)
+  $core.String get sharedPostId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set sharedPostId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasSharedPostId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSharedPostId() => $_clearField(1);
+}
+
 class ListConversationsRequest extends $pb.GeneratedMessage {
   factory ListConversationsRequest({
     Folder? folder,
@@ -3391,9 +3516,9 @@ class MessagingServiceApi {
   ///   although the message is stored. The client treats the init as possibly stored and checks ListMessages.
   /// - Stored and returned: text empty, ciphertext, report_commitment, the pair; no shared post id. The server cannot
   ///   check a shared post's visibility or the protected-author rule for an encrypted message: the sending app applies
-  ///   them (and FEATURE_DM_POST_SHARE), the reader's app opens the card through PostService.GetPost, which decides for
-  ///   the reader; Post.share_count does not count encrypted shares. Previews: snippet empty, encrypted = true,
-  ///   shared_post false. Unread, silent, request routing and push are unchanged (the push carries no content).
+  ///   them through CheckPostShare (and FEATURE_DM_POST_SHARE), the reader's app opens the card through
+  ///   PostService.GetPost, which decides for the reader; Post.share_count does not count encrypted shares. Previews:
+  ///   snippet empty, encrypted = true, shared_post false. Unread, silent, request routing and push are unchanged (the push carries no content).
   /// - Idempotency: unchanged rule, the message id derives from (caller, idempotency_key); the request identity of an
   ///   encrypted send covers the conversation, the pair, the ciphertext and the report commitment. A lost response is
   ///   retried with the SAME key and the IDENTICAL saved ciphertext, commitment and pair, and returns the stored message
@@ -3415,6 +3540,31 @@ class MessagingServiceApi {
           $pb.ClientContext? ctx, SendMessageRequest request) =>
       _client.invoke<SendMessageResponse>(ctx, 'MessagingService',
           'SendMessage', request, SendMessageResponse());
+
+  /// Answers whether the caller may share a post in a direct message, by the very rules SendMessage applies to
+  /// shared_post_id (same function, same order, same bytes), without a recipient or a conversation and writing
+  /// nothing. For an ENCRYPTED share the post id travels inside the ciphertext, so the sending app calls this once per
+  /// share action before encrypting, and sends only on success. A plaintext share does not need it (SendMessage checks).
+  /// Gates, in SendMessage's order, all before any lookup: "messaging" on for the caller; FEATURE_DM_SHARE_CHECK
+  /// ("dm_share_check") on for the caller; a verified email (EMAIL_NOT_VERIFIED); "posts" and "dm_post_share" on for the
+  /// caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = the off flag); post_id 19 digits (VALIDATION
+  /// "post_id").
+  /// Answers, byte-identical to SendMessage with shared_post_id except one: a raw read failure (a timeout or contention
+  /// reading the post or the directory) is INTERNAL here (SendMessage: UNAVAILABLE "busy, please retry"), so the client's
+  /// automatic retry of NO_SIDE_EFFECTS calls on UNAVAILABLE does not fire on it. NOT_FOUND "post not found" when the caller may not see
+  /// the post by the GetPost rules or a block stands either way between the caller and its author (or a QUOTE's or the
+  /// REPOST original's embedded author); FAILED_PRECONDITION + PROTECTED_ACCOUNT for a protected author's post shared by
+  /// anyone else; UNAVAILABLE "temporarily busy, please retry" when the protected set cannot be read. A REPOST id is
+  /// checked on itself and on its original, and shared_post_id names the original.
+  /// Success is not a promise: the post or the graph can change before the send; the reader's app decides the card again.
+  /// Rate limit: RATE_LIMIT_MESSAGES_SHARE_CHECK_PER_MIN 10/min/uid per instance; MESSAGES_SHARE_CHECKS_PER_DAY 300 per
+  /// instance (RATE_LIMITED metadata["limit"] = "messages_share_checks_daily"). Answers under DEGRADED_MODE=readonly.
+  /// Cost: SendMessage's share check, cache-first: 0-3 reads (the post and, for a REPOST, its original; author status
+  /// through the directory, 60 s; caller graph, 60 s; the protected set). Writes nothing; never records a share.
+  $async.Future<CheckPostShareResponse> checkPostShare(
+          $pb.ClientContext? ctx, CheckPostShareRequest request) =>
+      _client.invoke<CheckPostShareResponse>(ctx, 'MessagingService',
+          'CheckPostShare', request, CheckPostShareResponse());
 
   /// The caller's conversations in one folder, most recent activity first. The path comes from the caller's token;
   /// there is no user id parameter. folder must be INBOX or REQUESTS, else VALIDATION "folder".

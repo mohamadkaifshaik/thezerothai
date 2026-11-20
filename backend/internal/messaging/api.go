@@ -62,6 +62,9 @@ type Service interface {
 	ListEpochMessages(ctx context.Context, uid string, req *messagingv1.ListEpochMessagesRequest) (*messagingv1.ListEpochMessagesResponse, error)
 	ListWelcomes(ctx context.Context, uid string, req *messagingv1.ListWelcomesRequest) (*messagingv1.ListWelcomesResponse, error)
 	AckWelcomes(ctx context.Context, uid string, req *messagingv1.AckWelcomesRequest) (*messagingv1.AckWelcomesResponse, error)
+	// CheckPostShare answers CheckPostShare (service_share_check.go): "messaging" and "dm_share_check" on for the caller,
+	// verified email, then SendMessage's shared_post_id gate and check (the same functions); writes nothing.
+	CheckPostShare(ctx context.Context, uid string, req *messagingv1.CheckPostShareRequest) (*messagingv1.CheckPostShareResponse, error)
 }
 
 // Permission is the messaging send rules as a yes/no question for another module (the key directory,

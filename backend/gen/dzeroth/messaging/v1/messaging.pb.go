@@ -37,10 +37,14 @@
 // - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
 //   off) on for the caller, checked in that order, else FEATURE_DISABLED with metadata["feature"] = the off flag, before
 //   any lookup.
+// - CheckPostShare needs it on for the caller AND FEATURE_DM_SHARE_CHECK (wire name "dm_share_check", default off) on for
+//   the caller, then "posts" and "dm_post_share" as for a share (its comment), else FEATURE_DISABLED with
+//   metadata["feature"] = the off flag, before any lookup.
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in text | conversation_id | recipient_user_id | page_token |
-//   since_token | idempotency_key | shared_post_id (and folder, ListConversations only); before any lookup. The
+//   since_token | idempotency_key | shared_post_id | post_id (CheckPostShare only) (and folder, ListConversations
+//   only); before any lookup. The
 //   encrypted-conversation RPCs and fields add ciphertext | report_commitment | mls_generation | mls_epoch | commit |
 //   welcome | welcome_device_ids | device_id | ids (see each RPC); a byte value is never echoed.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "messaging" (or "e2ee_dm" when starting encryption,
@@ -50,12 +54,12 @@
 // - FAILED_PRECONDITION + ERROR_REASON_ENCRYPTION_REQUIRED: a plaintext SendMessage into an encrypted conversation.
 //   Both are answered after every existing refusal; a SendMessage that addressed recipient_user_id gets
 //   metadata["conversation_id"] with either (SendMessage comment).
-// - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id may also answer NOT_FOUND
-//   "post not found" (the GetPost bytes) when the caller may not see the post or a block in either direction stands
-//   between the caller and its author.
-// - FAILED_PRECONDITION + ERROR_REASON_PROTECTED_ACCOUNT: SendMessage sharing a protected account's post by anyone but
-//   that account; FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "dm_post_share" for a share with that
-//   flag off for the caller.
+// - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id and CheckPostShare may also answer
+//   NOT_FOUND "post not found" (the GetPost bytes) when the caller may not see the post or a block in either direction
+//   stands between the caller and its author.
+// - FAILED_PRECONDITION + ERROR_REASON_PROTECTED_ACCOUNT: SendMessage sharing (or CheckPostShare checking) a protected
+//   account's post by anyone but that account; FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] =
+//   "dm_post_share" for a share or a check with that flag off for the caller.
 // - FAILED_PRECONDITION + ERROR_REASON_CANNOT_MESSAGE: one reason, with identical bytes, for a block in either
 //   direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose peer
 //   deleted the account. It is no oracle beyond what GetProfile's NOT_FOUND already reveals.
@@ -63,7 +67,8 @@
 //   until the recipient accepts) or "dm_new_daily" (new conversations per IST day).
 // - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets and the in-memory daily call caps, metadata["limit"] =
 //   "messages_daily" for SendMessage, "messages_mark_read_daily" for MarkConversationRead and "messages_mutation_daily"
-//   shared by AcceptMessageRequest and DeleteConversation; CommitConversation's caps are in its comment); honour
+//   shared by AcceptMessageRequest and DeleteConversation, "messages_share_checks_daily" for CheckPostShare;
+//   CommitConversation's caps are in its comment); honour
 //   retry_after. The per-minute buckets and those interceptor daily caps are decided before the flag: a caller with the
 //   flag off who exceeds one gets RATE_LIMITED, not FEATURE_DISABLED. CommitConversation's two service caps
 //   ("messages_commits_per_conversation_daily", "messages_resets_daily") are decided after the flag, the verified email
@@ -73,7 +78,8 @@
 //   UNAVAILABLE of common.proto this one IS retried: resend the identical request (same idempotency key and bytes; a
 //   commit with identical bytes). It then answers a replay, a success or STALE_EPOCH.
 // - DEGRADED_MODE=readonly refuses every mutation (SendMessage, MarkConversationRead, AcceptMessageRequest,
-//   DeleteConversation, CommitConversation, AckWelcomes) through the existing interceptor; every list still answers.
+//   DeleteConversation, CommitConversation, AckWelcomes) through the existing interceptor; every list and
+//   CheckPostShare (a read) still answer.
 //   It is also the emergency lever for encrypted conversations: there is never a return to plaintext.
 //
 // Token contract for both lists (the notifications codec; all tokens opaque):
@@ -1351,6 +1357,99 @@ func (x *SendMessageResponse) GetConversation() *Conversation {
 	return nil
 }
 
+// The post a share would carry. No idempotency_key: the RPC is read-only (NO_SIDE_EFFECTS), the convention covers
+// mutations, and a retry is the same question.
+type CheckPostShareRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 19-digit post id; a REPOST id is checked on itself and on its original.
+	PostId        string `protobuf:"bytes,1,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckPostShareRequest) Reset() {
+	*x = CheckPostShareRequest{}
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckPostShareRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckPostShareRequest) ProtoMessage() {}
+
+func (x *CheckPostShareRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckPostShareRequest.ProtoReflect.Descriptor instead.
+func (*CheckPostShareRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *CheckPostShareRequest) GetPostId() string {
+	if x != nil {
+		return x.PostId
+	}
+	return ""
+}
+
+// Present only when the share is allowed; every refusal is an error (the SendMessage bytes).
+type CheckPostShareResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The id SendMessage would store: the original's for a REPOST id, else post_id. Put this in MessageContent.
+	SharedPostId  string `protobuf:"bytes,1,opt,name=shared_post_id,json=sharedPostId,proto3" json:"shared_post_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckPostShareResponse) Reset() {
+	*x = CheckPostShareResponse{}
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckPostShareResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckPostShareResponse) ProtoMessage() {}
+
+func (x *CheckPostShareResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckPostShareResponse.ProtoReflect.Descriptor instead.
+func (*CheckPostShareResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *CheckPostShareResponse) GetSharedPostId() string {
+	if x != nil {
+		return x.SharedPostId
+	}
+	return ""
+}
+
 type ListConversationsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// INBOX or REQUESTS.
@@ -1365,7 +1464,7 @@ type ListConversationsRequest struct {
 
 func (x *ListConversationsRequest) Reset() {
 	*x = ListConversationsRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[7]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1377,7 +1476,7 @@ func (x *ListConversationsRequest) String() string {
 func (*ListConversationsRequest) ProtoMessage() {}
 
 func (x *ListConversationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[7]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1390,7 +1489,7 @@ func (x *ListConversationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConversationsRequest.ProtoReflect.Descriptor instead.
 func (*ListConversationsRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{7}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListConversationsRequest) GetFolder() Folder {
@@ -1438,7 +1537,7 @@ type ListConversationsResponse struct {
 
 func (x *ListConversationsResponse) Reset() {
 	*x = ListConversationsResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[8]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1450,7 +1549,7 @@ func (x *ListConversationsResponse) String() string {
 func (*ListConversationsResponse) ProtoMessage() {}
 
 func (x *ListConversationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[8]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1463,7 +1562,7 @@ func (x *ListConversationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConversationsResponse.ProtoReflect.Descriptor instead.
 func (*ListConversationsResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{8}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListConversationsResponse) GetConversations() []*Conversation {
@@ -1507,7 +1606,7 @@ type ListMessagesRequest struct {
 
 func (x *ListMessagesRequest) Reset() {
 	*x = ListMessagesRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[9]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1519,7 +1618,7 @@ func (x *ListMessagesRequest) String() string {
 func (*ListMessagesRequest) ProtoMessage() {}
 
 func (x *ListMessagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[9]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1532,7 +1631,7 @@ func (x *ListMessagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMessagesRequest.ProtoReflect.Descriptor instead.
 func (*ListMessagesRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{9}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListMessagesRequest) GetConversationId() string {
@@ -1581,7 +1680,7 @@ type ListMessagesResponse struct {
 
 func (x *ListMessagesResponse) Reset() {
 	*x = ListMessagesResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[10]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1593,7 +1692,7 @@ func (x *ListMessagesResponse) String() string {
 func (*ListMessagesResponse) ProtoMessage() {}
 
 func (x *ListMessagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[10]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1606,7 +1705,7 @@ func (x *ListMessagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMessagesResponse.ProtoReflect.Descriptor instead.
 func (*ListMessagesResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{10}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListMessagesResponse) GetMessages() []*Message {
@@ -1654,7 +1753,7 @@ type MarkConversationReadRequest struct {
 
 func (x *MarkConversationReadRequest) Reset() {
 	*x = MarkConversationReadRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[11]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1666,7 +1765,7 @@ func (x *MarkConversationReadRequest) String() string {
 func (*MarkConversationReadRequest) ProtoMessage() {}
 
 func (x *MarkConversationReadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[11]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1679,7 +1778,7 @@ func (x *MarkConversationReadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkConversationReadRequest.ProtoReflect.Descriptor instead.
 func (*MarkConversationReadRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{11}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *MarkConversationReadRequest) GetIdempotencyKey() string {
@@ -1704,7 +1803,7 @@ type MarkConversationReadResponse struct {
 
 func (x *MarkConversationReadResponse) Reset() {
 	*x = MarkConversationReadResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[12]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1716,7 +1815,7 @@ func (x *MarkConversationReadResponse) String() string {
 func (*MarkConversationReadResponse) ProtoMessage() {}
 
 func (x *MarkConversationReadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[12]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1729,7 +1828,7 @@ func (x *MarkConversationReadResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkConversationReadResponse.ProtoReflect.Descriptor instead.
 func (*MarkConversationReadResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{12}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{14}
 }
 
 type AcceptMessageRequestRequest struct {
@@ -1742,7 +1841,7 @@ type AcceptMessageRequestRequest struct {
 
 func (x *AcceptMessageRequestRequest) Reset() {
 	*x = AcceptMessageRequestRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[13]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1754,7 +1853,7 @@ func (x *AcceptMessageRequestRequest) String() string {
 func (*AcceptMessageRequestRequest) ProtoMessage() {}
 
 func (x *AcceptMessageRequestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[13]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1767,7 +1866,7 @@ func (x *AcceptMessageRequestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptMessageRequestRequest.ProtoReflect.Descriptor instead.
 func (*AcceptMessageRequestRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{13}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AcceptMessageRequestRequest) GetIdempotencyKey() string {
@@ -1792,7 +1891,7 @@ type AcceptMessageRequestResponse struct {
 
 func (x *AcceptMessageRequestResponse) Reset() {
 	*x = AcceptMessageRequestResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[14]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1804,7 +1903,7 @@ func (x *AcceptMessageRequestResponse) String() string {
 func (*AcceptMessageRequestResponse) ProtoMessage() {}
 
 func (x *AcceptMessageRequestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[14]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,7 +1916,7 @@ func (x *AcceptMessageRequestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptMessageRequestResponse.ProtoReflect.Descriptor instead.
 func (*AcceptMessageRequestResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{14}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{16}
 }
 
 type DeleteConversationRequest struct {
@@ -1830,7 +1929,7 @@ type DeleteConversationRequest struct {
 
 func (x *DeleteConversationRequest) Reset() {
 	*x = DeleteConversationRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[15]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1842,7 +1941,7 @@ func (x *DeleteConversationRequest) String() string {
 func (*DeleteConversationRequest) ProtoMessage() {}
 
 func (x *DeleteConversationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[15]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1855,7 +1954,7 @@ func (x *DeleteConversationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteConversationRequest.ProtoReflect.Descriptor instead.
 func (*DeleteConversationRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{15}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DeleteConversationRequest) GetIdempotencyKey() string {
@@ -1880,7 +1979,7 @@ type DeleteConversationResponse struct {
 
 func (x *DeleteConversationResponse) Reset() {
 	*x = DeleteConversationResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[16]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1892,7 +1991,7 @@ func (x *DeleteConversationResponse) String() string {
 func (*DeleteConversationResponse) ProtoMessage() {}
 
 func (x *DeleteConversationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[16]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1905,7 +2004,7 @@ func (x *DeleteConversationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteConversationResponse.ProtoReflect.Descriptor instead.
 func (*DeleteConversationResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{16}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{18}
 }
 
 type ListMessageSuggestionsRequest struct {
@@ -1918,7 +2017,7 @@ type ListMessageSuggestionsRequest struct {
 
 func (x *ListMessageSuggestionsRequest) Reset() {
 	*x = ListMessageSuggestionsRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[17]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1930,7 +2029,7 @@ func (x *ListMessageSuggestionsRequest) String() string {
 func (*ListMessageSuggestionsRequest) ProtoMessage() {}
 
 func (x *ListMessageSuggestionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[17]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1943,7 +2042,7 @@ func (x *ListMessageSuggestionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMessageSuggestionsRequest.ProtoReflect.Descriptor instead.
 func (*ListMessageSuggestionsRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{17}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListMessageSuggestionsRequest) GetLimit() int32 {
@@ -1969,7 +2068,7 @@ type MessageSuggestion struct {
 
 func (x *MessageSuggestion) Reset() {
 	*x = MessageSuggestion{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[18]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1981,7 +2080,7 @@ func (x *MessageSuggestion) String() string {
 func (*MessageSuggestion) ProtoMessage() {}
 
 func (x *MessageSuggestion) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[18]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1994,7 +2093,7 @@ func (x *MessageSuggestion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageSuggestion.ProtoReflect.Descriptor instead.
 func (*MessageSuggestion) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{18}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *MessageSuggestion) GetUser() *v1.AuthorSnapshot {
@@ -2042,7 +2141,7 @@ type ListMessageSuggestionsResponse struct {
 
 func (x *ListMessageSuggestionsResponse) Reset() {
 	*x = ListMessageSuggestionsResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[19]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2054,7 +2153,7 @@ func (x *ListMessageSuggestionsResponse) String() string {
 func (*ListMessageSuggestionsResponse) ProtoMessage() {}
 
 func (x *ListMessageSuggestionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[19]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2067,7 +2166,7 @@ func (x *ListMessageSuggestionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMessageSuggestionsResponse.ProtoReflect.Descriptor instead.
 func (*ListMessageSuggestionsResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{19}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListMessageSuggestionsResponse) GetSuggestions() []*MessageSuggestion {
@@ -2104,7 +2203,7 @@ type CommitConversationRequest struct {
 
 func (x *CommitConversationRequest) Reset() {
 	*x = CommitConversationRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[20]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2116,7 +2215,7 @@ func (x *CommitConversationRequest) String() string {
 func (*CommitConversationRequest) ProtoMessage() {}
 
 func (x *CommitConversationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[20]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2129,7 +2228,7 @@ func (x *CommitConversationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitConversationRequest.ProtoReflect.Descriptor instead.
 func (*CommitConversationRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{20}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CommitConversationRequest) GetIdempotencyKey() string {
@@ -2200,7 +2299,7 @@ type CommitConversationResponse struct {
 
 func (x *CommitConversationResponse) Reset() {
 	*x = CommitConversationResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[21]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2212,7 +2311,7 @@ func (x *CommitConversationResponse) String() string {
 func (*CommitConversationResponse) ProtoMessage() {}
 
 func (x *CommitConversationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[21]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2225,7 +2324,7 @@ func (x *CommitConversationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitConversationResponse.ProtoReflect.Descriptor instead.
 func (*CommitConversationResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{21}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CommitConversationResponse) GetMlsGeneration() uint64 {
@@ -2265,7 +2364,7 @@ type ConversationCommit struct {
 
 func (x *ConversationCommit) Reset() {
 	*x = ConversationCommit{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[22]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2277,7 +2376,7 @@ func (x *ConversationCommit) String() string {
 func (*ConversationCommit) ProtoMessage() {}
 
 func (x *ConversationCommit) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[22]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2290,7 +2389,7 @@ func (x *ConversationCommit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConversationCommit.ProtoReflect.Descriptor instead.
 func (*ConversationCommit) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{22}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ConversationCommit) GetMlsGeneration() uint64 {
@@ -2342,7 +2441,7 @@ type ListConversationCommitsRequest struct {
 
 func (x *ListConversationCommitsRequest) Reset() {
 	*x = ListConversationCommitsRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[23]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2354,7 +2453,7 @@ func (x *ListConversationCommitsRequest) String() string {
 func (*ListConversationCommitsRequest) ProtoMessage() {}
 
 func (x *ListConversationCommitsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[23]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2367,7 +2466,7 @@ func (x *ListConversationCommitsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConversationCommitsRequest.ProtoReflect.Descriptor instead.
 func (*ListConversationCommitsRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{23}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ListConversationCommitsRequest) GetConversationId() string {
@@ -2414,7 +2513,7 @@ type ListConversationCommitsResponse struct {
 
 func (x *ListConversationCommitsResponse) Reset() {
 	*x = ListConversationCommitsResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[24]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2426,7 +2525,7 @@ func (x *ListConversationCommitsResponse) String() string {
 func (*ListConversationCommitsResponse) ProtoMessage() {}
 
 func (x *ListConversationCommitsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[24]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2439,7 +2538,7 @@ func (x *ListConversationCommitsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConversationCommitsResponse.ProtoReflect.Descriptor instead.
 func (*ListConversationCommitsResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{24}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListConversationCommitsResponse) GetCommits() []*ConversationCommit {
@@ -2486,7 +2585,7 @@ type ListEpochMessagesRequest struct {
 
 func (x *ListEpochMessagesRequest) Reset() {
 	*x = ListEpochMessagesRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[25]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2498,7 +2597,7 @@ func (x *ListEpochMessagesRequest) String() string {
 func (*ListEpochMessagesRequest) ProtoMessage() {}
 
 func (x *ListEpochMessagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[25]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2511,7 +2610,7 @@ func (x *ListEpochMessagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEpochMessagesRequest.ProtoReflect.Descriptor instead.
 func (*ListEpochMessagesRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{25}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListEpochMessagesRequest) GetConversationId() string {
@@ -2566,7 +2665,7 @@ type ListEpochMessagesResponse struct {
 
 func (x *ListEpochMessagesResponse) Reset() {
 	*x = ListEpochMessagesResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[26]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2578,7 +2677,7 @@ func (x *ListEpochMessagesResponse) String() string {
 func (*ListEpochMessagesResponse) ProtoMessage() {}
 
 func (x *ListEpochMessagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[26]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2591,7 +2690,7 @@ func (x *ListEpochMessagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEpochMessagesResponse.ProtoReflect.Descriptor instead.
 func (*ListEpochMessagesResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{26}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ListEpochMessagesResponse) GetMessages() []*Message {
@@ -2638,7 +2737,7 @@ type Welcome struct {
 
 func (x *Welcome) Reset() {
 	*x = Welcome{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[27]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2650,7 +2749,7 @@ func (x *Welcome) String() string {
 func (*Welcome) ProtoMessage() {}
 
 func (x *Welcome) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[27]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2663,7 +2762,7 @@ func (x *Welcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Welcome.ProtoReflect.Descriptor instead.
 func (*Welcome) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{27}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Welcome) GetId() string {
@@ -2720,7 +2819,7 @@ type ListWelcomesRequest struct {
 
 func (x *ListWelcomesRequest) Reset() {
 	*x = ListWelcomesRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[28]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2732,7 +2831,7 @@ func (x *ListWelcomesRequest) String() string {
 func (*ListWelcomesRequest) ProtoMessage() {}
 
 func (x *ListWelcomesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[28]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2745,7 +2844,7 @@ func (x *ListWelcomesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWelcomesRequest.ProtoReflect.Descriptor instead.
 func (*ListWelcomesRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{28}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListWelcomesRequest) GetDeviceId() string {
@@ -2775,7 +2874,7 @@ type ListWelcomesResponse struct {
 
 func (x *ListWelcomesResponse) Reset() {
 	*x = ListWelcomesResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[29]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2787,7 +2886,7 @@ func (x *ListWelcomesResponse) String() string {
 func (*ListWelcomesResponse) ProtoMessage() {}
 
 func (x *ListWelcomesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[29]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2800,7 +2899,7 @@ func (x *ListWelcomesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWelcomesResponse.ProtoReflect.Descriptor instead.
 func (*ListWelcomesResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{29}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListWelcomesResponse) GetWelcomes() []*Welcome {
@@ -2830,7 +2929,7 @@ type AckWelcomesRequest struct {
 
 func (x *AckWelcomesRequest) Reset() {
 	*x = AckWelcomesRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[30]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2842,7 +2941,7 @@ func (x *AckWelcomesRequest) String() string {
 func (*AckWelcomesRequest) ProtoMessage() {}
 
 func (x *AckWelcomesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[30]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2855,7 +2954,7 @@ func (x *AckWelcomesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckWelcomesRequest.ProtoReflect.Descriptor instead.
 func (*AckWelcomesRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{30}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *AckWelcomesRequest) GetIdempotencyKey() string {
@@ -2887,7 +2986,7 @@ type AckWelcomesResponse struct {
 
 func (x *AckWelcomesResponse) Reset() {
 	*x = AckWelcomesResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[31]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2899,7 +2998,7 @@ func (x *AckWelcomesResponse) String() string {
 func (*AckWelcomesResponse) ProtoMessage() {}
 
 func (x *AckWelcomesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[31]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2912,7 +3011,7 @@ func (x *AckWelcomesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckWelcomesResponse.ProtoReflect.Descriptor instead.
 func (*AckWelcomesResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{31}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{33}
 }
 
 var File_dzeroth_messaging_v1_messaging_proto protoreflect.FileDescriptor
@@ -2993,7 +3092,11 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\x12welcome_device_ids\x18\x03 \x03(\tR\x10welcomeDeviceIds\"\x96\x01\n" +
 	"\x13SendMessageResponse\x127\n" +
 	"\amessage\x18\x01 \x01(\v2\x1d.dzeroth.messaging.v1.MessageR\amessage\x12F\n" +
-	"\fconversation\x18\x02 \x01(\v2\".dzeroth.messaging.v1.ConversationR\fconversation\"\xad\x01\n" +
+	"\fconversation\x18\x02 \x01(\v2\".dzeroth.messaging.v1.ConversationR\fconversation\"0\n" +
+	"\x15CheckPostShareRequest\x12\x17\n" +
+	"\apost_id\x18\x01 \x01(\tR\x06postId\">\n" +
+	"\x16CheckPostShareResponse\x12$\n" +
+	"\x0eshared_post_id\x18\x01 \x01(\tR\fsharedPostId\"\xad\x01\n" +
 	"\x18ListConversationsRequest\x124\n" +
 	"\x06folder\x18\x01 \x01(\x0e2\x1c.dzeroth.messaging.v1.FolderR\x06folder\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
@@ -3129,9 +3232,10 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"-MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION\x10\x01\x12)\n" +
 	"%MESSAGE_SUGGESTION_REASON_MET_ON_PLAN\x10\x02\x12+\n" +
 	"'MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW\x10\x03\x12.\n" +
-	"*MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER\x10\x042\xb1\v\n" +
+	"*MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER\x10\x042\xa3\f\n" +
 	"\x10MessagingService\x12b\n" +
-	"\vSendMessage\x12(.dzeroth.messaging.v1.SendMessageRequest\x1a).dzeroth.messaging.v1.SendMessageResponse\x12y\n" +
+	"\vSendMessage\x12(.dzeroth.messaging.v1.SendMessageRequest\x1a).dzeroth.messaging.v1.SendMessageResponse\x12p\n" +
+	"\x0eCheckPostShare\x12+.dzeroth.messaging.v1.CheckPostShareRequest\x1a,.dzeroth.messaging.v1.CheckPostShareResponse\"\x03\x90\x02\x01\x12y\n" +
 	"\x11ListConversations\x12..dzeroth.messaging.v1.ListConversationsRequest\x1a/.dzeroth.messaging.v1.ListConversationsResponse\"\x03\x90\x02\x01\x12j\n" +
 	"\fListMessages\x12).dzeroth.messaging.v1.ListMessagesRequest\x1a*.dzeroth.messaging.v1.ListMessagesResponse\"\x03\x90\x02\x01\x12}\n" +
 	"\x14MarkConversationRead\x121.dzeroth.messaging.v1.MarkConversationReadRequest\x1a2.dzeroth.messaging.v1.MarkConversationReadResponse\x12}\n" +
@@ -3157,7 +3261,7 @@ func file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_messaging_v1_messaging_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_dzeroth_messaging_v1_messaging_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_dzeroth_messaging_v1_messaging_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_dzeroth_messaging_v1_messaging_proto_goTypes = []any{
 	(ConversationKind)(0),                   // 0: dzeroth.messaging.v1.ConversationKind
 	(ConversationState)(0),                  // 1: dzeroth.messaging.v1.ConversationState
@@ -3172,50 +3276,52 @@ var file_dzeroth_messaging_v1_messaging_proto_goTypes = []any{
 	(*SendMessageRequest)(nil),              // 10: dzeroth.messaging.v1.SendMessageRequest
 	(*MlsInit)(nil),                         // 11: dzeroth.messaging.v1.MlsInit
 	(*SendMessageResponse)(nil),             // 12: dzeroth.messaging.v1.SendMessageResponse
-	(*ListConversationsRequest)(nil),        // 13: dzeroth.messaging.v1.ListConversationsRequest
-	(*ListConversationsResponse)(nil),       // 14: dzeroth.messaging.v1.ListConversationsResponse
-	(*ListMessagesRequest)(nil),             // 15: dzeroth.messaging.v1.ListMessagesRequest
-	(*ListMessagesResponse)(nil),            // 16: dzeroth.messaging.v1.ListMessagesResponse
-	(*MarkConversationReadRequest)(nil),     // 17: dzeroth.messaging.v1.MarkConversationReadRequest
-	(*MarkConversationReadResponse)(nil),    // 18: dzeroth.messaging.v1.MarkConversationReadResponse
-	(*AcceptMessageRequestRequest)(nil),     // 19: dzeroth.messaging.v1.AcceptMessageRequestRequest
-	(*AcceptMessageRequestResponse)(nil),    // 20: dzeroth.messaging.v1.AcceptMessageRequestResponse
-	(*DeleteConversationRequest)(nil),       // 21: dzeroth.messaging.v1.DeleteConversationRequest
-	(*DeleteConversationResponse)(nil),      // 22: dzeroth.messaging.v1.DeleteConversationResponse
-	(*ListMessageSuggestionsRequest)(nil),   // 23: dzeroth.messaging.v1.ListMessageSuggestionsRequest
-	(*MessageSuggestion)(nil),               // 24: dzeroth.messaging.v1.MessageSuggestion
-	(*ListMessageSuggestionsResponse)(nil),  // 25: dzeroth.messaging.v1.ListMessageSuggestionsResponse
-	(*CommitConversationRequest)(nil),       // 26: dzeroth.messaging.v1.CommitConversationRequest
-	(*CommitConversationResponse)(nil),      // 27: dzeroth.messaging.v1.CommitConversationResponse
-	(*ConversationCommit)(nil),              // 28: dzeroth.messaging.v1.ConversationCommit
-	(*ListConversationCommitsRequest)(nil),  // 29: dzeroth.messaging.v1.ListConversationCommitsRequest
-	(*ListConversationCommitsResponse)(nil), // 30: dzeroth.messaging.v1.ListConversationCommitsResponse
-	(*ListEpochMessagesRequest)(nil),        // 31: dzeroth.messaging.v1.ListEpochMessagesRequest
-	(*ListEpochMessagesResponse)(nil),       // 32: dzeroth.messaging.v1.ListEpochMessagesResponse
-	(*Welcome)(nil),                         // 33: dzeroth.messaging.v1.Welcome
-	(*ListWelcomesRequest)(nil),             // 34: dzeroth.messaging.v1.ListWelcomesRequest
-	(*ListWelcomesResponse)(nil),            // 35: dzeroth.messaging.v1.ListWelcomesResponse
-	(*AckWelcomesRequest)(nil),              // 36: dzeroth.messaging.v1.AckWelcomesRequest
-	(*AckWelcomesResponse)(nil),             // 37: dzeroth.messaging.v1.AckWelcomesResponse
-	(*v1.AuthorSnapshot)(nil),               // 38: dzeroth.common.v1.AuthorSnapshot
-	(*timestamppb.Timestamp)(nil),           // 39: google.protobuf.Timestamp
-	(*v11.EmbeddedPost)(nil),                // 40: dzeroth.posts.v1.EmbeddedPost
-	(v12.BeaconActivity)(0),                 // 41: dzeroth.beacons.v1.BeaconActivity
+	(*CheckPostShareRequest)(nil),           // 13: dzeroth.messaging.v1.CheckPostShareRequest
+	(*CheckPostShareResponse)(nil),          // 14: dzeroth.messaging.v1.CheckPostShareResponse
+	(*ListConversationsRequest)(nil),        // 15: dzeroth.messaging.v1.ListConversationsRequest
+	(*ListConversationsResponse)(nil),       // 16: dzeroth.messaging.v1.ListConversationsResponse
+	(*ListMessagesRequest)(nil),             // 17: dzeroth.messaging.v1.ListMessagesRequest
+	(*ListMessagesResponse)(nil),            // 18: dzeroth.messaging.v1.ListMessagesResponse
+	(*MarkConversationReadRequest)(nil),     // 19: dzeroth.messaging.v1.MarkConversationReadRequest
+	(*MarkConversationReadResponse)(nil),    // 20: dzeroth.messaging.v1.MarkConversationReadResponse
+	(*AcceptMessageRequestRequest)(nil),     // 21: dzeroth.messaging.v1.AcceptMessageRequestRequest
+	(*AcceptMessageRequestResponse)(nil),    // 22: dzeroth.messaging.v1.AcceptMessageRequestResponse
+	(*DeleteConversationRequest)(nil),       // 23: dzeroth.messaging.v1.DeleteConversationRequest
+	(*DeleteConversationResponse)(nil),      // 24: dzeroth.messaging.v1.DeleteConversationResponse
+	(*ListMessageSuggestionsRequest)(nil),   // 25: dzeroth.messaging.v1.ListMessageSuggestionsRequest
+	(*MessageSuggestion)(nil),               // 26: dzeroth.messaging.v1.MessageSuggestion
+	(*ListMessageSuggestionsResponse)(nil),  // 27: dzeroth.messaging.v1.ListMessageSuggestionsResponse
+	(*CommitConversationRequest)(nil),       // 28: dzeroth.messaging.v1.CommitConversationRequest
+	(*CommitConversationResponse)(nil),      // 29: dzeroth.messaging.v1.CommitConversationResponse
+	(*ConversationCommit)(nil),              // 30: dzeroth.messaging.v1.ConversationCommit
+	(*ListConversationCommitsRequest)(nil),  // 31: dzeroth.messaging.v1.ListConversationCommitsRequest
+	(*ListConversationCommitsResponse)(nil), // 32: dzeroth.messaging.v1.ListConversationCommitsResponse
+	(*ListEpochMessagesRequest)(nil),        // 33: dzeroth.messaging.v1.ListEpochMessagesRequest
+	(*ListEpochMessagesResponse)(nil),       // 34: dzeroth.messaging.v1.ListEpochMessagesResponse
+	(*Welcome)(nil),                         // 35: dzeroth.messaging.v1.Welcome
+	(*ListWelcomesRequest)(nil),             // 36: dzeroth.messaging.v1.ListWelcomesRequest
+	(*ListWelcomesResponse)(nil),            // 37: dzeroth.messaging.v1.ListWelcomesResponse
+	(*AckWelcomesRequest)(nil),              // 38: dzeroth.messaging.v1.AckWelcomesRequest
+	(*AckWelcomesResponse)(nil),             // 39: dzeroth.messaging.v1.AckWelcomesResponse
+	(*v1.AuthorSnapshot)(nil),               // 40: dzeroth.common.v1.AuthorSnapshot
+	(*timestamppb.Timestamp)(nil),           // 41: google.protobuf.Timestamp
+	(*v11.EmbeddedPost)(nil),                // 42: dzeroth.posts.v1.EmbeddedPost
+	(v12.BeaconActivity)(0),                 // 43: dzeroth.beacons.v1.BeaconActivity
 }
 var file_dzeroth_messaging_v1_messaging_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.messaging.v1.Conversation.kind:type_name -> dzeroth.messaging.v1.ConversationKind
-	38, // 1: dzeroth.messaging.v1.Conversation.peer:type_name -> dzeroth.common.v1.AuthorSnapshot
+	40, // 1: dzeroth.messaging.v1.Conversation.peer:type_name -> dzeroth.common.v1.AuthorSnapshot
 	1,  // 2: dzeroth.messaging.v1.Conversation.state:type_name -> dzeroth.messaging.v1.ConversationState
 	2,  // 3: dzeroth.messaging.v1.Conversation.folder:type_name -> dzeroth.messaging.v1.Folder
 	7,  // 4: dzeroth.messaging.v1.Conversation.last_message:type_name -> dzeroth.messaging.v1.MessagePreview
-	39, // 5: dzeroth.messaging.v1.Conversation.updated_at:type_name -> google.protobuf.Timestamp
-	39, // 6: dzeroth.messaging.v1.Conversation.peer_read_at:type_name -> google.protobuf.Timestamp
+	41, // 5: dzeroth.messaging.v1.Conversation.updated_at:type_name -> google.protobuf.Timestamp
+	41, // 6: dzeroth.messaging.v1.Conversation.peer_read_at:type_name -> google.protobuf.Timestamp
 	3,  // 7: dzeroth.messaging.v1.Conversation.encryption:type_name -> dzeroth.messaging.v1.ConversationEncryption
 	4,  // 8: dzeroth.messaging.v1.MessagePreview.state:type_name -> dzeroth.messaging.v1.MessageState
-	39, // 9: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
+	41, // 9: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
 	4,  // 10: dzeroth.messaging.v1.Message.state:type_name -> dzeroth.messaging.v1.MessageState
-	39, // 11: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	40, // 12: dzeroth.messaging.v1.Message.shared_post:type_name -> dzeroth.posts.v1.EmbeddedPost
+	41, // 11: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
+	42, // 12: dzeroth.messaging.v1.Message.shared_post:type_name -> dzeroth.posts.v1.EmbeddedPost
 	11, // 13: dzeroth.messaging.v1.SendMessageRequest.mls_init:type_name -> dzeroth.messaging.v1.MlsInit
 	8,  // 14: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
 	6,  // 15: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
@@ -3223,42 +3329,44 @@ var file_dzeroth_messaging_v1_messaging_proto_depIdxs = []int32{
 	6,  // 17: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
 	8,  // 18: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
 	6,  // 19: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
-	38, // 20: dzeroth.messaging.v1.MessageSuggestion.user:type_name -> dzeroth.common.v1.AuthorSnapshot
+	40, // 20: dzeroth.messaging.v1.MessageSuggestion.user:type_name -> dzeroth.common.v1.AuthorSnapshot
 	5,  // 21: dzeroth.messaging.v1.MessageSuggestion.reason:type_name -> dzeroth.messaging.v1.MessageSuggestionReason
-	41, // 22: dzeroth.messaging.v1.MessageSuggestion.plan_activity:type_name -> dzeroth.beacons.v1.BeaconActivity
-	24, // 23: dzeroth.messaging.v1.ListMessageSuggestionsResponse.suggestions:type_name -> dzeroth.messaging.v1.MessageSuggestion
-	39, // 24: dzeroth.messaging.v1.ConversationCommit.created_at:type_name -> google.protobuf.Timestamp
-	28, // 25: dzeroth.messaging.v1.ListConversationCommitsResponse.commits:type_name -> dzeroth.messaging.v1.ConversationCommit
+	43, // 22: dzeroth.messaging.v1.MessageSuggestion.plan_activity:type_name -> dzeroth.beacons.v1.BeaconActivity
+	26, // 23: dzeroth.messaging.v1.ListMessageSuggestionsResponse.suggestions:type_name -> dzeroth.messaging.v1.MessageSuggestion
+	41, // 24: dzeroth.messaging.v1.ConversationCommit.created_at:type_name -> google.protobuf.Timestamp
+	30, // 25: dzeroth.messaging.v1.ListConversationCommitsResponse.commits:type_name -> dzeroth.messaging.v1.ConversationCommit
 	8,  // 26: dzeroth.messaging.v1.ListEpochMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
-	39, // 27: dzeroth.messaging.v1.ListEpochMessagesResponse.cleared_at:type_name -> google.protobuf.Timestamp
-	39, // 28: dzeroth.messaging.v1.Welcome.created_at:type_name -> google.protobuf.Timestamp
-	33, // 29: dzeroth.messaging.v1.ListWelcomesResponse.welcomes:type_name -> dzeroth.messaging.v1.Welcome
+	41, // 27: dzeroth.messaging.v1.ListEpochMessagesResponse.cleared_at:type_name -> google.protobuf.Timestamp
+	41, // 28: dzeroth.messaging.v1.Welcome.created_at:type_name -> google.protobuf.Timestamp
+	35, // 29: dzeroth.messaging.v1.ListWelcomesResponse.welcomes:type_name -> dzeroth.messaging.v1.Welcome
 	10, // 30: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
-	13, // 31: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
-	15, // 32: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
-	17, // 33: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
-	19, // 34: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
-	21, // 35: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
-	23, // 36: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:input_type -> dzeroth.messaging.v1.ListMessageSuggestionsRequest
-	26, // 37: dzeroth.messaging.v1.MessagingService.CommitConversation:input_type -> dzeroth.messaging.v1.CommitConversationRequest
-	29, // 38: dzeroth.messaging.v1.MessagingService.ListConversationCommits:input_type -> dzeroth.messaging.v1.ListConversationCommitsRequest
-	31, // 39: dzeroth.messaging.v1.MessagingService.ListEpochMessages:input_type -> dzeroth.messaging.v1.ListEpochMessagesRequest
-	34, // 40: dzeroth.messaging.v1.MessagingService.ListWelcomes:input_type -> dzeroth.messaging.v1.ListWelcomesRequest
-	36, // 41: dzeroth.messaging.v1.MessagingService.AckWelcomes:input_type -> dzeroth.messaging.v1.AckWelcomesRequest
-	12, // 42: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
-	14, // 43: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
-	16, // 44: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
-	18, // 45: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
-	20, // 46: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
-	22, // 47: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
-	25, // 48: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:output_type -> dzeroth.messaging.v1.ListMessageSuggestionsResponse
-	27, // 49: dzeroth.messaging.v1.MessagingService.CommitConversation:output_type -> dzeroth.messaging.v1.CommitConversationResponse
-	30, // 50: dzeroth.messaging.v1.MessagingService.ListConversationCommits:output_type -> dzeroth.messaging.v1.ListConversationCommitsResponse
-	32, // 51: dzeroth.messaging.v1.MessagingService.ListEpochMessages:output_type -> dzeroth.messaging.v1.ListEpochMessagesResponse
-	35, // 52: dzeroth.messaging.v1.MessagingService.ListWelcomes:output_type -> dzeroth.messaging.v1.ListWelcomesResponse
-	37, // 53: dzeroth.messaging.v1.MessagingService.AckWelcomes:output_type -> dzeroth.messaging.v1.AckWelcomesResponse
-	42, // [42:54] is the sub-list for method output_type
-	30, // [30:42] is the sub-list for method input_type
+	13, // 31: dzeroth.messaging.v1.MessagingService.CheckPostShare:input_type -> dzeroth.messaging.v1.CheckPostShareRequest
+	15, // 32: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
+	17, // 33: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
+	19, // 34: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
+	21, // 35: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
+	23, // 36: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
+	25, // 37: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:input_type -> dzeroth.messaging.v1.ListMessageSuggestionsRequest
+	28, // 38: dzeroth.messaging.v1.MessagingService.CommitConversation:input_type -> dzeroth.messaging.v1.CommitConversationRequest
+	31, // 39: dzeroth.messaging.v1.MessagingService.ListConversationCommits:input_type -> dzeroth.messaging.v1.ListConversationCommitsRequest
+	33, // 40: dzeroth.messaging.v1.MessagingService.ListEpochMessages:input_type -> dzeroth.messaging.v1.ListEpochMessagesRequest
+	36, // 41: dzeroth.messaging.v1.MessagingService.ListWelcomes:input_type -> dzeroth.messaging.v1.ListWelcomesRequest
+	38, // 42: dzeroth.messaging.v1.MessagingService.AckWelcomes:input_type -> dzeroth.messaging.v1.AckWelcomesRequest
+	12, // 43: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
+	14, // 44: dzeroth.messaging.v1.MessagingService.CheckPostShare:output_type -> dzeroth.messaging.v1.CheckPostShareResponse
+	16, // 45: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
+	18, // 46: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
+	20, // 47: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
+	22, // 48: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
+	24, // 49: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
+	27, // 50: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:output_type -> dzeroth.messaging.v1.ListMessageSuggestionsResponse
+	29, // 51: dzeroth.messaging.v1.MessagingService.CommitConversation:output_type -> dzeroth.messaging.v1.CommitConversationResponse
+	32, // 52: dzeroth.messaging.v1.MessagingService.ListConversationCommits:output_type -> dzeroth.messaging.v1.ListConversationCommitsResponse
+	34, // 53: dzeroth.messaging.v1.MessagingService.ListEpochMessages:output_type -> dzeroth.messaging.v1.ListEpochMessagesResponse
+	37, // 54: dzeroth.messaging.v1.MessagingService.ListWelcomes:output_type -> dzeroth.messaging.v1.ListWelcomesResponse
+	39, // 55: dzeroth.messaging.v1.MessagingService.AckWelcomes:output_type -> dzeroth.messaging.v1.AckWelcomesResponse
+	43, // [43:56] is the sub-list for method output_type
+	30, // [30:43] is the sub-list for method input_type
 	30, // [30:30] is the sub-list for extension type_name
 	30, // [30:30] is the sub-list for extension extendee
 	0,  // [0:30] is the sub-list for field type_name
@@ -3279,7 +3387,7 @@ func file_dzeroth_messaging_v1_messaging_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_messaging_v1_messaging_proto_rawDesc), len(file_dzeroth_messaging_v1_messaging_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   32,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
