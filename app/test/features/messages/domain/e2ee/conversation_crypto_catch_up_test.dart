@@ -115,7 +115,10 @@ void main() {
   }
 
   tearDown(() async {
+    final refused = rig.server.refusedAcks.length;
     await rig.dispose();
+    // The client swallows a refused ack: every test fails on one.
+    expect(refused, 0, reason: 'the rig refused an AckWelcomes call');
   });
 
   /// This device joins [c] from bob's welcome (generation 1), with the
@@ -516,6 +519,36 @@ void main() {
       expect(rig.known.contains(_c1), isTrue);
       expect([for (final n in rig.messaging.noted) n.id], [_c1]);
       expect(rig.messaging.noted.single.session, rig.messaging.cacheSession);
+    });
+
+    test('attribution that adds a conversation not yet in the known set '
+        'notes it as ever encrypted', () async {
+      rig.keys.peerFails = true;
+      await join(_c1);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      // The known set lost the id (a migrated v1 group was never in it).
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          kVaultSettingKnownConversations,
+          rigBytes('{"v":1,"ids":[],"peers":{}}'),
+        ),
+      );
+      await rig.known.load(rig.device.vault);
+      rig.messaging.noted.clear();
+
+      rig.keys.peerFails = false;
+      await rig.crypto.attributeMembers(_c1);
+
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      expect(rig.known.contains(_c1), isTrue);
+      expect(rig.known.peerOf(_c1), 'ref-bob');
+      expect([for (final n in rig.messaging.noted) n.id], [_c1]);
+      expect(rig.messaging.noted.single.session, rig.messaging.cacheSession);
+
+      // A ref added for an id already known notes nothing more.
+      rig.messaging.noted.clear();
+      await rig.crypto.attributeMembers(_c1);
+      expect(rig.messaging.noted, isEmpty);
     });
 
     test('a NONE conversation is notEncrypted', () async {
@@ -1272,6 +1305,45 @@ void main() {
       );
       expect(await v.group(_c1, 3), isNotNull);
       expect(await v.group(_c1, 2), isNull);
+      expect(await v.group(_c1, 1), isNull);
+    });
+
+    test('a lower generation left behind by a switch is marked undecryptable '
+        'and deleted at the join', () async {
+      await join(_c1);
+      final v = rig.device.vault;
+      // Generation 2 stored beside generation 1, which catch-up never walks
+      // (it walks the highest only).
+      final g1 = (await v.group(_c1, 1))!;
+      await v.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+      await rig.offer(_c1, bob, generation: 3);
+      sink.calls.clear();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect(sink.calls, contains('undecryptable 1:1'));
+      expect(sink.calls, isNot(contains('complete 1:1 at 1')));
+      expect(await v.group(_c1, 3), isNotNull);
+      expect(await v.group(_c1, 2), isNull);
+      expect(await v.group(_c1, 1), isNull);
+      expect((await v.conversation(_c1))!.sync.completedEpochs, isEmpty);
+
+      // A later ordinary welcome starts no extra catch-up.
+      rig.device.engine.calls.clear();
+      sink.calls.clear();
+      await rig.offer(_c1, bob, generation: 4);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      expect(sink.calls, ['complete 3:1 at 1']);
+      expect(await v.groups(_c1), hasLength(1));
     });
 
     test('a reset seen from generation 1: remaining commits of 1 applied, '

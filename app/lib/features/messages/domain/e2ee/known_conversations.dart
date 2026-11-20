@@ -109,7 +109,10 @@ class KnownConversations {
   /// vault: a set of one vault is never written into another's transaction.
   /// The in-memory image changes only when the caller calls [commitStaged]
   /// after its transaction returned ([discardStaged] when it failed).
-  Future<void> addIn(
+  ///
+  /// True when the id was not in the stored set (the set grows: the caller
+  /// notes the conversation as ever encrypted once its transaction returned).
+  Future<bool> addIn(
     VaultTx tx,
     SecureVault vault,
     String conversationId, {
@@ -122,7 +125,8 @@ class KnownConversations {
     final ids = [...record.ids];
     final peers = {...record.peers};
     var changed = false;
-    if (!ids.contains(conversationId)) {
+    final grew = !ids.contains(conversationId);
+    if (grew) {
       ids.add(conversationId);
       changed = true;
     }
@@ -142,6 +146,7 @@ class KnownConversations {
     _stagedPeers
       ..clear()
       ..addAll(peers);
+    return grew;
   }
 
   /// The caller's transaction returned: the image takes what [addIn] wrote.

@@ -139,7 +139,10 @@ void main() {
   });
 
   tearDown(() async {
+    final refused = rig.server.refusedAcks.length;
     await rig.dispose();
+    // The client swallows a refused ack: every test fails on one.
+    expect(refused, 0, reason: 'the rig refused an AckWelcomes call');
   });
 
   Future<List<String>> ackedIds() async => [
@@ -724,6 +727,42 @@ void main() {
         : (jsonDecode(utf8.decode(raw)) as Map<String, Object?>)['n']!
               as Map<String, Object?>;
     expect(n.containsKey(offer.welcomeId), isFalse);
+  });
+
+  test('a poll on another vault reloads the known set before any '
+      'write', () async {
+    // The app's one known set is loaded for vault A (another user's, with
+    // its own ids) while the session's vault is B.
+    final other = await RigDevice.create(
+      dir: rig.dir,
+      clock: rig.clock,
+      uid: 'user-b',
+      name: 'two',
+    );
+    addTearDown(other.dispose);
+    await other.vault.transaction(
+      (tx) => tx.putSetting(
+        kVaultSettingKnownConversations,
+        rigBytes('{"v":1,"ids":["$_c2"],"peers":{}}'),
+      ),
+    );
+    await rig.known.load(other.vault);
+    expect(rig.known.loaded, isTrue);
+    expect(rig.known.contains(_c2), isTrue);
+    await rig.offer(_c1, bob);
+
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    expect(rig.known.isLoadedFor(rig.device.vault), isTrue);
+    expect(rig.known.contains(_c1), isTrue);
+    expect(rig.known.contains(_c2), isFalse);
+    final stored = KnownConversations(session: rig.device.session);
+    await stored.load(rig.device.vault);
+    expect(stored.ids, [_c1]);
+    // Vault A's record is unchanged.
+    final a = KnownConversations(session: other.session);
+    await a.load(other.vault);
+    expect(a.ids, [_c2]);
   });
 
   test('a joined welcome puts its conversation in the known set', () async {

@@ -220,7 +220,9 @@ void main() {
     });
 
     tearDown(() async {
+      final refused = rig.server.refusedAcks.length;
       await rig.dispose();
+      expect(refused, 0, reason: 'the rig refused an AckWelcomes call');
     });
 
     test("a joined conversation's peer ref is added once the header gives it "

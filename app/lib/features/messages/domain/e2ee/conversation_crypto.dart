@@ -336,8 +336,24 @@ class ConversationCrypto {
 
     // 6. Generation switch: g's last epoch is walked to its end first (L6).
     final last = MlsPair(g, e);
+    // A LOWER stored generation catch-up never walks (it walks the highest
+    // only), not recorded as walked: its last epoch is marked undecryptable
+    // and recorded with g's, so the join deletes it too.
+    final done =
+        (await vault.conversation(id))?.sync.completedEpochs ??
+        const <MlsPair>[];
+    final orphans = [
+      for (final old in await vault.groups(id))
+        if (!old.provisional &&
+            old.generation < g &&
+            !done.contains(MlsPair(old.generation, old.epoch)))
+          MlsPair(old.generation, old.epoch),
+    ];
     final sink = this.sink;
     try {
+      for (final o in orphans) {
+        await sink?.markEpochUndecryptable(id, o, priority: pass.priority);
+      }
       if (gStuck) {
         await sink?.markEpochUndecryptable(id, last, priority: pass.priority);
       } else {
@@ -347,7 +363,7 @@ class ConversationCrypto {
       _reportIfBug(err, s, 'completeEpoch');
       return CatchUpResult.interrupted;
     }
-    await _noteWalked(pass, id, last);
+    await _noteWalked(pass, id, [...orphans, last]);
     await _pollWelcomes(
       priority: pass.priority,
       held: id,
@@ -777,19 +793,25 @@ class ConversationCrypto {
     }
   }
 
-  /// L6: [last], generation g's last epoch, was walked to its end after the
-  /// server reported a later generation (completed or marked undecryptable):
-  /// recorded in `completedEpochs`, which the next join reads to delete g.
-  Future<void> _noteWalked(_Poll pass, String id, MlsPair last) =>
+  /// L6: [walked], generation g's last epoch (and those of lower stored
+  /// generations left behind), was walked to its end after the server
+  /// reported a later generation (completed or marked undecryptable):
+  /// recorded in `completedEpochs`, which the next join reads to delete
+  /// those generations.
+  Future<void> _noteWalked(_Poll pass, String id, List<MlsPair> walked) =>
       _session.runWrite((v) async {
         pass.check(v);
         final sync =
             (await v.conversation(id))?.sync ?? const ConversationSync();
-        if (sync.completedEpochs.contains(last)) return;
+        final add = [
+          for (final p in walked)
+            if (!sync.completedEpochs.contains(p)) p,
+        ];
+        if (add.isEmpty) return;
         await v.transaction(
           (tx) => tx.putConversationSync(
             id,
-            sync.copyWith(completedEpochs: [...sync.completedEpochs, last]),
+            sync.copyWith(completedEpochs: [...sync.completedEpochs, ...add]),
           ),
         );
       });
@@ -1776,8 +1798,9 @@ class ConversationCrypto {
       // I-2: the baseline goes once no member at its `since` is unattributed.
       final dropBaseline = baselineSince != null && !baselineLeft;
       if (pins.isEmpty && rows.isEmpty && !dropBaseline) {
-        return (wrote: false, pending: pending);
+        return (wrote: false, pending: pending, knownGrew: false);
       }
+      var knownGrew = false;
       try {
         await v.transaction((tx) async {
           for (final p in pins) {
@@ -1789,7 +1812,7 @@ class ConversationCrypto {
           if (dropBaseline) await _baselines.deleteIn(tx, v, id);
           // C1 / N3: the ref whose list the theirs-side pins came from.
           if (theirsFromPeer && ref != null) {
-            await _known.addIn(tx, v, id, peerUserId: ref);
+            knownGrew = await _known.addIn(tx, v, id, peerUserId: ref);
           }
         });
       } on Object {
@@ -1797,8 +1820,20 @@ class ConversationCrypto {
         rethrow;
       }
       _known.commitStaged();
-      return (wrote: pins.isNotEmpty || rows.isNotEmpty, pending: pending);
+      return (
+        wrote: pins.isNotEmpty || rows.isNotEmpty,
+        pending: pending,
+        knownGrew: knownGrew,
+      );
     });
+    // As an applied commit (I-4): the known set grew in that transaction.
+    if (outcome.knownGrew) {
+      try {
+        await _messaging.noteEverEncrypted(id, session: pass.cacheSession);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'noteEverEncrypted');
+      }
+    }
     final now = _now();
     final unattributedLeft = (await vault.members(id))
         .any((m) => m.side == MemberSide.unattributed);
