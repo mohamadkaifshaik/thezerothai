@@ -6,7 +6,9 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 const int kReportKeyBytes = 32;
 const int kMaxMessageContentBytes = 4096;
 
-const int _maxGroupDepth = 64;
+// Go's protowire (DefaultRecursionLimit 10000) accepts 10001 nested groups and refuses 10002; the walk below is
+// iterative, so this depth cannot overflow the JS stack.
+const int _maxGroupDepth = 10001;
 const int _maxFieldNumber = 536870911; // 2^29 - 1
 const int _maxLength = 2147483647; // 2^31 - 1
 
@@ -116,11 +118,13 @@ _Varint _readVarint(Uint8List b, int pos) {
   return (num, v.lo % 8, v.next);
 }
 
-int _readLength(Uint8List b, int pos, int end) {
+/// Reads a length prefix once; returns (start of the value, length), the value being inside the buffer.
+(int, int) _readLength(Uint8List b, int pos) {
   final v = _readVarint(b, pos);
-  if (v.hi != 0 || v.lo > _maxLength) throw const _Malformed();
-  if (v.next + v.lo > end) throw const _Malformed();
-  return v.lo;
+  if (v.hi != 0 || v.lo > _maxLength || v.next + v.lo > b.length) {
+    throw const _Malformed();
+  }
+  return (v.next, v.lo);
 }
 
 /// Skips the value of a non-group field (types 0, 1, 2, 5); returns the next position.
@@ -132,8 +136,8 @@ int _skipScalar(Uint8List b, int type, int pos) {
       if (pos + 8 > b.length) throw const _Malformed();
       return pos + 8;
     case 2:
-      final len = _readLength(b, pos, b.length);
-      return _readVarint(b, pos).next + len;
+      final (start, len) = _readLength(b, pos);
+      return start + len;
     case 5:
       if (pos + 4 > b.length) throw const _Malformed();
       return pos + 4;
@@ -172,8 +176,7 @@ DecodedContent decodeMessageContentLenient(Uint8List bytes) {
       final (num, type, next) = _readTag(bytes, pos);
       pos = next;
       if (type == 2 && (num == 1 || num == 2 || num == 3)) {
-        final len = _readLength(bytes, pos, bytes.length);
-        final start = _readVarint(bytes, pos).next;
+        final (start, len) = _readLength(bytes, pos);
         final value = Uint8List.fromList(bytes.sublist(start, start + len));
         if (num == 1) {
           text = value;

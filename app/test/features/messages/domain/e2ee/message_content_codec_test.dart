@@ -22,7 +22,7 @@ void main() {
       File('../testdata/report_payload_decode.json').readAsStringSync(),
     ) as Map<String, dynamic>;
     final cases = (f['cases'] as List).cast<Map<String, dynamic>>();
-    expect(cases.length, 27);
+    expect(cases.length, 29);
     for (final c in cases) {
       final d = decodeMessageContentLenient(_hex(c['payload_hex'] as String));
       final name = c['name'];
@@ -93,11 +93,29 @@ void main() {
     expect(d.reportKey, isNull);
   });
 
-  test('65 nested groups are not wireOk', () {
-    Uint8List nest(int n) =>
-        Uint8List.fromList([...List.filled(n, 0x0b), ...List.filled(n, 0x0c)]);
-    expect(decodeMessageContentLenient(nest(64)).wireOk, isTrue);
-    expect(decodeMessageContentLenient(nest(65)).wireOk, isFalse);
+  // Go's protowire allows 10001 nested groups (DefaultRecursionLimit 10000) and refuses 10002.
+  const goMaxGroups = 10001;
+  Uint8List nest(int n) =>
+      Uint8List.fromList([...List.filled(n, 0x0b), ...List.filled(n, 0x0c)]);
+
+  test('N nested groups are wireOk like Go', () {
+    expect(decodeMessageContentLenient(nest(goMaxGroups)).wireOk, isTrue);
+  });
+
+  test('N+1 nested groups are not wireOk', () {
+    expect(decodeMessageContentLenient(nest(goMaxGroups + 1)).wireOk, isFalse);
+  });
+
+  test('goUtf8Lossy follows the Go rule', () {
+    String lossy(List<int> b) => goUtf8Lossy(Uint8List.fromList(b));
+    expect(lossy([0xE2, 0x82, 0xAC]), '€');
+    expect(lossy([0xF0, 0x9F, 0x98, 0x80]), '\u{1F600}');
+    expect(lossy([0xC0]), '�');
+    expect(lossy([0xC1]), '�');
+    expect(lossy([0xF5]), '�');
+    expect(lossy([0xE0, 0x80]), '��');
+    expect(lossy([0xF0, 0x80]), '��');
+    expect(lossy([0xF4, 0x90]), '��');
   });
 
   test('encode refuses a 33-byte report key and content over 4096 bytes', () {
