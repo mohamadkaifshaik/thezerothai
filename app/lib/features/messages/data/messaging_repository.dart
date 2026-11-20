@@ -93,6 +93,20 @@ class MessagingRepository {
   /// outlives thread screens and is emptied by [clearSession].
   final MessageOutbox outbox = MessageOutbox();
 
+  /// Set by bootstrap. Called with the conversation id when a ListMessages or
+  /// SendMessage answer shows the conversation is MLS (an encrypted message
+  /// was dropped before the cache, or its header says MLS), and when a cached
+  /// encrypted marker was kept against a NONE answer. At most once per public
+  /// call and conversation, after the cache write. Never carries content.
+  void Function(String conversationId)? onEncryptedConversation;
+
+  /// Called after [acceptMessageRequest] succeeded (the user accepted).
+  void Function(String conversationId)? onRequestAccepted;
+
+  /// Called after [deleteConversation] succeeded (delete-for-me on this
+  /// device; also after the NOT_FOUND answer, which counts as done).
+  void Function(String conversationId)? onConversationDeleted;
+
   Future<void> _tail = Future<void>.value();
   final Map<String, Future<Object?>> _inflight = {};
   final StreamController<void> _conversationsChanged =
@@ -206,14 +220,16 @@ class MessagingRepository {
         ? page.requestCount.toInt()
         : null;
     final moved = await _requestStateMoved(folder, page.conversations);
+    final reported = <String>{};
     await _store.applyConversationsRefresh(
       folder,
-      items: page.conversations,
+      items: await _stickyConversations(page.conversations, reported),
       sinceToken: page.sinceToken,
       session: session,
       requestCount: requestCount,
       requestCountGeneration: generation,
     );
+    _report(reported);
     if (moved) _notifyConversationsChanged();
     final snapshot = await _store.readConversations(folder);
     return ConversationsResult(
@@ -244,9 +260,10 @@ class MessagingRepository {
   ) async {
     final page = await _listConversations(folder);
     final moved = await _requestStateMoved(folder, page.conversations);
+    final reported = <String>{};
     await _store.applyConversationsColdOpen(
       folder,
-      items: page.conversations,
+      items: await _stickyConversations(page.conversations, reported),
       sinceToken: page.sinceToken,
       nextPageToken: page.nextPageToken,
       session: session,
@@ -254,6 +271,7 @@ class MessagingRepository {
           ? page.requestCount.toInt()
           : null,
     );
+    _report(reported);
     final snapshot = await _keepPagingConversations(
       folder,
       session,
@@ -284,12 +302,14 @@ class MessagingRepository {
       if (page == null) {
         return (await _conversationsColdOpen(folder, session)).snapshot;
       }
+      final reported = <String>{};
       await _store.applyConversationsOlder(
         folder,
-        items: page.conversations,
+        items: await _stickyConversations(page.conversations, reported),
         nextPageToken: page.nextPageToken,
         session: session,
       );
+      _report(reported);
       return _keepPagingConversations(
         folder,
         session,
@@ -317,12 +337,14 @@ class MessagingRepository {
         pageToken: current.olderPageToken,
       );
       if (page == null) break;
+      final reported = <String>{};
       await _store.applyConversationsOlder(
         folder,
-        items: page.conversations,
+        items: await _stickyConversations(page.conversations, reported),
         nextPageToken: page.nextPageToken,
         session: session,
       );
+      _report(reported);
       current = await _store.readConversations(folder);
       wasEmpty = page.conversations.isEmpty;
     }
@@ -364,19 +386,26 @@ class MessagingRepository {
 
   Future<_ThreadRefresh> _refreshThreadShared(String conversationId) {
     final session = _store.session;
-    return _single(
-      'thread:$conversationId',
-      () => _refreshThread(conversationId, session),
-    );
+    return _single('thread:$conversationId', () async {
+      // Conversations found to be encrypted by this call: reported once,
+      // whatever number of pages it took.
+      final reported = <String>{};
+      try {
+        return await _refreshThread(conversationId, session, reported);
+      } finally {
+        _report(reported);
+      }
+    });
   }
 
   Future<_ThreadRefresh> _refreshThread(
     String conversationId,
     int session,
+    Set<String> reported,
   ) async {
     final state = await _store.readThread(conversationId);
     if (state.sinceToken.isEmpty) {
-      return _threadColdOpen(conversationId, session);
+      return _threadColdOpen(conversationId, session, reported);
     }
     final first = await _listMessagesUnlessRejected(
       conversationId,
@@ -385,25 +414,32 @@ class MessagingRepository {
     );
     if (first == null) {
       await _store.clearThreadSince(conversationId, session: session);
-      return _threadColdOpen(conversationId, session);
+      return _threadColdOpen(conversationId, session, reported);
     }
+    _noteMlsHeader(conversationId, first, reported);
     // A full since page carries gap_page_token: page it until it ends, then
     // write everything at once, so a failure part-way leaves the cache and
     // its since_token as they were and the next poll retries.
-    final messages = [...first.messages];
+    final messages = _withoutEncrypted(conversationId, [
+      ...first.messages,
+    ], reported);
     var gap = first.gapPageToken;
     var pages = 0;
     while (gap.isNotEmpty) {
       if (pages++ >= kMaxGapPages) {
-        return _threadColdOpen(conversationId, session);
+        return _threadColdOpen(conversationId, session, reported);
       }
       final next = await _listMessagesUnlessRejected(
         conversationId,
         'page_token',
         pageToken: gap,
       );
-      if (next == null) return _threadColdOpen(conversationId, session);
-      messages.addAll(next.messages);
+      if (next == null) {
+        return _threadColdOpen(conversationId, session, reported);
+      }
+      messages.addAll(
+        _withoutEncrypted(conversationId, next.messages, reported),
+      );
       gap = next.nextPageToken;
     }
     final added = await _store.applyThreadRefresh(
@@ -418,12 +454,23 @@ class MessagingRepository {
   Future<_ThreadRefresh> _threadColdOpen(
     String conversationId,
     int session,
+    Set<String> reported,
   ) async {
     final page = await _listMessages(conversationId);
+    _noteMlsHeader(conversationId, page, reported);
+    final items = _withoutEncrypted(conversationId, page.messages, reported);
+    var header = page.hasConversation() ? page.conversation : null;
+    if (header != null && header.id.isNotEmpty) {
+      header = await _markedRow(
+        header,
+        seenEncrypted: reported.contains(conversationId),
+        reported: reported,
+      );
+    }
     final added = await _store.applyThreadColdOpen(
       conversationId,
-      items: page.messages,
-      conversation: page.hasConversation() ? page.conversation : null,
+      items: items,
+      conversation: header,
       sinceToken: page.sinceToken,
       nextPageToken: page.nextPageToken,
       session: session,
@@ -446,21 +493,31 @@ class MessagingRepository {
     return _single('thread-older:$conversationId', () async {
       final state = await _store.readThread(conversationId);
       if (state.olderPageToken.isEmpty) return state;
-      final page = await _listMessagesUnlessRejected(
-        conversationId,
-        'page_token',
-        pageToken: state.olderPageToken,
-      );
-      if (page == null) {
-        return (await _threadColdOpen(conversationId, session)).snapshot;
+      final reported = <String>{};
+      try {
+        final page = await _listMessagesUnlessRejected(
+          conversationId,
+          'page_token',
+          pageToken: state.olderPageToken,
+        );
+        if (page == null) {
+          return (await _threadColdOpen(
+            conversationId,
+            session,
+            reported,
+          )).snapshot;
+        }
+        _noteMlsHeader(conversationId, page, reported);
+        await _store.applyThreadOlder(
+          conversationId,
+          items: _withoutEncrypted(conversationId, page.messages, reported),
+          nextPageToken: page.nextPageToken,
+          session: session,
+        );
+        return await _store.readThread(conversationId);
+      } finally {
+        _report(reported);
       }
-      await _store.applyThreadOlder(
-        conversationId,
-        items: page.messages,
-        nextPageToken: page.nextPageToken,
-        session: session,
-      );
-      return _store.readThread(conversationId);
     });
   }
 
@@ -485,7 +542,11 @@ class MessagingRepository {
   ) {
     return _single('search-older:$conversationId', () async {
       final page = await _listMessages(conversationId, pageToken: pageToken);
-      return OlderSearchPage(page.messages.toList(), page.nextPageToken);
+      final reported = <String>{};
+      _noteMlsHeader(conversationId, page, reported);
+      final kept = _withoutEncrypted(conversationId, page.messages, reported);
+      _report(reported);
+      return OlderSearchPage(kept.toList(), page.nextPageToken);
     });
   }
 
@@ -525,26 +586,189 @@ class MessagingRepository {
     final response = await _gate.run(
       () => _apiClient.messaging.sendMessage(request),
     );
-    await _store.applySent(
-      response.message,
-      response.hasConversation() ? response.conversation : null,
-      session: session,
-    );
+    // Never mutates [response] (it is returned): the row is a copy.
+    final reported = <String>{};
+    final shaped = _encryptedShaped(response.message);
+    var conversation = response.hasConversation()
+        ? response.conversation
+        : null;
+    if (shaped) {
+      final id = response.message.conversationId.isNotEmpty
+          ? response.message.conversationId
+          : conversation?.id ?? '';
+      if (id.isNotEmpty) reported.add(id);
+    }
+    if (conversation != null && conversation.id.isNotEmpty) {
+      conversation = await _markedRow(
+        conversation,
+        seenEncrypted: shaped,
+        reported: reported,
+      );
+    }
+    // An encrypted message is never cached; without one there is no
+    // conversation row written either (applySent needs a message id).
+    if (!shaped) {
+      await _store.applySent(response.message, conversation, session: session);
+    }
+    _report(reported);
     return response;
   }
 
   // --- encrypted messaging (MLS) -------------------------------------------
   //
-  // None of these joins the `_single` queue or touches `_store`, the outbox
-  // or the read RateLimitHold: the pipeline serialises per conversation and
-  // nothing of an encrypted message reaches the cache here. Each waits at
-  // most [kMlsRpcTimeout]; a timeout is a [NetworkException] and means the
+  // None of these joins the `_single` queue or touches `_store` or the
+  // outbox: the pipeline serialises per conversation and nothing of an
+  // encrypted message reaches the cache here. Only [listMlsMessages] shares
+  // the read RateLimitHold (it is a list read like the others). Each waits
+  // at most [kMlsRpcTimeout]; a timeout is a [NetworkException] and means the
   // outcome is UNKNOWN. Nothing is logged.
 
   Future<T> _mls<T>(Future<T> Function() call) => call().timeout(
     kMlsRpcTimeout,
     onTimeout: () => throw const NetworkException('timed out'),
   );
+
+  /// One ListMessages call for an encrypted conversation. Same gate,
+  /// rate-limit hold and error mapping as the existing reads; NOTHING is
+  /// written to MessagingStore (no message, no token, no conversation row)
+  /// and the call does not join the `_single` queue. At most one token may be
+  /// set. Page size 50. A rejected since token throws
+  /// `ValidationException(field: 'since_token')` to the caller, which keeps
+  /// its stored messages (the device's store is the only copy).
+  Future<pb.ListMessagesResponse> listMlsMessages({
+    required String conversationId,
+    String sinceToken = '',
+    String pageToken = '',
+  }) {
+    assert(
+      sinceToken.isEmpty || pageToken.isEmpty,
+      'At most one of sinceToken and pageToken',
+    );
+    return _mls(
+      () => _readCall(
+        () => _apiClient.messaging.listMessages(
+          pb.ListMessagesRequest(
+            conversationId: conversationId,
+            pageSize: 50,
+            sinceToken: sinceToken,
+            pageToken: pageToken,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// True when the cached row of [conversationId] was ever marked encrypted
+  /// (sticky: a later answer never clears it). Reads the cached row only; no
+  /// vault and no network.
+  Future<bool> cachedEverEncrypted(String conversationId) async =>
+      (await _store.conversation(conversationId))?.lastMessage.encrypted ??
+      false;
+
+  // --- encrypted messages and the cache (R14) -------------------------------
+
+  /// A message that is encrypted: ciphertext, a generation, or removed
+  /// ciphertext. Plaintext messages are kept, whatever conversation they are
+  /// in.
+  bool _encryptedShaped(pb.Message m) =>
+      m.ciphertext.isNotEmpty ||
+      m.mlsGeneration != Int64.ZERO ||
+      m.ciphertextRemoved;
+
+  /// [items] without the encrypted messages; the same list when there are
+  /// none. Notes [conversationId] in [reported] when one was dropped.
+  List<pb.Message> _withoutEncrypted(
+    String conversationId,
+    List<pb.Message> items,
+    Set<String> reported,
+  ) {
+    if (!items.any(_encryptedShaped)) return items;
+    reported.add(conversationId);
+    return [
+      for (final m in items)
+        if (!_encryptedShaped(m)) m,
+    ];
+  }
+
+  void _noteMlsHeader(
+    String conversationId,
+    pb.ListMessagesResponse page,
+    Set<String> reported,
+  ) {
+    if (page.hasConversation() &&
+        page.conversation.encryption ==
+            ConversationEncryption.CONVERSATION_ENCRYPTION_MLS) {
+      reported.add(conversationId);
+    }
+  }
+
+  /// [item] as it may be written: when the cached row was ever marked
+  /// encrypted (sticky), or this answer is MLS or dropped an encrypted
+  /// message ([seenEncrypted]), the row keeps `lastMessage.encrypted` and an
+  /// empty snippet whatever the server answered. [item] is never mutated; the
+  /// same object comes back when nothing changes. The cached row is read here,
+  /// right before the caller's write. With [stickyOnly] only a kept cached
+  /// marker is reported.
+  Future<pb.Conversation> _markedRow(
+    pb.Conversation item, {
+    required bool seenEncrypted,
+    required Set<String> reported,
+    bool stickyOnly = false,
+  }) async {
+    final cached = await _store.conversation(item.id);
+    final sticky = cached != null && cached.lastMessage.encrypted;
+    final mls =
+        item.encryption == ConversationEncryption.CONVERSATION_ENCRYPTION_MLS;
+    if (!sticky && !seenEncrypted && !mls) return item;
+    if (sticky || (!stickyOnly && (seenEncrypted || mls))) {
+      reported.add(item.id);
+    }
+    if (item.hasLastMessage() &&
+        item.lastMessage.encrypted &&
+        item.lastMessage.snippet.isEmpty) {
+      return item;
+    }
+    final base = item.hasLastMessage()
+        ? item.lastMessage
+        : (cached != null && cached.hasLastMessage()
+              ? cached.lastMessage
+              : pb.MessagePreview());
+    return item.deepCopy()
+      ..lastMessage = (base.deepCopy()
+        ..encrypted = true
+        ..snippet = '');
+  }
+
+  Future<List<pb.Conversation>> _stickyConversations(
+    List<pb.Conversation> items,
+    Set<String> reported,
+  ) async {
+    var changed = false;
+    final out = <pb.Conversation>[];
+    for (final item in items) {
+      if (item.id.isEmpty) {
+        out.add(item);
+        continue;
+      }
+      final marked = await _markedRow(
+        item,
+        seenEncrypted: false,
+        reported: reported,
+        stickyOnly: true,
+      );
+      if (!identical(marked, item)) changed = true;
+      out.add(marked);
+    }
+    return changed ? out : items;
+  }
+
+  void _report(Set<String> conversationIds) {
+    final callback = onEncryptedConversation;
+    if (callback == null) return;
+    for (final id in conversationIds) {
+      callback(id);
+    }
+  }
 
   /// Sends one encrypted message built on [pair] (the sender's current
   /// epoch). Exactly one target. [mlsInit] is a serialized `pb.MlsInit` (the
@@ -728,6 +952,7 @@ class MessagingRepository {
     await _store.markConversationAccepted(conversationId, session: session);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
     _notifyConversationsChanged();
+    onRequestAccepted?.call(conversationId);
   }
 
   /// Deletes the conversation for the caller only (also "delete request").
@@ -756,6 +981,7 @@ class MessagingRepository {
     await _store.removeConversation(conversationId);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
     _notifyConversationsChanged();
+    onConversationDeleted?.call(conversationId);
   }
 
   /// The caller blocked the sender of a received request: drops its row
