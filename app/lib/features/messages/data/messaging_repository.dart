@@ -10,8 +10,10 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import '../../posts/domain/posts_feature_flag.dart' show kFeaturePosts;
 import '../domain/conversation_id.dart';
 import '../domain/e2ee/e2ee_types.dart' show E2eePipelineError;
+import '../domain/messaging_feature_flag.dart';
 import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
 import 'message_outbox.dart';
@@ -692,6 +694,47 @@ class MessagingRepository {
     }
     return response;
   }
+
+  /// Asks the server whether the caller may share [postId] in a message
+  /// (`CheckPostShare`, `dm_share_check`): the id to put in the message (a
+  /// REPOST's original), or the same typed error `SendMessage` gives for a
+  /// shared post. Read-only, so no idempotency key. For an ENCRYPTED share,
+  /// once per share action, before any send.
+  ///
+  /// Per caller, like a send. FEATURE_DISABLED for `dm_share_check` or `posts`
+  /// is rethrown as [kFeatureDmPostShare] (post sharing is unavailable) so the
+  /// existing line is drawn, and, converted inside the gate's call, it never
+  /// turns messaging off (see [MessagingFeatureGate]); one for `messaging`
+  /// keeps its feature and is recorded as usual. Waits at most
+  /// [kMlsRpcTimeout]: a timeout is a `NetworkException`.
+  ///
+  /// Retry: the network layer has no per-call opt-out. `RetryInterceptor`
+  /// retries every NO_SIDE_EFFECTS call that answers UNAVAILABLE,
+  /// DEADLINE_EXCEEDED or UNKNOWN, `maxAttempts` = 3 attempts in all (2
+  /// retries), with backoff, and each attempt draws on BOTH the server's
+  /// 10-per-minute bucket and its 300-per-day cap, so one share can spend up
+  /// to 3 of each. Nothing logs the id.
+  Future<String> checkPostShare(String postId) => _mls(() async {
+    final response = await _gate.run(() async {
+      try {
+        return await guardApiCall(
+          () => _apiClient.messaging.checkPostShare(
+            pb.CheckPostShareRequest(postId: postId),
+          ),
+        );
+      } on FeatureDisabledException catch (error) {
+        if (error.feature != kFeatureDmShareCheck &&
+            error.feature != kFeaturePosts) {
+          rethrow;
+        }
+        throw FeatureDisabledException(
+          error.message,
+          feature: kFeatureDmPostShare,
+        );
+      }
+    });
+    return response.sharedPostId;
+  });
 
   // --- encrypted messaging (MLS) -------------------------------------------
   //

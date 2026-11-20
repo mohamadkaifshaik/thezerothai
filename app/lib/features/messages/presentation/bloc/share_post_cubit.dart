@@ -6,7 +6,6 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
-import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 import '../../data/messaging_repository.dart';
 import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/messaging_feature_flag.dart';
@@ -150,8 +149,19 @@ class SharePostState {
 
 const Object _keep = Object();
 
-/// Fetches a post under the caller's own rules (PostsRepository.getPost).
-typedef SharedPostLookup = Future<posts_pb.PostView> Function(String postId);
+/// One answer of the share check: the id to share, or the refusal. A class,
+/// not a record: nothing here may print the post id.
+class _ShareCheck {
+  const _ShareCheck.passed(String this.sharedPostId) : refusal = null;
+  const _ShareCheck.refused(AppException this.refusal) : sharedPostId = null;
+
+  final String? sharedPostId;
+  final AppException? refusal;
+}
+
+/// The server's share check (`MessagingRepository.checkPostShare`): the id to
+/// share, or a typed refusal.
+typedef SharePostCheck = Future<String> Function(String postId);
 
 /// Sends one post to up to [kSharePostMaxRecipients] people, one
 /// `SendMessage` after another (never in parallel: the per-minute bucket and
@@ -175,12 +185,14 @@ class SharePostCubit extends Cubit<SharePostState> {
     this.ownUserId,
     bool Function()? isEnabled,
     EncryptedMessaging? encrypted,
-    SharedPostLookup? getPost,
+    SharePostCheck? check,
+    bool Function()? checkEnabled,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _repository = repository,
        _encrypted = encrypted,
-       _getPost = getPost,
+       _check = check,
+       _checkEnabled = checkEnabled ?? (() => false),
        _isEnabled = isEnabled ?? (() => true),
        _uuid = uuid ?? const Uuid(),
        super(const SharePostState());
@@ -190,9 +202,13 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// The encrypted port, tried first for each person; null: today's path.
   final EncryptedMessaging? _encrypted;
 
-  /// Asks the server for the shared post before an encrypted share (the
-  /// server cannot see the post id inside the ciphertext); see [_refusal].
-  final SharedPostLookup? _getPost;
+  /// The server's share check, asked once before an encrypted share (the
+  /// server cannot see the post id inside the ciphertext); see [_checkShare].
+  final SharePostCheck? _check;
+
+  /// Whether `dm_share_check` is in the user's enabled features. While it is
+  /// not, an encrypted share is refused (there is no fallback check).
+  final bool Function() _checkEnabled;
   bool _checking = false;
   final bool Function() _isEnabled;
   final Uuid _uuid;
@@ -261,7 +277,11 @@ class SharePostCubit extends Cubit<SharePostState> {
     ];
     // With no port (or no post) the flag is read only in the loop, as before.
     final guarded = _encrypted != null && postId.isNotEmpty;
-    final enabled = !guarded || _isEnabled();
+    // With a port, an encrypted share needs the share flag AND the server's
+    // check (`dm_share_check` in the enabled features, and a check function);
+    // without either it is refused here, with no call, like the feature off.
+    final enabled =
+        !guarded || (_isEnabled() && _check != null && _checkEnabled());
     if (guarded && !enabled) {
       emit(state.copyWith(started: true, endedBy: null));
       // Decided once: never fall into the loop unchecked.
@@ -274,6 +294,9 @@ class SharePostCubit extends Cubit<SharePostState> {
       );
       return;
     }
+    // The post the port shares: the id the check returned (a REPOST's
+    // original), else the post's own.
+    var sharedId = postId;
     if (guarded) {
       // One emit, so an earlier failure is never shown again: the first row
       // goes to the existing sending state, the others are cleared to idle.
@@ -292,22 +315,25 @@ class SharePostCubit extends Cubit<SharePostState> {
           ],
         ),
       );
-      // The server cannot check an encrypted share, so it is asked once for
-      // the post, in the existing sending state, before any send.
+      // The server cannot see the post inside the ciphertext, so it is asked
+      // once through CheckPostShare, in the existing sending state, before
+      // any send.
       _checking = true;
-      AppException? refusal;
+      _ShareCheck result;
       try {
-        refusal = await _refusal();
+        result = await _checkShare();
       } finally {
         _checking = false;
       }
       if (isClosed) return;
+      final refusal = result.refusal;
       if (refusal != null) {
         for (final id in ids) {
           _setRow(id, ShareRowStatus.failed, error: refusal);
         }
         return;
       }
+      sharedId = result.sharedPostId!;
     } else {
       emit(state.copyWith(started: true, endedBy: null));
     }
@@ -337,7 +363,7 @@ class SharePostCubit extends Cubit<SharePostState> {
               to: ThreadRef.recipientOf(row.peer),
               localId: row.key,
               text: body,
-              sharedPostId: postId,
+              sharedPostId: sharedId,
             );
           } on Object catch (_, stack) {
             // Never the thrown object: it may carry the caption.
@@ -399,56 +425,33 @@ class SharePostCubit extends Cubit<SharePostState> {
     }
   }
 
-  /// The error that refuses the whole share, or null when the post may go.
-  /// Fails closed: a protected author's post (the original's, for a REPOST)
-  /// goes only from its author; anything unknown refuses. Nothing about the
+  /// The server's share check, asked ONCE for the whole share action: the id
+  /// to put in the message (the original's for a REPOST), or the error that
+  /// refuses the share for every recipient. The server applies SendMessage's
+  /// rules, so an [AppException] is returned as is (the copy is the send's).
+  /// Fails closed: anything unexpected refuses as
+  /// [ProtectedAccountException]. Nothing about the
   /// post is logged or reported (a fixed StateError at most).
-  Future<AppException?> _refusal() async {
-    const protected = ProtectedAccountException();
-    final lookup = _getPost;
-    if (lookup == null) return protected;
+  Future<_ShareCheck> _checkShare() async {
+    // [send] already refused a share with no check function or the flag off.
+    final check = _check;
+    if (check == null) {
+      return const _ShareCheck.refused(ProtectedAccountException());
+    }
     try {
-      final answer = await lookup(postId);
-      // The id sent is this post's, so it must pass on its own.
-      if (!_verified(answer)) return protected;
-      final judged = answer.post;
-      if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) {
-        // The embed names the original and its author but not its
-        // visibility, so the original is fetched once more and must pass too.
-        final originalId = judged.embedded.postId;
-        if (originalId.isEmpty) return protected;
-        final original = await lookup(originalId);
-        if (!_verified(original)) return protected;
-        if (original.post.kind == posts_pb.PostKind.POST_KIND_REPOST) {
-          return protected;
-        }
-      }
-      return null;
+      final sharedId = await check(postId);
+      if (sharedId.isEmpty) throw StateError('sharedPost');
+      return _ShareCheck.passed(sharedId);
     } on AppException catch (error) {
-      // An error that would end any share keeps its own, truer copy.
-      return sharePostErrorEndsShare(error) ? error : protected;
+      return _ShareCheck.refused(error);
     } on Object catch (_, stack) {
       try {
         onUnexpectedError?.call(StateError('sharedPost'), stack);
       } on Object {
         // A failing reporter must not leave the rows stuck in "sending".
       }
-      return protected;
+      return const _ShareCheck.refused(ProtectedAccountException());
     }
-  }
-
-  /// Allow-list: the answer carries a post, the embed is not blocked for the
-  /// sender, and the post is public or the sender's own.
-  bool _verified(posts_pb.PostView answer) {
-    if (!answer.hasPost() ||
-        answer.embedViewerState ==
-            posts_pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED) {
-      return false;
-    }
-    final post = answer.post;
-    final own = ownUserId;
-    final ownPost = own != null && own.isNotEmpty && post.author.userId == own;
-    return post.visibility == posts_pb.Visibility.VISIBILITY_PUBLIC || ownPost;
   }
 
   ShareRecipient _row(String userId) =>

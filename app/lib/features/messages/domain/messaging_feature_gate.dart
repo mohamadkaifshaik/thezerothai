@@ -119,7 +119,8 @@ class MessagingFeatureGate extends ServiceFeatureGate {
     notifyListeners();
   }
 
-  /// A FEATURE_DISABLED for `dm_post_share` (a share send) or `e2ee_dm` (an
+  /// A FEATURE_DISABLED for `dm_post_share` (a share send), `dm_share_check`
+  /// (the share check) or `e2ee_dm` (an
   /// encrypted send or `mls_init`) is that one sub-feature, not the messaging
   /// service: remembering it would stop every plain send until the next
   /// `GetMe`. It is rethrown to the caller by [run] all the same.
@@ -131,6 +132,7 @@ class MessagingFeatureGate extends ServiceFeatureGate {
 
   bool _isSubFeature(FeatureDisabledException exception) =>
       exception.feature == kFeatureDmPostShare ||
+      exception.feature == kFeatureDmShareCheck ||
       exception.feature == kFeatureE2eeDm;
 
   /// Reports an unexpected failure outside an API call (a step name only,
