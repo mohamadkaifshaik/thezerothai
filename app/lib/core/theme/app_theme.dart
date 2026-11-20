@@ -349,6 +349,9 @@ abstract final class AppSize {
 
   /// Width of a side sheet (the chat info sheet).
   static const double sideSheet = 360;
+
+  /// Widest the security code grid grows (desktop dialog).
+  static const double securityCodeGridMax = 360;
 }
 
 /// Semantic colours that the Material [ColorScheme] has no slot for.
@@ -1505,6 +1508,25 @@ abstract final class AppTextStyles {
         ? cardTitle(theme)
         : theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700);
   }
+
+  /// Size of a security code group by width: desktop, tablet, phone.
+  static const double securityCodeFigureDesktop = 20;
+  static const double securityCodeFigureTablet = 16;
+  static const double securityCodeFigurePhone = 18;
+
+  /// One group of a security code: Inter [size] sp w600 with tabular figures
+  /// (every digit the same width, so groups line up in a grid).
+  static TextStyle securityCodeFigure(ThemeData theme, {double size = 20}) =>
+      _type(
+        AppFonts.body,
+        size,
+        FontWeight.w600,
+        height: 1.3,
+        tracking: 0.04,
+      ).copyWith(
+        color: theme.colorScheme.onSurface,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
 
   /// The "DZEROTH" wordmark: Inter 15 sp w700, +0.13 em.
   static TextStyle wordmark(ThemeData theme) => _type(

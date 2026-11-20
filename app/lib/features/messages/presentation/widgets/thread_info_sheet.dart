@@ -5,6 +5,7 @@ import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../../shared/widgets/primitives/app_menu_item_row.dart';
 import '../../../../shared/widgets/primitives/app_side_sheet.dart';
+import '../e2ee/encryption_copy.dart';
 
 /// The name of the chat info sheet, and the tooltip of the button opening
 /// it (the same as the phone and desktop menu's).
@@ -13,7 +14,7 @@ const kConversationInfoLabel = 'Conversation info';
 /// What the chat info sheet asks the thread to do. The sheet pops it; the
 /// thread runs the same flow as its menu (`Block`, `Report`, `Delete`) from
 /// its own context once the sheet has closed.
-enum ThreadInfoAction { viewProfile, block, report, delete }
+enum ThreadInfoAction { viewProfile, encryption, block, report, delete }
 
 /// The chat info side sheet of a conversation (tablet plan sections 4.1
 /// "Chat" and 4.2): it replaces the thread's info menu at 600-1199dp on the
@@ -34,12 +35,17 @@ class ThreadInfoSheet extends StatelessWidget {
     required this.canBlock,
     required this.showReport,
     required this.canReport,
+    this.showEncryption = false,
   });
 
   final common.AuthorSnapshot peer;
   final bool canBlock;
   final bool showReport;
   final bool canReport;
+
+  /// The Encryption row (an encrypted thread that is not an incoming
+  /// request); first in the list.
+  final bool showEncryption;
 
   /// Opens the sheet from [context] and resolves to the chosen action, or
   /// null when it was closed.
@@ -49,6 +55,7 @@ class ThreadInfoSheet extends StatelessWidget {
     required bool canBlock,
     required bool showReport,
     required bool canReport,
+    bool showEncryption = false,
   }) => showAppSideSheet<ThreadInfoAction>(
     context: context,
     semanticLabel: kConversationInfoLabel,
@@ -57,6 +64,7 @@ class ThreadInfoSheet extends StatelessWidget {
       canBlock: canBlock,
       showReport: showReport,
       canReport: canReport,
+      showEncryption: showEncryption,
     ),
   );
 
@@ -76,6 +84,12 @@ class ThreadInfoSheet extends StatelessWidget {
         ),
         const Divider(height: 1),
         const SizedBox(height: AppSpacing.xs),
+        if (showEncryption)
+          ThreadInfoActionRow(
+            icon: Icons.lock_outline,
+            label: kEncryptionEntryLabel,
+            onTap: () => choose(ThreadInfoAction.encryption),
+          ),
         if (canBlock)
           ThreadInfoActionRow(
             icon: Icons.block,
