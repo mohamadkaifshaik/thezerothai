@@ -113,5 +113,11 @@ void main() {
     final seen = await pump(tester, features: {}, device: device);
     expect(seen.last, EncryptionAccess.hidden);
     expect(device.retryOpenCalls, 0);
+    // The builder legitimately listens to vaultStatus even when hidden (it
+    // must rebuild when the status changes); it listens to nothing else.
+    expect(device.vaultStatus.listenerCount, 1);
+    expect(device.deviceKeys.listenerCount, 0);
+    expect(device.engineUnavailable.listenerCount, 0);
+    expect(device.unavailableLong.listenerCount, 0);
   });
 }

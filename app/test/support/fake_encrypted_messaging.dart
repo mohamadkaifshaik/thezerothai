@@ -85,15 +85,6 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
           plain || (e.text.isEmpty && e.sharedPostId.isEmpty),
           'text only for a visible, ok message',
         );
-        // Port doc: for an undecryptable row mine is true only for a lost own
-        // send (R7). The fake models "lost own send" as an own row that is not
-        // delivered.
-        assert(
-          e.state != EncryptedMessageState.undecryptable ||
-              !e.mine ||
-              e.progress != SendProgress.delivered,
-          'an undecryptable row is mine only for a lost own send',
-        );
         assert(
           e.problem == SendProblem.none || e.progress == SendProgress.notSent,
           'problem is set only with progress notSent',
@@ -167,10 +158,10 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   Future<void> setUpDeviceAgain() async {
     calls.add('setUpDeviceAgain');
     setUpAgainCalls++;
-    _throwIfFailing();
     if (!removedElsewhere.value) {
       throw StateError('the device is not removed elsewhere');
     }
+    _throwIfFailing();
   }
 
   @override
@@ -199,10 +190,13 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     return c.stream;
   }
 
+  final Set<String> _queuedIds = {};
+
   /// A row is "already unsent" when a scripted thread holds it undelivered or
-  /// this fake already took a send with that id.
+  /// an earlier send with that id returned a queued outcome (a refused or
+  /// notEncrypted answer saved nothing, so the same id may be sent again).
   bool _isUnsentRow(String localId) =>
-      sent.any((s) => s.localId == localId) ||
+      _queuedIds.contains(localId) ||
       _threads.values.any(
         (t) => t.entries.any(
           (e) =>
@@ -238,7 +232,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     final hold = holdSend;
     if (hold != null) await hold.future;
     _throwIfFailing();
-    return nextSendOutcome;
+    final outcome = nextSendOutcome;
+    if (outcome.kind == SendOutcomeKind.queued) _queuedIds.add(localId);
+    return outcome;
   }
 
   @override

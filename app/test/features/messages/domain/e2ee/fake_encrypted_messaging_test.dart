@@ -193,36 +193,27 @@ void main() {
     void accepts(DecryptedMessage m) =>
         FakeEncryptedMessaging().setThread(ref, thread(m));
 
-    test(
-      'an undecryptable row has mine false unless it is a lost own send',
-      () {
-        refuses(
-          DecryptedMessage(
-            id: 'a',
-            at: _at,
-            mine: true,
-            state: EncryptedMessageState.undecryptable,
-          ),
-        );
-        accepts(
-          DecryptedMessage(
-            id: 'a',
-            at: _at,
-            mine: true,
-            state: EncryptedMessageState.undecryptable,
-            progress: SendProgress.notSent,
-          ),
-        );
-        accepts(
-          DecryptedMessage(
-            id: 'a',
-            at: _at,
-            mine: false,
-            state: EncryptedMessageState.undecryptable,
-          ),
-        );
-      },
-    );
+    test('a delivered own undecryptable row (a lost own send) is accepted', () {
+      accepts(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: true,
+          state: EncryptedMessageState.undecryptable,
+        ),
+      );
+    });
+
+    test('a received undecryptable row is accepted', () {
+      accepts(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: false,
+          state: EncryptedMessageState.undecryptable,
+        ),
+      );
+    });
 
     test('a problem is set only with progress notSent', () {
       refuses(
@@ -314,6 +305,36 @@ void main() {
         fake.removedElsewhere.value = true;
         await fake.setUpDeviceAgain();
         expect(fake.setUpAgainCalls, 2);
+      },
+    );
+
+    test('setUpDeviceAgain when not removed is a StateError even with a failure scripted', () async {
+      final fake = FakeEncryptedMessaging()..failNext = ArgumentError('x');
+      await expectLater(fake.setUpDeviceAgain(), throwsStateError);
+    });
+
+    test('a send repeated after a refused outcome is accepted', () async {
+      final fake = FakeEncryptedMessaging()
+        ..nextSendOutcome = const SendOutcome(
+          SendOutcomeKind.refused,
+          problem: SendProblem.tryTomorrow,
+        );
+      await fake.send(to: ref, localId: 'r1', text: 'x');
+      await fake.send(to: ref, localId: 'r1', text: 'x');
+      fake.nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted);
+      await fake.send(to: ref, localId: 'r1', text: 'x');
+      expect(fake.sent, hasLength(3));
+    });
+
+    test(
+      'a send repeated after a queued outcome is an ArgumentError',
+      () async {
+        final fake = FakeEncryptedMessaging();
+        await fake.send(to: ref, localId: 'q1', text: 'x');
+        await expectLater(
+          fake.send(to: ref, localId: 'q1', text: 'x'),
+          throwsArgumentError,
+        );
       },
     );
 
