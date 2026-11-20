@@ -91,6 +91,9 @@ abstract final class AppLayout {
 
   /// Fixed width of the right-hand column shown from [AppBreakpoints.tablet].
   static const double sideColumnWidth = AppSize.sideColumn;
+
+  /// Widest a conversation state notice grows (it centres above the composer).
+  static const double stateNoticeMaxWidth = 720;
 }
 
 abstract final class AppRadius {

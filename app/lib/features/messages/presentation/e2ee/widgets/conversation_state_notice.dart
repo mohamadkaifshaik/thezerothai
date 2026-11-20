@@ -92,9 +92,14 @@ class ConversationStateNotice extends StatelessWidget {
         MediaQuery.sizeOf(context).width < AppBreakpoints.mobile ||
         MediaQuery.textScalerOf(context).scale(1) >= 1.5;
     const minSize = Size(0, AppSpacing.minTapTarget);
+    // Never focus a blocking or destructive action by itself: changesBlocked
+    // offers Block and Reset only.
+    final canFocus =
+        focusFirstAction &&
+        security.state != ConversationEncryptionState.changesBlocked;
     var first = true;
     bool takeFocus() {
-      final v = first && focusFirstAction;
+      final v = first && canFocus;
       first = false;
       return v;
     }
@@ -103,7 +108,6 @@ class ConversationStateNotice extends StatelessWidget {
       if (onBlock != null)
         TextButton(
           key: blockKey,
-          autofocus: takeFocus(),
           style: TextButton.styleFrom(
             minimumSize: minSize,
             foregroundColor: colors.error,
@@ -136,7 +140,9 @@ class ConversationStateNotice extends StatelessWidget {
         alignment: Alignment.bottomCenter,
         heightFactor: 1,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
+          constraints: const BoxConstraints(
+            maxWidth: AppLayout.stateNoticeMaxWidth,
+          ),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.all(AppSpacing.md),

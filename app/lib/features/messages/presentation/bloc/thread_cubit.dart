@@ -222,10 +222,15 @@ class ThreadCubit extends Cubit<ThreadState> {
        _port = encrypted,
        _vaultUsable = vaultUsable,
        _uuid = uuid ?? const Uuid(),
+       // With no port `vaultBlocked` is already what `_reevaluate` computes,
+       // so opening emits nothing extra (today's thread is unchanged).
        super(
          isConversationId(conversationId)
-             ? const ThreadState()
-             : const ThreadState(status: ThreadStatus.unavailable),
+             ? ThreadState(vaultBlocked: encrypted == null)
+             : ThreadState(
+                 status: ThreadStatus.unavailable,
+                 vaultBlocked: encrypted == null,
+               ),
        );
 
   final MessagingRepository _repository;
@@ -309,7 +314,9 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
     final usable = port != null && (_vaultUsable?.call() ?? true);
     final encrypted = state.encrypted || (_mls && usable);
-    final knownPlain = _sawNone && !_mls;
+    // With a port, an unusable vault cannot classify the conversation (its
+    // `hasLocal` answers false before it is ready): not known to be plain.
+    final knownPlain = _sawNone && !_mls && (port == null || usable);
     if (_mls != state.mls ||
         knownPlain != state.knownPlain ||
         !usable != state.vaultBlocked ||

@@ -44,10 +44,32 @@ void main() {
     );
   });
 
-  test('a received request keeps the request area whatever else holds', () {
+  test('a received request keeps the request area unless the vault blocks, '
+      'and then says why', () {
+    expect(
+      _of(
+        receivedRequest: true,
+        security: const ConversationSecurity(
+          state: ConversationEncryptionState.stuck,
+          canReset: true,
+        ),
+      ),
+      ThreadBottom.ordinary,
+    );
     expect(
       _of(receivedRequest: true, vaultBlocked: true),
-      ThreadBottom.ordinary,
+      ThreadBottom.notOnThisDevice,
+    );
+    expect(
+      _of(
+        receivedRequest: true,
+        vaultBlocked: true,
+        status: _status(
+          EncryptionStatusKind.keyLostPending,
+          vault: VaultStatus.keyLost,
+        ),
+      ),
+      ThreadBottom.statusCard,
     );
   });
 

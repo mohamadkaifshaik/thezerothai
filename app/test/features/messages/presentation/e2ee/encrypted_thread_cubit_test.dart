@@ -19,6 +19,29 @@ import '../../../../support/thread_test_support.dart';
 
 class _MockRepo extends Mock implements MessagingRepository {}
 
+/// Reports whether the thread stream it handed out is still listened to.
+class _SpyPort extends FakeEncryptedMessaging {
+  bool listening = false;
+
+  @override
+  Stream<EncryptedThread> watchThread(ThreadRef ref) {
+    final inner = super.watchThread(ref);
+    StreamSubscription<EncryptedThread>? sub;
+    late StreamController<EncryptedThread> c;
+    c = StreamController<EncryptedThread>(
+      onListen: () {
+        listening = true;
+        sub = inner.listen(c.add);
+      },
+      onCancel: () {
+        listening = false;
+        return sub?.cancel();
+      },
+    );
+    return c.stream;
+  }
+}
+
 void main() {
   late _MockRepo repo;
   late FakeThreadPoller poller;
@@ -375,21 +398,48 @@ void main() {
     );
 
     test('closing the cubit cancels the subscription', () async {
+      port.dispose();
+      final spy = _SpyPort();
+      port = spy;
       await open(network: snap(const [], header(mls)));
-      final before = cubit.state;
+      // The isClosed guard would hide a missing cancel: ask the port.
+      expect(spy.listening, isTrue);
       await cubit.close();
-      port.setThread(
-        ref,
-        EncryptedThread(
-          entries: [entry('late')],
-          security: const ConversationSecurity(
-            state: ConversationEncryptionState.ready,
-          ),
-        ),
-      );
-      await pumpEventQueue();
-      expect(cubit.state.entries, before.entries);
+      expect(spy.listening, isFalse);
       expect(reported, isEmpty);
+    });
+
+    test(
+      'a NONE header with an unusable vault is not known to be plain',
+      () async {
+        await open(network: snap(const [], header(none)), usable: () => false);
+        expect(cubit.state.knownPlain, isFalse);
+        expect(cubit.state.mls, isFalse);
+      },
+    );
+
+    test('a thread with no port emits no extra state on open', () async {
+      when(() => repo.cachedThread(kThreadId))
+          .thenAnswer((_) async => snap([msg(1)], header(none)));
+      when(() => repo.refreshThread(kThreadId))
+          .thenAnswer((_) async => snap([msg(1)], header(none)));
+      cubit = ThreadCubit(
+        repository: repo,
+        poller: poller,
+        conversationId: kThreadId,
+        onUnexpectedError: (e, _) => reported.add(e),
+      );
+      final states = <ThreadState>[];
+      final sub = cubit.stream.listen(states.add);
+      var previous = cubit.state;
+      await cubit.load();
+      await pumpEventQueue();
+      await sub.cancel();
+      expect(states, isNotEmpty);
+      for (final s in states) {
+        expect(s.vaultBlocked, previous.vaultBlocked);
+        previous = s;
+      }
     });
 
     test('the state prints no text', () async {

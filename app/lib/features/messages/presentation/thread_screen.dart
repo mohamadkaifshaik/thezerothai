@@ -631,13 +631,20 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   void _retryEncrypted(String localId) {
     final port = context.read<EncryptedMessaging?>();
     if (port == null) return;
+    // One call per row at a time: a double tap retries once.
+    if (!_retrying.add(localId)) return;
     final report = context.read<UnexpectedErrorReporter>();
     unawaited(
-      port.retrySend(localId).catchError((Object _, StackTrace stack) {
-        report(StateError('retrySend'), stack);
-      }),
+      port
+          .retrySend(localId)
+          .catchError((Object _, StackTrace stack) {
+            report(StateError('retrySend'), stack);
+          })
+          .whenComplete(() => _retrying.remove(localId)),
     );
   }
+
+  final Set<String> _retrying = {};
 
   /// A shared post's card opens the post in the app (GetPost decides again).
   void _openPost(String postId) =>
@@ -1423,10 +1430,49 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         resetting: state.resetting,
         focusFirstAction: replaces,
         onBlock: canBlock ? () => unawaited(_block(cubit, peer)) : null,
-        onReset: s.sentRequest
-            ? null
-            : () => unawaited(_resetEncryption(cubit)),
+        // The state table gives Reset to these three states only.
+        onReset: !s.sentRequest && _offersReset(s.state)
+            ? () => unawaited(_resetEncryption(cubit))
+            : null,
       );
+    }
+
+    final bannerBuilder = widget.bannerBuilder;
+    // The sender's waiting note promises sends, so read-only mode (no Accept)
+    // shows only the received-request banner.
+    final banner =
+        conversation == null ||
+            bannerBuilder == null ||
+            (!canAccept && !isReceivedRequest(conversation))
+        ? null
+        : bannerBuilder(
+            context,
+            conversation,
+            _requestActions(
+              cubit,
+              state,
+              conversation,
+              graphEnabled,
+              canAccept,
+            ),
+          );
+    if (banner != null && received) {
+      // A received request keeps its banner; with no usable vault the reason
+      // sits above it (the read-only line, or the status banner).
+      switch (kind) {
+        case ThreadBottom.notOnThisDevice:
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ThreadReadOnlyLine(text: kNotOnThisDeviceText),
+              banner,
+            ],
+          );
+        case ThreadBottom.statusCard:
+          return ConnectedThreadStatusBanner(child: banner);
+        default:
+          return banner;
+      }
     }
 
     switch (kind) {
@@ -1446,7 +1492,13 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       case ThreadBottom.readOnlyLine:
         return const ThreadReadOnlyLine(text: kMessagingReadOnlyText);
       case ThreadBottom.noticeInstead:
-        return notice(replaces: true);
+        // A sent request keeps its waiting note above the notice.
+        return banner == null
+            ? notice(replaces: true)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [banner, notice(replaces: true)],
+              );
       case ThreadBottom.ordinary:
       case ThreadBottom.ordinaryWithNotice:
         break;
@@ -1472,35 +1524,23 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     final composer = composerBuilder == null
         ? const SizedBox.shrink()
         : composerBuilder(context, conversation);
-    final bannerBuilder = widget.bannerBuilder;
-    // The sender's waiting note promises sends, so read-only mode (no Accept)
-    // shows only the received-request banner.
-    final banner =
-        conversation == null ||
-            bannerBuilder == null ||
-            (!canAccept && !isReceivedRequest(conversation))
-        ? null
-        : bannerBuilder(
-            context,
-            conversation,
-            _requestActions(
-              cubit,
-              state,
-              conversation,
-              graphEnabled,
-              canAccept,
-            ),
-          );
-    if (banner != null && received) return banner;
-    final parts = [...above, ?banner, composer];
-    final area = parts.length == 1
-        ? composer
-        : Column(mainAxisSize: MainAxisSize.min, children: parts);
     // The status banner sits directly above the composer of every thread
     // while a vault on this device blocks messaging (a thread whose messaging
     // is read-only draws its own line instead and needs none).
-    return canAccept ? ConnectedThreadStatusBanner(child: area) : area;
+    final bottom = canAccept
+        ? ConnectedThreadStatusBanner(child: composer)
+        : composer;
+    final parts = [...above, ?banner, bottom];
+    return parts.length == 1
+        ? bottom
+        : Column(mainAxisSize: MainAxisSize.min, children: parts);
   }
+
+  /// The state table offers Reset encryption in these states only.
+  static bool _offersReset(ConversationEncryptionState s) =>
+      s == ConversationEncryptionState.waitingForDevice ||
+      s == ConversationEncryptionState.stuck ||
+      s == ConversationEncryptionState.changesBlocked;
 
   /// Asks first, then resets this conversation's encryption through the cubit;
   /// a failure is shown by the `resetError` listener.

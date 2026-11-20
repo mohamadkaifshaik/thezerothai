@@ -2,6 +2,8 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/widgets/conversation_encryption_note.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/widgets/conversation_state_notice.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,14 +67,16 @@ void main() {
     testWidgets('the note row is centred at $width dp', (tester) async {
       await pumpAt(tester, width);
       expect(tester.takeException(), isNull);
-      final note = tester.getRect(find.text(kEncryptedNoteText));
-      final column = tester.getRect(find.text('hello'));
-      expect(note.center.dx, greaterThan(column.left));
+      // The whole note (lock and text), not just the text.
+      final note = tester.getRect(find.byType(ConversationEncryptionNote));
+      final list = tester.getRect(find.byType(CustomScrollView));
       expect(
-        (note.center.dx - width / 2).abs(),
-        lessThan(width / 2),
-        reason: 'inside the screen',
+        (note.center.dx - list.center.dx).abs(),
+        lessThan(4),
+        reason: 'the note sits on the centre of the message list column',
       );
+      expect(note.left, greaterThanOrEqualTo(list.left));
+      expect(note.right, lessThanOrEqualTo(list.right));
     });
   }
 
@@ -141,18 +145,25 @@ void main() {
         await pumpNotice(tester, width, blocked);
         expect(tester.takeException(), isNull);
         expect(find.text(kStateBlockedTitle), findsOneWidget);
+        // Both actions are present at every width.
+        expect(find.text(kConversationResetAction), findsOneWidget);
+        expect(find.text('Block'), findsOneWidget);
         final reset = tester.getRect(find.text(kConversationResetAction));
         final block = tester.getRect(find.text('Block'));
         if (width < 600) {
           expect(reset.top, isNot(block.top), reason: 'stacked');
-        } else if (width >= 1200) {
-          expect((reset.center.dy - block.center.dy).abs(), lessThan(4));
+        } else {
+          expect(
+            (reset.center.dy - block.center.dy).abs(),
+            lessThan(4),
+            reason: 'one row from the tablet up',
+          );
         }
-        // No side column: the notice stays inside the thread's own column.
-        expect(
-          tester.getRect(find.text(kStateBlockedTitle)).right,
-          lessThanOrEqualTo(width),
-        );
+        // No side column: the notice stays inside the thread pane.
+        final pane = tester.getRect(find.byType(CustomScrollView));
+        final notice = tester.getRect(find.byType(ConversationStateNotice));
+        expect(notice.left, greaterThanOrEqualTo(pane.left - 0.5));
+        expect(notice.right, lessThanOrEqualTo(pane.right + 0.5));
       });
 
       testWidgets('listUnverifiable fits at $width dp', (tester) async {

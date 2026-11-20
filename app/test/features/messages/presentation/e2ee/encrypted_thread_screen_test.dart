@@ -7,7 +7,9 @@ import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status_banner.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/widgets/conversation_encryption_note.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/widgets/conversation_state_notice.dart';
 import 'package:dzeroth/features/messages/presentation/thread_screen.dart'
     show kMessagingReadOnlyText;
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -17,7 +19,6 @@ import 'package:dzeroth/features/messages/presentation/widgets/message_composer.
 import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
-import 'package:fixnum/fixnum.dart' show Int64;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -77,6 +78,7 @@ void main() {
     bool engineUnavailable = false,
     bool removedElsewhere = false,
     bool withStatus = true,
+    bool seedInbox = false,
   }) async {
     final server = request
         ? MessagingFlowRig.serverWithRequest()
@@ -107,6 +109,18 @@ void main() {
       server: server,
       flags: {'messaging', 'graph', 'reports', 'ui_shell', ...extraFlags},
     );
+    if (seedInbox) {
+      // An earlier session's cache: the Inbox row (pumped, not runAsync, as
+      // `messaging_sent_request_test` does for drift calls).
+      var done = false;
+      final seeding = rig.messagingRepository
+          .refreshConversations(Folder.FOLDER_INBOX)
+          .whenComplete(() => done = true);
+      for (var i = 0; i < 200 && !done; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      await seeding;
+    }
     await rig.pump(
       tester,
       location: AppRouter.messagePath(kThreadId),
@@ -237,10 +251,25 @@ void main() {
     expect(find.text(kEncryptedNoteText), findsNothing);
   });
 
-  testWidgets('no plaintext row is drawn before any encrypted entry', (
+  testWidgets('no plaintext row is drawn before any first page arrived', (
     tester,
   ) async {
-    await open(tester);
+    // Only the cached row says encrypted; the refresh never answers.
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    final ctx = await open(
+      tester,
+      encryption: ConversationEncryption.CONVERSATION_ENCRYPTION_UNSPECIFIED,
+      seedInbox: true,
+      tweak: (server) {
+        server.conversations[kThreadId]!.lastMessage.encrypted = true;
+        server.listMessagesGate = gate;
+      },
+    );
+    // The cached marker alone made the thread encrypted.
+    expect(ctx.port.calls, contains('watchThread'));
     expect(find.text('m2'), findsNothing);
     expect(find.text(kNotEncryptedAboveText), findsNothing);
   });
@@ -302,6 +331,21 @@ void main() {
     await tester.tap(find.byKey(MessageBubble.statusKey));
     await tester.pumpAndSettle();
     expect(ctx.port.retried, ['e1']);
+    // A double tap makes one call: both taps land before the first answers.
+    final tap = tester
+        .widget<GestureDetector>(
+          find
+              .ancestor(
+                of: find.byKey(MessageBubble.statusKey),
+                matching: find.byType(GestureDetector),
+              )
+              .first,
+        )
+        .onTap!;
+    tap();
+    tap();
+    await tester.pumpAndSettle();
+    expect(ctx.port.retried, ['e1', 'e1'], reason: 'one call for two taps');
     // A retry row is always the caller's own, and a long press menu (Report)
     // exists only on a peer's row: the two never share a hit area.
     await tester.longPress(bubble('e1'));
@@ -376,14 +420,15 @@ void main() {
 
   testWidgets('the plaintext rows keep today\'s text with the flag on and an '
       'unknown header', (tester) async {
-    await open(
+    final ctx = await open(
       tester,
       encryption: ConversationEncryption.CONVERSATION_ENCRYPTION_UNSPECIFIED,
     );
     expect(find.text('m2'), findsOneWidget);
     expect(find.text('m1'), findsOneWidget);
     expect(find.text(kEncryptedNoteText), findsNothing);
-    expect(Int64.ZERO, Int64.ZERO);
+    // Unknown is not encrypted: the thread never reads from the port.
+    expect(ctx.port.calls, isNot(contains('watchThread')));
   });
 
   // ---------------------------------------------------------------- part 2
@@ -635,6 +680,33 @@ void main() {
       }
     }
 
+    for (final canSend in [false, true]) {
+      testWidgets('changesBlocked focuses no action by itself (canSend '
+          '$canSend)', (tester) async {
+        await open(
+          tester,
+          entries: [entry('e1', 'hi')],
+          security: sec(
+            ConversationEncryptionState.changesBlocked,
+            canSend: canSend,
+            canReset: true,
+          ),
+        );
+        expect(
+          tester
+              .widget<TextButton>(find.byKey(ConversationStateNotice.blockKey))
+              .autofocus,
+          isFalse,
+        );
+        expect(
+          tester
+              .widget<TextButton>(find.byKey(ConversationStateNotice.resetKey))
+              .autofocus,
+          isFalse,
+        );
+      });
+    }
+
     testWidgets('a canSend false state without a notice shows the read-only '
         'line', (tester) async {
       await open(
@@ -759,6 +831,26 @@ void main() {
     });
 
     for (final st in [
+      ConversationEncryptionState.listUnverifiable,
+      ConversationEncryptionState.peerHasNoDevice,
+      ConversationEncryptionState.unknownDevice,
+    ]) {
+      testWidgets('Reset encryption is absent in $st even with canReset', (
+        tester,
+      ) async {
+        await open(
+          tester,
+          security: sec(
+            st,
+            canSend: st == ConversationEncryptionState.listUnverifiable,
+            canReset: true,
+          ),
+        );
+        expect(reset(), findsNothing);
+      });
+    }
+
+    for (final st in [
       ConversationEncryptionState.waitingForDevice,
       ConversationEncryptionState.stuck,
       ConversationEncryptionState.changesBlocked,
@@ -802,6 +894,26 @@ void main() {
         expect(reset(), findsNothing);
       });
     }
+
+    testWidgets('a sent request keeps its note when a notice replaces the '
+        'composer', (tester) async {
+      await open(
+        tester,
+        tweak: sentRequest,
+        security: sec(
+          ConversationEncryptionState.peerHasNoDevice,
+          canSend: false,
+          sentRequest: true,
+        ),
+      );
+      expect(composer(), findsNothing);
+      expect(find.text(kStatePeerNoDeviceText), findsOneWidget);
+      expect(find.text(kSentRequestText), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text(kSentRequestText)).dy,
+        lessThan(tester.getTopLeft(find.text(kStatePeerNoDeviceText)).dy),
+      );
+    });
 
     testWidgets('a sent request hides lines and keeps the messages', (
       tester,
@@ -856,10 +968,17 @@ void main() {
       );
       const accept =
           '/dzeroth.messaging.v1.MessagingService/AcceptMessageRequest';
+      const sendPath = '/dzeroth.messaging.v1.MessagingService/SendMessage';
       expect(ctx.rig.server.count(accept), 0);
       await tester.tap(find.byKey(RequestBanner.acceptKey));
       await tester.pumpAndSettle();
       expect(ctx.rig.server.count(accept), 1);
+      // Nothing else ran: no send of any kind, no reset, no retry.
+      expect(ctx.rig.server.count(sendPath), 0);
+      expect(ctx.port.sent, isEmpty);
+      expect(ctx.port.resetConversations, isEmpty);
+      expect(ctx.port.retried, isEmpty);
+      expect(ctx.port.calls, isNot(contains('send')));
     });
   });
 
@@ -918,6 +1037,7 @@ void main() {
       await open(tester, vault: VaultStatus.keyLost);
       expect(composer(), findsNothing);
       expect(find.text(kStatusTryAgain), findsOneWidget);
+      expect(find.text(kStatusReset), findsOneWidget);
       expect(find.text(kEncryptedPlaceholderText), findsWidgets);
       expect(find.text('m2'), findsNothing);
     });
@@ -957,12 +1077,27 @@ void main() {
       expect(find.text(kStatusEngineUnavailableTitle), findsOneWidget);
     });
 
-    testWidgets('a received request with no vault keeps the request banner', (
-      tester,
-    ) async {
+    testWidgets('a received request with no vault keeps the request banner '
+        'and says why above it', (tester) async {
       await open(tester, request: true, vault: VaultStatus.unsupported);
       expect(find.byType(RequestBanner), findsOneWidget);
-      expect(find.text(kNotOnThisDeviceText), findsNothing);
+      expect(find.text(kNotOnThisDeviceText), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text(kNotOnThisDeviceText)).dy,
+        lessThan(tester.getTopLeft(find.byType(RequestBanner)).dy),
+      );
+    });
+
+    testWidgets('a received request with a locked vault shows the status '
+        'banner above the request banner', (tester) async {
+      await open(tester, request: true, vault: VaultStatus.keyLost);
+      expect(find.byType(RequestBanner), findsOneWidget);
+      expect(find.byType(EncryptionStatusBanner), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byType(EncryptionStatusBanner)).dy,
+        lessThan(tester.getTopLeft(find.byType(RequestBanner)).dy),
+      );
+      expect(find.byKey(RequestBanner.acceptKey), findsOneWidget);
     });
   });
 
@@ -977,6 +1112,16 @@ void main() {
         lessThan(tester.getTopLeft(composer()).dy),
       );
       expect(find.text('m2'), findsOneWidget);
+      // The vault cannot classify the conversation: never "not encrypted".
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
+    });
+
+    testWidgets('a NONE header with the vault not open never says the '
+        'conversation is not encrypted', (tester) async {
+      await open(tester, encryption: _none, vault: VaultStatus.unavailable);
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
+      expect(find.text(kEncryptedNoteText), findsNothing);
+      expect(find.text(kStatusDetails), findsOneWidget);
     });
 
     testWidgets('an unknown-encryption thread shows it too', (tester) async {

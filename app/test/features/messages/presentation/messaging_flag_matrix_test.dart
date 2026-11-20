@@ -229,17 +229,12 @@ void main() {
     for (final vault in [true, false]) {
       testWidgets('e2ee_dm=${flag.name} vault=$vault: a plaintext thread is '
           'today\'s', (tester) async {
-        // What a plaintext thread of the fixture draws today, without the
+        // What a plaintext thread of the fixture draws with no encrypted
+        // messaging in the tree at all (the baseline), without the
         // clock-dependent times.
-        final today = {
-          '@sam',
-          'Message',
-          'SR',
-          'Sam Rivera',
-          'Today',
-          'm1',
-          'm2',
-        };
+        bool notATime(String t) => !RegExp(r'^\d{1,2}:\d{2}').hasMatch(t);
+        final today = (await threadTexts(tester)).where(notATime).toSet();
+        expect(today, containsAll(['m1', 'm2']));
         final port = FakeEncryptedMessaging();
         addTearDown(port.dispose);
         final device = FakeEncryptionDevice(
@@ -251,10 +246,11 @@ void main() {
           tester,
           port: port,
           device: device,
-        )).where((t) => !RegExp(r'^\d{1,2}:\d{2}').hasMatch(t)).toSet();
+        )).where(notATime).toSet();
         expect(texts, {
           ...today,
-          if (flag == E2eeFlag.on) kMessagesNotEncryptedText,
+          // Only a usable vault can classify the conversation as plaintext.
+          if (flag == E2eeFlag.on && vault) kMessagesNotEncryptedText,
         });
         // Only the local "has the vault seen this conversation" check; the
         // thread is never read from the port.
