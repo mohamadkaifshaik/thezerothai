@@ -22,7 +22,7 @@ void main() {
       File('../testdata/report_payload_decode.json').readAsStringSync(),
     ) as Map<String, dynamic>;
     final cases = (f['cases'] as List).cast<Map<String, dynamic>>();
-    expect(cases.length, 29);
+    expect(cases.length, 31);
     for (final c in cases) {
       final d = decodeMessageContentLenient(_hex(c['payload_hex'] as String));
       final name = c['name'];

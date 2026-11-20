@@ -109,12 +109,24 @@ _Varint _readVarint(Uint8List b, int pos) {
   throw const _Malformed();
 }
 
-/// Reads a tag; returns (fieldNumber, wireType, next). Tags above 32 bits and field number 0 are malformed.
+/// Reads a top-level tag; returns (fieldNumber, wireType, next). Tags above 32 bits, field number 0 and field numbers
+/// above 2^29-1 are malformed (the server's decodeContent holds the top level to MaxValidNumber).
 (int, int, int) _readTag(Uint8List b, int pos) {
   final v = _readVarint(b, pos);
   if (v.hi != 0) throw const _Malformed();
   final num = v.lo ~/ 8;
   if (num == 0 || num > _maxFieldNumber) throw const _Malformed();
+  return (num, v.lo % 8, v.next);
+}
+
+/// Reads a tag inside a group, as protowire's ConsumeTag does there: field numbers 1..2^31-1 (tag below 2^34, so the
+/// high half is below 4); field number 0 and anything larger are malformed. The field number is built from the two
+/// 32-bit halves (hi * 2^29 + lo / 8, at most 2^31-1: exact on the web) and returned whole for end-group matching.
+(int, int, int) _readNestedTag(Uint8List b, int pos) {
+  final v = _readVarint(b, pos);
+  if (v.hi >= 4) throw const _Malformed();
+  final num = v.hi * 536870912 + v.lo ~/ 8;
+  if (num == 0) throw const _Malformed();
   return (num, v.lo % 8, v.next);
 }
 
@@ -151,7 +163,7 @@ int _skipGroup(Uint8List b, int num, int pos) {
   final open = <int>[num];
   while (open.isNotEmpty) {
     if (pos >= b.length) throw const _Malformed();
-    final (n, type, next) = _readTag(b, pos);
+    final (n, type, next) = _readNestedTag(b, pos);
     pos = next;
     if (type == 3) {
       if (open.length >= _maxGroupDepth) throw const _Malformed();
