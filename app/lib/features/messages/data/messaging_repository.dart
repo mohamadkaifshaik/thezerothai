@@ -12,6 +12,7 @@ import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../domain/conversation_id.dart';
 import '../domain/e2ee/e2ee_types.dart' show E2eePipelineError;
+import '../domain/messaging_feature_flag.dart';
 import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
 import 'message_outbox.dart';
@@ -691,6 +692,37 @@ class MessagingRepository {
       _report(reported, session);
     }
     return response;
+  }
+
+  /// Asks the server whether the caller may share [postId] in a message
+  /// (`CheckPostShare`, `dm_share_check`): the id to put in the message (a
+  /// REPOST's original), or the same typed error `SendMessage` gives for a
+  /// shared post. Read-only, so no idempotency key. For an ENCRYPTED share,
+  /// once per share action, before any send.
+  ///
+  /// Per caller, like a send. FEATURE_DISABLED for `dm_share_check` is
+  /// rethrown as [kFeatureDmPostShare] so the existing line is drawn; it never
+  /// turns messaging off (see [MessagingFeatureGate]).
+  ///
+  /// Note: the network layer retries an UNAVAILABLE answer of a read-only call
+  /// up to 3 times (`RetryInterceptor`) and has no per-call opt-out, so one
+  /// share can spend up to 3 of the server's 10-per-minute checks. Nothing
+  /// logs the id.
+  Future<String> checkPostShare(String postId) async {
+    try {
+      final response = await _gate.run(
+        () => _apiClient.messaging.checkPostShare(
+          pb.CheckPostShareRequest(postId: postId),
+        ),
+      );
+      return response.sharedPostId;
+    } on FeatureDisabledException catch (error) {
+      if (error.feature != kFeatureDmShareCheck) rethrow;
+      throw FeatureDisabledException(
+        error.message,
+        feature: kFeatureDmPostShare,
+      );
+    }
   }
 
   // --- encrypted messaging (MLS) -------------------------------------------

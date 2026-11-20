@@ -8,6 +8,13 @@ const kFeatureMessaging = 'messaging';
 /// a post is drawn as a card whatever this flag says for the viewer.
 const kFeatureDmPostShare = 'dm_post_share';
 
+/// Server feature flag for `CheckPostShare`, the server's share check an
+/// encrypted post share asks before it sends, per caller. While it is not in
+/// the caller's enabled features the app refuses an encrypted post share
+/// (there is no other check). Its FEATURE_DISABLED is shown as
+/// [kFeatureDmPostShare].
+const kFeatureDmShareCheck = 'dm_share_check';
+
 /// Server feature flag for end-to-end encrypted direct messages, per
 /// caller. It gates STARTING encryption. A user with no vault on this device
 /// and the flag off or unknown opens no vault, generates no key and makes no

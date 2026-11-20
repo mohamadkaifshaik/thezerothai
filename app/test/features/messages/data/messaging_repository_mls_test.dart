@@ -338,6 +338,79 @@ void main() {
     expect(requests, hasLength(4));
   });
 
+  group('checkPostShare', () {
+    const postId = '1234567890123456789';
+
+    test('sends the post id and returns the shared post id', () async {
+      override = (p) => p == '$_svc/CheckPostShare'
+          ? pb.CheckPostShareResponse(sharedPostId: '9999999999999999999')
+          : null;
+      expect(await repo.checkPostShare(postId), '9999999999999999999');
+      expect(transport.calledProcedures, ['$_svc/CheckPostShare']);
+      expect((requests.single as pb.CheckPostShareRequest).postId, postId);
+    });
+
+    test('FEATURE_DISABLED for dm_share_check is re-thrown as dm_post_share '
+        'and turns nothing off', () async {
+      override = (p) => throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': kFeatureDmShareCheck},
+      );
+      await expectLater(
+        repo.checkPostShare(postId),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            kFeatureDmPostShare,
+          ),
+        ),
+      );
+      expect(gate.canSend, isTrue);
+      expect(gate.canRead, isTrue);
+    });
+
+    test('FEATURE_DISABLED for dm_post_share keeps its feature', () async {
+      override = (p) => throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': kFeatureDmPostShare},
+      );
+      await expectLater(
+        repo.checkPostShare(postId),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            kFeatureDmPostShare,
+          ),
+        ),
+      );
+      expect(gate.canSend, isTrue);
+    });
+
+    test('NOT_FOUND is a NotFoundException', () async {
+      override = (p) => throw connect.ConnectException(
+        connect.Code.notFound,
+        'post not found',
+      );
+      await expectLater(
+        repo.checkPostShare(postId),
+        throwsA(isA<NotFoundException>()),
+      );
+    });
+
+    test('with messaging off for the caller no RPC is sent', () async {
+      flagOn = false;
+      await expectLater(
+        repo.checkPostShare(postId),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(requests, isEmpty);
+    });
+  });
+
   test('sendEncrypted answered FEATURE_DISABLED for e2ee_dm throws and plain '
       'sending stays on', () async {
     var refused = false;
