@@ -251,6 +251,153 @@ void main() {
     expect(await l.lostSendUpdateDone(_conv), isTrue);
   });
 
+  Future<void> writeInBody(
+    DailyLedger l,
+    DailyRecord current,
+    DailyRecord Function(DailyRecord) change,
+  ) => session.runWrite(
+    (v) => v.transaction((tx) => l.writeIn(tx, current, change)),
+  );
+
+  test('writeIn keeps a count another conversation wrote after the caller '
+      'read', () async {
+    final l = ledger();
+    final current = await l.read();
+    // Another conversation's change lands between the read and the write.
+    await l.addUndone('other');
+    await l.markEmptyClaim(Uint8List.fromList([4]));
+    await writeInBody(
+      l,
+      current,
+      (r) => r.copyWith(lostSendUpdate: {...r.lostSendUpdate, _conv}),
+    );
+    expect(await l.undone('other'), 1);
+    expect(await l.emptyClaimTried(Uint8List.fromList([4])), isTrue);
+    expect(await l.lostSendUpdateDone(_conv), isTrue);
+  });
+
+  test('a stale copy never clears the exhausted marker', () async {
+    final l = ledger();
+    final current = await l.read();
+    expect(current.exhausted, isFalse);
+    await store(DailyRecord.capped(dayOffset(0)).encode());
+    await writeInBody(
+      l,
+      current,
+      (r) => r.copyWith(lostSendUpdate: {...r.lostSendUpdate, _conv}),
+    );
+    expect((await l.read()).exhausted, isTrue);
+    expect(await l.undone('other'), kAntiFlapUndosPerDay);
+  });
+
+  test('writeIn over an unreadable value stores the capped record through '
+      'the caller transaction', () async {
+    final l = ledger();
+    final current = await l.read();
+    await storeGarbage();
+    await writeInBody(l, current, (r) => r);
+    expect((await l.read()).exhausted, isTrue);
+    expect(reported, hasLength(1));
+  });
+
+  test('readLocked reads the record inside a runWrite body', () async {
+    final l = ledger();
+    await l.addUndone(_conv);
+    final r = await session.runWrite((v) => l.readLocked(v));
+    expect(r.undone[_conv], 1);
+  });
+
+  test('a record dated far after today reads capped for today only', () async {
+    await store(DailyRecord(day: dayOffset(30), undone: {_conv: 0}).encode());
+    final l = ledger();
+    expect(await l.undone(_conv), kAntiFlapUndosPerDay);
+    expect(await l.lostSendUpdateDone(_conv), isTrue);
+    final r = await l.read();
+    expect(r.day, dayOffset(0));
+    expect(r.exhausted, isTrue);
+    clock = clock.add(const Duration(days: 1));
+    expect(await l.undone(_conv), 0);
+    expect((await l.read()).exhausted, isFalse);
+  });
+
+  test('a record dated one day ahead is kept', () async {
+    await store(DailyRecord(day: dayOffset(1), undone: {_conv: 1}).encode());
+    final l = ledger();
+    expect(await l.undone(_conv), 1);
+    expect((await l.read()).day, dayOffset(1));
+    expect((await l.read()).exhausted, isFalse);
+  });
+
+  test('a day that is not a date is an unreadable value', () async {
+    // Built, not written as a date literal: '9999-99-99' sorts after any
+    // real day, and 'not-a-day' is not a date at all.
+    final bad = ['${'9' * 4}-99-99', 'not-a-day', '${'9' * 4}-12-1'];
+    for (final day in bad) {
+      final bytes = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'v': 1,
+            'day': day,
+            'undone': <String, int>{},
+            'did': <String, Object>{},
+            'lostSendUpdate': <String>[],
+            'emptyClaim': <String>[],
+          }),
+        ),
+      );
+      expect(
+        () => DailyRecord.decode(bytes),
+        throwsA(isA<VaultCorruptException>()),
+        reason: day,
+      );
+    }
+    await store(
+      Uint8List.fromList(
+        utf8.encode(
+          '{"v":1,"day":"${'9' * 4}-99-99","undone":{},"did":{},'
+          '"lostSendUpdate":[],"emptyClaim":[]}',
+        ),
+      ),
+    );
+    final l = ledger();
+    expect(await l.undone(_conv), kAntiFlapUndosPerDay);
+    expect(reported, hasLength(1));
+    expect((await l.read()).day, dayOffset(0));
+  });
+
+  test(
+    'an exhausted ledger refuses a reversal even when did is empty',
+    () async {
+      final device = Uint8List.fromList([7, 7]);
+      final l = ledger();
+      // Not exhausted, nothing done today: a reversal is not an undo.
+      final fresh = await l.read();
+      expect(fresh.isUndoOfOwnChange(_conv, device, removing: true), isFalse);
+      expect(
+        await l.isUndoOfOwnChange(_conv, device, removing: false),
+        isFalse,
+      );
+      // A change this device made today is an undo when reversed.
+      final did = DailyRecord(
+        day: dayOffset(0),
+        did: {
+          _conv: DailyDevices(added: {vaultDeviceIdHex(device)}),
+        },
+      );
+      expect(did.isUndoOfOwnChange(_conv, device, removing: true), isTrue);
+      expect(did.isUndoOfOwnChange(_conv, device, removing: false), isFalse);
+      // Exhausted: did is empty, and every reversal counts as an undo (the
+      // undo cap then refuses it).
+      await storeGarbage();
+      final capped = await l.read();
+      expect(capped.exhausted, isTrue);
+      expect(capped.did, isEmpty);
+      expect(capped.isUndoOfOwnChange(_conv, device, removing: true), isTrue);
+      expect(capped.isUndoOfOwnChange(_conv, device, removing: false), isTrue);
+      expect(await l.isUndoOfOwnChange(_conv, device, removing: true), isTrue);
+    },
+  );
+
   test('a write with the vault not ready fails with StateError', () async {
     final l = ledger();
     await session.close();

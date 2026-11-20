@@ -82,6 +82,26 @@ class DailyRecord {
     exhausted: exhausted,
   );
 
+  /// Security read (A3): whether reversing a change to [deviceId] in
+  /// [conversationId] undoes a change this device made today: removing a
+  /// device it added ([removing] true), or adding back one it removed. TRUE
+  /// for every reversal while the record is [exhausted] (its [did] is then
+  /// empty, and an empty [did] must not read as "not an undo": that would
+  /// skip the undo cap and fail open). Task 9 decides through this method,
+  /// never through [did] directly. Synchronous, so a caller holding a record
+  /// from [DailyLedger.readLocked] can decide inside its `runWrite` body.
+  bool isUndoOfOwnChange(
+    String conversationId,
+    Uint8List deviceId, {
+    required bool removing,
+  }) {
+    if (exhausted) return true;
+    final today = did[conversationId];
+    if (today == null) return false;
+    final hex = vaultDeviceIdHex(deviceId);
+    return removing ? today.added.contains(hex) : today.removed.contains(hex);
+  }
+
   /// The sealed JSON. [ArgumentError] for a counter outside
   /// 0..[kMaxPairComponent] (what [decode] accepts).
   Uint8List encode() {
@@ -114,13 +134,14 @@ class DailyRecord {
   );
 
   /// [VaultCorruptException] for a value that is not valid JSON, has another
-  /// `v`, or is malformed.
+  /// `v`, or is malformed (a `day` that is not a real `YYYY-MM-DD` date
+  /// included).
   static DailyRecord decode(Uint8List bytes) {
     try {
       final m = _map(jsonDecode(utf8.decode(bytes)));
       if (m['v'] != 1) throw const FormatException('version');
       return DailyRecord(
-        day: _string(m['day']),
+        day: _day(m['day']),
         undone: {
           for (final e in _map(m['undone']).entries) e.key: _int(e.value),
         },
@@ -148,6 +169,23 @@ class DailyRecord {
   static String _string(Object? v) {
     if (v is String) return v;
     throw const FormatException('string');
+  }
+
+  static final RegExp _dayShape = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
+
+  /// A `YYYY-MM-DD` string naming a real calendar day (as [istDay] writes).
+  static String _day(Object? v) {
+    final s = _string(v);
+    final m = _dayShape.firstMatch(s);
+    if (m == null) throw const FormatException('day');
+    final y = int.parse(m[1]!);
+    final mo = int.parse(m[2]!);
+    final d = int.parse(m[3]!);
+    final date = DateTime.utc(y, mo, d);
+    if (mo < 1 || date.year != y || date.month != mo || date.day != d) {
+      throw const FormatException('day');
+    }
+    return s;
   }
 
   static bool _bool(Object? v) {
@@ -180,13 +218,17 @@ const int kAntiFlapUndosPerDay = 2;
 /// lost-send update and every empty claim done), the failure is reported once
 /// as `E2eePipelineError('daily.read')`, and a record carrying the
 /// [DailyRecord.exhausted] marker is stored so the answer survives a restart.
-/// The next IST day starts an empty record. A stored record dated AFTER today
-/// (the clock moved back) is kept and its counters apply; only an older one is
-/// replaced.
+/// The next IST day starts an empty record. A stored record dated at most one
+/// day AFTER today (clock skew, the IST boundary) is kept and its counters
+/// apply; one dated further ahead is replaced by a capped record for today
+/// (fails closed, bounded to one day); an older one is replaced by an empty
+/// one. A `day` that is not a `YYYY-MM-DD` date is an unreadable value.
 ///
-/// Never call a method here from inside a `runWrite` body (the mutex is not
-/// re-entrant): read before the body ([read]), and write atomically with a
-/// commit's result through [writeIn].
+/// Never call a method here other than [readLocked] and [writeIn] from inside
+/// a `runWrite` body (the mutex is not re-entrant): read before the body
+/// ([read]) or inside it ([readLocked]), and write atomically with a commit's
+/// result through [writeIn], which re-reads the record inside the caller's
+/// transaction.
 class DailyLedger {
   DailyLedger({
     required VaultSession session,
@@ -236,31 +278,63 @@ class DailyLedger {
   );
 
   /// The record of today: an empty one when none is stored or the stored one
-  /// is of an earlier IST day; the stored one when it is dated today or later;
-  /// a record with [DailyRecord.exhausted] set (and stored) when the value
-  /// cannot be read (reported once). Throws [StateError] when the vault is not ready. Not for a `runWrite`
-  /// body.
+  /// is of an earlier IST day; the stored one when it is dated today or at
+  /// most one day after (clock skew, the IST boundary); a capped record for
+  /// today (stored) when it is dated further ahead; a record with
+  /// [DailyRecord.exhausted] set (and stored) when the value cannot be read
+  /// (reported once). Throws [StateError] when the vault is not ready. Not for
+  /// a `runWrite` body ([readLocked] is).
+  ///
+  /// Decide through the accessors ([undone], [lostSendUpdateDone],
+  /// [emptyClaimTried], [DailyRecord.isUndoOfOwnChange]), which apply
+  /// [DailyRecord.exhausted], never through the raw fields: an exhausted
+  /// record has empty counters that answer "at its cap".
   Future<DailyRecord> read() => _session.runWrite((vault) async {
     _checkVault(vault);
     return _load(vault);
   });
 
-  /// For a caller already inside a `runWrite` body and transaction: applies
-  /// [change] to the record through [tx]. [current] is the record the caller
-  /// read BEFORE entering the body ([read]); a record of another day is
-  /// replaced by an empty one first.
+  /// [read] for a caller already inside a `runWrite` body (the caller checked
+  /// that [vault] is the session's). Opens no `runWrite` and no transaction:
+  /// a replacement record (unreadable value, far-future day) is stored only
+  /// through [tx] when one is given, otherwise it is just returned (the next
+  /// write stores it). Safe inside or outside the caller's transaction.
+  Future<DailyRecord> readLocked(SecureVault vault, {VaultTx? tx}) =>
+      _load(vault, tx: tx, persist: tx != null);
+
+  /// For a caller already inside a `runWrite` body and transaction: reads the
+  /// record FRESH inside that transaction and applies [change] to it through
+  /// [tx]. The record is shared by every conversation while only
+  /// per-conversation locks are held, so another conversation's write may
+  /// have landed since the caller read: [current] (the record the caller read
+  /// before the body, [read] or [readLocked]) is for the caller's decision
+  /// only and is NOT what gets written. A record of an earlier day is
+  /// replaced by an empty one, an unreadable one by a capped one (stored
+  /// through [tx]); a stale copy never clears [DailyRecord.exhausted]. Decide
+  /// through the accessors, never the raw fields (see [read]).
   Future<void> writeIn(
     VaultTx tx,
     DailyRecord current,
     DailyRecord Function(DailyRecord) change,
-  ) {
-    final today = istDay(_now());
-    // 'YYYY-MM-DD' strings order like the days they name.
-    final base = current.day.compareTo(today) < 0
-        ? DailyRecord.empty(today)
-        : current;
-    return tx.putSetting(kVaultSettingE2eeDaily, change(base).encode());
+  ) async {
+    final vault = _session.vault;
+    if (vault == null) throw StateError('The vault is not ready.');
+    final fresh = await _load(vault, tx: tx);
+    await tx.putSetting(kVaultSettingE2eeDaily, change(fresh).encode());
   }
+
+  /// [DailyRecord.isUndoOfOwnChange] on today's record (true for every
+  /// reversal while the ledger is exhausted). Not for a `runWrite` body: there,
+  /// call it on the record [readLocked] returned.
+  Future<bool> isUndoOfOwnChange(
+    String conversationId,
+    Uint8List deviceId, {
+    required bool removing,
+  }) async => (await read()).isUndoOfOwnChange(
+    conversationId,
+    deviceId,
+    removing: removing,
+  );
 
   Future<void> _update(DailyRecord Function(DailyRecord) change) =>
       _session.runWrite((vault) async {
@@ -278,8 +352,16 @@ class DailyLedger {
     }
   }
 
-  Future<DailyRecord> _load(SecureVault vault) async {
-    final today = istDay(_now());
+  /// Reads the stored record. A replacement (capped) record is stored through
+  /// [tx] when given (the caller's transaction; never a nested one), else in a
+  /// transaction of its own; with [persist] false it is only returned.
+  Future<DailyRecord> _load(
+    SecureVault vault, {
+    VaultTx? tx,
+    bool persist = true,
+  }) async {
+    final now = _now();
+    final today = istDay(now);
     DailyRecord? stored;
     try {
       final bytes = await vault.setting(kVaultSettingE2eeDaily);
@@ -290,15 +372,36 @@ class DailyLedger {
         _onUnexpectedError?.call(const E2eePipelineError('daily.read'), stack);
       }
       // Fail closed, and keep it so for the rest of the day (and a restart).
-      final capped = DailyRecord.capped(today);
-      await vault.transaction(
-        (tx) => tx.putSetting(kVaultSettingE2eeDaily, capped.encode()),
-      );
-      return capped;
+      return _capped(vault, today, tx: tx, persist: persist);
     }
+    // 'YYYY-MM-DD' strings order like the days they name.
     if (stored == null || stored.day.compareTo(today) < 0) {
       return DailyRecord.empty(today);
     }
+    if (stored.day.compareTo(istDay(now.add(const Duration(days: 1)))) > 0) {
+      // Dated more than one day ahead (a clock once set far forward): kept as
+      // it is, it would freeze recovery until that day. Still fails closed,
+      // but only for today.
+      return _capped(vault, today, tx: tx, persist: persist);
+    }
     return stored;
+  }
+
+  Future<DailyRecord> _capped(
+    SecureVault vault,
+    String today, {
+    required VaultTx? tx,
+    required bool persist,
+  }) async {
+    final capped = DailyRecord.capped(today);
+    if (!persist) return capped;
+    if (tx != null) {
+      await tx.putSetting(kVaultSettingE2eeDaily, capped.encode());
+    } else {
+      await vault.transaction(
+        (t) => t.putSetting(kVaultSettingE2eeDaily, capped.encode()),
+      );
+    }
+    return capped;
   }
 }
