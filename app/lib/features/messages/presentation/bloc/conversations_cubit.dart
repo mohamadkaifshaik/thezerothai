@@ -8,6 +8,7 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../data/messaging_repository.dart';
 import '../../data/messaging_store.dart';
+import '../../domain/e2ee/encrypted_messaging.dart';
 
 /// Automatic refreshes (resume, a push) happen at most this often
 /// (auto-refresh at most every 60 s). Opening the
@@ -38,9 +39,22 @@ class ConversationsState {
     this.requestCount,
     this.error,
     this.notice,
+    this.previews = const {},
+    this.knownEncrypted = const {},
   });
 
   final ConversationsStatus status;
+
+  /// What the port said about the newest message of an encrypted
+  /// conversation, by conversation id. IN MEMORY ONLY (R14): never passed to
+  /// the repository, the store, a route or a log, and dropped with the cubit.
+  /// This state has no `toString` and is not freezed, so nothing prints it.
+  final Map<String, ConversationPreview> previews;
+
+  /// Ids of loaded rows the vault knows as encrypted (`hasLocal`), computed
+  /// together with [conversations]; the cached row's own marker rides on
+  /// `lastMessage.encrypted`. Ids only.
+  final Set<String> knownEncrypted;
 
   /// Most recent activity first.
   final List<pb.Conversation> conversations;
@@ -73,8 +87,12 @@ class ConversationsState {
     Object? requestCount = _keep,
     Object? error = _keep,
     Object? notice = _keep,
+    Map<String, ConversationPreview>? previews,
+    Set<String>? knownEncrypted,
   }) {
     return ConversationsState(
+      previews: previews ?? this.previews,
+      knownEncrypted: knownEncrypted ?? this.knownEncrypted,
       status: status ?? this.status,
       conversations: conversations ?? this.conversations,
       hasMore: hasMore ?? this.hasMore,
@@ -109,17 +127,47 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     this.onUnexpectedError,
     this.onInboxSynced,
     DateTime Function()? now,
+    EncryptedMessaging? encrypted,
+    bool Function()? previewsAllowed,
   }) : _repository = repository,
        _now = now ?? DateTime.now,
+       _encrypted = encrypted,
+       _previewsAllowed = previewsAllowed,
        super(const ConversationsState()) {
     // An accepted or deleted request changed the cache: re-read it,
     // no network.
     _changes = _repository.conversationsChanged.listen(
       (_) => unawaited(_reloadFromCache()),
     );
+    // Only with a port: a tree without the encryption wiring listens to
+    // nothing and is exactly today's inbox.
+    _previewChanges = encrypted?.previewChanged.listen(_onPreviewChanged);
   }
 
   final MessagingRepository _repository;
+
+  /// The encrypted messaging port, or null (no wiring, iOS). Previews and the
+  /// vault's `hasLocal` come only from here.
+  final EncryptedMessaging? _encrypted;
+
+  /// Whether the encryption access of this device allows touching the port
+  /// now (`full` or `manage`; not `hidden` or `unsupported`). Read at each use,
+  /// closed over objects, never a `BuildContext`. Null with a port: allowed.
+  final bool Function()? _previewsAllowed;
+  StreamSubscription<String>? _previewChanges;
+
+  /// Per id, the newest preview request: a slower, older answer for the same
+  /// id never overwrites a newer one.
+  final Map<String, int> _previewSeq = {};
+  int _previewCounter = 0;
+
+  /// The port, when this cubit may use it now.
+  EncryptedMessaging? get _port {
+    final port = _encrypted;
+    if (port == null) return null;
+    return (_previewsAllowed?.call() ?? true) ? port : null;
+  }
+
   final DateTime Function() _now;
 
   /// The folder this cubit shows: INBOX, or REQUESTS for `/messages/requests`.
@@ -287,7 +335,24 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     }
   }
 
-  void _apply(ConversationsSnapshot snapshot) {
+  /// [onlyNew]: an older page was appended, so only its new rows ask the port.
+  void _apply(ConversationsSnapshot snapshot, {bool onlyNew = false}) {
+    final port = _port;
+    final before = {for (final c in state.conversations) c.id};
+    Set<String>? known;
+    if (port != null) {
+      // The vault's word, in the SAME emit as the rows: a row the vault knows
+      // never shows the server's snippet, not even for one frame.
+      try {
+        known = {
+          for (final c in snapshot.conversations)
+            if (port.hasLocal(c.id)) c.id,
+        };
+      } catch (_, stack) {
+        onUnexpectedError?.call(StateError('hasLocal'), stack);
+        known = <String>{};
+      }
+    }
     emit(
       state.copyWith(
         conversations: snapshot.conversations,
@@ -296,8 +361,69 @@ class ConversationsCubit extends Cubit<ConversationsState> {
         requestCount: _isInbox && snapshot.requestCount != null
             ? snapshot.requestCount
             : state.requestCount,
+        knownEncrypted: known,
       ),
     );
+    if (port == null) return;
+    final ids = [
+      for (final c in snapshot.conversations)
+        if (!(onlyNew && before.contains(c.id)) &&
+            ((known?.contains(c.id) ?? false) ||
+                (c.hasLastMessage() && c.lastMessage.encrypted)))
+          c.id,
+    ];
+    if (ids.isNotEmpty) unawaited(_askPreviews(port, ids));
+  }
+
+  /// One `previews` call for [ids] (a page, or one changed row). The answer is
+  /// merged per id: an id the port does not answer loses its preview. A failure
+  /// leaves what was shown; it is reported as a fixed step, never retried here.
+  Future<void> _askPreviews(EncryptedMessaging port, List<String> ids) async {
+    final seq = ++_previewCounter;
+    for (final id in ids) {
+      _previewSeq[id] = seq;
+    }
+    final Map<String, ConversationPreview> answer;
+    try {
+      answer = await port.previews(ids);
+    } catch (_, stack) {
+      if (!isClosed) onUnexpectedError?.call(StateError('previews'), stack);
+      return;
+    }
+    if (isClosed) return;
+    final next = Map<String, ConversationPreview>.of(state.previews);
+    var changed = false;
+    for (final id in ids) {
+      if (_previewSeq[id] != seq) continue;
+      final preview = answer[id];
+      if (preview == null) {
+        changed = next.remove(id) != null || changed;
+      } else {
+        next[id] = preview;
+        changed = true;
+      }
+    }
+    if (changed) emit(state.copyWith(previews: next));
+  }
+
+  /// The port says the newest row of [id] changed: ask for that one id while
+  /// its row is loaded. A late event after close is ignored.
+  void _onPreviewChanged(String id) {
+    if (isClosed) return;
+    final port = _port;
+    if (port == null) return;
+    if (!state.conversations.any((c) => c.id == id)) return;
+    if (!state.knownEncrypted.contains(id)) {
+      try {
+        // The row may have become one the vault knows since it was loaded.
+        if (port.hasLocal(id)) {
+          emit(state.copyWith(knownEncrypted: {...state.knownEncrypted, id}));
+        }
+      } catch (_, stack) {
+        onUnexpectedError?.call(StateError('hasLocal'), stack);
+      }
+    }
+    unawaited(_askPreviews(port, [id]));
   }
 
   /// Prefetch paging (the screen calls it near the end).
@@ -324,7 +450,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     try {
       final snapshot = await _repository.loadOlderConversations(folder);
       if (isClosed) return;
-      _apply(snapshot);
+      _apply(snapshot, onlyNew: true);
       emit(state.copyWith(loadingMore: false));
     } on AppException catch (error, stack) {
       if (isClosed) return;
@@ -337,6 +463,8 @@ class ConversationsCubit extends Cubit<ConversationsState> {
   Future<void> close() {
     _pendingRefresh?.cancel();
     unawaited(_changes?.cancel());
+    unawaited(_previewChanges?.cancel());
+    _previewSeq.clear();
     return super.close();
   }
 }

@@ -3,6 +3,7 @@ import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/conversations_cubit.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
@@ -14,6 +15,7 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:fixnum/fixnum.dart' show Int64;
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_transport.dart';
 import '../../../support/messaging_fixtures.dart';
 import '../../../support/thread_test_support.dart';
@@ -249,6 +251,58 @@ void main() {
       (await repo.cachedConversations(Folder.FOLDER_INBOX)).conversations,
       isEmpty,
     );
+  });
+
+  test('after previews load, no preview text is in the drift cache', () async {
+    const canary = 'canary preview words';
+    await db.claimCacheFor('a');
+    convAnswers.add(
+      inbox([
+        conv('enc', minutesAgo: 1, snippet: '')..lastMessage.encrypted = true,
+        conv('plain', minutesAgo: 2, snippet: 'ordinary'),
+      ], since: 's1'),
+    );
+    final port = FakeEncryptedMessaging();
+    addTearDown(port.dispose);
+    port.setPreviews({
+      'enc': const ConversationPreview(kind: PreviewKind.text, text: canary),
+    });
+    final list = ConversationsCubit(repository: repo, encrypted: port);
+    closers.add(list.close);
+
+    await list.load();
+    await pumpEventQueue();
+    final before = await repo.cachedConversations(Folder.FOLDER_INBOX);
+    expect(list.state.previews['enc']?.text, canary, reason: 'in memory');
+
+    // A change arrives and is shown too.
+    port.setPreviews({
+      'enc': const ConversationPreview(
+        kind: PreviewKind.text,
+        text: '$canary again',
+      ),
+    });
+    await pumpEventQueue();
+    final after = await repo.cachedConversations(Folder.FOLDER_INBOX);
+
+    expect(list.state.previews['enc']?.text, '$canary again');
+    for (final snapshot in [before, after]) {
+      final rows = {for (final c in snapshot.conversations) c.id: c};
+      expect(rows['enc']!.lastMessage.snippet, isEmpty);
+      expect(rows['plain']!.lastMessage.snippet, 'ordinary');
+      for (final c in snapshot.conversations) {
+        expect(
+          String.fromCharCodes(c.writeToBuffer()),
+          isNot(contains(canary)),
+        );
+      }
+    }
+    expect(
+      [for (final c in after.conversations) c.writeToBuffer()],
+      [for (final c in before.conversations) c.writeToBuffer()],
+      reason: 'previews changed nothing in the store',
+    );
+    expect(convRequests, hasLength(1), reason: 'no extra network read');
   });
 
   test('an account switch clears the inbox and the threads: the next account '

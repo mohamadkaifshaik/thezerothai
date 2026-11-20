@@ -1,3 +1,5 @@
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/conversation_row.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:material_ui/material_ui.dart';
@@ -57,6 +59,48 @@ void main() {
     test('no preview yet is empty', () {
       expect(conversationSnippet(conv('a')), '');
     });
+  });
+
+  testWidgets('an encrypted row draws the preview, speaks it and keeps one '
+      'reader stop', (tester) async {
+    await pumpRow(
+      tester,
+      ConversationRow(
+        conversation: conv('a', snippet: '')..lastMessage.encrypted = true,
+        now: now,
+        preview: const ConversationPreview(
+          kind: PreviewKind.text,
+          text: 'vault words',
+          mine: true,
+        ),
+      ),
+    );
+
+    expect(find.text('You: vault words'), findsOneWidget);
+    expect(
+      tester.getSemantics(find.byType(ConversationRow)).label,
+      contains('You: vault words'),
+    );
+  });
+
+  testWidgets('an encrypted row without a preview reads the placeholder', (
+    tester,
+  ) async {
+    await pumpRow(
+      tester,
+      ConversationRow(
+        conversation: conv('a', snippet: 'server words'),
+        now: now,
+        knownEncrypted: true,
+      ),
+    );
+
+    expect(find.text(kEncryptedPlaceholderText), findsOneWidget);
+    expect(find.text('server words'), findsNothing);
+    expect(
+      tester.getSemantics(find.byType(ConversationRow)).label,
+      contains(kEncryptedPlaceholderText),
+    );
   });
 
   testWidgets(
