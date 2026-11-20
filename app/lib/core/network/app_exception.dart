@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../crypto/mls_pair.dart';
+
 /// Typed domain errors the UI branches on. Callers must never pattern-match
 /// on a raw error message string (see `dzeroth.common.v1.ErrorReason`).
 ///
@@ -262,6 +264,35 @@ final class ServicePausedException extends AppException {
 /// Anything else (mapped from an unrecognized Connect `Code`).
 final class UnknownApiException extends AppException {
   const UnknownApiException(super.message);
+}
+
+/// An encrypted send or commit was built on an epoch the server has moved
+/// past (FAILED_PRECONDITION + STALE_EPOCH). [generation] and [epoch] are the
+/// server's current pair; both are 0 when the metadata is missing or unusable
+/// ([pair] is then null). [conversationId] is set only for a send addressed by
+/// recipient (32 lower-case hex, else null).
+final class StaleEpochException extends AppException {
+  const StaleEpochException(
+    super.message, {
+    required this.generation,
+    required this.epoch,
+    this.conversationId,
+  });
+
+  final int generation;
+  final int epoch;
+  final String? conversationId;
+
+  MlsPair? get pair => generation == 0 ? null : MlsPair(generation, epoch);
+}
+
+/// A plaintext send to a conversation that is end-to-end encrypted
+/// (FAILED_PRECONDITION + ENCRYPTION_REQUIRED). [conversationId] as for
+/// [StaleEpochException].
+final class EncryptionRequiredException extends AppException {
+  const EncryptionRequiredException(super.message, {this.conversationId});
+
+  final String? conversationId;
 }
 
 /// Why a role-gated community action was refused (PERMISSION_DENIED +

@@ -277,7 +277,7 @@ void main() {
     );
   });
 
-  test('a replay and the device\'s own message are duplicate', () async {
+  test('a replayed peer message is duplicate', () async {
     final alice = await device(1);
     final bob = await device(2);
     final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
@@ -287,10 +287,164 @@ void main() {
       engine.process(bob.state, p.groupState, sent.ciphertext),
       MlsErrorCode.duplicate,
     );
+  });
+
+  test('own echo is ownLeaf, not duplicate', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final sent = await engine.encrypt(alice.state, states[0], _utf8('mine'));
     await _fails(
       engine.process(alice.state, sent.groupState, sent.ciphertext),
-      MlsErrorCode.duplicate,
+      MlsErrorCode.ownLeaf,
     );
+  });
+
+  test('an own commit is ownLeaf while pending and after a discard', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final carol = await device(3);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final c = await engine.commitChange(
+      alice.state,
+      states[0],
+      addKeyPackages: [await keyPackage(carol)],
+    );
+    await _fails(
+      engine.process(alice.state, c.groupState, c.commit),
+      MlsErrorCode.ownLeaf,
+    );
+    final discarded = await engine.discardCommit(alice.state, c.groupState);
+    await _fails(
+      engine.process(alice.state, discarded, c.commit),
+      MlsErrorCode.ownLeaf,
+    );
+  });
+
+  test(
+    'an own commit after confirm is wrongEpoch (epoch is checked first)',
+    () async {
+      final alice = await device(1);
+      final bob = await device(2);
+      final carol = await device(3);
+      final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+      final c = await engine.commitChange(
+        alice.state,
+        states[0],
+        addKeyPackages: [await keyPackage(carol)],
+      );
+      final confirmed = await engine.confirmCommit(alice.state, c.groupState);
+      await _fails(
+        engine.process(alice.state, confirmed, c.commit),
+        MlsErrorCode.wrongEpoch,
+      );
+    },
+  );
+
+  test('the own self-update commit is ownLeaf', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final c = await engine.selfUpdate(alice.state, states[0]);
+    await _fails(
+      engine.process(alice.state, c.groupState, c.commit),
+      MlsErrorCode.ownLeaf,
+    );
+  });
+
+  test('inspectKeyPackage reads one-time and last-resort packages', () async {
+    final alice = await device(1);
+    final r = await engine.generateKeyPackages(
+      alice.state,
+      count: 1,
+      lastResort: true,
+    );
+    expect(r.keyPackages, hasLength(2));
+    for (final p in r.keyPackages) {
+      final info = await engine.inspectKeyPackage(p);
+      expect(info.deviceId, alice.id);
+      expect(info.signaturePublicKey, alice.signatureKey);
+    }
+  });
+
+  test(
+    'inspectKeyPackage refuses damage, oversize, a welcome and garbage',
+    () async {
+      final alice = await device(1);
+      final bob = await device(2);
+      final kp = await keyPackage(bob);
+      // The fake has no signature, so damage is a broken header, not any byte.
+      final broken = Uint8List.fromList(kp)..[0] ^= 0xFF;
+      await _fails(engine.inspectKeyPackage(broken), MlsErrorCode.badInput);
+      await _fails(
+        engine.inspectKeyPackage(Uint8List(65537)),
+        MlsErrorCode.badInput,
+      );
+      await _fails(
+        engine.inspectKeyPackage(_bytes(7, 5)),
+        MlsErrorCode.badInput,
+      );
+      await _fails(
+        engine.inspectKeyPackage(Uint8List(0)),
+        MlsErrorCode.badInput,
+      );
+      final g = await engine.createGroup(alice.state, _bytes(0xA1, 32));
+      final c = await engine.commitChange(alice.state, g, addKeyPackages: [kp]);
+      await _fails(engine.inspectKeyPackage(c.welcome!), MlsErrorCode.badInput);
+    },
+  );
+
+  test('a flipped last byte is badInput on the fake', () async {
+    final bob = await device(2);
+    final kp = await keyPackage(bob);
+    final flipped = Uint8List.fromList(kp)..[kp.length - 1] ^= 0xFF;
+    await _fails(engine.inspectKeyPackage(flipped), MlsErrorCode.badInput);
+  });
+
+  test('inspecting a key package changes nothing: it still joins', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final kp = await keyPackage(bob);
+    final a = await engine.inspectKeyPackage(kp);
+    final b = await engine.inspectKeyPackage(kp);
+    expect(a.deviceId, b.deviceId);
+    final g = await engine.createGroup(alice.state, _bytes(0xA1, 32));
+    final c = await engine.commitChange(alice.state, g, addKeyPackages: [kp]);
+    final j = await engine.joinFromWelcome(bob.state, c.welcome!);
+    expect(j.epoch, 1);
+  });
+
+  test('a commit event names the committer and the added keys', () async {
+    final alice = await device(1);
+    final bob = await device(2);
+    final carol = await device(3);
+    final states = await groupOf(alice, [bob], _bytes(0xA1, 32));
+    final c = await engine.commitChange(
+      alice.state,
+      states[0],
+      addKeyPackages: [await keyPackage(carol)],
+    );
+    final p = await engine.process(bob.state, states[1], c.commit);
+    final e = p.event as MlsCommitEvent;
+    expect(e.committerDeviceId, alice.id);
+    expect(e.added, [carol.id]);
+    expect(e.addedSignatureKeys, [carol.signatureKey]);
+    final after = await engine.describe(p.groupState);
+    expect(after.members.last.signaturePublicKey, e.addedSignatureKeys.single);
+
+    // A remove-only commit adds no keys.
+    final a2 = await engine.confirmCommit(alice.state, c.groupState);
+    final r = await engine.commitChange(
+      alice.state,
+      a2,
+      removeDeviceIds: [bob.id],
+    );
+    final p2 = await engine.process(bob.state, p.groupState, r.commit);
+    final e2 = p2.event as MlsCommitEvent;
+    expect(e2.committerDeviceId, alice.id);
+    expect(e2.added, isEmpty);
+    expect(e2.addedSignatureKeys, isEmpty);
+    expect(e2.removed, [bob.id]);
   });
 
   test(

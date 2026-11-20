@@ -2,17 +2,20 @@ import 'dart:typed_data';
 
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../gen/dzeroth/keys/v1/keys.pb.dart' as pb;
 
 /// The only caller of `KeyService`, the end-to-end encryption key directory
 /// (proto/dzeroth/keys/v1/keys.proto).
 ///
-/// - **Flag.** Every RPC goes through the `e2ee_dm` [ServiceFeatureGate]:
-///   with the flag off nothing is sent and [FeatureDisabledException] is
-///   thrown; a server FEATURE_DISABLED is remembered until the next `GetMe`.
-///   (The server would accept ListMyKeyDevices and RemoveKeyDevice with the
-///   user's flag off, as long as it is not globally off; this client sends
-///   nothing to `KeyService` with the flag off, per the plan.)
+/// - **Flag.** `registerDevice`, `uploadKeyPackages` and `claim` go through
+///   the `e2ee_dm` [ServiceFeatureGate]: with the flag off nothing is sent
+///   and [FeatureDisabledException] is thrown; a server FEATURE_DISABLED is
+///   remembered until the next `GetMe`. `listMine`, `removeDevice` and
+///   `getDevices` are also sent with the flag off when this device holds a
+///   vault (the server answers them unless messaging keys are globally off);
+///   with neither, nothing is sent and the same exception is thrown. A server
+///   FEATURE_DISABLED on those three is rethrown, not recorded in the gate.
 /// - **Errors** are typed by the shared mapper: [ValidationException] with
 ///   its `field` (`signature_public_key`: a known id with another key),
 ///   [LimitReachedException] with `quota` = `key_devices` (a sixth device),
@@ -27,15 +30,35 @@ class KeysRepository {
   KeysRepository({
     required ApiClient apiClient,
     required ServiceFeatureGate gate,
+    required bool Function() deviceFacts,
   }) : _apiClient = apiClient,
-       _gate = gate;
+       _gate = gate,
+       _deviceFacts = deviceFacts;
 
   final ApiClient _apiClient;
   final ServiceFeatureGate _gate;
 
+  /// True when this device holds an encryption vault (so it may still list,
+  /// remove and look up devices with the flag off).
+  final bool Function() _deviceFacts;
+
   /// Whether `e2ee_dm` is on for the caller (and the server has not said
-  /// otherwise since the last `GetMe`).
+  /// otherwise since the last `GetMe`): may START. Not what ListMine,
+  /// RemoveDevice and GetDevices need.
   bool get enabled => _gate.enabled;
+
+  /// Runs [call] for the three RPCs the server answers with the flag off as
+  /// long as it is not globally off: sent when the flag is on or this device
+  /// holds a vault. Otherwise nothing is sent. A server FEATURE_DISABLED is
+  /// rethrown and NOT recorded in the gate (it means globally off here, and
+  /// must not switch off the flag-gated calls). An unexpected
+  /// [UnknownApiException] still reaches the gate's `onUnexpectedError`.
+  Future<T> _open<T>(Future<T> Function() call) async {
+    if (!(_gate.enabled || _deviceFacts())) {
+      throw const FeatureDisabledException('This feature is not available.');
+    }
+    return await _gate.runUnrecorded(call);
+  }
 
   /// Publishes this device (idempotent for the same id and key).
   Future<pb.RegisterKeyDeviceResponse> registerDevice({
@@ -53,7 +76,7 @@ class KeysRepository {
   );
 
   /// The caller's devices (at most 5, oldest first, inactive included).
-  Future<pb.ListMyKeyDevicesResponse> listMine() => _gate.run(
+  Future<pb.ListMyKeyDevicesResponse> listMine() => _open(
     () => _apiClient.keys.listMyKeyDevices(pb.ListMyKeyDevicesRequest()),
   );
 
@@ -62,7 +85,7 @@ class KeysRepository {
   Future<pb.RemoveKeyDeviceResponse> removeDevice({
     required String deviceId,
     required String idempotencyKey,
-  }) => _gate.run(
+  }) => _open(
     () => _apiClient.keys.removeKeyDevice(
       pb.RemoveKeyDeviceRequest(
         idempotencyKey: idempotencyKey,
@@ -91,12 +114,11 @@ class KeysRepository {
   );
 
   /// Active devices of 1-10 users (later plans; unused in this one).
-  Future<pb.GetKeyDevicesResponse> getDevices(List<String> userIds) =>
-      _gate.run(
-        () => _apiClient.keys.getKeyDevices(
-          pb.GetKeyDevicesRequest(userIds: userIds),
-        ),
-      );
+  Future<pb.GetKeyDevicesResponse> getDevices(List<String> userIds) => _open(
+    () => _apiClient.keys.getKeyDevices(
+      pb.GetKeyDevicesRequest(userIds: userIds),
+    ),
+  );
 
   /// Claims one key package per active device of [userId]. NOT replayable:
   /// a retry consumes fresh packages (later plans; unused in this one).

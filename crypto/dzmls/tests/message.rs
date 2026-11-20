@@ -49,6 +49,7 @@ fn commit(p: &Processed) -> (u64, &[Vec<u8>], &[Vec<u8>], bool) {
             added,
             removed,
             self_removed,
+            ..
         } => (*epoch, added, removed, *self_removed),
         Event::Message { .. } => panic!("expected a commit"),
     }
@@ -132,7 +133,7 @@ fn out_of_order_within_epoch_is_tolerated() {
 }
 
 #[test]
-fn replay_is_duplicate() {
+fn a_replayed_peer_message_is_duplicate() {
     let alice = device(1);
     let mut bob = device(2);
     let s = group_of(&alice, &mut [&mut bob], &gid(1));
@@ -183,14 +184,61 @@ fn more_than_50_generations_late_and_1000_ahead_are_bad_input_but_a_replay_is_du
 }
 
 #[test]
-fn own_message_echoed_back_is_duplicate() {
+fn own_echo_is_own_leaf_not_duplicate() {
     let alice = device(1);
     let mut bob = device(2);
     let s = group_of(&alice, &mut [&mut bob], &gid(1));
     let e = dzmls::encrypt(&alice.state, &s[0], b"mine").unwrap();
     assert_eq!(
         code(dzmls::process(&alice.state, &e.group_state, &e.ciphertext)),
-        "duplicate"
+        "own_leaf"
+    );
+}
+
+#[test]
+fn own_commit_is_own_leaf_while_pending() {
+    let alice = device(1);
+    let mut bob = device(2);
+    let mut carol = device(3);
+    let s = group_of(&alice, &mut [&mut bob], &gid(1));
+    let c = dzmls::commit_change(&alice.state, &s[0], &[kp(&mut carol)], &[]).unwrap();
+    assert!(dzmls::describe(&c.group_state).unwrap().has_pending_commit);
+    assert_eq!(
+        code(dzmls::process(&alice.state, &c.group_state, &c.commit)),
+        "own_leaf"
+    );
+}
+
+#[test]
+fn own_commit_after_confirm_is_wrong_epoch_not_own_leaf() {
+    let alice = device(1);
+    let mut bob = device(2);
+    let mut carol = device(3);
+    let s = group_of(&alice, &mut [&mut bob], &gid(1));
+    let c = dzmls::commit_change(&alice.state, &s[0], &[kp(&mut carol)], &[]).unwrap();
+    let confirmed = dzmls::confirm_commit(&alice.state, &c.group_state).unwrap();
+    // `process` checks the epoch first (an own commit echoed back after the merge is one epoch behind), so this
+    // is wrong_epoch, exactly as before; it is no state either way.
+    assert_eq!(
+        code(dzmls::process(&alice.state, &confirmed, &c.commit)),
+        "wrong_epoch"
+    );
+}
+
+#[test]
+fn own_commit_is_own_leaf_without_a_pending_commit() {
+    // The brief's "without a pending commit": a group at the commit's epoch that holds no pending commit, which
+    // is the state after `discard_commit`.
+    let alice = device(1);
+    let mut bob = device(2);
+    let mut carol = device(3);
+    let s = group_of(&alice, &mut [&mut bob], &gid(1));
+    let c = dzmls::commit_change(&alice.state, &s[0], &[kp(&mut carol)], &[]).unwrap();
+    let discarded = dzmls::discard_commit(&alice.state, &c.group_state).unwrap();
+    assert!(!dzmls::describe(&discarded).unwrap().has_pending_commit);
+    assert_eq!(
+        code(dzmls::process(&alice.state, &discarded, &c.commit)),
+        "own_leaf"
     );
 }
 

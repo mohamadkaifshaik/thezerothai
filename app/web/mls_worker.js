@@ -9,7 +9,7 @@
 //                            | { id, ok: false, code: string, message: string }
 // Every Uint8Array in a response is transferred, not copied.
 // Ops and their args (see `ops` below): createDevice { deviceId }; generateKeyPackages { deviceState, count,
-// lastResort }; createGroup { deviceState, groupId }; commitChange { deviceState, groupState, addKeyPackages,
+// lastResort }; inspectKeyPackage { keyPackage } -> { deviceId, signaturePublicKey }; createGroup { deviceState, groupId }; commitChange { deviceState, groupState, addKeyPackages,
 // removeDeviceIds }; selfUpdate { deviceState, groupState } (same result shape as commitChange, welcome null);
 // confirmCommit / discardCommit { deviceState, groupState }; joinFromWelcome { deviceState, welcome };
 // encrypt { deviceState, groupState, plaintext }; process { deviceState, groupState, wire }; describe { groupState };
@@ -26,6 +26,7 @@ const ops = {
   createDevice: (a) => wasm_bindgen.createDevice(a.deviceId),
   generateKeyPackages: (a) =>
     wasm_bindgen.generateKeyPackages(a.deviceState, a.count, a.lastResort),
+  inspectKeyPackage: (a) => wasm_bindgen.inspectKeyPackage(a.keyPackage),
   createGroup: (a) => wasm_bindgen.createGroup(a.deviceState, a.groupId),
   commitChange: (a) =>
     wasm_bindgen.commitChange(a.deviceState, a.groupState, a.addKeyPackages, a.removeDeviceIds),
@@ -60,19 +61,34 @@ const ready = wasm_bindgen({ module_or_path: 'mls/dzmls_web_bg.wasm' }).then(
     self.postMessage({ ready: true });
   },
   (e) => {
-    self.postMessage({ ready: false, message: String((e && e.message) || e) });
+    self.postMessage({ ready: false, message: 'mls module failed to load' });
     throw e;
   },
 );
 
+// The core's error codes (crypto/dzmls ErrorCode::as_str). Only an error carrying one of them keeps its message (the
+// core's fixed text with sizes); anything else (a wasm trap, a glue TypeError, anything unexpected) is answered with
+// `internal` and a fixed text, never its own message or string form.
+const coreCodes = new Set([
+  'bad_input',
+  'corrupt_state',
+  'wrong_epoch',
+  'evicted',
+  'pending_commit',
+  'no_pending_commit',
+  'duplicate',
+  'own_leaf',
+  'internal',
+]);
+
 function failure(id, e) {
-  const hasCode = e !== null && typeof e === 'object' && typeof e.code === 'string';
-  return {
-    id,
-    ok: false,
-    code: hasCode ? e.code : 'internal',
-    message: String((e && e.message) || 'worker error'),
-  };
+  const coded =
+    e !== null && typeof e === 'object' && typeof e.code === 'string' && coreCodes.has(e.code) &&
+    typeof e.message === 'string';
+  if (!coded) {
+    return { id, ok: false, code: 'internal', message: 'the MLS worker failed' };
+  }
+  return { id, ok: false, code: e.code, message: e.message };
 }
 
 self.onmessage = async (event) => {

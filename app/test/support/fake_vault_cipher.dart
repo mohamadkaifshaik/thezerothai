@@ -42,7 +42,7 @@ class FakeVaultCipher implements VaultCipher {
   void switchToWrongKey() => _key = utf8.encode('wrong-key');
 
   void _guard() {
-    if (_destroyed) throw StateError('destroyed');
+    if (_destroyed || _closed) throw StateError('destroyed');
     if (throwsEverything) throw StateError('fake failure');
     if (unavailable) {
       throw const VaultKeyException(VaultKeyFailure.unavailable);
@@ -112,5 +112,23 @@ class FakeVaultCipher implements VaultCipher {
     destroyCalls++;
     await onDestroy?.call();
     _destroyed = true;
+  }
+
+  /// How many times [close] ended this cipher (a no-op call is not counted).
+  int closeCalls = 0;
+
+  /// True once [close] or [destroy] ended this cipher.
+  bool get closed => _closed || _destroyed;
+  bool _closed = false;
+
+  /// Ends the cipher without deleting the key: later calls throw
+  /// [StateError], as the real ciphers do. A no-op after [destroy] or a
+  /// second [close]. To reopen the same key in a test, make a new
+  /// [FakeVaultCipher] with the same key string.
+  @override
+  Future<void> close() async {
+    if (_destroyed || _closed) return;
+    closeCalls++;
+    _closed = true;
   }
 }

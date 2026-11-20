@@ -22,6 +22,10 @@ Future<KeyPackages> generateKeyPackages({
   lastResort: lastResort,
 );
 
+/// Any failure is `bad_input`.
+Future<KeyPackageInfo> inspectKeyPackage({required List<int> keyPackage}) =>
+    RustLib.instance.api.crateApiInspectKeyPackage(keyPackage: keyPackage);
+
 Future<Uint8List> createGroup({
   required List<int> deviceState,
   required List<int> groupId,
@@ -153,20 +157,31 @@ class Commit {
 /// Another member's commit, now merged.
 class CommitEvent {
   final BigInt epoch;
+  final Uint8List committerDeviceId;
   final List<Uint8List> added;
+
+  /// Parallel to `added`, same order.
+  final List<Uint8List> addedSignatureKeys;
   final List<Uint8List> removed;
   final bool selfRemoved;
 
   const CommitEvent({
     required this.epoch,
+    required this.committerDeviceId,
     required this.added,
+    required this.addedSignatureKeys,
     required this.removed,
     required this.selfRemoved,
   });
 
   @override
   int get hashCode =>
-      epoch.hashCode ^ added.hashCode ^ removed.hashCode ^ selfRemoved.hashCode;
+      epoch.hashCode ^
+      committerDeviceId.hashCode ^
+      added.hashCode ^
+      addedSignatureKeys.hashCode ^
+      removed.hashCode ^
+      selfRemoved.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -174,7 +189,9 @@ class CommitEvent {
       other is CommitEvent &&
           runtimeType == other.runtimeType &&
           epoch == other.epoch &&
+          committerDeviceId == other.committerDeviceId &&
           added == other.added &&
+          addedSignatureKeys == other.addedSignatureKeys &&
           removed == other.removed &&
           selfRemoved == other.selfRemoved;
 }
@@ -285,6 +302,28 @@ class Joined {
           groupState == other.groupState &&
           groupId == other.groupId &&
           epoch == other.epoch;
+}
+
+/// What a key package says about its device, after full validation.
+class KeyPackageInfo {
+  final Uint8List deviceId;
+  final Uint8List signaturePublicKey;
+
+  const KeyPackageInfo({
+    required this.deviceId,
+    required this.signaturePublicKey,
+  });
+
+  @override
+  int get hashCode => deviceId.hashCode ^ signaturePublicKey.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is KeyPackageInfo &&
+          runtimeType == other.runtimeType &&
+          deviceId == other.deviceId &&
+          signaturePublicKey == other.signaturePublicKey;
 }
 
 class KeyPackages {

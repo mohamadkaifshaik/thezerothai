@@ -57,8 +57,13 @@ const _destroyWait = Duration(seconds: 5);
 Future<VaultCipher> openPlatformVaultCipher({
   required String uid,
   required CryptoEngine engine,
-}) =>
-    openIoVaultCipher(uid: uid, engine: engine, isAndroid: Platform.isAndroid);
+  bool create = true,
+}) => openIoVaultCipher(
+  uid: uid,
+  engine: engine,
+  isAndroid: Platform.isAndroid,
+  create: create,
+);
 
 /// [openPlatformVaultCipher] with the platform check passed in, for tests.
 /// [destroyWait] bounds how long `destroy` waits for calls in flight.
@@ -68,12 +73,13 @@ Future<VaultCipher> openIoVaultCipher({
   required CryptoEngine engine,
   required bool isAndroid,
   Duration destroyWait = _destroyWait,
+  bool create = true,
 }) {
   _requireAndroid(isAndroid);
   final alias = vaultKeyAlias(uid);
   return _serialized(
     alias,
-    () => AndroidVaultCipher._open(alias, engine, destroyWait),
+    () => AndroidVaultCipher._open(alias, engine, destroyWait, create),
   );
 }
 
@@ -197,8 +203,11 @@ class AndroidVaultCipher implements VaultCipher {
   // flight.
   final Uint8List _key;
 
-  // Set first by destroy: new calls are refused while in-flight ones finish.
+  // Set first by close or destroy: new calls are refused while in-flight ones
+  // finish. [_destroyed] is set by destroy only: close after it is a no-op,
+  // and destroy after close still deletes the stored key.
   bool _closed = false;
+  bool _destroyed = false;
   int _inFlight = 0;
   Completer<void>? _drained;
 
@@ -214,11 +223,16 @@ class AndroidVaultCipher implements VaultCipher {
     String alias,
     CryptoEngine engine,
     Duration destroyWait,
+    bool create,
   ) async {
     final stored = await _unwrap(alias);
     if (stored != null) {
       return AndroidVaultCipher._(alias, engine, stored, false, destroyWait);
     }
+    // No stored key and not allowed to make one: generates and stores
+    // nothing (no random bytes, no wrap); the vault existed, so its key is
+    // gone.
+    if (!create) throw _keyLost;
 
     // No stored key: first use for this user on this device.
     final Uint8List key;
@@ -254,8 +268,14 @@ class AndroidVaultCipher implements VaultCipher {
   // flight and destroy zeroes the key only after they finish, or after
   // [_destroyWait]. A call that outlives that bound returns no result: it
   // fails with StateError (its key may have been zeroed under it).
+  StateError _endedError() => StateError(
+    _destroyed
+        ? 'The vault cipher was destroyed.'
+        : 'The vault cipher was closed.',
+  );
+
   Future<T> _run<T>(Future<T> Function(Uint8List key) body) async {
-    if (_closed) throw StateError('The vault cipher was destroyed.');
+    if (_closed) throw _endedError();
     _inFlight++;
     try {
       final T result;
@@ -263,10 +283,10 @@ class AndroidVaultCipher implements VaultCipher {
         result = await body(_key);
       } on Object {
         // A late failure may be the zeroed key's doing: not a bad row.
-        if (_zeroed) throw StateError('The vault cipher was destroyed.');
+        if (_zeroed) throw _endedError();
         rethrow;
       }
-      if (_zeroed) throw StateError('The vault cipher was destroyed.');
+      if (_zeroed) throw _endedError();
       return result;
     } finally {
       _inFlight--;
@@ -311,14 +331,17 @@ class AndroidVaultCipher implements VaultCipher {
         }
       });
 
-  /// Refuses new calls at once, waits for the ones in flight at most
-  /// [_destroyWait] (5 s, as on the web: a hung engine call must not hold a
-  /// sign-out's wipe forever), zeroes the key, then deletes the platform
-  /// key. A call still running after the bound gets no result (StateError),
-  /// so nothing sealed or opened after the key was zeroed is ever stored.
-  @override
-  Future<void> destroy() async {
-    if (_closed) throw StateError('The vault cipher was destroyed.');
+  // The one end of the in-memory key, shared by close and destroy: refuses
+  // new calls at once (synchronously, before the first await), waits for the
+  // ones in flight at most [_destroyWait] (5 s, as on the web: a hung engine
+  // call must not hold a sign-out's wipe forever), then zeroes the key. A
+  // call still running after the bound gets no result (StateError), so
+  // nothing sealed or opened after the key was zeroed is ever stored.
+  Future<void>? _ending;
+
+  Future<void> _end() => _ending ??= _endNow();
+
+  Future<void> _endNow() async {
     _closed = true;
     if (_inFlight > 0) {
       final drained = _drained = Completer<void>();
@@ -326,6 +349,22 @@ class AndroidVaultCipher implements VaultCipher {
     }
     _zeroed = true;
     _key.fillRange(0, _key.length, 0);
+  }
+
+  /// Ends the cipher and zeroes the key; the stored (wrapped) key stays.
+  @override
+  Future<void> close() async {
+    if (_destroyed) return;
+    await _end();
+  }
+
+  /// Ends the cipher (as [close] does, when it has not been closed yet),
+  /// then deletes the platform key.
+  @override
+  Future<void> destroy() async {
+    if (_destroyed) throw StateError('The vault cipher was destroyed.');
+    _destroyed = true;
+    await _end();
     await _serialized(_alias, () => _deleteAlias(_alias));
   }
 }

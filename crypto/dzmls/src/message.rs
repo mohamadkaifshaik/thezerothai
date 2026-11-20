@@ -98,8 +98,12 @@ pub enum Event {
     Commit {
         /// The epoch the group is in after the commit.
         epoch: u64,
+        /// The device id of the member that made the commit, from its leaf as it was before the commit.
+        committer_device_id: Vec<u8>,
         /// Device ids added by the commit, in commit order.
         added: Vec<Vec<u8>>,
+        /// The signature public keys of the added devices, parallel to `added` (same order and length).
+        added_signature_keys: Vec<Vec<u8>>,
         /// Device ids removed by the commit, in commit order.
         removed: Vec<Vec<u8>>,
         /// This device was removed. The returned group blob is then inactive: every later `encrypt`, `process` and
@@ -118,12 +122,19 @@ pub struct Processed {
 /// member's commit. `wire` is an `MlsMessage` as [`encrypt`] or `commit_change` produced it, at most 65536 bytes.
 ///
 /// Error codes: `wrong_epoch` when the message's epoch is not the group's (older or newer); `evicted` when this
-/// device is no longer a member; `duplicate` when the message's generation was already consumed (a replay, this
-/// device's own message echoed back); `bad_input` for a message more than 50 generations behind the newest one seen
-/// from its sender (its key is gone, so it was never read and cannot be read), and for anything oversized,
-/// unparsable, for another group, failing decryption or validation, or of a kind this engine does not take
-/// (Welcome, standalone proposal), and for a commit that adds a device id already in the group (or twice) or changes
-/// a member's device id. On any error no state is returned.
+/// device is no longer a member; `duplicate` when the message's generation was already consumed (a replay);
+/// `own_leaf` when the message names this device's own leaf as its sender (see below); `bad_input` for a message
+/// more than 50 generations behind the newest one seen from its sender (its key is gone, so it was never read and
+/// cannot be read), and for anything oversized, unparsable, for another group, failing decryption or validation, or
+/// of a kind this engine does not take (Welcome, standalone proposal), and for a commit that adds a device id already
+/// in the group (or twice) or changes a member's device id. On any error no state is returned.
+///
+/// `own_leaf` covers this device's own application message or commit echoed back, with or without a pending commit in
+/// the state; no state is returned. It is returned only at the group's current epoch: an own commit processed after
+/// `confirm_commit` (the group has moved to the next epoch) is `wrong_epoch`. **Not authenticated.** OpenMLS decides
+/// this from the sender data alone, before the content is decrypted or the signature checked, and every member holds
+/// the sender-data secret: any member can forge it and the server can replay this device's real ciphertext. Callers
+/// decide what to believe (addendum R7).
 ///
 /// A commit from another member for the epoch this device has a pending commit on means that commit lost:
 /// processing it merges the winner and drops the pending commit.
@@ -180,8 +191,8 @@ pub fn process(
                     merge_commit(provider, &mut group, *staged, committer)
                 }
                 ProcessedMessageContent::OwnPrivateMessage => Err(MlsError::new(
-                    ErrorCode::Duplicate,
-                    "message was sent by this device",
+                    ErrorCode::OwnLeaf,
+                    "message names this device's own leaf as its sender",
                 )),
                 _ => Err(MlsError::bad_input("standalone proposals are not accepted")),
             }
@@ -228,7 +239,11 @@ fn merge_commit(
     committer: LeafNodeIndex,
 ) -> Result<Event, MlsError> {
     check_commit_identities(group, &staged, committer)?;
-    let added = staged
+    let committer_device_id = group
+        .member(committer)
+        .map(|c| c.serialized_content().to_vec())
+        .ok_or_else(|| MlsError::bad_input("commit is from a leaf that is not a member"))?;
+    let added: Vec<Vec<u8>> = staged
         .add_proposals()
         .map(|q| {
             q.add_proposal()
@@ -236,6 +251,17 @@ fn merge_commit(
                 .leaf_node()
                 .credential()
                 .serialized_content()
+                .to_vec()
+        })
+        .collect();
+    let added_signature_keys: Vec<Vec<u8>> = staged
+        .add_proposals()
+        .map(|q| {
+            q.add_proposal()
+                .key_package()
+                .leaf_node()
+                .signature_key()
+                .as_slice()
                 .to_vec()
         })
         .collect();
@@ -255,7 +281,9 @@ fn merge_commit(
         .map_err(|_| MlsError::internal("merging the commit failed"))?;
     Ok(Event::Commit {
         epoch,
+        committer_device_id,
         added,
+        added_signature_keys,
         removed,
         self_removed,
     })
@@ -386,13 +414,17 @@ impl fmt::Debug for Event {
                 .finish(),
             Event::Commit {
                 epoch,
+                committer_device_id,
                 added,
+                added_signature_keys,
                 removed,
                 self_removed,
             } => f
                 .debug_struct("Commit")
                 .field("epoch", epoch)
+                .field("committer_device_id_len", &committer_device_id.len())
                 .field("added_count", &added.len())
+                .field("added_signature_keys_count", &added_signature_keys.len())
                 .field("removed_count", &removed.len())
                 .field("self_removed", self_removed)
                 .finish(),
@@ -713,7 +745,9 @@ mod tests {
         };
         let c = Event::Commit {
             epoch: 2,
+            committer_device_id: vec![0xAB; 16],
             added: vec![vec![0xAB; 16]],
+            added_signature_keys: vec![vec![0xAB; 32]],
             removed: vec![],
             self_removed: false,
         };

@@ -6,6 +6,7 @@ import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -199,7 +200,7 @@ void main() {
     late FakeVaultWorld world;
     late VaultSession vault;
 
-    void wireVault({AppUser? initialUser, bool flag = true}) {
+    void wireVault({AppUser? initialUser, E2eeFlag flag = E2eeFlag.on}) {
       subscription = wireAuthSession(
         authStates: auth.stream,
         onboardingBloc: onboarding,
@@ -274,7 +275,8 @@ void main() {
       expect(world.files.containsKey('a'), isFalse);
       // M1: B's flags are not known yet; B opens when they are.
       expect(vault.status.value, VaultStatus.off);
-      await vault.onFlagChanged(true, uid: 'b');
+      expect(vault.flag, E2eeFlag.unknown, reason: 'a direct switch');
+      await vault.onFlagChanged(E2eeFlag.on, uid: 'b');
       expect(world.files.keys, ['b']);
       expect(vault.status.value, VaultStatus.ready);
     });
@@ -294,9 +296,10 @@ void main() {
         expect(world.calls, isNot(contains('cipher:b')));
         expect(vault.status.value, VaultStatus.off);
         // B's GetMe says off: still nothing for B.
-        await vault.onFlagChanged(false, uid: 'b');
+        expect(vault.flag, E2eeFlag.unknown);
+        await vault.onFlagChanged(E2eeFlag.off, uid: 'b');
         expect(world.calls, isNot(contains('open:b')));
-        await vault.onFlagChanged(true, uid: 'b');
+        await vault.onFlagChanged(E2eeFlag.on, uid: 'b');
         expect(vault.vault!.uid, 'b');
       },
     );
@@ -309,11 +312,36 @@ void main() {
     });
 
     test('flag off at sign-in: the vault stays off', () async {
-      wireVault(flag: false);
+      wireVault(flag: E2eeFlag.off);
       auth.add(signedIn('a'));
       await settle();
       expect(vault.status.value, VaultStatus.off);
       expect(world.calls, isEmpty);
+    });
+
+    test('the tri-state reaches onSignedIn: unknown with no vault touches '
+        'nothing', () async {
+      wireVault(flag: E2eeFlag.unknown);
+      auth.add(signedIn('a'));
+      await settle();
+      expect(vault.flag, E2eeFlag.unknown);
+      expect(vault.status.value, VaultStatus.off);
+      expect(world.calls, isEmpty);
+    });
+
+    test('the tri-state reaches onSignedIn: unknown with a known vault opens '
+        'it without creating', () async {
+      // A vault from an earlier run exists for b.
+      final first = world.launch();
+      await first.onSignedIn('b', flag: E2eeFlag.on);
+      await first.onSessionEnded('b', SessionEnd.sessionLost);
+      world.createFlags.clear();
+      wireVault(flag: E2eeFlag.unknown);
+      auth.add(signedIn('b'));
+      await settle();
+      expect(vault.status.value, VaultStatus.ready);
+      expect(vault.flag, E2eeFlag.unknown);
+      expect(world.createFlags, [(cipher: false, vault: false)]);
     });
 
     test('the initial user signs in to the vault too', () async {
@@ -321,6 +349,125 @@ void main() {
       wireVault(initialUser: user('a'));
       await settle();
       expect(vault.status.value, VaultStatus.ready);
+    });
+  });
+
+  group('the e2ee_dm answer reaches the vault session', () {
+    late FakeVaultWorld world;
+    late StreamController<OnboardingState> answers;
+    late StreamSubscription<OnboardingState> flagSub;
+    late int upkeepCalls;
+
+    OnboardingState answer({required bool on, bool pending = false}) =>
+        OnboardingState(
+          status: OnboardingStatus.ready,
+          flagsPending: pending,
+          enabledFeatures: {if (on) kFeatureE2eeDm},
+        );
+
+    setUp(() {
+      world = FakeVaultWorld();
+      answers = StreamController<OnboardingState>();
+      upkeepCalls = 0;
+      // The file's tearDown cancels [subscription] and closes [auth], which
+      // needs a listener.
+      subscription = auth.stream.listen((_) {});
+    });
+    tearDown(() async {
+      await flagSub.cancel();
+      await answers.close();
+    });
+
+    VaultSession listen() {
+      final s = world.launch();
+      flagSub = wireE2eeFlag(
+        states: answers.stream,
+        uidOf: (_) => 'a',
+        vaultSession: s,
+        onFlagOnWithOpenVault: () => upkeepCalls++,
+      );
+      return s;
+    }
+
+    test('the flag turning on with a vault already open resumes device '
+        'upkeep without waiting for a tick', () async {
+      final first = world.launch();
+      await first.onSignedIn('a', flag: E2eeFlag.on);
+      await first.onSessionEnded('a', SessionEnd.sessionLost);
+      final s = listen();
+      await s.onSignedIn('a', flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.flag, E2eeFlag.unknown);
+      answers.add(answer(on: true));
+      await settle();
+      expect(s.flag, E2eeFlag.on);
+      expect(upkeepCalls, 1);
+    });
+
+    test('two identical on states give one upkeep call', () async {
+      final s = listen();
+      await s.onSignedIn('a', flag: E2eeFlag.unknown);
+      answers
+        ..add(answer(on: true))
+        ..add(answer(on: true));
+      await settle();
+      expect(s.status.value, VaultStatus.ready);
+      expect(upkeepCalls, 1);
+      // A change away and back is a new `on`: upkeep runs again.
+      answers
+        ..add(answer(on: false))
+        ..add(answer(on: true));
+      await settle();
+      expect(upkeepCalls, 2);
+    });
+
+    test(
+      'a user who leaves and returns: the first on calls upkeep again',
+      () async {
+        String? current = 'a';
+        final s = world.launch();
+        flagSub = wireE2eeFlag(
+          states: answers.stream,
+          uidOf: (_) => current,
+          vaultSession: s,
+          onFlagOnWithOpenVault: () => upkeepCalls++,
+        );
+        await s.onSignedIn('a', flag: E2eeFlag.unknown);
+        answers.add(answer(on: true));
+        await settle();
+        expect(upkeepCalls, 1);
+        // Signed out: a state with no user.
+        current = null;
+        answers.add(const OnboardingState());
+        await settle();
+        current = 'a';
+        answers.add(answer(on: true));
+        await settle();
+        expect(upkeepCalls, 2);
+      },
+    );
+
+    test('an off answer, or no answer yet, does not resume upkeep', () async {
+      final s = listen();
+      await s.onSignedIn('a', flag: E2eeFlag.on);
+      answers
+        ..add(answer(on: false))
+        ..add(answer(on: true, pending: true));
+      await settle();
+      expect(upkeepCalls, 0);
+      // The off answer is known and applies; the pending `on` is ignored.
+      expect(s.flag, E2eeFlag.off, reason: 'a pending answer changes nothing');
+    });
+
+    test('an on answer with no vault yet opens one, then upkeep resumes '
+        '(the hooks are not run again by the listener)', () async {
+      final s = listen();
+      await s.onSignedIn('a', flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.off);
+      answers.add(answer(on: true));
+      await settle();
+      expect(s.status.value, VaultStatus.ready);
+      expect(upkeepCalls, 1);
     });
   });
 

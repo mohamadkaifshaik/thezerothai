@@ -91,7 +91,8 @@ const _keyLost = VaultKeyException(VaultKeyFailure.keyLost);
 Future<VaultCipher> openPlatformVaultCipher({
   required String uid,
   required CryptoEngine engine,
-}) => WebVaultCipher._open(vaultKeyAlias(uid));
+  bool create = true,
+}) => WebVaultCipher._open(vaultKeyAlias(uid), create);
 
 /// Deletes the stored vault key of [uid] without opening it (idempotent).
 /// Rows sealed under it can never be opened again. Throws [VaultKeyException]
@@ -366,8 +367,11 @@ class WebVaultCipher implements VaultCipher {
   // The key handle. Only here; opaque (non-extractable). Dropped by destroy.
   CryptoKey? _key;
 
-  // Set first by destroy: new calls are refused while in-flight ones finish.
+  // Set first by close or destroy: new calls are refused while in-flight ones
+  // finish. [_destroyed] is set by destroy only (close after it is a no-op;
+  // destroy after close still deletes the stored record).
   bool _closing = false;
+  bool _destroyed = false;
   int _inFlight = 0;
   Completer<void>? _drained;
 
@@ -380,7 +384,7 @@ class WebVaultCipher implements VaultCipher {
   /// For a fresh answer call `vaultStoragePersisted()` in vault_cipher.dart.
   bool get persisted => _pagePersisted;
 
-  static Future<WebVaultCipher> _open(String alias) async {
+  static Future<WebVaultCipher> _open(String alias, bool create) async {
     final env = _Env.require();
     await _requestPersistence();
     final db = await _openDb(env);
@@ -389,6 +393,10 @@ class WebVaultCipher implements VaultCipher {
       if (stored.exists) {
         return WebVaultCipher._(env, alias, _existingKey(stored.value), false);
       }
+
+      // No record and not allowed to make a key (create false): nothing is
+      // generated or stored; the vault existed, so its key is gone.
+      if (!create) throw _keyLost;
 
       // No record: first use for this user in this browser profile. The key
       // is made before the transaction (a transaction cannot wait on it).
@@ -535,21 +543,39 @@ class WebVaultCipher implements VaultCipher {
     }
   }
 
-  @override
-  Future<void> destroy() async {
-    if (_closing || _key == null) {
-      throw StateError('The vault cipher was destroyed.');
-    }
-    // Refuse new calls first, let the ones in flight finish under the key
-    // (waiting at most 5 s), then delete the record and drop the key. A call
-    // still running after 5 s holds its own reference to the in-memory key,
-    // so it still completes correctly; it only finishes after the delete.
+  // The one end of the in-memory key, shared by close and destroy: refuse new
+  // calls first (synchronously), let the ones in flight finish under the key
+  // (waiting at most 5 s), then drop the handle. A call still running after
+  // 5 s holds its own reference to the handle, so it still completes
+  // correctly.
+  Future<void>? _ending;
+
+  Future<void> _end() => _ending ??= _endNow();
+
+  Future<void> _endNow() async {
     _closing = true;
     if (_inFlight > 0) {
       final drained = _drained = Completer<void>();
       await drained.future.timeout(_destroyWait, onTimeout: () {});
     }
     _key = null;
+  }
+
+  /// Ends the cipher and drops the key handle; the stored record stays, so
+  /// the same key opens again.
+  @override
+  Future<void> close() async {
+    if (_destroyed) return;
+    await _end();
+  }
+
+  /// Ends the cipher (as [close] does, when it has not been closed yet),
+  /// then deletes the stored record.
+  @override
+  Future<void> destroy() async {
+    if (_destroyed) throw StateError('The vault cipher was destroyed.');
+    _destroyed = true;
+    await _end();
     debugBeforeWebVaultKeyDelete?.call();
     await _deleteRecord(_env, _alias);
   }

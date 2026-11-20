@@ -34,6 +34,15 @@ class FakeVaultWorld {
 
   final List<String> calls = [];
 
+  /// The `create` argument of every cipher open, paired with the `create`
+  /// argument of the vault open that followed it (one entry per vault open).
+  final List<({bool cipher, bool vault})> createFlags = [];
+  bool _lastCipherCreate = true;
+
+  /// Every cipher a launch opened, in order (to see which were closed or
+  /// destroyed).
+  final List<FakeWorldCipher> ciphers = [];
+
   final Map<String, String> _uidByAlias = {};
 
   /// Makes [uid] known to the log's alias -> uid mapping.
@@ -105,7 +114,7 @@ class FakeVaultWorld {
     List<Object>? reported,
   }) {
     _launches++;
-    return VaultSession(
+    final session = VaultSession(
       openCipher: _openCipher,
       openVault: _openVault,
       wipeVaultFile: _wipeFile,
@@ -120,11 +129,12 @@ class FakeVaultWorld {
       supported: supported,
       launchId: 'launch-$_launches',
       now: () => DateTime.fromMicrosecondsSinceEpoch(nowMicros, isUtc: true),
-      onVaultReady: onVaultReady,
       beforeExplicitWipe: beforeExplicitWipe,
       explicitWipeHookTimeout: hookTimeout,
       onUnexpectedError: (error, _) => reported?.add(error),
     );
+    if (onVaultReady != null) session.addVaultReadyHook(onVaultReady);
+    return session;
   }
 
   /// The key of [uid] is gone (an invalidated keystore key, a cleared
@@ -155,9 +165,10 @@ class FakeVaultWorld {
         createdAtMicros: 1,
       );
 
-  Future<VaultCipher> _openCipher(String uid) async {
+  Future<VaultCipher> _openCipher(String uid, {required bool create}) async {
     see(uid);
     calls.add('cipher:$uid');
+    _lastCipherCreate = create;
     if (cipherKeyLost.contains(uid) && keys.containsKey(uid)) {
       throw const VaultKeyException(VaultKeyFailure.keyLost);
     }
@@ -165,28 +176,42 @@ class FakeVaultWorld {
       throw const VaultKeyException(VaultKeyFailure.unavailable);
     }
     final existing = keys[uid];
+    // create == false: no stored key generates nothing and is keyLost.
+    if (existing == null && !create) {
+      throw const VaultKeyException(VaultKeyFailure.keyLost);
+    }
     final version = existing ?? (keys[uid] = _nextKey++);
-    return FakeWorldCipher(
+    final cipher = FakeWorldCipher(
       this,
       uid,
       version,
       freshlyCreated: existing == null,
     );
+    ciphers.add(cipher);
+    return cipher;
   }
 
   Future<SecureVault> _openVault({
     required String uid,
     required VaultCipher cipher,
     String? expectedStorage,
+    required bool create,
   }) async {
     see(uid);
     calls.add('open:$uid');
+    createFlags.add((cipher: _lastCipherCreate, vault: create));
     final fail = openFails[uid];
     if (fail != null) throw VaultOpenException(fail);
     final key = (cipher as FakeWorldCipher).version;
     var file = files[uid];
     final listed = file != null && !file.hidden;
-    if (expectedStorage != null) {
+    // create == false: no copy listed anywhere, or an empty database, is
+    // unavailable and nothing is created (the real opener refuses first).
+    if (!create && (file == null || file.hidden || !file.stamped)) {
+      throw const VaultOpenException(VaultStatus.unavailable);
+    }
+    // Android (`native`) ignores the storage marker: one file, one place.
+    if (expectedStorage != null && expectedStorage != 'native') {
       // The real opener refuses BEFORE creating anything.
       if (!listed || _api(file.storage) != _api(expectedStorage)) {
         throw const VaultOpenException(VaultStatus.storageChanged);
@@ -257,6 +282,9 @@ class FakeVaultFile {
   /// Settings by key (values as char codes).
   final Map<String, String> rows = {};
 
+  /// How many committed writes each setting key has had.
+  final Map<String, int> settingWrites = {};
+
   /// This device's id and engine state (the device row), or null.
   Uint8List? deviceId;
   Uint8List? deviceState;
@@ -296,6 +324,11 @@ class FakeWorldCipher implements VaultCipher {
   final int version;
   bool destroyed = false;
 
+  /// How many times [close] ended this cipher (not recorded in
+  /// [FakeVaultWorld.calls], so call-order assertions stay as they are).
+  int closeCalls = 0;
+  bool closed = false;
+
   @override
   final bool freshlyCreated;
 
@@ -303,6 +336,14 @@ class FakeWorldCipher implements VaultCipher {
   Future<void> destroy() async {
     destroyed = true;
     await _world._deleteKey(alias: vaultKeyAlias(uid));
+  }
+
+  /// Ends the cipher; the key stays. A no-op after [destroy] or [close].
+  @override
+  Future<void> close() async {
+    if (destroyed || closed) return;
+    closeCalls++;
+    closed = true;
   }
 
   @override
@@ -394,6 +435,7 @@ class FakeWorldVault implements SecureVault {
     if (closed) return;
     _world.calls.add('vault.close:$uid');
     closed = true;
+    await _cipher.close();
   }
 
   @override
@@ -428,7 +470,10 @@ class _FakeTx implements VaultTx {
   @override
   Future<void> putSetting(String key, Uint8List value) async {
     final v = String.fromCharCodes(value);
-    _stage(() => _file.rows[key] = v);
+    _stage(() {
+      _file.rows[key] = v;
+      _file.settingWrites[key] = (_file.settingWrites[key] ?? 0) + 1;
+    });
   }
 
   @override

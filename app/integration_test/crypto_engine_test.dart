@@ -387,6 +387,121 @@ void main() {
     expect(m.senderDeviceId, bobId);
   });
 
+  testWidgets('inspect + commit fields + own leaf', (tester) async {
+    final engine = newEngine();
+    final aliceId = _bytes(1, 16);
+    final bobId = _bytes(2, 16);
+    final carolId = _bytes(3, 16);
+    final alice = await engine.createDevice(aliceId);
+    final bob = await engine.createDevice(bobId);
+    final carol = await engine.createDevice(carolId);
+    final bobKp = await engine.generateKeyPackages(
+      bob.deviceState,
+      count: 1,
+      lastResort: true,
+    );
+    final carolKp = await engine.generateKeyPackages(
+      carol.deviceState,
+      count: 1,
+      lastResort: false,
+    );
+
+    // Inspection: one-time and last-resort, no state needed.
+    for (final p in bobKp.keyPackages) {
+      final info = await engine.inspectKeyPackage(p);
+      expect(info.deviceId, bobId);
+      expect(info.signaturePublicKey, bob.signaturePublicKey);
+    }
+    final flipped = Uint8List.fromList(bobKp.keyPackages.first);
+    flipped[flipped.length - 1] ^= 0x01;
+    await _fails(engine.inspectKeyPackage(flipped), MlsErrorCode.badInput);
+    await _fails(
+      engine.inspectKeyPackage(Uint8List(65537)),
+      MlsErrorCode.badInput,
+    );
+    await _fails(
+      engine.inspectKeyPackage(Uint8List.fromList([1, 2, 3])),
+      MlsErrorCode.badInput,
+    );
+
+    var aliceGroup = await engine.createGroup(alice.deviceState, _bytes(7, 32));
+    final c1 = await engine.commitChange(
+      alice.deviceState,
+      aliceGroup,
+      addKeyPackages: [bobKp.keyPackages.first],
+    );
+    await _fails(engine.inspectKeyPackage(c1.welcome!), MlsErrorCode.badInput);
+    // Own commit while pending is ownLeaf.
+    await _fails(
+      engine.process(alice.deviceState, c1.groupState, c1.commit),
+      MlsErrorCode.ownLeaf,
+    );
+    aliceGroup = await engine.confirmCommit(alice.deviceState, c1.groupState);
+    // The device state that holds the key package's private keys is the one
+    // generateKeyPackages returned, not the one createDevice returned.
+    final bobJoin = await engine.joinFromWelcome(
+      bobKp.deviceState,
+      c1.welcome!,
+    );
+    final bobDevice = bobJoin.deviceState;
+
+    // Own echo of an application message is ownLeaf; a peer replay is not.
+    final m = await engine.encrypt(
+      alice.deviceState,
+      aliceGroup,
+      _utf8('mine'),
+    );
+    await _fails(
+      engine.process(alice.deviceState, m.groupState, m.ciphertext),
+      MlsErrorCode.ownLeaf,
+    );
+    final got = await engine.process(
+      bobDevice,
+      bobJoin.groupState,
+      m.ciphertext,
+    );
+    await _fails(
+      engine.process(bobDevice, got.groupState, m.ciphertext),
+      MlsErrorCode.duplicate,
+    );
+    aliceGroup = m.groupState;
+
+    // Commit attribution.
+    final c2 = await engine.commitChange(
+      alice.deviceState,
+      aliceGroup,
+      addKeyPackages: [carolKp.keyPackages.single],
+    );
+    final p2 = await engine.process(bobDevice, got.groupState, c2.commit);
+    final e2 = p2.event as MlsCommitEvent;
+    expect(e2.committerDeviceId, aliceId);
+    expect(e2.added, [carolId]);
+    expect(e2.addedSignatureKeys, [carol.signaturePublicKey]);
+    final after = await engine.describe(p2.groupState);
+    expect([
+      for (final x in after.members) x.signaturePublicKey,
+    ], containsAll(e2.addedSignatureKeys));
+    aliceGroup = await engine.confirmCommit(alice.deviceState, c2.groupState);
+
+    // The own self-update commit is ownLeaf; a remove-only commit has no keys.
+    final su = await engine.selfUpdate(alice.deviceState, aliceGroup);
+    await _fails(
+      engine.process(alice.deviceState, su.groupState, su.commit),
+      MlsErrorCode.ownLeaf,
+    );
+    await engine.discardCommit(alice.deviceState, su.groupState);
+    final rm = await engine.commitChange(
+      alice.deviceState,
+      aliceGroup,
+      removeDeviceIds: [carolId],
+    );
+    final p3 = await engine.process(bobDevice, p2.groupState, rm.commit);
+    final e3 = p3.event as MlsCommitEvent;
+    expect(e3.committerDeviceId, aliceId);
+    expect(e3.addedSignatureKeys, isEmpty);
+    expect(e3.removed, [carolId]);
+  });
+
   testWidgets('garbage input fails with an MlsException', (tester) async {
     final engine = newEngine();
     final garbage = Uint8List.fromList([0xde, 0xad, 0xbe, 0xef]);

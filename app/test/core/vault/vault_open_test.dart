@@ -492,6 +492,145 @@ void main() {
     );
   });
 
+  group('create false', () {
+    late Directory dir;
+    late File file;
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('vault_nocreate');
+      file = File('${dir.path}${Platform.pathSeparator}v.sqlite');
+    });
+    tearDown(() {
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    test('create false on an empty database writes nothing and is '
+        'unavailable', () async {
+      final cipher = FakeVaultCipher();
+      await expectLater(
+        openVaultOnDatabase(
+          VaultDatabase.forTesting(NativeDatabase(file)),
+          uid: 'u1',
+          cipher: cipher,
+          create: false,
+        ),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      expect(cipher.sealCalls, 0, reason: 'no sentinel sealed');
+      final check = VaultDatabase.forTesting(NativeDatabase(file));
+      expect(await check.select(check.vaultMeta).get(), isEmpty);
+      await check.close();
+    });
+
+    test('create false on an existing vault opens it', () async {
+      final cipher = FakeVaultCipher();
+      final made = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase(file)),
+        uid: 'u1',
+        cipher: cipher,
+      );
+      await made.close();
+      // Closing the vault closed its cipher: the same key opens again.
+      final again = await openVaultOnDatabase(
+        VaultDatabase.forTesting(NativeDatabase(file)),
+        uid: 'u1',
+        cipher: FakeVaultCipher(),
+        create: false,
+      );
+      expect(again.createdThisOpen, isFalse);
+      await again.close();
+    });
+
+    test('create false on Android writes nothing and is unavailable; a '
+        'zero-byte file is the only trace', () async {
+      const name = 'dzeroth_vault_nocreate';
+      final db = VaultDatabase(
+        driftDatabase(
+          name: name,
+          native: vaultNativeOptions(
+            directory: () async => dir.path,
+            tempDirectory: () async => null,
+            create: false,
+          ),
+        ),
+      );
+      await expectLater(
+        openVaultOnDatabase(
+          db,
+          uid: 'u1',
+          cipher: FakeVaultCipher(),
+          create: false,
+        ),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      // sqlite itself makes the zero-byte file when it opens a missing path
+      // (drift_flutter has no open mode that refuses to): the brief's "no
+      // file" is NOT met on Android, only "nothing written". No schema, no
+      // stamp, no sentinel, no sidecar.
+      final left = {
+        for (final e in dir.listSync())
+          e.uri.pathSegments.last: e is File ? e.lengthSync() : -1,
+      };
+      expect(left, {'$name.sqlite': 0});
+      // The leftover is harmless: a normal (create true) open still starts a
+      // vault in it.
+      final later = await openVaultOnDatabase(
+        VaultDatabase(
+          driftDatabase(
+            name: name,
+            native: vaultNativeOptions(
+              directory: () async => dir.path,
+              tempDirectory: () async => null,
+            ),
+          ),
+        ),
+        uid: 'u1',
+        cipher: FakeVaultCipher(),
+      );
+      expect(later.createdThisOpen, isTrue);
+      await later.close();
+    });
+
+    test('the web chooser: create false with no listed copy is unavailable; '
+        'a copy under another storage than expected stays storageChanged', () {
+      WasmStorageImplementation pick({
+        required bool create,
+        Iterable<ExistingDatabase> existing = const [],
+        String? expected,
+      }) => chooseVaultWebStorage(
+        available: const [
+          WasmStorageImplementation.opfsLocks,
+          WasmStorageImplementation.sharedIndexedDb,
+        ],
+        existing: existing,
+        missingFeatures: const {},
+        name: 'n',
+        expectedStorage: expected,
+        create: create,
+      );
+      expect(() => pick(create: false), _throwsStatus(VaultStatus.unavailable));
+      expect(
+        () => pick(create: false, expected: 'opfsLocks'),
+        _throwsStatus(VaultStatus.unavailable),
+      );
+      expect(
+        () => pick(
+          create: false,
+          expected: 'opfsLocks',
+          existing: [(WebStorageApi.indexedDb, 'n')],
+        ),
+        _throwsStatus(VaultStatus.storageChanged),
+      );
+      expect(
+        pick(create: false, existing: [(WebStorageApi.opfs, 'n')]),
+        WasmStorageImplementation.opfsLocks,
+      );
+      // create true is as before: no listed copy picks the best storage.
+      expect(pick(create: true), WasmStorageImplementation.opfsLocks);
+    });
+  });
+
   test('an empty uid is refused', () async {
     await expectLater(
       openVault(uid: '', cipher: FakeVaultCipher()),
@@ -517,7 +656,7 @@ void main() {
           conversationId: 'c1',
           messageId: 'm1',
           createdAtMicros: 1,
-          fromSelf: true,
+          mine: true,
           state: StoredMessageState.visible,
           generation: 1,
           epoch: 1,

@@ -107,6 +107,16 @@ pub fn generate_key_packages(
     ]))
 }
 
+/// `{ deviceId, signaturePublicKey }` of a key package, after full validation. Any failure throws `bad_input`.
+#[wasm_bindgen(js_name = inspectKeyPackage)]
+pub fn inspect_key_package(key_package: &[u8]) -> Result<JsValue, JsValue> {
+    let i = dzmls::inspect_key_package(key_package).map_err(fail)?;
+    Ok(object(&[
+        ("deviceId", bytes(&i.device_id)),
+        ("signaturePublicKey", bytes(&i.signature_public_key)),
+    ]))
+}
+
 /// `{ groupState }`
 #[wasm_bindgen(js_name = createGroup)]
 pub fn create_group(device_state: &[u8], group_id: &[u8]) -> Result<JsValue, JsValue> {
@@ -186,7 +196,9 @@ pub fn encrypt(
 }
 
 /// `{ groupState, event }` where `event` is `{ kind: "message", plaintext, senderDeviceId }` or
-/// `{ kind: "commit", epoch, added, removed, selfRemoved }`.
+/// `{ kind: "commit", epoch, committerDeviceId, added, addedSignatureKeys, removed, selfRemoved }`
+/// (`addedSignatureKeys` is parallel to `added`). An own message or commit throws `{ code: "own_leaf" }`, which is
+/// not authenticated (see `dzmls::ErrorCode::OwnLeaf`).
 #[wasm_bindgen]
 pub fn process(device_state: &[u8], group_state: &[u8], wire: &[u8]) -> Result<JsValue, JsValue> {
     let p = dzmls::process(device_state, group_state, wire).map_err(fail)?;
@@ -201,13 +213,17 @@ pub fn process(device_state: &[u8], group_state: &[u8], wire: &[u8]) -> Result<J
         ]),
         Event::Commit {
             epoch,
+            committer_device_id,
             added,
+            added_signature_keys,
             removed,
             self_removed,
         } => object(&[
             ("kind", JsValue::from_str("commit")),
             ("epoch", num(*epoch)),
+            ("committerDeviceId", bytes(committer_device_id)),
             ("added", bytes_list(added)),
+            ("addedSignatureKeys", bytes_list(added_signature_keys)),
             ("removed", bytes_list(removed)),
             ("selfRemoved", JsValue::from_bool(*self_removed)),
         ]),

@@ -2,6 +2,13 @@ import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 
+/// An engine that can die and be replaced (the web worker). [failed] is true
+/// once it can answer nothing any more; [close] stops it.
+abstract interface class EngineHealth {
+  bool get failed;
+  void close();
+}
+
 /// The one interface the app uses for end-to-end encryption (MLS, RFC 9420).
 ///
 /// The engine is stateless: every method takes opaque state blobs and returns
@@ -35,6 +42,12 @@ abstract interface class CryptoEngine {
     required int count,
     required bool lastResort,
   });
+
+  /// Reads the device id and signature public key out of a key package
+  /// ([keyPackage] is 1 to 65536 bytes) after full validation: what
+  /// [commitChange] applies to a package it adds, plus the 16 to 64 byte
+  /// identity rule. Any failure is [MlsErrorCode.badInput]. Takes no state.
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage);
 
   /// Creates a group with this device as its only member, at epoch 0.
   Future<Uint8List> createGroup(Uint8List deviceState, Uint8List groupId);

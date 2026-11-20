@@ -23,8 +23,8 @@ pub use code::{Party, security_code};
 pub use device::{DeviceCreated, KeyPackages, create_device, generate_key_packages};
 pub use error::{ErrorCode, MlsError};
 pub use group::{
-    Commit, GroupInfo, Joined, Member, commit_change, confirm_commit, create_group, describe,
-    discard_commit, join_from_welcome, self_update,
+    Commit, GroupInfo, Joined, KeyPackageInfo, Member, commit_change, confirm_commit, create_group,
+    describe, discard_commit, inspect_key_package, join_from_welcome, self_update,
 };
 pub use message::{Encrypted, Event, Processed, encrypt, process, wire_epoch};
 pub use seal::{MAX_SEAL_PLAINTEXT, SEAL_KEY_BYTES, SEAL_NONCE_BYTES, open, random_bytes, seal};

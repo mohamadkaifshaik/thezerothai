@@ -99,6 +99,29 @@ class _BrokenEngine extends _CapturingEngine {
   }
 }
 
+/// seal/open (and randomBytes once [failRandom] is set) fail with [code], as
+/// the guarded engine does on a timeout or when it is unavailable.
+class _DeadlineEngine extends _CapturingEngine {
+  _DeadlineEngine(this.code);
+
+  final MlsErrorCode code;
+  bool failRandom = false;
+
+  @override
+  Future<Uint8List> randomBytes(int length) {
+    if (failRandom) throw MlsException(code, 'engine call timed out');
+    return super.randomBytes(length);
+  }
+
+  @override
+  Future<Uint8List> seal(Uint8List key, Uint8List aad, Uint8List plaintext) =>
+      Future.error(MlsException(code, 'engine call timed out'));
+
+  @override
+  Future<Uint8List> open(Uint8List key, Uint8List aad, Uint8List sealed) =>
+      Future.error(MlsException(code, 'engine call timed out'));
+}
+
 /// randomBytes waits on [gate] (when set), so a test can interleave two
 /// opens there.
 class _GatedRandomEngine extends _CapturingEngine {
@@ -147,6 +170,7 @@ class _LateFailingOpenEngine extends _CapturingEngine {
 }
 
 Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
+String _s(Uint8List b) => utf8.decode(b);
 
 Future<VaultCipher> _open(FakeCryptoEngine engine, {String uid = 'user-1'}) =>
     openIoVaultCipher(uid: uid, engine: engine, isAndroid: true);
@@ -205,6 +229,36 @@ void main() {
     expect(keystore.calls.map((c) => c.method), ['unwrap']);
     expect(await second.open('messages', 'r1', sealed), _b('kept'));
   });
+
+  test(
+    'create false with no stored key generates nothing and is keyLost',
+    () async {
+      await expectLater(
+        openIoVaultCipher(
+          uid: 'user-1',
+          engine: engine,
+          isAndroid: true,
+          create: false,
+        ),
+        _keyFailure(VaultKeyFailure.keyLost),
+      );
+      expect(keystore.calls.map((c) => c.method), ['unwrap']);
+      expect(keystore.calls.where((c) => c.method == 'wrap'), isEmpty);
+      // Nothing was stored: a normal open still finds no key and creates one.
+      final created = await _open(engine);
+      expect(created.freshlyCreated, isTrue);
+      // And with a stored key, create false opens it.
+      keystore.calls.clear();
+      final again = await openIoVaultCipher(
+        uid: 'user-1',
+        engine: engine,
+        isAndroid: true,
+        create: false,
+      );
+      expect(again.freshlyCreated, isFalse);
+      expect(keystore.calls.map((c) => c.method), ['unwrap']);
+    },
+  );
 
   test('a row sealed for one (table, rowKey) does not open under another', () async {
     final cipher = await _open(engine);
@@ -320,6 +374,74 @@ void main() {
       );
     },
   );
+
+  test('after close seal and open throw StateError, no delete was sent, and a '
+      'new open reads rows sealed before', () async {
+    final cipher = await _open(engine);
+    final sealed = await cipher.seal('messages', 'r1', _b('old'));
+    await cipher.close();
+
+    await expectLater(cipher.seal('messages', 'r2', _b('x')), throwsStateError);
+    await expectLater(cipher.open('messages', 'r1', sealed), throwsStateError);
+    expect(keystore.calls.where((c) => c.method == 'delete'), isEmpty);
+    expect(keystore.stored, isNotEmpty);
+
+    final again = await _open(engine);
+    expect(again.freshlyCreated, isFalse);
+    expect(_s(await again.open('messages', 'r1', sealed)), 'old');
+  });
+
+  test('close zeroes the key bytes', () async {
+    final cipher = await _open(engine);
+    expect(engine.keys.single, isNot(everyElement(0)));
+    await cipher.close();
+    expect(engine.keys.single, everyElement(0));
+  });
+
+  test('close waits for a seal in flight, then zeroes the key', () async {
+    final late = _LateReadEngine()..sealGate = Completer<void>();
+    final cipher = await _open(late);
+    final sealing = cipher.seal('messages', 'r1', _b('x'));
+    await pumpEventQueue();
+    var closed = false;
+    final closing = cipher.close().then((_) => closed = true);
+    await pumpEventQueue();
+    expect(closed, isFalse);
+    expect(late.keys.single, isNot(everyElement(0)));
+    late.sealGate!.complete();
+    await sealing;
+    await closing;
+    expect(late.keys.single, everyElement(0));
+  });
+
+  test('close is idempotent', () async {
+    final cipher = await _open(engine);
+    await cipher.close();
+    await cipher.close();
+    expect(engine.keys.single, everyElement(0));
+    expect(keystore.calls.where((c) => c.method == 'delete'), isEmpty);
+  });
+
+  test('close after destroy is a no-op', () async {
+    final other = await _open(engine, uid: 'user-2');
+    await other.destroy();
+    final deletes = keystore.calls.where((c) => c.method == 'delete').length;
+    await other.close();
+    expect(keystore.calls.where((c) => c.method == 'delete').length, deletes);
+  });
+
+  test('destroy after close still deletes the stored key', () async {
+    final cipher = await _open(engine);
+    await cipher.close();
+    expect(keystore.stored, isNotEmpty);
+    await cipher.destroy();
+    expect(keystore.stored, isEmpty);
+    expect(
+      (keystore.calls.last.arguments as Map<Object?, Object?>)['alias'],
+      vaultKeyAlias('user-1'),
+    );
+    await expectLater(cipher.destroy(), throwsStateError);
+  });
 
   test(
     'a failed delete still ends the cipher and reports unavailable',
@@ -624,6 +746,27 @@ void main() {
     );
     await expectLater(
       cipher.open('messages', 'r1', Uint8List(40)),
+      _keyFailure(VaultKeyFailure.unavailable),
+    );
+  });
+
+  test('a deadline from the engine is unavailable, not keyLost and not a row '
+      'failure', () async {
+    for (final code in [MlsErrorCode.deadline, MlsErrorCode.unavailable]) {
+      final cipher = await _open(_DeadlineEngine(code));
+      await expectLater(
+        cipher.seal('messages', 'r1', _b('x')),
+        _keyFailure(VaultKeyFailure.unavailable),
+      );
+      await expectLater(
+        cipher.open('messages', 'r1', Uint8List(40)),
+        _keyFailure(VaultKeyFailure.unavailable),
+      );
+    }
+    // Opening with no stored key asks the engine for random bytes.
+    final fresh = _DeadlineEngine(MlsErrorCode.deadline)..failRandom = true;
+    await expectLater(
+      _open(fresh, uid: 'user-fresh'),
       _keyFailure(VaultKeyFailure.unavailable),
     );
   });

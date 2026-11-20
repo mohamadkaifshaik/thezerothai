@@ -83,10 +83,12 @@ typedef DeviceKeysTimerFactory = Timer Function(
   void Function() onTick,
 );
 
-enum DeviceKeysPhase { idle, ready, deviceLimitReached, failed }
+enum DeviceKeysPhase { idle, ready, deviceLimitReached, failed, dormant }
 
 /// Where this device stands in the key directory. [idle]: nothing to do or
-/// not allowed now (flag off, no vault, signed out, cancelled); [ready]: the
+/// not allowed now (no vault, signed out, cancelled, or the flag is not on
+/// and the vault holds no device); [dormant]: a device exists in the vault
+/// and the flag is not on: nothing is sent, nothing is generated; [ready]: the
 /// device is registered with a full pool; [deviceLimitReached]: the user
 /// has 5 devices and must remove one (UI in a later plan); failed: the last
 /// attempt failed, [retryable] when a later attempt (hourly or on resume)
@@ -99,6 +101,7 @@ class DeviceKeysStatus {
 
   static const idle = DeviceKeysStatus._(DeviceKeysPhase.idle);
   static const ready = DeviceKeysStatus._(DeviceKeysPhase.ready);
+  static const dormant = DeviceKeysStatus._(DeviceKeysPhase.dormant);
   static const deviceLimitReached = DeviceKeysStatus._(
     DeviceKeysPhase.deviceLimitReached,
   );
@@ -284,7 +287,8 @@ class DeviceKeysService {
 
   ValueListenable<DeviceKeysStatus> get status => _status;
 
-  /// [VaultSession.onVaultReady]: a vault was opened and published. Runs
+  /// A [VaultSession.addVaultReadyHook] hook: a vault was opened and
+  /// published. Runs
   /// at once (not throttled). Starts the periodic check on first use.
   Future<void> onVaultReady(SecureVault vault) {
     if (_disposed || !identical(_session.vault, vault)) return Future.value();
@@ -370,7 +374,8 @@ class DeviceKeysService {
   /// never opened), nothing is sent. The directory entry then drops out of
   /// lookups and claims on its own 30 days after it was last seen
   /// (keys.proto), and stays in the user's device list until removed. With
-  /// `e2ee_dm` off nothing is sent either (the repository's gate).
+  /// `e2ee_dm` off it is still sent when this device holds a vault (the
+  /// repository's device-facts rule); with no vault nothing is.
   ///
   /// When the open vault belongs to ANOTHER user than [uid], nothing
   /// happens at all, not even the "removing" latch: that user's runs must
@@ -446,7 +451,13 @@ class DeviceKeysService {
     }
     if (identical(_latchedVault, vault)) return;
     if (!_repo.enabled) {
-      _status.value = DeviceKeysStatus.idle;
+      // The flag is not on: nothing is generated, written or sent, whatever
+      // the vault holds. A device already in the vault is dormant (upkeep
+      // resumes under the same id when the flag turns on).
+      final dormant = await _hasUsableDevice(vault);
+      _status.value = dormant && live()
+          ? DeviceKeysStatus.dormant
+          : DeviceKeysStatus.idle;
       return;
     }
     final notBefore = _notBefore;
@@ -585,11 +596,7 @@ class DeviceKeysService {
       _forceRegister = false;
       count = r.device.keyPackageCount;
       hasLastResort = r.device.hasLastResort;
-      await _persist(
-        vault,
-        uid,
-        (tx) => tx.putSetting(kVaultSettingDeviceLastSeen, _micros(nowMicros)),
-      );
+      await _persistRegistered(vault, uid, nowMicros);
     }
 
     // 3. The pool.
@@ -687,6 +694,46 @@ class DeviceKeysService {
       }
     }
   }
+
+  /// Whether the vault holds a usable device (the existing-device branch of
+  /// [_loadOrCreate]). Read only: creates and writes nothing and makes no
+  /// MLS engine call itself (on Android a vault read unseals through the
+  /// engine's cipher, so the engine may still run). Any failure reads as
+  /// "no".
+  Future<bool> _hasUsableDevice(SecureVault v) async {
+    try {
+      if (_decodeId(await v.deviceId()) == null) return false;
+      if (await v.deviceState() == null) return false;
+      final key = await v.setting(kVaultSettingDeviceSignatureKey);
+      return key != null && key.length == 32;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// After a successful RegisterKeyDevice: records the last-seen time and,
+  /// after the FIRST successful one for the stored id, that this vault's
+  /// device was registered once (written once, skipped when present), in the
+  /// same transaction, through the session's write path.
+  Future<void> _persistRegistered(
+    SecureVault vault,
+    String uid,
+    int nowMicros,
+  ) => _session.runWrite((v) async {
+    if (!identical(v, vault) || _currentUid() != uid) {
+      throw const _Cancelled();
+    }
+    final once = await v.setting(kVaultSettingRegisteredOnce) != null;
+    await v.transaction((tx) async {
+      await tx.putSetting(kVaultSettingDeviceLastSeen, _micros(nowMicros));
+      if (!once) {
+        await tx.putSetting(
+          kVaultSettingRegisteredOnce,
+          Uint8List.fromList(const [0x01]),
+        );
+      }
+    });
+  });
 
   Future<_Local> _loadOrCreate(SecureVault v) async {
     final idBytes = await v.deviceId();

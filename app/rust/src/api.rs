@@ -74,7 +74,10 @@ pub struct MessageEvent {
 /// Another member's commit, now merged.
 pub struct CommitEvent {
     pub epoch: u64,
+    pub committer_device_id: Vec<u8>,
     pub added: Vec<Vec<u8>>,
+    /// Parallel to `added`, same order.
+    pub added_signature_keys: Vec<Vec<u8>>,
     pub removed: Vec<Vec<u8>>,
     pub self_removed: bool,
 }
@@ -128,6 +131,21 @@ pub fn generate_key_packages(
     Ok(KeyPackages {
         device_state: k.device_state,
         key_packages: k.key_packages,
+    })
+}
+
+/// What a key package says about its device, after full validation.
+pub struct KeyPackageInfo {
+    pub device_id: Vec<u8>,
+    pub signature_public_key: Vec<u8>,
+}
+
+/// Any failure is `bad_input`.
+pub fn inspect_key_package(key_package: Vec<u8>) -> Result<KeyPackageInfo, MlsError> {
+    let i = dzmls::inspect_key_package(&key_package)?;
+    Ok(KeyPackageInfo {
+        device_id: i.device_id,
+        signature_public_key: i.signature_public_key,
     })
 }
 
@@ -204,14 +222,18 @@ pub fn process(
         ),
         dzmls::Event::Commit {
             epoch,
+            committer_device_id,
             added,
+            added_signature_keys,
             removed,
             self_removed,
         } => (
             None,
             Some(CommitEvent {
                 epoch,
+                committer_device_id,
                 added,
+                added_signature_keys,
                 removed,
                 self_removed,
             }),

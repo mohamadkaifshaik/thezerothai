@@ -111,6 +111,16 @@ class NativeCryptoEngine implements CryptoEngine {
   });
 
   @override
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) =>
+      _call(() async {
+        final i = await rust.inspectKeyPackage(keyPackage: keyPackage);
+        return KeyPackageInfo(
+          deviceId: i.deviceId,
+          signaturePublicKey: i.signaturePublicKey,
+        );
+      });
+
+  @override
   Future<Uint8List> createGroup(Uint8List deviceState, Uint8List groupId) =>
       _call(() => rust.createGroup(deviceState: deviceState, groupId: groupId));
 
@@ -213,7 +223,9 @@ class NativeCryptoEngine implements CryptoEngine {
       case (null, final rust.CommitEvent c):
         event = MlsCommitEvent(
           epoch: _int(c.epoch),
+          committerDeviceId: c.committerDeviceId,
           added: c.added,
+          addedSignatureKeys: c.addedSignatureKeys,
           removed: c.removed,
           selfRemoved: c.selfRemoved,
         );

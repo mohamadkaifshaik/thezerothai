@@ -110,6 +110,21 @@ void main() {
       );
     });
 
+    testWidgets('close then reopen opens earlier rows', (tester) async {
+      final cipher = await openVaultCipher(uid: uid, engine: engine);
+      final sealed = await cipher.seal('messages', 'r1', _b('kept'));
+      await cipher.close();
+      await expectLater(
+        cipher.open('messages', 'r1', sealed),
+        throwsStateError,
+      );
+
+      final again = await openVaultCipher(uid: uid, engine: engine);
+      live = again;
+      expect(again.freshlyCreated, isFalse);
+      expect(await again.open('messages', 'r1', sealed), _b('kept'));
+    });
+
     testWidgets('two concurrent opens share one key; one is fresh', (
       tester,
     ) async {
@@ -139,6 +154,26 @@ void main() {
       );
       expect(await vaultStoragePersisted(), isTrue);
     });
+
+    testWidgets(
+      'create false with no stored key generates nothing and is keyLost',
+      (tester) async {
+        await expectLater(
+          openVaultCipher(uid: uid, engine: engine, create: false),
+          throwsA(
+            isA<VaultKeyException>().having(
+              (e) => e.failure,
+              'failure',
+              VaultKeyFailure.keyLost,
+            ),
+          ),
+        );
+        // Nothing was stored: a normal open still finds no key.
+        final made = await openVaultCipher(uid: uid, engine: engine);
+        live = made;
+        expect(made.freshlyCreated, isTrue);
+      },
+    );
   });
 
   // flutter drive reports only testWidgets results on the web, so this group
@@ -178,6 +213,25 @@ void main() {
       live.add(c);
       return c;
     }
+
+    testWidgets(
+      'create false with no stored key generates nothing and is keyLost',
+      (tester) async {
+        await expectLater(
+          openVaultCipher(uid: uid, engine: engine, create: false),
+          throwsA(
+            isA<VaultKeyException>().having(
+              (e) => e.failure,
+              'failure',
+              VaultKeyFailure.keyLost,
+            ),
+          ),
+        );
+        // No record was added: a normal open still finds none.
+        final made = await open();
+        expect(made.freshlyCreated, isTrue);
+      },
+    );
 
     testWidgets('round trip; the nonce is fresh and random', (tester) async {
       final cipher = await open();
@@ -284,6 +338,21 @@ void main() {
       final third = await open();
       expect(third.freshlyCreated, isFalse);
       expect(await third.open('messages', 'r1', fromA), _b('a'));
+    });
+
+    testWidgets('close then reopen opens earlier rows', (tester) async {
+      final cipher = await open();
+      final sealed = await cipher.seal('messages', 'r1', _b('kept'));
+      await cipher.close();
+      expect(await storedVaultKeyExists(uid), isTrue);
+      await expectLater(
+        cipher.open('messages', 'r1', sealed),
+        throwsStateError,
+      );
+
+      final again = await open();
+      expect(again.freshlyCreated, isFalse);
+      expect(await again.open('messages', 'r1', sealed), _b('kept'));
     });
 
     testWidgets('destroy deletes the record; later calls throw StateError', (

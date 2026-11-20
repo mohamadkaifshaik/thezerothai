@@ -55,6 +55,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Joined dco_decode_joined(dynamic raw);
 
   @protected
+  KeyPackageInfo dco_decode_key_package_info(dynamic raw);
+
+  @protected
   KeyPackages dco_decode_key_packages(dynamic raw);
 
   @protected
@@ -139,6 +142,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Joined sse_decode_joined(SseDeserializer deserializer);
+
+  @protected
+  KeyPackageInfo sse_decode_key_package_info(SseDeserializer deserializer);
 
   @protected
   KeyPackages sse_decode_key_packages(SseDeserializer deserializer);
@@ -238,6 +244,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_joined(Joined self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_key_package_info(
+    KeyPackageInfo self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_key_packages(KeyPackages self, SseSerializer serializer);

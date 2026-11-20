@@ -94,6 +94,7 @@ const Map<String, String> _allowlist = {
   'shared/widgets/post/post_card_test.dart':
       'every PostCard (and, through it, every embedded card) gets '
       'now: _now',
+  'core/vault/vault_records_test.dart': 'istDay is pure; never meets the clock',
 };
 
 const String _rule =

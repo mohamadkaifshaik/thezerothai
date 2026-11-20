@@ -34,12 +34,12 @@ void main() {
 
   Future<VaultSession> signIn(
     String uid, {
-    bool flag = true,
+    E2eeFlag flag = E2eeFlag.on,
     VaultSession? session,
     List<Object>? reported,
   }) async {
     final s = session ?? world.launch(reported: reported);
-    await s.onSignedIn(uid, e2eeEnabled: flag);
+    await s.onSignedIn(uid, flag: flag);
     return s;
   }
 
@@ -53,7 +53,7 @@ void main() {
           ready.add(v.uid);
         },
       );
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.ready);
       expect(s.vault, isNotNull);
       expect(s.historyLostThisOpen, isFalse);
@@ -82,7 +82,7 @@ void main() {
           throw StateError('directory down for $_a');
         },
       );
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       await pumpEventQueue();
       expect(s.status.value, VaultStatus.ready);
       expect(s.vault, isNotNull);
@@ -105,7 +105,7 @@ void main() {
       final s = await signIn(_a);
       await s.onSessionEnded(_a, SessionEnd.sessionLost);
       world.calls.clear();
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.ready);
       expect(world.calls, isNot(contains('markers.known:$_a')));
     });
@@ -128,7 +128,8 @@ void main() {
       ]);
       expect(world.calls, contains('markers.known:$_a'));
       expect(world.calls.where(_destructive), isEmpty);
-      await next.onFlagChanged(false, uid: _a);
+      expect(next.historyLostThisOpen, isTrue);
+      await next.close();
       expect(next.historyLostThisOpen, isFalse);
     });
 
@@ -140,7 +141,7 @@ void main() {
       world.files[_a]!.hidden = true;
       world.currentStorage = 'sharedIndexedDb';
       world.calls.clear();
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.storageChanged);
       expect(world.files[_a]!.storage, 'opfsLocks', reason: 'untouched');
       expect(world.files.length, 1, reason: 'no second copy');
@@ -191,7 +192,7 @@ void main() {
       final s = world.launch(reported: reported);
       await s.start(restoredUid: null, restoreDefinitive: true);
       world.markers.failReads = true;
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.unavailable);
       expect(world.calls, isNot(contains('open:$_a')));
       expect(world.calls.where(_destructive), isEmpty);
@@ -226,29 +227,439 @@ void main() {
   });
 
   group('flag and platform', () {
-    test('flag off / unsupported, nothing known: no collaborator is ever '
-        'called', () async {
+    test('no vault on this device, flag off or unknown, or unsupported: no '
+        'collaborator is ever called', () async {
       for (final supported in [true, false]) {
-        world = FakeVaultWorld();
-        final s = world.launch(
-          supported: supported,
-          beforeExplicitWipe: (uid) async => world.calls.add('hook:$uid'),
-        );
-        await s.start(restoredUid: _a, restoreDefinitive: true);
-        await s.onSignedIn(_a, e2eeEnabled: !supported);
-        await s.onFlagChanged(!supported, uid: _a);
-        await s.retry();
-        await s.beforeExplicitSignOut(_a);
-        await s.onSessionEnded(_a, SessionEnd.userSignedOut);
-        await s.onSignedIn(_b, e2eeEnabled: !supported);
-        await s.onSessionEnded(_b, SessionEnd.accountDeleted);
-        await s.resetVaultForStorageChange();
-        expect(world.calls, isEmpty, reason: 'supported: $supported');
-        expect(
-          s.status.value,
-          supported ? VaultStatus.off : VaultStatus.unsupported,
-        );
+        for (final flag in [E2eeFlag.off, E2eeFlag.unknown]) {
+          world = FakeVaultWorld();
+          final s = world.launch(
+            supported: supported,
+            beforeExplicitWipe: (uid) async => world.calls.add('hook:$uid'),
+          );
+          await s.start(restoredUid: _a, restoreDefinitive: true);
+          // An unsupported platform answers nothing, whatever the flag says.
+          final answer = supported ? flag : E2eeFlag.on;
+          await s.onSignedIn(_a, flag: answer);
+          expect(s.vaultKnown, isFalse);
+          await s.onFlagChanged(
+            answer == E2eeFlag.off ? E2eeFlag.unknown : E2eeFlag.off,
+            uid: _a,
+          );
+          await s.retry();
+          await s.beforeExplicitSignOut(_a);
+          await s.onSessionEnded(_a, SessionEnd.userSignedOut);
+          await s.onSignedIn(_b, flag: answer);
+          await s.onSessionEnded(_b, SessionEnd.accountDeleted);
+          expect(await s.resetByUser(), isFalse);
+          expect(
+            world.calls,
+            isEmpty,
+            reason: 'supported: $supported, flag: $flag',
+          );
+          expect(world.ciphers, isEmpty);
+          expect(world.owners, isEmpty);
+          expect(
+            s.status.value,
+            supported ? VaultStatus.off : VaultStatus.unsupported,
+          );
+        }
       }
+    });
+
+    test('flag unknown with a known vault opens it without creating', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.createFlags.clear();
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.vaultKnown, isTrue);
+      expect(s.mayStart, isFalse);
+      expect(world.createFlags, [(cipher: false, vault: false)]);
+      expect(world.calls.where(_destructive), isEmpty);
+    });
+
+    test('flag off with a known vault opens it and stays open', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.createFlags.clear();
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.vault, isNotNull);
+      expect(s.flag, E2eeFlag.off);
+      expect(world.createFlags, [(cipher: false, vault: false)]);
+      await pumpEventQueue();
+      expect(s.status.value, VaultStatus.ready);
+    });
+
+    test('flag on → off keeps the vault open and wipes nothing', () async {
+      final s = await signIn(_a);
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.off, uid: _a);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.vault, isNotNull);
+      expect(s.mayStart, isFalse);
+      expect(s.vaultKnown, isTrue);
+      expect(world.calls, isEmpty);
+      await s.onFlagChanged(E2eeFlag.unknown, uid: _a);
+      expect(s.flag, E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.ready);
+      expect(world.calls, isEmpty);
+    });
+
+    test('flag off → on with no vault creates one', () async {
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.off);
+      expect(world.calls, isEmpty);
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.mayStart, isTrue);
+      expect(s.vaultKnown, isTrue);
+      expect(world.createFlags, [(cipher: true, vault: true)]);
+      expect(world.known(_a), isNotNull);
+    });
+
+    test('a marker without a file and the flag off or unknown is unavailable '
+        'and nothing is created', () async {
+      for (final flag in [E2eeFlag.off, E2eeFlag.unknown]) {
+        world = FakeVaultWorld();
+        world.setKnown(_a, 'opfsLocks');
+        world.keys[_a] = 1; // a stored key, but the file is gone
+        final s = await signIn(_a, flag: flag);
+        expect(s.status.value, VaultStatus.unavailable, reason: '$flag');
+        expect(world.keys, {_a: 1}, reason: 'no key generated');
+        expect(world.files, isEmpty, reason: 'no file created');
+        expect(world.known(_a), isNotNull, reason: 'marker kept');
+        expect(world.calls, isNot(contains('markers.known:$_a')));
+        expect(world.calls.where(_destructive), isEmpty);
+        expect(s.vault, isNull);
+        expect(s.vaultKnown, isTrue, reason: 'the marker is a device fact');
+      }
+    });
+
+    test('a marker without a key and the flag off is keyLost pending, then on '
+        'a later launch 1 h on the wipe runs and status is off, nothing '
+        're-created', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.loseKey(_a); // no stored key: create false reports keyLost
+      final second = await signIn(_a, flag: E2eeFlag.off);
+      expect(second.status.value, VaultStatus.keyLost);
+      expect(world.calls.where(_destructive), isEmpty);
+      expect(world.keyLost(_a), isNotNull);
+      world.advance(_hour);
+      world.calls.clear();
+      final third = await signIn(_a, flag: E2eeFlag.off);
+      expect(third.status.value, VaultStatus.off);
+      expect(third.vault, isNull);
+      expect(third.vaultKnown, isFalse);
+      expect(world.calls, containsAllInOrder(['wipeFile:$_a', 'key:$_a']));
+      expect(world.files, isEmpty);
+      expect(world.keys, isEmpty);
+      expect(world.known(_a), isNull);
+      expect(world.calls, isNot(contains('markers.known:$_a')));
+    });
+
+    test('a flag answer never causes a wipe', () async {
+      const flags = E2eeFlag.values;
+      // Every reachable status, each built from a vault an earlier launch
+      // left behind (marker, key, file), signed in with every flag answer:
+      // the status each set-up reaches is asserted, so the matrix covers the
+      // states it names.
+      Future<VaultSession> earlier() async {
+        final first = await signIn(_a);
+        await first.onSessionEnded(_a, SessionEnd.sessionLost);
+        return first;
+      }
+
+      final setups =
+          <String, (VaultStatus, Future<VaultSession> Function(E2eeFlag))>{
+            'ready': (
+              VaultStatus.ready,
+              (f) async {
+                await earlier();
+                return signIn(_a, flag: f);
+              },
+            ),
+            'keyLost': (
+              VaultStatus.keyLost,
+              (f) async {
+                await earlier();
+                world.loseKey(_a);
+                return signIn(_a, flag: f);
+              },
+            ),
+            'unavailable': (
+              VaultStatus.unavailable,
+              (f) async {
+                await earlier();
+                world.openFails[_a] = VaultStatus.unavailable;
+                return signIn(_a, flag: f);
+              },
+            ),
+            'storageChanged': (
+              VaultStatus.storageChanged,
+              (f) async {
+                await earlier();
+                // Listed, but under another storage than the marker names.
+                world.files[_a] = FakeVaultFile(
+                  'sharedIndexedDb',
+                  world.keys[_a]!,
+                );
+                return signIn(_a, flag: f);
+              },
+            ),
+            'heldElsewhere': (
+              VaultStatus.heldElsewhere,
+              (f) async {
+                await earlier();
+                world.heldElsewhere.add(_a);
+                return signIn(_a, flag: f);
+              },
+            ),
+            // The user's own wipe is owed and cannot finish.
+            'unavailableOwed': (
+              VaultStatus.unavailable,
+              (f) async {
+                await earlier();
+                world.setOwed(_a);
+                world.wipeFileFails.add(_a);
+                final s = await signIn(_a, flag: f);
+                world.wipeFileFails.clear(); // it could finish now
+                return s;
+              },
+            ),
+          };
+      var cells = 0;
+      for (final setup in setups.entries) {
+        for (final start in flags) {
+          for (final to in flags) {
+            for (final then in flags) {
+              world = FakeVaultWorld();
+              final s = await setup.value.$2(start);
+              expect(
+                s.status.value,
+                setup.value.$1,
+                reason: '${setup.key} signed in as $start',
+              );
+              final before = world.calls.length;
+              await s.onFlagChanged(to, uid: _a);
+              await s.onFlagChanged(then, uid: _a);
+              // retry() is a deliberate action that may finish an owed wipe;
+              // only the flag answers are under test for that set-up.
+              if (setup.key != 'unavailableOwed') await s.retry();
+              final added = world.calls.skip(before).where(_destructive);
+              expect(
+                added,
+                isEmpty,
+                reason: '${setup.key}: $start -> $to -> $then',
+              );
+              cells++;
+            }
+          }
+        }
+      }
+      // No vault at all: the flag answers touch nothing destructive either.
+      for (final start in flags) {
+        for (final to in flags) {
+          for (final then in flags) {
+            world = FakeVaultWorld();
+            final s = await signIn(_a, flag: start);
+            await s.onFlagChanged(to, uid: _a);
+            await s.onFlagChanged(then, uid: _a);
+            await s.retry();
+            expect(world.calls.where(_destructive), isEmpty);
+            cells++;
+          }
+        }
+      }
+      expect(cells, 7 * 27);
+    });
+
+    test('a create-false open that found nothing (Android: marker and key, '
+        'the file gone) is re-created when the flag turns on, no retry '
+        'needed', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.setKnown(_a, 'native');
+      world.files.clear(); // the file is gone, the marker and key remain
+      final reported = <Object>[];
+      final s = world.launch(reported: reported);
+      await s.onSignedIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.vault!.createdThisOpen, isTrue);
+      expect(world.createFlags.last, (cipher: true, vault: true));
+      expect(
+        reported.map((e) => e.toString()),
+        contains('VaultSessionError(recreated)'),
+      );
+      expect(world.calls.where(_destructive), isEmpty);
+    });
+
+    test('a create-false open that found nothing (web: the marked copy is '
+        'not listed) answers storageChanged, nothing created, when the flag '
+        'turns on', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.files.clear();
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(s.status.value, VaultStatus.storageChanged);
+      expect(world.createFlags.last, (cipher: true, vault: true));
+      expect(world.files, isEmpty, reason: 'nothing was created');
+      expect(world.calls.where(_destructive), isEmpty);
+    });
+
+    test('a marker read failure at sign-in with the flag unknown opens when '
+        'the flag turns on', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.markers.failKnownReads = true;
+      world.calls.clear();
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.unavailable);
+      expect(world.calls, isEmpty);
+      world.markers.failKnownReads = false;
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(s.status.value, VaultStatus.ready);
+      expect(world.calls.where(_destructive), isEmpty);
+    });
+
+    test('an owed own wipe followed by an on answer with no retry calls '
+        'nothing destructive', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.setOwed(_a);
+      world.wipeFileFails.add(_a);
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.wipeFileFails.clear();
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(world.calls, isEmpty);
+      expect(s.status.value, VaultStatus.unavailable);
+      expect(world.owedUids, {_a});
+    });
+
+    test('a keyLost block is not cleared by an on answer and no key is '
+        'generated', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.loseKey(_a);
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.keyLost);
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(world.calls, isEmpty);
+      expect(world.keys, isEmpty, reason: 'no key generated');
+      expect(s.status.value, VaultStatus.keyLost);
+    });
+
+    test('retry with the flag not on and no vault on this device leaves '
+        'status off, not a stale unavailable', () async {
+      world.markers.failKnownReads = true;
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.markers.failKnownReads = false;
+      await s.retry();
+      expect(s.status.value, VaultStatus.off);
+      expect(world.calls, isEmpty);
+    });
+
+    test('no vault on this device and markers that cannot be read: '
+        'vaultKnown stays false and nothing is touched', () async {
+      for (final flag in [E2eeFlag.off, E2eeFlag.unknown]) {
+        world = FakeVaultWorld();
+        world.markers.failReads = true;
+        final s = await signIn(_a, flag: flag);
+        expect(s.vaultKnown, isFalse, reason: '$flag');
+        expect(world.calls, isEmpty, reason: '$flag');
+        expect(s.vault, isNull);
+      }
+    });
+
+    test('a direct user switch signs in as unknown', () async {
+      // One session, no session end between the users (a direct switch):
+      // the wiring passes unknown, whatever the previous user's flag was.
+      final s = await signIn(_a);
+      expect(s.flag, E2eeFlag.on);
+      world.calls.clear();
+      await s.onSignedIn(_b, flag: E2eeFlag.unknown);
+      expect(s.flag, E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.off);
+      expect(s.mayStart, isFalse);
+      expect(s.vaultKnown, isFalse);
+      expect(world.calls, isNot(contains('cipher:$_b')));
+      expect(world.calls, isNot(contains('open:$_b')));
+      await s.onFlagChanged(E2eeFlag.on, uid: _b);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.vault!.uid, _b);
+    });
+
+    test('retry opens a known vault with the flag unknown', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.openFails[_a] = VaultStatus.unavailable;
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.openFails.remove(_a);
+      world.createFlags.clear();
+      await s.retry();
+      expect(s.status.value, VaultStatus.ready);
+      expect(world.createFlags, [(cipher: false, vault: false)]);
+    });
+
+    test('vaultKnown is true after sign-in with a marker and false after '
+        'sign-out', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      final s = world.launch();
+      expect(s.vaultKnown, isFalse);
+      await s.onSignedIn(_a, flag: E2eeFlag.off);
+      expect(s.vaultKnown, isTrue);
+      await s.onSessionEnded(_a, SessionEnd.sessionLost);
+      expect(s.vaultKnown, isFalse);
+      await s.onSignedIn(_a, flag: E2eeFlag.off);
+      expect(s.vaultKnown, isTrue);
+      await s.onSessionEnded(_a, SessionEnd.userSignedOut);
+      expect(s.vaultKnown, isFalse);
+    });
+
+    test('vaultKnown is still true while the directory hook runs for a '
+        'flag-off explicit end', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      final seen = <bool>[];
+      late VaultSession s;
+      s = world.launch(beforeExplicitWipe: (_) async => seen.add(s.vaultKnown));
+      await s.onSignedIn(_a, flag: E2eeFlag.off);
+      await s.onSessionEnded(_a, SessionEnd.userSignedOut);
+      expect(seen, [true]);
+      expect(s.vaultKnown, isFalse);
+    });
+
+    test('two ready hooks run in order and the second runs when the first '
+        'throws', () async {
+      final order = <String>[];
+      final reported = <Object>[];
+      final s = world.launch(reported: reported);
+      s.addVaultReadyHook((v) async {
+        order.add('first');
+        throw StateError('boom');
+      });
+      s.addVaultReadyHook((v) async {
+        expect(identical(s.vault, v), isTrue);
+        order.add('second');
+      });
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
+      await pumpEventQueue();
+      expect(order, ['first', 'second']);
+      expect(reported.map((e) => e.toString()), ['VaultSessionError(ready)']);
+      expect(s.status.value, VaultStatus.ready);
     });
 
     test('unsupported: even a known vault is never touched', () async {
@@ -256,52 +667,56 @@ void main() {
       world.setOwed(_b);
       final s = world.launch(supported: false);
       await s.start(restoredUid: null, restoreDefinitive: true);
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       await s.noteAccountDeleted(_a);
       await s.onSessionEnded(_a, SessionEnd.userSignedOut);
       expect(world.calls, isEmpty);
       expect(s.status.value, VaultStatus.unsupported);
     });
 
-    test('flag turned off while open: closed, NOT wiped, marker kept; back '
-        'on re-opens the same vault', () async {
+    test('flag turned off while open: nothing closes or wipes, the marker and '
+        'data stay; back on needs no new open', () async {
       final s = await signIn(_a);
       await s.runWrite(
         (v) => v.transaction((tx) => tx.putSetting('k', _b8('v'))),
       );
-      await s.onFlagChanged(false, uid: _a);
-      expect(s.status.value, VaultStatus.off);
-      expect(s.vault, isNull);
-      expect(world.calls, containsAllInOrder(['vault.close:$_a', 'release']));
-      expect(world.calls.where(_destructive), isEmpty);
-      expect(world.known(_a), isNotNull);
-      await s.onFlagChanged(true, uid: _a);
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.off, uid: _a);
       expect(s.status.value, VaultStatus.ready);
+      expect(s.vault, isNotNull);
+      expect(world.calls, isEmpty);
+      expect(world.known(_a), isNotNull);
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(world.calls, isEmpty);
       expect(String.fromCharCodes((await s.vault!.setting('k'))!), 'v');
     });
 
     test('M2: a flag event for a user who is no longer signed in is '
         'ignored', () async {
-      final s = await signIn(_a, flag: false);
+      final s = await signIn(_a, flag: E2eeFlag.off);
       await s.onSessionEnded(_a, SessionEnd.sessionLost);
-      await s.onSignedIn(_b, e2eeEnabled: false);
+      await s.onSignedIn(_b, flag: E2eeFlag.off);
       world.calls.clear();
-      await s.onFlagChanged(true, uid: _a);
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
       expect(world.calls, isEmpty);
       expect(s.status.value, VaultStatus.off);
-      await s.onFlagChanged(true, uid: null);
+      await s.onFlagChanged(E2eeFlag.on, uid: null);
       expect(world.calls, isEmpty);
-      await s.onFlagChanged(true, uid: _b);
+      await s.onFlagChanged(E2eeFlag.on, uid: _b);
       expect(s.status.value, VaultStatus.ready);
       expect(s.vault!.uid, _b);
     });
 
     test('flag off + known vault + explicit sign-out: wiped', () async {
       final s = await signIn(_a);
-      await s.onFlagChanged(false, uid: _a);
+      await s.onFlagChanged(E2eeFlag.off, uid: _a);
       world.calls.clear();
       await s.onSessionEnded(_a, SessionEnd.userSignedOut);
-      expect(world.calls, containsAllInOrder(['wipeFile:$_a', 'key:$_a']));
+      // The vault is still open: rows and key first, then the empty file.
+      expect(
+        world.calls,
+        containsAllInOrder(['vault.wipe:$_a', 'key:$_a', 'wipeFile:$_a']),
+      );
       expect(world.files, isEmpty);
       expect(world.keys, isEmpty);
       expect(world.markers.knownByAlias, isEmpty);
@@ -311,8 +726,8 @@ void main() {
         'in a new launch: wiped', () async {
       final first = await signIn(_a);
       await first.onSessionEnded(_a, SessionEnd.sessionLost);
-      final s = await signIn(_a, flag: false);
-      expect(s.status.value, VaultStatus.off);
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.ready);
       await s.onSessionEnded(_a, SessionEnd.accountDeleted);
       expect(world.files, isEmpty);
       expect(world.keys, isEmpty);
@@ -323,12 +738,221 @@ void main() {
       final first = await signIn(_a);
       await first.onSessionEnded(_a, SessionEnd.sessionLost);
       world.calls.clear();
-      final s = await signIn(_b, flag: false);
+      final s = await signIn(_b, flag: E2eeFlag.off);
       expect(world.calls, containsAllInOrder(['wipeFile:$_a', 'key:$_a']));
       expect(world.files.containsKey(_a), isFalse);
       expect(world.keys.containsKey(_a), isFalse);
       expect(s.status.value, VaultStatus.off);
       expect(world.calls, isNot(contains('cipher:$_b')));
+    });
+  });
+
+  group('resetByUser', () {
+    Future<VaultSession> inState(String state, E2eeFlag flag) async {
+      switch (state) {
+        case 'ready':
+          final first = await signIn(_a);
+          await first.onSessionEnded(_a, SessionEnd.sessionLost);
+          return signIn(_a, flag: flag);
+        case 'keyLost':
+          final first = await signIn(_a);
+          await first.onSessionEnded(_a, SessionEnd.sessionLost);
+          world.loseKey(_a);
+          return signIn(_a, flag: flag);
+        default: // storageChanged
+          final first = await signIn(_a);
+          await first.onSessionEnded(_a, SessionEnd.sessionLost);
+          world.files[_a] = FakeVaultFile('sharedIndexedDb', world.keys[_a]!);
+          return signIn(_a, flag: flag);
+      }
+    }
+
+    test('resetByUser from storageChanged, keyLost and ready wipes, and '
+        're-creates only with the flag on', () async {
+      for (final state in ['storageChanged', 'keyLost', 'ready']) {
+        for (final flag in E2eeFlag.values) {
+          world = FakeVaultWorld();
+          final s = await inState(state, flag);
+          final expected = switch (state) {
+            'ready' => VaultStatus.ready,
+            'keyLost' => VaultStatus.keyLost,
+            _ => VaultStatus.storageChanged,
+          };
+          // Flag off with a marker opens the vault, so these three states
+          // are the ones the set-up reaches for every flag except a lost
+          // key with the flag on, which re-creates (keyLost pending).
+          expect(s.status.value, expected, reason: '$state $flag');
+          world.calls.clear();
+          expect(await s.resetByUser(), isTrue, reason: '$state $flag');
+          expect(world.calls, containsAllInOrder(['wipeFile:$_a', 'key:$_a']));
+          expect(world.owedUids, isEmpty);
+          if (flag == E2eeFlag.on) {
+            expect(s.status.value, VaultStatus.ready, reason: '$state $flag');
+            expect(s.vault!.createdThisOpen, isTrue);
+            expect(world.createFlags.last, (cipher: true, vault: true));
+          } else {
+            expect(s.status.value, VaultStatus.off, reason: '$state $flag');
+            expect(s.vault, isNull);
+            expect(s.vaultKnown, isFalse);
+            expect(world.keys, isEmpty);
+            expect(world.known(_a), isNull);
+            expect(world.calls, isNot(contains('cipher:$_a')));
+          }
+        }
+      }
+    });
+
+    test('resetByUser runs the directory hook first and proceeds when it '
+        'fails or times out', () {
+      fakeAsync((async) {
+        for (final mode in ['ok', 'throws', 'never']) {
+          world = FakeVaultWorld();
+          final never = Completer<void>();
+          final s = world.launch(
+            beforeExplicitWipe: (uid) async {
+              world.calls.add('hook:$uid');
+              if (mode == 'throws') throw StateError('offline');
+              if (mode == 'never') await never.future;
+            },
+          );
+          s.onSignedIn(_a, flag: E2eeFlag.off);
+          async.flushMicrotasks();
+          // A known vault is needed for the flag-off open.
+          expect(s.status.value, VaultStatus.off);
+          s.onFlagChanged(E2eeFlag.on, uid: _a);
+          async.flushMicrotasks();
+          expect(s.status.value, VaultStatus.ready);
+          world.calls.clear();
+          bool? result;
+          s.resetByUser().then((r) => result = r);
+          async.flushMicrotasks();
+          if (mode == 'never') {
+            expect(result, isNull);
+            async.elapse(kVaultExplicitWipeHookTimeout);
+            async.flushMicrotasks();
+          }
+          expect(result, isTrue, reason: mode);
+          final hookAt = world.calls.indexOf('hook:$_a');
+          expect(hookAt, isNonNegative, reason: mode);
+          expect(world.calls.indexOf('wipeFile:$_a'), greaterThan(hookAt));
+          // The journal first, then the directory hook, then the wipe.
+          expect(
+            world.calls,
+            containsAllInOrder([
+              'markers.owed:$_a',
+              'hook:$_a',
+              'wipeFile:$_a',
+            ]),
+            reason: mode,
+          );
+          expect(world.keys.containsKey(_a), isTrue, reason: 're-created');
+        }
+      });
+    });
+
+    test(
+      'resetByUser without an open vault skips the directory hook',
+      () async {
+        final calls = <String>[];
+        final first = await signIn(_a);
+        await first.onSessionEnded(_a, SessionEnd.sessionLost);
+        world.files[_a] = FakeVaultFile('sharedIndexedDb', world.keys[_a]!);
+        final s = world.launch(
+          beforeExplicitWipe: (uid) async => calls.add(uid),
+        );
+        await s.onSignedIn(_a, flag: E2eeFlag.off);
+        expect(s.status.value, VaultStatus.storageChanged);
+        expect(await s.resetByUser(), isTrue);
+        expect(calls, isEmpty);
+      },
+    );
+
+    test('resetByUser in status off or opening does nothing and returns '
+        'false', () async {
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.off);
+      world.calls.clear();
+      expect(await s.resetByUser(), isFalse);
+      expect(world.calls, isEmpty);
+      // Signed out.
+      await s.onSessionEnded(_a, SessionEnd.sessionLost);
+      expect(await s.resetByUser(), isFalse);
+      expect(world.calls, isEmpty);
+      // An unavailable vault that owes nothing.
+      world.openFails[_a] = VaultStatus.unavailable;
+      final u = await signIn(_a);
+      expect(u.status.value, VaultStatus.unavailable);
+      world.calls.clear();
+      expect(await u.resetByUser(), isFalse);
+      expect(world.calls, isEmpty);
+    });
+
+    test(
+      'resetByUser asked while the vault is opening waits for the open '
+      'and, when it ends unavailable, does nothing and returns false',
+      () async {
+        world = FakeVaultWorld();
+        final hold = Completer<void>();
+        final reachedWrite = Completer<void>();
+        world.markers
+          ..failKnownWrites = true
+          ..onWriteKnown = () async {
+            reachedWrite.complete();
+            await hold.future;
+          };
+        final s = world.launch();
+        final signing = s.onSignedIn(_a, flag: E2eeFlag.on);
+        await reachedWrite.future;
+        expect(s.status.value, VaultStatus.opening);
+        final asked = s.resetByUser();
+        hold.complete();
+        await signing;
+        expect(await asked, isFalse);
+        expect(s.status.value, VaultStatus.unavailable);
+        expect(world.calls.where(_destructive), isEmpty);
+      },
+    );
+
+    test(
+      'resetByUser asked while the vault is opening and the open SUCCEEDS '
+      'does nothing and returns false (the user never saw a ready vault)',
+      () async {
+        world = FakeVaultWorld();
+        final hold = Completer<void>();
+        final reachedWrite = Completer<void>();
+        world.markers.onWriteKnown = () async {
+          reachedWrite.complete();
+          await hold.future;
+        };
+        final s = world.launch();
+        final signing = s.onSignedIn(_a, flag: E2eeFlag.on);
+        await reachedWrite.future;
+        expect(s.status.value, VaultStatus.opening);
+        final asked = s.resetByUser();
+        hold.complete();
+        await signing;
+        expect(await asked, isFalse);
+        expect(s.status.value, VaultStatus.ready);
+        expect(world.calls.where(_destructive), isEmpty);
+        expect(world.owedUids, isEmpty);
+      },
+    );
+
+    test('a failed reset wipe stays owed', () async {
+      final s = await signIn(_a);
+      world.wipeFileFails.add(_a);
+      world.calls.clear();
+      expect(await s.resetByUser(), isFalse);
+      expect(world.owed(_a)!.anyCopy, isTrue);
+      expect(world.keys.containsKey(_a), isTrue);
+      expect(s.vault, isNull, reason: 'closed for the wipe');
+      expect(s.vaultKnown, isTrue, reason: 'still a device fact');
+      expect(s.status.value, isNot(VaultStatus.ready));
+      world.wipeFileFails.clear();
+      final next = world.launch();
+      await next.start(restoredUid: _a, restoreDefinitive: true);
+      expect(world.owedUids, isEmpty);
+      expect(world.keys.containsKey(_a), isFalse);
     });
   });
 
@@ -342,7 +966,7 @@ void main() {
         final s = world.launch(
           beforeExplicitWipe: (uid) async => world.calls.add('hook:$uid'),
         );
-        await s.onSignedIn(_a, e2eeEnabled: true);
+        await s.onSignedIn(_a, flag: E2eeFlag.on);
         world.calls.clear();
         await s.onSessionEnded(_a, reason);
         expect(world.calls, [
@@ -366,7 +990,7 @@ void main() {
     test('the hook run in beforeSignOut is not run again', () async {
       var hooks = 0;
       final s = world.launch(beforeExplicitWipe: (_) async => hooks++);
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       await s.beforeExplicitSignOut(_a);
       await s.onSessionEnded(_a, SessionEnd.userSignedOut);
       expect(hooks, 1);
@@ -377,7 +1001,7 @@ void main() {
         'marker, nothing called', () async {
       var hooks = 0;
       final s = world.launch(beforeExplicitWipe: (_) async => hooks++);
-      await s.onSignedIn(_a, e2eeEnabled: false);
+      await s.onSignedIn(_a, flag: E2eeFlag.off);
       world.calls.clear();
       await s.beforeExplicitSignOut(_a);
       expect(hooks, 0);
@@ -389,7 +1013,7 @@ void main() {
         'does nothing', () async {
       var hooks = 0;
       final s = world.launch(beforeExplicitWipe: (_) async => hooks++);
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       world.calls.clear();
       await s.beforeExplicitSignOut(_b);
       expect(hooks, 0);
@@ -402,7 +1026,7 @@ void main() {
         beforeExplicitWipe: (uid) async => world.calls.add('hook:$uid'),
       );
       await s.start(restoredUid: _a, restoreDefinitive: true);
-      await s.onSignedIn(_a, e2eeEnabled: false);
+      await s.onSignedIn(_a, flag: E2eeFlag.off);
       // The key exists from an earlier vault whose wipe is owed (e.g. a
       // failed wipe after its known marker was cleared).
       world.keys[_a] = 9;
@@ -431,7 +1055,7 @@ void main() {
         'the next explicit end runs the hook again', () async {
       var hooks = 0;
       final s = world.launch(beforeExplicitWipe: (_) async => hooks++);
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       await s.beforeExplicitSignOut(_a);
       expect(world.pending(_a), isTrue);
       await s.explicitSignOutFailed(_a);
@@ -460,7 +1084,7 @@ void main() {
       final s = world.launch(
         beforeExplicitWipe: (_) async => throw StateError('offline'),
       );
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       await s.beforeExplicitSignOut(_a);
       await s.onSessionEnded(_a, SessionEnd.userSignedOut);
       expect(noHistory(_a), isTrue);
@@ -473,7 +1097,7 @@ void main() {
         final never = Completer<void>();
         final s = world.launch(beforeExplicitWipe: (_) => never.future);
         var done = false;
-        s.onSignedIn(_a, e2eeEnabled: true);
+        s.onSignedIn(_a, flag: E2eeFlag.on);
         async.flushMicrotasks();
         expect(s.status.value, VaultStatus.ready, reason: '${world.calls}');
         s
@@ -501,7 +1125,7 @@ void main() {
       world.calls.clear();
       final next = world.launch();
       unawaited(next.start(restoredUid: _b, restoreDefinitive: true));
-      await next.onSignedIn(_b, e2eeEnabled: true);
+      await next.onSignedIn(_b, flag: E2eeFlag.on);
       expect(world.calls.take(6), [
         'owner.create',
         'acquire:$_a',
@@ -538,10 +1162,9 @@ void main() {
         'after it) goes on with the key', () async {
       final first = await signIn(_a);
       await first.onSessionEnded(_a, SessionEnd.sessionLost);
-      // Closed wipe (flag off): the file is erased, then the key fails.
+      // Closed wipe (nothing open): the file is erased, then the key fails.
       world.keyDeleteFails.add(_a);
-      final s = await signIn(_a, flag: false);
-      await s.onSessionEnded(_a, SessionEnd.userSignedOut);
+      await first.onSessionEnded(_a, SessionEnd.userSignedOut);
       expect(world.files.containsKey(_a), isFalse, reason: 'file gone');
       expect(world.owedUids, {_a});
       expect(world.owed(_a)!.fileDone, isTrue);
@@ -554,7 +1177,7 @@ void main() {
       expect(world.calls, containsAllInOrder(['key:$_a', 'markers.clear:$_a']));
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.owedUids, isEmpty);
-      await next.onSignedIn(_a, e2eeEnabled: true);
+      await next.onSignedIn(_a, flag: E2eeFlag.on);
       expect(next.status.value, VaultStatus.ready);
     });
 
@@ -567,8 +1190,8 @@ void main() {
       final s = await signIn(_a);
       expect(s.status.value, VaultStatus.unavailable);
       await s.retry();
-      await s.onFlagChanged(false, uid: _a);
-      await s.onFlagChanged(true, uid: _a);
+      await s.onFlagChanged(E2eeFlag.off, uid: _a);
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
       expect(world.calls, isNot(contains('open:$_a')));
       expect(world.calls, isNot(contains('cipher:$_a')));
       expect(s.status.value, VaultStatus.unavailable);
@@ -586,7 +1209,7 @@ void main() {
       await s.noteAccountDeleted(_a);
       world.wipeFileFails.add(_a);
       world.calls.clear();
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       expect(world.calls.first, 'vault.close:$_a');
       expect(s.status.value, VaultStatus.unavailable);
       expect(s.vault, isNull);
@@ -611,7 +1234,7 @@ void main() {
       expect(s.status.value, VaultStatus.off);
       // Same process and a new launch alike.
       for (final session in [s, world.launch()]) {
-        await session.onSignedIn(_a, e2eeEnabled: true);
+        await session.onSignedIn(_a, flag: E2eeFlag.on);
         expect(session.status.value, VaultStatus.ready);
         expect(
           String.fromCharCodes((await session.vault!.setting('k'))!),
@@ -627,7 +1250,7 @@ void main() {
       final s = await signIn(_a);
       await s.onSessionEnded(_a, SessionEnd.sessionLost);
       world.calls.clear();
-      await s.onSignedIn(_b, e2eeEnabled: true);
+      await s.onSignedIn(_b, flag: E2eeFlag.on);
       expect(
         world.calls.indexOf('wipeFile:$_a'),
         lessThan(world.calls.indexOf('key:$_a')),
@@ -642,7 +1265,7 @@ void main() {
       // Now B is lost and C signs in while B's wipe fails.
       await s.onSessionEnded(_b, SessionEnd.sessionLost);
       world.wipeFileFails.add(_b);
-      await s.onSignedIn('user-c', e2eeEnabled: true);
+      await s.onSignedIn('user-c', flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.ready);
       expect(world.owedUids, {_b});
       expect(world.keys.containsKey(_b), isTrue, reason: 'never the key first');
@@ -666,7 +1289,7 @@ void main() {
     test('a direct switch (no session end first) closes the old vault and '
         'wipes it before the new one opens', () async {
       final s = await signIn(_a);
-      await s.onSignedIn(_b, e2eeEnabled: true);
+      await s.onSignedIn(_b, flag: E2eeFlag.on);
       expect(world.files.keys, [_b]);
       expect(s.vault!.uid, _b);
     });
@@ -729,7 +1352,7 @@ void main() {
       final changed = await signIn(_a);
       expect(changed.status.value, VaultStatus.storageChanged);
       world.wipeFileFails.add(_a);
-      await changed.resetVaultForStorageChange();
+      await changed.resetByUser();
       expect(changed.status.value, VaultStatus.storageChanged);
       expect(world.owed(_a)!.anyCopy, isTrue);
       expect(world.keys.containsKey(_a), isTrue);
@@ -738,7 +1361,7 @@ void main() {
       await next.start(restoredUid: _a, restoreDefinitive: true);
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.owedUids, isEmpty);
-      await next.onSignedIn(_a, e2eeEnabled: true);
+      await next.onSignedIn(_a, flag: E2eeFlag.on);
       expect(next.status.value, VaultStatus.ready);
     });
 
@@ -751,7 +1374,7 @@ void main() {
       final s = await signIn(_a);
       expect(s.status.value, VaultStatus.unavailable);
       world.wipeFileFails.clear();
-      await s.resetVaultForStorageChange();
+      expect(await s.resetByUser(), isTrue);
       expect(s.status.value, VaultStatus.ready);
       expect(world.owedUids, isEmpty);
       expect(s.vault!.createdThisOpen, isTrue);
@@ -788,7 +1411,7 @@ void main() {
       await pendingForA();
       final next = world.launch();
       await next.start(restoredUid: null, restoreDefinitive: false);
-      await next.onSignedIn(_a, e2eeEnabled: true);
+      await next.onSignedIn(_a, flag: E2eeFlag.on);
       expect(world.pending(_a), isFalse);
       expect(world.calls.where(_destructive), isEmpty);
       expect(next.status.value, VaultStatus.ready);
@@ -802,7 +1425,7 @@ void main() {
       await pendingForA();
       final next = world.launch();
       await next.start(restoredUid: null, restoreDefinitive: false);
-      await next.onSignedIn(_b, e2eeEnabled: false);
+      await next.onSignedIn(_b, flag: E2eeFlag.off);
       expect(world.keys.containsKey(_a), isFalse);
       expect(world.files.containsKey(_a), isFalse);
       expect(world.pending(_a), isFalse);
@@ -827,7 +1450,7 @@ void main() {
       await tab2.start(restoredUid: null, restoreDefinitive: false);
       await tab1.explicitSignOutFailed(_a);
       // Tab 2's auth then restores A; later launches see A too.
-      await tab2.onSignedIn(_a, e2eeEnabled: false);
+      await tab2.onSignedIn(_a, flag: E2eeFlag.off);
       await world.launch().start(restoredUid: _a, restoreDefinitive: true);
       await world.launch().start(restoredUid: null, restoreDefinitive: false);
       expect(world.calls.where(_destructive), isEmpty);
@@ -858,7 +1481,7 @@ void main() {
       // A's known marker would wipe A anyway (clearing every marker); make
       // that wipe fail too, so only the pending marker stands for A's end.
       world.wipeFileFails.add(_a);
-      await next.onSignedIn(_b, e2eeEnabled: false);
+      await next.onSignedIn(_b, flag: E2eeFlag.off);
       expect(world.pending(_a), isTrue);
       expect(world.keys.containsKey(_a), isTrue);
     });
@@ -892,7 +1515,7 @@ void main() {
         'flag-off user causes no vault work)', () async {
       final s = world.launch();
       await s.start(restoredUid: _a, restoreDefinitive: true);
-      await s.onSignedIn(_a, e2eeEnabled: false);
+      await s.onSignedIn(_a, flag: E2eeFlag.off);
       world.calls.clear();
       await s.noteAccountDeleted(_a);
       expect(world.calls, isEmpty);
@@ -919,11 +1542,11 @@ void main() {
         'succeeded): unavailable, never opened', () async {
       for (final failKnown in [true, false]) {
         world = FakeVaultWorld();
-        final s = await signIn(_a, flag: false);
+        final s = await signIn(_a, flag: E2eeFlag.off);
         world.markers.failKnownReads = failKnown;
         world.markers.failOwedReads = !failKnown;
         world.calls.clear();
-        await s.onFlagChanged(true, uid: _a);
+        await s.onFlagChanged(E2eeFlag.on, uid: _a);
         expect(
           s.status.value,
           VaultStatus.unavailable,
@@ -1001,7 +1624,7 @@ void main() {
       await next.start(restoredUid: _a, restoreDefinitive: true);
       expect(world.pending(_a), isFalse);
       expect(world.calls.where(_destructive), isEmpty);
-      await next.onSignedIn(_a, e2eeEnabled: true);
+      await next.onSignedIn(_a, flag: E2eeFlag.on);
       expect(next.status.value, VaultStatus.ready);
     });
 
@@ -1047,11 +1670,11 @@ void main() {
       expect(s.status.value, VaultStatus.keyLost);
       expect(world.keyLost(_a)!.atMicros, world.nowMicros);
       world.advance(_hour * 2);
-      await s.onFlagChanged(false, uid: _a);
-      await s.onFlagChanged(true, uid: _a);
+      await s.onFlagChanged(E2eeFlag.off, uid: _a);
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
       await s.retry();
       await s.onSessionEnded(_a, SessionEnd.sessionLost);
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.keyLost);
       expect(world.calls.where(_destructive), isEmpty);
       expect(world.files[_a]!.rows['k'], 'history');
@@ -1088,6 +1711,27 @@ void main() {
       expect(world.files[_a]!.rows, isEmpty, reason: 'a fresh vault');
       expect(world.markers.keyLostByAlias, isEmpty);
       expect(world.known(_a), isNotNull);
+    });
+
+    test('a confirmable key loss reached by an on answer (a soft block left '
+        'by a failed known-marker read at sign-in) wipes nothing: keyLost, '
+        'the next launch confirms', () async {
+      await keyLostLaunch();
+      world.advance(_hour);
+      world.loseKey(_a);
+      world.markers.failKnownReads = true;
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.markers.failKnownReads = false;
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(world.calls.where(_destructive), isEmpty);
+      expect(s.status.value, VaultStatus.keyLost);
+      expect(world.files[_a]!.rows['k'], 'history');
+      // A sign-in (another launch) may confirm it.
+      final next = await keyLostLaunch();
+      expect(world.calls, containsAllInOrder(['wipeFile:$_a', 'key:$_a']));
+      expect(next.status.value, VaultStatus.ready);
     });
 
     test('Android-style key loss (the cipher reports it) needs two launches '
@@ -1184,10 +1828,15 @@ void main() {
           'is cleared', () async {
         await keyLostLaunch();
         expect(world.keyLost(_a), isNotNull);
-        final s = await signIn(_a, flag: false);
+        // A new launch whose open meets the fault (a known vault opens at
+        // sign-in whatever the flag says).
+        final s = world.launch();
         e.value();
         world.calls.clear();
-        await s.onFlagChanged(true, uid: _a);
+        await s.onSignedIn(_a, flag: E2eeFlag.on);
+        // A failing owed-wipe read stops the sign-in before the open; a
+        // retry reaches the open.
+        if (world.markers.keyLostByAlias.isNotEmpty) await s.retry();
         expect(s.status.value, VaultStatus.unavailable);
         expect(world.markers.keyLostByAlias, isEmpty);
         expect(world.files[_a]!.rows['k'], 'history');
@@ -1200,11 +1849,10 @@ void main() {
       await keyLostLaunch();
       final reported = <Object>[];
       final s = world.launch(reported: reported);
-      await s.onSignedIn(_a, e2eeEnabled: false);
       world.markers
         ..failKeyLostReads = true
         ..failKeyLostClears = true;
-      await s.onFlagChanged(true, uid: _a);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.unavailable);
       expect(world.calls, contains('markers.keyLostClear:$_a'));
       expect(
@@ -1244,7 +1892,7 @@ void main() {
         'markers.clear:$_a',
         'release',
       ]);
-      await next.onSignedIn(_a, e2eeEnabled: true);
+      await next.onSignedIn(_a, flag: E2eeFlag.on);
       expect(next.status.value, VaultStatus.ready);
     });
   });
@@ -1264,15 +1912,15 @@ void main() {
           last = await signIn(_a);
           expect(last.status.value, VaultStatus.storageChanged);
           await last.retry();
-          await last.onFlagChanged(false, uid: _a);
-          await last.onFlagChanged(true, uid: _a);
+          await last.onFlagChanged(E2eeFlag.off, uid: _a);
+          await last.onFlagChanged(E2eeFlag.on, uid: _a);
         }
         expect(world.calls.where(_destructive), isEmpty);
         expect(world.keys.containsKey(_a), isTrue);
         expect(world.known(_a), isNotNull);
         // The person chooses the reset (it destroys the hidden history).
         world.calls.clear();
-        await last!.resetVaultForStorageChange();
+        await last!.resetByUser();
         expect(world.calls.where(_destructive), ['wipeFile:$_a', 'key:$_a']);
         expect(
           world.calls.indexOf('markers.clear:$_a'),
@@ -1283,17 +1931,20 @@ void main() {
     );
 
     test('the reset does nothing in any other state', () async {
-      final s = await signIn(_a);
+      // Held by another tab: not one of the reset's states.
+      world.heldElsewhere.add(_a);
+      final h = await signIn(_a);
+      expect(h.status.value, VaultStatus.heldElsewhere);
       world.calls.clear();
-      await s.resetVaultForStorageChange();
+      expect(await h.resetByUser(), isFalse);
       expect(world.calls, isEmpty);
-      expect(s.status.value, VaultStatus.ready);
+      world.heldElsewhere.clear();
       // Nor for an unavailable vault with no owed wipe of its own.
       world.openFails[_a] = VaultStatus.unavailable;
       final u = await signIn(_a);
       expect(u.status.value, VaultStatus.unavailable);
       world.calls.clear();
-      await u.resetVaultForStorageChange();
+      expect(await u.resetByUser(), isFalse);
       expect(world.calls.where(_destructive), isEmpty);
     });
 
@@ -1303,16 +1954,104 @@ void main() {
       final s = await signIn(_a);
       expect(s.status.value, VaultStatus.unavailable);
       world.calls.clear();
-      await s.onFlagChanged(false, uid: _a);
-      await s.onFlagChanged(true, uid: _a);
+      await s.onFlagChanged(E2eeFlag.off, uid: _a);
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
       await s.onSessionEnded(_a, SessionEnd.sessionLost);
-      await s.onSignedIn(_a, e2eeEnabled: true);
+      await s.onSignedIn(_a, flag: E2eeFlag.on);
       expect(world.calls, isNot(contains('open:$_a')));
       expect(s.status.value, VaultStatus.unavailable);
       world.openFails.clear();
       await s.retry();
       expect(s.status.value, VaultStatus.ready);
       expect(world.calls.where(_destructive), isEmpty);
+    });
+
+    test(
+      'a cipher opened for a failed open is closed, never destroyed',
+      () async {
+        final ready = await signIn(_a);
+        expect(world.ciphers.single.closed, isFalse);
+        await ready.onSessionEnded(_a, SessionEnd.sessionLost);
+        world.ciphers.clear();
+        world.calls.clear();
+
+        for (final status in [
+          VaultStatus.unavailable,
+          VaultStatus.storageChanged,
+          // The vault open says the key does not open it: the first launch
+          // that sees this only records it (no hour has passed), so the
+          // cipher ends closed, with the stored key still there.
+          VaultStatus.keyLost,
+        ]) {
+          world.openFails[_a] = status;
+          final before = world.ciphers.length;
+          final s = await signIn(_a);
+          expect(s.status.value, status);
+          expect(world.ciphers.length, before + 1, reason: status.name);
+          final cipher = world.ciphers.last;
+          expect(cipher.closed, isTrue, reason: status.name);
+          expect(cipher.closeCalls, 1, reason: status.name);
+          expect(cipher.destroyed, isFalse, reason: status.name);
+          expect(world.keys.containsKey(_a), isTrue, reason: status.name);
+        }
+        expect(world.calls.where(_destructive), isEmpty);
+        world.openFails.clear();
+
+        // Key lost, seen once: nothing is wiped and the cipher is still closed.
+        world.cipherKeyLost.add(_a);
+        final lost = await signIn(_a);
+        expect(lost.status.value, VaultStatus.keyLost);
+        world.cipherKeyLost.clear();
+        expect(world.calls.where(_destructive), isEmpty);
+        expect(world.keys.containsKey(_a), isTrue);
+        for (final c in world.ciphers) {
+          expect(c.destroyed, isFalse);
+        }
+      },
+    );
+
+    test('a vault that is published keeps its cipher open until it closes, '
+        'then the cipher is closed once', () async {
+      final s = await signIn(_a);
+      final cipher = world.ciphers.single;
+      expect(s.status.value, VaultStatus.ready);
+      expect(cipher.closed, isFalse);
+      // A session lost without an explicit end closes the vault, and with it
+      // the cipher exactly once; the stored key stays.
+      await s.onSessionEnded(_a, SessionEnd.sessionLost);
+      expect(cipher.closed, isTrue);
+      expect(cipher.closeCalls, 1);
+      expect(cipher.destroyed, isFalse);
+      expect(world.keys.containsKey(_a), isTrue);
+    });
+
+    test('the cipher is closed exactly once, never destroyed, when the lock '
+        'is lost while the storage marker is written', () async {
+      world.markers.onWriteKnown = () async {
+        world.markers.onWriteKnown = null;
+        world.owners.single.steal();
+      };
+      final s = await signIn(_a);
+      expect(s.status.value, VaultStatus.heldElsewhere);
+      expect(s.vault, isNull);
+      final cipher = world.ciphers.single;
+      expect(cipher.closeCalls, 1);
+      expect(cipher.closed, isTrue);
+      expect(cipher.destroyed, isFalse);
+      expect(world.keys.containsKey(_a), isTrue);
+    });
+
+    test('the cipher is closed exactly once, never destroyed, when the '
+        'marker write fails', () async {
+      world.markers.failKnownWrites = true;
+      final s = await signIn(_a);
+      expect(s.status.value, VaultStatus.unavailable);
+      expect(s.vault, isNull);
+      final cipher = world.ciphers.single;
+      expect(cipher.closeCalls, 1);
+      expect(cipher.closed, isTrue);
+      expect(cipher.destroyed, isFalse);
+      expect(world.keys.containsKey(_a), isTrue);
     });
 
     test('owner refused: heldElsewhere, the cipher is never opened', () async {
@@ -1332,8 +2071,8 @@ void main() {
       expect(world.calls, contains('vault.close:$_a'));
       await expectLater(s.runWrite((v) async => 1), throwsA(isA<StateError>()));
       world.calls.clear();
-      await s.onFlagChanged(false, uid: _a);
-      await s.onFlagChanged(true, uid: _a);
+      await s.onFlagChanged(E2eeFlag.off, uid: _a);
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
       expect(world.calls, isNot(contains('acquire:$_a')));
       expect(world.calls.where(_destructive), isEmpty);
     });
@@ -1413,10 +2152,10 @@ void main() {
         final s = await signIn(_a);
         expect(s.status.value, status);
         await s.retry();
-        await s.onFlagChanged(false, uid: _a);
-        await s.onFlagChanged(true, uid: _a);
+        await s.onFlagChanged(E2eeFlag.off, uid: _a);
+        await s.onFlagChanged(E2eeFlag.on, uid: _a);
         await s.onSessionEnded(_a, SessionEnd.sessionLost);
-        await s.onSignedIn(_a, e2eeEnabled: true);
+        await s.onSignedIn(_a, flag: E2eeFlag.on);
         await s.close();
         expect(world.calls.where(_destructive), isEmpty);
         expect(world.files.containsKey(_a), isTrue);

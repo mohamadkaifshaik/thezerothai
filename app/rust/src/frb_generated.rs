@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1806098008;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1976593326;
 
 // Section: executor
 
@@ -365,6 +365,39 @@ fn wire__crate__api__init_app_impl(
         },
     )
 }
+fn wire__crate__api__inspect_key_package_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "inspect_key_package",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_key_package = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::MlsError>((move || {
+                    let output_ok = crate::api::inspect_key_package(api_key_package)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__join_from_welcome_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -677,12 +710,16 @@ impl SseDecode for crate::api::CommitEvent {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_epoch = <u64>::sse_decode(deserializer);
+        let mut var_committerDeviceId = <Vec<u8>>::sse_decode(deserializer);
         let mut var_added = <Vec<Vec<u8>>>::sse_decode(deserializer);
+        let mut var_addedSignatureKeys = <Vec<Vec<u8>>>::sse_decode(deserializer);
         let mut var_removed = <Vec<Vec<u8>>>::sse_decode(deserializer);
         let mut var_selfRemoved = <bool>::sse_decode(deserializer);
         return crate::api::CommitEvent {
             epoch: var_epoch,
+            committer_device_id: var_committerDeviceId,
             added: var_added,
+            added_signature_keys: var_addedSignatureKeys,
             removed: var_removed,
             self_removed: var_selfRemoved,
         };
@@ -743,6 +780,18 @@ impl SseDecode for crate::api::Joined {
             group_state: var_groupState,
             group_id: var_groupId,
             epoch: var_epoch,
+        };
+    }
+}
+
+impl SseDecode for crate::api::KeyPackageInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_deviceId = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_signaturePublicKey = <Vec<u8>>::sse_decode(deserializer);
+        return crate::api::KeyPackageInfo {
+            device_id: var_deviceId,
+            signature_public_key: var_signaturePublicKey,
         };
     }
 }
@@ -941,14 +990,15 @@ fn pde_ffi_dispatcher_primary_impl(
         7 => wire__crate__api__encrypt_impl(port, ptr, rust_vec_len, data_len),
         8 => wire__crate__api__generate_key_packages_impl(port, ptr, rust_vec_len, data_len),
         9 => wire__crate__api__init_app_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__join_from_welcome_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__open_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__process_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__random_bytes_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__seal_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__security_code_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__self_update_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__wire_epoch_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__inspect_key_package_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__join_from_welcome_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__open_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__process_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__random_bytes_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__seal_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__security_code_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__self_update_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__wire_epoch_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -990,7 +1040,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::CommitEvent {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.epoch.into_into_dart().into_dart(),
+            self.committer_device_id.into_into_dart().into_dart(),
             self.added.into_into_dart().into_dart(),
+            self.added_signature_keys.into_into_dart().into_dart(),
             self.removed.into_into_dart().into_dart(),
             self.self_removed.into_into_dart().into_dart(),
         ]
@@ -1069,6 +1121,22 @@ impl flutter_rust_bridge::IntoDart for crate::api::Joined {
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::Joined {}
 impl flutter_rust_bridge::IntoIntoDart<crate::api::Joined> for crate::api::Joined {
     fn into_into_dart(self) -> crate::api::Joined {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::KeyPackageInfo {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.device_id.into_into_dart().into_dart(),
+            self.signature_public_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::KeyPackageInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::KeyPackageInfo> for crate::api::KeyPackageInfo {
+    fn into_into_dart(self) -> crate::api::KeyPackageInfo {
         self
     }
 }
@@ -1198,7 +1266,9 @@ impl SseEncode for crate::api::CommitEvent {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <u64>::sse_encode(self.epoch, serializer);
+        <Vec<u8>>::sse_encode(self.committer_device_id, serializer);
         <Vec<Vec<u8>>>::sse_encode(self.added, serializer);
+        <Vec<Vec<u8>>>::sse_encode(self.added_signature_keys, serializer);
         <Vec<Vec<u8>>>::sse_encode(self.removed, serializer);
         <bool>::sse_encode(self.self_removed, serializer);
     }
@@ -1238,6 +1308,14 @@ impl SseEncode for crate::api::Joined {
         <Vec<u8>>::sse_encode(self.group_state, serializer);
         <Vec<u8>>::sse_encode(self.group_id, serializer);
         <u64>::sse_encode(self.epoch, serializer);
+    }
+}
+
+impl SseEncode for crate::api::KeyPackageInfo {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<u8>>::sse_encode(self.device_id, serializer);
+        <Vec<u8>>::sse_encode(self.signature_public_key, serializer);
     }
 }
 

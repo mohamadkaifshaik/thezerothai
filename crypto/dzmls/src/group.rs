@@ -135,7 +135,9 @@ pub fn commit_change(
 ///
 /// The commit carries an update path with a fresh leaf: a new HPKE encryption key, the same credential (device
 /// id), the same signature key, capabilities and extensions. The new leaf is commit-sourced, so it carries no
-/// lifetime and no longer expires; the path also renews this device's path secrets (recovery after a compromise).
+/// lifetime and no longer expires; the path also renews this device's path secrets (this renews the leaf's HPKE key
+/// and path secrets; the signature key is unchanged, so it is not recovery after a compromise: the remedy for a
+/// compromised device is removing it).
 /// Errors and their order match `commit_change`: `corrupt_state` for a group blob of another device, then
 /// `pending_commit`, then `evicted`.
 pub fn self_update(device_state: &[u8], group_state: &[u8]) -> Result<Commit, MlsError> {
@@ -383,6 +385,36 @@ pub(crate) fn device_unchanged(before: &[u8], after: &[u8]) -> Result<(), MlsErr
     } else {
         Err(MlsError::internal("a group call changed the device state"))
     }
+}
+
+/// What a key package says about the device that made it.
+pub struct KeyPackageInfo {
+    /// The device id (the credential identity, 16 to 64 bytes).
+    pub device_id: Vec<u8>,
+    /// The device's signature public key.
+    pub signature_public_key: Vec<u8>,
+}
+
+impl fmt::Debug for KeyPackageInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeyPackageInfo")
+            .field("device_id_len", &self.device_id.len())
+            .field("signature_public_key_len", &self.signature_public_key.len())
+            .finish()
+    }
+}
+
+/// Reads the device id and signature public key out of a key package (a TLS-serialized `KeyPackage`, as
+/// `generate_key_packages` produces it), after full validation: exactly what `commit_change`
+/// applies to a package it adds (size cap, decoding, signature, cipher suite, protocol version, lifetime against the
+/// wall clock) plus the 16 to 64 byte identity rule. Any failure is `bad_input`. No state is read or changed.
+pub fn inspect_key_package(key_package: &[u8]) -> Result<KeyPackageInfo, MlsError> {
+    let provider = OpenMlsRustCrypto::default();
+    let kp = parse_key_package(&provider, key_package)?;
+    Ok(KeyPackageInfo {
+        device_id: kp.leaf_node().credential().serialized_content().to_vec(),
+        signature_public_key: kp.leaf_node().signature_key().as_slice().to_vec(),
+    })
 }
 
 fn parse_key_package(provider: &OpenMlsRustCrypto, bytes: &[u8]) -> Result<KeyPackage, MlsError> {

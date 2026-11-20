@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
 import '../core/feature_flags/service_feature_gate.dart';
 import '../core/storage/app_database.dart';
 import '../core/vault/vault_session.dart';
+import '../core/vault/vault_status.dart' show E2eeFlag;
 import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/messages/data/messaging_repository.dart';
@@ -12,6 +13,7 @@ import '../features/messages/domain/messaging_feature_gate.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
+import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/timeline/data/timeline_repository.dart';
@@ -125,6 +127,55 @@ Future<void> wipeSessionData({
   await database.clearAll();
 }
 
+/// The `e2ee_dm` answer a ready, fully answered state carries; null until
+/// then (flags pending, not ready): no answer is not "off".
+E2eeFlag? knownE2eeFlag(OnboardingState s) {
+  if (s.status != OnboardingStatus.ready || s.flagsPending) return null;
+  return s.enabledFeatures.contains(kFeatureE2eeDm)
+      ? E2eeFlag.on
+      : E2eeFlag.off;
+}
+
+/// Forwards each KNOWN `e2ee_dm` answer to [vaultSession] for the user the
+/// state was emitted for ([uidOf]; ignored by the session when that user is
+/// not its user when it runs). A failed GetMe never turns a known answer into
+/// unknown (only known answers are forwarded). When the forwarded answer
+/// CHANGED to `on` for that user (the first known answer `on` counts as a
+/// change) and the session has an open vault afterwards,
+/// [onFlagOnWithOpenVault] runs (device upkeep resumes without waiting for a
+/// tick); a repeated `on` does not run it again (its own throttle counts only
+/// successes, so every repeat would start another run while offline). The
+/// ready hooks are NOT run again.
+StreamSubscription<OnboardingState> wireE2eeFlag({
+  required Stream<OnboardingState> states,
+  required String? Function(OnboardingState state) uidOf,
+  required VaultSession vaultSession,
+  required void Function() onFlagOnWithOpenVault,
+}) {
+  String? lastUid;
+  E2eeFlag? lastAnswer;
+  return states.listen((state) {
+    // Any state of another user (or of none: signed out) forgets the last
+    // answer, so a user who leaves and returns gets a first answer again.
+    final uid = uidOf(state);
+    if (uid != lastUid) {
+      lastUid = uid;
+      lastAnswer = null;
+    }
+    final answer = knownE2eeFlag(state);
+    if (answer == null) return;
+    final turnedOn = answer == E2eeFlag.on && lastAnswer != E2eeFlag.on;
+    lastAnswer = answer;
+    unawaited(
+      vaultSession.onFlagChanged(answer, uid: uid).then((_) {
+        if (turnedOn && vaultSession.vault != null) {
+          onFlagOnWithOpenVault();
+        }
+      }),
+    );
+  });
+}
+
 /// Bridges auth state into the session (L-4): OnboardingBloc reacts to
 /// sign-in/sign-out but never talks to AuthBloc directly (the two features stay
 /// decoupled).
@@ -156,8 +207,10 @@ Future<void> wipeSessionData({
 ///   the old one as [SessionEnd.sessionLost] (never explicit); a new uid
 ///   signs in with [readE2eeFlag]'s current answer, except after a direct
 ///   switch, where that answer is still the previous user's: it signs in
-///   with the flag off and the flag listener opens the vault. The cache
-///   steps above are the same for every reason.
+///   with the flag unknown (no answer yet, not off) and the flag listener
+///   starts the vault once the flag is known on; a vault this device
+///   already has for the user opens at once. The cache steps above are the
+///   same for every reason.
 ///
 /// [initialUser] is the user the app started with (already claimed at startup).
 /// Returns the subscription to [authStates].
@@ -172,7 +225,7 @@ StreamSubscription<AuthState> wireAuthSession({
   AppUser? initialUser,
   UnexpectedErrorReporter onUnexpectedError = reportUnexpectedError,
   VaultSession? vaultSession,
-  bool Function()? readE2eeFlag,
+  E2eeFlag Function()? readE2eeFlag,
 }) {
   var cacheOps = Future<void>.value();
   AppUser? lastUser;
@@ -193,12 +246,15 @@ StreamSubscription<AuthState> wireAuthSession({
 
   // [switched]: a direct switch from another user. The flag read now is the
   // previous user's (GetMe has not answered for this one), so it is passed
-  // as off and the flag listener opens the vault once this user's flags
-  // are known.
+  // as unknown (not off: no answer yet) and the flag listener starts the
+  // vault once this user's flags are known. A vault this device already has
+  // for the user opens at once, whatever the flag says.
   void vaultSignedIn(String uid, {bool switched = false}) => unawaited(
     vaultSession?.onSignedIn(
       uid,
-      e2eeEnabled: !switched && (readE2eeFlag?.call() ?? false),
+      flag: switched
+          ? E2eeFlag.unknown
+          : (readE2eeFlag?.call() ?? E2eeFlag.unknown),
     ),
   );
 

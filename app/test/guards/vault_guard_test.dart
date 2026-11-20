@@ -22,6 +22,9 @@ const Set<String> _defaultAllowedImports = {
   'secure_vault.dart',
   'vault_status.dart',
   'keyed_mutex.dart',
+  // The plain record types SecureVault's methods take and return. They carry
+  // sealed JSON encoders only; no database, cipher or opener.
+  'vault_records.dart',
 };
 
 /// Per-file extras, one reason each. Nothing here may be a platform file
@@ -64,11 +67,11 @@ const Map<String, List<String>> _destructiveWiring = {
 /// lib/core/vault that may reference each (null: none may, until a UI plan
 /// adds a caller and updates this guard). `onSessionEnded` turns an explicit
 /// end into a wipe; `noteAccountDeleted` journals one;
-/// `resetVaultForStorageChange` destroys history on purpose.
+/// `resetByUser` destroys history on purpose.
 const Map<String, String?> _sessionEntryOwners = {
   'onSessionEnded': 'lib/app/session_wiring.dart',
   'noteAccountDeleted': 'lib/app/bootstrap.dart',
-  'resetVaultForStorageChange': null,
+  'resetByUser': null,
 };
 
 /// Same-named members that are NOT the session's: exact fragments removed
@@ -131,6 +134,17 @@ const Map<String, Map<String, String>> _allowedToStrings = {
   'lib/core/vault/vault_session.dart': {
     'VaultSessionError': "=> 'VaultSessionError(\$step)';",
   },
+  // The engine's generation/epoch pair: two small integers.
+  'lib/core/crypto/mls_pair.dart': {
+    'MlsPair': "=> 'MlsPair(\$generation, \$epoch)';",
+  },
+  // Prints the code and the core's own text (fixed wording with sizes and
+  // counts, never ids, keys or content; the native engine passes it through,
+  // internal errors included); uncoded engine errors are replaced by a fixed
+  // text (MlsException.fromEngineReply, mls_worker.js failure()).
+  'lib/core/crypto/crypto_types.dart': {
+    'MlsException': "=> 'MlsException(\${code.wire}): \$message';",
+  },
   'lib/features/keys/domain/device_keys_service.dart': {
     'DeviceKeysStatus': "=> phase == DeviceKeysPhase.failed ? 'DeviceKeysStatus.failed(retryable: \$retryable)' : 'DeviceKeysStatus.\${phase.name}';",
     'DeviceKeysError': "=> 'DeviceKeysError(\$step)';",
@@ -156,6 +170,48 @@ Map<String, String> _libFiles() => readTree('lib', {'.dart'});
 Map<String, String> _vaultAndKeys() => {
   for (final e in _libFiles().entries)
     if (_inVaultLayer(e.key) && !e.key.endsWith('.g.dart')) e.key: e.value,
+};
+
+/// Where the logging scan looks: the vault layer, the keys feature, the
+/// crypto engine layer (not its generated bridge) and the message codec layer.
+bool _inLoggingScope(String path) =>
+    _inVaultLayer(path) ||
+    (path.startsWith('lib/core/crypto/') &&
+        !path.startsWith('lib/core/crypto/frb_generated/')) ||
+    path.startsWith('lib/features/messages/domain/e2ee/');
+
+Map<String, String> _loggingFiles() => {
+  for (final e in _libFiles().entries)
+    if (_inLoggingScope(e.key) && !e.key.endsWith('.g.dart')) e.key: e.value,
+};
+
+/// Types that carry keys, state, content or wire bytes and so must never get a
+/// `toString` (the default `Instance of ...` prints nothing). Checked across
+/// all of lib/, not only the vault layer.
+const Set<String> _noToStringTypes = {
+  'KeyPackageInfo',
+  'DecodedContent',
+  'PendingCommit',
+  'MemberRecord',
+  'ConversationSync',
+  'ConversationRecord',
+  'SystemLineContent',
+};
+
+bool _noToStringViolation(String className) =>
+    _noToStringTypes.contains(className) ||
+    className.startsWith('RemovalQueue');
+
+/// Files under lib/ outside the generated trees.
+bool _isGenerated(String path) =>
+    path.startsWith('lib/gen/') ||
+    path.startsWith('lib/core/crypto/frb_generated/') ||
+    path.endsWith('.g.dart') ||
+    path.endsWith('.freezed.dart');
+
+Map<String, String> _handWrittenLib() => {
+  for (final e in _libFiles().entries)
+    if (!_isGenerated(e.key)) e.key: e.value,
 };
 
 void main() {
@@ -192,6 +248,28 @@ void main() {
         _defaultAllowedImports.intersection(_vaultPrivate.toSet()),
         isEmpty,
       );
+      // Whatever files exist under the private name patterns are not public.
+      final patterned = {
+        for (final k in _libFiles().keys)
+          if (k.startsWith('lib/core/vault/') &&
+              RegExp(r'/(vault_database|vault_cipher\w*|vault_open\w*)\.dart$')
+                  .hasMatch(k))
+            k.substring('lib/core/vault/'.length),
+      };
+      expect(
+        patterned,
+        containsAll(
+          _vaultPrivate.where(
+            (f) =>
+                f.startsWith('vault_database') ||
+                f.startsWith('vault_cipher_') ||
+                f.startsWith('vault_open_'),
+          ),
+        ),
+      );
+      expect(_defaultAllowedImports.intersection(patterned), isEmpty);
+      // vault_records.dart is the one public implementation-layer file.
+      expect(_defaultAllowedImports, contains('vault_records.dart'));
     });
 
     test('self-test: each private file is flagged, in both import forms', () {
@@ -236,6 +314,22 @@ void main() {
         ),
         ['vault_database.dart'],
       );
+      // The records file is public: importable from anywhere, in both forms.
+      for (final src in [
+        "import '../../../core/vault/vault_records.dart';",
+        "import 'package:dzeroth/core/vault/vault_records.dart';",
+      ]) {
+        expect(
+          importViolations(
+            'lib/features/messages/domain/x.dart',
+            src,
+            defaultAllowed: _defaultAllowedImports,
+            extraAllowed: _extraImports,
+          ),
+          isEmpty,
+          reason: src,
+        );
+      }
       // An allowed one and a comment mentioning a private one are not.
       expect(
         importViolations(
@@ -353,7 +447,7 @@ void main() {
             'Only the session wiring ends the vault session '
             '(onSessionEnded), only bootstrap forwards an account deletion '
             '(noteAccountDeleted), and nothing calls '
-            'resetVaultForStorageChange yet (a UI plan must update this '
+            'resetByUser yet (a UI plan must update this '
             'guard). Each can wipe a vault.\n${bad.join('\n')}',
       );
     });
@@ -393,14 +487,14 @@ void main() {
         'await session.onSessionEnded(uid, SessionEnd.userSignedOut);',
         'unawaited(vaultSession?.onSessionEnded(a, b));',
         'final f = vaultSession.noteAccountDeleted;',
-        'session..resetVaultForStorageChange();',
-        'await s.resetVaultForStorageChange();',
+        'session..resetByUser();',
+        'await s.resetByUser();',
       ]) {
         expect(memberReferences(bad, names), isNotEmpty, reason: bad);
       }
       for (final ok in [
         '// vaultSession.onSessionEnded(a, b)',
-        "final s = 'x.resetVaultForStorageChange()';",
+        "final s = 'x.resetByUser()';",
         'void noteAccountDeleted(String uid) {}',
       ]) {
         expect(memberReferences(ok, names), isEmpty, reason: ok);
@@ -456,11 +550,8 @@ void main() {
         isEmpty,
       );
       expect(
-        _entryViolations(
-          'lib/app/bootstrap.dart',
-          'session.resetVaultForStorageChange();',
-        ),
-        ['resetVaultForStorageChange'],
+        _entryViolations('lib/app/bootstrap.dart', 'session.resetByUser();'),
+        ['resetByUser'],
       );
     });
   });
@@ -558,9 +649,10 @@ void main() {
   });
 
   group('no sensitive logging', () {
-    test('vault and keys code prints nothing and reports no secret names', () {
+    test('vault, keys, crypto and message-codec code prints nothing and '
+        'reports no secret names', () {
       final bad = <String>[];
-      for (final e in _vaultAndKeys().entries) {
+      for (final e in _loggingFiles().entries) {
         for (final v in loggingViolations(e.value)) {
           bad.add('${e.key}: $v');
         }
@@ -588,6 +680,17 @@ void main() {
         r"_log.info('x ${sealedBytes.length}');",
         "Logger('x').severe(ciphertext);",
         '_report(contentFor(id), stack);',
+        // The message layer's secret names.
+        '_report(commit, stack);',
+        '_report(welcomeBytes, stack);',
+        // One case per new fragment, each name containing ONLY that fragment
+        // (no 'key', 'commit', ...), so deleting a fragment fails its case.
+        "_log.warning('x \$pendingOps');",
+        'reportUnexpectedError(initBytes, stack);',
+        '_report(digest, stack);',
+        "Logger('x').info(payload);",
+        // 'reportkey' is covered by 'key' already; this case holds either way.
+        'reportUnexpectedError(reportKey, stack);',
       ]) {
         expect(loggingViolations(bad), isNotEmpty, reason: bad);
       }
@@ -603,12 +706,149 @@ void main() {
         expect(loggingViolations(ok), isEmpty, reason: ok);
       }
     });
+
+    test('self-test: the scope covers crypto and the message codec, not the '
+        'generated bridge or other features', () {
+      for (final p in [
+        'lib/core/vault/secure_vault.dart',
+        'lib/features/keys/domain/device_keys_service.dart',
+        'lib/core/crypto/guarded_crypto_engine.dart',
+        'lib/core/crypto/mls_pair.dart',
+        'lib/features/messages/domain/e2ee/message_content_codec.dart',
+      ]) {
+        expect(_inLoggingScope(p), isTrue, reason: p);
+      }
+      for (final p in [
+        'lib/core/crypto/frb_generated/api.dart',
+        'lib/features/messages/data/messaging_repository.dart',
+        'lib/features/messages/domain/message_search.dart',
+      ]) {
+        expect(_inLoggingScope(p), isFalse, reason: p);
+      }
+    });
+  });
+
+  group('web integers (no 64-bit ByteData accessors)', () {
+    test('lib/ outside gen and frb_generated has no set/get Int64/Uint64', () {
+      final bad = <String>[];
+      for (final e in _handWrittenLib().entries) {
+        for (final a in wideIntAccessors(e.value)) {
+          bad.add('${e.key}: $a');
+        }
+      }
+      expect(
+        bad,
+        isEmpty,
+        reason:
+            'On the web an int is a double; setUint64/getUint64/setInt64/'
+            'getInt64 lose bits past 2^53. Use Int64 or a range-checked '
+            '53-bit value.\n${bad.join('\n')}',
+      );
+    });
+
+    test('self-test: the generated-code exclusions, and nothing else', () {
+      for (final p in [
+        'lib/gen/dzeroth/messaging/v1/messaging.pb.dart',
+        'lib/core/crypto/frb_generated/api.dart',
+        'lib/core/vault/vault_database.g.dart',
+        'lib/features/x/y.freezed.dart',
+      ]) {
+        expect(_isGenerated(p), isTrue, reason: p);
+      }
+      for (final p in [
+        'lib/core/crypto/mls_pair.dart',
+        'lib/core/crypto/native_crypto_engine.dart',
+        'lib/generated_name.dart',
+        'lib/core/vault/vault_records.dart',
+      ]) {
+        expect(_isGenerated(p), isFalse, reason: p);
+      }
+    });
+
+    test('the scans still see files under crypto and the message codec', () {
+      final logging = _loggingFiles().keys;
+      expect(
+        logging.where(
+          (k) =>
+              k.startsWith('lib/core/crypto/') &&
+              !k.startsWith('lib/core/crypto/frb_generated/'),
+        ),
+        isNotEmpty,
+      );
+      expect(
+        logging.where(
+          (k) => k.startsWith('lib/features/messages/domain/e2ee/'),
+        ),
+        isNotEmpty,
+      );
+      expect(
+        _handWrittenLib().keys.where((k) => k.startsWith('lib/core/crypto/')),
+        isNotEmpty,
+      );
+    });
+
+    test(
+      'self-test: each accessor is flagged, comments and strings are not',
+      () {
+        for (final bad in [
+          'data.setUint64(0, v);',
+          'final x = bd.getUint64(8);',
+          'bd.setInt64(0, v, Endian.big);',
+          'return view.getInt64(0);',
+          'final f = bd.getInt64;',
+        ]) {
+          expect(wideIntAccessors(bad), isNotEmpty, reason: bad);
+        }
+        for (final ok in [
+          '// bd.setUint64(0, v)',
+          "final s = 'getInt64';",
+          'data.setUint32(0, v); data.getInt32(0);',
+          'final v = Int64(3);',
+        ]) {
+          expect(wideIntAccessors(ok), isEmpty, reason: ok);
+        }
+      },
+    );
+  });
+
+  group('vault schema is pinned', () {
+    final src = File('lib/core/vault/vault_database.dart').readAsStringSync();
+
+    test('kVaultSchemaVersion is 2 and vaultTables has the ten tables', () {
+      expect(vaultSchemaVersion(src), 2);
+      final tables = vaultTableNames(src);
+      expect(tables, hasLength(10));
+      expect(tables.toSet(), hasLength(10));
+      expect(tables, contains('vaultGroups'));
+      expect(tables, contains('vaultGroupStates'));
+    });
+
+    test('self-test: a changed version or table list is seen', () {
+      expect(vaultSchemaVersion('const int kVaultSchemaVersion = 3;'), 3);
+      expect(vaultSchemaVersion('// const int kVaultSchemaVersion = 2;'), null);
+      expect(vaultSchemaVersion('const int other = 2;'), null);
+      final nine =
+          'List<TableInfo> get vaultTables => [ a, b, c, d, e, f, g, h, i ];';
+      expect(vaultTableNames(nine), hasLength(9));
+      expect(
+        vaultTableNames('get vaultTables => [vaultGroups, /* x */ vaultMeta];'),
+        ['vaultGroups', 'vaultMeta'],
+      );
+      expect(vaultTableNames('final nothing = 1;'), isEmpty);
+    });
   });
 
   group('no printable secrets', () {
-    test('only the pinned vault and keys types define toString', () {
+    test('only the pinned vault, keys and MlsPair types define toString', () {
       final found = <String, Map<String, String>>{};
-      for (final e in _vaultAndKeys().entries) {
+      final scanned = {
+        ..._vaultAndKeys(),
+        'lib/core/crypto/mls_pair.dart':
+            _libFiles()['lib/core/crypto/mls_pair.dart']!,
+        'lib/core/crypto/crypto_types.dart':
+            _libFiles()['lib/core/crypto/crypto_types.dart']!,
+      };
+      for (final e in scanned.entries) {
         final d = toStringDeclarations(e.value);
         if (d.isNotEmpty) found[e.key] = d;
       }
@@ -643,6 +883,60 @@ void main() {
           _allowedToStrings['lib/core/vault/secure_vault.dart']!['StoredMessage'],
         ),
       );
+    });
+  });
+
+  group('secret-carrying types define no toString', () {
+    test('KeyPackageInfo, DecodedContent, PendingCommit, MemberRecord, '
+        'ConversationSync, ConversationRecord, SystemLineContent and '
+        'RemovalQueue* have none, anywhere in lib/', () {
+      final bad = <String>[];
+      for (final e in _handWrittenLib().entries) {
+        for (final c in toStringDeclarations(e.value).keys) {
+          if (_noToStringViolation(c)) bad.add('${e.key}: $c');
+        }
+      }
+      expect(
+        bad,
+        isEmpty,
+        reason:
+            'These types hold keys, state, content or wire bytes; the '
+            'default toString prints none of it. Do not define one.\n'
+            '${bad.join('\n')}',
+      );
+    });
+
+    test('every named type is still declared (the list is not stale)', () {
+      final all = _handWrittenLib().values
+          .map((s) => stripSource(s, keepStrings: false))
+          .join('\n');
+      for (final c in [
+        ..._noToStringTypes,
+        'RemovalQueueEntry',
+        'RemovalQueue',
+      ]) {
+        expect(
+          RegExp(r'\bclass\s+' + c + r'\b').hasMatch(all),
+          isTrue,
+          reason: c,
+        );
+      }
+    });
+
+    test('self-test: a planted toString on each is seen', () {
+      for (final c in [
+        ..._noToStringTypes,
+        'RemovalQueueEntry',
+        'RemovalQueueX',
+      ]) {
+        final d = toStringDeclarations(
+          'class $c {\n  @override\n  String toString() => \'\$c(\$state)\';\n}\n',
+        );
+        expect(d.keys.where(_noToStringViolation), [c], reason: c);
+      }
+      // A pinned one is not on the list.
+      expect(_noToStringViolation('MlsPair'), isFalse);
+      expect(_noToStringViolation('StoredMessage'), isFalse);
     });
   });
 
@@ -689,12 +983,14 @@ void main() {
 
     const pinned = {
       'test/core/vault/vault_session_test.dart':
-          'flag off / unsupported, nothing known: no collaborator is ever '
-          'called',
+          'no vault on this device, flag off or unknown, or unsupported: no '
+          'collaborator is ever called',
       'test/features/keys/device_keys_service_test.dart':
-          'flag off: the vault never opens, nothing is generated or sent',
+          'no device in the vault, flag off or unknown: nothing is generated '
+          'or sent',
       'test/features/keys/keys_repository_test.dart':
-          'with the flag off nothing is sent and FeatureDisabled is thrown',
+          'flag off and no vault on this device: nothing is sent and '
+          'FeatureDisabled is thrown',
     };
 
     for (final e in pinned.entries) {

@@ -80,7 +80,8 @@ void main() {
       String? Function() uid,
     ) {
       final s = VaultSession(
-        openCipher: (u) => openVaultCipher(uid: u, engine: engine),
+        openCipher: (u, {required create}) =>
+            openVaultCipher(uid: u, engine: engine, create: create),
         openVault: openVault,
         wipeVaultFile: wipeVaultFileForAlias,
         deleteVaultKey: deleteVaultKeyForAlias,
@@ -94,12 +95,13 @@ void main() {
         repository: KeysRepository(
           apiClient: server.apiClient,
           gate: ServiceFeatureGate(isEnabled: () => true),
+          deviceFacts: () => s.vaultKnown,
         ),
         engine: () => engine,
         currentUid: uid,
       );
       s
-        ..onVaultReady = service.onVaultReady
+        ..addVaultReadyHook(service.onVaultReady)
         ..beforeExplicitWipe = service.removeThisDevice;
       sessions.add(s);
       services.add(service);
@@ -151,7 +153,7 @@ void main() {
       final uid = newUid();
       final (s, service) = launch(server, () => uid);
       await s.start(restoredUid: null, restoreDefinitive: true);
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       await service.ensureReady();
 
       expect(s.status.value, VaultStatus.ready);
@@ -209,7 +211,7 @@ void main() {
       String? current = uid;
       final (s, service) = launch(server, () => current);
       await s.start(restoredUid: null, restoreDefinitive: true);
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       await service.ensureReady();
       final id = utf8.decode((await s.vault!.deviceId())!);
       expect(server.devices.keys, [id]);
@@ -225,7 +227,7 @@ void main() {
 
       // Signing in again: an empty, new vault and a new device.
       current = uid;
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       expect(s.vault!.createdThisOpen, isTrue, reason: 'the old vault is gone');
       await service.ensureReady();
       final fresh = utf8.decode((await s.vault!.deviceId())!);

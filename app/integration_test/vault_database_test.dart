@@ -14,6 +14,7 @@ import 'dart:convert';
 
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_engine_factory.dart';
+import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:drift_flutter/drift_flutter.dart' show WebStorageApi;
@@ -38,7 +39,7 @@ StoredMessage _msg(String id, int at) => StoredMessage(
   conversationId: 'c1',
   messageId: id,
   createdAtMicros: at,
-  fromSelf: at.isEven,
+  mine: at.isEven,
   state: StoredMessageState.visible,
   generation: 1,
   epoch: at,
@@ -109,7 +110,11 @@ void main() {
             generation: 2,
             epoch: 3,
             state: _b('group-state'),
-            pendingCommit: true,
+            pending: PendingCommit(
+              kind: PendingKind.change,
+              builtOn: const MlsPair(2, 3),
+              commit: _b('commit'),
+            ),
           ),
         );
         for (var i = 0; i < 120; i++) {
@@ -118,11 +123,13 @@ void main() {
         await tx.putOutbox(
           OutboxItem(
             idempotencyKey: 'k1',
+            localId: 'k1',
+            expectedMessageId: 'expected-k1',
             conversationId: 'c1',
             generation: 2,
             epoch: 3,
             ciphertext: _b('wire'),
-            reportCommitment: _b('commitment'),
+            reportCommitment: Uint8List(32),
             content: _b('pending'),
             createdAtMicros: 5,
           ),
@@ -137,11 +144,8 @@ void main() {
       final again = await vaultFor(uid, cipher);
       expect(_s(await again.deviceId()), 'device-id');
       expect(_s(await again.deviceState()), 'device-state');
-      final group = (await again.group('c1'))!;
-      expect(
-        [group.generation, group.epoch, group.pendingCommit],
-        [2, 3, true],
-      );
+      final group = (await again.group('c1', 2))!;
+      expect([group.generation, group.epoch, group.hasPending], [2, 3, true]);
       expect(_s(group.state), 'group-state');
       final all = <StoredMessage>[];
       String? before;
@@ -158,7 +162,7 @@ void main() {
       expect(all, hasLength(120));
       expect(all.first.messageId, 'm119');
       expect(_s(all.last.content), 'hello m0');
-      expect(all.last.fromSelf, isTrue);
+      expect(all.last.mine, isTrue);
       final outbox = (await again.outbox()).items;
       expect(outbox.single.idempotencyKey, 'k1');
       expect(_s(outbox.single.content), 'pending');
@@ -177,7 +181,6 @@ void main() {
             generation: 1,
             epoch: 1,
             state: _b('old'),
-            pendingCommit: false,
           ),
         ),
       );
@@ -190,7 +193,11 @@ void main() {
               generation: 1,
               epoch: 2,
               state: _b('new'),
-              pendingCommit: true,
+              pending: PendingCommit(
+                kind: PendingKind.change,
+                builtOn: const MlsPair(1, 1),
+                commit: _b('commit'),
+              ),
             ),
           );
           await tx.putMessage(_msg('m1', 1));
@@ -200,7 +207,7 @@ void main() {
         caught = e;
       }
       expect(caught, isA<StateError>());
-      expect(_s((await vault.group('c1'))!.state), 'old');
+      expect(_s((await vault.group('c1', 1))!.state), 'old');
       expect(await vault.hasMessage('c1', 'm1'), isFalse);
     });
 
@@ -336,7 +343,8 @@ void main() {
       }
       // The key is still there (deleteVaultKey is separate): a new, empty
       // vault opens under it.
-      final again = await vaultFor(uid, cipher);
+      // (vault.close() ended the first cipher, so this is a new one.)
+      final again = await vaultFor(uid, await cipherFor(uid));
       expect(await again.hasMessage('c1', 'm1'), isFalse);
     });
 
@@ -366,7 +374,8 @@ void main() {
 
       VaultStatus? status;
       try {
-        await vaultFor(uid, cipher);
+        // vault.close() ended the first cipher; open with a new one.
+        await vaultFor(uid, await cipherFor(uid));
       } on VaultOpenException catch (e) {
         status = e.status;
       }
@@ -379,7 +388,7 @@ void main() {
       // empty vault opens on the remaining (empty) IndexedDB schema.
       await wipeVaultFile(uid: uid);
       final remaining = await existingWebStorageApis(name);
-      final afterReset = await vaultFor(uid, cipher);
+      final afterReset = await vaultFor(uid, await cipherFor(uid));
       expect(await afterReset.hasMessage('c1', 'm1'), isFalse);
       binding.reportData = {
         ...?binding.reportData,
@@ -416,7 +425,6 @@ void main() {
             generation: 1,
             epoch: 7,
             state: _b('group-state'),
-            pendingCommit: false,
           ),
         );
         await tx.putMessage(
@@ -424,7 +432,7 @@ void main() {
             conversationId: conversation,
             messageId: messageId,
             createdAtMicros: 1,
-            fromSelf: true,
+            mine: true,
             state: StoredMessageState.visible,
             generation: 1,
             epoch: 7,
@@ -479,7 +487,7 @@ void main() {
       open.add(second);
       final read = (await second.message(conversation, messageId))!;
       expect(_s(read.content), 'durable text');
-      expect((await second.group(conversation))!.epoch, 7);
+      expect((await second.group(conversation, 1))!.epoch, 7);
       binding.reportData = {
         ...?binding.reportData,
         'persisted_in_indexeddb_ms': watch.elapsedMilliseconds,

@@ -22,30 +22,74 @@ enum MlsErrorCode {
   /// Confirm or discard was called with no commit waiting.
   noPendingCommit('no_pending_commit'),
 
-  /// The message was already processed (a replay, or this device's own echo).
+  /// The message's generation was already consumed (a replay).
   duplicate('duplicate'),
 
+  /// The wire message names this device's own leaf as its sender (its own
+  /// application message or commit, echoed back). Returned only at the
+  /// group's current epoch: an own commit processed after `confirmCommit` is
+  /// [wrongEpoch]. **Not authenticated.**
+  /// OpenMLS decides this from the sender data alone, before the content is
+  /// decrypted or the signature checked, and every member holds the
+  /// sender-data secret: any member can forge it and the server can replay
+  /// this device's real ciphertext. Callers decide what to believe.
+  ownLeaf('own_leaf'),
+
   /// An unexpected failure inside the engine.
-  internal('internal');
+  internal('internal'),
+
+  /// Dart-only, never produced by the core: the call did not answer within the
+  /// guarded engine's deadline. [parse] never returns it.
+  deadline('deadline'),
+
+  /// Dart-only, never produced by the core: the engine failed twice since the
+  /// last app resume (or was closed). [parse] never returns it.
+  unavailable('unavailable');
 
   const MlsErrorCode(this.wire);
 
-  /// The string the Rust core uses for this code.
+  /// The string the Rust core uses for this code (the Dart-only codes
+  /// [deadline] and [unavailable] have none the core would send).
   final String wire;
 
-  /// The code for [wire]; an unknown string is [internal].
+  /// The code for [wire]; an unknown string, or one of the Dart-only codes, is
+  /// [internal].
   static MlsErrorCode parse(String wire) {
     for (final code in values) {
+      if (code == deadline || code == unavailable) continue;
       if (code.wire == wire) return code;
     }
     return internal;
   }
 }
 
+/// The one message of an engine failure that carries no core code (a wasm
+/// trap, a glue error, anything unexpected): its own text is never kept.
+const String kUncodedEngineErrorText = 'the MLS worker failed';
+
 /// A failed engine call. [message] carries codes and sizes only, never state,
 /// keys, plaintext or wire bytes.
 class MlsException implements Exception {
   const MlsException(this.code, this.message);
+
+  /// A failure reply of the engine's worker. Only a core code other than
+  /// `internal` keeps the reply's text (the core's fixed text with sizes);
+  /// no code, an unknown code, a Dart-only code or `internal` becomes
+  /// [MlsErrorCode.internal] with [kUncodedEngineErrorText], whatever text
+  /// came with it (the worker's own guard is the first line; this is the
+  /// second).
+  factory MlsException.fromEngineReply(String? code, String? message) {
+    final parsed = MlsErrorCode.parse(code ?? '');
+    if (parsed == MlsErrorCode.internal || message == null) {
+      return MlsException(
+        message == null && parsed != MlsErrorCode.internal
+            ? parsed
+            : MlsErrorCode.internal,
+        kUncodedEngineErrorText,
+      );
+    }
+    return MlsException(parsed, message);
+  }
 
   final MlsErrorCode code;
   final String message;
@@ -67,6 +111,17 @@ class DeviceCreated {
   });
 
   final Uint8List deviceState;
+  final Uint8List signaturePublicKey;
+}
+
+/// What a key package says about its device, after full validation.
+class KeyPackageInfo {
+  const KeyPackageInfo({
+    required this.deviceId,
+    required this.signaturePublicKey,
+  });
+
+  final Uint8List deviceId;
   final Uint8List signaturePublicKey;
 }
 
@@ -162,7 +217,9 @@ class MlsMessageEvent extends MlsEvent {
 class MlsCommitEvent extends MlsEvent {
   const MlsCommitEvent({
     required this.epoch,
+    required this.committerDeviceId,
     required this.added,
+    required this.addedSignatureKeys,
     required this.removed,
     required this.selfRemoved,
   });
@@ -170,8 +227,14 @@ class MlsCommitEvent extends MlsEvent {
   /// The epoch the group is in after the commit.
   final int epoch;
 
+  /// The device id of the member that made the commit.
+  final Uint8List committerDeviceId;
+
   /// Device ids added by the commit, in commit order.
   final List<Uint8List> added;
+
+  /// Signature public keys of the added devices, parallel to [added].
+  final List<Uint8List> addedSignatureKeys;
 
   /// Device ids removed by the commit, in commit order.
   final List<Uint8List> removed;

@@ -28,6 +28,16 @@ cargo test -p dzmls --locked
 cargo fmt --check && cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
 
+`inspect_key_package` reads a key package's device id and signature public key after the same validation
+`commit_change` applies. A commit event carries the committer's device id and the added devices' signature keys.
+`process` returns `own_leaf` (no state) when the wire message names this device's own leaf as its sender (its own
+message or commit, with or without a pending commit); `duplicate` is only a consumed generation. **The own-leaf result
+is unauthenticated:** OpenMLS decides it from the sender data alone, before decryption or signature checks, and every
+member holds the sender-data secret, so any member can forge it and the server can replay this device's real
+ciphertext. Callers decide what to believe. An own commit received after `confirm_commit` is one epoch behind and is
+`wrong_epoch`, since the epoch is checked first. `self_update` renews the leaf's encryption key and path secrets only;
+it is not compromise recovery (the signature key is unchanged).
+
 **Callers must serialize calls.** The engine keeps no memory between calls. If two calls run on the same blob at
 once, both succeed and one result is lost. Run calls that take or return a device state one at a time per device,
 and calls on a group state one at a time per group.
@@ -101,6 +111,18 @@ cd app && flutter drive --driver=test_driver/integration_test.dart   --target=in
 # the same against a wasm (dart2wasm) build:
 cd app && flutter drive --driver=test_driver/integration_test.dart   --target=integration_test/crypto_engine_test.dart -d web-server --browser-name=chrome --driver-port=4455 --headless --wasm
 ```
+
+The vault and device-keys integration tests run the same way, one target at a time (`vault_database_test`,
+`vault_cipher_test`, `vault_owner_test`, `vault_session_test`, `device_keys_test`; `crypto_engine_test` above is the
+sixth), for example:
+
+```
+cd app && flutter drive --driver=test_driver/integration_test.dart --target=integration_test/vault_database_test.dart -d web-server --browser-name=chrome --driver-port=4455 --headless
+```
+
+and again with `--wasm`. CI runs those five files as JS and wasm in the job "crypto web integration" (and when the
+vault code changes). That job is advisory: it does not block merging, so read its result by name on the PR. Firefox and
+Safari are not run.
 
 `flutter test integration_test -d chrome` is not supported on Flutter 3.50 ("Web devices are not supported for
 integration tests yet"), hence `flutter drive`. The driver (run from `app/`) serves `../testdata/mls/vectors-v1.json`, the
@@ -232,11 +254,11 @@ one key to about 2^32 seals; a device writes far fewer rows than that over the l
 
 **Rules a change must not break:**
 - Only `VaultSession` wipes a vault or deletes a key. Nothing else calls the wipe or key-delete functions.
-- Code outside `core/vault` reaches the vault through `VaultSession`, `SecureVault`, `VaultStatus` and `KeyedMutex`
-  only, with one exception: at start-up `app/lib/app/bootstrap.dart` wires the production cipher, markers, opener and
-  owner into the session (`openVaultCipher`, `deleteVaultKeyForAlias`, `DriftVaultMarkers`, `vaultMarkersPersistent`,
+- Code outside `core/vault` reaches the vault through `VaultSession`, `SecureVault` (with its record types in
+  `vault_records.dart`, which is public), `VaultStatus` and `KeyedMutex` only, with one exception: at start-up
+  `app/lib/app/bootstrap.dart` wires the production cipher, markers, opener and owner into the session (`openVaultCipher`, `deleteVaultKeyForAlias`, `DriftVaultMarkers`, `vaultMarkersPersistent`,
   `openVault`, `wipeVaultFileForAlias`, `createVaultOwner`); the guard allowlists the files that may be imported from
-  outside `core/vault` (the four above for everyone; the four wiring files only for `bootstrap.dart`), never a
+  outside `core/vault` (the five above for everyone; the four wiring files only for `bootstrap.dart`), never a
   platform implementation file, and exempts only those two destructive tear-offs in `bootstrap.dart`.
 - The vault never opens in memory, and on the web never on the per-tab ("unsafe") IndexedDB storage.
 - A lost key (`keyLost`) is acted on only after it is seen on two separate launches at least one hour apart
@@ -244,15 +266,51 @@ one key to about 2^32 seals; a device writes far fewer rows than that over the l
   opening the vault, and every `storageChanged` launch, clears the streak.
 - An explicit sign-out or account deletion wipes. A DIFFERENT user signing in on the device wipes the previous
   user's vault. A key loss confirmed as above wipes, and so does the explicit reset of a `storageChanged` vault
-  (`resetVaultForStorageChange`, not yet called by any UI). A session that ends any other way (revoked token, auth
+  (`resetByUser`, API only, not yet called by any UI). A session that ends any other way (revoked token, auth
   stream error, start-up without a restored user) keeps the vault.
+
+**Schema v2.** `kVaultSchemaVersion` is 2 and the vault has ten tables (`vaultTables`). The v2 tables hold the
+conversations, their members, the sent-message log and the group state (`vault_group_states`); `vault_groups` is the v1
+table and stays, with its rows, copied and never read again (a sealed table is never renamed or re-keyed). The outbox
+gains a stable `local_id`. The migration has two parts. First, drift's `onUpgrade` (`from < 2`) adds the tables and
+columns, each step guarded so a file where it stopped halfway completes. Second, `_migrateSealedV1` runs when the vault
+is claimed, only while the stamp in `vault_meta` is below 2: it copies each v1 group into `vault_group_states`
+(re-sealed), fills `mine` on old messages and `local_id` and the expected message id on outbox rows, in one transaction
+that ends by writing the stamp. It never deletes a row. A failure rolls the whole step back and the next open starts it
+again; a step that runs past the 30 s open timeout never half-applies: it is one transaction, so it either commits
+whole or rolls back and restarts at the next open. A row that cannot be opened is left as it is and skipped; a cipher that cannot run fails the open.
+
+**Close keeps the key.** `SecureVault.close()` closes its cipher (zeroes the Android data key, drops the web handle)
+and deletes nothing. A closed vault is reopened with a new cipher. Only `wipe()` and `destroy()` delete the stored key.
+
+**The open rule.** A user with no vault on this device and the flag `e2ee_dm` off or unknown causes no vault open, no
+key generation, no key-directory call and no MLS call. The device's markers are still READ at sign-in (that is how
+the session knows there is no vault), and another user's vault left on the device is still wiped at sign-in (a
+different user signing in is an allowed cause). The vault opens when the flag is `on` or a known-vault marker
+exists; it is created (`create: true`) only when the flag is `on`. At sign-in the flag is unknown until the first
+answer, so a user with a marker opens with `create: false` (the cipher generates no key; the opener makes no schema,
+stamp or sentinel), and a vault that already exists opens whatever the flag says. A flag answer never wipes: a key
+loss that an `on` answer's open could confirm stays `keyLost` pending, and a later sign-in or launch confirms it. An
+`on` answer opens or creates the vault, and with a vault open calls `DeviceKeysService.ensureReady()` (the ready hooks
+are not run again). A block left by a `create: false` open that answered unavailable (whatever the cause: nothing
+here to open, a timeout, a cipher or storage failure, a newer schema stamp), or by the sign-in marker read, with no
+wipe owed, is cleared by the `on` answer; a block from an owed wipe, a lost key or a held lock is not. On Android a
+`create: false` open of a missing file leaves a zero-byte sqlite file behind (sqlite creates it before the opener can
+refuse; nothing is written into it and the open answers `unavailable`). On the web a `create: false` open creates no
+vault storage and no key (the empty key store itself may be created before the open refuses).
 
 What `app/test/guards/vault_guard_test.dart` enforces, each rule with a self-test: who wipes (the `wipeVault*`,
 `deleteVaultKey*`, `.wipe` and `.destroy` names appear outside `core/vault` only in bootstrap's exact wiring); who may
 end or reset the session (`onSessionEnded` only from `app/lib/app/session_wiring.dart`, the session's
-`noteAccountDeleted` only from `bootstrap.dart`, `resetVaultForStorageChange` from nowhere outside `core/vault`); the
+`noteAccountDeleted` only from `bootstrap.dart`, `resetByUser` from nowhere outside `core/vault`); the
 import boundary above; no in-memory database names and no message cap in vault code; no log or report of
-secret-named values and only pinned `toString`s; no app code assigns the vault's `debug*` test hooks. The accepted
+secret-named values (in the vault and keys code, `app/lib/core/crypto/` without `frb_generated/`, and
+`app/lib/features/messages/domain/e2ee/`; the names include `commit`, `welcome`, `pending`, `init`, `digest`,
+`payload`, `reportKey`) and only pinned `toString`s (the vault and keys list plus `MlsPair`; `KeyPackageInfo`,
+`DecodedContent`, `PendingCommit`, `MemberRecord`, `ConversationSync`, `ConversationRecord`, `SystemLineContent` and
+`RemovalQueue*` define none); no `setUint64`, `getUint64`, `setInt64` or `getInt64` under `app/lib/` outside the
+generated code (a web `int` is a double); the schema version (2) and the ten tables; no app code assigns the vault's
+`debug*` test hooks; and the three flag-off inertness tests by name. The accepted
 web storages (and the refusal of `inMemory` and `unsafeIndexedDb`) are pinned by `app/test/core/vault/vault_open_test.dart`.
 
 **Durability on the web.** No vault transaction is durable at the instant `transaction()` returns (on IndexedDB,
@@ -280,8 +338,8 @@ has no caller).
 
 `self_update` builds a commit with only an update path (OpenMLS `commit_builder()` with `force_self_update(true)`,
 no proposals, the device's existing signer). The device's new leaf is commit-sourced (`LeafNodeSource::Commit`), so
-it carries no lifetime and no longer expires; the update path also renews the device's path secrets, which is the
-recovery after a key compromise. The device id and the signature key stay the same. Like `commit_change`, the
+it carries no lifetime and no longer expires; the update path also renews the device's path secrets. The device id and the signature key stay the same, so this
+is not recovery after a compromise: the remedy for a compromised device is removing it. Like `commit_change`, the
 commit is pending until `confirm_commit` or `discard_commit`.
 
 Consequences:

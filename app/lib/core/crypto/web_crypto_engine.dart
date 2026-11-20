@@ -31,7 +31,7 @@ external String get _documentBaseUri;
 /// Byte arguments are copied into the worker, so a caller's buffer stays
 /// usable. Byte results arrive in buffers moved out of the worker. Nothing here
 /// logs or keeps arguments, results or state.
-class WebCryptoEngine implements CryptoEngine {
+class WebCryptoEngine implements CryptoEngine, EngineHealth {
   WebCryptoEngine({String scriptPath = 'mls_worker.js'})
     : _scriptPath = scriptPath;
 
@@ -41,8 +41,13 @@ class WebCryptoEngine implements CryptoEngine {
   int _nextId = 0;
   final Map<int, Completer<JSObject>> _pending = {};
 
+  /// True once the worker failed or was closed.
+  @override
+  bool get failed => _failure != null;
+
   /// Stops the worker. Pending and later calls fail with
   /// [MlsErrorCode.internal].
+  @override
   void close() {
     _fail(const MlsException(MlsErrorCode.internal, 'engine is closed'));
   }
@@ -98,11 +103,9 @@ class WebCryptoEngine implements CryptoEngine {
     } else {
       final code = _str(_field(data, 'code'));
       final message = _str(_field(data, 'message'));
+      // An uncoded or unknown failure never carries its own text.
       completer.completeError(
-        MlsException(
-          MlsErrorCode.parse(code?.toDart ?? ''),
-          message?.toDart ?? 'worker error',
-        ),
+        MlsException.fromEngineReply(code?.toDart, message?.toDart),
       );
     }
   }
@@ -267,6 +270,15 @@ class WebCryptoEngine implements CryptoEngine {
   }
 
   @override
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) async {
+    final r = await _call('inspectKeyPackage', {'keyPackage': _js(keyPackage)});
+    return KeyPackageInfo(
+      deviceId: _bytes(r, 'deviceId'),
+      signaturePublicKey: _bytes(r, 'signaturePublicKey'),
+    );
+  }
+
+  @override
   Future<Uint8List> createGroup(
     Uint8List deviceState,
     Uint8List groupId,
@@ -394,7 +406,9 @@ class WebCryptoEngine implements CryptoEngine {
       case 'commit':
         parsed = MlsCommitEvent(
           epoch: _int(event, 'epoch'),
+          committerDeviceId: _bytes(event, 'committerDeviceId'),
           added: _bytesList(event, 'added'),
+          addedSignatureKeys: _bytesList(event, 'addedSignatureKeys'),
           removed: _bytesList(event, 'removed'),
           selfRemoved: _bool(event, 'selfRemoved'),
         );

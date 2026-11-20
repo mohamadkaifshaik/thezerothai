@@ -19,11 +19,11 @@ import 'package:dzeroth/core/vault/vault_cipher_stub.dart'
 ///
 /// The key never appears in an error, a log or [Object.toString].
 ///
-/// [destroy] is the only way to end a cipher, and it also deletes the stored
-/// key. A cipher that is simply dropped (no [destroy]) leaves its in-memory
-/// key bytes (Android) to the garbage collector: they are not zeroed. A
-/// non-destructive `close()` that zeroes without deleting is left for a
-/// later plan.
+/// A cipher ends in one of two ways: [close] ends it and keeps the stored key
+/// (the same key opens again with [openVaultCipher]); [destroy] ends it and
+/// also deletes the stored key. A cipher that is simply dropped leaves its
+/// in-memory key bytes (Android) to the garbage collector: they are not
+/// zeroed, so close a cipher that will not be used.
 abstract interface class VaultCipher {
   /// True when [openVaultCipher] found no stored key for this user and made a
   /// new one. Informational only: whether a vault's data is readable is
@@ -58,7 +58,17 @@ abstract interface class VaultCipher {
   ///
   /// A [seal] or [open] result that completes after [destroy] began must not
   /// be stored: the vault session serialises its writes before [destroy].
+  ///
+  /// Allowed after [close] (the stored key is still deleted). A second
+  /// [destroy] throws [StateError].
   Future<void> destroy();
+
+  /// Ends this cipher WITHOUT deleting the stored key: new calls are refused
+  /// at once ([StateError]), calls in flight finish first (at most 5 s), then
+  /// the in-memory key is zeroed (Android) or its handle dropped (web). The
+  /// same key opens again with [openVaultCipher]. Idempotent; a no-op after
+  /// [destroy].
+  Future<void> close();
 }
 
 /// Why the vault key could not be opened.
@@ -124,10 +134,16 @@ Uint8List vaultRowAad(String table, String rowKey) {
 /// IndexedDB (`vault_cipher_web.dart`). Every other platform throws
 /// [UnsupportedError].
 /// Failures throw [VaultKeyException]; a lost key is never silently replaced.
+///
+/// With [create] false nothing is ever generated or stored: no stored key for
+/// [uid] throws [VaultKeyException] with [VaultKeyFailure.keyLost] (the vault
+/// session only opens that way for a user whose device already has a vault,
+/// so a missing key is a lost one).
 Future<VaultCipher> openVaultCipher({
   required String uid,
   required CryptoEngine engine,
-}) => impl.openPlatformVaultCipher(uid: uid, engine: engine);
+  bool create = true,
+}) => impl.openPlatformVaultCipher(uid: uid, engine: engine, create: create);
 
 /// Deletes the stored vault key of [uid] without opening it or creating one
 /// (idempotent). Rows sealed under it can never be opened again. Used by the

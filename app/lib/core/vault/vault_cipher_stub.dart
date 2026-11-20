@@ -5,6 +5,7 @@ import 'package:dzeroth/core/vault/vault_cipher.dart';
 Future<VaultCipher> openPlatformVaultCipher({
   required String uid,
   required CryptoEngine engine,
+  bool create = true,
 }) => throw UnsupportedError('No encrypted vault on this platform.');
 
 /// No vault, so no key to delete.

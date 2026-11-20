@@ -22,6 +22,14 @@ pub enum ErrorCode {
     NoPendingCommit,
     /// The message was already processed.
     Duplicate,
+    /// The wire message names this device's own leaf as its sender: this device's own application message or its
+    /// own commit, echoed back. No state is returned. Returned only at the group's current epoch: an own commit
+    /// processed after `confirm_commit` is `WrongEpoch`.
+    ///
+    /// **Not authenticated.** OpenMLS decides this from the sender data alone, before the content is decrypted or
+    /// the signature checked, and every member holds the sender-data secret: any member can forge it and the
+    /// server can replay this device's real ciphertext. Callers decide what to believe (addendum R7).
+    OwnLeaf,
     /// An unexpected failure inside the engine or OpenMLS.
     Internal,
 }
@@ -36,6 +44,7 @@ impl ErrorCode {
             ErrorCode::PendingCommit => "pending_commit",
             ErrorCode::NoPendingCommit => "no_pending_commit",
             ErrorCode::Duplicate => "duplicate",
+            ErrorCode::OwnLeaf => "own_leaf",
             ErrorCode::Internal => "internal",
         }
     }
@@ -90,6 +99,7 @@ mod tests {
             (ErrorCode::PendingCommit, "pending_commit"),
             (ErrorCode::NoPendingCommit, "no_pending_commit"),
             (ErrorCode::Duplicate, "duplicate"),
+            (ErrorCode::OwnLeaf, "own_leaf"),
             (ErrorCode::Internal, "internal"),
         ];
         for (code, s) in all {

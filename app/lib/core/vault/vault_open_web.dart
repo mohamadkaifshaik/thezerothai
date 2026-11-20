@@ -53,6 +53,7 @@ Future<WasmProbeResult> _probe(String name) => WasmDatabase.probe(
 Future<(DatabaseConnection, String)> openPlatformVaultConnection(
   String name, {
   String? expectedStorage,
+  bool create = true,
 }) async {
   final probed = await _probe(name);
   final chosen = chooseVaultWebStorage(
@@ -61,6 +62,7 @@ Future<(DatabaseConnection, String)> openPlatformVaultConnection(
     missingFeatures: probed.missingFeatures,
     name: name,
     expectedStorage: expectedStorage,
+    create: create,
   );
   _lastWebStorage = chosen;
   return (await probed.open(chosen, name), chosen.name);

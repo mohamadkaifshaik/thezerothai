@@ -1,6 +1,7 @@
 import 'package:connectrpc/connect.dart' as connect;
 
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import '../crypto/mls_pair.dart';
 import 'app_exception.dart';
 import 'request_session.dart';
 
@@ -133,12 +134,24 @@ AppException mapConnectError(Object error) {
         return CommunityStateException(
           CommunityStateReason.fromWire(detail.metadata['reason']),
         );
-      // End-to-end encrypted conversations (messaging.v1). No released client sends ciphertext yet; the
-      // encrypted-messaging client gives both their own types. Until then they are a generic error, never the
-      // FAILED_PRECONDITION code fallback (ProfileRequired).
+      // End-to-end encrypted conversations (messaging.v1): typed, never the FAILED_PRECONDITION code
+      // fallback (ProfileRequired). `generation` and `epoch` come from the metadata and count only when
+      // both are base-10 integers in 1..kMaxPairComponent (else both are 0).
       case common.ErrorReason.ERROR_REASON_STALE_EPOCH:
+        final generation = _pairComponent(detail.metadata['generation']);
+        final epoch = _pairComponent(detail.metadata['epoch']);
+        final usable = generation != null && epoch != null;
+        return StaleEpochException(
+          message,
+          generation: usable ? generation : 0,
+          epoch: usable ? epoch : 0,
+          conversationId: _conversationId(detail.metadata['conversation_id']),
+        );
       case common.ErrorReason.ERROR_REASON_ENCRYPTION_REQUIRED:
-        return UnknownApiException(message);
+        return EncryptionRequiredException(
+          message,
+          conversationId: _conversationId(detail.metadata['conversation_id']),
+        );
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         // A state conflict keyed by `metadata["reason"]` (the beacons backend): typed, never
         // "profile required". Without a reason the code mapping below still applies.
@@ -154,6 +167,20 @@ AppException mapConnectError(Object error) {
 
   return _mapByCode(error);
 }
+
+final RegExp _digits = RegExp(r'^[0-9]+$');
+final RegExp _conversationIdPattern = RegExp(r'^[0-9a-f]{32}$');
+
+/// A base-10 integer in 1..kMaxPairComponent, else null.
+int? _pairComponent(String? raw) {
+  if (raw == null || !_digits.hasMatch(raw) || raw.length > 16) return null;
+  final v = int.tryParse(raw);
+  if (v == null || v < 1 || v > kMaxPairComponent) return null;
+  return v;
+}
+
+String? _conversationId(String? raw) =>
+    raw != null && _conversationIdPattern.hasMatch(raw) ? raw : null;
 
 /// Finds and decodes the `dzeroth.common.v1.ErrorDetail` attached to a
 /// Connect error, if any. Also used by the transport retry interceptor.

@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart' show Int64;
+
+import '../../../core/crypto/mls_pair.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
@@ -20,6 +24,10 @@ const kMessagingEmptyPageRetries = 3;
 /// Pages followed to fill the gap of a `since` poll before the thread is
 /// reloaded from its first page instead (4 x 50 covers the 200 cached).
 const kMaxGapPages = 4;
+
+/// The longest an encrypted-messaging RPC is awaited. A timeout throws
+/// `NetworkException('timed out')` and means the outcome is unknown.
+const Duration kMlsRpcTimeout = Duration(seconds: 30);
 
 /// A ListConversations answer: the cache after merging it, plus the pending
 /// request count the server sends on every INBOX first page and since refresh.
@@ -523,6 +531,153 @@ class MessagingRepository {
       session: session,
     );
     return response;
+  }
+
+  // --- encrypted messaging (MLS) -------------------------------------------
+  //
+  // None of these joins the `_single` queue or touches `_store`, the outbox
+  // or the read RateLimitHold: the pipeline serialises per conversation and
+  // nothing of an encrypted message reaches the cache here. Each waits at
+  // most [kMlsRpcTimeout]; a timeout is a [NetworkException] and means the
+  // outcome is UNKNOWN. Nothing is logged.
+
+  Future<T> _mls<T>(Future<T> Function() call) => call().timeout(
+    kMlsRpcTimeout,
+    onTimeout: () => throw const NetworkException('timed out'),
+  );
+
+  /// Sends one encrypted message built on [pair] (the sender's current
+  /// epoch). Exactly one target. [mlsInit] is a serialized `pb.MlsInit` (the
+  /// first message of a new conversation). Needs the per-caller flag.
+  Future<pb.SendMessageResponse> sendEncrypted({
+    required String idempotencyKey,
+    String? conversationId,
+    String? recipientUserId,
+    required Uint8List ciphertext,
+    required MlsPair pair,
+    required Uint8List reportCommitment,
+    Uint8List? mlsInit,
+  }) async {
+    assert(
+      (conversationId == null) != (recipientUserId == null),
+      'Exactly one of conversationId and recipientUserId',
+    );
+    final request = pb.SendMessageRequest(
+      idempotencyKey: idempotencyKey,
+      text: '',
+      sharedPostId: '',
+      ciphertext: ciphertext,
+      mlsGeneration: Int64(pair.generation),
+      mlsEpoch: Int64(pair.epoch),
+      reportCommitment: reportCommitment,
+    );
+    if (conversationId != null) request.conversationId = conversationId;
+    if (recipientUserId != null) request.recipientUserId = recipientUserId;
+    if (mlsInit != null) request.mlsInit = pb.MlsInit.fromBuffer(mlsInit);
+    return _mls(
+      () => _gate.run(() => _apiClient.messaging.sendMessage(request)),
+    );
+  }
+
+  /// Advances [conversationId] from [builtOn] with [commit] (and, for added
+  /// devices, [welcome] for [welcomeDeviceIds]). Returns the response pair.
+  /// Needs the per-caller flag.
+  Future<MlsPair> commitConversation({
+    required String idempotencyKey,
+    required String conversationId,
+    required MlsPair builtOn,
+    required Uint8List commit,
+    Uint8List? welcome,
+    List<String> welcomeDeviceIds = const [],
+    bool reset = false,
+  }) async {
+    final request = pb.CommitConversationRequest(
+      idempotencyKey: idempotencyKey,
+      conversationId: conversationId,
+      mlsGeneration: Int64(builtOn.generation),
+      mlsEpoch: Int64(builtOn.epoch),
+      commit: commit,
+      welcomeDeviceIds: welcomeDeviceIds,
+      reset: reset,
+    );
+    if (welcome != null) request.welcome = welcome;
+    final response = await _mls(
+      () => _gate.run(() => _apiClient.messaging.commitConversation(request)),
+    );
+    final generation = pairComponentFromInt64(response.mlsGeneration);
+    final epoch = pairComponentFromInt64(response.mlsEpoch);
+    if (generation == null || epoch == null) {
+      throw const UnknownApiException('Unusable epoch in the response.');
+    }
+    return MlsPair(generation, epoch);
+  }
+
+  /// Commits of [conversationId] above [after] (null = from the start).
+  /// Not globally off is enough.
+  Future<pb.ListConversationCommitsResponse> listConversationCommits({
+    required String conversationId,
+    required MlsPair? after,
+    int pageSize = 0,
+  }) => _mls(
+    () => _gate.runRead(
+      () => _apiClient.messaging.listConversationCommits(
+        pb.ListConversationCommitsRequest(
+          conversationId: conversationId,
+          afterGeneration: Int64(after?.generation ?? 0),
+          afterEpoch: Int64(after?.epoch ?? 0),
+          pageSize: pageSize,
+        ),
+      ),
+    ),
+  );
+
+  /// Messages of [conversationId] sent at [pair]. Not globally off is enough.
+  Future<pb.ListEpochMessagesResponse> listEpochMessages({
+    required String conversationId,
+    required MlsPair pair,
+    int pageSize = 0,
+    String pageToken = '',
+  }) => _mls(
+    () => _gate.runRead(
+      () => _apiClient.messaging.listEpochMessages(
+        pb.ListEpochMessagesRequest(
+          conversationId: conversationId,
+          mlsGeneration: Int64(pair.generation),
+          mlsEpoch: Int64(pair.epoch),
+          pageSize: pageSize,
+          pageToken: pageToken,
+        ),
+      ),
+    ),
+  );
+
+  /// Welcomes waiting for [deviceId]. Not globally off is enough.
+  Future<pb.ListWelcomesResponse> listWelcomes({required String deviceId}) =>
+      _mls(
+        () => _gate.runRead(
+          () => _apiClient.messaging.listWelcomes(
+            pb.ListWelcomesRequest(deviceId: deviceId),
+          ),
+        ),
+      );
+
+  /// Clears processed welcomes. Not globally off is enough.
+  Future<void> ackWelcomes({
+    required String idempotencyKey,
+    required String deviceId,
+    required List<String> ids,
+  }) async {
+    await _mls(
+      () => _gate.runRead(
+        () => _apiClient.messaging.ackWelcomes(
+          pb.AckWelcomesRequest(
+            idempotencyKey: idempotencyKey,
+            deviceId: deviceId,
+            ids: ids,
+          ),
+        ),
+      ),
+    );
   }
 
   /// Marks the conversation read (call only with `unread_count > 0`). Not

@@ -80,7 +80,8 @@ void main() {
     /// collaborators.
     VaultSession launch() {
       final s = VaultSession(
-        openCipher: (uid) => openVaultCipher(uid: uid, engine: engine),
+        openCipher: (uid, {required create}) =>
+            openVaultCipher(uid: uid, engine: engine, create: create),
         openVault: openVault,
         wipeVaultFile: countedWipe,
         deleteVaultKey: deleteVaultKeyForAlias,
@@ -134,7 +135,7 @@ void main() {
       final uid = newUid();
       final s = launch();
       await s.start(restoredUid: uid, restoreDefinitive: true);
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.ready);
       expect(s.vault, isNotNull);
       final known = await markers.known(vaultKeyAlias(uid));
@@ -176,7 +177,7 @@ void main() {
     testWidgets('explicit sign-out leaves no vault and no key', (tester) async {
       final uid = newUid();
       final s = launch();
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       await s.runWrite(
         (v) => v.transaction((tx) => tx.putSetting('k', _b('secret'))),
       );
@@ -206,7 +207,7 @@ void main() {
         'next launch with nobody restored wipes', (tester) async {
       final uid = newUid();
       final s = launch();
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       await s.runWrite(
         (v) => v.transaction((tx) => tx.putSetting('k', _b('secret'))),
       );
@@ -236,7 +237,7 @@ void main() {
 
       final uid = newUid();
       final s = launch();
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       await s.noteAccountDeleted(uid);
       await s.close(); // "killed" before the session ended
       final next = launch();
@@ -255,7 +256,7 @@ void main() {
         'the same user signing in clears it, history intact', (tester) async {
       final uid = newUid();
       final s = launch();
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       await s.runWrite(
         (v) => v.transaction((tx) => tx.putSetting('k', _b('kept'))),
       );
@@ -264,23 +265,79 @@ void main() {
       final next = launch();
       await next.start(restoredUid: null, restoreDefinitive: false);
       expect(await markers.pendingEnds(), contains(vaultKeyAlias(uid)));
-      await next.onSignedIn(uid, e2eeEnabled: true);
+      await next.onSignedIn(uid, flag: E2eeFlag.on);
       expect(await markers.pendingEnds(), isNot(contains(vaultKeyAlias(uid))));
       expect(utf8.decode((await next.vault!.setting('k'))!), 'kept');
+    });
+
+    testWidgets('a vault that exists opens with the flag off or unknown, '
+        'without creating; with none, nothing is created and the open is '
+        'unavailable (create false, real cipher and opener)', (tester) async {
+      final uid = newUid();
+      final s = launch();
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
+      await s.runWrite(
+        (v) => v.transaction((tx) => tx.putSetting('k', _b('kept'))),
+      );
+      await s.onSessionEnded(uid, SessionEnd.sessionLost);
+
+      final next = launch();
+      await next.start(restoredUid: uid, restoreDefinitive: true);
+      await next.onSignedIn(uid, flag: E2eeFlag.unknown);
+      expect(next.status.value, VaultStatus.ready);
+      expect(next.mayStart, isFalse);
+      expect(next.vault!.createdThisOpen, isFalse);
+      expect(utf8.decode((await next.vault!.setting('k'))!), 'kept');
+      await next.onFlagChanged(E2eeFlag.off, uid: uid);
+      expect(next.status.value, VaultStatus.ready, reason: 'no close');
+
+      // No key and no vault: create false generates and creates nothing.
+      final none = newUid();
+      await expectLater(
+        openVaultCipher(uid: none, engine: engine, create: false),
+        throwsA(
+          isA<VaultKeyException>().having(
+            (e) => e.failure,
+            'failure',
+            VaultKeyFailure.keyLost,
+          ),
+        ),
+      );
+      final cipher = await openVaultCipher(uid: none, engine: engine);
+      expect(
+        cipher.freshlyCreated,
+        isTrue,
+        reason: 'the failed open stored no key',
+      );
+      await expectLater(
+        openVault(uid: none, cipher: cipher, create: false),
+        throwsA(
+          isA<VaultOpenException>().having(
+            (e) => e.status,
+            'status',
+            VaultStatus.unavailable,
+          ),
+        ),
+      );
+      await cipher.close();
+      // Android leaves a zero-byte file after a refused create-false open:
+      // remove it here (the tearDown wipes it too), and the key made above.
+      await wipeVaultFile(uid: none);
+      await deleteVaultKey(uid: none);
     });
 
     testWidgets('session lost, then the same user (same launch and a new '
         'launch) finds the same data', (tester) async {
       final uid = newUid();
       final s = launch();
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       await s.runWrite(
         (v) => v.transaction((tx) => tx.putSetting('k', _b('kept'))),
       );
       await s.onSessionEnded(uid, SessionEnd.sessionLost);
       expect(s.status.value, VaultStatus.off);
 
-      await s.onSignedIn(uid, e2eeEnabled: true);
+      await s.onSignedIn(uid, flag: E2eeFlag.on);
       expect(s.status.value, VaultStatus.ready);
       expect(utf8.decode((await s.vault!.setting('k'))!), 'kept');
       expect(s.vault!.createdThisOpen, isFalse);
@@ -288,7 +345,7 @@ void main() {
 
       final next = launch();
       await next.start(restoredUid: uid, restoreDefinitive: true);
-      await next.onSignedIn(uid, e2eeEnabled: true);
+      await next.onSignedIn(uid, flag: E2eeFlag.on);
       expect(next.status.value, VaultStatus.ready);
       expect(utf8.decode((await next.vault!.setting('k'))!), 'kept');
     });

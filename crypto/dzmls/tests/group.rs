@@ -125,6 +125,54 @@ fn join_consumes_one_time_key_package_but_not_last_resort() {
 }
 
 #[test]
+fn commit_event_names_committer_and_added_keys() {
+    let alice = device(1);
+    let mut bob = device(2);
+    let mut carol = device(3);
+    let states = group_of(&alice, &mut [&mut bob], &gid(1));
+
+    let c = dzmls::commit_change(&alice.state, &states[0], &[kp(&mut carol)], &[]).unwrap();
+    let p = dzmls::process(&bob.state, &states[1], &c.commit).unwrap();
+    let dzmls::Event::Commit {
+        committer_device_id,
+        added,
+        added_signature_keys,
+        removed,
+        ..
+    } = p.event
+    else {
+        panic!("expected a commit");
+    };
+    assert_eq!(committer_device_id, alice.id);
+    assert_eq!(added, [carol.id.clone()]);
+    assert_eq!(added_signature_keys, [carol.signature_public_key.clone()]);
+    assert!(removed.is_empty());
+    // The keys equal what `describe` reports once the commit is merged.
+    let after = members(&p.group_state);
+    assert!(after.contains(&(carol.id.clone(), carol.signature_public_key.clone())));
+
+    // A remove-only commit adds no keys.
+    let a2 = dzmls::confirm_commit(&alice.state, &c.group_state).unwrap();
+    let j = dzmls::join_from_welcome(&carol.state, &c.welcome.unwrap()).unwrap();
+    let c3 = dzmls::commit_change(&alice.state, &a2, &[], &[bob.id.clone()]).unwrap();
+    let p3 = dzmls::process(&carol.state, &j.group_state, &c3.commit).unwrap();
+    let dzmls::Event::Commit {
+        committer_device_id,
+        added,
+        added_signature_keys,
+        removed,
+        ..
+    } = p3.event
+    else {
+        panic!("expected a commit");
+    };
+    assert_eq!(committer_device_id, alice.id);
+    assert!(added.is_empty());
+    assert!(added_signature_keys.is_empty());
+    assert_eq!(removed, [bob.id.clone()]);
+}
+
+#[test]
 fn add_and_remove_in_one_commit() {
     let alice = device(1);
     let mut bob = device(2);
