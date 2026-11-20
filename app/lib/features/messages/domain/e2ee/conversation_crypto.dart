@@ -16,6 +16,7 @@ import 'device_directory.dart';
 import 'e2ee_types.dart';
 import 'former_pins.dart';
 import 'join_baselines.dart';
+import 'key_changed_devices.dart';
 import 'known_conversations.dart';
 import 'membership_rules.dart';
 import 'sync_budget.dart';
@@ -120,6 +121,7 @@ class ConversationCrypto {
        _contexts = contexts,
        _known = known,
        _baselines = JoinBaselines(onUnexpectedError: onUnexpectedError),
+       _keyChanged = KeyChangedDevices(onUnexpectedError: onUnexpectedError),
        _now = now,
        _onChanged = onChanged,
        _onUnexpectedError = onUnexpectedError;
@@ -134,6 +136,7 @@ class ConversationCrypto {
   final KnownConversations _known;
   static const FormerPins _formerPins = FormerPins();
   final JoinBaselines _baselines;
+  final KeyChangedDevices _keyChanged;
   final DateTime Function() _now;
   final void Function(String conversationId) _onChanged;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
@@ -555,6 +558,8 @@ class ConversationCrypto {
           await _formerPins.putIn(tx, v, id, pins);
           // The rejoin is never a first join: no baseline is kept.
           await _baselines.deleteIn(tx, v, id);
+          // Every device left the pins: its key-changed marks go.
+          await _keyChanged.updateIn(tx, v, id, clear: true);
           if (MlsPair.above(at, record?.afterPair)) {
             await tx.setAfterPair(id, at);
           }
@@ -604,9 +609,11 @@ class ConversationCrypto {
         // Added, and the (id, key) comparison after every commit: a member
         // not pinned, or pinned with another key, is pinned unattributed
         // with the key the group holds (never kept on its old side). A
-        // changed key is an unknown device at once (its row in this same
-        // transaction, accepted conversations only): attribution never pins
-        // a member whose unknownDevice row exists at its `since`.
+        // changed key is marked in this same transaction whatever the
+        // acceptance state (attribution never pins a marked (id, key)); its
+        // unknownDevice row, display only, is written here in accepted
+        // conversations and by attribution once one is accepted.
+        final marked = <String, Uint8List>{};
         final added = <String, Uint8List>{};
         if (event != null) {
           for (var i = 0; i < event.added.length; i++) {
@@ -638,7 +645,9 @@ class ConversationCrypto {
               since: nextPair,
             ),
           );
-          if (pinned != null && accepted) {
+          if (pinned == null) continue;
+          marked[entry.key] = entry.value;
+          if (accepted) {
             final row = _systemRow(
               id,
               nextPair,
@@ -651,6 +660,9 @@ class ConversationCrypto {
             }
           }
         }
+        // A removed device leaves the pins: its mark goes (read fresh, one
+        // write with the new marks).
+        await _keyChanged.updateIn(tx, v, id, drop: removed, mark: marked);
         await tx.putGroup(
           GroupRecord(
             conversationId: id,
@@ -1242,6 +1254,7 @@ class ConversationCrypto {
           }
           await _pinJoined(
             tx,
+            v,
             id,
             label,
             description.members,
@@ -1310,8 +1323,14 @@ class ConversationCrypto {
   /// current or former pins with the same key and a side gets that side
   /// (`attributeAfterReset`'s first branch, no list); every other member is
   /// `unattributed` since `label.next`. Pins absent from the group go.
+  ///
+  /// A member whose device id a current OR former pin holds with another key
+  /// (or that is already marked with another key) is marked in the
+  /// key-changed marker, in this transaction, and pinned unattributed; marks
+  /// of devices the group no longer holds go.
   Future<void> _pinJoined(
     VaultTx tx,
+    SecureVault v,
     String id,
     MlsPair label,
     List<GroupMember> members, {
@@ -1320,11 +1339,22 @@ class ConversationCrypto {
     required List<MemberRecord> former,
   }) async {
     final pinned = [...current, ...former];
+    final marks = await _keyChanged.of(v, id);
+    final marked = <String, Uint8List>{};
     final inGroup = <String>{};
     for (final m in members) {
       final hex = vaultDeviceIdHex(m.deviceId);
       inGroup.add(hex);
       final isThis = vaultDeviceIdHex(thisDevice) == hex;
+      final changed =
+          !isThis &&
+          (marks.marksOtherKey(hex, m.signaturePublicKey) ||
+              pinned.any(
+                (p) =>
+                    vaultDeviceIdHex(p.deviceId) == hex &&
+                    !_sameBytes(p.signatureKey, m.signaturePublicKey),
+              ));
+      if (changed) marked[hex] = m.signaturePublicKey;
       final kept = current.where(
         (p) =>
             vaultDeviceIdHex(p.deviceId) == hex &&
@@ -1332,9 +1362,11 @@ class ConversationCrypto {
             p.side != MemberSide.unattributed &&
             (!isThis || p.side == MemberSide.mine),
       );
-      if (kept.isNotEmpty) continue;
+      if (kept.isNotEmpty && !changed) continue;
       final side = isThis
           ? MemberSide.mine
+          : changed
+          ? MemberSide.unattributed
           : attributeAfterReset(
               deviceId: m.deviceId,
               signatureKey: m.signaturePublicKey,
@@ -1357,6 +1389,7 @@ class ConversationCrypto {
         await tx.deleteMember(id, p.deviceId);
       }
     }
+    await _keyChanged.updateIn(tx, v, id, keepOnly: inGroup, mark: marked);
   }
 
   /// Step 4: `bad_input` while the device clock is behind the welcome's
@@ -1563,8 +1596,9 @@ class ConversationCrypto {
   /// baseline member: no peer-side row, and the own-device alert only per
   /// security read H2. Every other member (a later join, a member added by a
   /// commit) gets its `deviceAdded` row once attributed. A member whose
-  /// `unknownDevice` row exists at its `since` (a changed key, or an earlier
-  /// unknown verdict) is never attributed: it stays an unknown device.
+  /// (device id, key) is in the key-changed marker is never attributed: it
+  /// stays an unknown device. An ordinary unknown device (its row written by
+  /// an earlier unknown verdict) is attributed once a list shows it.
   Future<void> _attributeMembersLocked(_Poll pass, String id) async {
     final priority = pass.priority;
     final vault = pass.vault;
@@ -1591,6 +1625,7 @@ class ConversationCrypto {
     final outcome = await _session.runWrite((v) async {
       pass.check(v);
       final baselineSince = await _baselines.of(v, id);
+      final marks = await _keyChanged.of(v, id);
       final current = await v.members(id);
       final accepted =
           (await v.conversation(id))?.sync.requestAccepted ?? false;
@@ -1620,20 +1655,26 @@ class ConversationCrypto {
       for (final m in current) {
         if (m.side != MemberSide.unattributed) continue;
         final hex = vaultDeviceIdHex(m.deviceId);
-        // I-3: an unknownDevice row at its `since` (a changed key, or an
-        // earlier unknown verdict) keeps it an unknown device, whatever the
-        // lists now say. Checked before the lists decide anything.
-        final unknownRow = systemLineId(
-          id,
-          m.since,
-          SystemLine.unknownDevice,
-          deviceId: m.deviceId,
-        );
-        if (await v.hasMessage(id, unknownRow)) {
+        // A changed key (marked, [KeyChangedDevices]; every member while the
+        // marker is unreadable) stays an unknown device whatever the lists
+        // now say. Checked before the lists decide anything. Its row is
+        // display only: written once the conversation is accepted (R10),
+        // never from an unreadable marker.
+        if (marks.marks(hex, m.signatureKey)) {
           stillUnattributed = true;
           if (m.since == baselineSince) baselineLeft = true;
           context.firstSeenUnattributed[hex] ??= now;
           context.unknownDevices.add(hex);
+          if (accepted && !marks.unreadable) {
+            final row = _systemRow(
+              id,
+              m.since,
+              SystemLine.unknownDevice,
+              nowMicros,
+              deviceId: m.deviceId,
+            );
+            if (!await v.hasMessage(id, row.messageId)) rows.add(row);
+          }
           continue;
         }
         final side = attribute(

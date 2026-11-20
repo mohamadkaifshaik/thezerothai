@@ -6,6 +6,7 @@ import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
@@ -935,6 +936,120 @@ void main() {
     expect(rigEq(carolPin.signatureKey, newKey), isTrue);
     expect(carolPin.since, const MlsPair(2, 1));
     expect(pinOf(after, dave.id), isNull);
+  });
+
+  List<String> linesOf(List<SystemLineContent> lines, Uint8List id) => [
+    for (final l in lines)
+      if (rigEq(l.deviceId ?? const [], id)) l.line,
+  ];
+
+  /// [c]'s entry of the sealed key-changed marker, read raw.
+  Future<Map<String, Object?>?> markedOf(String c) async {
+    final raw = await rig.device.vault.setting('messages.e2ee.keyChanged');
+    if (raw == null) return null;
+    final m = jsonDecode(utf8.decode(raw)) as Map<String, Object?>;
+    expect(m['v'], 1);
+    return (m['byConv']! as Map<String, Object?>)[c] as Map<String, Object?>?;
+  }
+
+  test('a later join with a changed key stays unknown and is never written '
+      'as deviceAdded', () async {
+    final carol = await RigPeer.create('carol');
+    final dave = await RigPeer.create('dave');
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(carol.idString, carol.key),
+      rigKeyDevice(dave.idString, dave.key),
+    ];
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(
+      _c1,
+      bob,
+      others: [await carol.keyPackage(), await dave.keyPackage()],
+    );
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    final v = rig.device.vault;
+    MemberRecord pinOf(List<MemberRecord> all, Uint8List id) =>
+        all.singleWhere((m) => rigEq(m.deviceId, id));
+    expect(pinOf(await v.members(_c1), carol.id).side, MemberSide.theirs);
+
+    // Generation 2 holds carol with another key; the directory lists it.
+    final newKey = Uint8List.fromList(List.filled(32, 5));
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(carol.idString, newKey),
+    ];
+    rig.directory.clear();
+    await rig.offer(
+      _c1,
+      bob,
+      generation: 2,
+      others: [await carol.keyPackage()],
+    );
+    rig.device.engine.describeMembers = (real) => [
+      for (final m in real)
+        rigEq(m.deviceId, carol.id)
+            ? GroupMember(deviceId: carol.id, signaturePublicKey: newKey)
+            : m,
+    ];
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    rig.device.engine.describeMembers = null;
+    // Past the recheck time, attribution runs again.
+    rig.clock.advance(const Duration(minutes: 3));
+    await rig.crypto.attributeMembers(_c1);
+
+    final carolPin = pinOf(await v.members(_c1), carol.id);
+    expect(carolPin.side, MemberSide.unattributed);
+    expect(rigEq(carolPin.signatureKey, newKey), isTrue);
+    expect(await markedOf(_c1), {
+      vaultDeviceIdHex(carol.id): base64Encode(newKey),
+    });
+    final carolLines = linesOf(await rig.lines(_c1), carol.id);
+    expect(carolLines, isNot(contains(SystemLine.deviceAdded)));
+    expect(carolLines, contains(SystemLine.unknownDevice));
+    final state = await rig.crypto.describeState(_c1);
+    expect(state.unknownDevicePresent, isTrue);
+    expect(state.sendBlock, SendBlock.unknownDevice);
+  });
+
+  test('an ordinary unknown device listed later is still attributed (a '
+      'later join)', () async {
+    final carol = await RigPeer.create('carol');
+    rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    // Generation 2 adds carol, whom the counting fetch does not list.
+    rig.clock.advance(const Duration(seconds: 61));
+    await rig.offer(
+      _c1,
+      bob,
+      generation: 2,
+      others: [await carol.keyPackage()],
+    );
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    final v = rig.device.vault;
+    MemberRecord pinOf(List<MemberRecord> all, Uint8List id) =>
+        all.singleWhere((m) => rigEq(m.deviceId, id));
+    expect(pinOf(await v.members(_c1), carol.id).side, MemberSide.unattributed);
+    expect(linesOf(await rig.lines(_c1), carol.id), [SystemLine.unknownDevice]);
+
+    // A later attribution pass sees carol listed.
+    rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+    rig.directory.clear();
+    rig.clock.advance(const Duration(minutes: 3));
+    await rig.crypto.attributeMembers(_c1);
+
+    expect(pinOf(await v.members(_c1), carol.id).side, MemberSide.theirs);
+    expect(
+      linesOf(await rig.lines(_c1), carol.id),
+      unorderedEquals([SystemLine.unknownDevice, SystemLine.deviceAdded]),
+    );
+    final state = await rig.crypto.describeState(_c1);
+    expect(state.unknownDevicePresent, isFalse);
   });
 
   test('a welcome the engine refuses for good is acknowledged as permanent '
