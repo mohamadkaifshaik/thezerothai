@@ -16,10 +16,20 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../core/vault/vault_status.dart';
+import '../../../shared/widgets/post/post_card.dart' show launchPostLink;
 import '../data/messaging_repository.dart';
+import '../domain/e2ee/encrypted_messaging.dart';
+import '../domain/e2ee/encryption_access.dart';
+import '../domain/e2ee/encryption_device.dart';
 import '../domain/messaging_feature_flag.dart';
 import 'bloc/message_composer_cubit.dart';
+import 'e2ee/encrypted_thread_items.dart';
+import 'e2ee/encryption_access_builder.dart';
 import 'e2ee/widgets/thread_status_banner.dart';
+import 'thread_items.dart' show EncryptedMessageItem;
+import 'widgets/message_bubble.dart';
+import 'widgets/not_encrypted_note.dart';
 import 'thread_screen.dart'
     show ThreadPeerHeader, ThreadReadOnlyLine, kThreadReadOnlyText;
 import 'widgets/message_composer.dart';
@@ -71,6 +81,9 @@ class DraftThreadScreen extends StatelessWidget {
       create: (context) => MessageComposerCubit(
         repository: context.read<MessagingRepository>(),
         recipientUserId: peer.userId,
+        // R1: the person is addressed from this snapshot only.
+        recipient: peer,
+        encrypted: _draftPort(context),
         outbox: context.read<MessagingRepository>().outbox,
         onConversationCreated: (id) {
           if (!context.mounted) return;
@@ -91,6 +104,13 @@ class DraftThreadScreen extends StatelessWidget {
   }
 }
 
+/// The encrypted port for a draft, or null (today's draft): absent without a
+/// provider and ignored with access `hidden`, as in the thread screen.
+EncryptedMessaging? _draftPort(BuildContext context) =>
+    EncryptionAccessBuilder.of(context) == EncryptionAccess.hidden
+    ? null
+    : context.read<EncryptedMessaging?>();
+
 class _DraftView extends StatefulWidget {
   const _DraftView({required this.peer});
 
@@ -108,8 +128,37 @@ class _DraftViewState extends State<_DraftView> {
   /// 1200 dp.
   final _sideColumn = ShellSideColumnLease();
 
+  /// With a port: the person's thread (nothing known yet is an empty `ready`
+  /// thread; the first queued message shows as a row, and its conversation
+  /// id switches the screen to `/messages/<id>`).
+  StreamSubscription<EncryptedThread>? _watch;
+  List<EncryptedMessageItem> _rows = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    final port = _draftPort(context);
+    if (port != null) {
+      _watch = port.watchThread(ThreadRef.recipientOf(peer)).listen(_onThread);
+    }
+  }
+
+  void _onThread(EncryptedThread thread) {
+    if (!mounted) return;
+    setState(() {
+      // No system line exists in a thread that has no conversation yet.
+      _rows = buildEncryptedThreadItems(
+        thread.entries,
+        showLines: false,
+      ).whereType<EncryptedMessageItem>().toList(growable: false);
+    });
+    final id = thread.conversationId;
+    if (id != null) context.read<MessageComposerCubit>().conversationKnown(id);
+  }
+
   @override
   void dispose() {
+    unawaited(_watch?.cancel());
     _sideColumn.dispose();
     super.dispose();
   }
@@ -150,7 +199,9 @@ class _DraftViewState extends State<_DraftView> {
               Expanded(
                 child: BlocBuilder<MessageComposerCubit, MessageComposerState>(
                   buildWhen: (a, b) => a.outgoing != b.outgoing,
-                  builder: (context, state) => state.outgoing.isEmpty
+                  builder: (context, state) => _rows.isNotEmpty
+                      ? _encryptedList(context, name)
+                      : state.outgoing.isEmpty
                       ? _FirstMessageHero(peer: peer)
                       : ListView.builder(
                           reverse: true,
@@ -178,14 +229,78 @@ class _DraftViewState extends State<_DraftView> {
                 // while a vault on this device blocks messaging.
                 builder: (context, cannotMessage) => cannotMessage
                     ? const ThreadReadOnlyLine()
-                    : const ConnectedThreadStatusBanner(
-                        child: MessageComposer(),
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const _DraftNotEncryptedNote(),
+                          const ConnectedThreadStatusBanner(
+                            child: MessageComposer(),
+                          ),
+                        ],
                       ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// The rows of the person's thread under the first message's place: the
+  /// caller's own queued, waiting or not-sent messages (no peer message and
+  /// no system line exists before a conversation does).
+  Widget _encryptedList(BuildContext context, String peerName) {
+    final now = DateTime.now();
+    final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
+    return ListView.builder(
+      reverse: true,
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      itemCount: _rows.length,
+      itemBuilder: (context, index) {
+        final item = _rows[index];
+        return MessageBubble.encrypted(
+          key: ValueKey('bubble-${item.message.id}'),
+          entry: item.message,
+          peerName: peerName,
+          now: now,
+          firstOfGroup: item.firstOfGroup,
+          lastOfGroup: item.lastOfGroup,
+          use24Hour: use24Hour,
+          linksEnabled: item.message.mine,
+          onOpenLink: (uri) => unawaited(launchPostLink(uri)),
+          onRetry: (id) =>
+              unawaited(context.read<MessageComposerCubit>().retry(id)),
+        );
+      },
+    );
+  }
+}
+
+/// "Messages are not end-to-end encrypted." above the composer of a draft,
+/// before the first send, for a user with access `full` and a usable vault
+/// (security read H1): what the first message is until the pipeline says
+/// otherwise. The thread screen's own rule, with no conversation to ask.
+class _DraftNotEncryptedNote extends StatelessWidget {
+  const _DraftNotEncryptedNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return EncryptionAccessBuilder(
+      builder: (context, access) {
+        final device = context.read<EncryptionDevice?>();
+        final show =
+            access == EncryptionAccess.full &&
+            _draftPort(context) != null &&
+            device?.vaultStatus.value == VaultStatus.ready;
+        if (!show) return const SizedBox.shrink();
+        return const Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.xs,
+          ),
+          child: Center(child: NotEncryptedNote(textAlign: TextAlign.center)),
+        );
+      },
     );
   }
 }

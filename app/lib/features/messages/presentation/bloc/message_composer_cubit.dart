@@ -5,10 +5,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../posts/domain/post_text_rules.dart';
 import '../../data/message_outbox.dart';
 import '../../data/messaging_repository.dart';
+import '../../domain/e2ee/encrypted_messaging.dart';
 
 export '../../data/message_outbox.dart' show OutgoingMessage, OutgoingStatus;
 
@@ -20,6 +22,8 @@ class MessageComposerState {
     this.error,
     this.degraded = false,
     this.cannotMessage = false,
+    this.refusedProblem = SendProblem.none,
+    this.sendPending = false,
   });
 
   /// The D9 reading of what is typed (the same rules as posts).
@@ -41,7 +45,18 @@ class MessageComposerState {
   /// read-only on it.
   final bool cannotMessage;
 
-  bool get isSending => outgoing.any((m) => m.status == OutgoingStatus.sending);
+  /// The send of an encrypted port is a refusal the port gave before saving
+  /// the text (nothing was sent): the text stays in the field and the reason
+  /// shows above it. Cleared like [error].
+  final SendProblem refusedProblem;
+
+  /// A send through the encrypted port is awaiting its answer (a device lookup
+  /// and, when encryption starts, a claim). It is the composer's normal sending
+  /// state, with no row: the text stays in the field until the answer.
+  final bool sendPending;
+
+  bool get isSending =>
+      sendPending || outgoing.any((m) => m.status == OutgoingStatus.sending);
 
   /// One send at a time keeps the order; the field itself stays editable.
   bool get canSend => draft.canPost && !isSending && !degraded;
@@ -52,6 +67,8 @@ class MessageComposerState {
     AppException? error,
     bool? degraded,
     bool? cannotMessage,
+    SendProblem? refusedProblem,
+    bool? sendPending,
     bool clearError = false,
   }) => MessageComposerState(
     draft: draft ?? this.draft,
@@ -59,6 +76,10 @@ class MessageComposerState {
     error: clearError ? null : (error ?? this.error),
     degraded: degraded ?? this.degraded,
     cannotMessage: cannotMessage ?? this.cannotMessage,
+    refusedProblem: clearError
+        ? (refusedProblem ?? SendProblem.none)
+        : (refusedProblem ?? this.refusedProblem),
+    sendPending: sendPending ?? this.sendPending,
   );
 }
 
@@ -96,6 +117,8 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     required MessagingRepository repository,
     String? conversationId,
     this.recipientUserId,
+    this.recipient,
+    EncryptedMessaging? encrypted,
     this.onConversationCreated,
     this.onActivity,
     this.onSent,
@@ -107,7 +130,12 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
          (conversationId == null) != (recipientUserId == null),
          'Exactly one of conversationId and recipientUserId',
        ),
+       assert(
+         recipient == null || recipient.userId == recipientUserId,
+         'recipient is the snapshot of recipientUserId',
+       ),
        _repository = repository,
+       _encrypted = encrypted,
        _conversationId = conversationId,
        _uuid = uuid ?? const Uuid(),
        _outbox = outbox.lease(),
@@ -153,6 +181,18 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   /// The person a draft thread writes to (draft mode only).
   final String? recipientUserId;
 
+  /// Draft mode: the person's snapshot (second re-read R1). With a port the
+  /// person is addressed only as `ThreadRef.recipientOf(recipient)`; a draft
+  /// composer with a port and no snapshot sends nothing.
+  final common.AuthorSnapshot? recipient;
+
+  /// The encrypted messaging port, or null: then every path is today's.
+  final EncryptedMessaging? _encrypted;
+
+  /// Whether sends go through the encrypted port (the field then keeps the
+  /// text until the port answers).
+  bool get hasPort => _encrypted != null;
+
   /// Draft mode: called once with the id of the conversation the first send
   /// created.
   final void Function(String conversationId)? onConversationCreated;
@@ -172,8 +212,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     onActivity?.call();
   }
 
-  String _keyFor(String text) =>
-      _outbox.keyFor(_scope, text, create: _uuid.v4);
+  String _keyFor(String text) => _outbox.keyFor(_scope, text, create: _uuid.v4);
 
   /// Sends the draft: the optimistic row and an empty draft appear in the
   /// same turn. No-op unless [MessageComposerState.canSend].
@@ -181,6 +220,17 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     if (!state.canSend) return;
     final text = state.draft.text;
     final key = _keyFor(text);
+    final port = _encrypted;
+    if (port != null) {
+      await _sendThroughPort(port, key, text);
+      return;
+    }
+    await _sendPlain(key, text);
+  }
+
+  /// Today's send: the optimistic row and an empty draft in the same turn,
+  /// then `SendMessage` with [key].
+  Future<void> _sendPlain(String key, String text) async {
     emit(
       state.copyWith(
         draft: analyzePostDraft(''),
@@ -200,9 +250,114 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     await _deliver(key, text);
   }
 
+  /// With a port: the row id is the key of today's send; the port saves the
+  /// text on this device and sends when it may. While it answers the composer
+  /// is in its sending state and the text stays in the field. The text is
+  /// never reported.
+  Future<void> _sendThroughPort(
+    EncryptedMessaging port,
+    String key,
+    String text,
+  ) async {
+    final id = _conversationId;
+    final person = recipient;
+    final ThreadRef? to = id != null
+        ? ThreadRef.conversation(id)
+        : (person == null ? null : ThreadRef.recipientOf(person));
+    if (to == null) {
+      // A draft with a port and no snapshot of the person: a programming
+      // error. Nothing goes out, least of all in plaintext.
+      emit(
+        state.copyWith(refusedProblem: SendProblem.blocked, clearError: true),
+      );
+      return;
+    }
+    emit(state.copyWith(sendPending: true, clearError: true));
+    onActivity?.call();
+    final SendOutcome outcome;
+    try {
+      outcome = await port.send(to: to, localId: key, text: text);
+    } on Object catch (error, stack) {
+      // Never the thrown object: an ArgumentError can carry what was typed.
+      onUnexpectedError?.call(StateError('send'), stack);
+      if (isClosed) return;
+      emit(
+        state.copyWith(
+          sendPending: false,
+          error: error is ArgumentError
+              ? const ValidationException('That message cannot be sent.')
+              : const UnknownApiException('Something went wrong.'),
+        ),
+      );
+      return;
+    }
+    if (isClosed) {
+      // The screen is gone. Only a saved text must not come back as a draft.
+      if (outcome.kind == SendOutcomeKind.queued) {
+        _outbox
+          ..forgetKey(_scope, text)
+          ..save(_scope, draft: '', rows: state.outgoing);
+      }
+      return;
+    }
+    switch (outcome.kind) {
+      case SendOutcomeKind.queued:
+        _outbox.forgetKey(_scope, text);
+        emit(
+          state.copyWith(
+            sendPending: false,
+            draft: state.draft.text == text ? analyzePostDraft('') : null,
+          ),
+        );
+        onActivity?.call();
+        final created = outcome.conversationId;
+        if (created != null) conversationKnown(created);
+      case SendOutcomeKind.notEncrypted:
+        emit(state.copyWith(sendPending: false));
+        await _sendPlain(key, text);
+      case SendOutcomeKind.refused:
+        final error = outcome.error;
+        emit(
+          state.copyWith(
+            sendPending: false,
+            refusedProblem: outcome.problem,
+            error: error,
+            degraded: error is DegradedModeException,
+            cannotMessage: error is CannotMessageException ? true : null,
+          ),
+        );
+        if (error is CannotMessageException) onCannotMessage?.call();
+    }
+  }
+
+  /// Draft mode: the conversation of the first send is known (from the
+  /// port's answer or from its thread). Once only; later calls do nothing.
+  void conversationKnown(String conversationId) {
+    final recipient = recipientUserId;
+    if (isClosed ||
+        _conversationId != null ||
+        recipient == null ||
+        conversationId.isEmpty) {
+      return;
+    }
+    _outbox.drop(MessageOutbox.draftScope(recipient));
+    _conversationId = conversationId;
+    onConversationCreated?.call(conversationId);
+  }
+
   /// The "Not sent. Tap to retry" row: resends it with the key it was first
   /// sent with. An explicit tap also lifts the degraded hold.
   Future<void> retry(String localId) async {
+    final port = _encrypted;
+    if (port != null && !state.outgoing.any((m) => m.localId == localId)) {
+      // A row of the port's thread (the port owns its retry).
+      try {
+        await port.retrySend(localId);
+      } on Object catch (_, stack) {
+        onUnexpectedError?.call(StateError('retrySend'), stack);
+      }
+      return;
+    }
     if (state.isSending) return;
     final index = state.outgoing.indexWhere((m) => m.localId == localId);
     if (index < 0 || state.outgoing[index].status != OutgoingStatus.failed) {

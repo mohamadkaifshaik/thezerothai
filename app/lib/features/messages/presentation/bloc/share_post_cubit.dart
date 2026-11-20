@@ -7,7 +7,9 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../data/messaging_repository.dart';
+import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/messaging_feature_flag.dart';
+import '../e2ee/encryption_error_messages.dart';
 import '../share_post_error_messages.dart';
 
 /// Where one recipient of a share stands.
@@ -144,14 +146,19 @@ class SharePostCubit extends Cubit<SharePostState> {
     required this.url,
     this.ownUserId,
     bool Function()? isEnabled,
+    EncryptedMessaging? encrypted,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _repository = repository,
+       _encrypted = encrypted,
        _isEnabled = isEnabled ?? (() => true),
        _uuid = uuid ?? const Uuid(),
        super(const SharePostState());
 
   final MessagingRepository _repository;
+
+  /// The encrypted port, tried first for each person; null: today's path.
+  final EncryptedMessaging? _encrypted;
   final bool Function() _isEnabled;
   final Uuid _uuid;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
@@ -233,8 +240,49 @@ class SharePostCubit extends Cubit<SharePostState> {
       }
       _setRow(id, ShareRowStatus.sending);
       try {
+        final row = _row(id);
+        final port = _encrypted;
+        // With a port the person is addressed only from the snapshot the
+        // row was chosen from (R1). The port is tried first.
+        SendOutcome? outcome;
+        if (port != null) {
+          try {
+            outcome = await port.send(
+              to: ThreadRef.recipientOf(row.peer),
+              localId: row.key,
+              text: body,
+              sharedPostId: postId,
+            );
+          } on Object catch (_, stack) {
+            // Never the thrown object: it may carry the caption.
+            onUnexpectedError?.call(StateError('send'), stack);
+            _setRow(
+              id,
+              ShareRowStatus.failed,
+              error: const UnknownApiException('Something went wrong.'),
+            );
+            continue;
+          }
+        }
+        switch (outcome?.kind) {
+          case SendOutcomeKind.queued:
+            _setRow(id, ShareRowStatus.sent);
+            continue;
+          case SendOutcomeKind.refused:
+            final error =
+                outcome!.error ??
+                UnknownApiException(composerRefusalText(outcome.problem, null));
+            _setRow(id, ShareRowStatus.failed, error: error);
+            if (sharePostErrorEndsShare(error)) {
+              _endShare(ids.sublist(i + 1), error);
+              return;
+            }
+            continue;
+          case SendOutcomeKind.notEncrypted || null:
+            break;
+        }
         await _repository.sendMessage(
-          idempotencyKey: _row(id).key,
+          idempotencyKey: row.key,
           text: body,
           recipientUserId: id,
           // A link-only share (a plan) names no post.

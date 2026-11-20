@@ -228,6 +228,13 @@ class ThreadScreen extends StatelessWidget {
               repository: context.read<MessagingRepository>(),
               conversationId: conversationId,
               outbox: context.read<MessagingRepository>().outbox,
+              // The same port (and the same hidden-access rule) as the
+              // thread's: a plaintext thread of a flag-on user sends through
+              // it too and gets `notEncrypted` back.
+              encrypted:
+                  EncryptionAccessBuilder.of(context) == EncryptionAccess.hidden
+                  ? null
+                  : context.read<EncryptedMessaging?>(),
               onActivity: thread.noteInput,
               onSent: thread.noteSent,
               onCannotMessage: thread.markCannotMessage,
@@ -629,18 +636,14 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   /// "Not sent. Tap to retry" on a retryable row of an encrypted thread. The
   /// port owns the retry; a failure is reported as a fixed StateError.
   void _retryEncrypted(String localId) {
-    final port = context.read<EncryptedMessaging?>();
-    if (port == null) return;
+    final composer = context.read<MessageComposerCubit>();
+    if (!composer.hasPort) return;
     // One call per row at a time: a double tap retries once.
     if (!_retrying.add(localId)) return;
-    final report = context.read<UnexpectedErrorReporter>();
+    // The composer's retry calls `retrySend` and reports a failure as a fixed
+    // StateError.
     unawaited(
-      port
-          .retrySend(localId)
-          .catchError((Object _, StackTrace stack) {
-            report(StateError('retrySend'), stack);
-          })
-          .whenComplete(() => _retrying.remove(localId)),
+      composer.retry(localId).whenComplete(() => _retrying.remove(localId)),
     );
   }
 

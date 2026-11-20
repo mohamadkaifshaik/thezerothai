@@ -13,7 +13,10 @@ import '../../../posts/domain/post_text_rules.dart' show PostDraftProblem;
 import '../../../posts/presentation/composer_screen.dart'
     show kComposerInputCap;
 import '../../../posts/presentation/widgets/draft_problem_hint.dart';
+import '../../domain/e2ee/encrypted_messaging.dart' show SendProblem;
 import '../../domain/messaging_feature_gate.dart';
+import '../e2ee/encryption_error_messages.dart';
+import '../e2ee/encryption_status.dart';
 import '../bloc/message_composer_cubit.dart';
 import '../messaging_error_messages.dart';
 import '../thread_screen.dart' show ThreadReadOnlyLine, kMessagingReadOnlyText;
@@ -88,7 +91,10 @@ class _MessageComposerState extends State<MessageComposer> {
     final cubit = context.read<MessageComposerCubit>();
     if (!cubit.state.canSend) return;
     final sending = cubit.send();
-    _controller.clear();
+    // With the encrypted port the text stays until the port answers; the
+    // listener in [_composer] clears the field when the cubit empties the
+    // draft.
+    if (!cubit.hasPort) _controller.clear();
     unawaited(sending);
   }
 
@@ -145,128 +151,174 @@ class _MessageComposerState extends State<MessageComposer> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final cubit = context.read<MessageComposerCubit>();
-    return BlocBuilder<MessageComposerCubit, MessageComposerState>(
-      builder: (context, state) {
-        final draft = state.draft;
-        final showCounter =
-            draft.remaining <= kMessageCounterThreshold ||
-            draft.problem == PostDraftProblem.forbiddenCharacter ||
-            draft.problem == PostDraftProblem.tooManyLines;
-        final error = state.error;
-        final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
-        final height = wide
-            ? AppMessagesLayout.composerWide
-            : AppMessagesLayout.composerPhone;
-        return DecoratedBox(
-          decoration: BoxDecoration(color: colors.surface),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (state.degraded)
-                AppNoticeBanner(
-                  message: messagingErrorMessage(
-                    const DegradedModeException(''),
-                  ),
-                )
-              else if (error != null)
-                Semantics(
-                  liveRegion: true,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.md,
-                      AppSpacing.sm,
-                      AppSpacing.md,
-                      0,
+    return BlocListener<MessageComposerCubit, MessageComposerState>(
+      listenWhen: (a, b) => b.draft.text.isEmpty && a.draft.text.isNotEmpty,
+      listener: (context, state) {
+        if (_controller.text.isNotEmpty) _controller.clear();
+      },
+      child: BlocBuilder<MessageComposerCubit, MessageComposerState>(
+        builder: (context, state) {
+          final draft = state.draft;
+          final showCounter =
+              draft.remaining <= kMessageCounterThreshold ||
+              draft.problem == PostDraftProblem.forbiddenCharacter ||
+              draft.problem == PostDraftProblem.tooManyLines;
+          final error = state.error;
+          final wide =
+              MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
+          final height = wide
+              ? AppMessagesLayout.composerWide
+              : AppMessagesLayout.composerPhone;
+          return DecoratedBox(
+            decoration: BoxDecoration(color: colors.surface),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (state.degraded)
+                  AppNoticeBanner(
+                    message: messagingErrorMessage(
+                      const DegradedModeException(''),
                     ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: Text(
-                        messagingErrorMessage(error),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colors.error,
-                        ),
-                      ),
-                    ),
+                  )
+                else if (error != null)
+                  _ErrorLine(text: messagingErrorMessage(error))
+                else if (state.refusedProblem != SendProblem.none)
+                  _RefusalLine(problem: state.refusedProblem),
+                Padding(
+                  padding: const EdgeInsetsDirectional.fromSTEB(
+                    AppSpacing.md,
+                    AppMessagesLayout.composerGap,
+                    AppSpacing.md,
+                    AppMessagesLayout.composerGap,
                   ),
-                ),
-              Padding(
-                padding: const EdgeInsetsDirectional.fromSTEB(
-                  AppSpacing.md,
-                  AppMessagesLayout.composerGap,
-                  AppSpacing.md,
-                  AppMessagesLayout.composerGap,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: _Pill(
-                        minHeight: height,
-                        child: Focus(
-                          onKeyEvent: _onKey,
-                          skipTraversal: true,
-                          canRequestFocus: false,
-                          child: TextField(
-                            key: MessageComposer.fieldKey,
-                            controller: _controller,
-                            focusNode: _focus,
-                            minLines: 1,
-                            maxLines: 5,
-                            keyboardType: TextInputType.multiline,
-                            textInputAction: TextInputAction.newline,
-                            textCapitalization: TextCapitalization.sentences,
-                            inputFormatters: [
-                              LengthLimitingTextInputFormatter(
-                                kComposerInputCap,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: _Pill(
+                          minHeight: height,
+                          child: Focus(
+                            onKeyEvent: _onKey,
+                            skipTraversal: true,
+                            canRequestFocus: false,
+                            child: TextField(
+                              key: MessageComposer.fieldKey,
+                              controller: _controller,
+                              focusNode: _focus,
+                              minLines: 1,
+                              maxLines: 5,
+                              keyboardType: TextInputType.multiline,
+                              textInputAction: TextInputAction.newline,
+                              textCapitalization: TextCapitalization.sentences,
+                              inputFormatters: [
+                                LengthLimitingTextInputFormatter(
+                                  kComposerInputCap,
+                                ),
+                              ],
+                              style: theme.textTheme.bodyLarge,
+                              decoration: InputDecoration(
+                                hintText: 'Message',
+                                hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                                  color: colors.onSurfaceVariant,
+                                ),
+                                filled: false,
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                disabledBorder: InputBorder.none,
                               ),
-                            ],
-                            style: theme.textTheme.bodyLarge,
-                            decoration: InputDecoration(
-                              hintText: 'Message',
-                              hintStyle: theme.textTheme.bodyLarge?.copyWith(
-                                color: colors.onSurfaceVariant,
-                              ),
-                              filled: false,
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              disabledBorder: InputBorder.none,
+                              onChanged: cubit.textChanged,
                             ),
-                            onChanged: cubit.textChanged,
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: AppMessagesLayout.composerGap),
-                    _SendButton(
-                      size: height,
-                      onPressed: state.canSend ? _submit : null,
-                    ),
-                  ],
-                ),
-              ),
-              if (showCounter)
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(
-                    start: AppSpacing.md,
-                    end: AppSpacing.md,
-                    bottom: AppSpacing.sm,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      DraftProblemHint(
-                        problem: draft.problem,
-                        noun: 'Messages',
+                      const SizedBox(width: AppMessagesLayout.composerGap),
+                      _SendButton(
+                        size: height,
+                        onPressed: state.canSend ? _submit : null,
                       ),
-                      CharacterCounter(remaining: draft.remaining),
                     ],
                   ),
                 ),
-            ],
+                if (showCounter)
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(
+                      start: AppSpacing.md,
+                      end: AppSpacing.md,
+                      bottom: AppSpacing.sm,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        DraftProblemHint(
+                          problem: draft.problem,
+                          noun: 'Messages',
+                        ),
+                        CharacterCounter(remaining: draft.remaining),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// A line above the field in the error colour, announced when it appears.
+class _ErrorLine extends StatelessWidget {
+  const _ErrorLine({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      liveRegion: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.md,
+          0,
+        ),
+        child: SizedBox(
+          width: double.infinity,
+          child: Text(
+            text,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.error,
+            ),
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+}
+
+/// The reason the encrypted port refused a send before saving it. A blocked
+/// send says the vault is not open only while the status says so now
+/// (`EncryptionStatus.vaultNotOpen`); with no status cubit it does not.
+class _RefusalLine extends StatelessWidget {
+  const _RefusalLine({required this.problem});
+
+  final SendProblem problem;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.read<EncryptionStatusCubit?>();
+    if (status == null) {
+      return _ErrorLine(text: composerRefusalText(problem, null));
+    }
+    return BlocBuilder<EncryptionStatusCubit, EncryptionStatus>(
+      bloc: status,
+      buildWhen: (a, b) => a.vaultNotOpen != b.vaultNotOpen,
+      builder: (context, s) => _ErrorLine(
+        text: composerRefusalText(problem, null, vaultBlocked: s.vaultNotOpen),
+      ),
     );
   }
 }
