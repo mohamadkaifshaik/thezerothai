@@ -83,7 +83,14 @@ typedef DeviceKeysTimerFactory = Timer Function(
   void Function() onTick,
 );
 
-enum DeviceKeysPhase { idle, ready, deviceLimitReached, failed, dormant }
+enum DeviceKeysPhase {
+  idle,
+  ready,
+  deviceLimitReached,
+  failed,
+  dormant,
+  removedElsewhere,
+}
 
 /// Where this device stands in the key directory. [idle]: nothing to do or
 /// not allowed now (no vault, signed out, cancelled, or the flag is not on
