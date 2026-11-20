@@ -21,6 +21,11 @@ import 'known_conversations.dart';
 import 'membership_rules.dart';
 import 'sync_budget.dart';
 
+// The service's private steps, one concern per part (private extensions on
+// ConversationCrypto): catch-up passes, applying one commit, the welcome
+// poll, joining from one welcome, member attribution. This file keeps the
+// public entry points, the locking, describeState, allowNewDevices and the
+// operation context.
 part 'conversation_attribution.dart';
 part 'conversation_catch_up.dart';
 part 'conversation_commit_apply.dart';
