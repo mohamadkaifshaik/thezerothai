@@ -179,9 +179,11 @@ class MessagingStore {
             .get();
     final items = <pb.Conversation>[];
     final undecodable = <String>[];
+    final everEncrypted = await _everEncryptedIds();
     for (final row in rows) {
       try {
-        items.add(pb.Conversation.fromBuffer(row.payload));
+        final c = pb.Conversation.fromBuffer(row.payload);
+        items.add(everEncrypted.contains(c.id) ? _asEncrypted(c) : c);
       } catch (_) {
         undecodable.add(row.conversationId);
       }
@@ -216,11 +218,69 @@ class MessagingStore {
       _db.conversationEntries,
     )..where((t) => t.conversationId.equals(id))).getSingleOrNull();
     if (row == null) return null;
+    pb.Conversation c;
     try {
-      return pb.Conversation.fromBuffer(row.payload);
+      c = pb.Conversation.fromBuffer(row.payload);
     } catch (_) {
       return null;
     }
+    return await isEverEncrypted(id) ? _asEncrypted(c) : c;
+  }
+
+  // --- the ever-encrypted set ----------------------------------------------
+  //
+  // One small row per conversation id in the state table, keyed
+  // `enc:<conversationId>`: ids only, never content (R14). It is the
+  // authority for "this conversation was ever encrypted": no server answer
+  // removes it (not a cold open, a since refresh, a NONE row, an accept
+  // NOT_FOUND). Only [removeConversation] (the user's delete-for-me) and the
+  // account-wide cache clear do.
+
+  String _everEncryptedKey(String id) => '$kEverEncryptedStatePrefix$id';
+
+  /// Whether [id] was ever recorded as encrypted on this device.
+  Future<bool> isEverEncrypted(String id) async =>
+      id.isNotEmpty && await _state(_everEncryptedKey(id)) != null;
+
+  Future<Set<String>> _everEncryptedIds() async {
+    final rows = await (_db.select(
+      _db.messagingStateEntries,
+    )..where((t) => t.stateKey.like('$kEverEncryptedStatePrefix%'))).get();
+    return {
+      for (final r in rows)
+        r.stateKey.substring(kEverEncryptedStatePrefix.length),
+    };
+  }
+
+  /// Records [ids] as ever encrypted (idempotent). Dropped when [session]
+  /// ended, like every cache write.
+  Future<void> markEverEncrypted(Iterable<String> ids, {required int session}) {
+    return _tx(session, () => _putEverEncrypted(ids));
+  }
+
+  Future<void> _putEverEncrypted(Iterable<String> ids) async {
+    for (final id in ids) {
+      if (id.isEmpty) continue;
+      await _db
+          .into(_db.messagingStateEntries)
+          .insert(
+            MessagingStateEntriesCompanion.insert(
+              stateKey: _everEncryptedKey(id),
+              updatedAt: DateTime.now(),
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+    }
+  }
+
+  /// [c] as an encrypted conversation's row: the marker set and the snippet
+  /// empty (a copy; the preview's other fields stay).
+  pb.Conversation _asEncrypted(pb.Conversation c) {
+    if (c.lastMessage.encrypted && c.lastMessage.snippet.isEmpty) return c;
+    return c.deepCopy()
+      ..lastMessage = (c.lastMessage.deepCopy()
+        ..encrypted = true
+        ..snippet = '');
   }
 
   /// Replaces [folder] with a first page (no tokens sent).
@@ -251,8 +311,10 @@ class MessagingStore {
     required String nextPageToken,
     required int session,
     int? requestCount,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       await (_db.delete(
         _db.conversationEntries,
       )..where((t) => t.folder.equals(folder.value))).go();
@@ -282,8 +344,10 @@ class MessagingStore {
     required int session,
     int? requestCount,
     int? requestCountGeneration,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       await _upsertConversations(_validConversations(items), folder);
       // An Accept or Delete since the refresh was sent already moved the local
       // count; the answer predates it, so keep the local value (rows and token
@@ -305,8 +369,10 @@ class MessagingStore {
     required List<pb.Conversation> items,
     required String nextPageToken,
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       await _upsertConversations(_validConversations(items), folder);
       await _saveState(
         _folderStateKey(folder),
@@ -369,10 +435,17 @@ class MessagingStore {
     )..where((t) => t.conversationId.equals(id))).go();
   }
 
-  /// Removes [id] and everything cached for it (after DeleteConversation).
+  /// Removes [id] and everything cached for it (after DeleteConversation),
+  /// the ever-encrypted mark included, unless [keepEverEncrypted] (a server
+  /// answer, e.g. an Accept NOT_FOUND, never clears it).
   /// Unguarded on purpose: removing rows can never leak data.
-  Future<void> removeConversation(String id) {
+  Future<void> removeConversation(String id, {bool keepEverEncrypted = false}) {
     return _db.transaction(() async {
+      if (!keepEverEncrypted) {
+        await (_db.delete(
+          _db.messagingStateEntries,
+        )..where((t) => t.stateKey.equals(_everEncryptedKey(id)))).go();
+      }
       await (_db.delete(
         _db.conversationEntries,
       )..where((t) => t.conversationId.equals(id))).go();
@@ -428,8 +501,10 @@ class MessagingStore {
     required String sinceToken,
     required String nextPageToken,
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       final valid = _validMessages(items);
       final known = await _knownIds(conversationId);
       await (_db.delete(
@@ -470,8 +545,10 @@ class MessagingStore {
     required List<pb.Message> items,
     required String sinceToken,
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       final valid = _validMessages(items);
       final known = await _knownIds(conversationId);
       await _upsertMessages(conversationId, valid);
@@ -487,8 +564,10 @@ class MessagingStore {
     required List<pb.Message> items,
     required String nextPageToken,
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       final valid = _validMessages(items);
       await _upsertMessages(conversationId, valid);
       if (valid.isNotEmpty && nextPageToken.isNotEmpty) {
@@ -520,8 +599,10 @@ class MessagingStore {
     pb.Message message,
     pb.Conversation? conversation, {
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       final conversationId = message.conversationId.isNotEmpty
           ? message.conversationId
           : conversation?.id ?? '';

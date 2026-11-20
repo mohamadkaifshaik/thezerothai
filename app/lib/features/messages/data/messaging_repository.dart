@@ -10,6 +10,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import '../domain/e2ee/e2ee_types.dart' show E2eePipelineError;
 import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
 import 'message_outbox.dart';
@@ -221,15 +222,17 @@ class MessagingRepository {
         : null;
     final moved = await _requestStateMoved(folder, page.conversations);
     final reported = <String>{};
+    final marks = <String>{};
     await _store.applyConversationsRefresh(
       folder,
-      items: await _stickyConversations(page.conversations, reported),
+      items: await _stickyConversations(page.conversations, reported, marks),
       sinceToken: page.sinceToken,
       session: session,
       requestCount: requestCount,
       requestCountGeneration: generation,
+      encryptedIds: marks,
     );
-    _report(reported);
+    _report(reported, session);
     if (moved) _notifyConversationsChanged();
     final snapshot = await _store.readConversations(folder);
     return ConversationsResult(
@@ -261,17 +264,19 @@ class MessagingRepository {
     final page = await _listConversations(folder);
     final moved = await _requestStateMoved(folder, page.conversations);
     final reported = <String>{};
+    final marks = <String>{};
     await _store.applyConversationsColdOpen(
       folder,
-      items: await _stickyConversations(page.conversations, reported),
+      items: await _stickyConversations(page.conversations, reported, marks),
       sinceToken: page.sinceToken,
       nextPageToken: page.nextPageToken,
       session: session,
       requestCount: folder == Folder.FOLDER_INBOX
           ? page.requestCount.toInt()
           : null,
+      encryptedIds: marks,
     );
-    _report(reported);
+    _report(reported, session);
     final snapshot = await _keepPagingConversations(
       folder,
       session,
@@ -303,13 +308,15 @@ class MessagingRepository {
         return (await _conversationsColdOpen(folder, session)).snapshot;
       }
       final reported = <String>{};
+      final marks = <String>{};
       await _store.applyConversationsOlder(
         folder,
-        items: await _stickyConversations(page.conversations, reported),
+        items: await _stickyConversations(page.conversations, reported, marks),
         nextPageToken: page.nextPageToken,
         session: session,
+        encryptedIds: marks,
       );
-      _report(reported);
+      _report(reported, session);
       return _keepPagingConversations(
         folder,
         session,
@@ -338,13 +345,15 @@ class MessagingRepository {
       );
       if (page == null) break;
       final reported = <String>{};
+      final marks = <String>{};
       await _store.applyConversationsOlder(
         folder,
-        items: await _stickyConversations(page.conversations, reported),
+        items: await _stickyConversations(page.conversations, reported, marks),
         nextPageToken: page.nextPageToken,
         session: session,
+        encryptedIds: marks,
       );
-      _report(reported);
+      _report(reported, session);
       current = await _store.readConversations(folder);
       wasEmpty = page.conversations.isEmpty;
     }
@@ -393,7 +402,7 @@ class MessagingRepository {
       try {
         return await _refreshThread(conversationId, session, reported);
       } finally {
-        _report(reported);
+        _report(reported, session);
       }
     });
   }
@@ -447,6 +456,7 @@ class MessagingRepository {
       items: messages,
       sinceToken: first.sinceToken,
       session: session,
+      encryptedIds: reported,
     );
     return _ThreadRefresh(await _store.readThread(conversationId), added ?? 0);
   }
@@ -474,6 +484,7 @@ class MessagingRepository {
       sinceToken: page.sinceToken,
       nextPageToken: page.nextPageToken,
       session: session,
+      encryptedIds: reported,
     );
     final snapshot = await _store.readThread(conversationId);
     // Marked only when the write landed (null = the session ended) and the
@@ -513,10 +524,11 @@ class MessagingRepository {
           items: _withoutEncrypted(conversationId, page.messages, reported),
           nextPageToken: page.nextPageToken,
           session: session,
+          encryptedIds: reported,
         );
         return await _store.readThread(conversationId);
       } finally {
-        _report(reported);
+        _report(reported, session);
       }
     });
   }
@@ -540,12 +552,17 @@ class MessagingRepository {
     String conversationId,
     String pageToken,
   ) {
+    final session = _store.session;
     return _single('search-older:$conversationId', () async {
       final page = await _listMessages(conversationId, pageToken: pageToken);
       final reported = <String>{};
       _noteMlsHeader(conversationId, page, reported);
       final kept = _withoutEncrypted(conversationId, page.messages, reported);
-      _report(reported);
+      // The page itself is not cached; only the id is recorded.
+      if (reported.isNotEmpty) {
+        await _store.markEverEncrypted(reported, session: session);
+      }
+      _report(reported, session);
       return OlderSearchPage(kept.toList(), page.nextPageToken);
     });
   }
@@ -606,11 +623,19 @@ class MessagingRepository {
       );
     }
     // An encrypted message is never cached; without one there is no
-    // conversation row written either (applySent needs a message id).
-    if (!shaped) {
-      await _store.applySent(response.message, conversation, session: session);
+    // conversation row written either (applySent needs a message id). The
+    // id is recorded as ever encrypted all the same.
+    if (shaped) {
+      await _store.markEverEncrypted(reported, session: session);
+    } else {
+      await _store.applySent(
+        response.message,
+        conversation,
+        session: session,
+        encryptedIds: reported,
+      );
     }
-    _report(reported);
+    _report(reported, session);
     return response;
   }
 
@@ -639,11 +664,10 @@ class MessagingRepository {
     required String conversationId,
     String sinceToken = '',
     String pageToken = '',
-  }) {
-    assert(
-      sinceToken.isEmpty || pageToken.isEmpty,
-      'At most one of sinceToken and pageToken',
-    );
+  }) async {
+    if (sinceToken.isNotEmpty && pageToken.isNotEmpty) {
+      throw ArgumentError('At most one of sinceToken and pageToken');
+    }
     return _mls(
       () => _readCall(
         () => _apiClient.messaging.listMessages(
@@ -658,12 +682,15 @@ class MessagingRepository {
     );
   }
 
-  /// True when the cached row of [conversationId] was ever marked encrypted
-  /// (sticky: a later answer never clears it). Reads the cached row only; no
-  /// vault and no network.
-  Future<bool> cachedEverEncrypted(String conversationId) async =>
-      (await _store.conversation(conversationId))?.lastMessage.encrypted ??
-      false;
+  /// True when [conversationId] was ever recorded as encrypted on this device:
+  /// its id is in the store's ever-encrypted set (the authority; no server
+  /// answer removes it), or its cached row carries the marker. Local reads
+  /// only; no vault and no network.
+  Future<bool> cachedEverEncrypted(String conversationId) async {
+    if (await _store.isEverEncrypted(conversationId)) return true;
+    return (await _store.conversation(conversationId))?.lastMessage.encrypted ??
+        false;
+  }
 
   // --- encrypted messages and the cache (R14) -------------------------------
 
@@ -713,13 +740,20 @@ class MessagingRepository {
     pb.Conversation item, {
     required bool seenEncrypted,
     required Set<String> reported,
+    Set<String>? marks,
     bool stickyOnly = false,
   }) async {
     final cached = await _store.conversation(item.id);
-    final sticky = cached != null && cached.lastMessage.encrypted;
+    final sticky =
+        await _store.isEverEncrypted(item.id) ||
+        (cached != null && cached.lastMessage.encrypted);
     final mls =
         item.encryption == ConversationEncryption.CONVERSATION_ENCRYPTION_MLS;
-    if (!sticky && !seenEncrypted && !mls) return item;
+    final itemEncrypted =
+        mls || (item.hasLastMessage() && item.lastMessage.encrypted);
+    if (!sticky && !seenEncrypted && !itemEncrypted) return item;
+    // [marks] go to the store's ever-encrypted set with the caller's write.
+    (marks ?? reported).add(item.id);
     if (sticky || (!stickyOnly && (seenEncrypted || mls))) {
       reported.add(item.id);
     }
@@ -742,6 +776,7 @@ class MessagingRepository {
   Future<List<pb.Conversation>> _stickyConversations(
     List<pb.Conversation> items,
     Set<String> reported,
+    Set<String> marks,
   ) async {
     var changed = false;
     final out = <pb.Conversation>[];
@@ -754,6 +789,7 @@ class MessagingRepository {
         item,
         seenEncrypted: false,
         reported: reported,
+        marks: marks,
         stickyOnly: true,
       );
       if (!identical(marked, item)) changed = true;
@@ -762,11 +798,26 @@ class MessagingRepository {
     return changed ? out : items;
   }
 
-  void _report(Set<String> conversationIds) {
+  /// Tells [onEncryptedConversation] about [conversationIds], unless the
+  /// store's session is no longer [session] (the user signed out meanwhile).
+  /// A throwing callback never fails or masks the call that already
+  /// succeeded: it is reported by step name only.
+  void _report(Set<String> conversationIds, int session) {
     final callback = onEncryptedConversation;
-    if (callback == null) return;
+    if (callback == null || _store.session != session) return;
     for (final id in conversationIds) {
-      callback(id);
+      _callback(() => callback(id));
+    }
+  }
+
+  void _callback(void Function() call) {
+    try {
+      call();
+    } on Object catch (_, stack) {
+      _gate.reportUnexpected(
+        const E2eePipelineError('messaging_callback'),
+        stack,
+      );
     }
   }
 
@@ -943,8 +994,9 @@ class MessagingRepository {
     } on NotFoundException {
       // Gone for the caller (deleted elsewhere, or never theirs): the cached
       // row would only mislead, so clean it as Delete does, then let the
-      // caller see the error.
-      await _store.removeConversation(conversationId);
+      // caller see the error. A server answer never clears the
+      // ever-encrypted mark.
+      await _store.removeConversation(conversationId, keepEverEncrypted: true);
       if (wasRequest) await _store.adjustRequestCount(-1, session: session);
       _notifyConversationsChanged();
       rethrow;
@@ -952,7 +1004,10 @@ class MessagingRepository {
     await _store.markConversationAccepted(conversationId, session: session);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
     _notifyConversationsChanged();
-    onRequestAccepted?.call(conversationId);
+    final accepted = onRequestAccepted;
+    if (accepted != null && _store.session == session) {
+      _callback(() => accepted(conversationId));
+    }
   }
 
   /// Deletes the conversation for the caller only (also "delete request").
@@ -981,7 +1036,10 @@ class MessagingRepository {
     await _store.removeConversation(conversationId);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
     _notifyConversationsChanged();
-    onConversationDeleted?.call(conversationId);
+    final deleted = onConversationDeleted;
+    if (deleted != null && _store.session == session) {
+      _callback(() => deleted(conversationId));
+    }
   }
 
   /// The caller blocked the sender of a received request: drops its row

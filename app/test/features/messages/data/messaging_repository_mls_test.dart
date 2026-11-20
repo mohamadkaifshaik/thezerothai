@@ -509,6 +509,20 @@ void main() {
       expect(b.sinceToken, isEmpty);
       expect(b.pageToken, 'p1');
       expect(b.pageSize, 50);
+      await expectEmptyTables();
+    });
+
+    test('listMlsMessages with both tokens throws ArgumentError and sends '
+        'nothing', () async {
+      await expectLater(
+        repo.listMlsMessages(
+          conversationId: _conv,
+          sinceToken: 's1',
+          pageToken: 'p1',
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(requests, isEmpty);
     });
 
     test('listMlsMessages writes nothing to the cache', () async {
@@ -601,6 +615,7 @@ void main() {
         throwsA(isA<RateLimitedException>()),
       );
       expect(requests, isEmpty);
+      await expectEmptyTables();
     });
 
     test('it is allowed when messaging is off for the caller and refused '
@@ -624,6 +639,27 @@ void main() {
         throwsA(isA<FeatureDisabledException>()),
       );
       expect(requests, isEmpty);
+      await expectEmptyTables();
+    });
+
+    test('an e2ee_dm FEATURE_DISABLED on listMlsMessages leaves messaging '
+        'reads on', () async {
+      override = (p) => throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': kFeatureE2eeDm},
+      );
+      await expectLater(
+        repo.listMlsMessages(conversationId: _conv),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(gate.canRead, isTrue);
+      requests.clear();
+      answers.add(listAnswer([]));
+      override = (p) => p == '$_svc/ListMessages' ? answers.removeAt(0) : null;
+      await repo.listMlsMessages(conversationId: _conv);
+      expect(requests, hasLength(1));
+      await expectEmptyTables();
     });
 
     test('refreshThread on an MLS conversation stores no message and calls '
@@ -740,7 +776,9 @@ void main() {
       );
       expect(response.message.ciphertext, [7, 7, 7]);
       expect(await db.select(db.messageEntries).get(), isEmpty);
+      expect(await db.select(db.conversationEntries).get(), isEmpty);
       expect(encrypted, [_conv]);
+      expect(await repo.cachedEverEncrypted(_conv), isTrue);
     });
 
     test('onRequestAccepted fires after a successful accept and not after '
@@ -806,7 +844,13 @@ void main() {
       expect(encrypted, [_conv]);
 
       // A NONE thread header on a cold open does the same.
-      answers.add(listAnswer([], conversation: conv(_conv), since: 's1'));
+      answers.add(
+        listAnswer(
+          [],
+          conversation: conv(_conv, snippet: 'plain words'),
+          since: 's1',
+        ),
+      );
       override = (p) => p == '$_svc/ListMessages' ? answers.removeAt(0) : null;
       await repo.refreshThread(_conv);
       row = (await repo.cachedConversation(_conv))!;
@@ -830,5 +874,286 @@ void main() {
         expect(encrypted, isEmpty);
       },
     );
+
+    group('the ever-encrypted set', () {
+      void script(String procedure, List<Object> items) {
+        override = (p) {
+          if (p != procedure) return null;
+          final next = items.removeAt(0);
+          if (next is connect.ConnectException) throw next;
+          return next;
+        };
+      }
+
+      pb.ListConversationsResponse inbox(
+        List<pb.Conversation> rows, {
+        String since = '',
+        String next = '',
+      }) => pb.ListConversationsResponse(
+        conversations: rows,
+        sinceToken: since,
+        nextPageToken: next,
+        requestCount: Int64(0),
+      );
+
+      Future<void> mark() =>
+          store.markEverEncrypted({_conv}, session: store.session);
+
+      Future<List<Object?>> storedPayloads() async => [
+        for (final r in await db.select(db.messageEntries).get()) r.payload,
+      ];
+
+      Future<void> expectNoCiphertextStored() async {
+        for (final r in await db.select(db.messageEntries).get()) {
+          expect(pb.Message.fromBuffer(r.payload).ciphertext, isEmpty);
+          expect(pb.Message.fromBuffer(r.payload).mlsGeneration, Int64.ZERO);
+        }
+      }
+
+      test('a since page that drops an encrypted message records the '
+          'conversation as ever encrypted (cachedEverEncrypted true, '
+          'snapshot header encrypted)', () async {
+        answers.add(
+          listAnswer(
+            [msg(1, conversationId: _conv)],
+            conversation: conv(_conv, snippet: 'hi'),
+            since: 's1',
+          ),
+        );
+        await repo.refreshThread(_conv);
+        expect(await repo.cachedEverEncrypted(_conv), isFalse);
+        answers.add(listAnswer([enc(2)], since: 's2'));
+        final snap = await repo.refreshThread(_conv);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+        expect(snap.conversation!.lastMessage.encrypted, isTrue);
+        expect(snap.conversation!.lastMessage.snippet, isEmpty);
+        expect(snap.messages, hasLength(1));
+        expect(encrypted, [_conv]);
+        await expectNoCiphertextStored();
+      });
+
+      test(
+        'the marker survives a new repository over the same store',
+        () async {
+          answers.add(listAnswer([enc(1)], since: 's1'));
+          await repo.refreshThread(_conv);
+          final again = MessagingRepository(
+            apiClient: ApiClient.withTransport(transport),
+            store: MessagingStore(db),
+            gate: MessagingFeatureGate(isMessagingEnabled: () => true),
+          );
+          expect(await again.cachedEverEncrypted(_conv), isTrue);
+        },
+      );
+
+      test('the ever-encrypted set holds ids only', () async {
+        answers.add(
+          listAnswer([enc(1)], conversation: mlsHeader(), since: 's1'),
+        );
+        await repo.refreshThread(_conv);
+        final rows = [
+          for (final r in await db.select(db.messagingStateEntries).get())
+            if (r.stateKey.startsWith(kEverEncryptedStatePrefix)) r,
+        ];
+        expect(rows, hasLength(1));
+        expect(rows.single.stateKey, '$kEverEncryptedStatePrefix$_conv');
+        expect(rows.single.sinceToken, isEmpty);
+        expect(rows.single.olderPageToken, isEmpty);
+        expect(rows.single.requestCount, isNull);
+        expect(await storedPayloads(), isEmpty);
+      });
+
+      test('an inbox cold open that omits a marked conversation, then a NONE '
+          'row, keeps cachedEverEncrypted true', () async {
+        script('$_svc/ListConversations', [
+          inbox([conv(_conv, snippet: 'old')], since: 't1'),
+          rejectedToken('since_token'),
+          inbox([], since: 't2'),
+          inbox([conv(_conv, snippet: 'plain words')], since: 't3'),
+        ]);
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        await mark();
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        expect(await repo.cachedConversation(_conv), isNull);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        final row = (await repo.cachedConversation(_conv))!;
+        expect(row.lastMessage.encrypted, isTrue);
+        expect(row.lastMessage.snippet, isEmpty);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+        expect(encrypted, [_conv]);
+      });
+
+      test('accept NOT_FOUND on a marked request keeps cachedEverEncrypted '
+          'true', () async {
+        await mark();
+        override = (p) =>
+            throw connect.ConnectException(connect.Code.notFound, 'gone');
+        await expectLater(
+          repo.acceptMessageRequest(
+            idempotencyKey: _key,
+            conversationId: _conv,
+          ),
+          throwsA(isA<NotFoundException>()),
+        );
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('a NONE sendMessage answer never clears the marker', () async {
+        await mark();
+        override = (p) => p == '$_svc/SendMessage'
+            ? pb.SendMessageResponse(
+                message: msg(1, conversationId: _conv),
+                conversation: conv(_conv, snippet: 'plain'),
+              )
+            : null;
+        await repo.sendMessage(
+          idempotencyKey: _key,
+          text: 'x',
+          conversationId: _conv,
+        );
+        final row = (await repo.cachedConversation(_conv))!;
+        expect(row.lastMessage.encrypted, isTrue);
+        expect(row.lastMessage.snippet, isEmpty);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+        expect(encrypted, [_conv]);
+      });
+
+      test('keep-paging older conversations never clears the marker', () async {
+        await mark();
+        script('$_svc/ListConversations', [
+          inbox([], since: 't1', next: 'older'),
+          inbox([conv(_conv, snippet: 'plain')]),
+        ]);
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        final row = (await repo.cachedConversation(_conv))!;
+        expect(row.lastMessage.encrypted, isTrue);
+        expect(row.lastMessage.snippet, isEmpty);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('delete-for-me clears the marker', () async {
+        await mark();
+        await repo.deleteConversation(
+          idempotencyKey: _key,
+          conversationId: _conv,
+        );
+        expect(await repo.cachedEverEncrypted(_conv), isFalse);
+        await mark();
+        override = (p) =>
+            throw connect.ConnectException(connect.Code.notFound, 'gone');
+        await repo.deleteConversation(
+          idempotencyKey: _key,
+          conversationId: _conv,
+        );
+        expect(await repo.cachedEverEncrypted(_conv), isFalse);
+      });
+
+      test('sign-out clears the marker', () async {
+        await mark();
+        await db.clearAll();
+        expect(await repo.cachedEverEncrypted(_conv), isFalse);
+      });
+
+      test('an id-bearing cache wipe keeps the marker', () async {
+        await mark();
+        await db.clearIdBearingCache();
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('a throwing callback neither fails nor masks a call that '
+          'succeeded', () async {
+        repo.onEncryptedConversation = (_) => throw StateError('boom');
+        repo.onRequestAccepted = (_) => throw StateError('boom');
+        answers.add(listAnswer([enc(1)], since: 's1'));
+        await repo.refreshThread(_conv);
+        await repo.acceptMessageRequest(
+          idempotencyKey: _key,
+          conversationId: _conv,
+        );
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test(
+        'callbacks are skipped when the session ended during the call',
+        () async {
+          override = (p) async {
+            db.sessionEpoch.end();
+            return listAnswer([enc(1)], since: 's1');
+          };
+          await repo.refreshThread(_conv);
+          expect(encrypted, isEmpty);
+        },
+      );
+
+      test('the gap-overflow fallback caches no encrypted message', () async {
+        script('$_svc/ListMessages', [
+          listAnswer(
+            [msg(1, conversationId: _conv)],
+            conversation: conv(_conv, snippet: 'hi'),
+            since: 's1',
+          ),
+          listAnswer([enc(2)], since: 's2', gap: 'g0'),
+          for (var i = 0; i < kMaxGapPages; i++)
+            listAnswer([enc(3 + i)], next: 'g${i + 1}'),
+          listAnswer(
+            [enc(20), msg(21, conversationId: _conv)],
+            conversation: mlsHeader(),
+            since: 's3',
+          ),
+        ]);
+        await repo.refreshThread(_conv);
+        await repo.refreshThread(_conv);
+        await expectNoCiphertextStored();
+        expect(await db.select(db.messageEntries).get(), hasLength(1));
+        expect(encrypted, [_conv]);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('the rejected-since fallback caches no encrypted message', () async {
+        script('$_svc/ListMessages', [
+          listAnswer(
+            [msg(1, conversationId: _conv)],
+            conversation: conv(_conv, snippet: 'hi'),
+            since: 's1',
+          ),
+          rejectedToken('since_token'),
+          listAnswer(
+            [enc(2), msg(3, conversationId: _conv)],
+            conversation: mlsHeader(),
+            since: 's2',
+          ),
+        ]);
+        await repo.refreshThread(_conv);
+        await repo.refreshThread(_conv);
+        await expectNoCiphertextStored();
+        expect(await db.select(db.messageEntries).get(), hasLength(1));
+        expect(encrypted, [_conv]);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('the loadOlderMessages rejected-token fallback caches no '
+          'encrypted message', () async {
+        script('$_svc/ListMessages', [
+          listAnswer(
+            [msg(5, conversationId: _conv)],
+            conversation: conv(_conv, snippet: 'hi'),
+            since: 's1',
+            next: 'older',
+          ),
+          rejectedToken('page_token'),
+          listAnswer(
+            [enc(4), msg(3, conversationId: _conv)],
+            conversation: mlsHeader(),
+            since: 's2',
+          ),
+        ]);
+        await repo.refreshThread(_conv);
+        await repo.loadOlderMessages(_conv);
+        await expectNoCiphertextStored();
+        expect(await db.select(db.messageEntries).get(), hasLength(1));
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+    });
   });
 }
