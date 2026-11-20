@@ -139,26 +139,42 @@ E2eeFlag? knownE2eeFlag(OnboardingState s) {
 /// Forwards each KNOWN `e2ee_dm` answer to [vaultSession] for the user the
 /// state was emitted for ([uidOf]; ignored by the session when that user is
 /// not its user when it runs). A failed GetMe never turns a known answer into
-/// unknown (only known answers are forwarded). When the answer is `on` and
-/// the session has an open vault afterwards, [onFlagOnWithOpenVault] runs
-/// (device upkeep resumes without waiting for a tick); the ready hooks are
-/// NOT run again.
+/// unknown (only known answers are forwarded). When the forwarded answer
+/// CHANGED to `on` for that user (the first known answer `on` counts as a
+/// change) and the session has an open vault afterwards,
+/// [onFlagOnWithOpenVault] runs (device upkeep resumes without waiting for a
+/// tick); a repeated `on` does not run it again (its own throttle counts only
+/// successes, so every repeat would start another run while offline). The
+/// ready hooks are NOT run again.
 StreamSubscription<OnboardingState> wireE2eeFlag({
   required Stream<OnboardingState> states,
   required String? Function(OnboardingState state) uidOf,
   required VaultSession vaultSession,
   required void Function() onFlagOnWithOpenVault,
-}) => states.listen((state) {
-  final answer = knownE2eeFlag(state);
-  if (answer == null) return;
-  unawaited(
-    vaultSession.onFlagChanged(answer, uid: uidOf(state)).then((_) {
-      if (answer == E2eeFlag.on && vaultSession.vault != null) {
-        onFlagOnWithOpenVault();
-      }
-    }),
-  );
-});
+}) {
+  String? lastUid;
+  E2eeFlag? lastAnswer;
+  return states.listen((state) {
+    // Any state of another user (or of none: signed out) forgets the last
+    // answer, so a user who leaves and returns gets a first answer again.
+    final uid = uidOf(state);
+    if (uid != lastUid) {
+      lastUid = uid;
+      lastAnswer = null;
+    }
+    final answer = knownE2eeFlag(state);
+    if (answer == null) return;
+    final turnedOn = answer == E2eeFlag.on && lastAnswer != E2eeFlag.on;
+    lastAnswer = answer;
+    unawaited(
+      vaultSession.onFlagChanged(answer, uid: uid).then((_) {
+        if (turnedOn && vaultSession.vault != null) {
+          onFlagOnWithOpenVault();
+        }
+      }),
+    );
+  });
+}
 
 /// Bridges auth state into the session (L-4): OnboardingBloc reacts to
 /// sign-in/sign-out but never talks to AuthBloc directly (the two features stay

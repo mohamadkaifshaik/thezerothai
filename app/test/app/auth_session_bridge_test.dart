@@ -404,6 +404,49 @@ void main() {
       expect(upkeepCalls, 1);
     });
 
+    test('two identical on states give one upkeep call', () async {
+      final s = listen();
+      await s.onSignedIn('a', flag: E2eeFlag.unknown);
+      answers
+        ..add(answer(on: true))
+        ..add(answer(on: true));
+      await settle();
+      expect(s.status.value, VaultStatus.ready);
+      expect(upkeepCalls, 1);
+      // A change away and back is a new `on`: upkeep runs again.
+      answers
+        ..add(answer(on: false))
+        ..add(answer(on: true));
+      await settle();
+      expect(upkeepCalls, 2);
+    });
+
+    test(
+      'a user who leaves and returns: the first on calls upkeep again',
+      () async {
+        String? current = 'a';
+        final s = world.launch();
+        flagSub = wireE2eeFlag(
+          states: answers.stream,
+          uidOf: (_) => current,
+          vaultSession: s,
+          onFlagOnWithOpenVault: () => upkeepCalls++,
+        );
+        await s.onSignedIn('a', flag: E2eeFlag.unknown);
+        answers.add(answer(on: true));
+        await settle();
+        expect(upkeepCalls, 1);
+        // Signed out: a state with no user.
+        current = null;
+        answers.add(const OnboardingState());
+        await settle();
+        current = 'a';
+        answers.add(answer(on: true));
+        await settle();
+        expect(upkeepCalls, 2);
+      },
+    );
+
     test('an off answer, or no answer yet, does not resume upkeep', () async {
       final s = listen();
       await s.onSignedIn('a', flag: E2eeFlag.on);
