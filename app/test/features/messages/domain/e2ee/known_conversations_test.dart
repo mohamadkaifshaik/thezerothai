@@ -74,7 +74,7 @@ void main() {
     await expectLater(
       device.session.runWrite(
         (vault) => vault.transaction((tx) async {
-          await known.addIn(tx, _c1, peerUserId: 'peer-ref-1');
+          await known.addIn(tx, vault, _c1, peerUserId: 'peer-ref-1');
           throw StateError('the transaction fails');
         }),
       ),
@@ -87,7 +87,7 @@ void main() {
     expect(fresh.contains(_c1), isFalse);
     // A committed one is written, and visible once the caller settles it.
     await device.session.runWrite(
-      (vault) => vault.transaction((tx) => known.addIn(tx, _c1)),
+      (vault) => vault.transaction((tx) => known.addIn(tx, vault, _c1)),
     );
     expect(known.contains(_c1), isFalse, reason: 'not before commitStaged');
     known.commitStaged();
@@ -95,6 +95,36 @@ void main() {
     final stored = KnownConversations(session: device.session);
     await stored.load(device.vault);
     expect(stored.contains(_c1), isTrue);
+  });
+
+  test("a known set loaded for another vault is never written into this "
+      "vault's transaction", () async {
+    // Another user's vault (another session); the set stays loaded for the
+    // first one.
+    final other = await RigDevice.create(
+      dir: dir,
+      clock: clock,
+      uid: 'user-b',
+      name: 'two',
+    );
+    addTearDown(other.dispose);
+    await known.add(_c1, peerUserId: 'peer-ref-1');
+    expect(known.isLoadedFor(device.vault), isTrue);
+    expect(known.isLoadedFor(other.vault), isFalse);
+
+    await expectLater(
+      other.session.runWrite(
+        (vault) => vault.transaction((tx) => known.addIn(tx, vault, _c2)),
+      ),
+      throwsStateError,
+    );
+    known.discardStaged();
+    expect(await other.vault.setting(kVaultSettingKnownConversations), isNull);
+    expect(known.contains(_c2), isFalse);
+    // This vault's record is unchanged.
+    final again = KnownConversations(session: device.session);
+    await again.load(device.vault);
+    expect(again.ids, [_c1]);
   });
 
   test('two conversations added under their own locks both stay in the '

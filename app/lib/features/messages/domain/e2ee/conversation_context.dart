@@ -60,14 +60,6 @@ class ConversationContext {
   /// count yet.
   DateTime? reattributeAt;
 
-  /// Set by a FIRST join of the conversation by this device (no marks, no
-  /// former pins, no stored group before it): the `since` of the members it
-  /// pinned, which are the baseline (no peer-side `deviceAdded` rows; the
-  /// own-device alert rule of security read H2 applies). Null otherwise, and
-  /// after a restart: then nothing is treated as a baseline (rows are
-  /// written), which may show a line too many, never one too few.
-  MlsPair? baselineSince;
-
   /// The server's current pair as the last catch-up pass of this run read
   /// it; null before one (`describeState`'s "server's last known
   /// generation").

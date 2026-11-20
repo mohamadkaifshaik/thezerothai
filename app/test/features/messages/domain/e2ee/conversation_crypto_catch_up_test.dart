@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
@@ -370,6 +371,67 @@ void main() {
       expect(state.sendBlock, isNot(SendBlock.none));
     });
 
+    test('a device whose key changed stays an unknown device even when the '
+        'directory lists the new key', () async {
+      final offer = await join(_c1);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      final carol = await RigPeer.create('carol');
+      final newKey = Uint8List.fromList(List.filled(32, 9));
+      // The directory now lists bob's id with the new key (and carol).
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, newKey),
+        rigKeyDevice(carol.idString, carol.key),
+      ];
+      rig.clock.advance(const Duration(seconds: 61));
+      await bobCommit(offer, _c1, add: [carol]);
+      rig.device.engine.describeMembers = (real) => [
+        for (final m in real)
+          rigEq(m.deviceId, bob.id)
+              ? GroupMember(deviceId: bob.id, signaturePublicKey: newKey)
+              : m,
+      ];
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      // Past the recheck time, attribution runs again: still unknown.
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.device.engine.describeMembers = null;
+
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      final bobLines = [
+        for (final l in await rig.lines(_c1))
+          if (rigEq(l.deviceId ?? const [], bob.id)) l.line,
+      ];
+      expect(bobLines, [SystemLine.unknownDevice]);
+      final state = await rig.crypto.describeState(_c1);
+      expect(state.unknownDevicePresent, isTrue);
+      expect(state.sendBlock, SendBlock.unknownDevice);
+    });
+
+    test('applying a commit for a stored group not yet in the known set '
+        'notes it as ever encrypted', () async {
+      final carol = await RigPeer.create('carol');
+      final offer = await join(_c1);
+      // The known set lost the id (a migrated v1 group was never in it).
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          kVaultSettingKnownConversations,
+          rigBytes('{"v":1,"ids":[],"peers":{}}'),
+        ),
+      );
+      await rig.known.load(rig.device.vault);
+      expect(rig.known.contains(_c1), isFalse);
+      await bobCommit(offer, _c1, add: [carol]);
+      rig.messaging.noted.clear();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect(rig.known.contains(_c1), isTrue);
+      expect([for (final n in rig.messaging.noted) n.id], [_c1]);
+      expect(rig.messaging.noted.single.session, rig.messaging.cacheSession);
+    });
+
     test('a NONE conversation is notEncrypted', () async {
       final before = await rig.dump();
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.notEncrypted);
@@ -586,6 +648,21 @@ void main() {
       expect(state.requestAccepted, isFalse);
     });
 
+    test('an unreadable list in an unaccepted conversation is retried and '
+        'writes no row', () async {
+      rig.keys.peerFails = true;
+      await join(_c1, accepted: false);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      expect(rig.contexts.of(_c1).attributionPending, isTrue);
+
+      rig.keys.peerFails = false;
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      expect(await rig.lines(_c1), isEmpty);
+      expect(rig.contexts.of(_c1).attributionPending, isFalse);
+    });
+
     test('syncedSinceStart is true only at the server pair with no '
         'attribution pending and one completed live pull of that '
         'pair', () async {
@@ -621,6 +698,135 @@ void main() {
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       expect(context.attributionPending, isFalse);
       expect(context.syncedSinceStart, isTrue);
+    });
+  });
+
+  group('the first-join baseline', () {
+    setUp(() => setUpRig());
+
+    /// The stored baseline pair of [c], read from the sealed setting.
+    Future<MlsPair?> baselineOf(String c) async {
+      final raw = await rig.device.vault.setting('messages.e2ee.baseline');
+      if (raw == null) return null;
+      final m = jsonDecode(utf8.decode(raw)) as Map<String, Object?>;
+      expect(m['v'], 1);
+      final pair = (m['byConv']! as Map<String, Object?>)[c] as List<Object?>?;
+      return pair == null ? null : MlsPair(pair[0]! as int, pair[1]! as int);
+    }
+
+    test('a first join of an unaccepted request, a restart, then acceptance '
+        'writes no peer deviceAdded row and no own alert on a brand-new '
+        'vault', () async {
+      final sib = await RigPeer.create('sib');
+      // While the request is unaccepted the lookup finds nobody.
+      rig.keys.peers['ref-bob'] = [];
+      await join(_c1, accepted: false, others: [sib]);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      expect((await pin(_c1, sib.id))!.side, MemberSide.unattributed);
+      expect(await rig.lines(_c1), isEmpty);
+
+      await rig.restart();
+      rig.crypto.sink = sink;
+      await rig.accept(_c1);
+      rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+      rig.keys.own.add(rigKeyDevice(sib.idString, sib.key));
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      expect((await pin(_c1, sib.id))!.side, MemberSide.mine);
+      expect(await rig.lines(_c1), isEmpty);
+    });
+
+    test('the baseline entry is removed once every member of that join is '
+        'attributed', () async {
+      rig.keys.peerFails = true;
+      await join(_c1);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      expect(await baselineOf(_c1), const MlsPair(1, 1));
+
+      rig.keys.peerFails = false;
+      await rig.crypto.attributeMembers(_c1);
+
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      expect(await rig.lines(_c1), isEmpty);
+      expect(await baselineOf(_c1), isNull);
+    });
+
+    test('a later join replaces the baseline', () async {
+      rig.keys.peerFails = true;
+      await join(_c1);
+      expect(await baselineOf(_c1), const MlsPair(1, 1));
+
+      final carol = await RigPeer.create('carol');
+      await rig.offer(
+        _c1,
+        bob,
+        generation: 2,
+        others: [await carol.keyPackage()],
+      );
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      expect(await rig.device.vault.group(_c1, 2), isNotNull);
+      expect(await baselineOf(_c1), isNull);
+
+      // After a restart nothing of the later join is a baseline: carol, a
+      // key never pinned before, gets her row.
+      await rig.restart();
+      rig.crypto.sink = sink;
+      rig.keys.peerFails = false;
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      final carolLines = [
+        for (final l in await rig.lines(_c1))
+          if (rigEq(l.deviceId ?? const [], carol.id)) l,
+      ];
+      expect(carolLines, hasLength(1));
+      expect(carolLines.single.line, SystemLine.deviceAdded);
+      expect(carolLines.single.side, MemberSide.theirs);
+    });
+  });
+
+  group('locked entry points', () {
+    setUp(() => setUpRig());
+
+    test('processWelcomesHeld, catchUpLocked and attributeMembersLocked work '
+        'under a held lock', () async {
+      await rig.accept(_c1);
+      rig.header(_c1, 'ref-bob');
+      rig.keys.peerFails = true;
+      await rig.offer(_c1, bob);
+
+      // No group yet: the welcome is joined, then catch-up runs.
+      expect(
+        await rig.locks.run(_c1, () => rig.crypto.processWelcomesHeld(_c1)),
+        CatchUpResult.current,
+      );
+      expect(await rig.device.vault.group(_c1, 1), isNotNull);
+      expect(rig.server.welcomesFor(rig.device.deviceIdString), isEmpty);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+
+      expect(
+        await rig.locks.run(_c1, () => rig.crypto.catchUpLocked(_c1)),
+        CatchUpResult.current,
+      );
+
+      rig.keys.peerFails = false;
+      await rig.locks.run(_c1, () => rig.crypto.attributeMembersLocked(_c1));
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+    });
+
+    test('an unheld call of a locked entry point trips the assert', () async {
+      expect(() => rig.crypto.catchUpLocked(_c1), throwsAssertionError);
+      expect(() => rig.crypto.processWelcomesHeld(_c1), throwsAssertionError);
+      expect(
+        () => rig.crypto.attributeMembersLocked(_c1),
+        throwsAssertionError,
+      );
+      // Holding another conversation's lock is not holding this one.
+      const c2 = '22222222222222222222222222222222';
+      await rig.locks.run(c2, () async {
+        expect(() => rig.crypto.catchUpLocked(_c1), throwsAssertionError);
+      });
     });
   });
 
@@ -770,7 +976,7 @@ void main() {
       final v = rig.device.vault;
       expect(await v.groups(_c1), isEmpty);
       expect(await v.members(_c1), isEmpty);
-      final former = await FormerPins(session: rig.device.session).of(_c1);
+      final former = await const FormerPins().of(v, _c1);
       expect(former, hasLength(2));
       expect(
         former.singleWhere((m) => rigEq(m.deviceId, bob.id)).side,
@@ -792,15 +998,27 @@ void main() {
     test("a lower generation's group is deleted only after its last epoch's "
         'messages were completed', () async {
       const c2 = '22222222222222222222222222222222';
-      // 1. A welcome of generation 2 joined by an ordinary poll, before any
-      // catch-up walked generation 1 to its end: generation 1 stays.
+      // 1. A welcome of generation 2 met by an ordinary poll before any
+      // catch-up walked generation 1 to its end: generation 1 is walked
+      // first (its last epoch completed), then generation 2 is joined in
+      // place, which deletes generation 1. Acknowledged once.
       await join(_c1);
-      await rig.offer(_c1, bob, generation: 2);
+      final reset = await rig.offer(_c1, bob, generation: 2);
+      sink.calls.clear();
+      rig.server.acks.clear();
       expect(await rig.crypto.processWelcomes(), [_c1]);
       final v = rig.device.vault;
-      expect(await v.group(_c1, 2), isNotNull);
-      expect(await v.group(_c1, 1), isNotNull);
-      expect(sink.calls, isNot(contains('complete 1:1 at 1')));
+      expect(sink.calls, ['complete 1:1 at 1']);
+      expect(await v.group(_c1, 1), isNull);
+      expect((await v.group(_c1, 2))!.epoch, 1);
+      expect([for (final a in rig.server.acks) ...a.ids], [reset.welcomeId]);
+      // The new generation's pins are the ones its join wrote: nothing of
+      // generation 1's walk landed on them.
+      final pins = await v.members(_c1);
+      expect(pins, hasLength(2));
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      expect((await pin(_c1, rig.device.deviceId))!.side, MemberSide.mine);
+      expect(await rig.lines(_c1), hasLength(1)); // the encryptionReset row
 
       // 2. Catch-up meets the reset first: it completes generation 1's last
       // epoch, then joins generation 2, which deletes generation 1.
@@ -811,6 +1029,31 @@ void main() {
       expect(sink.calls, ['complete 1:1 at 1']);
       expect(await v.group(c2, 2), isNotNull);
       expect(await v.group(c2, 1), isNull);
+    });
+
+    test('a welcome for a later generation first walks one commit still to '
+        'apply in the old one', () async {
+      final carol = await RigPeer.create('carol');
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      final offer = await join(_c1);
+      await bobCommit(offer, _c1, add: [carol]);
+      final reset = await rig.offer(_c1, bob, generation: 2);
+      rig.device.engine.calls.clear();
+      sink.calls.clear();
+      rig.server.acks.clear();
+
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+
+      // (1, 1) was applied, generation 1's last epoch completed, then the
+      // welcome of 2 joined.
+      expect(count(rig.device.engine.calls, 'process'), 1);
+      expect(count(rig.device.engine.calls, 'joinFromWelcome'), 1);
+      expect(sink.calls, ['complete 1:1 at 1', 'complete 1:2 at 2']);
+      final v = rig.device.vault;
+      expect(await v.group(_c1, 1), isNull);
+      expect((await v.group(_c1, 2))!.epoch, 1);
+      expect((await v.conversation(_c1))!.afterPair, const MlsPair(2, 0));
+      expect([for (final a in rig.server.acks) ...a.ids], [reset.welcomeId]);
     });
 
     test('a reset seen from generation 1: remaining commits of 1 applied, '

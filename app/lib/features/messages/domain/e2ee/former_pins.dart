@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import '../../../../core/crypto/mls_pair.dart';
 import '../../../../core/vault/secure_vault.dart';
-import '../../../../core/vault/vault_session.dart';
 import '../../../../core/vault/vault_status.dart';
 
 /// Vault setting: the pins of conversations this device left (`selfRemoved`)
@@ -14,31 +13,29 @@ const String kVaultSettingFormerPins = 'messages.e2ee.formerPins';
 /// The former pins, read from and written to the vault. Every write reads the
 /// stored record FRESH (vault-wide setting, per-conversation callers: no lost
 /// update) and replaces only the one conversation's entry; call [putIn] and
-/// [deleteIn] only inside a `runWrite` body's transaction. Never logs. No
+/// [deleteIn] only inside a `runWrite` body's transaction.
+///
+/// Every method takes the vault the caller's `runWrite` body checked (never
+/// the session's current one: across a sign-out and sign-in another user's
+/// vault could be published while an old body still runs). Never logs. No
 /// `toString`.
 class FormerPins {
-  FormerPins({required VaultSession session}) : _session = session;
+  const FormerPins();
 
-  final VaultSession _session;
-
-  SecureVault _vault() {
-    final v = _session.vault;
-    if (v == null) throw StateError('The vault is not ready.');
-    return v;
-  }
-
-  Future<List<MemberRecord>> of(String conversationId) async =>
-      (await _read(_vault()))[conversationId] ?? const [];
+  Future<List<MemberRecord>> of(
+    SecureVault vault,
+    String conversationId,
+  ) async => (await _read(vault))[conversationId] ?? const [];
 
   /// Every own-side (device id hex, key base64) pair (this device excluded)
   /// pinned `mine` in an ACCEPTED conversation other than [excluding]: current
   /// pins plus former pins of conversations that were accepted. Pins made in an
   /// unaccepted conversation do not count. A known id with another key is NOT
   /// in the set (it alerts). Read inside the `runWrite` body that writes rows.
-  Future<Set<({String deviceIdHex, String keyB64})>> everPinnedMine({
+  Future<Set<({String deviceIdHex, String keyB64})>> everPinnedMine(
+    SecureVault vault, {
     required String excluding,
   }) async {
-    final vault = _vault();
     final thisDevice = await vault.deviceId();
     final thisHex = thisDevice == null ? null : vaultDeviceIdHex(thisDevice);
     final former = await _read(vault);
@@ -65,8 +62,10 @@ class FormerPins {
   /// True only while this vault has never stored a group of an accepted
   /// conversation other than [excluding]: no other conversation has
   /// `requestAccepted` together with a stored group or former pins.
-  Future<bool> brandNewVault({required String excluding}) async {
-    final vault = _vault();
+  Future<bool> brandNewVault(
+    SecureVault vault, {
+    required String excluding,
+  }) async {
     final former = await _read(vault);
     for (final id in await _candidates(vault, former)) {
       if (id == excluding) continue;
@@ -81,10 +80,11 @@ class FormerPins {
   /// Replaces [conversationId]'s entry (the stored record is read fresh).
   Future<void> putIn(
     VaultTx tx,
+    SecureVault vault,
     String conversationId,
     List<MemberRecord> pins,
   ) async {
-    final all = {...await _read(_vault())};
+    final all = {...await _read(vault)};
     all[conversationId] = [
       for (final p in pins)
         MemberRecord(
@@ -99,8 +99,12 @@ class FormerPins {
   }
 
   /// Deletes [conversationId]'s entry (the pins are current again).
-  Future<void> deleteIn(VaultTx tx, String conversationId) async {
-    final all = {...await _read(_vault())};
+  Future<void> deleteIn(
+    VaultTx tx,
+    SecureVault vault,
+    String conversationId,
+  ) async {
+    final all = {...await _read(vault)};
     if (all.remove(conversationId) == null) return;
     await tx.putSetting(kVaultSettingFormerPins, _encode(all));
   }

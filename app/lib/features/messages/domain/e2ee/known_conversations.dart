@@ -56,6 +56,9 @@ class KnownConversations {
   /// False before [load] returned.
   bool get loaded => _loadedFor != null;
 
+  /// True when the image was loaded for [vault] (this exact vault object).
+  bool isLoadedFor(SecureVault vault) => identical(_loadedFor, vault);
+
   bool contains(String conversationId) => _ids.contains(conversationId);
 
   /// The known ids, in the order they were first stored.
@@ -100,17 +103,19 @@ class KnownConversations {
   }
 
   /// Adds the id (and the peer ref when given) INSIDE the caller's
-  /// transaction, which must run in a `runWrite` body. The stored record is
-  /// read fresh here. The in-memory image changes only when the caller calls
-  /// [commitStaged] after its transaction returned ([discardStaged] when it
-  /// failed).
+  /// transaction, which must run in a `runWrite` body over [vault] (the vault
+  /// that body checked). The stored record is read fresh here. Refuses (a
+  /// [StateError], nothing written) when the image was loaded for another
+  /// vault: a set of one vault is never written into another's transaction.
+  /// The in-memory image changes only when the caller calls [commitStaged]
+  /// after its transaction returned ([discardStaged] when it failed).
   Future<void> addIn(
     VaultTx tx,
+    SecureVault vault,
     String conversationId, {
     String? peerUserId,
   }) async {
-    final vault = _session.vault;
-    if (vault == null || !identical(vault, _loadedFor)) {
+    if (!identical(vault, _loadedFor)) {
       throw StateError('The known conversations are not loaded.');
     }
     final record = await _read(vault);
@@ -170,7 +175,7 @@ class KnownConversations {
       }
       try {
         await vault.transaction((tx) async {
-          await addIn(tx, conversationId, peerUserId: peerUserId);
+          await addIn(tx, vault, conversationId, peerUserId: peerUserId);
         });
       } on Object {
         discardStaged();

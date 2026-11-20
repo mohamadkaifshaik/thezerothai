@@ -23,4 +23,15 @@ void main() {
       expect(log, ['a1 start', 'b', 'a1 end', 'a2']);
     },
   );
+
+  test('isHeld is true only inside a body for that id', () async {
+    final locks = ConversationLocks();
+    expect(locks.isHeld('a'), isFalse);
+    final seen = await locks.run('a', () async {
+      await Future<void>.delayed(Duration.zero);
+      return (a: locks.isHeld('a'), b: locks.isHeld('b'));
+    });
+    expect(seen, (a: true, b: false));
+    expect(locks.isHeld('a'), isFalse);
+  });
 }

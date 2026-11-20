@@ -15,6 +15,7 @@ import 'conversation_locks.dart';
 import 'device_directory.dart';
 import 'e2ee_types.dart';
 import 'former_pins.dart';
+import 'join_baselines.dart';
 import 'known_conversations.dart';
 import 'membership_rules.dart';
 import 'sync_budget.dart';
@@ -60,6 +61,9 @@ enum CatchUpResult {
 }
 
 /// Implemented by Task 6; Task 5 tests use a recording double.
+///
+/// A sink is called BY catch-up, under the conversation lock: it must never
+/// call catch-up (or any entry point that runs it, locked or not) itself.
 abstract interface class EpochMessageSink {
   /// Called under the conversation lock with every message of one closed
   /// epoch, before its commit is applied.
@@ -115,7 +119,7 @@ class ConversationCrypto {
        _locks = locks,
        _contexts = contexts,
        _known = known,
-       _formerPins = FormerPins(session: session),
+       _baselines = JoinBaselines(onUnexpectedError: onUnexpectedError),
        _now = now,
        _onChanged = onChanged,
        _onUnexpectedError = onUnexpectedError;
@@ -128,7 +132,8 @@ class ConversationCrypto {
   final ConversationLocks _locks;
   final ConversationContexts _contexts;
   final KnownConversations _known;
-  final FormerPins _formerPins;
+  static const FormerPins _formerPins = FormerPins();
+  final JoinBaselines _baselines;
   final DateTime Function() _now;
   final void Function(String conversationId) _onChanged;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
@@ -145,6 +150,50 @@ class ConversationCrypto {
     conversationId,
     () => _catchUpLocked(conversationId, priority: priority),
   );
+
+  /// [catchUp] for a caller that ALREADY HOLDS [id]'s conversation lock
+  /// (Tasks 6, 7, 8 call in while holding it; [ConversationLocks] is not
+  /// re-entrant). Never throws (asserts the lock is held).
+  Future<CatchUpResult> catchUpLocked(
+    String id, {
+    BudgetPriority priority = BudgetPriority.background,
+  }) {
+    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
+    return _catchUpLocked(id, priority: priority);
+  }
+
+  /// Processes [id]'s welcomes, then catches up, for a caller that ALREADY
+  /// HOLDS [id]'s conversation lock. Only [id]'s welcome is handled (the
+  /// others wait for the next poll). Never throws (asserts the lock is held).
+  Future<CatchUpResult> processWelcomesHeld(
+    String id, {
+    BudgetPriority priority = BudgetPriority.background,
+  }) {
+    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
+    return _processWelcomesHeld(id, priority);
+  }
+
+  Future<CatchUpResult> _processWelcomesHeld(
+    String id,
+    BudgetPriority priority,
+  ) async {
+    try {
+      await _pollWelcomes(priority: priority, held: id);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'welcomePoll');
+    }
+    return _catchUpLocked(id, priority: priority);
+  }
+
+  /// [attributeMembers] for a caller that ALREADY HOLDS [id]'s conversation
+  /// lock. Never throws (asserts the lock is held).
+  Future<void> attributeMembersLocked(
+    String id, {
+    BudgetPriority priority = BudgetPriority.background,
+  }) {
+    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
+    return _attributeEntry(id, priority);
+  }
 
   /// Catch-up with [id]'s lock held. Never throws: an unexpected failure is
   /// `interrupted` (nothing was written by a failed body).
@@ -268,7 +317,7 @@ class ConversationCrypto {
       if (server.generation > g) {
         switching = true;
       } else if (server == here) {
-        return _atServerPair(id, server, pass.priority);
+        return _atServerPair(pass, id, server);
       } else if (server.compareTo(here) > 0) {
         // 5. No commit returned while the server pair is ahead.
         return CatchUpResult.stuck;
@@ -307,14 +356,13 @@ class ConversationCrypto {
   /// Step 8: the pair is current. Attribution when a member is unattributed
   /// and not concluded this run; then R7 / M10's `syncedSinceStart`.
   Future<CatchUpResult> _atServerPair(
+    _Poll pass,
     String id,
     MlsPair server,
-    BudgetPriority priority,
   ) async {
     final context = _contexts.of(id);
-    final vault = _session.vault;
-    if (vault == null) return CatchUpResult.interrupted;
-    final unattributed = (await vault.members(id))
+    if (!pass.live) return CatchUpResult.interrupted;
+    final unattributed = (await pass.vault.members(id))
         .any((m) => m.side == MemberSide.unattributed);
     if (!unattributed) {
       context
@@ -323,7 +371,7 @@ class ConversationCrypto {
         ..deferredSince = null;
     } else if (!context.attributionConcluded) {
       try {
-        await _attributeMembersLocked(id, priority: priority);
+        await _attributeMembersLocked(pass, id);
       } on Object catch (e, s) {
         _reportIfBug(e, s, 'attribute');
         context.attributionPending = true;
@@ -375,6 +423,9 @@ class ConversationCrypto {
       return _Applied.interrupted;
     }
     final _Applied applied;
+    // The known set grew in the applied commit's transaction (a migrated v1
+    // group that was never in it).
+    var knownGrew = false;
     try {
       applied = await _session.runWrite((v) async {
         pass.check(v);
@@ -416,7 +467,7 @@ class ConversationCrypto {
         } on MlsException catch (err) {
           return _transient(err.code) ? _Applied.interrupted : _Applied.stuck;
         }
-        final newMember = await _writeApplied(
+        final written = await _writeApplied(
           v,
           id,
           at,
@@ -427,7 +478,8 @@ class ConversationCrypto {
           pins: pins,
           thisDevice: pass.deviceId,
         );
-        if (newMember) {
+        knownGrew = written.knownGrew;
+        if (written.newMember) {
           _contexts.of(id)
             ..attributionConcluded = false
             ..attributionPending = true;
@@ -443,13 +495,20 @@ class ConversationCrypto {
     if (applied == _Applied.ok || applied == _Applied.selfRemoved) {
       _onChanged(id);
     }
+    if (knownGrew) {
+      try {
+        await _messaging.noteEverEncrypted(id, session: pass.cacheSession);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'noteEverEncrypted');
+      }
+    }
     return applied;
   }
 
   /// The one transaction of an applied commit (inside the runWrite body that
-  /// computed [next]). Returns whether a member was pinned unattributed
-  /// (added, or a changed key).
-  Future<bool> _writeApplied(
+  /// computed [next]). `newMember`: a member was pinned unattributed (added,
+  /// or a changed key); `knownGrew`: the id was added to the known set.
+  Future<({bool newMember, bool knownGrew})> _writeApplied(
     SecureVault v,
     String id,
     MlsPair at, {
@@ -482,7 +541,9 @@ class ConversationCrypto {
           for (final p in pins) {
             await tx.deleteMember(id, p.deviceId);
           }
-          await _formerPins.putIn(tx, id, pins);
+          await _formerPins.putIn(tx, v, id, pins);
+          // The rejoin is never a first join: no baseline is kept.
+          await _baselines.deleteIn(tx, v, id);
           if (MlsPair.above(at, record?.afterPair)) {
             await tx.setAfterPair(id, at);
           }
@@ -496,7 +557,7 @@ class ConversationCrypto {
               firstSawGenerationAtMicros: nowMicros,
             ),
           );
-          if (needKnown) await _known.addIn(tx, id);
+          if (needKnown) await _known.addIn(tx, v, id);
           return;
         }
         final byHex = {for (final p in pins) vaultDeviceIdHex(p.deviceId): p};
@@ -530,7 +591,10 @@ class ConversationCrypto {
         }
         // Added, and the (id, key) comparison after every commit: a member
         // not pinned, or pinned with another key, is pinned unattributed
-        // with the key the group holds (never kept on its old side).
+        // with the key the group holds (never kept on its old side). A
+        // changed key is an unknown device at once (its row in this same
+        // transaction, accepted conversations only): attribution never pins
+        // a member whose unknownDevice row exists at its `since`.
         final added = <String, Uint8List>{};
         if (event != null) {
           for (var i = 0; i < event.added.length; i++) {
@@ -562,6 +626,18 @@ class ConversationCrypto {
               since: nextPair,
             ),
           );
+          if (pinned != null && accepted) {
+            final row = _systemRow(
+              id,
+              nextPair,
+              SystemLine.unknownDevice,
+              nowMicros,
+              deviceId: deviceId,
+            );
+            if (!await v.hasMessage(id, row.messageId)) {
+              await tx.putMessage(row);
+            }
+          }
         }
         await tx.putGroup(
           GroupRecord(
@@ -579,14 +655,14 @@ class ConversationCrypto {
           id,
           sync.copyWith(completedEpochs: completed, epochMustAdvance: false),
         );
-        if (needKnown) await _known.addIn(tx, id);
+        if (needKnown) await _known.addIn(tx, v, id);
       });
     } on Object {
       _known.discardStaged();
       rethrow;
     }
     _known.commitStaged();
-    return newMember;
+    return (newMember: newMember, knownGrew: needKnown);
   }
 
   static Uint8List? _deviceIdOf(
@@ -659,7 +735,7 @@ class ConversationCrypto {
               ),
             );
           }
-          if (needKnown) await _known.addIn(tx, id);
+          if (needKnown) await _known.addIn(tx, v, id);
         });
       } on Object {
         _known.discardStaged();
@@ -852,6 +928,9 @@ class ConversationCrypto {
         break;
       }
       final ackIds = <String>[];
+      // A welcome joined (and acknowledged) by a nested poll of the
+      // catch-up it started: the next page no longer lists it.
+      var joinedInPlace = false;
       for (final w in page.welcomes) {
         if (w.id.isEmpty) continue;
         listed.add(w.id);
@@ -864,6 +943,11 @@ class ConversationCrypto {
             ? await _welcomeLocked(poll, w)
             : await _locks.run(id, () => _welcomeLocked(poll, w));
         if (outcome == _Outcome.stop || !poll.live) break;
+        if (outcome == _Outcome.joinedInPlace) {
+          joined.add(id);
+          joinedInPlace = true;
+          continue;
+        }
         if (outcome == _Outcome.joined) joined.add(id);
         if (outcome != _Outcome.transient) ackIds.add(w.id);
       }
@@ -875,7 +959,7 @@ class ConversationCrypto {
         break;
       }
       // The same page would come back.
-      if (ackIds.isEmpty) break;
+      if (ackIds.isEmpty && !joinedInPlace) break;
     }
     if (complete && poll.live) await _dropSkew(poll, listed);
     return joined;
@@ -893,7 +977,9 @@ class ConversationCrypto {
       final id = await vault.deviceId();
       if (id == null) return null;
       final idString = utf8.decode(id);
-      if (!_known.loaded) await _known.load(vault);
+      // Loaded for THIS vault (not only loaded): a set of another vault is
+      // replaced before anything is written.
+      if (!_known.isLoadedFor(vault)) await _known.load(vault);
       return _Poll(
         session: _session,
         vault: vault,
@@ -917,7 +1003,25 @@ class ConversationCrypto {
     final id = w.conversationId;
     _Join result;
     try {
-      result = await _welcomeSteps(poll, w);
+      result = await _welcomeSteps(poll, w, mayWalk: true);
+      final label = result.label;
+      if (result.kind == _Outcome.walkFirst && label != null) {
+        // Step 6 / L6: a stored generation not walked to its end goes first.
+        // Catch-up applies its remaining commits, completes (or marks) its
+        // last epoch, then joins this welcome in place through its own held
+        // poll, which acknowledges it.
+        await _catchUpLocked(id, priority: poll.priority);
+        if (!poll.live) return _Outcome.stop;
+        final after = await poll.vault.conversation(id);
+        if (after?.joinHighWater == label) return _Outcome.joinedInPlace;
+        // The walk did not finish (a transient failure): the next poll.
+        if (await _unwalked(poll.vault, id, label.generation)) {
+          return _Outcome.transient;
+        }
+        // Walked (or the old group went with selfRemoved) but not joined
+        // there: join here, with the marks read again.
+        result = await _welcomeSteps(poll, w, mayWalk: false);
+      }
     } on _Stopped {
       return _Outcome.stop;
     } on Object catch (e, s) {
@@ -928,7 +1032,7 @@ class ConversationCrypto {
     }
     switch (result.kind) {
       case _Outcome.joined:
-        await _afterJoinLocked(poll, id, baselineSince: result.baselineSince);
+        await _afterJoinLocked(poll, id);
         return _Outcome.joined;
       case _Outcome.permanent:
         try {
@@ -940,11 +1044,41 @@ class ConversationCrypto {
         return _Outcome.permanent;
       case _Outcome.transient:
       case _Outcome.stop:
+      case _Outcome.joinedInPlace:
         return result.kind;
+      case _Outcome.walkFirst:
+        // Only once per welcome (mayWalk false the second time).
+        return _Outcome.transient;
     }
   }
 
-  Future<_Join> _welcomeSteps(_Poll poll, pb.Welcome w) async {
+  /// L6: a stored non-provisional group of a generation up to [generation]
+  /// whose (generation, epoch) is not recorded as walked to its end.
+  static Future<bool> _unwalked(
+    SecureVault vault,
+    String id,
+    int generation,
+  ) async {
+    final groups = await vault.groups(id);
+    if (groups.isEmpty) return false;
+    final done =
+        (await vault.conversation(id))?.sync.completedEpochs ??
+        const <MlsPair>[];
+    return groups.any(
+      (g) =>
+          !g.provisional &&
+          g.generation <= generation &&
+          !done.contains(MlsPair(g.generation, g.epoch)),
+    );
+  }
+
+  /// [mayWalk]: a stored generation not walked to its end yields
+  /// [_Outcome.walkFirst] (the caller catches up first) instead of a join.
+  Future<_Join> _welcomeSteps(
+    _Poll poll,
+    pb.Welcome w, {
+    required bool mayWalk,
+  }) async {
     final id = w.conversationId;
     // 1. The label; a component the client cannot hold is permanent.
     final g = pairComponentFromInt64(w.mlsGeneration);
@@ -972,6 +1106,13 @@ class ConversationCrypto {
       poll.serverPairs[id] = server;
     }
     if (g < server.generation) return const _Join(_Outcome.permanent);
+
+    // L6 / step 6: an older (or the same) generation still to be walked is
+    // walked by catch-up first; a join now would leave its last epochs
+    // unread (or overwrite a same-generation group).
+    if (mayWalk && await _unwalked(poll.vault, id, g)) {
+      return _Join(_Outcome.walkFirst, label: label);
+    }
 
     // 2a. A provisional group of the labelled generation (security read M8).
     final provisional = await poll.vault.group(id, g);
@@ -1032,7 +1173,7 @@ class ConversationCrypto {
       // Read fresh in this body: the pins, the former pins, the groups.
       final groups = await v.groups(id);
       final current = await v.members(id);
-      final former = await _formerPins.of(id);
+      final former = await _formerPins.of(v, id);
       final firstJoin =
           stored?.afterPair == null &&
           stored?.joinHighWater == null &&
@@ -1089,8 +1230,15 @@ class ConversationCrypto {
               ),
             );
           }
-          await _formerPins.deleteIn(tx, id);
-          await _known.addIn(tx, id);
+          await _formerPins.deleteIn(tx, v, id);
+          // I-2: a first join records its baseline in the vault; any later
+          // join replaces it with none.
+          if (firstJoin) {
+            await _baselines.putIn(tx, v, id, label.next);
+          } else {
+            await _baselines.deleteIn(tx, v, id);
+          }
+          await _known.addIn(tx, v, id);
           if (MlsPair.above(label, stored?.afterPair)) {
             await tx.setAfterPair(id, label);
           }
@@ -1113,10 +1261,7 @@ class ConversationCrypto {
         rethrow;
       }
       _known.commitStaged();
-      return _Join(
-        _Outcome.joined,
-        baselineSince: firstJoin ? label.next : null,
-      );
+      return const _Join(_Outcome.joined);
     });
   }
 
@@ -1318,11 +1463,7 @@ class ConversationCrypto {
 
   /// Step 6, under the conversation's lock after a stored join. A failure
   /// here never changes the acknowledgement: the join is stored.
-  Future<void> _afterJoinLocked(
-    _Poll poll,
-    String id, {
-    required MlsPair? baselineSince,
-  }) async {
+  Future<void> _afterJoinLocked(_Poll poll, String id) async {
     try {
       await _messaging.noteEverEncrypted(id, session: poll.cacheSession);
     } on Object catch (e, s) {
@@ -1333,9 +1474,7 @@ class ConversationCrypto {
       ..attributionPending = true
       ..syncedSinceStart = false
       ..livePulledAt = null
-      ..attributionConcluded = false
-      // A later join is never a baseline: it replaces an earlier first one.
-      ..baselineSince = baselineSince;
+      ..attributionConcluded = false;
     // Joined in place by catch-up's generation switch: that pass goes on
     // (and attributes once current); a nested catch-up would poll again.
     if (poll.held == id) return;
@@ -1352,26 +1491,36 @@ class ConversationCrypto {
   Future<void> attributeMembers(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
-  }) => _locks.run(conversationId, () async {
+  }) => _locks.run(
+    conversationId,
+    () => _attributeEntry(conversationId, priority),
+  );
+
+  /// The attribution entry points' body (the lock is held): the known set is
+  /// loaded for the current vault like every other entry point. Never throws.
+  Future<void> _attributeEntry(String id, BudgetPriority priority) async {
     try {
-      await _attributeMembersLocked(conversationId, priority: priority);
+      final pass = await _startPoll(priority);
+      if (pass == null) return;
+      await _attributeMembersLocked(pass, id);
+    } on _Stopped {
+      // The vault changed: nothing was written.
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'attribute');
     }
-  });
+  }
 
-  /// A member pinned by this run's FIRST join of the conversation
-  /// ([ConversationContext.baselineSince]) is a baseline member: no
-  /// peer-side row, and the own-device alert only per security read H2.
-  /// Every other member (a later join, a member added by a commit, anything
-  /// after a restart) gets its `deviceAdded` row once attributed.
-  Future<void> _attributeMembersLocked(
-    String id, {
-    required BudgetPriority priority,
-  }) async {
-    final vault = _session.vault;
-    if (vault == null) return;
-    final uid = vault.uid;
+  /// A member pinned by the FIRST join of the conversation (the sealed
+  /// baseline record, [JoinBaselines], read fresh in the write body) is a
+  /// baseline member: no peer-side row, and the own-device alert only per
+  /// security read H2. Every other member (a later join, a member added by a
+  /// commit) gets its `deviceAdded` row once attributed. A member whose
+  /// `unknownDevice` row exists at its `since` (a changed key, or an earlier
+  /// unknown verdict) is never attributed: it stays an unknown device.
+  Future<void> _attributeMembersLocked(_Poll pass, String id) async {
+    final priority = pass.priority;
+    final vault = pass.vault;
+    if (!pass.live) return;
     final context = _contexts.of(id);
     if (!(await vault.members(id))
         .any((m) => m.side == MemberSide.unattributed)) {
@@ -1386,16 +1535,14 @@ class ConversationCrypto {
     final peer = ref == null
         ? const DeviceList.unreadable()
         : await _directory.peer(ref, fresh: true, priority: priority);
-    final baselineSince = context.baselineSince;
     final unreadable =
         own.state == ListState.unreadable || peer.state == ListState.unreadable;
     final deferred =
         !unreadable &&
         (own.state == ListState.deferred || peer.state == ListState.deferred);
     final outcome = await _session.runWrite((v) async {
-      if (!identical(v, vault) || v.uid != uid) {
-        throw StateError('The vault changed.');
-      }
+      pass.check(v);
+      final baselineSince = await _baselines.of(v, id);
       final current = await v.members(id);
       final accepted =
           (await v.conversation(id))?.sync.requestAccepted ?? false;
@@ -1411,26 +1558,44 @@ class ConversationCrypto {
           fetchCounts(fetchedAt: peerFetched, acceptedSeenAt: acceptedSeenAt);
       var waiting = false;
       final everMine = accepted
-          ? await _formerPins.everPinnedMine(excluding: id)
+          ? await _formerPins.everPinnedMine(v, excluding: id)
           : const <({String deviceIdHex, String keyB64})>{};
       final brandNew = accepted && baselineSince != null
-          ? await _formerPins.brandNewVault(excluding: id)
+          ? await _formerPins.brandNewVault(v, excluding: id)
           : false;
       final nowMicros = _now().microsecondsSinceEpoch;
       final pins = <MemberRecord>[];
       final rows = <StoredMessage>[];
       var stillUnattributed = false;
       var theirsFromPeer = false;
+      var baselineLeft = false;
       for (final m in current) {
         if (m.side != MemberSide.unattributed) continue;
+        final hex = vaultDeviceIdHex(m.deviceId);
+        // I-3: an unknownDevice row at its `since` (a changed key, or an
+        // earlier unknown verdict) keeps it an unknown device, whatever the
+        // lists now say. Checked before the lists decide anything.
+        final unknownRow = systemLineId(
+          id,
+          m.since,
+          SystemLine.unknownDevice,
+          deviceId: m.deviceId,
+        );
+        if (await v.hasMessage(id, unknownRow)) {
+          stillUnattributed = true;
+          if (m.since == baselineSince) baselineLeft = true;
+          context.firstSeenUnattributed[hex] ??= now;
+          context.unknownDevices.add(hex);
+          continue;
+        }
         final side = attribute(
           deviceId: m.deviceId,
           signatureKey: m.signatureKey,
           ownList: own,
           peerList: peer,
         );
-        final hex = vaultDeviceIdHex(m.deviceId);
         if (side == MemberSide.unattributed) {
+          if (m.since == baselineSince) baselineLeft = true;
           stillUnattributed = true;
           // R10: unaccepted, an unmatched member just stays unattributed.
           // An unreadable or deferred list decides nothing (handled below).
@@ -1512,11 +1677,18 @@ class ConversationCrypto {
         }
       }
       // Pending: a member is unattributed for a reason a later attribution
-      // may settle (a list not readable, a fetch not counting yet). In an
-      // unaccepted conversation attribution runs once per join.
+      // may settle (a list not readable or deferred, a fetch not counting
+      // yet). An unreadable or deferred list is retried in an unaccepted
+      // conversation too (it writes no row there); an unmatched member of an
+      // unaccepted one is not (the lookup there means nothing).
       final pending =
-          accepted && stillUnattributed && (unreadable || deferred || waiting);
-      if (pins.isEmpty && rows.isEmpty) return (wrote: false, pending: pending);
+          stillUnattributed &&
+          (unreadable || deferred || (accepted && waiting));
+      // I-2: the baseline goes once no member at its `since` is unattributed.
+      final dropBaseline = baselineSince != null && !baselineLeft;
+      if (pins.isEmpty && rows.isEmpty && !dropBaseline) {
+        return (wrote: false, pending: pending);
+      }
       try {
         await v.transaction((tx) async {
           for (final p in pins) {
@@ -1525,9 +1697,10 @@ class ConversationCrypto {
           for (final r in rows) {
             await tx.putMessage(r);
           }
+          if (dropBaseline) await _baselines.deleteIn(tx, v, id);
           // C1 / N3: the ref whose list the theirs-side pins came from.
           if (theirsFromPeer && ref != null) {
-            await _known.addIn(tx, id, peerUserId: ref);
+            await _known.addIn(tx, v, id, peerUserId: ref);
           }
         });
       } on Object {
@@ -1535,7 +1708,7 @@ class ConversationCrypto {
         rethrow;
       }
       _known.commitStaged();
-      return (wrote: true, pending: pending);
+      return (wrote: pins.isNotEmpty || rows.isNotEmpty, pending: pending);
     });
     final now = _now();
     final unattributedLeft = (await vault.members(id))
@@ -1709,19 +1882,22 @@ class ConversationCrypto {
       b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 }
 
-enum _Outcome { joined, permanent, transient, stop }
+/// `joinedInPlace`: joined and acknowledged by the nested poll of the
+/// catch-up a `walkFirst` started (nothing more to acknowledge). `walkFirst`:
+/// a stored generation must be walked to its end before this join.
+enum _Outcome { joined, permanent, transient, stop, joinedInPlace, walkFirst }
 
 enum _Settled { ownStored, discarded, unknown }
 
 enum _Applied { ok, selfRemoved, stuck, interrupted }
 
 class _Join {
-  const _Join(this.kind, {this.baselineSince});
+  const _Join(this.kind, {this.label});
 
   final _Outcome kind;
 
-  /// A first join: the `since` of the members it pinned (the baseline).
-  final MlsPair? baselineSince;
+  /// The welcome's label, with [_Outcome.walkFirst].
+  final MlsPair? label;
 }
 
 /// The vault the poll started with is no longer the session's.

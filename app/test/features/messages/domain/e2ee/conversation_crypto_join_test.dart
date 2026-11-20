@@ -8,6 +8,7 @@ import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -61,6 +62,31 @@ class _BigPage extends RigMessaging {
       deviceId: deviceId,
       ids: ids,
     );
+  }
+}
+
+/// A sink whose walk of [failing]'s epochs fails (a transient failure).
+class _FailingSink implements EpochMessageSink {
+  _FailingSink(this.failing);
+
+  final String failing;
+
+  @override
+  Future<void> completeEpoch(
+    String conversationId,
+    MlsPair pair, {
+    required BudgetPriority priority,
+  }) async {
+    if (conversationId == failing) throw StateError('rig: walk failed');
+  }
+
+  @override
+  Future<void> markEpochUndecryptable(
+    String conversationId,
+    MlsPair pair, {
+    required BudgetPriority priority,
+  }) async {
+    if (conversationId == failing) throw StateError('rig: walk failed');
   }
 }
 
@@ -465,15 +491,16 @@ void main() {
     rig.header(_c1, 'ref-bob');
     // This device was in generation 1 with bob, then left it: marks and
     // former pins stay.
-    final formerPins = FormerPins(session: rig.device.session);
-    await rig.device.vault.transaction((tx) async {
+    const formerPins = FormerPins();
+    final v = rig.device.vault;
+    await v.transaction((tx) async {
       await tx.putConversationSync(
         _c1,
         const ConversationSync(requestAccepted: true),
       );
       await tx.setAfterPair(_c1, const MlsPair(1, 3));
       await tx.setJoinHighWater(_c1, const MlsPair(1, 0));
-      await formerPins.putIn(tx, _c1, [
+      await formerPins.putIn(tx, v, _c1, [
         MemberRecord(
           conversationId: _c1,
           deviceId: bob.id,
@@ -514,7 +541,7 @@ void main() {
     expect(lines.single.side, MemberSide.theirs);
     expect(rigEq(lines.single.deviceId!, carol.id), isTrue);
     // The former pins are current again.
-    expect(await formerPins.of(_c1), isEmpty);
+    expect(await formerPins.of(v, _c1), isEmpty);
   });
 
   test('a welcome for a provisional generation is joined only after the '
@@ -793,14 +820,25 @@ void main() {
     );
 
     await rig.offer(_c1, bob, generation: 2);
-    await rig.offer(_c2, bob, generation: 2);
-    expect((await rig.crypto.processWelcomes()).toSet(), {_c1, _c2});
+    final w2 = await rig.offer(_c2, bob, generation: 2);
+    // _c2's generation 1 must be walked first; that walk fails here, so
+    // its welcome waits (not acknowledged) and generation 1 stays.
+    rig.crypto.sink = _FailingSink(_c2);
+    rig.server.acks.clear();
+    expect(await rig.crypto.processWelcomes(), [_c1]);
 
     expect(await v.group(_c1, 2), isNotNull);
     expect(await v.group(_c1, 1), isNull);
-    expect(await v.group(_c2, 2), isNotNull);
+    expect(await v.group(_c2, 2), isNull);
     expect(await v.group(_c2, 1), isNotNull);
+    expect(await ackedIds(), isNot(contains(w2.welcomeId)));
     expect((await v.conversation(_c1))!.sync.completedEpochs, isEmpty);
+
+    // Once the walk succeeds, generation 1 goes with the join of 2.
+    rig.crypto.sink = null;
+    expect(await rig.crypto.processWelcomes(), [_c2]);
+    expect(await v.group(_c2, 2), isNotNull);
+    expect(await v.group(_c2, 1), isNull);
   });
 
   test('a rejoin keeps a current pin with the same key, deletes a pin absent '
