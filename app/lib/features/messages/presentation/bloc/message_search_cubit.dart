@@ -1,12 +1,16 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../data/messaging_repository.dart';
 import '../../data/messaging_store.dart';
+import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/message_search.dart';
+import '../e2ee/encrypted_search_results.dart';
 import 'message_search_state.dart';
 
 /// Searches the messages cached on this device (see
@@ -22,7 +26,11 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
     this.conversationId,
     this.debounce = const Duration(milliseconds: 250),
     this.onUnexpectedError,
+    EncryptedMessaging? encrypted,
+    bool Function()? encryptedAllowed,
   }) : _repository = repository,
+       _encrypted = encrypted,
+       _encryptedAllowed = encryptedAllowed,
        super(const MessageSearchState()) {
     // An accepted, deleted or blocked conversation changed the cache.
     _changes = _repository.conversationsChanged.listen((_) {
@@ -40,6 +48,45 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
   final Duration debounce;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
 
+  final EncryptedMessaging? _encrypted;
+  final bool Function()? _encryptedAllowed;
+  final ValueNotifier<EncryptedHitGroups> _encryptedResults = ValueNotifier(
+    EncryptedHitGroups.empty,
+  );
+
+  /// Decrypted hits live OUTSIDE the freezed state (security read M7).
+  ValueListenable<EncryptedHitGroups> get encryptedResults => _encryptedResults;
+
+  /// The port, only while the access of this device allows touching it. A
+  /// missing [_encryptedAllowed] means NOT allowed (fail closed), as in the
+  /// inbox.
+  EncryptedMessaging? get _port {
+    final port = _encrypted;
+    if (port == null) return null;
+    return (_encryptedAllowed?.call() ?? false) ? port : null;
+  }
+
+  /// True when a port exists and the access allows using it right now.
+  bool get encryptedUsable => _port != null;
+
+  /// The screen calls this when the encryption access of this device may have
+  /// changed: with access lost the decrypted hits are dropped at once.
+  void accessChanged() {
+    if (isClosed || _port != null) return;
+    _clearEncrypted();
+  }
+
+  void _clearEncrypted() {
+    if (!identical(_encryptedResults.value, EncryptedHitGroups.empty)) {
+      _encryptedResults.value = EncryptedHitGroups.empty;
+    }
+  }
+
+  /// The searched conversation is encrypted: older text exists only on this
+  /// device and is already searched.
+  bool _encryptedConversation = false;
+  bool _resultsDisposed = false;
+
   StreamSubscription<void>? _changes;
   Timer? _timer;
   SearchCorpus? _corpus;
@@ -54,6 +101,8 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
   void setQuery(String query) {
     if (isClosed) return;
     _timer?.cancel();
+    // A new query drops the old decrypted answer at once.
+    _clearEncrypted();
     if (query.trim().isEmpty) {
       _generation++;
       emit(
@@ -93,7 +142,35 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
         _olderToken = await _repository.olderSearchToken(id);
       }
       if (isClosed || generation != _generation) return;
+      var vault = EncryptedHitGroups.empty;
+      final port = _port;
+      if (port != null) {
+        // The saved copies on this device (R14): in memory only, and only
+        // while the access allows it. A failure keeps the cache results.
+        try {
+          // Asked BEFORE the await, while the access still holds (and so
+          // also right when the search fails).
+          // Fail closed: should the check itself throw, no older pages.
+          _encryptedConversation = id != null;
+          if (id != null) {
+            _encryptedConversation = _isEncrypted(port, corpus, id);
+          }
+          final hits = await port.search(query, conversationId: id);
+          if (isClosed || generation != _generation) return;
+          // A stale answer (the query moved on) is dropped, not published.
+          if (_port != null && query == state.query) {
+            vault = groupEncryptedHits(corpus.conversations, hits, query);
+          }
+        } on Object catch (_, stack) {
+          if (isClosed || generation != _generation) return;
+          // Never the original error: it may carry the query or text.
+          onUnexpectedError?.call(StateError('search'), stack);
+        }
+      } else {
+        _encryptedConversation = false;
+      }
       final messages = _withOlder(corpus);
+      _encryptedResults.value = vault;
       emit(
         state.copyWith(
           status: MessageSearchStatus.ready,
@@ -102,15 +179,28 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
             messagesByConversation: messages,
             query: query,
           ),
-          canLoadOlder: id != null && _olderToken.isNotEmpty,
+          canLoadOlder:
+              id != null && _olderToken.isNotEmpty && !_encryptedConversation,
         ),
       );
     } on Object catch (error, stack) {
       // A broken disk reads as "no results"; never with the query or text.
       onUnexpectedError?.call(error, stack);
       if (isClosed || generation != _generation) return;
+      _clearEncrypted();
       emit(state.copyWith(status: MessageSearchStatus.ready, groups: const []));
     }
+  }
+
+  bool _isEncrypted(EncryptedMessaging port, SearchCorpus corpus, String id) {
+    for (final c in corpus.conversations) {
+      if (c.id != id) continue;
+      if (c.encryption == ConversationEncryption.CONVERSATION_ENCRYPTION_MLS) {
+        return true;
+      }
+      if (c.hasLastMessage() && c.lastMessage.encrypted) return true;
+    }
+    return port.hasLocal(id);
   }
 
   Map<String, List<pb.Message>> _withOlder(SearchCorpus corpus) {
@@ -132,7 +222,11 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
   /// (the existing API), kept in memory, then the search runs again.
   Future<void> loadOlder() async {
     final id = conversationId;
-    if (id == null || isClosed || state.loadingOlder || _olderToken.isEmpty) {
+    if (id == null ||
+        isClosed ||
+        state.loadingOlder ||
+        _olderToken.isEmpty ||
+        _encryptedConversation) {
       return;
     }
     emit(state.copyWith(loadingOlder: true, olderError: null));
@@ -161,6 +255,9 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
     unawaited(_changes?.cancel());
     _older.clear();
     _corpus = null;
-    return super.close();
+    _clearEncrypted();
+    if (_resultsDisposed) return super.close();
+    _resultsDisposed = true;
+    return super.close().whenComplete(_encryptedResults.dispose);
   }
 }
