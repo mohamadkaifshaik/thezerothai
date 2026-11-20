@@ -286,8 +286,8 @@ class VaultSession {
   /// wipes, wipes the vaults of other users this device still has (a failure
   /// there never blocks [uid]'s own vault), then opens [uid]'s vault when the
   /// flag is [E2eeFlag.on] or this device already has one (its known-vault
-  /// marker). With neither, the status is [VaultStatus.off] and nothing is
-  /// touched.
+  /// marker). With neither, the status is [VaultStatus.off], nothing is opened
+  /// and no marker is written.
   Future<void> onSignedIn(String uid, {required E2eeFlag flag}) =>
       _enqueue('signIn', () async {
         if (_uid != uid) {
@@ -377,8 +377,9 @@ class VaultSession {
         if (!_supported) return;
         if (flag != E2eeFlag.on || _vault != null) return;
         // A block left by a `create: false` open that answered unavailable
-        // (see [_fail]) does not outlive the answer that lets the vault start. Never one that
-        // an owed wipe, a lost key or another tab caused, and never while a
+        // (see [_fail]) does not outlive the answer that lets the vault start.
+        // Never one that an owed wipe, a lost key or another tab caused, and
+        // never while a
         // wipe is owed (the open would finish it because of a flag answer).
         if (_softBlocked.contains(uid)) {
           var owed = true;

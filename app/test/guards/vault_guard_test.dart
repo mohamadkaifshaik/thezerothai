@@ -138,8 +138,10 @@ const Map<String, Map<String, String>> _allowedToStrings = {
   'lib/core/crypto/mls_pair.dart': {
     'MlsPair': "=> 'MlsPair(\$generation, \$epoch)';",
   },
-  // Prints the code and a fixed message; uncoded engine errors are replaced
-  // by a fixed text (MlsException.fromEngineReply, mls_worker.js failure()).
+  // Prints the code and the core's own text (fixed wording with sizes and
+  // counts, never ids, keys or content; the native engine passes it through,
+  // internal errors included); uncoded engine errors are replaced by a fixed
+  // text (MlsException.fromEngineReply, mls_worker.js failure()).
   'lib/core/crypto/crypto_types.dart': {
     'MlsException': "=> 'MlsException(\${code.wire}): \$message';",
   },
