@@ -467,6 +467,12 @@ class ConversationCrypto {
   /// True when the allowance was raised. False, with nothing written, when
   /// the history is not closed, cannot be raised further, is unreadable, or
   /// the vault is closed or changed. Never throws.
+  ///
+  /// It starts no attribution: after it returns true the caller must run
+  /// [catchUp] or [attributeMembers] (the admitted devices stay unattributed
+  /// until then), and should read [describeState] again, because a raise can
+  /// promote nothing (every held device may have changed key, or there may
+  /// be none).
   Future<bool> allowNewDevices(String conversationId) =>
       _locks.run(conversationId, () => _allowNewDevicesLocked(conversationId));
 

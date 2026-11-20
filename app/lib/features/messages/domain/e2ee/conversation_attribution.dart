@@ -52,6 +52,14 @@ extension _Attribution on ConversationCrypto {
     final deferred =
         !unreadable &&
         (own.state == ListState.deferred || peer.state == ListState.deferred);
+    // The context changes this body decides: applied only after it returned
+    // (its transaction committed, or nothing was to be written), never when
+    // it throws, so memory never runs ahead of the vault.
+    final unknownNow = <String>{};
+    final attributedNow = <String>{};
+    DateTime? reattributeAt;
+    DateTime? decidedAt;
+    DateTime? seenAt;
     final outcome = await _session.runWrite((v) async {
       pass.check(v);
       final baselineSince = await _baselines.of(v, id);
@@ -66,7 +74,9 @@ extension _Attribution on ConversationCrypto {
       final accepted =
           (await v.conversation(id))?.sync.requestAccepted ?? false;
       final now = _now();
-      final acceptedSeenAt = accepted ? (context.acceptedSeenAt ??= now) : null;
+      final acceptedSeenAt = accepted ? (context.acceptedSeenAt ?? now) : null;
+      decidedAt = now;
+      seenAt = acceptedSeenAt;
       // The peer fetch is the full registered list only from
       // kConversationCopyStale after this run knew the conversation accepted.
       final peerFetched = peer.fetchedAt;
@@ -101,8 +111,7 @@ extension _Attribution on ConversationCrypto {
         if (refusal != KeyRefusal.none) {
           stillUnattributed = true;
           if (m.since == baselineSince) baselineLeft = true;
-          context.firstSeenUnattributed[hex] ??= now;
-          context.unknownDevices.add(hex);
+          unknownNow.add(hex);
           if (accepted && refusal != KeyRefusal.unreadable) {
             final row = _systemRow(
               id,
@@ -131,13 +140,12 @@ extension _Attribution on ConversationCrypto {
             // The server may still answer with active devices only: no row,
             // no flag; one re-attribution at the time the fetch counts.
             waiting = true;
-            context.reattributeAt = acceptedSeenAt!.add(kConversationCopyStale);
+            reattributeAt = acceptedSeenAt!.add(kConversationCopyStale);
             continue;
           }
           // M2: unknown with both lists readable and a counting fetch. One
           // row per device and pair (the stored row is the record of it).
-          context.firstSeenUnattributed[hex] ??= now;
-          context.unknownDevices.add(hex);
+          unknownNow.add(hex);
           final row = _systemRow(
             id,
             m.since,
@@ -148,8 +156,7 @@ extension _Attribution on ConversationCrypto {
           if (!await v.hasMessage(id, row.messageId)) rows.add(row);
           continue;
         }
-        context.unknownDevices.remove(hex);
-        context.firstSeenUnattributed.remove(hex);
+        attributedNow.add(hex);
         if (side == MemberSide.theirs) theirsFromPeer = true;
         pins.add(
           MemberRecord(
@@ -242,6 +249,21 @@ extension _Attribution on ConversationCrypto {
         knownGrew: knownGrew,
       );
     });
+    // The body returned: its decisions reach memory now.
+    final at = decidedAt;
+    final seen = seenAt;
+    if (seen != null) context.acceptedSeenAt ??= seen;
+    if (at != null) {
+      for (final hex in unknownNow) {
+        context.firstSeenUnattributed[hex] ??= at;
+        context.unknownDevices.add(hex);
+      }
+    }
+    for (final hex in attributedNow) {
+      context.unknownDevices.remove(hex);
+      context.firstSeenUnattributed.remove(hex);
+    }
+    if (reattributeAt != null) context.reattributeAt = reattributeAt;
     // As an applied commit (I-4): the known set grew in that transaction.
     if (outcome.knownGrew) {
       try {

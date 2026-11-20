@@ -70,8 +70,8 @@ enum KeyRefusal { none, tainted, unrecorded, unreadable }
 /// Fails closed, per conversation: an unreadable history refuses every
 /// unattributed member of that conversation, is reported once per
 /// conversation per run as `E2eePipelineError('keyHistory.read')`, and is
-/// never overwritten. Never logs. No `toString` here or on [KeyHistory]
-/// prints an id or a key.
+/// never overwritten. Never logs. Neither this class nor [KeyHistory] has a
+/// text form (both keep `Object.toString`).
 class DeviceKeyHistory {
   DeviceKeyHistory({
     void Function(Object error, StackTrace stack)? onUnexpectedError,
@@ -96,7 +96,8 @@ class DeviceKeyHistory {
   /// [report] false: an unreadable history is not reported and does not
   /// spend this conversation's one report. For a reader that holds no lock
   /// (`describeState`), which can meet a half-written state; every write
-  /// body reports.
+  /// body reports. Never pass false inside a write body: only for read-only
+  /// state queries.
   Future<KeyHistory> of(
     SecureVault vault,
     String conversationId, {
@@ -154,7 +155,7 @@ class DeviceKeyHistory {
 
 /// One conversation's device key history, read for one transaction. Mutable:
 /// [admit] and [allowNewDevices] change it, [DeviceKeyHistory.writeIn]
-/// stores it. No `toString` prints an id or a key.
+/// stores it. It carries ids, so it has no text form (`Object.toString`).
 class KeyHistory {
   KeyHistory._({
     required Map<String, String> ids,
@@ -478,9 +479,4 @@ class KeyHistory {
       thisDeviceHex: thisDeviceHex,
     );
   }
-
-  @override
-  String toString() =>
-      'KeyHistory(unreadable: $unreadable, closed: $_closed, '
-      'size: $size, held: ${_held.length}, allowance: $_allowance)';
 }

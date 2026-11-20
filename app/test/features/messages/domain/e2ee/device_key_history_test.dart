@@ -847,7 +847,7 @@ void main() {
     expect(_stored(h)['changed'], taints);
   });
 
-  test('toString prints no id or key', () {
+  test('the classes carrying ids have no text form', () {
     final h = _empty()
       ..admit(_hex(0xabcd), _key(1))
       ..admit(_hex(0xbcde), _key(2))
@@ -856,7 +856,8 @@ void main() {
     expect(text, isNot(contains(_hex(0xabcd))));
     expect(text, isNot(contains(_hex(0xbcde))));
     expect(text, isNot(contains(base64Encode(_key(1)))));
-    expect(text, contains('size: 2'));
+    expect('$h', "Instance of 'KeyHistory'");
+    expect('${KeyHistory.unreadableRecord()}', "Instance of 'KeyHistory'");
     for (final r in KeyRefusal.values) {
       expect('$r', startsWith('KeyRefusal.'));
     }

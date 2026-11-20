@@ -2718,12 +2718,32 @@ void main() {
       return () => fired;
     }
 
+    /// The context fields a write body decides (catch-up's own
+    /// `syncedSinceStart` and `serverPair`, set outside any write body, are
+    /// left out).
+    String decided(String c) {
+      final x = rig.contexts.of(c);
+      return [
+        x.acceptedSeenAt,
+        x.attributionPending,
+        x.attributionConcluded,
+        x.deferredSince,
+        x.listUnverifiable,
+        x.reattributeAt,
+        x.stuck,
+        x.firstSeenUnattributed,
+        x.unknownDevices,
+      ].join('|');
+    }
+
     test('a failing transaction while applying a commit stores '
         'nothing', () async {
       final carol = await RigPeer.create('carol');
       final offer = await join(_c1);
       await bobCommit(offer, _c1, add: [carol]);
       final before = await rig.dump();
+      final state = await rig.crypto.describeState(_c1);
+      final context = decided(_c1);
       final fired = failNextApply();
 
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
@@ -2732,6 +2752,9 @@ void main() {
       expect(fired(), greaterThan(0));
       expect(await rig.dump(), before);
       expect(await pin(_c1, carol.id), isNull);
+      // Memory is as the vault: the context is untouched.
+      expect(await rig.crypto.describeState(_c1), state);
+      expect(decided(_c1), context);
 
       // A retry applies it.
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
@@ -2745,6 +2768,8 @@ void main() {
       final offer = await join(_c1);
       await bobCommit(offer, _c1, remove: [rig.device.deviceId]);
       final before = await rig.dump();
+      final state = await rig.crypto.describeState(_c1);
+      final context = decided(_c1);
       final fired = failNextApply();
 
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
@@ -2752,6 +2777,8 @@ void main() {
 
       expect(fired(), 1);
       expect(await rig.dump(), before);
+      expect(await rig.crypto.describeState(_c1), state);
+      expect(decided(_c1), context);
 
       // A retry applies it.
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
@@ -2789,6 +2816,9 @@ void main() {
       rig.keys.peers['ref-bob']!.add(rigKeyDevice(eve.idString, eve.key));
       rig.clock.advance(const Duration(minutes: 3));
       final before = await rig.dump();
+      final state = await rig.crypto.describeState(_c1);
+      expect(state.unknownDevicePresent, isTrue);
+      final context = decided(_c1);
       var fired = 0;
       keys.beforePeer = () {
         fired++;
@@ -2801,6 +2831,9 @@ void main() {
       expect(fired, 1);
       expect(await rig.dump(), before);
       expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      // Still an unknown device in memory, as her pin is in the vault.
+      expect(await rig.crypto.describeState(_c1), state);
+      expect(decided(_c1), context);
 
       // A retry attributes her.
       await rig.crypto.attributeMembers(_c1);

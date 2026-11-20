@@ -23,6 +23,9 @@ extension _CommitApply on ConversationCrypto {
     // The known set grew in the applied commit's transaction (a migrated v1
     // group that was never in it).
     var knownGrew = false;
+    // A member was pinned unattributed in the applied commit's transaction:
+    // the context hears of it only after the body returned.
+    var newMember = false;
     try {
       applied = await _session.runWrite((v) async {
         pass.check(v);
@@ -76,11 +79,7 @@ extension _CommitApply on ConversationCrypto {
           thisDevice: pass.deviceId,
         );
         knownGrew = written.knownGrew;
-        if (written.newMember) {
-          _contexts.of(id)
-            ..attributionConcluded = false
-            ..attributionPending = true;
-        }
+        newMember = written.newMember;
         return event?.selfRemoved ?? false ? _Applied.selfRemoved : _Applied.ok;
       });
     } on _Stopped {
@@ -88,6 +87,11 @@ extension _CommitApply on ConversationCrypto {
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'applyCommit');
       return _Applied.interrupted;
+    }
+    if (newMember) {
+      _contexts.of(id)
+        ..attributionConcluded = false
+        ..attributionPending = true;
     }
     if (applied == _Applied.ok || applied == _Applied.selfRemoved) {
       _onChanged(id);
