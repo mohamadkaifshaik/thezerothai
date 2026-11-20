@@ -2,6 +2,12 @@ import 'dart:async';
 
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/domain/people_source.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
@@ -15,6 +21,8 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/fake_encrypted_messaging.dart';
+import '../../../support/fake_encryption_device.dart';
 import '../../../support/messaging_flow_rig.dart';
 import '../../../support/thread_test_support.dart';
 
@@ -166,6 +174,97 @@ void main() {
       expect(inPicker('Sam Rivera'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
+  }
+
+  // The `e2ee_dm` column: flag {on, off, unknown} x a vault on this device
+  // {yes, no}, for a plaintext conversation. The thread is today's thread (the
+  // texts on screen, the composer) in every cell, except that with the flag on
+  // (access full) the not-encrypted note sits above the composer.
+  Future<List<String>> threadTexts(
+    WidgetTester tester, {
+    FakeEncryptedMessaging? port,
+    FakeEncryptionDevice? device,
+  }) async {
+    final server = MessagingFlowRig.serverWithConversation();
+    server.conversations[kThreadId]!.encryption =
+        ConversationEncryption.CONVERSATION_ENCRYPTION_NONE;
+    final rig = MessagingFlowRig(
+      server: server,
+      flags: {
+        'messaging',
+        'graph',
+        'reports',
+        if (port != null && device != null && device.flag == E2eeFlag.on)
+          kFeatureE2eeDm,
+      },
+    );
+    final status = device == null
+        ? null
+        : EncryptionStatusCubit(
+            device: device,
+            messaging: port,
+            flagOn: () => device.flag == E2eeFlag.on,
+          );
+    await rig.pump(
+      tester,
+      location: AppRouter.messagePath(kThreadId),
+      encrypted: port,
+      device: device,
+      extraBlocs: [
+        if (status != null)
+          BlocProvider<EncryptionStatusCubit>.value(value: status),
+      ],
+    );
+    final texts = [
+      for (final t in tester.widgetList<Text>(find.byType(Text)))
+        t.data ?? t.textSpan?.toPlainText() ?? '',
+    ];
+    expect(find.byKey(MessageComposer.fieldKey), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await status?.close();
+    return texts;
+  }
+
+  for (final flag in E2eeFlag.values) {
+    for (final vault in [true, false]) {
+      testWidgets('e2ee_dm=${flag.name} vault=$vault: a plaintext thread is '
+          'today\'s', (tester) async {
+        // What a plaintext thread of the fixture draws today, without the
+        // clock-dependent times.
+        final today = {
+          '@sam',
+          'Message',
+          'SR',
+          'Sam Rivera',
+          'Today',
+          'm1',
+          'm2',
+        };
+        final port = FakeEncryptedMessaging();
+        addTearDown(port.dispose);
+        final device = FakeEncryptionDevice(
+          status: vault ? VaultStatus.ready : VaultStatus.off,
+          vaultKnown: vault,
+          flag: flag,
+        );
+        final texts = (await threadTexts(
+          tester,
+          port: port,
+          device: device,
+        )).where((t) => !RegExp(r'^\d{1,2}:\d{2}').hasMatch(t)).toSet();
+        expect(texts, {
+          ...today,
+          if (flag == E2eeFlag.on) kMessagesNotEncryptedText,
+        });
+        // Only the local "has the vault seen this conversation" check; the
+        // thread is never read from the port.
+        expect(
+          port.calls.where((c) => c != 'hasLocal'),
+          isEmpty,
+          reason: 'a plaintext thread reads nothing from the port',
+        );
+      });
+    }
   }
 
   // Messaging off for this caller only (the third mode). The reports

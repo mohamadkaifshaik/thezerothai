@@ -50,8 +50,15 @@ import '../../../core/vault/vault_status.dart';
 import '../domain/e2ee/encrypted_messaging.dart';
 import '../domain/e2ee/encryption_access.dart';
 import '../domain/e2ee/encryption_device.dart';
+import 'e2ee/connected_encryption_status_card.dart';
 import 'e2ee/encryption_copy.dart';
+import 'e2ee/encryption_error_messages.dart';
+import 'e2ee/encryption_status.dart';
+import 'e2ee/thread_bottom.dart';
 import 'e2ee/widgets/conversation_encryption_note.dart';
+import 'e2ee/widgets/conversation_state_notice.dart';
+import 'e2ee/widgets/thread_status_banner.dart';
+import 'widgets/not_encrypted_note.dart';
 import 'e2ee/widgets/own_device_alert.dart';
 import 'e2ee/widgets/system_line_row.dart';
 import 'e2ee/encrypted_thread_items.dart';
@@ -69,6 +76,7 @@ import 'widgets/outgoing_bubble.dart';
 import 'widgets/request_banner.dart';
 import 'widgets/thread_info_sheet.dart';
 import 'widgets/thread_push_scope.dart';
+import '../../../shared/widgets/primitives/app_alert_confirm.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The line that replaces the composer on a read-only conversation.
@@ -787,13 +795,19 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       graphEnabled: graphEnabled,
       reportsEnabled: reportsEnabled,
     );
+    // Absent today (nothing provides it): the thread is then today's.
+    final statusCubit = context.watch<EncryptionStatusCubit?>();
     return MessagingAccessBuilder(
-      builder: (context, access) => _scaffold(
-        cubit,
-        graphEnabled: graphEnabled,
-        reportsEnabled: reportsEnabled,
-        canAccept: access == MessagingAccess.full,
-        infoSheet: infoSheet,
+      builder: (context, access) => EncryptionAccessBuilder(
+        builder: (context, encryption) => _scaffold(
+          cubit,
+          graphEnabled: graphEnabled,
+          reportsEnabled: reportsEnabled,
+          canAccept: access == MessagingAccess.full,
+          infoSheet: infoSheet,
+          encryption: encryption,
+          statusCubit: statusCubit,
+        ),
       ),
     );
   }
@@ -804,6 +818,8 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     required bool reportsEnabled,
     required bool canAccept,
     required bool infoSheet,
+    required EncryptionAccess encryption,
+    required EncryptionStatusCubit? statusCubit,
   }) {
     return Scaffold(
       body: SafeArea(
@@ -834,49 +850,83 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                     ),
                   ),
               ),
+              // A refused or failed reset is said once, by its reason.
+              BlocListener<ThreadCubit, ThreadState>(
+                listenWhen: (a, b) =>
+                    b.resetError != null &&
+                    !identical(a.resetError, b.resetError),
+                listener: (context, state) => ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        conversationResetErrorMessage(state.resetError!),
+                      ),
+                    ),
+                  ),
+              ),
               // A new send scrolls to the newest message.
               BlocListener<MessageComposerCubit, MessageComposerState>(
                 listenWhen: (a, b) => b.outgoing.length > a.outgoing.length,
                 listener: (context, state) => _jumpToNewest(cubit),
               ),
             ],
-            child: Column(
-              children: [
-                BlocBuilder<ThreadCubit, ThreadState>(
-                  buildWhen: (a, b) =>
-                      a.conversation != b.conversation ||
-                      a.status != b.status ||
-                      a.deleting != b.deleting ||
-                      a.accepting != b.accepting ||
-                      a.peerBlocked != b.peerBlocked,
-                  builder: (context, state) => _header(
-                    cubit,
-                    state,
-                    graphEnabled,
-                    reportsEnabled,
-                    infoSheet: infoSheet,
+            child: _WithStatus(
+              cubit: statusCubit,
+              builder: (context, status) => Column(
+                children: [
+                  BlocBuilder<ThreadCubit, ThreadState>(
+                    buildWhen: (a, b) =>
+                        a.conversation != b.conversation ||
+                        a.status != b.status ||
+                        a.deleting != b.deleting ||
+                        a.accepting != b.accepting ||
+                        a.peerBlocked != b.peerBlocked,
+                    builder: (context, state) => _header(
+                      cubit,
+                      state,
+                      graphEnabled,
+                      reportsEnabled,
+                      infoSheet: infoSheet,
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: BlocBuilder<ThreadCubit, ThreadState>(
-                    builder: (context, state) =>
-                        _content(cubit, state, reportsEnabled),
+                  Expanded(
+                    child: BlocBuilder<ThreadCubit, ThreadState>(
+                      builder: (context, state) => _content(
+                        cubit,
+                        state,
+                        reportsEnabled,
+                        status: status,
+                        encryption: encryption,
+                      ),
+                    ),
                   ),
-                ),
-                BlocBuilder<ThreadCubit, ThreadState>(
-                  buildWhen: (a, b) =>
-                      a.status != b.status ||
-                      a.conversation != b.conversation ||
-                      a.peerBlocked != b.peerBlocked ||
-                      a.cannotMessage != b.cannotMessage ||
-                      a.accepting != b.accepting ||
-                      a.deleting != b.deleting ||
-                      a.mls != b.mls ||
-                      a.knownPlain != b.knownPlain,
-                  builder: (context, state) =>
-                      _bottom(cubit, state, graphEnabled, canAccept),
-                ),
-              ],
+                  BlocBuilder<ThreadCubit, ThreadState>(
+                    buildWhen: (a, b) =>
+                        a.status != b.status ||
+                        a.conversation != b.conversation ||
+                        a.peerBlocked != b.peerBlocked ||
+                        a.cannotMessage != b.cannotMessage ||
+                        a.accepting != b.accepting ||
+                        a.deleting != b.deleting ||
+                        a.mls != b.mls ||
+                        a.knownPlain != b.knownPlain ||
+                        a.encrypted != b.encrypted ||
+                        a.vaultBlocked != b.vaultBlocked ||
+                        a.security != b.security ||
+                        a.resetting != b.resetting,
+                    builder: (context, state) => _bottom(
+                      cubit,
+                      state,
+                      graphEnabled,
+                      canAccept,
+                      status: status,
+                      encryption: encryption,
+                      statusCubit: statusCubit,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -939,7 +989,21 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     );
   }
 
-  Widget _content(ThreadCubit cubit, ThreadState state, bool reportsEnabled) {
+  /// R11 and the blocked statuses: the thread is known to be encrypted and
+  /// this device cannot read it now. Checked before `state.encrypted`, which
+  /// never unlatches, so decrypted text stops being drawn the moment the vault
+  /// closes.
+  bool _noVault(ThreadState state, EncryptionStatus? status) =>
+      state.mls && (state.vaultBlocked || (status?.vaultNotOpen ?? false));
+
+  Widget _content(
+    ThreadCubit cubit,
+    ThreadState state,
+    bool reportsEnabled, {
+    required EncryptionStatus? status,
+    required EncryptionAccess encryption,
+  }) {
+    final noVault = _noVault(state, status);
     switch (state.status) {
       case ThreadStatus.unavailable:
         return const Center(
@@ -981,7 +1045,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
             buildWhen: (a, b) => a.outgoing != b.outgoing,
             builder: (context, composer) {
               final outgoing = _visibleOutgoing(composer, state);
-              if (state.encrypted) {
+              if (state.encrypted && !noVault) {
                 // Nothing is drawn until the port's first thread arrived.
                 if (state.security == null) return const _ThreadSkeleton();
                 return state.entries.isNotEmpty || outgoing.isNotEmpty
@@ -989,7 +1053,13 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                     : const _EncryptedEmpty();
               }
               return state.hasMessages || outgoing.isNotEmpty
-                  ? _messages(cubit, state, outgoing, reportsEnabled)
+                  ? _messages(
+                      cubit,
+                      state,
+                      outgoing,
+                      reportsEnabled,
+                      placeholders: noVault,
+                    )
                   : _noMessages(state);
             },
           ),
@@ -1005,7 +1075,16 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   /// text newer than the boundary is never drawn; with no entry yet, or while
   /// older rows exist in the vault, no plaintext row is drawn.
   List<ThreadItem> _encryptedItems(ThreadState state) {
-    final rows = buildEncryptedThreadItems(state.entries);
+    // A request waiting for this user, or one this user sent, shows no lines
+    // and no alert (gate 5.3); the messages and their send states stay.
+    final security = state.security;
+    final rows = buildEncryptedThreadItems(
+      state.entries,
+      showLines:
+          security == null ||
+          !(security.sentRequest ||
+              security.state == ConversationEncryptionState.pendingRequest),
+    );
     if (state.encryptedHasMore || state.entries.isEmpty) return rows;
     final boundary = state.entries.last.at;
     final earlier = [
@@ -1056,9 +1135,10 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     ThreadCubit cubit,
     ThreadState state,
     List<OutgoingMessage> outgoing,
-    bool reportsEnabled,
-  ) {
-    final items = state.encrypted
+    bool reportsEnabled, {
+    bool placeholders = false,
+  }) {
+    final items = state.encrypted && !placeholders
         ? _encryptedItems(state)
         : buildThreadItems(state.messages);
     final conversation = state.conversation;
@@ -1068,10 +1148,20 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         : peer.displayName;
     final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
     final seenId = _seenMessageId(state, conversation);
+    // Row keys must be unique: the day separator above the earlier plaintext
+    // rows and the one above the first encrypted row can share a day, and two
+    // children with one key would be matched to one index on a rebuild.
+    final seen = <String, int>{};
+    String unique(String key) {
+      final n = seen[key] = (seen[key] ?? 0) + 1;
+      return n == 1 ? key : '$key#$n';
+    }
+
     final keys = [
-      for (final m in outgoing) 'outgoing-${m.localId}',
-      for (final i in items) i.key,
+      for (final m in outgoing) unique('outgoing-${m.localId}'),
+      for (final i in items) unique(i.key),
     ];
+    final indexOfKey = {for (var i = 0; i < keys.length; i++) keys[i]: i};
     return Stack(
       children: [
         // Taps and scrolls start with a pointer down: the thread stays hot.
@@ -1091,8 +1181,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                   itemCount: outgoing.length + items.length,
                   findChildIndexCallback: (key) {
                     if (key is! ValueKey<String>) return null;
-                    final index = keys.indexOf(key.value);
-                    return index < 0 ? null : index;
+                    return indexOfKey[key.value];
                   },
                   itemBuilder: (context, index) {
                     if (index < outgoing.length) {
@@ -1121,7 +1210,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                     // One list item per row, so the list node does not
                     // absorb the times and day labels.
                     return Semantics(
-                      key: ValueKey(item.key),
+                      key: ValueKey(keys[index]),
                       role: SemanticsRole.listItem,
                       container: true,
                       child: switch (item) {
@@ -1134,17 +1223,18 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                             firstOfGroup: item.firstOfGroup,
                             lastOfGroup: item.lastOfGroup,
                             use24Hour: use24Hour,
-                            seenAt: item.message.id == seenId
+                            isMls: placeholders,
+                            seenAt: !placeholders && item.message.id == seenId
                                 ? conversation!.peerReadAt.toDateTime()
                                 : null,
-                            linksEnabled: messageLinksEnabled(
-                              conversation,
-                              item.message,
-                            ),
+                            linksEnabled:
+                                !placeholders &&
+                                messageLinksEnabled(conversation, item.message),
                             onOpenLink: _openLink,
-                            onOpenPost: _openPost,
+                            onOpenPost: placeholders ? null : _openPost,
                             onReport:
-                                reportsEnabled &&
+                                !placeholders &&
+                                    reportsEnabled &&
                                     conversation != null &&
                                     canReportMessage(item.message)
                                 ? (anchor) => unawaited(
@@ -1289,15 +1379,95 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   /// The bottom of a ready thread: the read-only line, or the request area
   /// and the composer. A received request shows the banner INSTEAD of the
   /// composer (Accept brings the composer); the sender's note sits above it.
+  ///
+  /// Encrypted threads: [threadBottomOf] decides what replaces or accompanies
+  /// the composer (no-vault notice, status card, state notice, read-only line).
   Widget _bottom(
     ThreadCubit cubit,
     ThreadState state,
     bool graphEnabled,
-    bool canAccept,
-  ) {
+    bool canAccept, {
+    required EncryptionStatus? status,
+    required EncryptionAccess encryption,
+    required EncryptionStatusCubit? statusCubit,
+  }) {
     if (state.status != ThreadStatus.ready) return const SizedBox.shrink();
     if (state.readOnly) return const ThreadReadOnlyLine();
     final conversation = state.conversation;
+    final received = conversation != null && isReceivedRequest(conversation);
+    final security = state.security;
+    final kind = threadBottomOf(
+      receivedRequest: received,
+      messagingReadOnly: !canAccept,
+      mls: state.mls,
+      vaultBlocked: state.vaultBlocked,
+      status: status,
+      access: encryption,
+      security: security,
+    );
+    final peer = conversation?.peer;
+    final peerName = peer == null || peer.displayName.isEmpty
+        ? '@${peer?.handle ?? ''}'
+        : peer.displayName;
+    Widget notice({required bool replaces}) {
+      final s = security!;
+      final canBlock =
+          s.state == ConversationEncryptionState.changesBlocked &&
+          graphEnabled &&
+          peer != null &&
+          peer.userId.isNotEmpty &&
+          !state.peerBlocked;
+      return ConversationStateNotice(
+        security: s,
+        peerName: peerName,
+        resetting: state.resetting,
+        focusFirstAction: replaces,
+        onBlock: canBlock ? () => unawaited(_block(cubit, peer)) : null,
+        onReset: s.sentRequest
+            ? null
+            : () => unawaited(_resetEncryption(cubit)),
+      );
+    }
+
+    switch (kind) {
+      case ThreadBottom.notOnThisDevice:
+        return const ThreadReadOnlyLine(text: kNotOnThisDeviceText);
+      case ThreadBottom.statusCard:
+        return ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+          ),
+          child: const SingleChildScrollView(
+            child: ConnectedEncryptionStatusCard(),
+          ),
+        );
+      case ThreadBottom.waiting:
+        return const SizedBox.shrink();
+      case ThreadBottom.readOnlyLine:
+        return const ThreadReadOnlyLine(text: kMessagingReadOnlyText);
+      case ThreadBottom.noticeInstead:
+        return notice(replaces: true);
+      case ThreadBottom.ordinary:
+      case ThreadBottom.ordinaryWithNotice:
+        break;
+    }
+    // Above the composer, in this order: the not-encrypted statement of a
+    // thread known to be plaintext (access full only, security read H1), then
+    // the state notice.
+    final above = <Widget>[
+      if (encryption == EncryptionAccess.full &&
+          state.knownPlain &&
+          !state.mls &&
+          !received)
+        const Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.xs,
+          ),
+          child: Center(child: NotEncryptedNote(textAlign: TextAlign.center)),
+        ),
+      if (kind == ThreadBottom.ordinaryWithNotice) notice(replaces: false),
+    ];
     final composerBuilder = widget.composerBuilder;
     final composer = composerBuilder == null
         ? const SizedBox.shrink()
@@ -1321,9 +1491,30 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
               canAccept,
             ),
           );
-    if (banner == null) return composer;
-    if (conversation != null && isReceivedRequest(conversation)) return banner;
-    return Column(mainAxisSize: MainAxisSize.min, children: [banner, composer]);
+    if (banner != null && received) return banner;
+    final parts = [...above, ?banner, composer];
+    final area = parts.length == 1
+        ? composer
+        : Column(mainAxisSize: MainAxisSize.min, children: parts);
+    // The status banner sits directly above the composer of every thread
+    // while a vault on this device blocks messaging (a thread whose messaging
+    // is read-only draws its own line instead and needs none).
+    return canAccept ? ConnectedThreadStatusBanner(child: area) : area;
+  }
+
+  /// Asks first, then resets this conversation's encryption through the cubit;
+  /// a failure is shown by the `resetError` listener.
+  Future<void> _resetEncryption(ThreadCubit cubit) async {
+    if (cubit.state.resetting) return;
+    final confirmed = await showAppAlertConfirm(
+      context,
+      title: kConversationResetTitle,
+      message: kConversationResetMessage,
+      confirmLabel: kConversationResetConfirm,
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    await cubit.resetEncryption();
   }
 
   ThreadRequestActions _requestActions(
@@ -1644,6 +1835,25 @@ class _CentredRow extends StatelessWidget {
           child: child,
         ),
       ),
+    );
+  }
+}
+
+/// Hands [builder] the current [EncryptionStatus], or null with no status
+/// cubit in the tree (nothing is added to the tree either way).
+class _WithStatus extends StatelessWidget {
+  const _WithStatus({required this.cubit, required this.builder});
+
+  final EncryptionStatusCubit? cubit;
+  final Widget Function(BuildContext context, EncryptionStatus? status) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = this.cubit;
+    if (cubit == null) return builder(context, null);
+    return BlocBuilder<EncryptionStatusCubit, EncryptionStatus>(
+      bloc: cubit,
+      builder: builder,
     );
   }
 }

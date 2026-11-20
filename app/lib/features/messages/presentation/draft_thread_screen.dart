@@ -19,6 +19,7 @@ import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../data/messaging_repository.dart';
 import '../domain/messaging_feature_flag.dart';
 import 'bloc/message_composer_cubit.dart';
+import 'e2ee/widgets/thread_status_banner.dart';
 import 'thread_screen.dart'
     show ThreadPeerHeader, ThreadReadOnlyLine, kThreadReadOnlyText;
 import 'widgets/message_composer.dart';
@@ -173,9 +174,13 @@ class _DraftViewState extends State<_DraftView> {
               ),
               BlocSelector<MessageComposerCubit, MessageComposerState, bool>(
                 selector: (state) => state.cannotMessage,
+                // The status banner sits above the composer of a draft too
+                // while a vault on this device blocks messaging.
                 builder: (context, cannotMessage) => cannotMessage
                     ? const ThreadReadOnlyLine()
-                    : const MessageComposer(),
+                    : const ConnectedThreadStatusBanner(
+                        child: MessageComposer(),
+                      ),
               ),
             ],
           ),

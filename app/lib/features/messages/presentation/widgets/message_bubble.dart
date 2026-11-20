@@ -39,17 +39,25 @@ const double kBubbleMaxWidthFraction = 0.8;
 
 /// The text a message shows: its text, or the tombstone words for a message
 /// whose text is gone.
-String messageDisplayText(pb.Message message) => switch (message.state) {
-  MessageState.MESSAGE_STATE_DELETED_ACCOUNT => kMessageDeletedText,
-  MessageState.MESSAGE_STATE_REMOVED => kMessageRemovedText,
-  _ => message.text,
-};
+///
+/// In a thread known to be encrypted ([isMls]) on a device that cannot read it
+/// every message that is not a tombstone reads [kEncryptedPlaceholderText],
+/// whatever its fields hold: a server can send plaintext there (security read
+/// M2), and it is never drawn.
+String messageDisplayText(pb.Message message, {bool isMls = false}) =>
+    switch (message.state) {
+      MessageState.MESSAGE_STATE_DELETED_ACCOUNT => kMessageDeletedText,
+      MessageState.MESSAGE_STATE_REMOVED => kMessageRemovedText,
+      _ => isMls ? kEncryptedPlaceholderText : message.text,
+    };
 
 /// The post a message shares, drawn as a card: only a visible message that
 /// carries one. Decided from the message alone, never from a flag: a recipient
 /// outside the `dm_post_share` rollout still gets the card the server built.
-posts.EmbeddedPost? messageSharedPost(pb.Message message) =>
-    message.hasSharedPost() && !_isTombstone(message)
+posts.EmbeddedPost? messageSharedPost(
+  pb.Message message, {
+  bool isMls = false,
+}) => message.hasSharedPost() && !_isTombstone(message) && !isMls
     ? message.sharedPost
     : null;
 
@@ -69,9 +77,9 @@ bool messageTextIsPostLink(String text, String postId) {
 
 /// The text a bubble shows above the shared post's card: the caption, or
 /// nothing when the text is the post's own link.
-String messageCaption(pb.Message message) {
-  final text = messageDisplayText(message);
-  final shared = messageSharedPost(message);
+String messageCaption(pb.Message message, {bool isMls = false}) {
+  final text = messageDisplayText(message, isMls: isMls);
+  final shared = messageSharedPost(message, isMls: isMls);
   if (shared == null) return text;
   return messageTextIsPostLink(text, shared.postId) ? '' : text;
 }
@@ -167,7 +175,8 @@ class MessageBubble extends StatelessWidget {
     this.onReport,
     this.seenAt,
     this.onOpenPost,
-  }) : _data = _BubbleData.fromProto(message),
+    bool isMls = false,
+  }) : _data = _BubbleData.fromProto(message, isMls: isMls),
        onRetry = null;
 
   /// A decrypted message of an encrypted thread. Its side is `entry.mine`
@@ -555,13 +564,14 @@ class _BubbleData {
   });
 
   /// The plaintext path, exactly as the bubble always drew a message.
-  factory _BubbleData.fromProto(pb.Message message) {
-    final shared = messageSharedPost(message);
+  factory _BubbleData.fromProto(pb.Message message, {bool isMls = false}) {
+    final shared = messageSharedPost(message, isMls: isMls);
     return _BubbleData(
       id: message.id,
       own: message.fromSelf,
-      tombstone: _isTombstone(message),
-      text: messageCaption(message),
+      // A placeholder is drawn like a tombstone: words, no content.
+      tombstone: _isTombstone(message) || isMls,
+      text: messageCaption(message, isMls: isMls),
       at: message.hasCreatedAt() ? message.createdAt.toDateTime() : null,
       shared: shared,
       postId: shared?.postId,
