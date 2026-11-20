@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:dzeroth/core/network/app_exception.dart';
+import '../../../../core/network/app_exception.dart';
 
 /// Where a conversation stands in the encrypted messaging pipeline.
 enum ConversationPhase {

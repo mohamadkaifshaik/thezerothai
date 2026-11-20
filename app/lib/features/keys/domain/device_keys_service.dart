@@ -99,7 +99,9 @@ enum DeviceKeysPhase {
 /// device is registered with a full pool; [deviceLimitReached]: the user
 /// has 5 devices and must remove one (UI in a later plan); failed: the last
 /// attempt failed, [retryable] when a later attempt (hourly or on resume)
-/// may succeed.
+/// may succeed; `removedElsewhere`: this device is missing from the
+/// account's key-device list (removed from another device); its behaviour
+/// arrives in Task 12, and nothing is deleted until the user chooses.
 @immutable
 class DeviceKeysStatus {
   const DeviceKeysStatus._(this.phase) : retryable = false;
