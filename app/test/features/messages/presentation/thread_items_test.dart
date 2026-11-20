@@ -11,6 +11,9 @@ void main() {
           '${message.fromSelf ? 'me' : 'peer'}'
               '${firstOfGroup ? ' first' : ''}${lastOfGroup ? ' last' : ''}',
         DaySeparatorItem() => 'day',
+        EncryptedMessageItem() ||
+        SystemLineItem() ||
+        OwnDeviceAlertItem() => throw StateError('unused'),
       },
   ];
 

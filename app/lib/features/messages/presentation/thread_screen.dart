@@ -1075,6 +1075,10 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                         DaySeparatorItem() => _DaySeparator(
                           label: formatDaySeparator(item.day, _now),
                         ),
+                        // Task 5 of the E2EE screens plan wires these rows.
+                        EncryptedMessageItem() ||
+                        SystemLineItem() ||
+                        OwnDeviceAlertItem() => const SizedBox.shrink(),
                       },
                     );
                   },
