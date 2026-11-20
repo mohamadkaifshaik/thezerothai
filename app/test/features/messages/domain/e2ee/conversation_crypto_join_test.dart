@@ -1050,6 +1050,44 @@ void main() {
     final state = await rig.crypto.describeState(_c1);
     expect(state.unknownDevicePresent, isTrue);
     expect(state.sendBlock, SendBlock.unknownDevice);
+
+    // Generation 3 still holds carol on the marked key: re-pinned at its
+    // label, still marked, still never attributed.
+    await rig.offer(
+      _c1,
+      bob,
+      generation: 3,
+      others: [await carol.keyPackage()],
+    );
+    rig.device.engine.describeMembers = (real) => [
+      for (final m in real)
+        rigEq(m.deviceId, carol.id)
+            ? GroupMember(deviceId: carol.id, signaturePublicKey: newKey)
+            : m,
+    ];
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    rig.device.engine.describeMembers = null;
+    rig.clock.advance(const Duration(minutes: 3));
+    await rig.crypto.attributeMembers(_c1);
+    final again = pinOf(await v.members(_c1), carol.id);
+    expect(again.side, MemberSide.unattributed);
+    expect(again.since, const MlsPair(3, 1));
+    expect(await markedOf(_c1), {
+      vaultDeviceIdHex(carol.id): base64Encode(newKey),
+    });
+    expect(
+      linesOf(await rig.lines(_c1), carol.id),
+      isNot(contains(SystemLine.deviceAdded)),
+    );
+
+    // Generation 4 no longer holds carol: her mark goes with her pin.
+    await rig.offer(_c1, bob, generation: 4);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    expect(
+      (await v.members(_c1)).where((m) => rigEq(m.deviceId, carol.id)),
+      isEmpty,
+    );
+    expect(await markedOf(_c1), isNull);
   });
 
   test('an ordinary unknown device listed later is still attributed (a '
