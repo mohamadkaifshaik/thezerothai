@@ -51,6 +51,7 @@ import '../domain/e2ee/encrypted_messaging.dart';
 import '../domain/e2ee/encryption_access.dart';
 import '../domain/e2ee/encryption_device.dart';
 import 'e2ee/connected_encryption_status_card.dart';
+import 'e2ee/conversation_encryption_panel.dart';
 import 'e2ee/encryption_copy.dart';
 import 'e2ee/encryption_error_messages.dart';
 import 'e2ee/encryption_status.dart';
@@ -305,7 +306,16 @@ class ThreadScreen extends StatelessWidget {
   }
 }
 
-enum _MenuAction { viewProfile, block, report, delete }
+enum _MenuAction { viewProfile, encryption, block, report, delete }
+
+/// The Encryption entry: an encrypted thread whose security is known and is
+/// not an incoming request (nothing to compare there).
+bool _showEncryptionEntry(ThreadState state) {
+  final security = state.security;
+  return state.encrypted &&
+      security != null &&
+      security.state != ConversationEncryptionState.pendingRequest;
+}
 
 class _ThreadView extends StatefulWidget {
   const _ThreadView({
@@ -464,7 +474,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
             a.status != b.status ||
             a.deleting != b.deleting ||
             a.accepting != b.accepting ||
-            a.peerBlocked != b.peerBlocked,
+            a.peerBlocked != b.peerBlocked ||
+            a.encrypted != b.encrypted ||
+            a.security?.state != b.security?.state,
         builder: (context, state) {
           final conversation = state.conversation;
           if (state.status != ThreadStatus.ready || conversation == null) {
@@ -486,6 +498,12 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                 ? null
                 : () => run(_MenuAction.viewProfile),
             actions: [
+              if (_showEncryptionEntry(state))
+                ThreadSideAction(
+                  icon: Icons.lock_outline,
+                  label: kEncryptionEntryLabel,
+                  onTap: enabled ? () => run(_MenuAction.encryption) : null,
+                ),
               if (graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked)
                 ThreadSideAction(
                   icon: Icons.block,
@@ -681,6 +699,16 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         if (conversation.peer.handle.isEmpty) return;
         unawaited(
           context.push<void>(AppRouter.profilePath(conversation.peer.handle)),
+        );
+      case _MenuAction.encryption:
+        unawaited(
+          showConversationEncryption(
+            context,
+            conversationId: cubit.conversationId,
+            peerName: conversation.peer.displayName,
+            initialSecurity: cubit.state.security,
+            securityChanges: cubit.stream.map((s) => s.security),
+          ),
         );
       case _MenuAction.block:
         await _block(cubit, conversation.peer);
@@ -893,7 +921,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                         a.status != b.status ||
                         a.deleting != b.deleting ||
                         a.accepting != b.accepting ||
-                        a.peerBlocked != b.peerBlocked,
+                        a.peerBlocked != b.peerBlocked ||
+                        a.encrypted != b.encrypted ||
+                        a.security?.state != b.security?.state,
                     builder: (context, state) => _header(
                       cubit,
                       state,
@@ -983,9 +1013,11 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                       !state.peerBlocked,
                   showReport: reportsEnabled,
                   canReport: widget.onReport != null && peer.userId.isNotEmpty,
+                  showEncryption: _showEncryptionEntry(state),
                   onSelected: (action) => _onMenu(action, cubit, conversation),
                 )
               : _InfoMenu(
+                  showEncryption: _showEncryptionEntry(state),
                   enabled: !state.deleting && !state.accepting && !_blocking,
                   canBlock:
                       graphEnabled &&
@@ -1699,6 +1731,7 @@ class ThreadPeerHeader extends StatelessWidget {
 /// The "Conversation info" overflow menu: Block, Report, Delete.
 class _InfoMenu extends StatelessWidget {
   const _InfoMenu({
+    required this.showEncryption,
     required this.enabled,
     required this.canBlock,
     required this.peerHandle,
@@ -1707,6 +1740,7 @@ class _InfoMenu extends StatelessWidget {
     required this.onSelected,
   });
 
+  final bool showEncryption;
   final bool enabled;
   final bool canBlock;
   final String peerHandle;
@@ -1727,6 +1761,14 @@ class _InfoMenu extends StatelessWidget {
       icon: const Icon(Icons.info_outline),
       onSelected: onSelected,
       itemBuilder: (context) => [
+        if (showEncryption)
+          const PopupMenuItem(
+            value: _MenuAction.encryption,
+            child: AppMenuItemRow(
+              icon: Icons.lock_outline,
+              label: kEncryptionEntryLabel,
+            ),
+          ),
         if (canBlock)
           PopupMenuItem(
             value: _MenuAction.block,
@@ -1764,9 +1806,11 @@ class _InfoSheetButton extends StatelessWidget {
     required this.canBlock,
     required this.showReport,
     required this.canReport,
+    required this.showEncryption,
     required this.onSelected,
   });
 
+  final bool showEncryption;
   final bool enabled;
   final common.AuthorSnapshot peer;
   final bool canBlock;
@@ -1781,10 +1825,12 @@ class _InfoSheetButton extends StatelessWidget {
       canBlock: canBlock,
       showReport: showReport,
       canReport: canReport,
+      showEncryption: showEncryption,
     );
     if (choice == null || !context.mounted) return;
     onSelected(switch (choice) {
       ThreadInfoAction.viewProfile => _MenuAction.viewProfile,
+      ThreadInfoAction.encryption => _MenuAction.encryption,
       ThreadInfoAction.block => _MenuAction.block,
       ThreadInfoAction.report => _MenuAction.report,
       ThreadInfoAction.delete => _MenuAction.delete,

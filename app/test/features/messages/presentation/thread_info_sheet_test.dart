@@ -499,6 +499,51 @@ void main() {
   });
 
   group('ThreadInfoSheet alone', () {
+    testWidgets('the Encryption row is shown only when asked and pops '
+        'ThreadInfoAction.encryption', (tester) async {
+      ThreadInfoAction? chosen;
+      Future<void> openWith({required bool showEncryption}) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: appLightTheme,
+            home: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async => chosen = await ThreadInfoSheet.show(
+                  context,
+                  peer: common.AuthorSnapshot(displayName: 'Gone'),
+                  canBlock: true,
+                  showReport: false,
+                  canReport: false,
+                  showEncryption: showEncryption,
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await openWith(showEncryption: false);
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Encryption'), findsNothing);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+
+      await openWith(showEncryption: true);
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Encryption'), findsOneWidget);
+      // First in the list, above Block.
+      expect(
+        tester.getTopLeft(find.text('Encryption')).dy,
+        lessThan(tester.getTopLeft(find.text('Block')).dy),
+      );
+      await tester.tap(find.text('Encryption'));
+      await tester.pumpAndSettle();
+      expect(chosen, ThreadInfoAction.encryption);
+    });
+
     testWidgets('a peer with no handle has no View profile; a closed sheet '
         'resolves to null', (tester) async {
       ThreadInfoAction? chosen = ThreadInfoAction.block;
