@@ -387,6 +387,30 @@ jobs:
           cd app
           flutter drive --driver=test_driver/integration_test.dart             --target=integration_test/drift_persistence_test.dart             -d web-server --browser-name=chrome --driver-port=4456 --headless
 
+      # The vault on the web (IndexedDB copies, the WebCrypto cipher, the schema upgrade, the open rule, device keys):
+      # the VM tests cannot reach these paths, and a break here was once found only by a local run (the v2 vault,
+      # 2026-11-20). Each file runs as dart2js and as dart2wasm; every run is attempted and any failure fails the step.
+      - name: flutter drive (vault and device keys in Chrome, JS and wasm)
+        run: |
+          driver="${CHROMEWEBDRIVER:-}/chromedriver"
+          [ -x "$driver" ] || { echo "::error::no chromedriver at $driver (the runner image changed?)"; exit 1; }
+          "$driver" --port=4457 &
+          trap 'kill $!' EXIT
+          cd app
+          failed=0
+          for t in vault_database_test vault_cipher_test vault_owner_test vault_session_test device_keys_test; do
+            for mode in js wasm; do
+              extra=()
+              [ "$mode" = wasm ] && extra=(--wasm)
+              echo "::group::$t ($mode)"
+              flutter drive --driver=test_driver/integration_test.dart "--target=integration_test/$t.dart" \
+                -d web-server --browser-name=chrome --driver-port=4457 --headless "${extra[@]}" ||
+                { failed=1; echo "::error::$t ($mode) failed"; }
+              echo "::endgroup::"
+            done
+          done
+          exit "$failed"
+
   # The Android debug build on Linux: Gradle runs `cargo ndk` for the Rust binding (app/rust_builder) for the three ABIs.
   # Pull-request CI otherwise never builds Android, so the first Linux build would be a release. No secrets, no environment.
   android-build:

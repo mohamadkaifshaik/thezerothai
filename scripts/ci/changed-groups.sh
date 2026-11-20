@@ -8,7 +8,8 @@
 #   flutter    flutter analyze + test shards                 app
 #   promotion  promotion scripts (shellcheck, actionlint, fixture tests, flag registry, until-dates)
 #                                                            backend (config.go), infra (flag registry, until-dates)
-#   crypto     MLS core (Rust): crypto job + web integration  crypto, app/rust, app/lib/core/crypto, app/integration_test, app/web
+#   crypto     MLS core (Rust): crypto job + web integration  crypto, app/rust, app/lib/core/crypto, app/lib/core/vault,
+#                                                            app/lib/features/keys, app/integration_test, app/web
 #                                                            (testdata/mls and scripts/crypto are shared paths: everything runs)
 #   android    Android debug build on Linux (Rust via cargo-ndk)  crypto, app/rust, app/rust_builder, app/android,
 #                                                            app/pubspec.yaml, app/pubspec.lock (not other app code; .github is shared: everything runs)
@@ -40,7 +41,7 @@ while IFS= read -r p || [ -n "$p" ]; do
 	backend/*) backend=1 ;;
 	crypto/*) crypto=1 android=1 ;;
 	app/rust/*) app=1 crypto=1 android=1 ;;
-	app/lib/core/crypto/* | app/integration_test/* | app/web/*) app=1 crypto=1 ;;
+	app/lib/core/crypto/* | app/lib/core/vault/* | app/lib/features/keys/* | app/integration_test/* | app/web/*) app=1 crypto=1 ;;
 	app/rust_builder/* | app/android/* | app/pubspec.yaml | app/pubspec.lock) app=1 android=1 ;;
 	app/*) app=1 ;;
 	infra/terraform/*) infra=1 ;;

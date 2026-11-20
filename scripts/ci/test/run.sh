@@ -245,6 +245,8 @@ done
 expect_out groups-crypto-only "go_checks=false go_unit=false int=false flutter=false promotion=false crypto=true android=true" groups_of crypto/dzmls/src/lib.rs crypto/Cargo.lock docs/x.md
 expect_out groups-app-rust "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true android=true" groups_of app/rust/src/lib.rs
 expect_out groups-app-crypto-dart "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true android=false" groups_of app/lib/core/crypto/web_crypto_engine.dart
+expect_out groups-app-vault-dart "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true android=false" groups_of app/lib/core/vault/secure_vault.dart
+expect_out groups-app-keys-dart "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true android=false" groups_of app/lib/features/keys/domain/device_keys_service.dart
 expect_out groups-app-web-worker "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true android=false" groups_of app/web/mls_worker.js
 expect_out groups-app-pubspec "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false android=true" groups_of app/pubspec.lock docs/x.md
 expect_out groups-app-pubspec-yaml "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false android=true" groups_of app/pubspec.yaml
