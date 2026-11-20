@@ -6,9 +6,55 @@ import 'package:flutter/foundation.dart';
 
 /// Scripted, in memory; records every call. It asserts what the real pipeline
 /// promises: `text` is '' unless visible and ok; `digits` is null or 60 digits.
+///
+/// Scripting seam for screen tests (do not edit this class per screen):
+/// - [queueSendOutcomes]: outcomes consumed one per `send`, then
+///   [nextSendOutcome] again. `fake.queueSendOutcomes([refusedOutcome, queued])`.
+/// - [failNextOn]: fails only the named port method's next call, once.
+///   `fake.failNextOn('ownDevices', StateError('x'))`. The global [failNext]
+///   still fails whichever Future-returning call comes next.
+///
+/// [sent], [removedDevices], [resetConversations] and [retried] are CALL logs,
+/// recorded before a scripted failure throws, not logs of successes.
 class FakeEncryptedMessaging implements EncryptedMessaging {
   /// Method names in call order, no arguments.
   final List<String> calls = [];
+
+  /// Every `search` query, in order.
+  final List<String> searchQueries = [];
+
+  final Map<String, Object> _failOn = {};
+  final List<SendOutcome> _queuedOutcomes = [];
+
+  /// Fails the next call of the port method [method] (as listed in [calls])
+  /// with [error], once.
+  void failNextOn(String method, Object error) => _failOn[method] = error;
+
+  /// Outcomes for the next sends, one each, validated like [nextSendOutcome].
+  void queueSendOutcomes(List<SendOutcome> outcomes) {
+    outcomes.forEach(_validateOutcome);
+    _queuedOutcomes.addAll(outcomes);
+  }
+
+  static void _validateOutcome(SendOutcome o) {
+    assert(
+      o.kind != SendOutcomeKind.refused || o.problem != SendProblem.none,
+      'a refused outcome carries a problem',
+    );
+    assert(
+      o.kind != SendOutcomeKind.queued || o.problem == SendProblem.none,
+      'a queued outcome carries no problem',
+    );
+    assert(
+      o.kind != SendOutcomeKind.notEncrypted ||
+          (o.problem == SendProblem.none && o.error == null),
+      'a notEncrypted outcome carries no problem and no error',
+    );
+    assert(
+      o.error == null || o.problem == SendProblem.refused,
+      'an error is set only with problem refused',
+    );
+  }
 
   final Map<ThreadRef, EncryptedThread> _threads = {};
   final Map<ThreadRef, List<StreamController<EncryptedThread>>> _controllers =
@@ -25,16 +71,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
 
   SendOutcome get nextSendOutcome => _nextSendOutcome;
 
-  /// Port rule: a refused outcome carries a problem, a queued one none.
+  /// Port rules: see [_validateOutcome].
   set nextSendOutcome(SendOutcome o) {
-    assert(
-      o.kind != SendOutcomeKind.refused || o.problem != SendProblem.none,
-      'a refused outcome carries a problem',
-    );
-    assert(
-      o.kind != SendOutcomeKind.queued || o.problem == SendProblem.none,
-      'a queued outcome carries no problem',
-    );
+    _validateOutcome(o);
     _nextSendOutcome = o;
   }
 
@@ -61,7 +100,11 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   /// Conversation ids for [hasLocal].
   Set<String> local = {};
 
+  /// Every port method adds its name to [calls] first, so the method being
+  /// served is `calls.last`.
   void _throwIfFailing() {
+    final named = _failOn.remove(calls.last);
+    if (named != null) throw named;
     final f = failNext;
     if (f != null) {
       failNext = null;
@@ -92,6 +135,12 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
         assert(
           e.error == null || e.problem == SendProblem.refused,
           'error is set only with problem refused',
+        );
+        assert(
+          e.state == EncryptedMessageState.undecryptable ||
+              e.mine ||
+              e.progress == SendProgress.delivered,
+          'a received message is delivered',
         );
         assert(
           !e.canReport || (visible && !e.mine),
@@ -125,6 +174,15 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     assert(
       d == null || RegExp(r'^[0-9]{60}$').hasMatch(d),
       'digits are null or 60 digits',
+    );
+    assert(
+      (d == null) != (code.reason == null),
+      'exactly one of digits and reason',
+    );
+    assert(
+      code.reason != NoCodeReason.unavailable ||
+          (code.myDevices == 0 && code.theirDevices == 0),
+      'counts are 0 with unavailable',
     );
     _codes[conversationId] = code;
   }
@@ -190,6 +248,8 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     return c.stream;
   }
 
+  // Never cleared, also when a scripted thread later shows the row delivered:
+  // the fake is slightly stricter than the port there.
   final Set<String> _queuedIds = {};
 
   /// A row is "already unsent" when a scripted thread holds it undelivered or
@@ -232,7 +292,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     final hold = holdSend;
     if (hold != null) await hold.future;
     _throwIfFailing();
-    final outcome = nextSendOutcome;
+    final outcome = _queuedOutcomes.isEmpty
+        ? nextSendOutcome
+        : _queuedOutcomes.removeAt(0);
     if (outcome.kind == SendOutcomeKind.queued) _queuedIds.add(localId);
     return outcome;
   }
@@ -281,6 +343,7 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     int limit = 200,
   }) async {
     calls.add('search');
+    searchQueries.add(query);
     _throwIfFailing();
     return [
       for (final h in _hits)

@@ -288,12 +288,83 @@ void main() {
           ),
           throwsA(isA<AssertionError>()),
         );
+        expect(
+          () => fake.nextSendOutcome = const SendOutcome(
+            SendOutcomeKind.notEncrypted,
+            problem: SendProblem.blocked,
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+        expect(
+          () => fake.nextSendOutcome = SendOutcome(
+            SendOutcomeKind.notEncrypted,
+            error: const FeatureDisabledException('off'),
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+        expect(
+          () => fake.nextSendOutcome = SendOutcome(
+            SendOutcomeKind.refused,
+            problem: SendProblem.blocked,
+            error: const FeatureDisabledException('off'),
+          ),
+          throwsA(isA<AssertionError>()),
+        );
         fake.nextSendOutcome = const SendOutcome(
           SendOutcomeKind.refused,
           problem: SendProblem.tryTomorrow,
         );
       },
     );
+
+    test('a received row must be delivered', () {
+      refuses(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: false,
+          progress: SendProgress.notSent,
+          problem: SendProblem.retryable,
+        ),
+      );
+    });
+  });
+
+  group('the scripting seam', () {
+    test('queued outcomes are returned in order, then the default', () async {
+      final fake = FakeEncryptedMessaging()
+        ..nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted)
+        ..queueSendOutcomes(const [
+          SendOutcome(SendOutcomeKind.refused, problem: SendProblem.blocked),
+          SendOutcome(SendOutcomeKind.queued),
+        ]);
+      expect(
+        (await fake.send(to: ref, localId: 'a', text: 'x')).kind,
+        SendOutcomeKind.refused,
+      );
+      expect(
+        (await fake.send(to: ref, localId: 'b', text: 'x')).kind,
+        SendOutcomeKind.queued,
+      );
+      expect(
+        (await fake.send(to: ref, localId: 'c', text: 'x')).kind,
+        SendOutcomeKind.notEncrypted,
+      );
+      expect(
+        () => fake.queueSendOutcomes(const [
+          SendOutcome(SendOutcomeKind.refused),
+        ]),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
+    test('failNextOn fails only the named method once', () async {
+      final fake = FakeEncryptedMessaging()
+        ..failNextOn('ownDevices', StateError('x'));
+      await fake.retrySend('a');
+      await expectLater(fake.ownDevices(), throwsStateError);
+      await fake.ownDevices();
+    });
   });
 
   group('the fake throws as the port documents', () {
@@ -412,6 +483,24 @@ void main() {
       () => fake.setSecurityCode('c1', const SecurityCode(digits: '123')),
       throwsA(isA<AssertionError>()),
     );
+    expect(
+      () => fake.setSecurityCode('c1', const SecurityCode()),
+      throwsA(isA<AssertionError>()),
+    );
+    expect(
+      () => fake.setSecurityCode(
+        'c1',
+        SecurityCode(digits: '1' * 60, reason: NoCodeReason.unavailable),
+      ),
+      throwsA(isA<AssertionError>()),
+    );
+    expect(
+      () => fake.setSecurityCode(
+        'c1',
+        const SecurityCode(reason: NoCodeReason.unavailable, myDevices: 1),
+      ),
+      throwsA(isA<AssertionError>()),
+    );
     fake.setSecurityCode('c1', SecurityCode(digits: '1' * 60));
     expect((await fake.securityCode('c1')).digits, '1' * 60);
     expect((await fake.securityCode('zz')).reason, NoCodeReason.unavailable);
@@ -445,6 +534,7 @@ void main() {
       ['m1', 'm3'],
     );
     expect(await fake.search('t', limit: 1), hasLength(1));
+    expect(fake.searchQueries, ['t', 't', 't']);
 
     const list = OwnDeviceList(
       devices: [OwnDevice(ref: 'o', thisDevice: false)],

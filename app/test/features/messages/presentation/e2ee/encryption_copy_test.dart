@@ -6,15 +6,26 @@ import 'package:flutter_test/flutter_test.dart';
 const _copyPath =
     'lib/features/messages/presentation/e2ee/encryption_copy.dart';
 
+/// Joins adjacent string literals (`'a' 'b'`, also across lines and mixed
+/// quote kinds) so a phrase split over two literals is still found.
+String joinAdjacentLiterals(String source) =>
+    source.replaceAll(RegExp(r'''['"]\s+['"]'''), '');
+
 /// The source without comment lines, so only string literals and code remain.
-String _codeOnly() =>
-    File(_copyPath)
-        .readAsLinesSync()
-        .where((l) => !l.trimLeft().startsWith('//'))
-        .join('\n')
-        .toLowerCase();
+String _codeOnly([String path = _copyPath]) => joinAdjacentLiterals(
+  File(path)
+      .readAsLinesSync()
+      .where((l) => !l.trimLeft().startsWith('//'))
+      .join('\n')
+      .toLowerCase(),
+);
 
 void main() {
+  test('the normaliser joins a phrase split over two literals', () {
+    final split = joinAdjacentLiterals("'Nobody can '\n    \"read this\"");
+    expect(split.toLowerCase().contains('nobody can read'), isTrue);
+  });
+
   test('the fixed strings are verbatim', () {
     expect(kLineEncryptionReset, 'Encryption was reset');
     expect(kLineUnknownDevice, 'An unknown device was added');
@@ -44,14 +55,10 @@ void main() {
   test('no string overclaims', () {
     final source =
         _codeOnly() +
-        File(
-              'lib/features/messages/presentation/e2ee/'
-              'encryption_error_messages.dart',
-            )
-            .readAsLinesSync()
-            .where((l) => !l.trimLeft().startsWith('//'))
-            .join('\n')
-            .toLowerCase();
+        _codeOnly(
+          'lib/features/messages/presentation/e2ee/'
+          'encryption_error_messages.dart',
+        );
     for (final banned in [
       'is verified',
       'verified contact',

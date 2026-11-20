@@ -7,17 +7,20 @@ import 'package:flutter/foundation.dart';
 class CountingNotifier<T> extends ValueNotifier<T> {
   CountingNotifier(super.value);
 
-  int listenerCount = 0;
+  final List<VoidCallback> _added = [];
+
+  int get listenerCount => _added.length;
 
   @override
   void addListener(VoidCallback listener) {
-    listenerCount++;
+    _added.add(listener);
     super.addListener(listener);
   }
 
   @override
   void removeListener(VoidCallback listener) {
-    listenerCount--;
+    // Only a listener that was added counts (the base class ignores others).
+    _added.remove(listener);
     super.removeListener(listener);
   }
 }

@@ -11,9 +11,12 @@ import '../../domain/messaging_feature_flag.dart';
 /// tree => EncryptionAccess.hidden, whatever the flag says.
 ///
 /// It does not read `EncryptionDevice.flag`: the flag set of `enabled_features`
-/// is the input, and the access rule decides. `device.vaultKnown` is read
-/// whenever `vaultStatus` notifies, so the production adapter (Task 14) must
-/// notify `vaultStatus` when `vaultKnown` changes.
+/// is the input, and the access rule decides. `device.vaultKnown` is read when
+/// `vaultStatus` fires. It changes together with a status change except on one
+/// session path (the sign-in marker re-read failing into a status that may
+/// already be `unavailable`), where the builder can show `hidden` instead of
+/// `manage` until the next status change. Tracked in the plan's Task 14
+/// checklist.
 class EncryptionAccessBuilder extends StatelessWidget {
   const EncryptionAccessBuilder({super.key, required this.builder});
 
@@ -40,9 +43,9 @@ class EncryptionAccessBuilder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final flagOn = isFeatureEnabled(context, kFeatureE2eeDm);
     final device = _device(context);
     if (device == null) return builder(context, EncryptionAccess.hidden);
+    final flagOn = isFeatureEnabled(context, kFeatureE2eeDm);
     return ValueListenableBuilder<VaultStatus>(
       valueListenable: device.vaultStatus,
       builder: (context, status, _) => builder(

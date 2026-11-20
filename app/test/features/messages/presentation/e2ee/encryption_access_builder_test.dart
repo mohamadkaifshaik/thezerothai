@@ -119,5 +119,70 @@ void main() {
     expect(device.deviceKeys.listenerCount, 0);
     expect(device.engineUnavailable.listenerCount, 0);
     expect(device.unavailableLong.listenerCount, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(device.vaultStatus.listenerCount, 0);
+  });
+
+  testWidgets('no device and no OnboardingBloc builds hidden', (tester) async {
+    EncryptionAccess? seen;
+    await tester.pumpWidget(
+      EncryptionAccessBuilder(
+        builder: (context, access) {
+          seen = access;
+          return const SizedBox.shrink();
+        },
+      ),
+    );
+    expect(seen, EncryptionAccess.hidden);
+  });
+
+  Future<EncryptionAccess> readOf(
+    WidgetTester tester, {
+    required Set<String> features,
+    EncryptionDevice? device,
+  }) async {
+    final bloc = _MockOnboardingBloc();
+    whenListen(
+      bloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(enabledFeatures: features),
+    );
+    late EncryptionAccess result;
+    Widget tree = Builder(
+      builder: (context) {
+        result = EncryptionAccessBuilder.of(context);
+        return const SizedBox.shrink();
+      },
+    );
+    if (device != null) {
+      tree = RepositoryProvider<EncryptionDevice>.value(
+        value: device,
+        child: tree,
+      );
+    }
+    await tester.pumpWidget(
+      BlocProvider<OnboardingBloc>.value(value: bloc, child: tree),
+    );
+    return result;
+  }
+
+  testWidgets('of: no device gives hidden with the flag on', (tester) async {
+    expect(
+      await readOf(tester, features: {kFeatureE2eeDm}),
+      EncryptionAccess.hidden,
+    );
+  });
+
+  testWidgets('of: a device with the flag off and a known vault gives manage', (
+    tester,
+  ) async {
+    expect(
+      await readOf(
+        tester,
+        features: {},
+        device: FakeEncryptionDevice(flag: E2eeFlag.off),
+      ),
+      EncryptionAccess.manage,
+    );
   });
 }
