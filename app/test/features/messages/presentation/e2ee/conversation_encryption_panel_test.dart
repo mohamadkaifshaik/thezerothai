@@ -68,6 +68,8 @@ void main() {
       // Opens the panel from a page pushed over the home page.
       bool fromPage = false,
       NavigatorObserver? observer,
+      // False: stop after the first frame of the opening.
+      bool settleOpen = true,
     }) async {
       final port = using ?? FakeEncryptedMessaging();
       addTearDown(port.dispose);
@@ -129,7 +131,11 @@ void main() {
         await tester.pumpAndSettle();
       }
       await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
+      if (settleOpen) {
+        await tester.pumpAndSettle();
+      } else {
+        await tester.pump();
+      }
       return port;
     }
 
@@ -642,6 +648,20 @@ void main() {
         expect(tester.takeException(), isNull);
       });
 
+      testWidgets('Check devices clears the code before the panel leaves', (
+        tester,
+      ) async {
+        await pumpPanel(
+          tester,
+          const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
+        );
+        expect(hasDigitText(tester), isTrue);
+        await tester.tap(find.text(kOwnDeviceAlertAction));
+        await tester.pump();
+        expect(hasDigitText(tester), isFalse);
+        await tester.pumpAndSettle();
+      });
+
       testWidgets('losing the vault right after Check devices leaves the '
           'settings page shown', (tester) async {
         final device = FakeEncryptionDevice();
@@ -662,19 +682,48 @@ void main() {
       testWidgets('losing access while the panel is closing pops nothing '
           'else', (tester) async {
         final device = FakeEncryptionDevice();
+        final observer = _PopCounter();
         await pumpPanel(
           tester,
           const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
           device: device,
           fromPage: true,
+          observer: observer,
         );
         // The user dismisses the sheet (a tap on the barrier).
         await tester.tapAt(const Offset(195, 4));
         await tester.pump(const Duration(milliseconds: 50));
+        expect(observer.pops, 1, reason: 'the tap reached the barrier');
         device.vaultStatus.value = VaultStatus.heldElsewhere;
         await tester.pumpAndSettle();
         expect(find.text(kSecurityCodeHeader), findsNothing);
         expect(find.text('pushed page'), findsOneWidget);
+      });
+
+      testWidgets('losing the vault under another route removes only the '
+          'panel', (tester) async {
+        final device = FakeEncryptionDevice();
+        await pumpPanel(
+          tester,
+          const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
+          device: device,
+        );
+        final context = tester.element(find.byType(ConversationEncryptionHost));
+        unawaited(
+          Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('over the panel')),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('over the panel'), findsOneWidget);
+        device.vaultStatus.value = VaultStatus.heldElsewhere;
+        await tester.pumpAndSettle();
+        expect(find.text(kSecurityCodeHeader), findsNothing);
+        expect(find.byType(ConversationEncryptionHost), findsNothing);
+        expect(find.text('over the panel'), findsOneWidget);
+        expect(tester.takeException(), isNull);
       });
 
       testWidgets('opening while the vault is not ready shows no code and '
@@ -684,7 +733,11 @@ void main() {
           tester,
           const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
           device: device,
+          settleOpen: false,
         );
+        await tester.pump();
+        expect(hasDigitText(tester), isFalse);
+        await tester.pumpAndSettle();
         expect(hasDigitText(tester), isFalse);
         expect(find.text(kSecurityCodeHeader), findsNothing);
         expect(find.text('open'), findsOneWidget);
@@ -698,7 +751,11 @@ void main() {
           tester,
           const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
           using: port,
+          settleOpen: false,
         );
+        await tester.pump();
+        expect(hasDigitText(tester), isFalse);
+        await tester.pumpAndSettle();
         expect(hasDigitText(tester), isFalse);
         expect(find.text(kSecurityCodeHeader), findsNothing);
       });

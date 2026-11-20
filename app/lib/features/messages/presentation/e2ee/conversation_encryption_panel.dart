@@ -325,8 +325,10 @@ class _ConversationEncryptionHostState
   }
 
   void _checkDevices() {
+    if (_closing) return;
     final router = widget.router ?? GoRouter.maybeOf(context);
     _closing = true;
+    _cubit.clear();
     _removeRoute();
     if (router != null) {
       unawaited(router.push<void>(AppRouter.encryptionSettingsPath));
