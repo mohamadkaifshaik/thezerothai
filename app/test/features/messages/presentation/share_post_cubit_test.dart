@@ -356,6 +356,31 @@ void main() {
       expect(repo.sendKeys, isEmpty);
     });
 
+    test('the line drawn under the rows for a refusal with no error is the '
+        'composer\'s text for it', () async {
+      // The widget draws sharePostErrorMessage(lastError, problem: lastProblem).
+      for (final (problem, text) in [
+        (SendProblem.tryTomorrow, kOutgoingTryTomorrowText),
+        (SendProblem.peerHasNoDevice, kStatePeerNoDeviceText),
+      ]) {
+        port.nextSendOutcome = SendOutcome(
+          SendOutcomeKind.refused,
+          problem: problem,
+        );
+        final c = withPort()..toggle(_peer(1));
+        addTearDown(c.close);
+        await c.send();
+        expect(
+          sharePostErrorMessage(
+            c.state.lastError!,
+            problem: c.state.lastProblem,
+          ),
+          text,
+          reason: '$problem',
+        );
+      }
+    });
+
     test('the share flag is checked before the port\'s send, so a disabled '
         'share sends nothing (the only client check; the post\'s protection '
         'is the server\'s)', () async {

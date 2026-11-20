@@ -16,7 +16,6 @@ import '../../../posts/presentation/widgets/draft_problem_hint.dart';
 import '../../domain/e2ee/encrypted_messaging.dart' show SendProblem;
 import '../../domain/messaging_feature_gate.dart';
 import '../e2ee/encryption_error_messages.dart';
-import '../e2ee/encryption_status.dart';
 import '../bloc/message_composer_cubit.dart';
 import '../messaging_error_messages.dart';
 import '../thread_screen.dart' show ThreadReadOnlyLine, kMessagingReadOnlyText;
@@ -183,7 +182,10 @@ class _MessageComposerState extends State<MessageComposer> {
                 else if (error != null)
                   _ErrorLine(text: messagingErrorMessage(error))
                 else if (state.refusedProblem != SendProblem.none)
-                  _RefusalLine(problem: state.refusedProblem),
+                  _RefusalLine(
+                    problem: state.refusedProblem,
+                    vaultBlocked: state.refusedVaultBlocked,
+                  ),
                 Padding(
                   padding: const EdgeInsetsDirectional.fromSTEB(
                     AppSpacing.md,
@@ -300,27 +302,21 @@ class _ErrorLine extends StatelessWidget {
 }
 
 /// The reason the encrypted port refused a send before saving it. A blocked
-/// send says the vault is not open only while the status says so now
-/// (`EncryptionStatus.vaultNotOpen`); with no status cubit it does not.
+/// send says the vault is not open only when the status said so at the time of
+/// the refusal (`EncryptionStatus.vaultNotOpen`, frozen by the cubit in
+/// [MessageComposerState.refusedVaultBlocked]); with no status cubit it does
+/// not. The composer may be re-parented while the status banner comes and goes,
+/// so the answer cannot live in this widget.
 class _RefusalLine extends StatelessWidget {
-  const _RefusalLine({required this.problem});
+  const _RefusalLine({required this.problem, required this.vaultBlocked});
 
   final SendProblem problem;
+  final bool vaultBlocked;
 
   @override
-  Widget build(BuildContext context) {
-    final status = context.read<EncryptionStatusCubit?>();
-    if (status == null) {
-      return _ErrorLine(text: composerRefusalText(problem, null));
-    }
-    return BlocBuilder<EncryptionStatusCubit, EncryptionStatus>(
-      bloc: status,
-      buildWhen: (a, b) => a.vaultNotOpen != b.vaultNotOpen,
-      builder: (context, s) => _ErrorLine(
-        text: composerRefusalText(problem, null, vaultBlocked: s.vaultNotOpen),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => _ErrorLine(
+    text: composerRefusalText(problem, null, vaultBlocked: vaultBlocked),
+  );
 }
 
 /// The field's white pill (dzeroth-mobile Chat): a hairline border, no

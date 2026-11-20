@@ -1,5 +1,7 @@
 import '../../../core/network/app_exception.dart';
+import '../domain/e2ee/encrypted_messaging.dart';
 import '../domain/messaging_feature_flag.dart';
+import 'e2ee/encryption_error_messages.dart';
 import 'messaging_error_messages.dart';
 
 /// Whether [error] ends the whole share, not just one recipient: the post
@@ -26,7 +28,14 @@ bool sharePostErrorEndsShare(AppException error) => switch (error) {
 /// Branches on the exception type and `metadata["feature"]`, never on server
 /// text. NOT_FOUND means the post here (the recipient is named by id, and an
 /// unreachable one is CANNOT_MESSAGE).
-String sharePostErrorMessage(AppException error) {
+///
+/// [problem] is the port's reason for a refusal that carried no typed error:
+/// the line is then the composer's text for it.
+String sharePostErrorMessage(
+  AppException error, {
+  SendProblem problem = SendProblem.none,
+}) {
+  if (problem != SendProblem.none) return composerRefusalText(problem, null);
   return switch (error) {
     NotFoundException() => "This post isn't available anymore.",
     ProtectedAccountException() =>

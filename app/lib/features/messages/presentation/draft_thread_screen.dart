@@ -26,6 +26,7 @@ import '../domain/messaging_feature_flag.dart';
 import 'bloc/message_composer_cubit.dart';
 import 'e2ee/encrypted_thread_items.dart';
 import 'e2ee/encryption_access_builder.dart';
+import 'e2ee/encryption_status.dart';
 import 'e2ee/widgets/thread_status_banner.dart';
 import 'thread_items.dart' show EncryptedMessageItem;
 import 'widgets/message_bubble.dart';
@@ -79,6 +80,7 @@ class DraftThreadScreen extends StatelessWidget {
     }
     return BlocProvider<MessageComposerCubit>(
       create: (context) => MessageComposerCubit(
+        vaultNotOpen: _vaultNotOpenOf(context),
         repository: context.read<MessagingRepository>(),
         recipientUserId: peer.userId,
         // R1: the person is addressed from this snapshot only.
@@ -102,6 +104,12 @@ class DraftThreadScreen extends StatelessWidget {
       child: _DraftView(peer: peer),
     );
   }
+}
+
+/// Asks the status (when one is provided) whether the vault is not open.
+bool Function() _vaultNotOpenOf(BuildContext context) {
+  final status = context.read<EncryptionStatusCubit?>();
+  return () => status?.state.vaultNotOpen ?? false;
 }
 
 /// The encrypted port for a draft, or null (today's draft): absent without a
@@ -232,7 +240,9 @@ class _DraftViewState extends State<_DraftView> {
                     : Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const _DraftNotEncryptedNote(),
+                          // Gone once the port's thread shows a row: that
+                          // message is encrypted, whatever it is waiting for.
+                          if (_rows.isEmpty) const _DraftNotEncryptedNote(),
                           const ConnectedThreadStatusBanner(
                             child: MessageComposer(),
                           ),
@@ -268,10 +278,22 @@ class _DraftViewState extends State<_DraftView> {
           use24Hour: use24Hour,
           linksEnabled: item.message.mine,
           onOpenLink: (uri) => unawaited(launchPostLink(uri)),
-          onRetry: (id) =>
-              unawaited(context.read<MessageComposerCubit>().retry(id)),
+          onRetry: _retryRow,
         );
       },
+    );
+  }
+
+  /// One call per row at a time: a double tap retries once.
+  final Set<String> _retrying = {};
+
+  void _retryRow(String localId) {
+    if (!_retrying.add(localId)) return;
+    unawaited(
+      context
+          .read<MessageComposerCubit>()
+          .retry(localId)
+          .whenComplete(() => _retrying.remove(localId)),
     );
   }
 }

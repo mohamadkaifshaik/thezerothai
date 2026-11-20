@@ -45,11 +45,12 @@ void main() {
     WidgetTester tester, {
     bool flagOn = true,
     VaultStatus vault = VaultStatus.ready,
+    bool vaultKnown = true,
   }) async {
     final server = FakeMessagingServer();
     final port = FakeEncryptedMessaging();
     addTearDown(port.dispose);
-    final device = FakeEncryptionDevice(status: vault);
+    final device = FakeEncryptionDevice(status: vault, vaultKnown: vaultKnown);
     final status = EncryptionStatusCubit(
       device: device,
       messaging: port,
@@ -229,8 +230,72 @@ void main() {
       'does not use the port for a person it knows nothing about', (
     tester,
   ) async {
-    final o = await open(tester, flagOn: false);
+    // Flag off and no vault known on this device: access is hidden.
+    final o = await open(tester, flagOn: false, vaultKnown: false);
     expect(find.text(kMessagesNotEncryptedText), findsNothing);
+    await typeAndSend(tester, 'hello');
+    await tester.pumpAndSettle();
     expect(o.port.sent, isEmpty);
+    expect(o.rig.server.sends.single.recipientUserId, 'u-sam');
+  });
+
+  testWidgets('the not-encrypted note is gone once the draft shows an '
+      'encrypted row', (tester) async {
+    final o = await open(tester);
+    await typeAndSend(tester, 'hello');
+    await tester.pumpAndSettle();
+    expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
+    o.port.setThread(
+      ref,
+      EncryptedThread(
+        entries: [row(o.port.sent.single.localId)],
+        security: const ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(kOutgoingWaitingText), findsOneWidget);
+    expect(find.text(kMessagesNotEncryptedText), findsNothing);
+  });
+
+  testWidgets('a second tap on a retrying draft row sends nothing more', (
+    tester,
+  ) async {
+    final o = await open(tester);
+    o.port.setThread(
+      ref,
+      EncryptedThread(
+        entries: [
+          DecryptedMessage(
+            id: 'r1',
+            at: DateTime.now().toUtc(),
+            mine: true,
+            text: 'hello',
+            progress: SendProgress.notSent,
+            problem: SendProblem.retryable,
+          ),
+        ],
+        security: const ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final tap = tester
+        .widget<GestureDetector>(
+          find
+              .ancestor(
+                of: find.byKey(MessageBubble.statusKey),
+                matching: find.byType(GestureDetector),
+              )
+              .first,
+        )
+        .onTap!;
+    // Both taps land before the first answers.
+    tap();
+    tap();
+    await tester.pumpAndSettle();
+    expect(o.port.retried, ['r1'], reason: 'one call for two taps');
   });
 }

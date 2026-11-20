@@ -23,6 +23,7 @@ class MessageComposerState {
     this.degraded = false,
     this.cannotMessage = false,
     this.refusedProblem = SendProblem.none,
+    this.refusedVaultBlocked = false,
     this.sendPending = false,
   });
 
@@ -50,6 +51,10 @@ class MessageComposerState {
   /// shows above it. Cleared like [error].
   final SendProblem refusedProblem;
 
+  /// Whether the vault on this device was not open at the time of the refusal
+  /// (decided once, with [refusedProblem], and cleared with it).
+  final bool refusedVaultBlocked;
+
   /// A send through the encrypted port is awaiting its answer (a device lookup
   /// and, when encryption starts, a claim). It is the composer's normal sending
   /// state, with no row: the text stays in the field until the answer.
@@ -68,6 +73,7 @@ class MessageComposerState {
     bool? degraded,
     bool? cannotMessage,
     SendProblem? refusedProblem,
+    bool? refusedVaultBlocked,
     bool? sendPending,
     bool clearError = false,
   }) => MessageComposerState(
@@ -79,6 +85,9 @@ class MessageComposerState {
     refusedProblem: clearError
         ? (refusedProblem ?? SendProblem.none)
         : (refusedProblem ?? this.refusedProblem),
+    refusedVaultBlocked: clearError
+        ? (refusedVaultBlocked ?? false)
+        : (refusedVaultBlocked ?? this.refusedVaultBlocked),
     sendPending: sendPending ?? this.sendPending,
   );
 }
@@ -119,6 +128,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     this.recipientUserId,
     this.recipient,
     EncryptedMessaging? encrypted,
+    bool Function()? vaultNotOpen,
     this.onConversationCreated,
     this.onActivity,
     this.onSent,
@@ -136,6 +146,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
        ),
        _repository = repository,
        _encrypted = encrypted,
+       _vaultNotOpen = vaultNotOpen,
        _conversationId = conversationId,
        _uuid = uuid ?? const Uuid(),
        _outbox = outbox.lease(),
@@ -189,6 +200,10 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   /// The encrypted messaging port, or null: then every path is today's.
   final EncryptedMessaging? _encrypted;
 
+  /// Whether the status says the vault on this device is not open, asked once
+  /// when a blocked refusal arrives (null: never).
+  final bool Function()? _vaultNotOpen;
+
   /// Whether sends go through the encrypted port (the field then keeps the
   /// text until the port answers).
   bool get hasPort => _encrypted != null;
@@ -208,7 +223,19 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
 
   /// The user typed: re-read the draft and forget the last error.
   void textChanged(String raw) {
-    emit(state.copyWith(draft: analyzePostDraft(raw), clearError: true));
+    // A port refusal for degraded mode leaves no row to tap: the next edit
+    // lifts the hold. With a failed row, only tapping it does.
+    final liftDegraded =
+        _encrypted != null &&
+        state.degraded &&
+        !state.outgoing.any((m) => m.status == OutgoingStatus.failed);
+    emit(
+      state.copyWith(
+        draft: analyzePostDraft(raw),
+        degraded: liftDegraded ? false : null,
+        clearError: true,
+      ),
+    );
     onActivity?.call();
   }
 
@@ -233,7 +260,8 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   Future<void> _sendPlain(String key, String text) async {
     emit(
       state.copyWith(
-        draft: analyzePostDraft(''),
+        // Anything typed while a port lookup was pending stays in the field.
+        draft: state.draft.text == text ? analyzePostDraft('') : null,
         outgoing: [
           for (final m in state.outgoing)
             if (m.localId != key) m,
@@ -296,7 +324,14 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       if (outcome.kind == SendOutcomeKind.queued) {
         _outbox
           ..forgetKey(_scope, text)
-          ..save(_scope, draft: '', rows: state.outgoing);
+          ..save(
+            _scope,
+            draft: state.draft.text == text ? '' : state.draft.text,
+            rows: [
+              for (final m in state.outgoing)
+                if (m.localId != key) m,
+            ],
+          );
       }
       return;
     }
@@ -307,6 +342,10 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
           state.copyWith(
             sendPending: false,
             draft: state.draft.text == text ? analyzePostDraft('') : null,
+            // A retried row now lives in the port's thread.
+            outgoing: state.outgoing.any((m) => m.localId == key)
+                ? _replace(key, null)
+                : null,
           ),
         );
         onActivity?.call();
@@ -321,6 +360,9 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
           state.copyWith(
             sendPending: false,
             refusedProblem: outcome.problem,
+            refusedVaultBlocked:
+                outcome.problem == SendProblem.blocked &&
+                (_vaultNotOpen?.call() ?? false),
             error: error,
             degraded: error is DegradedModeException,
             cannotMessage: error is CannotMessageException ? true : null,
@@ -364,6 +406,14 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       return;
     }
     final entry = state.outgoing[index];
+    if (port != null) {
+      // The pipeline decides again (the vault may have stopped being ready, or
+      // the conversation become encrypted): never plaintext around the port.
+      // A not-encrypted or refused answer saved nothing, so the id is free.
+      emit(state.copyWith(degraded: false, clearError: true));
+      await _sendThroughPort(port, entry.localId, entry.text);
+      return;
+    }
     emit(
       state.copyWith(
         outgoing: _replace(

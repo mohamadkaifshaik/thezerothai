@@ -232,6 +232,89 @@ void main() {
       expect(port.retried, isEmpty);
     });
 
+    test('with a port, retrying a failed not-encrypted row asks the port first '
+        'and never calls sendMessage when it is refused', () async {
+      port.nextSendOutcome = _plain;
+      repo.failures.add(const NetworkException('offline'));
+      final cubit = make();
+      cubit.textChanged('hello');
+      await cubit.send();
+      final row = cubit.state.outgoing.single;
+      expect(row.status, OutgoingStatus.failed);
+      expect(repo.sendKeys, hasLength(1));
+      port.nextSendOutcome = _refused(SendProblem.blocked);
+      await cubit.retry(row.localId);
+      expect(port.sent, hasLength(2));
+      expect(port.sent.last.localId, row.localId);
+      expect(repo.sendKeys, hasLength(1));
+      expect(cubit.state.outgoing.single.status, OutgoingStatus.failed);
+      expect(cubit.state.outgoing.single.text, 'hello');
+      expect(cubit.state.isSending, isFalse);
+    });
+
+    test('with a port, retrying a failed not-encrypted row that is still not '
+        'encrypted calls sendMessage with the same id', () async {
+      port.nextSendOutcome = _plain;
+      repo.failures.add(const NetworkException('offline'));
+      final cubit = make();
+      cubit.textChanged('hello');
+      await cubit.send();
+      final row = cubit.state.outgoing.single;
+      await cubit.retry(row.localId);
+      expect(port.sent, hasLength(2));
+      expect(repo.sendKeys, [row.localId, row.localId]);
+      expect(repo.sendTexts, ['hello', 'hello']);
+    });
+
+    test('a degraded refusal from the port lifts on the next edit when there '
+        'is no failed row', () async {
+      port.nextSendOutcome = _refused(
+        SendProblem.refused,
+        const DegradedModeException(''),
+      );
+      final cubit = make();
+      cubit.textChanged('hello');
+      await cubit.send();
+      expect(cubit.state.degraded, isTrue);
+      expect(cubit.state.canSend, isFalse);
+      cubit.textChanged('hello!');
+      expect(cubit.state.degraded, isFalse);
+      expect(cubit.state.canSend, isTrue);
+    });
+
+    test(
+      'degraded with a failed row still lifts only by tapping the row',
+      () async {
+        port.nextSendOutcome = _plain;
+        repo.failures.add(const DegradedModeException(''));
+        final cubit = make();
+        cubit.textChanged('hello');
+        await cubit.send();
+        expect(cubit.state.degraded, isTrue);
+        cubit.textChanged('more');
+        expect(cubit.state.degraded, isTrue);
+        expect(cubit.state.canSend, isFalse);
+        await cubit.retry(cubit.state.outgoing.single.localId);
+        expect(cubit.state.degraded, isFalse);
+      },
+    );
+
+    test('text typed while the port\'s send is pending survives a '
+        'notEncrypted answer', () async {
+      final hold = Completer<void>();
+      port.holdSend = hold;
+      port.nextSendOutcome = _plain;
+      final cubit = make();
+      cubit.textChanged('hello');
+      final sending = cubit.send();
+      await Future<void>.delayed(Duration.zero);
+      cubit.textChanged('hello and more');
+      hold.complete();
+      await sending;
+      expect(repo.sendTexts, ['hello']);
+      expect(cubit.state.draft.text, 'hello and more');
+    });
+
     test('the text is never passed to onUnexpectedError', () async {
       port.failNextOn(
         'send',
@@ -554,6 +637,20 @@ void main() {
       expect(find.text(kStatusDetails), findsOneWidget);
       expect(fieldText(tester), 'hello');
       expect(o.rig.server.sends, isEmpty);
+    });
+
+    testWidgets('a vault refusal keeps its wording after the vault opens', (
+      tester,
+    ) async {
+      final o = await open(tester, vault: VaultStatus.opening);
+      o.port.nextSendOutcome = _refused(SendProblem.blocked);
+      await typeAndSend(tester, 'hello');
+      await tester.pumpAndSettle();
+      expect(find.text(kSendWaitsForVaultText), findsOneWidget);
+      o.device.vaultStatus.value = VaultStatus.ready;
+      await tester.pumpAndSettle();
+      expect(find.text(kSendWaitsForVaultText), findsOneWidget);
+      expect(find.text(kStateBlockedTitle), findsNothing);
     });
 
     for (final removed in [false, true]) {

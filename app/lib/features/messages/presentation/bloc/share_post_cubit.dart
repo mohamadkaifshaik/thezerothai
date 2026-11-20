@@ -38,6 +38,7 @@ class ShareRecipient {
     required this.key,
     this.status = ShareRowStatus.idle,
     this.error,
+    this.problem = SendProblem.none,
   });
 
   final common.AuthorSnapshot peer;
@@ -48,8 +49,21 @@ class ShareRecipient {
   final ShareRowStatus status;
   final AppException? error;
 
-  ShareRecipient withStatus(ShareRowStatus status, {AppException? error}) =>
-      ShareRecipient(peer: peer, key: key, status: status, error: error);
+  /// The port's reason when it refused this send with no typed [error]
+  /// (the text drawn is then `composerRefusalText(problem, null)`).
+  final SendProblem problem;
+
+  ShareRecipient withStatus(
+    ShareRowStatus status, {
+    AppException? error,
+    SendProblem problem = SendProblem.none,
+  }) => ShareRecipient(
+    peer: peer,
+    key: key,
+    status: status,
+    error: error,
+    problem: problem,
+  );
 }
 
 @immutable
@@ -104,6 +118,16 @@ class SharePostState {
       if (r.status == ShareRowStatus.failed) return r.error;
     }
     return null;
+  }
+
+  /// The port's refusal reason of the row [lastError] comes from (none when
+  /// the share ended or the error is typed).
+  SendProblem get lastProblem {
+    if (endedBy != null) return SendProblem.none;
+    for (final r in recipients.reversed) {
+      if (r.status == ShareRowStatus.failed) return r.problem;
+    }
+    return SendProblem.none;
   }
 
   SharePostState copyWith({
@@ -272,7 +296,14 @@ class SharePostCubit extends Cubit<SharePostState> {
             final error =
                 outcome!.error ??
                 UnknownApiException(composerRefusalText(outcome.problem, null));
-            _setRow(id, ShareRowStatus.failed, error: error);
+            _setRow(
+              id,
+              ShareRowStatus.failed,
+              error: error,
+              problem: outcome.error == null
+                  ? outcome.problem
+                  : SendProblem.none,
+            );
             if (sharePostErrorEndsShare(error)) {
               _endShare(ids.sublist(i + 1), error);
               return;
@@ -309,14 +340,19 @@ class SharePostCubit extends Cubit<SharePostState> {
   ShareRecipient _row(String userId) =>
       state.recipients.firstWhere((r) => r.peer.userId == userId);
 
-  void _setRow(String userId, ShareRowStatus status, {AppException? error}) {
+  void _setRow(
+    String userId,
+    ShareRowStatus status, {
+    AppException? error,
+    SendProblem problem = SendProblem.none,
+  }) {
     if (isClosed) return;
     emit(
       state.copyWith(
         recipients: [
           for (final r in state.recipients)
             if (r.peer.userId == userId)
-              r.withStatus(status, error: error)
+              r.withStatus(status, error: error, problem: problem)
             else
               r,
         ],

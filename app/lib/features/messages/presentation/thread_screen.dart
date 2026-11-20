@@ -224,7 +224,9 @@ class ThreadScreen extends StatelessWidget {
         BlocProvider<MessageComposerCubit>(
           create: (context) {
             final thread = context.read<ThreadCubit>();
+            final status = context.read<EncryptionStatusCubit?>();
             return MessageComposerCubit(
+              vaultNotOpen: () => status?.state.vaultNotOpen ?? false,
               repository: context.read<MessagingRepository>(),
               conversationId: conversationId,
               outbox: context.read<MessagingRepository>().outbox,
