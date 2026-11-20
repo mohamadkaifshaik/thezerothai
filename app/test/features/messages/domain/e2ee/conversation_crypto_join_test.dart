@@ -56,12 +56,50 @@ class _BigPage extends RigMessaging {
     required String deviceId,
     required List<String> ids,
   }) async {
+    // Its welcomes are not stored on the rig server: recorded here only (the
+    // rig's strict ack would refuse ids it never listed).
+    if (ids.isEmpty || ids.length > kAckWelcomesMaxIds) {
+      throw StateError('rig: 1-50 ids');
+    }
     acks.add([...ids]);
-    await super.ackWelcomes(
-      idempotencyKey: idempotencyKey,
-      deviceId: deviceId,
-      ids: ids,
+  }
+}
+
+/// Records the `after` and page size of every `ListConversationCommits` call.
+class _Recording extends RigMessaging {
+  _Recording(RigServer server) : super(server, 'user-a');
+
+  final List<({MlsPair? after, int pageSize})> commitCalls = [];
+
+  @override
+  Future<pb.ListConversationCommitsResponse> listConversationCommits({
+    required String conversationId,
+    required MlsPair? after,
+    int pageSize = 0,
+  }) {
+    commitCalls.add((after: after, pageSize: pageSize));
+    return super.listConversationCommits(
+      conversationId: conversationId,
+      after: after,
+      pageSize: pageSize,
     );
+  }
+}
+
+/// Records the device state every join starts from and the one it returns.
+class _JoinSpy extends RigEngine {
+  final List<Uint8List> inputs = [];
+  final List<Uint8List> outputs = [];
+
+  @override
+  Future<JoinResult> joinFromWelcome(
+    Uint8List deviceState,
+    Uint8List welcome,
+  ) async {
+    inputs.add(deviceState);
+    final r = await super.joinFromWelcome(deviceState, welcome);
+    outputs.add(r.deviceState);
+    return r;
   }
 }
 
@@ -897,5 +935,175 @@ void main() {
     expect(rigEq(carolPin.signatureKey, newKey), isTrue);
     expect(carolPin.since, const MlsPair(2, 1));
     expect(pinOf(after, dave.id), isNull);
+  });
+
+  test('a welcome the engine refuses for good is acknowledged as permanent '
+      'and paging continues', () async {
+    final ids = [for (var i = 0; i < 12; i++) _conv(i)];
+    final offers = <RigOffer>[];
+    for (final id in ids) {
+      offers.add(await rig.offer(id, bob));
+    }
+    // The whole first page is refused for good (evicted is not transient);
+    // the engine answers again once that page was acknowledged.
+    rig.device.engine.failAlways['joinFromWelcome'] = const MlsException(
+      MlsErrorCode.evicted,
+      'rig',
+    );
+    rig.server.onCall = (call) async {
+      if (call == 'ackWelcomes') {
+        rig.device.engine.failAlways.remove('joinFromWelcome');
+      }
+    };
+
+    final joined = await rig.crypto.processWelcomes();
+
+    expect(joined, ids.sublist(10));
+    expect(rig.server.listedFor, hasLength(2));
+    expect(await ackedIds(), [for (final o in offers) o.welcomeId]);
+    for (final id in ids.sublist(0, 10)) {
+      expect(await rig.device.vault.group(id, 1), isNull);
+    }
+  });
+
+  test('settling a provisional group reads from the stored after-pair with '
+      "the contract's page size", () async {
+    await rig.dispose();
+    late _Recording recording;
+    rig = await RigCrypto.create(messaging: (s) => recording = _Recording(s));
+    bob = await RigPeer.create('bob');
+    final v = rig.device.vault;
+    rig.server.addCommit(
+      _c1,
+      const MlsPair(1, 0),
+      rigBytes('generation 1'),
+      fromUser: 'user-b',
+    );
+    await v.transaction((tx) async {
+      await tx.putConversationSync(_c1, const ConversationSync());
+      await tx.setAfterPair(_c1, const MlsPair(1, 0));
+      await tx.putGroup(
+        GroupRecord(
+          conversationId: _c1,
+          generation: 2,
+          epoch: 1,
+          state: rigBytes('a provisional state'),
+          provisional: true,
+          provisionalCreatedAtMicros: rig.clock.now().microsecondsSinceEpoch,
+          pending: PendingCommit(
+            kind: PendingKind.init,
+            builtOn: const MlsPair(2, 0),
+            commit: rigBytes('this device init'),
+          ),
+        ),
+      );
+    });
+    // Another device's init of generation 2 was stored first.
+    await rig.offer(_c1, bob, generation: 2);
+
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    // [0] the welcome's server-pair read; [1] the settle read.
+    expect(recording.commitCalls[1], (
+      after: const MlsPair(1, 0),
+      pageSize: kCommitPageSize,
+    ));
+    expect((await v.group(_c1, 2))!.provisional, isFalse);
+  });
+
+  test('an own init at or below the after-pair makes its welcome a '
+      'permanent replay', () async {
+    final v = rig.device.vault;
+    final init = rigBytes('this device init');
+    await v.transaction((tx) async {
+      await tx.putConversationSync(_c1, const ConversationSync());
+      await tx.setAfterPair(_c1, const MlsPair(1, 0));
+      await tx.putGroup(
+        GroupRecord(
+          conversationId: _c1,
+          generation: 1,
+          epoch: 1,
+          state: rigBytes('a provisional state'),
+          provisional: true,
+          provisionalCreatedAtMicros: rig.clock.now().microsecondsSinceEpoch,
+          pending: PendingCommit(
+            kind: PendingKind.init,
+            builtOn: const MlsPair(1, 0),
+            commit: init,
+          ),
+        ),
+      );
+    });
+    rig.server.addCommit(_c1, const MlsPair(1, 0), init, fromUser: 'user-a');
+    final w = rig.server.addWelcome(
+      rig.device.deviceIdString,
+      _c1,
+      const MlsPair(1, 1),
+      Uint8List(4),
+    );
+    final before = await rig.dump();
+    rig.device.engine.calls.clear();
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(await ackedIds(), [w]);
+    expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+    expect(await rig.dump(), before);
+  });
+
+  test('a welcome listed again by a nested poll before the outer poll '
+      'acknowledged it is acknowledged once', () async {
+    final offer = await rig.offer(_c1, bob);
+    // The server moves to generation 2 while the join runs: the catch-up
+    // after the join switches generations and polls welcomes, which still
+    // lists this welcome (the outer poll acknowledges after the page).
+    var commitReads = 0;
+    rig.server.onCall = (call) async {
+      if (call == 'listConversationCommits' && ++commitReads == 2) {
+        rig.server.addCommit(
+          _c1,
+          const MlsPair(2, 0),
+          rigBytes('a reset of another device'),
+          fromUser: 'user-b',
+        );
+      }
+    };
+
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    expect(rig.server.listedFor.length, greaterThanOrEqualTo(2));
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(await rig.device.vault.group(_c1, 1), isNotNull);
+  });
+
+  test('two welcomes in one poll: the second join starts from the device '
+      'state the first one stored', () async {
+    final spy = _JoinSpy();
+    rig.crypto = ConversationCrypto(
+      session: rig.device.session,
+      engine: () => spy,
+      messaging: rig.messaging,
+      directory: rig.directory,
+      syncBudget: rig.syncBudget,
+      locks: rig.locks,
+      contexts: rig.contexts,
+      known: rig.known,
+      now: rig.clock.now,
+      onChanged: rig.changed.add,
+      onUnexpectedError: (e, _) => rig.unexpected.add(e),
+    );
+    await rig.offer(_c1, bob);
+    await rig.offer(_c2, bob);
+    final start = (await rig.device.vault.deviceState())!;
+
+    expect((await rig.crypto.processWelcomes()).toSet(), {_c1, _c2});
+
+    expect(spy.inputs, hasLength(2));
+    expect(rigEq(spy.inputs[0], start), isTrue);
+    expect(rigEq(spy.inputs[1], spy.outputs[0]), isTrue);
+    expect(
+      rigEq((await rig.device.vault.deviceState())!, spy.outputs[1]),
+      isTrue,
+    );
   });
 }

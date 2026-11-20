@@ -14,6 +14,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_rig.dart';
@@ -185,11 +186,9 @@ void main() {
       expect(await pin(_c1, carol.id), isNull);
       expect(await pin(_c1, dave.id), isNotNull);
       final sync = (await v.conversation(_c1))!.sync;
-      expect(sync.completedEpochs, const [
-        MlsPair(1, 1),
-        MlsPair(1, 2),
-        MlsPair(1, 3),
-      ]);
+      // Only a stored generation's walked LAST epoch is kept (L6's check):
+      // an epoch a commit closed is never a stored group's epoch again.
+      expect(sync.completedEpochs, isEmpty);
       expect(sync.epochMustAdvance, isFalse);
       // A second pass has nothing to do.
       rig.device.engine.calls.clear();
@@ -915,6 +914,38 @@ void main() {
       expect((await rig.crypto.describeState(c2)).sendBlock, SendBlock.stuck);
     });
 
+    test(
+      'a remembered stuck answer comes before a provisional group',
+      () async {
+        final v = rig.device.vault;
+        await v.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: _c1,
+              generation: 1,
+              epoch: 1,
+              state: rigBytes('a provisional state'),
+              provisional: true,
+              provisionalCreatedAtMicros: rig.clock
+                  .now()
+                  .microsecondsSinceEpoch,
+              pending: PendingCommit(
+                kind: PendingKind.init,
+                builtOn: const MlsPair(1, 0),
+                commit: rigBytes('this device init'),
+              ),
+            ),
+          ),
+        );
+        rig.contexts.of(_c1).stuck = true;
+
+        final state = await rig.crypto.describeState(_c1);
+
+        expect(state.phase, ConversationPhase.stuck);
+        expect(state.sendBlock, SendBlock.stuck);
+      },
+    );
+
     test('a deadline during process is interrupted, not stuck', () async {
       final carol = await RigPeer.create('carol');
       final offer = await join(_c1);
@@ -944,16 +975,31 @@ void main() {
       await bobCommit(offer, _c1, add: [carol]);
       final guarded = GuardedCryptoEngine(
         create: () => rig.device.engine,
-        deadline: const Duration(milliseconds: 20),
+        deadline: const Duration(seconds: 30),
       );
       rebuild(engine: () => guarded);
       final late = Completer<void>();
       rig.device.engine.holdNextProcess = late.future;
       final before = await rig.dump();
 
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      // Fake time: the engine's deadline passes while process is held.
+      final clock = FakeAsync();
+      CatchUpResult? result;
+      clock.run((_) {
+        rig.crypto.catchUp(_c1).then((r) => result = r);
+      });
+      for (var i = 0; i < 1000; i++) {
+        if (rig.device.engine.calls.contains('process')) break;
+        clock.elapse(Duration.zero);
+      }
+      expect(rig.device.engine.calls, contains('process'));
+      clock.elapse(const Duration(seconds: 31));
+      expect(result, CatchUpResult.interrupted);
+      // The result arrives late.
       late.complete();
-      await pumpEventQueue();
+      clock
+        ..flushMicrotasks()
+        ..flushTimers();
 
       expect(await rig.dump(), before);
       expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
@@ -1220,6 +1266,8 @@ void main() {
       final sync = (await v.conversation(_c1))!.sync;
       expect(sync.firstSawGeneration, 2);
       expect(sync.firstSawGenerationAtMicros, first.microsecondsSinceEpoch);
+      // Generation 1's last epoch, walked to its end, and nothing else.
+      expect(sync.completedEpochs, const [MlsPair(1, 1)]);
       // The old generation's group is kept until a newer one is stored.
       expect(await v.group(_c1, 1), isNotNull);
       final state = await rig.crypto.describeState(_c1);

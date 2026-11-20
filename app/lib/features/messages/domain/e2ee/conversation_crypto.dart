@@ -197,15 +197,19 @@ class ConversationCrypto {
 
   /// Catch-up with [id]'s lock held. Never throws: an unexpected failure is
   /// `interrupted` (nothing was written by a failed body).
+  ///
+  /// [parent]: the welcome poll this catch-up runs inside (its welcomes are
+  /// acknowledged by it, never again by a nested poll).
   Future<CatchUpResult> _catchUpLocked(
     String id, {
     required BudgetPriority priority,
+    _Poll? parent,
   }) async {
     final context = _contexts.of(id);
     // Set again only by a pass that ends at the server pair (step 8).
     context.syncedSinceStart = false;
     try {
-      final pass = await _startPoll(priority);
+      final pass = await _startPoll(priority, parent: parent);
       if (pass == null) return CatchUpResult.interrupted;
       for (var i = 0; i < _kSwitchesPerPass; i++) {
         final step = await _passLocked(pass, id);
@@ -345,6 +349,7 @@ class ConversationCrypto {
       priority: pass.priority,
       held: id,
       serverPairs: {id: server},
+      parent: pass,
     );
     if (!pass.live) return CatchUpResult.interrupted;
     final after2 = await vault.groups(id);
@@ -523,9 +528,14 @@ class ConversationCrypto {
     final sync = record?.sync ?? const ConversationSync();
     final accepted = sync.requestAccepted;
     final nowMicros = _now().microsecondsSinceEpoch;
+    // L6's checks (the join's delete, `_unwalked`) only ever look for a
+    // stored group's CURRENT (generation, epoch). After this commit the
+    // group of `at.generation` is at `at.next`, so no entry of that
+    // generation (`at` included) can match again: only the walked last
+    // epochs of the other stored generations are kept (at most one each).
     final completed = [
-      ...sync.completedEpochs,
-      if (!sync.completedEpochs.contains(at)) at,
+      for (final p in sync.completedEpochs)
+        if (p.generation != at.generation) p,
     ];
     final needKnown = !_known.contains(id);
     final groups = await v.groups(id);
@@ -551,7 +561,8 @@ class ConversationCrypto {
           await tx.putConversationSync(
             id,
             sync.copyWith(
-              completedEpochs: completed,
+              // Every group was deleted: nothing is left for L6 to check.
+              completedEpochs: const [],
               epochMustAdvance: false,
               firstSawGeneration: at.generation,
               firstSawGenerationAtMicros: nowMicros,
@@ -811,10 +822,12 @@ class ConversationCrypto {
     }
     final server = context.serverPair;
     final ConversationPhase phase;
-    if (groups.any((x) => x.provisional)) {
-      phase = ConversationPhase.provisional;
-    } else if (context.stuck) {
+    // The brief's order: a remembered stuck answer before a provisional
+    // group.
+    if (context.stuck) {
       phase = ConversationPhase.stuck;
+    } else if (groups.any((x) => x.provisional)) {
+      phase = ConversationPhase.provisional;
     } else if (current != null &&
         (server == null || current.generation >= server.generation) &&
         (sync.firstSawGeneration ?? 0) <= current.generation) {
@@ -905,18 +918,23 @@ class ConversationCrypto {
     required BudgetPriority priority,
     String? held,
     Map<String, MlsPair>? serverPairs,
+    _Poll? parent,
   }) async {
     final poll = await _startPoll(
       priority,
       held: held,
       serverPairs: serverPairs,
+      parent: parent,
     );
     if (poll == null) return const [];
     final joined = <String>[];
     final listed = <String>{};
-    // A welcome is handled once per poll: one left unacknowledged (transient)
-    // comes back on the next page and waits for the next poll.
-    final handled = <String>{};
+    // A welcome is handled (and acknowledged) once per OUTER poll: one left
+    // unacknowledged (transient) comes back on the next page and waits for
+    // the next poll, and a nested poll (catch-up's generation switch after a
+    // join) skips one its outer poll has not acknowledged yet. The set is
+    // shared with the nested polls.
+    final handled = poll.handled;
     var complete = false;
     while (poll.live) {
       if (!await _takeSyncUnit(priority)) break;
@@ -943,8 +961,9 @@ class ConversationCrypto {
             ? await _welcomeLocked(poll, w)
             : await _locks.run(id, () => _welcomeLocked(poll, w));
         if (outcome == _Outcome.stop || !poll.live) break;
-        if (outcome == _Outcome.joinedInPlace) {
-          joined.add(id);
+        if (outcome == _Outcome.joinedInPlace ||
+            outcome == _Outcome.handledInPlace) {
+          if (outcome == _Outcome.joinedInPlace) joined.add(id);
           joinedInPlace = true;
           continue;
         }
@@ -965,10 +984,13 @@ class ConversationCrypto {
     return joined;
   }
 
+  /// [parent]: the poll (or pass) this one runs inside; its handled set is
+  /// shared.
   Future<_Poll?> _startPoll(
     BudgetPriority priority, {
     String? held,
     Map<String, MlsPair>? serverPairs,
+    _Poll? parent,
   }) async {
     final vault = _session.vault;
     if (vault == null) return null;
@@ -990,6 +1012,7 @@ class ConversationCrypto {
         priority: priority,
         held: held,
         serverPairs: serverPairs,
+        handled: parent?.handled,
       );
     } on Object catch (e, s) {
       // A closed or changed vault: nothing to do now.
@@ -1010,10 +1033,19 @@ class ConversationCrypto {
         // Catch-up applies its remaining commits, completes (or marks) its
         // last epoch, then joins this welcome in place through its own held
         // poll, which acknowledges it.
-        await _catchUpLocked(id, priority: poll.priority);
+        // The nested poll may handle this welcome once (it is released from
+        // this poll's handled set for that).
+        poll.handled.remove(w.id);
+        await _catchUpLocked(id, priority: poll.priority, parent: poll);
         if (!poll.live) return _Outcome.stop;
-        final after = await poll.vault.conversation(id);
-        if (after?.joinHighWater == label) return _Outcome.joinedInPlace;
+        if (!poll.handled.add(w.id)) {
+          // Handled there (joined, refused or left for the next poll), and
+          // acknowledged there when it was to be.
+          final after = await poll.vault.conversation(id);
+          return after?.joinHighWater == label
+              ? _Outcome.joinedInPlace
+              : _Outcome.handledInPlace;
+        }
         // The walk did not finish (a transient failure): the next poll.
         if (await _unwalked(poll.vault, id, label.generation)) {
           return _Outcome.transient;
@@ -1045,6 +1077,7 @@ class ConversationCrypto {
       case _Outcome.transient:
       case _Outcome.stop:
       case _Outcome.joinedInPlace:
+      case _Outcome.handledInPlace:
         return result.kind;
       case _Outcome.walkFirst:
         // Only once per welcome (mayWalk false the second time).
@@ -1119,6 +1152,7 @@ class ConversationCrypto {
     if (provisional != null && provisional.provisional) {
       switch (await _settleProvisional(poll, id, provisional)) {
         case _Settled.ownStored:
+        case _Settled.replay:
           return const _Join(_Outcome.permanent);
         case _Settled.unknown:
           return const _Join(_Outcome.transient);
@@ -1151,11 +1185,12 @@ class ConversationCrypto {
         );
         description = await _engine().describe(joined.groupState);
       } on MlsException catch (err) {
-        // 4. Only bad_input can be permanent; every other code is transient.
-        if (err.code != MlsErrorCode.badInput) {
-          return const _Join(_Outcome.transient);
-        }
-        return _skewOrPermanent(v, w);
+        // 4. As catch-up: internal, deadline and unavailable are transient;
+        // bad_input goes through the skew rule (L1); every other code
+        // (evicted, duplicate, a corrupt state...) is permanent.
+        if (_transient(err.code)) return const _Join(_Outcome.transient);
+        if (err.code == MlsErrorCode.badInput) return _skewOrPermanent(v, w);
+        return const _Join(_Outcome.permanent);
       }
       final verdict = checkWelcome(
         conversationId: id,
@@ -1347,12 +1382,17 @@ class ConversationCrypto {
     final g = provisional.generation;
     pb.ConversationCommit? first;
     var passed = false;
-    MlsPair? after;
+    // From the stored after-pair: every commit up to it was applied here and
+    // is below generation g's first one. An after-pair already in g (or
+    // above) would skip that first commit: read from the start then.
+    final stored = (await poll.vault.conversation(id))?.afterPair;
+    MlsPair? after = stored != null && stored.generation < g ? stored : null;
     for (var page = 0; page < _kSettlePagesMax; page++) {
       if (!await _takeSyncUnit(poll.priority)) return _Settled.unknown;
       final response = await _messaging.listConversationCommits(
         conversationId: id,
         after: after,
+        pageSize: kCommitPageSize,
       );
       for (final c in response.commits) {
         final cg = pairComponentFromInt64(c.mlsGeneration);
@@ -1393,7 +1433,10 @@ class ConversationCrypto {
       if (own) {
         final stored = await v.conversation(id);
         if (!MlsPair.above(pending.builtOn, stored?.afterPair)) {
-          return _Settled.unknown;
+          // The marks are already at or past this init (the marks cannot be
+          // written again): the welcome is a replay, for good. Clearing the
+          // provisional group is Task 8's.
+          return _Settled.replay;
         }
         await v.transaction((tx) async {
           await tx.clearProvisional(id, g, afterPair: pending.builtOn);
@@ -1480,7 +1523,7 @@ class ConversationCrypto {
     if (poll.held == id) return;
     // Step 6: catch-up, through the locked variant (this lock is held). It
     // never throws, and never changes the acknowledgement.
-    await _catchUpLocked(id, priority: poll.priority);
+    await _catchUpLocked(id, priority: poll.priority, parent: poll);
   }
 
   // ---------------------------------------------------------------------
@@ -1883,11 +1926,23 @@ class ConversationCrypto {
 }
 
 /// `joinedInPlace`: joined and acknowledged by the nested poll of the
-/// catch-up a `walkFirst` started (nothing more to acknowledge). `walkFirst`:
-/// a stored generation must be walked to its end before this join.
-enum _Outcome { joined, permanent, transient, stop, joinedInPlace, walkFirst }
+/// catch-up a `walkFirst` started (nothing more to acknowledge);
+/// `handledInPlace`: handled there without a join (acknowledged there when
+/// it was to be). `walkFirst`: a stored generation must be walked to its end
+/// before this join.
+enum _Outcome {
+  joined,
+  permanent,
+  transient,
+  stop,
+  joinedInPlace,
+  handledInPlace,
+  walkFirst,
+}
 
-enum _Settled { ownStored, discarded, unknown }
+/// `replay`: this device's own init was stored and the marks are already at
+/// or above it.
+enum _Settled { ownStored, discarded, unknown, replay }
 
 enum _Applied { ok, selfRemoved, stuck, interrupted }
 
@@ -1917,7 +1972,13 @@ class _Poll {
     required this.priority,
     this.held,
     Map<String, MlsPair>? serverPairs,
-  }) : serverPairs = serverPairs ?? {};
+    Set<String>? handled,
+  }) : serverPairs = serverPairs ?? {},
+       handled = handled ?? {};
+
+  /// Welcome ids handled in this poll and the polls nested in it (m6: each
+  /// is acknowledged at most once per outer poll).
+  final Set<String> handled;
 
   /// The conversation whose lock the caller holds (catch-up's generation
   /// switch): its welcome is joined in place and no catch-up follows the

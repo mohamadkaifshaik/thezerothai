@@ -458,10 +458,21 @@ class RigMessaging implements MessagingRepository {
     required List<String> ids,
   }) async {
     await _server._enter('ackWelcomes');
+    // Every attempt is recorded, a refused one too (tests see a repeat).
     _server.acks.add((deviceId: deviceId, ids: [...ids]));
+    // Stricter than the server, which ignores a missing id: the client
+    // acknowledges each listed welcome once, so a repeated id, or one that is
+    // not stored for this device (already acknowledged, never listed), fails
+    // the call here.
+    if (ids.isEmpty || ids.length > 50) {
+      throw const ValidationException('ids');
+    }
     final byConv = _server._welcomes[deviceId];
-    if (byConv == null) return;
-    byConv.removeWhere((_, w) => ids.contains(w.id));
+    final stored = {...?byConv?.values.map((w) => w.id)};
+    if (ids.toSet().length != ids.length || !stored.containsAll(ids)) {
+      throw const ValidationException('ids');
+    }
+    byConv!.removeWhere((_, w) => ids.contains(w.id));
   }
 
   @override
