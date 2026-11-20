@@ -4,6 +4,9 @@ import 'dart:typed_data';
 import 'dart:ui' show AppLifecycleState;
 
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/app/session_wiring.dart';
+import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
@@ -1014,16 +1017,36 @@ void main() {
     test('flag back on resumes upkeep under the same device id', () async {
       await rig.signIn(_a);
       final id = rig.storedId()!;
+      // A new launch: the flag is not answered yet, the vault opens at
+      // sign-in and the device is dormant.
+      rig.launch();
       rig.flag = false;
-      await rig.session.onFlagChanged(E2eeFlag.off, uid: _a);
-      rig.advance(_hour * 2);
-      await rig.service.ensureReady();
+      rig.answer = E2eeFlag.unknown;
+      await rig.signIn(_a);
       expect(rig.service.status.value.phase, DeviceKeysPhase.dormant);
       final calls = rig.server.calls.length;
+      // The flag answer arrives through the real listener: no tick, no
+      // resume, no hand-made ensureReady.
+      final answers = StreamController<OnboardingState>();
+      final sub = wireE2eeFlag(
+        states: answers.stream,
+        uidOf: (_) => rig.uid,
+        vaultSession: rig.session,
+        onFlagOnWithOpenVault: () => unawaited(rig.service.ensureReady()),
+      );
+      addTearDown(() async {
+        await sub.cancel();
+        await answers.close();
+      });
       rig.flag = true;
-      await rig.session.onFlagChanged(E2eeFlag.on, uid: _a);
-      rig.advance(_hour * 2);
-      await rig.service.ensureReady();
+      answers.add(
+        const OnboardingState(
+          status: OnboardingStatus.ready,
+          flagsPending: false,
+          enabledFeatures: {kFeatureE2eeDm},
+        ),
+      );
+      await pumpEventQueue(times: 200);
       expect(rig.service.status.value, DeviceKeysStatus.ready);
       expect(rig.rpcs(calls), contains('list'));
       expect(rig.storedId(), id);

@@ -416,6 +416,18 @@ void main() {
                 return signIn(_a, flag: f);
               },
             ),
+            // The user's own wipe is owed and cannot finish.
+            'unavailableOwed': (
+              VaultStatus.unavailable,
+              (f) async {
+                await earlier();
+                world.setOwed(_a);
+                world.wipeFileFails.add(_a);
+                final s = await signIn(_a, flag: f);
+                world.wipeFileFails.clear(); // it could finish now
+                return s;
+              },
+            ),
           };
       var cells = 0;
       for (final setup in setups.entries) {
@@ -432,7 +444,9 @@ void main() {
               final before = world.calls.length;
               await s.onFlagChanged(to, uid: _a);
               await s.onFlagChanged(then, uid: _a);
-              await s.retry();
+              // retry() is a deliberate action that may finish an owed wipe;
+              // only the flag answers are under test for that set-up.
+              if (setup.key != 'unavailableOwed') await s.retry();
               final added = world.calls.skip(before).where(_destructive);
               expect(
                 added,
@@ -458,26 +472,102 @@ void main() {
           }
         }
       }
-      expect(cells, 6 * 27);
+      expect(cells, 7 * 27);
     });
 
-    test('a marker whose open failed with create false stays blocked when '
-        'the flag turns on; only retry reaches the open again', () async {
+    test('a create-false open that found nothing (Android: marker and key, '
+        'the file gone) is re-created when the flag turns on, no retry '
+        'needed', () async {
       final first = await signIn(_a);
       await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.setKnown(_a, 'native');
       world.files.clear(); // the file is gone, the marker and key remain
+      final reported = <Object>[];
+      final s = world.launch(reported: reported);
+      await s.onSignedIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.vault!.createdThisOpen, isTrue);
+      expect(world.createFlags.last, (cipher: true, vault: true));
+      expect(
+        reported.map((e) => e.toString()),
+        contains('VaultSessionError(recreated)'),
+      );
+      expect(world.calls.where(_destructive), isEmpty);
+    });
+
+    test('a create-false open that found nothing (web: the marked copy is '
+        'not listed) answers storageChanged, nothing created, when the flag '
+        'turns on', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.files.clear();
       final s = await signIn(_a, flag: E2eeFlag.unknown);
       expect(s.status.value, VaultStatus.unavailable);
       world.calls.clear();
       await s.onFlagChanged(E2eeFlag.on, uid: _a);
-      expect(s.status.value, VaultStatus.unavailable);
-      expect(world.calls, isEmpty, reason: 'a flag answer opens nothing');
-      await s.retry();
-      // The retry opens with create true; the marked storage has no copy
-      // (the fake world lists none), so the opener refuses before creating.
       expect(s.status.value, VaultStatus.storageChanged);
       expect(world.createFlags.last, (cipher: true, vault: true));
       expect(world.files, isEmpty, reason: 'nothing was created');
+      expect(world.calls.where(_destructive), isEmpty);
+    });
+
+    test('a marker read failure at sign-in with the flag unknown opens when '
+        'the flag turns on', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.markers.failKnownReads = true;
+      world.calls.clear();
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.unavailable);
+      expect(world.calls, isEmpty);
+      world.markers.failKnownReads = false;
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(s.status.value, VaultStatus.ready);
+      expect(world.calls.where(_destructive), isEmpty);
+    });
+
+    test('an owed own wipe followed by an on answer with no retry calls '
+        'nothing destructive', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.setOwed(_a);
+      world.wipeFileFails.add(_a);
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.wipeFileFails.clear();
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(world.calls, isEmpty);
+      expect(s.status.value, VaultStatus.unavailable);
+      expect(world.owedUids, {_a});
+    });
+
+    test('a keyLost block is not cleared by an on answer and no key is '
+        'generated', () async {
+      final first = await signIn(_a);
+      await first.onSessionEnded(_a, SessionEnd.sessionLost);
+      world.loseKey(_a);
+      final s = await signIn(_a, flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.keyLost);
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(world.calls, isEmpty);
+      expect(world.keys, isEmpty, reason: 'no key generated');
+      expect(s.status.value, VaultStatus.keyLost);
+    });
+
+    test('retry with the flag not on and no vault on this device leaves '
+        'status off, not a stale unavailable', () async {
+      world.markers.failKnownReads = true;
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.markers.failKnownReads = false;
+      await s.retry();
+      expect(s.status.value, VaultStatus.off);
+      expect(world.calls, isEmpty);
     });
 
     test('no vault on this device and markers that cannot be read: '
@@ -745,6 +835,16 @@ void main() {
           final hookAt = world.calls.indexOf('hook:$_a');
           expect(hookAt, isNonNegative, reason: mode);
           expect(world.calls.indexOf('wipeFile:$_a'), greaterThan(hookAt));
+          // The journal first, then the directory hook, then the wipe.
+          expect(
+            world.calls,
+            containsAllInOrder([
+              'markers.owed:$_a',
+              'hook:$_a',
+              'wipeFile:$_a',
+            ]),
+            reason: mode,
+          );
           expect(world.keys.containsKey(_a), isTrue, reason: 're-created');
         }
       });
@@ -778,9 +878,7 @@ void main() {
       await s.onSessionEnded(_a, SessionEnd.sessionLost);
       expect(await s.resetByUser(), isFalse);
       expect(world.calls, isEmpty);
-      // Opening: the call is queued behind the open, so it sees the result;
-      // a status of opening is only visible from inside, so check the gate
-      // with an unavailable vault that owes nothing.
+      // An unavailable vault that owes nothing.
       world.openFails[_a] = VaultStatus.unavailable;
       final u = await signIn(_a);
       expect(u.status.value, VaultStatus.unavailable);
@@ -788,6 +886,32 @@ void main() {
       expect(await u.resetByUser(), isFalse);
       expect(world.calls, isEmpty);
     });
+
+    test(
+      'resetByUser asked while the vault is opening waits for the open '
+      'and, when it ends unavailable, does nothing and returns false',
+      () async {
+        world = FakeVaultWorld();
+        final hold = Completer<void>();
+        final reachedWrite = Completer<void>();
+        world.markers
+          ..failKnownWrites = true
+          ..onWriteKnown = () async {
+            reachedWrite.complete();
+            await hold.future;
+          };
+        final s = world.launch();
+        final signing = s.onSignedIn(_a, flag: E2eeFlag.on);
+        await reachedWrite.future;
+        expect(s.status.value, VaultStatus.opening);
+        final asked = s.resetByUser();
+        hold.complete();
+        await signing;
+        expect(await asked, isFalse);
+        expect(s.status.value, VaultStatus.unavailable);
+        expect(world.calls.where(_destructive), isEmpty);
+      },
+    );
 
     test('a failed reset wipe stays owed', () async {
       final s = await signIn(_a);
@@ -1225,7 +1349,7 @@ void main() {
       final s = await signIn(_a);
       expect(s.status.value, VaultStatus.unavailable);
       world.wipeFileFails.clear();
-      await s.resetByUser();
+      expect(await s.resetByUser(), isTrue);
       expect(s.status.value, VaultStatus.ready);
       expect(world.owedUids, isEmpty);
       expect(s.vault!.createdThisOpen, isTrue);

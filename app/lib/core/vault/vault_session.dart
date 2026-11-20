@@ -214,6 +214,10 @@ class VaultSession {
   /// automatically until [retry] or the next launch.
   final Map<String, VaultStatus> _blocked = {};
 
+  /// The uids in [_blocked] whose block is only "a create-false open found
+  /// nothing" (see [_fail]); the `on` answer clears these and no other.
+  final Set<String> _softBlocked = {};
+
   /// Where the vault stands for the signed-in user.
   ValueListenable<VaultStatus> get status => _status;
 
@@ -322,7 +326,9 @@ class VaultSession {
           // No vault on this device and nothing may start one: no lock,
           // cipher, engine, file or marker is touched. A marker that cannot
           // be read is not a reason to touch anything either.
-          if (known == null) return _fail(uid, VaultStatus.unavailable);
+          if (known == null) {
+            return _fail(uid, VaultStatus.unavailable, soft: true);
+          }
           if (!known) return _setStatus(VaultStatus.off);
         }
         await _open(uid);
@@ -367,7 +373,24 @@ class VaultSession {
         if (_flag == flag) return;
         _flag = flag;
         if (!_supported) return;
-        if (flag == E2eeFlag.on && _vault == null) await _open(uid);
+        if (flag != E2eeFlag.on || _vault != null) return;
+        // A block that only says "a create-false open found nothing" does
+        // not outlive the answer that lets the vault start. Never one that
+        // an owed wipe, a lost key or another tab caused, and never while a
+        // wipe is owed (the open would finish it because of a flag answer).
+        if (_softBlocked.contains(uid)) {
+          var owed = true;
+          try {
+            owed = await _owedFor(vaultKeyAlias(uid)) != null;
+          } catch (_, stack) {
+            _report('markers', stack);
+          }
+          if (!owed) {
+            _softBlocked.remove(uid);
+            _blocked.remove(uid);
+          }
+        }
+        await _open(uid);
       });
 
   /// A deliberate new attempt (app resume): forgets this process's failed
@@ -382,7 +405,11 @@ class VaultSession {
     if (_flag != E2eeFlag.on) {
       final known = await _readKnown(uid);
       if (known != null) _vaultKnown = known;
-      if (known != true) return;
+      if (known != true) {
+        // Nothing to open and nothing may start: not a stale failure.
+        if (known == false) _setStatus(VaultStatus.off);
+        return;
+      }
     }
     await _open(uid);
   });
@@ -867,8 +894,22 @@ class VaultSession {
 
   /// A failed open: remember it for this process, close [uid]'s vault if it
   /// is open, release the lock.
-  Future<void> _fail(String uid, VaultStatus status) async {
+  ///
+  /// [soft]: the block records only that a create-false open found nothing
+  /// to open (no vault here, or the marker could not be read) with no wipe
+  /// owed; the `on` answer may clear it ([onFlagChanged]). Every other block
+  /// (an owed wipe, `keyLost`, `heldElsewhere`, a failed reset) is hard.
+  Future<void> _fail(
+    String uid,
+    VaultStatus status, {
+    bool soft = false,
+  }) async {
     _blocked[uid] = status;
+    if (soft) {
+      _softBlocked.add(uid);
+    } else {
+      _softBlocked.remove(uid);
+    }
     if (_vault?.uid == uid) {
       await _closeOpen();
     } else {
@@ -897,6 +938,7 @@ class VaultSession {
     _writesOpen = false;
     _ownedAlias = null;
     _blocked[uid] = VaultStatus.heldElsewhere;
+    _softBlocked.remove(uid);
     final open = _vault;
     if (open == null || open.uid != uid) return;
     _setStatus(VaultStatus.heldElsewhere);
@@ -1027,7 +1069,9 @@ class VaultSession {
         default:
           await _closeCipher(cipher);
           await _clearStreak(alias);
-          return _fail(uid, VaultStatus.unavailable);
+          // Under create false this is "nothing to open here" (no wipe is
+          // owed: step 0 finished or found none): the `on` answer may retry.
+          return _fail(uid, VaultStatus.unavailable, soft: !create);
       }
     } catch (_, stack) {
       _report('open', stack);

@@ -13,6 +13,7 @@ import '../features/messages/domain/messaging_feature_gate.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
+import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/timeline/data/timeline_repository.dart';
@@ -125,6 +126,39 @@ Future<void> wipeSessionData({
   messagingRepository?.clearSession();
   await database.clearAll();
 }
+
+/// The `e2ee_dm` answer a ready, fully answered state carries; null until
+/// then (flags pending, not ready): no answer is not "off".
+E2eeFlag? knownE2eeFlag(OnboardingState s) {
+  if (s.status != OnboardingStatus.ready || s.flagsPending) return null;
+  return s.enabledFeatures.contains(kFeatureE2eeDm)
+      ? E2eeFlag.on
+      : E2eeFlag.off;
+}
+
+/// Forwards each KNOWN `e2ee_dm` answer to [vaultSession] for the user the
+/// state was emitted for ([uidOf]; ignored by the session when that user is
+/// not its user when it runs). A failed GetMe never turns a known answer into
+/// unknown (only known answers are forwarded). When the answer is `on` and
+/// the session has an open vault afterwards, [onFlagOnWithOpenVault] runs
+/// (device upkeep resumes without waiting for a tick); the ready hooks are
+/// NOT run again.
+StreamSubscription<OnboardingState> wireE2eeFlag({
+  required Stream<OnboardingState> states,
+  required String? Function(OnboardingState state) uidOf,
+  required VaultSession vaultSession,
+  required void Function() onFlagOnWithOpenVault,
+}) => states.listen((state) {
+  final answer = knownE2eeFlag(state);
+  if (answer == null) return;
+  unawaited(
+    vaultSession.onFlagChanged(answer, uid: uidOf(state)).then((_) {
+      if (answer == E2eeFlag.on && vaultSession.vault != null) {
+        onFlagOnWithOpenVault();
+      }
+    }),
+  );
+});
 
 /// Bridges auth state into the session (L-4): OnboardingBloc reacts to
 /// sign-in/sign-out but never talks to AuthBloc directly (the two features stay

@@ -329,29 +329,17 @@ Future<void> bootstrap() async {
   // then the answer is unknown, which is NOT off. A failed GetMe never turns
   // a known answer into unknown (the listener below only passes known ones).
   // A sign-out ends the vault through wireAuthSession instead.
-  bool flagsKnown(OnboardingState s) =>
-      s.status == OnboardingStatus.ready && !s.flagsPending;
-  E2eeFlag readE2eeFlag() => !flagsKnown(onboardingBloc.state)
-      ? E2eeFlag.unknown
-      : onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm)
-      ? E2eeFlag.on
-      : E2eeFlag.off;
-  onboardingBloc.stream.listen((state) {
-    if (flagsKnown(state)) {
-      // Bound to the user this state was EMITTED for (captured at emission;
-      // not the auth bloc's user, which switches first, nor the onboarding
-      // bloc's user when this listener runs); ignored if that user is not
-      // the vault session's user when it runs.
-      unawaited(
-        vaultSession.onFlagChanged(
-          state.enabledFeatures.contains(kFeatureE2eeDm)
-              ? E2eeFlag.on
-              : E2eeFlag.off,
-          uid: onboardingBloc.uidOf(state),
-        ),
-      );
-    }
-  });
+  E2eeFlag readE2eeFlag() =>
+      knownE2eeFlag(onboardingBloc.state) ?? E2eeFlag.unknown;
+  // Bound to the user each state was EMITTED for; when the answer turns the
+  // flag on with a vault open, device upkeep resumes at once (the ready hook
+  // ran at the sign-in open, before the answer, and found the gate closed).
+  wireE2eeFlag(
+    states: onboardingBloc.stream,
+    uidOf: onboardingBloc.uidOf,
+    vaultSession: vaultSession,
+    onFlagOnWithOpenVault: () => unawaited(deviceKeys.ensureReady()),
+  );
 
   // E2EE device keys: this install's encryption device in the key directory
   // and its key-package pool. Runs after each vault open (the session hook,

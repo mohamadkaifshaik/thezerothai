@@ -210,7 +210,8 @@ class FakeVaultWorld {
     if (!create && (file == null || file.hidden || !file.stamped)) {
       throw const VaultOpenException(VaultStatus.unavailable);
     }
-    if (expectedStorage != null) {
+    // Android (`native`) ignores the storage marker: one file, one place.
+    if (expectedStorage != null && expectedStorage != 'native') {
       // The real opener refuses BEFORE creating anything.
       if (!listed || _api(file.storage) != _api(expectedStorage)) {
         throw const VaultOpenException(VaultStatus.storageChanged);

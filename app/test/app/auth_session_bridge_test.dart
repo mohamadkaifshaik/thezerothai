@@ -6,6 +6,7 @@ import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -348,6 +349,82 @@ void main() {
       wireVault(initialUser: user('a'));
       await settle();
       expect(vault.status.value, VaultStatus.ready);
+    });
+  });
+
+  group('the e2ee_dm answer reaches the vault session', () {
+    late FakeVaultWorld world;
+    late StreamController<OnboardingState> answers;
+    late StreamSubscription<OnboardingState> flagSub;
+    late int upkeepCalls;
+
+    OnboardingState answer({required bool on, bool pending = false}) =>
+        OnboardingState(
+          status: OnboardingStatus.ready,
+          flagsPending: pending,
+          enabledFeatures: {if (on) kFeatureE2eeDm},
+        );
+
+    setUp(() {
+      world = FakeVaultWorld();
+      answers = StreamController<OnboardingState>();
+      upkeepCalls = 0;
+      // The file's tearDown cancels [subscription] and closes [auth], which
+      // needs a listener.
+      subscription = auth.stream.listen((_) {});
+    });
+    tearDown(() async {
+      await flagSub.cancel();
+      await answers.close();
+    });
+
+    VaultSession listen() {
+      final s = world.launch();
+      flagSub = wireE2eeFlag(
+        states: answers.stream,
+        uidOf: (_) => 'a',
+        vaultSession: s,
+        onFlagOnWithOpenVault: () => upkeepCalls++,
+      );
+      return s;
+    }
+
+    test('the flag turning on with a vault already open resumes device '
+        'upkeep without waiting for a tick', () async {
+      final first = world.launch();
+      await first.onSignedIn('a', flag: E2eeFlag.on);
+      await first.onSessionEnded('a', SessionEnd.sessionLost);
+      final s = listen();
+      await s.onSignedIn('a', flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.ready);
+      expect(s.flag, E2eeFlag.unknown);
+      answers.add(answer(on: true));
+      await settle();
+      expect(s.flag, E2eeFlag.on);
+      expect(upkeepCalls, 1);
+    });
+
+    test('an off answer, or no answer yet, does not resume upkeep', () async {
+      final s = listen();
+      await s.onSignedIn('a', flag: E2eeFlag.on);
+      answers
+        ..add(answer(on: false))
+        ..add(answer(on: true, pending: true));
+      await settle();
+      expect(upkeepCalls, 0);
+      // The off answer is known and applies; the pending `on` is ignored.
+      expect(s.flag, E2eeFlag.off, reason: 'a pending answer changes nothing');
+    });
+
+    test('an on answer with no vault yet opens one, then upkeep resumes '
+        '(the hooks are not run again by the listener)', () async {
+      final s = listen();
+      await s.onSignedIn('a', flag: E2eeFlag.unknown);
+      expect(s.status.value, VaultStatus.off);
+      answers.add(answer(on: true));
+      await settle();
+      expect(s.status.value, VaultStatus.ready);
+      expect(upkeepCalls, 1);
     });
   });
 

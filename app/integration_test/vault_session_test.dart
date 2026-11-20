@@ -320,6 +320,10 @@ void main() {
         ),
       );
       await cipher.close();
+      // Android leaves a zero-byte file after a refused create-false open:
+      // remove it here (the tearDown wipes it too), and the key made above.
+      await wipeVaultFile(uid: none);
+      await deleteVaultKey(uid: none);
     });
 
     testWidgets('session lost, then the same user (same launch and a new '
