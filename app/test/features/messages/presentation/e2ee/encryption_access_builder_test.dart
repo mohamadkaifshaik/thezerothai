@@ -85,4 +85,33 @@ void main() {
     await tester.pump();
     expect(seen.last, EncryptionAccess.full);
   });
+
+  testWidgets('flag on with an unsupported platform is unsupported', (
+    tester,
+  ) async {
+    final device = FakeEncryptionDevice(status: VaultStatus.unsupported);
+    final seen = await pump(tester, features: {kFeatureE2eeDm}, device: device);
+    expect(seen.last, EncryptionAccess.unsupported);
+  });
+
+  testWidgets('flag off with a vault known on this device is manage', (
+    tester,
+  ) async {
+    final device = FakeEncryptionDevice(flag: E2eeFlag.off);
+    final seen = await pump(tester, features: {}, device: device);
+    expect(seen.last, EncryptionAccess.manage);
+  });
+
+  testWidgets('flag off and no vault is hidden and makes no device call', (
+    tester,
+  ) async {
+    final device = FakeEncryptionDevice(
+      status: VaultStatus.off,
+      vaultKnown: false,
+      flag: E2eeFlag.off,
+    );
+    final seen = await pump(tester, features: {}, device: device);
+    expect(seen.last, EncryptionAccess.hidden);
+    expect(device.retryOpenCalls, 0);
+  });
 }

@@ -11,7 +11,8 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   final List<String> calls = [];
 
   final Map<ThreadRef, EncryptedThread> _threads = {};
-  final Map<ThreadRef, StreamController<EncryptedThread>> _controllers = {};
+  final Map<ThreadRef, List<StreamController<EncryptedThread>>> _controllers =
+      {};
   final Map<String, SecurityCode> _codes = {};
   Map<String, ConversationPreview> _previews = {};
   List<EncryptedSearchHit> _hits = [];
@@ -20,7 +21,22 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   final StreamController<String> _previewChanged =
       StreamController<String>.broadcast();
 
-  SendOutcome nextSendOutcome = const SendOutcome(SendOutcomeKind.queued);
+  SendOutcome _nextSendOutcome = const SendOutcome(SendOutcomeKind.queued);
+
+  SendOutcome get nextSendOutcome => _nextSendOutcome;
+
+  /// Port rule: a refused outcome carries a problem, a queued one none.
+  set nextSendOutcome(SendOutcome o) {
+    assert(
+      o.kind != SendOutcomeKind.refused || o.problem != SendProblem.none,
+      'a refused outcome carries a problem',
+    );
+    assert(
+      o.kind != SendOutcomeKind.queued || o.problem == SendProblem.none,
+      'a queued outcome carries no problem',
+    );
+    _nextSendOutcome = o;
+  }
 
   /// When set, `send` records the call, then awaits it before answering.
   Completer<void>? holdSend;
@@ -63,12 +79,32 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   static void _check(EncryptedThread thread) {
     for (final e in thread.entries) {
       if (e is DecryptedMessage) {
-        final plain =
-            e.state == EncryptedMessageState.visible &&
-            e.check == MessageCheck.ok;
+        final visible = e.state == EncryptedMessageState.visible;
+        final plain = visible && e.check == MessageCheck.ok;
         assert(
           plain || (e.text.isEmpty && e.sharedPostId.isEmpty),
           'text only for a visible, ok message',
+        );
+        // Port doc: for an undecryptable row mine is true only for a lost own
+        // send (R7). The fake models "lost own send" as an own row that is not
+        // delivered.
+        assert(
+          e.state != EncryptedMessageState.undecryptable ||
+              !e.mine ||
+              e.progress != SendProgress.delivered,
+          'an undecryptable row is mine only for a lost own send',
+        );
+        assert(
+          e.problem == SendProblem.none || e.progress == SendProgress.notSent,
+          'problem is set only with progress notSent',
+        );
+        assert(
+          e.error == null || e.problem == SendProblem.refused,
+          'error is set only with problem refused',
+        );
+        assert(
+          !e.canReport || (visible && !e.mine),
+          'canReport only for a visible message that is not mine',
         );
       }
     }
@@ -77,7 +113,20 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   void setThread(ThreadRef ref, EncryptedThread thread) {
     _check(thread);
     _threads[ref] = thread;
-    _controllers[ref]?.add(thread);
+    for (final c in List.of(_controllers[ref] ?? const [])) {
+      c.add(thread);
+    }
+  }
+
+  /// Closes every watcher stream and [previewChanged].
+  void dispose() {
+    for (final list in _controllers.values) {
+      for (final c in List.of(list)) {
+        unawaited(c.close());
+      }
+    }
+    _controllers.clear();
+    unawaited(_previewChanged.close());
   }
 
   void setSecurityCode(String conversationId, SecurityCode code) {
@@ -119,6 +168,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     calls.add('setUpDeviceAgain');
     setUpAgainCalls++;
     _throwIfFailing();
+    if (!removedElsewhere.value) {
+      throw StateError('the device is not removed elsewhere');
+    }
   }
 
   @override
@@ -138,12 +190,27 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   Stream<EncryptedThread> watchThread(ThreadRef ref) {
     calls.add('watchThread');
     late StreamController<EncryptedThread> c;
+    final list = _controllers.putIfAbsent(ref, () => []);
     c = StreamController<EncryptedThread>(
       onListen: () => c.add(_threads[ref] ?? _empty(ref)),
+      onCancel: () => list.remove(c),
     );
-    _controllers[ref] = c;
+    list.add(c);
     return c.stream;
   }
+
+  /// A row is "already unsent" when a scripted thread holds it undelivered or
+  /// this fake already took a send with that id.
+  bool _isUnsentRow(String localId) =>
+      sent.any((s) => s.localId == localId) ||
+      _threads.values.any(
+        (t) => t.entries.any(
+          (e) =>
+              e.id == localId &&
+              e is DecryptedMessage &&
+              e.progress != SendProgress.delivered,
+        ),
+      );
 
   @override
   Future<void> loadOlder(ThreadRef ref) async {
@@ -159,6 +226,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     String sharedPostId = '',
   }) async {
     calls.add('send');
+    if (_isUnsentRow(localId)) {
+      throw ArgumentError.value(localId, 'localId', 'is already an unsent row');
+    }
     sent.add((
       to: to,
       localId: localId,
@@ -242,6 +312,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   @override
   Future<void> removeDevice(String ref) async {
     calls.add('removeDevice');
+    if (_own.devices.any((d) => d.ref == ref && d.thisDevice)) {
+      throw ArgumentError.value(ref, 'ref', 'is this device');
+    }
     removedDevices.add(ref);
     _throwIfFailing();
   }

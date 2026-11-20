@@ -9,6 +9,11 @@ import '../../domain/messaging_feature_flag.dart';
 
 /// Rebuilds on the flag set (OnboardingBloc) and on EncryptionDevice.vaultStatus. No EncryptionDevice in the
 /// tree => EncryptionAccess.hidden, whatever the flag says.
+///
+/// It does not read `EncryptionDevice.flag`: the flag set of `enabled_features`
+/// is the input, and the access rule decides. `device.vaultKnown` is read
+/// whenever `vaultStatus` notifies, so the production adapter (Task 14) must
+/// notify `vaultStatus` when `vaultKnown` changes.
 class EncryptionAccessBuilder extends StatelessWidget {
   const EncryptionAccessBuilder({super.key, required this.builder});
 

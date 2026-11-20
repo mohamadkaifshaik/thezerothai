@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart'
@@ -181,4 +182,264 @@ void main() {
       );
     }
   });
+
+  group('the fake enforces the port rules', () {
+    EncryptedThread thread(DecryptedMessage m) =>
+        EncryptedThread(security: ready, entries: [m]);
+    void refuses(DecryptedMessage m) => expect(
+      () => FakeEncryptedMessaging().setThread(ref, thread(m)),
+      throwsA(isA<AssertionError>()),
+    );
+    void accepts(DecryptedMessage m) =>
+        FakeEncryptedMessaging().setThread(ref, thread(m));
+
+    test(
+      'an undecryptable row has mine false unless it is a lost own send',
+      () {
+        refuses(
+          DecryptedMessage(
+            id: 'a',
+            at: _at,
+            mine: true,
+            state: EncryptedMessageState.undecryptable,
+          ),
+        );
+        accepts(
+          DecryptedMessage(
+            id: 'a',
+            at: _at,
+            mine: true,
+            state: EncryptedMessageState.undecryptable,
+            progress: SendProgress.notSent,
+          ),
+        );
+        accepts(
+          DecryptedMessage(
+            id: 'a',
+            at: _at,
+            mine: false,
+            state: EncryptedMessageState.undecryptable,
+          ),
+        );
+      },
+    );
+
+    test('a problem is set only with progress notSent', () {
+      refuses(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: true,
+          problem: SendProblem.retryable,
+        ),
+      );
+      accepts(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: true,
+          progress: SendProgress.notSent,
+          problem: SendProblem.retryable,
+        ),
+      );
+    });
+
+    test('an error is set only with problem refused', () {
+      refuses(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: true,
+          progress: SendProgress.notSent,
+          problem: SendProblem.blocked,
+          error: const FeatureDisabledException('off'),
+        ),
+      );
+      accepts(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: true,
+          progress: SendProgress.notSent,
+          problem: SendProblem.refused,
+          error: const FeatureDisabledException('off'),
+        ),
+      );
+    });
+
+    test('canReport only on a visible message that is not mine', () {
+      refuses(DecryptedMessage(id: 'a', at: _at, mine: true, canReport: true));
+      refuses(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: false,
+          state: EncryptedMessageState.removed,
+          canReport: true,
+        ),
+      );
+      accepts(DecryptedMessage(id: 'a', at: _at, mine: false, canReport: true));
+    });
+
+    test(
+      'a refused outcome carries a problem and a queued one carries none',
+      () {
+        final fake = FakeEncryptedMessaging();
+        expect(
+          () =>
+              fake.nextSendOutcome = const SendOutcome(SendOutcomeKind.refused),
+          throwsA(isA<AssertionError>()),
+        );
+        expect(
+          () => fake.nextSendOutcome = const SendOutcome(
+            SendOutcomeKind.queued,
+            problem: SendProblem.blocked,
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+        fake.nextSendOutcome = const SendOutcome(
+          SendOutcomeKind.refused,
+          problem: SendProblem.tryTomorrow,
+        );
+      },
+    );
+  });
+
+  group('the fake throws as the port documents', () {
+    test(
+      'setUpDeviceAgain throws StateError when not removed elsewhere',
+      () async {
+        final fake = FakeEncryptedMessaging();
+        await expectLater(fake.setUpDeviceAgain(), throwsStateError);
+        fake.removedElsewhere.value = true;
+        await fake.setUpDeviceAgain();
+        expect(fake.setUpAgainCalls, 2);
+      },
+    );
+
+    test('removeDevice throws ArgumentError for this device', () async {
+      final fake = FakeEncryptedMessaging()
+        ..setOwnDevices(
+          const OwnDeviceList(
+            devices: [
+              OwnDevice(ref: 'me', thisDevice: true),
+              OwnDevice(ref: 'other', thisDevice: false),
+            ],
+          ),
+        );
+      await expectLater(fake.removeDevice('me'), throwsArgumentError);
+      await fake.removeDevice('other');
+      expect(fake.removedDevices, ['other']);
+    });
+
+    test(
+      'send throws ArgumentError for a localId that is already an unsent row',
+      () async {
+        final fake = FakeEncryptedMessaging()
+          ..setThread(
+            ref,
+            thread0(
+              DecryptedMessage(
+                id: 'u1',
+                at: _at,
+                mine: true,
+                progress: SendProgress.waiting,
+              ),
+            ),
+          );
+        await expectLater(
+          fake.send(to: ref, localId: 'u1', text: 'x'),
+          throwsArgumentError,
+        );
+        await fake.send(to: ref, localId: 'u2', text: 'x');
+        await expectLater(
+          fake.send(to: ref, localId: 'u2', text: 'x'),
+          throwsArgumentError,
+        );
+      },
+    );
+  });
+
+  test('two watchers of one ref both receive later threads', () async {
+    final fake = FakeEncryptedMessaging();
+    final a = <EncryptedThread>[];
+    final b = <EncryptedThread>[];
+    final sa = fake.watchThread(ref).listen(a.add);
+    final sb = fake.watchThread(ref).listen(b.add);
+    await pumpEventQueue();
+    fake.setThread(
+      ref,
+      const EncryptedThread(conversationId: 'c1', security: ready),
+    );
+    await pumpEventQueue();
+    expect(a, hasLength(2));
+    expect(b, hasLength(2));
+    await sa.cancel();
+    fake.setThread(
+      ref,
+      const EncryptedThread(conversationId: 'c1', security: ready),
+    );
+    await pumpEventQueue();
+    expect(b, hasLength(3));
+    await sb.cancel();
+    fake.dispose();
+  });
+
+  test('scripting helpers behave as screen tests rely on', () async {
+    final fake = FakeEncryptedMessaging();
+    expect(
+      () => fake.setSecurityCode('c1', const SecurityCode(digits: '123')),
+      throwsA(isA<AssertionError>()),
+    );
+    fake.setSecurityCode('c1', SecurityCode(digits: '1' * 60));
+    expect((await fake.securityCode('c1')).digits, '1' * 60);
+    expect((await fake.securityCode('zz')).reason, NoCodeReason.unavailable);
+
+    final changed = <String>[];
+    final sub = fake.previewChanged.listen(changed.add);
+    fake.setPreviews({
+      'c1': const ConversationPreview(kind: PreviewKind.generic),
+      'c2': const ConversationPreview(kind: PreviewKind.generic),
+    });
+    await pumpEventQueue();
+    expect(changed, unorderedEquals(['c1', 'c2']));
+    expect((await fake.previews(['c1', 'nope'])).keys, ['c1']);
+    await sub.cancel();
+
+    fake.local = {'c1'};
+    expect(fake.hasLocal('c1'), isTrue);
+    expect(fake.hasLocal('c2'), isFalse);
+
+    EncryptedSearchHit hit(String c, String m) => EncryptedSearchHit(
+      conversationId: c,
+      messageId: m,
+      at: _at,
+      mine: false,
+      text: 't',
+    );
+    fake.setSearchHits([hit('c1', 'm1'), hit('c2', 'm2'), hit('c1', 'm3')]);
+    expect(await fake.search('t'), hasLength(3));
+    expect(
+      (await fake.search('t', conversationId: 'c1')).map((h) => h.messageId),
+      ['m1', 'm3'],
+    );
+    expect(await fake.search('t', limit: 1), hasLength(1));
+
+    const list = OwnDeviceList(
+      devices: [OwnDevice(ref: 'o', thisDevice: false)],
+    );
+    fake.setOwnDevices(list);
+    expect(await fake.ownDevices(), same(list));
+    await fake.removeDevice('o');
+    expect(fake.removedDevices, ['o']);
+    expect(fake.calls, containsAllInOrder(['ownDevices', 'removeDevice']));
+    fake.dispose();
+  });
 }
+
+EncryptedThread thread0(DecryptedMessage m) => EncryptedThread(
+  security: const ConversationSecurity(
+    state: ConversationEncryptionState.ready,
+  ),
+  entries: [m],
+);
