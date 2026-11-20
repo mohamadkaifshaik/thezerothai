@@ -100,12 +100,13 @@ void main() {
       Folder folder = Folder.FOLDER_INBOX,
       bool withPort = true,
       bool Function()? allowed,
+      bool noAllowedArgument = false,
     }) {
       final c = ConversationsCubit(
         repository: rig.repo,
         folder: folder,
         encrypted: withPort ? port : null,
-        previewsAllowed: allowed,
+        previewsAllowed: noAllowedArgument ? null : (allowed ?? () => true),
         onUnexpectedError: (error, _) => reported.add(error),
       );
       closers.add(c.close);
@@ -257,6 +258,112 @@ void main() {
       expect(denied.state.previews, isEmpty);
     });
 
+    test(
+      'a preview change for a plaintext conversation asks nothing',
+      () async {
+        rig.stub(
+          network: [
+            conv('p', snippet: 'hi'),
+            _enc('a'),
+          ],
+        );
+        final c = cubit();
+        await c.load();
+        await pumpEventQueue();
+        port.asked.clear();
+        port.calls.clear();
+
+        port.setPreviews({
+          'p': const ConversationPreview(kind: PreviewKind.text, text: _canary),
+        });
+        await pumpEventQueue();
+
+        expect(port.asked, isEmpty);
+        expect(port.calls.where((n) => n == 'previews'), isEmpty);
+        expect(c.state.previews.containsKey('p'), isFalse);
+      },
+    );
+
+    test('a conversation that left the list keeps no preview', () async {
+      port.local = {'k'};
+      port.setPreviews({
+        'a': const ConversationPreview(kind: PreviewKind.text, text: _canary),
+        'b': const ConversationPreview(kind: PreviewKind.text, text: 'other'),
+        'k': const ConversationPreview(kind: PreviewKind.text, text: 'known'),
+      });
+      rig.stub(
+        network: [
+          _enc('a'),
+          _enc('b'),
+          conv('k', snippet: 'x'),
+        ],
+      );
+      final c = cubit();
+      await c.load();
+      await pumpEventQueue();
+      expect(c.state.previews.keys, containsAll(['a', 'b', 'k']));
+      expect(c.state.knownEncrypted, {'k'});
+
+      rig.stub(network: [_enc('a')]);
+      await c.refresh();
+      await pumpEventQueue();
+
+      expect(c.state.previews.keys, ['a']);
+      expect(c.state.knownEncrypted, isEmpty);
+    });
+
+    test('a port with no previewsAllowed asks nothing', () async {
+      port.local = {'a'};
+      rig.stub(network: [_enc('a')]);
+      final c = cubit(noAllowedArgument: true);
+      await c.load();
+      port.setPreviews({
+        'a': const ConversationPreview(kind: PreviewKind.generic),
+      });
+      await pumpEventQueue();
+
+      expect(
+        port.calls,
+        isEmpty,
+        reason: 'fails closed: no hasLocal, no previews',
+      );
+      expect(c.state.previews, isEmpty);
+      expect(c.state.knownEncrypted, isEmpty);
+    });
+
+    test('accessChanged drops previews and the vault word at once', () async {
+      var allowed = true;
+      port.local = {'v'};
+      port.setPreviews({
+        'a': const ConversationPreview(kind: PreviewKind.text, text: _canary),
+      });
+      rig.stub(
+        network: [
+          _enc('a'),
+          conv('v', snippet: 'server'),
+        ],
+      );
+      final c = cubit(allowed: () => allowed);
+      await c.load();
+      await pumpEventQueue();
+      expect(c.state.previews, isNotEmpty);
+      expect(c.state.knownEncrypted, {'v'});
+
+      allowed = false;
+      c.accessChanged();
+
+      expect(c.state.previews, isEmpty);
+      expect(c.state.knownEncrypted, isEmpty);
+      final calls = port.calls.length;
+      port.setPreviews({
+        'a': const ConversationPreview(kind: PreviewKind.generic),
+      });
+      await c.refresh();
+      await pumpEventQueue();
+      expect(port.calls.length, calls, reason: 'no further port call');
+      expect(c.state.previews, isEmpty);
+    });
+
     test('a late answer after close, and a late event, are ignored', () async {
       rig.stub(network: [_enc('a')]);
       port.hold = Completer<void>();
@@ -383,6 +490,69 @@ void main() {
         tester.getSemantics(find.byType(ConversationRow).last).label,
         contains(kEncryptedPlaceholderText),
       );
+    });
+
+    group('previews vanish when access is lost after they loaded', () {
+      Future<void> run(
+        WidgetTester tester, {
+        required EncryptedInboxRig r,
+        required void Function() lose,
+      }) async {
+        rig = r;
+        rig.port.local = {'v'};
+        rig.port.setPreviews({
+          'a': const ConversationPreview(
+            kind: PreviewKind.text,
+            text: 'vault words',
+          ),
+          'v': const ConversationPreview(
+            kind: PreviewKind.text,
+            text: 'known words',
+          ),
+        });
+        rig.stub(
+          network: [
+            encrypted('a'),
+            conv('v', snippet: 'server words'),
+          ],
+        );
+        await rig.open(tester);
+        expect(find.text('vault words'), findsOneWidget);
+        expect(find.text('known words'), findsOneWidget);
+        final calls = rig.port.calls.length;
+
+        lose();
+        await tester.pumpAndSettle();
+
+        expect(find.text('vault words'), findsNothing);
+        expect(find.text('known words'), findsNothing);
+        expect(find.text(kEncryptedPlaceholderText), findsOneWidget);
+        expect(find.text('server words'), findsOneWidget);
+        expect(rig.port.calls.length, calls, reason: 'no further port call');
+        rig.port.setPreviews({
+          'a': const ConversationPreview(kind: PreviewKind.generic),
+        });
+        await tester.pumpAndSettle();
+        expect(rig.port.calls.length, calls);
+      }
+
+      testWidgets('the flag turns off', (tester) async {
+        final r = EncryptedInboxRig(vault: false);
+        await run(tester, r: r, lose: () => r.setFlagOn(false));
+      });
+
+      testWidgets('the vault is removed', (tester) async {
+        final r = EncryptedInboxRig(flag: E2eeFlag.off);
+        await run(
+          tester,
+          r: r,
+          lose: () {
+            r.device
+              ..vaultKnown = false
+              ..vaultStatus.value = VaultStatus.off;
+          },
+        );
+      });
     });
 
     group('the empty inbox note', () {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
@@ -83,10 +85,17 @@ class EncryptedInboxRig {
 
   EncryptionStatusCubit? statusCubit;
 
-  Set<String> get features => {
-    'messaging',
-    if (flag == E2eeFlag.on) kFeatureE2eeDm,
-  };
+  late bool _flagOn = flag == E2eeFlag.on;
+  final StreamController<OnboardingState> _flagChanges =
+      StreamController<OnboardingState>.broadcast();
+
+  Set<String> get features => {'messaging', if (_flagOn) kFeatureE2eeDm};
+
+  /// Flips `e2ee_dm` in `enabled_features` while the screen is open.
+  void setFlagOn(bool on) {
+    _flagOn = on;
+    _flagChanges.add(OnboardingState(enabledFeatures: features));
+  }
 
   static ConversationsSnapshot snap(
     List<pb.Conversation> rows, {
@@ -127,9 +136,10 @@ class EncryptedInboxRig {
     addTearDown(tester.view.reset);
     whenListen(
       onboarding,
-      const Stream<OnboardingState>.empty(),
+      _flagChanges.stream,
       initialState: OnboardingState(enabledFeatures: features),
     );
+    addTearDown(_flagChanges.close);
     final status = statusCubit = withStatusCubit && withDevice
         ? EncryptionStatusCubit(
             device: device,

@@ -19,19 +19,20 @@ import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../notifications/presentation/bloc/push_cubit.dart';
-import '../data/messaging_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../data/messaging_repository.dart';
 import '../domain/e2ee/encrypted_messaging.dart';
 import '../domain/e2ee/encryption_access.dart';
 import '../domain/e2ee/encryption_device.dart';
 import '../domain/message_search.dart';
 import '../domain/messaging_feature_flag.dart';
-import 'e2ee/encryption_status.dart';
-import 'e2ee/encryption_status_banner.dart';
 import '../domain/messaging_feature_gate.dart';
 import 'bloc/conversations_cubit.dart';
 import 'bloc/conversations_session.dart';
 import 'bloc/messages_badge_cubit.dart';
+import 'e2ee/encryption_access_builder.dart';
+import 'e2ee/encryption_status.dart';
+import 'e2ee/encryption_status_banner.dart';
 import 'messaging_error_messages.dart';
 import 'messages_list_detail.dart';
 import 'widgets/conversation_row.dart';
@@ -348,91 +349,113 @@ class _ConversationsViewState extends State<ConversationsList>
               );
               return BlocBuilder<ConversationsCubit, ConversationsState>(
                 builder: (context, state) {
-                  return RefreshIndicator(
-                    onRefresh: cubit.refresh,
-                    child: CustomScrollView(
-                      key: widget.storage == null
-                          ? null
-                          : PageStorageKey<String>(
-                              'conversations-${widget.folder.value}',
-                            ),
-                      controller: _controller,
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      slivers: [
-                        if (_isInbox)
-                          AppTopBar.sliver(
-                            title: 'Messages',
-                            actions: [
-                              if (widget.canCompose &&
-                                  MediaQuery.sizeOf(context).width >=
-                                      AppBreakpoints.mobile)
-                                AppTopBarAction(
-                                  icon: Icons.mail_outline,
-                                  tooltip: kNewMessageLabel,
-                                  onPressed: widget.onNewMessage,
+                  // Previews and the vault's word show only while access is
+                  // full or manage; with it lost, the cubit drops them too.
+                  return EncryptionAccessBuilder(
+                    builder: (context, access) {
+                      final showPreviews =
+                          access == EncryptionAccess.full ||
+                          access == EncryptionAccess.manage;
+                      if (!showPreviews &&
+                          (state.previews.isNotEmpty ||
+                              state.knownEncrypted.isNotEmpty)) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!cubit.isClosed) cubit.accessChanged();
+                        });
+                      }
+                      return RefreshIndicator(
+                        onRefresh: cubit.refresh,
+                        child: CustomScrollView(
+                          key: widget.storage == null
+                              ? null
+                              : PageStorageKey<String>(
+                                  'conversations-${widget.folder.value}',
                                 ),
-                              if (searchOn)
-                                AppTopBarAction(
-                                  icon: Icons.search,
-                                  tooltip: kMessageSearchHint,
-                                  onPressed: () =>
-                                      setState(() => _searching = true),
-                                ),
-                              const MessageSettingsAction(),
-                            ],
-                          )
-                        else
-                          _inset(
-                            inset,
-                            SliverToBoxAdapter(
-                              child: AppBackHeader(
-                                title: 'Message requests',
-                                onBack: _back,
-                              ),
-                            ),
-                          ),
-                        if (state.notice != null)
-                          _inset(
-                            inset,
-                            SliverToBoxAdapter(
-                              child: AppNoticeBanner(
-                                message: conversationsNoticeMessage(
-                                  state.notice!,
-                                ),
-                                onRetry: noticeCanRetry(state.notice!)
-                                    ? cubit.refresh
-                                    : null,
-                              ),
-                            ),
-                          ),
-                        // The encryption status line (INBOX only). Nothing is
-                        // added to the list without the encryption wiring.
-                        if (_isInbox &&
-                            context.read<EncryptionStatusCubit?>() != null)
-                          _inset(
-                            inset,
-                            const SliverToBoxAdapter(
-                              child: _InboxEncryptionBanner(),
-                            ),
-                          ),
-                        if (_isInbox && (state.requestCount ?? 0) > 0)
-                          _inset(
-                            inset,
-                            SliverToBoxAdapter(
-                              child: _RequestsRow(
-                                count: state.requestCount!,
-                                onTap:
-                                    widget.onOpenRequests ??
-                                    () => context.push(
-                                      AppRouter.messageRequestsPath,
+                          controller: _controller,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          slivers: [
+                            if (_isInbox)
+                              AppTopBar.sliver(
+                                title: 'Messages',
+                                actions: [
+                                  if (widget.canCompose &&
+                                      MediaQuery.sizeOf(context).width >=
+                                          AppBreakpoints.mobile)
+                                    AppTopBarAction(
+                                      icon: Icons.mail_outline,
+                                      tooltip: kNewMessageLabel,
+                                      onPressed: widget.onNewMessage,
                                     ),
+                                  if (searchOn)
+                                    AppTopBarAction(
+                                      icon: Icons.search,
+                                      tooltip: kMessageSearchHint,
+                                      onPressed: () =>
+                                          setState(() => _searching = true),
+                                    ),
+                                  const MessageSettingsAction(),
+                                ],
+                              )
+                            else
+                              _inset(
+                                inset,
+                                SliverToBoxAdapter(
+                                  child: AppBackHeader(
+                                    title: 'Message requests',
+                                    onBack: _back,
+                                  ),
+                                ),
                               ),
+                            if (state.notice != null)
+                              _inset(
+                                inset,
+                                SliverToBoxAdapter(
+                                  child: AppNoticeBanner(
+                                    message: conversationsNoticeMessage(
+                                      state.notice!,
+                                    ),
+                                    onRetry: noticeCanRetry(state.notice!)
+                                        ? cubit.refresh
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                            // The encryption status line (INBOX only). Nothing is
+                            // added to the list without the encryption wiring.
+                            if (_isInbox &&
+                                context.read<EncryptionStatusCubit?>() != null)
+                              _inset(
+                                inset,
+                                const SliverToBoxAdapter(
+                                  child: _InboxEncryptionBanner(),
+                                ),
+                              ),
+                            if (_isInbox && (state.requestCount ?? 0) > 0)
+                              _inset(
+                                inset,
+                                SliverToBoxAdapter(
+                                  child: _RequestsRow(
+                                    count: state.requestCount!,
+                                    onTap:
+                                        widget.onOpenRequests ??
+                                        () => context.push(
+                                          AppRouter.messageRequestsPath,
+                                        ),
+                                  ),
+                                ),
+                              ),
+                            ..._body(
+                              context,
+                              cubit,
+                              state,
+                              inset,
+                              showPreviews: showPreviews,
                             ),
-                          ),
-                        ..._body(context, cubit, state, inset),
-                        const ShellBottomInsetSliver(),
-                      ],
-                    ),
+                            const ShellBottomInsetSliver(),
+                          ],
+                        ),
+                      );
+                    },
                   );
                 },
               );
@@ -461,8 +484,9 @@ class _ConversationsViewState extends State<ConversationsList>
     BuildContext context,
     ConversationsCubit cubit,
     ConversationsState state,
-    double inset,
-  ) {
+    double inset, {
+    required bool showPreviews,
+  }) {
     if (!state.hasConversations) {
       final Widget child;
       if (state.status == ConversationsStatus.error && state.error != null) {
@@ -524,10 +548,12 @@ class _ConversationsViewState extends State<ConversationsList>
                   conversation: conversation,
                   now: _now,
                   selected: conversation.id == widget.selectedId,
-                  preview: state.previews[conversation.id],
-                  knownEncrypted: state.knownEncrypted.contains(
-                    conversation.id,
-                  ),
+                  preview: showPreviews
+                      ? state.previews[conversation.id]
+                      : null,
+                  knownEncrypted:
+                      showPreviews &&
+                      state.knownEncrypted.contains(conversation.id),
                   onTap: open == null ? null : () => open(conversation.id),
                 ),
               );

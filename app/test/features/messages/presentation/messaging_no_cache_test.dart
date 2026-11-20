@@ -267,7 +267,11 @@ void main() {
     port.setPreviews({
       'enc': const ConversationPreview(kind: PreviewKind.text, text: canary),
     });
-    final list = ConversationsCubit(repository: repo, encrypted: port);
+    final list = ConversationsCubit(
+      repository: repo,
+      encrypted: port,
+      previewsAllowed: () => true,
+    );
     closers.add(list.close);
 
     await list.load();

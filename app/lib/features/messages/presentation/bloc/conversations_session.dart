@@ -48,8 +48,9 @@ class ConversationsSession {
   final DateTime Function()? _now;
 
   /// The encrypted messaging port the lists take local previews from, or null
-  /// (no wiring). With [previewsAllowed] (the encryption access of this device
-  /// is `full` or `manage`; closed over objects, never a `BuildContext`).
+  /// (no wiring). [previewsAllowed] (the encryption access of this device is
+  /// `full` or `manage`; closed over objects, never a `BuildContext`) is
+  /// REQUIRED for any use: a port without it is never called (fails closed).
   final EncryptedMessaging? encrypted;
   final bool Function()? previewsAllowed;
 

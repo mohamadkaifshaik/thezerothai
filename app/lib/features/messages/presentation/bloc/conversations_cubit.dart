@@ -152,7 +152,8 @@ class ConversationsCubit extends Cubit<ConversationsState> {
 
   /// Whether the encryption access of this device allows touching the port
   /// now (`full` or `manage`; not `hidden` or `unsupported`). Read at each use,
-  /// closed over objects, never a `BuildContext`. Null with a port: allowed.
+  /// closed over objects, never a `BuildContext`. Null with a port: NOT allowed
+  /// (fails closed: a forgotten argument makes no `previews` or `hasLocal` call).
   final bool Function()? _previewsAllowed;
   StreamSubscription<String>? _previewChanges;
 
@@ -165,7 +166,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
   EncryptedMessaging? get _port {
     final port = _encrypted;
     if (port == null) return null;
-    return (_previewsAllowed?.call() ?? true) ? port : null;
+    return (_previewsAllowed?.call() ?? false) ? port : null;
   }
 
   final DateTime Function() _now;
@@ -335,11 +336,38 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     }
   }
 
+  /// The screen calls this when the encryption access of this device may have
+  /// changed (the flag turned off or unknown, the vault was removed). When
+  /// previews are no longer allowed, readable text and the vault's word leave
+  /// memory at once. The screen also stops drawing them while access is lost.
+  void accessChanged() {
+    if (isClosed || _port != null) return;
+    _dropPreviews();
+  }
+
+  void _dropPreviews() {
+    if (state.previews.isEmpty && state.knownEncrypted.isEmpty) return;
+    emit(state.copyWith(previews: const {}, knownEncrypted: const {}));
+  }
+
   /// [onlyNew]: an older page was appended, so only its new rows ask the port.
   void _apply(ConversationsSnapshot snapshot, {bool onlyNew = false}) {
     final port = _port;
     final before = {for (final c in state.conversations) c.id};
+    final present = {for (final c in snapshot.conversations) c.id};
     Set<String>? known;
+    Map<String, ConversationPreview>? kept;
+    if (port == null) {
+      // No usable port: nothing readable stays in memory.
+      if (state.previews.isNotEmpty) kept = const {};
+      if (state.knownEncrypted.isNotEmpty) known = const {};
+    } else {
+      // A conversation that left the list keeps nothing in memory.
+      kept = {
+        for (final e in state.previews.entries)
+          if (present.contains(e.key)) e.key: e.value,
+      };
+    }
     if (port != null) {
       // The vault's word, in the SAME emit as the rows: a row the vault knows
       // never shows the server's snippet, not even for one frame.
@@ -362,6 +390,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
             ? snapshot.requestCount
             : state.requestCount,
         knownEncrypted: known,
+        previews: kept,
       ),
     );
     if (port == null) return;
@@ -391,10 +420,16 @@ class ConversationsCubit extends Cubit<ConversationsState> {
       return;
     }
     if (isClosed) return;
+    // Access lost while the call was in flight: the answer is dropped.
+    if (_port == null) {
+      _dropPreviews();
+      return;
+    }
+    final loaded = {for (final c in state.conversations) c.id};
     final next = Map<String, ConversationPreview>.of(state.previews);
     var changed = false;
     for (final id in ids) {
-      if (_previewSeq[id] != seq) continue;
+      if (_previewSeq[id] != seq || !loaded.contains(id)) continue;
       final preview = answer[id];
       if (preview == null) {
         changed = next.remove(id) != null || changed;
@@ -412,7 +447,8 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     if (isClosed) return;
     final port = _port;
     if (port == null) return;
-    if (!state.conversations.any((c) => c.id == id)) return;
+    final row = state.conversations.where((c) => c.id == id).firstOrNull;
+    if (row == null) return;
     if (!state.knownEncrypted.contains(id)) {
       try {
         // The row may have become one the vault knows since it was loaded.
@@ -423,7 +459,12 @@ class ConversationsCubit extends Cubit<ConversationsState> {
         onUnexpectedError?.call(StateError('hasLocal'), stack);
       }
     }
-    unawaited(_askPreviews(port, [id]));
+    // Only a conversation that is encrypted by its row's own marker or that
+    // the vault knows has a preview to ask for.
+    if (state.knownEncrypted.contains(id) ||
+        (row.hasLastMessage() && row.lastMessage.encrypted)) {
+      unawaited(_askPreviews(port, [id]));
+    }
   }
 
   /// Prefetch paging (the screen calls it near the end).
