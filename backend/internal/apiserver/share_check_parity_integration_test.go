@@ -121,10 +121,13 @@ func TestShareCheckParity_MatchesSendMessage(t *testing.T) {
 			w.approve(t, z.c, z.x)
 			return z.x, rp
 		}},
-		{name: "repost of a repost", want: parityOnly, setup: func(t *testing.T, z world) (dmUser, string) {
+		// RepostPost of a REPOST id resolves to the original (engagement.proto), so the API cannot create a REPOST whose
+		// original is itself a REPOST; that row (NOT_FOUND) lives in the unit table. Here: a repost made from another
+		// account's REPOST id answers the original.
+		{name: "repost made from a REPOST id", want: okWant, setup: func(t *testing.T, z world) (dmUser, string) {
 			e := w.user(t)
 			first := w.repost(t, e, w.post(t, z.c, "original"))
-			return z.x, w.repost(t, z.c, first)
+			return z.x, w.repost(t, w.user(t), first)
 		}},
 		{name: "quote of a protected post", want: parityOnly, setup: func(t *testing.T, z world) (dmUser, string) {
 			p := w.user(t)
