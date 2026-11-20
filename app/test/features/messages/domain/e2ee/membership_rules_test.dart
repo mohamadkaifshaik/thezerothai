@@ -15,8 +15,7 @@ final DateTime _base = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
 Uint8List _id(int n) =>
     Uint8List.fromList(utf8.encode('device-${n.toString().padLeft(12, '0')}'));
 Uint8List _key(int n) => Uint8List.fromList(List.filled(32, n));
-String _hex(List<int> b) =>
-    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+String _hex(List<int> b) => deviceIdHex(Uint8List.fromList(b));
 
 DirectoryDevice _dev(int n, {int? key, bool inactive = false}) =>
     DirectoryDevice(
@@ -58,7 +57,7 @@ pb.ClaimedKeyPackage _claim(
 KeyPackageInfo _info(int n, {int? key, int? id}) =>
     KeyPackageInfo(deviceId: _id(id ?? n), signaturePublicKey: _key(key ?? n));
 
-typedef _Claims = ({List<UsableClaim> usable, List<Uint8List> emptyFor});
+typedef _Claims = ClaimCheck;
 
 _Claims _check({
   ClaimSide side = ClaimSide.theirs,
@@ -168,8 +167,104 @@ void main() {
       expect(_check(members: old, forNewGroup: true).usable, hasLength(1));
       final pinnedOther = [_member(8, MemberSide.theirs, key: 5)];
       expect(_check(members: pinnedOther, forNewGroup: true).usable, isEmpty);
+    });
+
+    test('a key pinned to the other attributed side differs only in side', () {
+      // Same id, same key: only the side differs.
       final pinnedSide = [_member(5, MemberSide.mine)];
       expect(_check(members: pinnedSide, forNewGroup: true).usable, isEmpty);
+      expect(
+        _check(
+          members: [_member(5, MemberSide.theirs)],
+          forNewGroup: true,
+        ).usable,
+        hasLength(1),
+      );
+    });
+
+    test('after a reset an unattributed pin with the same id and key keeps '
+        'its claim, the same key under another id does not', () {
+      expect(
+        _check(
+          members: [_member(5, MemberSide.unattributed)],
+          forNewGroup: true,
+        ).usable,
+        hasLength(1),
+      );
+      expect(
+        _check(
+          members: [_member(8, MemberSide.unattributed, key: 5)],
+          forNewGroup: true,
+        ).usable,
+        isEmpty,
+      );
+    });
+
+    test('a peer claim with a deferred own list that lacks the device is '
+        'dropped', () {
+      final deferredOwn = DeviceList(ListState.deferred, [
+        _dev(1),
+        _dev(99),
+      ], _base);
+      expect(_check(ownList: deferredOwn).usable, isEmpty);
+    });
+
+    test(
+      'a signature key repeated under two ids drops every claim with it',
+      () {
+        final r = _check(
+          claimed: [_claim(5), _claim(6, key: 5), _claim(7)],
+          inspected: [_info(5), _info(6, key: 5), _info(7)],
+          directory: _list([_dev(5), _dev(6, key: 5), _dev(7)]),
+        );
+        expect(r.usable.map((u) => u.deviceId), [_id(7)]);
+      },
+    );
+
+    test('emptyFor lists only ids the readable directory lists as active and '
+        'that are not repeated', () {
+      _Claims run({
+        required List<pb.ClaimedKeyPackage> claimed,
+        required DeviceList directory,
+      }) => _check(
+        claimed: claimed,
+        inspected: [
+          for (final c in claimed) c.hasKeyPackage_4 ? _info(5) : null,
+        ],
+        directory: directory,
+      );
+      expect(
+        run(
+          claimed: [_claim(5, has: false)],
+          directory: _list([_dev(5)]),
+        ).emptyFor,
+        [_id(5)],
+      );
+      expect(
+        run(claimed: [_claim(5, has: false)], directory: _unreadable).emptyFor,
+        isEmpty,
+      );
+      expect(
+        run(
+          claimed: [_claim(5, has: false)],
+          directory: _list([_dev(5, inactive: true)]),
+        ).emptyFor,
+        isEmpty,
+      );
+      expect(
+        run(
+          claimed: [_claim(5, has: false)],
+          directory: _list([_dev(7)]),
+        ).emptyFor,
+        isEmpty,
+      );
+      expect(
+        run(
+          claimed: [_claim(5, has: false), _claim(5)],
+          directory: _list([_dev(5)]),
+        ).emptyFor,
+        isEmpty,
+      );
     });
   });
 
@@ -305,6 +400,21 @@ void main() {
           MemberSide.unattributed,
         );
       }
+    });
+
+    test('after a reset a member pinned unattributed is attributed from the '
+        'lists', () {
+      final pinned = [_member(1, MemberSide.unattributed)];
+      String after(DeviceList own, DeviceList peerList) => attributeAfterReset(
+        deviceId: _id(1),
+        signatureKey: _key(1),
+        pinnedAtEndOfPrevious: pinned,
+        ownList: own,
+        peerList: peerList,
+      );
+      expect(after(_unreadable, _unreadable), MemberSide.unattributed);
+      expect(after(_list([_dev(1)]), _unreadable), MemberSide.mine);
+      expect(after(_unreadable, _list([_dev(1)])), MemberSide.theirs);
     });
 
     test(
@@ -462,6 +572,21 @@ void main() {
       );
     });
 
+    test(
+      'a listed id with another key is not removed (id-only, conservative)',
+      () {
+        expect(
+          peer(
+            list: _list([
+              _dev(2, key: 9),
+              _dev(3),
+            ], at: t0.add(const Duration(minutes: 3))),
+          ),
+          isFalse,
+        );
+      },
+    );
+
     test('the peer\'s last device is never removed', () {
       expect(peer(count: 1), isFalse);
     });
@@ -486,8 +611,15 @@ void main() {
         expect(own(2, _list([_dev(2), _dev(99)])), isFalse);
         expect(own(99, _list([_dev(1)])), isFalse);
         expect(own(2, _unreadable), isFalse);
-        expect(own(2, _deferred), isFalse);
+        // A deferred list that lacks device 2: only its state can refuse.
+        expect(
+          own(2, DeviceList(ListState.deferred, [_dev(1), _dev(99)], _base)),
+          isFalse,
+        );
         expect(own(2, _list([])), isFalse);
+        // An id never legitimately changes key: a listed id with ANOTHER key
+        // is kept (id-only matching is the conservative choice for removal).
+        expect(own(2, _list([_dev(2, key: 9), _dev(99)])), isFalse);
         expect(
           mayRemoveOwnDevice(
             member: _member(2, MemberSide.theirs),
@@ -525,7 +657,31 @@ void main() {
         );
         expect(un(own: _unreadable), isFalse);
         expect(un(peerList: _unreadable), isFalse);
-        expect(un(own: _deferred), isFalse);
+        // Deferred lists dated at the re-check lack the member and count by
+        // time, so only their state can refuse.
+        expect(un(own: DeviceList(ListState.deferred, [_dev(1)], at)), isFalse);
+        expect(
+          un(peerList: DeviceList(ListState.deferred, [_dev(2)], at)),
+          isFalse,
+        );
+        // Both lists must come from the re-check: the EARLIER fetch decides.
+        expect(un(own: _list([_dev(1)], at: seen)), isFalse);
+        expect(un(peerList: _list([_dev(2)], at: seen)), isFalse);
+        expect(
+          un(
+            own: _list([_dev(1)], at: at),
+            peerList: _list([_dev(2)], at: at),
+          ),
+          isTrue,
+        );
+        expect(
+          un(
+            peerList: _list([
+              _dev(2),
+            ], at: accepted.add(const Duration(seconds: 59))),
+          ),
+          isFalse,
+        );
         expect(un(own: _list([], at: at)), isFalse);
         expect(un(peerList: _list([], at: at)), isFalse);
         expect(
@@ -564,6 +720,16 @@ void main() {
       );
       expect(r.map((e) => e.deviceId), [_id(2), _id(4)]);
       expect(r.map((e) => e.side), [ClaimSide.mine, ClaimSide.theirs]);
+    });
+
+    test('a device inactive in the own list is never returned as theirs', () {
+      final r = devicesToAdd(
+        ownList: _list([_dev(1, inactive: true)]),
+        peerList: _list([_dev(1), _dev(2)]),
+        members: const [],
+        thisDeviceId: _id(99),
+      );
+      expect(r.map((e) => e.deviceId), [_id(2)]);
     });
 
     test('unreadable lists add nothing and members are skipped', () {
@@ -609,6 +775,20 @@ void main() {
     });
   });
 
+  test('ClaimCheck and DeviceToAdd keep Object.toString', () {
+    final claimCheck = _check();
+    final toAdd = devicesToAdd(
+      ownList: _list([_dev(1)]),
+      peerList: _list([_dev(2)]),
+      members: const [],
+      thisDeviceId: _id(99),
+    );
+    expect(claimCheck.toString(), "Instance of 'ClaimCheck'");
+    expect(toAdd, hasLength(2));
+    expect(toAdd.first.toString(), "Instance of 'DeviceToAdd'");
+    expect(deviceIdHex(_id(1)), _hex(_id(1)));
+  });
+
   group('R4 codeParties', () {
     test('no parties while a member is unattributed', () {
       expect(
@@ -634,7 +814,7 @@ void main() {
       expect(a.mine.userId, isNot(a.theirs.userId));
     });
 
-    test('this device is on my side', () {
+    test('each side gets its own keys and the party id of those keys', () {
       final p = codeParties('c1', [
         _member(99, MemberSide.mine),
         _member(1, MemberSide.mine),

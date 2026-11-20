@@ -33,6 +33,11 @@ const int kMaxGroupMembers = 10;
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
+/// Lower-case hex of a device id. Callers must build every `ownDeviceIdsHex`
+/// set (and any other hex form of a device id compared here) with this
+/// function.
+String deviceIdHex(Uint8List deviceId) => _hex(deviceId);
+
 /// Constant-time equality of two byte lists (the length is not secret).
 bool _bytesEqual(List<int> a, List<int> b) {
   if (a.length != b.length) return false;
@@ -75,6 +80,17 @@ class UsableClaim {
   final ClaimSide side;
 }
 
+/// What [checkClaims] decided. A class, not a record: a record's built-in
+/// `toString` would print the device ids. No `toString`.
+class ClaimCheck {
+  const ClaimCheck({required this.usable, required this.emptyFor});
+
+  final List<UsableClaim> usable;
+
+  /// Device ids whose claim carried no package (for `kEmptyClaimRetry`).
+  final List<Uint8List> emptyFor;
+}
+
 String _sideName(ClaimSide side) =>
     side == ClaimSide.mine ? MemberSide.mine : MemberSide.theirs;
 
@@ -84,11 +100,16 @@ String _sideName(ClaimSide side) =>
 /// readable and lists that id with that key, not inactive; the device is not
 /// [thisDeviceId], not already in [members] (skipped for [forNewGroup]), and
 /// not repeated among the claims (every copy is dropped); its key is not
-/// pinned in [members] to the other side or to another device id; for
-/// [ClaimSide.theirs] the id is not in [ownList] and [ownList] is readable
-/// (an unknown own list cannot show that a device is not ours).
-/// Claims without a package go to `emptyFor` (device ids) and nowhere else.
-({List<UsableClaim> usable, List<Uint8List> emptyFor}) checkClaims({
+/// repeated under two ids in the claims (every claim with it is dropped); its
+/// key is not pinned in [members] to the OTHER attributed side or to another
+/// device id (a pin that is unattributed, same id and same key, does not
+/// refuse: a reset must be able to reclaim it); for [ClaimSide.theirs] the id
+/// is not in [ownList] and [ownList] is readable (an unknown own list cannot
+/// show that a device is not ours).
+/// Claims without a package go to `emptyFor` (device ids) and nowhere else,
+/// and only when the directory is readable, lists the id as active and the id
+/// is not repeated in the claims.
+ClaimCheck checkClaims({
   required ClaimSide side,
   required List<pb.ClaimedKeyPackage> claimed,
   required List<KeyPackageInfo?> inspected,
@@ -101,19 +122,30 @@ String _sideName(ClaimSide side) =>
   final usable = <UsableClaim>[];
   final emptyFor = <Uint8List>[];
   final counts = <String, int>{};
+  final keyCounts = <String, int>{};
   for (final c in claimed) {
     counts.update(
-      _hex(utf8.encode(c.deviceId)),
+      deviceIdHex(Uint8List.fromList(utf8.encode(c.deviceId))),
       (n) => n + 1,
       ifAbsent: () => 1,
     );
+    if (c.signaturePublicKey.isNotEmpty) {
+      keyCounts.update(
+        _hex(c.signaturePublicKey),
+        (n) => n + 1,
+        ifAbsent: () => 1,
+      );
+    }
   }
   final sideName = _sideName(side);
   for (var i = 0; i < claimed.length; i++) {
     final c = claimed[i];
     final id = Uint8List.fromList(utf8.encode(c.deviceId));
     if (!c.hasKeyPackage_4) {
-      emptyFor.add(id);
+      final listed = directory.readable ? _entry(directory, id) : null;
+      if (listed != null && !listed.inactive && counts[deviceIdHex(id)]! == 1) {
+        emptyFor.add(id);
+      }
       continue;
     }
     final info = i < inspected.length ? inspected[i] : null;
@@ -126,14 +158,16 @@ String _sideName(ClaimSide side) =>
     if (entry == null || entry.inactive) continue;
     if (!_bytesEqual(entry.signatureKey, key)) continue;
     if (_bytesEqual(id, thisDeviceId)) continue;
-    if (counts[_hex(id)]! > 1) continue;
+    if (counts[deviceIdHex(id)]! > 1) continue;
+    if (keyCounts[_hex(key)]! > 1) continue;
     if (!forNewGroup && members.any((m) => _bytesEqual(m.deviceId, id))) {
       continue;
     }
     final pinnedElsewhere = members.any(
       (m) =>
           _bytesEqual(m.signatureKey, key) &&
-          (m.side != sideName || !_bytesEqual(m.deviceId, id)),
+          (!_bytesEqual(m.deviceId, id) ||
+              (m.side != MemberSide.unattributed && m.side != sideName)),
     );
     if (pinnedElsewhere) continue;
     if (side == ClaimSide.theirs) {
@@ -149,7 +183,7 @@ String _sideName(ClaimSide side) =>
       ),
     );
   }
-  return (usable: usable, emptyFor: emptyFor);
+  return ClaimCheck(usable: usable, emptyFor: emptyFor);
 }
 
 // --- R5 -----------------------------------------------------------------
@@ -160,7 +194,8 @@ enum WelcomeVerdict { accept, permanent }
 /// is `mlsGroupId(conversationId, label.generation)`; the joined epoch is
 /// `label.epoch + 1`; the label is above both marks (an absent mark is below
 /// everything); 1 to [kMaxGroupMembers] members; no signature key repeated; at
-/// least one member that is not an own device.
+/// least one member that is not an own device. [ownDeviceIdsHex] must be built
+/// with [deviceIdHex].
 WelcomeVerdict checkWelcome({
   required String conversationId,
   required MlsPair label,
@@ -190,7 +225,7 @@ WelcomeVerdict checkWelcome({
     if (!keys.add(_hex(m.signaturePublicKey))) return WelcomeVerdict.permanent;
   }
   final foreign = members.any(
-    (m) => !ownDeviceIdsHex.contains(_hex(m.deviceId)),
+    (m) => !ownDeviceIdsHex.contains(deviceIdHex(m.deviceId)),
   );
   return foreign ? WelcomeVerdict.accept : WelcomeVerdict.permanent;
 }
@@ -212,7 +247,8 @@ String attribute({
 }
 
 /// R6 step 5 for generation g+1: a member pinned at the end of g with the same
-/// id and key keeps its side, without any list; any other is attributed with
+/// id and key and an attributed side keeps that side, without any list; any
+/// other (including one pinned unattributed) is attributed from the lists with
 /// [attribute].
 String attributeAfterReset({
   required Uint8List deviceId,
@@ -223,7 +259,8 @@ String attributeAfterReset({
 }) {
   for (final m in pinnedAtEndOfPrevious) {
     if (_bytesEqual(m.deviceId, deviceId) &&
-        _bytesEqual(m.signatureKey, signatureKey)) {
+        _bytesEqual(m.signatureKey, signatureKey) &&
+        m.side != MemberSide.unattributed) {
       return m.side;
     }
   }
@@ -261,7 +298,11 @@ bool fetchCounts({
 /// readable, non-empty, lacks the device id, and its fetch counts; an earlier
 /// counting fetch ([RemovalEvidence.firstMissAt]) lacked it at least
 /// [kPeerRemovalFetchGap] before; and removing it leaves another peer-side
-/// member ([theirMemberCount] counts the member itself).
+/// member ([theirMemberCount] counts the member itself). "Lacks" is by device
+/// id only: an id never legitimately changes key, so a listed id with another
+/// key is kept (conservative for removal; attribution stays pair-strict).
+/// [theirMemberCount] is per call: a caller deciding several removals in one
+/// pass must lower it after each removal it decides.
 bool mayRemovePeerDevice({
   required MemberRecord member,
   required DeviceList peerList,
@@ -285,7 +326,8 @@ bool mayRemovePeerDevice({
 
 /// M3. True only when the member is an own-side one other than this device and
 /// the own list is readable, non-empty and lacks the device id (inactive
-/// devices are listed, so they are kept). One list decides (stated limit L7).
+/// devices are listed, so they are kept; matching is by id only, so a listed id
+/// with another key is kept too). One list decides (stated limit L7).
 bool mayRemoveOwnDevice({
   required MemberRecord member,
   required DeviceList ownList,
@@ -299,7 +341,9 @@ bool mayRemoveOwnDevice({
 
 /// M2. True only when the member is unattributed against both lists (each
 /// readable, non-empty, with a counting fetch) and was first seen unattributed
-/// at least [kUnattributedRecheck] before the later of the two fetches.
+/// at least [kUnattributedRecheck] before the EARLIER of the two fetches: both
+/// lists must come from the re-check, so a device registered in the gap and
+/// missing from a list read at first sight is never removed as a ghost.
 bool mayRemoveUnattributed({
   required MemberRecord member,
   required DeviceList ownList,
@@ -325,25 +369,29 @@ bool mayRemoveUnattributed({
       ) !=
       MemberSide.unattributed;
   if (attributed) return false;
-  final later = own.isAfter(peer) ? own : peer;
-  return later.difference(firstSeenUnattributedAt) >= kUnattributedRecheck;
+  final earlier = own.isBefore(peer) ? own : peer;
+  return earlier.difference(firstSeenUnattributedAt) >= kUnattributedRecheck;
 }
 
 // --- M1 -----------------------------------------------------------------
 
 /// Devices to add: listed and not inactive in a readable list, not a member,
-/// not this device, not listed twice (own side wins); own side first; never
+/// not this device, not listed twice (own side wins: every id of the own list,
+/// inactive ones too, is withheld from the peer side); own side first; never
 /// more than [kMaxGroupMembers] minus the current members.
-List<({Uint8List deviceId, ClaimSide side})> devicesToAdd({
+List<DeviceToAdd> devicesToAdd({
   required DeviceList ownList,
   required DeviceList peerList,
   required List<MemberRecord> members,
   required Uint8List thisDeviceId,
 }) {
   final room = kMaxGroupMembers - members.length;
-  final out = <({Uint8List deviceId, ClaimSide side})>[];
+  final out = <DeviceToAdd>[];
   if (room <= 0) return out;
-  final taken = <String>{};
+  final taken = <String>{
+    if (ownList.readable)
+      for (final d in ownList.devices) deviceIdHex(d.deviceId),
+  };
   void collect(DeviceList list, ClaimSide side) {
     if (!list.readable) return;
     for (final d in list.devices) {
@@ -351,14 +399,27 @@ List<({Uint8List deviceId, ClaimSide side})> devicesToAdd({
       if (d.inactive) continue;
       if (_bytesEqual(d.deviceId, thisDeviceId)) continue;
       if (members.any((m) => _bytesEqual(m.deviceId, d.deviceId))) continue;
-      if (!taken.add(_hex(d.deviceId))) continue;
-      out.add((deviceId: d.deviceId, side: side));
+      if (side == ClaimSide.mine) {
+        if (out.any((e) => _bytesEqual(e.deviceId, d.deviceId))) continue;
+      } else if (!taken.add(deviceIdHex(d.deviceId))) {
+        continue;
+      }
+      out.add(DeviceToAdd(deviceId: d.deviceId, side: side));
     }
   }
 
   collect(ownList, ClaimSide.mine);
   collect(peerList, ClaimSide.theirs);
   return out;
+}
+
+/// One device [devicesToAdd] returns. A class, not a record: a record's
+/// built-in `toString` would print the device id. No `toString`.
+class DeviceToAdd {
+  const DeviceToAdd({required this.deviceId, required this.side});
+
+  final Uint8List deviceId;
+  final ClaimSide side;
 }
 
 // --- R4 -----------------------------------------------------------------
