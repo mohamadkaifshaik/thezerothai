@@ -492,17 +492,41 @@ void main() {
       (
         'UNAVAILABLE (protected set unreadable)',
         const NetworkException('temporarily busy'),
-        sharePostErrorMessage(const NetworkException('x')),
+        'No connection. Check your network and try again.',
       ),
       (
         'RATE_LIMITED',
         const RateLimitedException('slow'),
-        sharePostErrorMessage(const RateLimitedException('x')),
+        "You're doing that a bit too fast. Give it a moment and try again.",
       ),
       (
-        'FEATURE_DISABLED (dm_post_share, also dm_share_check as re-thrown)',
+        'RATE_LIMITED messages_share_checks_daily',
+        const RateLimitedException(
+          'slow',
+          limitName: 'messages_share_checks_daily',
+        ),
+        "You've reached today's limit for this. It resets later today.",
+      ),
+      (
+        'INTERNAL (unknown)',
+        const UnknownApiException('boom'),
+        "Couldn't complete that. Please try again.",
+      ),
+      (
+        'EMAIL_NOT_VERIFIED',
+        const EmailNotVerifiedException('verify'),
+        "Couldn't complete that. Please try again.",
+      ),
+      (
+        'FEATURE_DISABLED (dm_post_share, also dm_share_check and posts as '
+            're-thrown by the repository)',
         const FeatureDisabledException('off', feature: kFeatureDmPostShare),
         shareOffText,
+      ),
+      (
+        'FEATURE_DISABLED (messaging)',
+        const FeatureDisabledException('off', feature: kFeatureMessaging),
+        "Messages aren't available right now.",
       ),
       (
         'VALIDATION post_id',
@@ -527,35 +551,50 @@ void main() {
       });
     }
 
-    test('the dm_share_check flag not in the enabled features: no call, no '
-        'send, every row refused with the dm_post_share copy', () async {
-      checkOn = false;
-      final c = make2()
-        ..toggle(_peer(1))
-        ..toggle(_peer(2));
-      addTearDown(c.close);
-      await c.send();
+    /// The share ended as "feature off": no call, no send, the rows "Not
+    /// sent" and the "isn't available" line.
+    void expectFeatureOff(SharePostCubit c) {
       expect(asked, isEmpty);
-      expectRefused(c, shareOffText);
+      expect(port.sent, isEmpty);
+      expect(repo.sendKeys, isEmpty);
       expect(
-        c.state.recipients.first.error,
+        c.state.recipients.map((r) => r.status),
+        everyElement(ShareRowStatus.skipped),
+      );
+      expect(
+        c.state.endedBy,
         isA<FeatureDisabledException>().having(
           (e) => e.feature,
           'feature',
           kFeatureDmPostShare,
         ),
       );
+      expect(
+        sharePostErrorMessage(c.state.lastError!, problem: c.state.lastProblem),
+        shareOffText,
+      );
       expect(unexpected, 0);
+    }
+
+    test('the dm_share_check flag not in the enabled features: no call, no '
+        'send, the share ends like the feature being off', () async {
+      checkOn = false;
+      final c = make2()
+        ..toggle(_peer(1))
+        ..toggle(_peer(2));
+      addTearDown(c.close);
+      await c.send();
+      expectFeatureOff(c);
     });
 
-    test('a port with no check function refuses like the flag off', () async {
+    test('a port with no check function ends the share like the feature '
+        'being off', () async {
       final c = make2(withCheck: false)
         ..toggle(_peer(1))
         ..toggle(_peer(2));
       addTearDown(c.close);
       await c.send();
-      expect(asked, isEmpty);
-      expectRefused(c, shareOffText);
+      expectFeatureOff(c);
     });
 
     test('a passing check shares the post: one call, one send per person with '
@@ -586,12 +625,19 @@ void main() {
     });
 
     test('one check for several recipients, before the first send', () async {
+      checkGate = Completer<void>();
       final c = make2()
         ..toggle(_peer(1))
         ..toggle(_peer(2))
         ..toggle(_peer(3));
       addTearDown(c.close);
-      await c.send();
+      final sending = c.send();
+      await Future<void>.delayed(Duration.zero);
+      // The check is asked and pending: nothing was sent yet.
+      expect(asked, [_postId]);
+      expect(port.sent, isEmpty);
+      checkGate!.complete();
+      await sending;
       expect(asked, [_postId]);
       expect(port.sent, hasLength(3));
       expect(c.state.allSent, isTrue);

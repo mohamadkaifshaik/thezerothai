@@ -390,6 +390,85 @@ void main() {
       expect(gate.canSend, isTrue);
     });
 
+    test('a posts-off answer to the share check turns nothing off and reads '
+        'as post sharing unavailable', () async {
+      override = (p) => throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': 'posts'},
+      );
+      await expectLater(
+        repo.checkPostShare(postId),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            kFeatureDmPostShare,
+          ),
+        ),
+      );
+      expect(gate.canSend, isTrue);
+      expect(gate.canRead, isTrue);
+    });
+
+    test('a messaging-off answer still turns messaging off', () async {
+      override = (p) => throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': 'messaging'},
+      );
+      await expectLater(
+        repo.checkPostShare(postId),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            'messaging',
+          ),
+        ),
+      );
+      expect(gate.canSend, isFalse);
+    });
+
+    test('PROTECTED_ACCOUNT is a ProtectedAccountException', () async {
+      override = (p) => throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_PROTECTED_ACCOUNT,
+      );
+      await expectLater(
+        repo.checkPostShare(postId),
+        throwsA(isA<ProtectedAccountException>()),
+      );
+      expect(gate.canSend, isTrue);
+    });
+
+    test('UNAVAILABLE is a NetworkException', () async {
+      override = (p) => throw connect.ConnectException(
+        connect.Code.unavailable,
+        'temporarily busy, please retry',
+      );
+      await expectLater(
+        repo.checkPostShare(postId),
+        throwsA(isA<NetworkException>()),
+      );
+    });
+
+    test('a share check that never answers ends as a connection failure '
+        'after the timeout', () {
+      fakeAsync((async) {
+        hang = Completer<Object>();
+        Object? error;
+        repo
+            .checkPostShare(postId)
+            .then<void>((_) {}, onError: (Object e) => error = e);
+        async.flushMicrotasks();
+        async.elapse(kMlsRpcTimeout - const Duration(seconds: 1));
+        expect(error, isNull);
+        async.elapse(const Duration(seconds: 2));
+        expect(error, isA<NetworkException>());
+      });
+    });
+
     test('NOT_FOUND is a NotFoundException', () async {
       override = (p) => throw connect.ConnectException(
         connect.Code.notFound,

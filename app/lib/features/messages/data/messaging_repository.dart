@@ -10,6 +10,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import '../../posts/domain/posts_feature_flag.dart' show kFeaturePosts;
 import '../domain/conversation_id.dart';
 import '../domain/e2ee/e2ee_types.dart' show E2eePipelineError;
 import '../domain/messaging_feature_flag.dart';
@@ -700,30 +701,40 @@ class MessagingRepository {
   /// shared post. Read-only, so no idempotency key. For an ENCRYPTED share,
   /// once per share action, before any send.
   ///
-  /// Per caller, like a send. FEATURE_DISABLED for `dm_share_check` is
-  /// rethrown as [kFeatureDmPostShare] so the existing line is drawn; it never
-  /// turns messaging off (see [MessagingFeatureGate]).
+  /// Per caller, like a send. FEATURE_DISABLED for `dm_share_check` or `posts`
+  /// is rethrown as [kFeatureDmPostShare] (post sharing is unavailable) so the
+  /// existing line is drawn, and, converted inside the gate's call, it never
+  /// turns messaging off (see [MessagingFeatureGate]); one for `messaging`
+  /// keeps its feature and is recorded as usual. Waits at most
+  /// [kMlsRpcTimeout]: a timeout is a `NetworkException`.
   ///
-  /// Note: the network layer retries an UNAVAILABLE answer of a read-only call
-  /// up to 3 times (`RetryInterceptor`) and has no per-call opt-out, so one
-  /// share can spend up to 3 of the server's 10-per-minute checks. Nothing
-  /// logs the id.
-  Future<String> checkPostShare(String postId) async {
-    try {
-      final response = await _gate.run(
-        () => _apiClient.messaging.checkPostShare(
-          pb.CheckPostShareRequest(postId: postId),
-        ),
-      );
-      return response.sharedPostId;
-    } on FeatureDisabledException catch (error) {
-      if (error.feature != kFeatureDmShareCheck) rethrow;
-      throw FeatureDisabledException(
-        error.message,
-        feature: kFeatureDmPostShare,
-      );
-    }
-  }
+  /// Retry: the network layer has no per-call opt-out. `RetryInterceptor`
+  /// retries every NO_SIDE_EFFECTS call that answers UNAVAILABLE,
+  /// DEADLINE_EXCEEDED or UNKNOWN, `maxAttempts` = 3 attempts in all (2
+  /// retries), with backoff, and each attempt draws on BOTH the server's
+  /// 10-per-minute bucket and its 300-per-day cap, so one share can spend up
+  /// to 3 of each. Nothing logs the id.
+  Future<String> checkPostShare(String postId) => _mls(() async {
+    final response = await _gate.run(() async {
+      try {
+        return await guardApiCall(
+          () => _apiClient.messaging.checkPostShare(
+            pb.CheckPostShareRequest(postId: postId),
+          ),
+        );
+      } on FeatureDisabledException catch (error) {
+        if (error.feature != kFeatureDmShareCheck &&
+            error.feature != kFeaturePosts) {
+          rethrow;
+        }
+        throw FeatureDisabledException(
+          error.message,
+          feature: kFeatureDmPostShare,
+        );
+      }
+    });
+    return response.sharedPostId;
+  });
 
   // --- encrypted messaging (MLS) -------------------------------------------
   //

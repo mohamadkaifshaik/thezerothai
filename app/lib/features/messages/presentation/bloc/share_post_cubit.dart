@@ -277,7 +277,11 @@ class SharePostCubit extends Cubit<SharePostState> {
     ];
     // With no port (or no post) the flag is read only in the loop, as before.
     final guarded = _encrypted != null && postId.isNotEmpty;
-    final enabled = !guarded || _isEnabled();
+    // With a port, an encrypted share needs the share flag AND the server's
+    // check (`dm_share_check` in the enabled features, and a check function);
+    // without either it is refused here, with no call, like the feature off.
+    final enabled =
+        !guarded || (_isEnabled() && _check != null && _checkEnabled());
     if (guarded && !enabled) {
       emit(state.copyWith(started: true, endedBy: null));
       // Decided once: never fall into the loop unchecked.
@@ -425,19 +429,14 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// to put in the message (the original's for a REPOST), or the error that
   /// refuses the share for every recipient. The server applies SendMessage's
   /// rules, so an [AppException] is returned as is (the copy is the send's).
-  /// Fails closed: the flag `dm_share_check` not in the user's enabled
-  /// features (or no check function) refuses without a call; anything
-  /// unexpected refuses as [ProtectedAccountException]. Nothing about the
+  /// Fails closed: anything unexpected refuses as
+  /// [ProtectedAccountException]. Nothing about the
   /// post is logged or reported (a fixed StateError at most).
   Future<_ShareCheck> _checkShare() async {
+    // [send] already refused a share with no check function or the flag off.
     final check = _check;
-    if (check == null || !_checkEnabled()) {
-      return const _ShareCheck.refused(
-        FeatureDisabledException(
-          'This feature is not available.',
-          feature: kFeatureDmPostShare,
-        ),
-      );
+    if (check == null) {
+      return const _ShareCheck.refused(ProtectedAccountException());
     }
     try {
       final sharedId = await check(postId);
