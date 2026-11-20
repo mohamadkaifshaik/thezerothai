@@ -844,6 +844,89 @@ void main() {
   });
 
   group('live pull', () {
+    test('a since answer with nothing new and no since token keeps the '
+        'stored token and completes', () async {
+      await setUpJoined();
+      await say(bobGroup(), 1);
+      await rig.receiver.pullLive(_c1);
+      final token = (await sync()).sinceToken;
+      expect(token, isNotEmpty);
+      rig.contexts.of(_c1).livePulledAt = null;
+      // An all-default answer: no messages, no token, no gap.
+      rig.server.rewriteLive = (_) => pb.ListMessagesResponse();
+      rig.server.calls.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await sync()).sinceToken, token);
+      // Not taken for a retired token: no walk from the first page.
+      expect(
+        rig.server.calls.where((c) => c == 'listMlsMessages'),
+        hasLength(1),
+      );
+      expect(rig.contexts.of(_c1).livePulledAt, const MlsPair(1, 1));
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+    });
+
+    test('a server time out of range is stored at time 0 and a cleared_at '
+        'out of range is ignored, never an error', () async {
+      await setUpJoined();
+      await say(bobGroup(), 2);
+      // The epoch walk lists it at a time beyond what the client holds, with
+      // a cleared_at beyond it too.
+      // Out of range, not a date: 2^53 microseconds is about 9.0e9 s.
+      final far = ts.Timestamp()..seconds = Int64(10) * Int64(1000000000000);
+      rig.server.rewriteEpoch = (real) {
+        final out = real.deepCopy()..clearedAt = far;
+        for (final m in out.messages) {
+          m.createdAt = far;
+        }
+        return out;
+      };
+      await bobSelfUpdate();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      final m = (await row(_mid(2)))!;
+      expect(m.state, StoredMessageState.visible);
+      expect(m.createdAtMicros, 0);
+      expect((await sync()).clearedAtMicros, isNull);
+    });
+
+    test('a later generation with no welcome stops the batch, and an unheld '
+        'welcome poll runs after the lock is released', () async {
+      await setUpJoined();
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(2, 0),
+        rigBytes('a commit of generation 2'),
+        fromUser: 'user-b',
+      );
+      rig.server.addMessage(
+        pb.Message(
+          id: _mid(1),
+          conversationId: _c1,
+          state: MessageState.MESSAGE_STATE_VISIBLE,
+          createdAt: ts.Timestamp.fromDateTime(t0),
+          ciphertext: [1, 2, 3, 4],
+          reportCommitment: List.filled(32, 1),
+          mlsGeneration: Int64(2),
+          mlsEpoch: Int64(1),
+        ),
+      );
+      rig.server.calls.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      // Catch-up's held poll, then the unheld one after the pull.
+      expect(rig.server.calls.where((c) => c == 'listWelcomes'), hasLength(2));
+      expect(rig.server.calls.last, 'listWelcomes');
+      expect(await row(_mid(1)), isNull);
+      expect((await sync()).sinceToken, '');
+      expect(rig.contexts.of(_c1).livePulledAt, isNull);
+      expect(rig.device.engine.processed, isEmpty);
+    });
+
     test('a gap is followed until it closes', () async {
       await setUpJoined();
       await rig.receiver.pullLive(_c1);

@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart';
+
 import '../../../../core/crypto/crypto_engine.dart';
 import '../../../../core/crypto/crypto_types.dart';
 import '../../../../core/crypto/mls_derivations.dart' show sentDigest;
@@ -182,7 +184,7 @@ class MessageReceiver implements EpochMessageSink {
     final messages = <pb.Message>[];
     if (token.isNotEmpty) {
       final first = await _listMls(priority, id, sinceToken: token);
-      if (first == _retired) {
+      if (identical(first, _retired)) {
         return _walkRetired(pass, id, priority);
       }
       if (first == null) return null;
@@ -193,14 +195,14 @@ class MessageReceiver implements EpochMessageSink {
       while (gap.isNotEmpty) {
         if (++pages > _kLiveGapPagesMax || !seen.add(gap)) return null;
         final next = await _listMls(priority, id, pageToken: gap);
-        if (next == null || next == _retired) return null;
+        if (next == null || identical(next, _retired)) return null;
         messages.addAll(next.messages);
         gap = next.nextPageToken;
       }
       return (messages: messages, sinceToken: first.sinceToken);
     }
     final first = await _listMls(priority, id);
-    if (first == null || first == _retired) return null;
+    if (first == null || identical(first, _retired)) return null;
     if (first.hasConversation()) _contexts.note(first.conversation);
     return (messages: [...first.messages], sinceToken: first.sinceToken);
   }
@@ -217,7 +219,7 @@ class MessageReceiver implements EpochMessageSink {
     BudgetPriority priority,
   ) async {
     final first = await _listMls(priority, id);
-    if (first == null || first == _retired) return null;
+    if (first == null || identical(first, _retired)) return null;
     if (first.hasConversation()) _contexts.note(first.conversation);
     final messages = [...first.messages];
     var next = first.nextPageToken;
@@ -226,7 +228,7 @@ class MessageReceiver implements EpochMessageSink {
     while (next.isNotEmpty && pages < _kRetiredWalkPagesMax) {
       if (!seen.add(next)) break;
       final page = await _listMls(priority, id, pageToken: next);
-      if (page == null || page == _retired) return null;
+      if (page == null || identical(page, _retired)) return null;
       pages++;
       messages.addAll(page.messages);
       next = page.nextPageToken;
@@ -287,10 +289,12 @@ class MessageReceiver implements EpochMessageSink {
           _reportIfBug(e, s, 'receive.clearedAt');
           return;
         }
-        // Read: not again this run, whatever the value says.
-        context.clearedAtReadThisRun = true;
         final cleared = _clearedAtOf(page);
-        if (cleared == null) return;
+        if (cleared == null) {
+          // Read: not again this run (unset, or in the future: ignored).
+          context.clearedAtReadThisRun = true;
+          return;
+        }
         await _session.runWrite((v) async {
           pass.check(v);
           final sync =
@@ -306,6 +310,9 @@ class MessageReceiver implements EpochMessageSink {
             }
           });
         });
+        // Only once the delete committed: a failed write is retried at the
+        // next call of this run.
+        context.clearedAtReadThisRun = true;
         _onChanged(id);
       } on _Stopped {
         return;
@@ -319,10 +326,9 @@ class MessageReceiver implements EpochMessageSink {
   /// the future.
   int? _clearedAtOf(pb.ListEpochMessagesResponse page) {
     if (!page.hasClearedAt()) return null;
-    final at = page.clearedAt.toDateTime();
-    if (at.isAfter(_now())) return null;
-    final micros = at.microsecondsSinceEpoch;
-    return micros < 0 ? null : micros;
+    final micros = _micros(page.clearedAt.seconds, page.clearedAt.nanos);
+    if (micros == null || micros > _now().microsecondsSinceEpoch) return null;
+    return micros;
   }
 
   // -------------------------------------------------------------------------
@@ -507,7 +513,8 @@ class MessageReceiver implements EpochMessageSink {
         pass.check(v);
         final sync =
             (await v.conversation(id))?.sync ?? const ConversationSync();
-        if (sync.sinceToken == token) return;
+        // An answer without a since token keeps the stored one.
+        if (token.isEmpty || sync.sinceToken == token) return;
         await v.transaction(
           (tx) => tx.putConversationSync(id, sync.copyWith(sinceToken: token)),
         );
@@ -534,10 +541,7 @@ class MessageReceiver implements EpochMessageSink {
     final g = pairComponentFromInt64(m.mlsGeneration);
     final e = pairComponentFromInt64(m.mlsEpoch);
     final pair = g == null || e == null ? null : MlsPair(g, e);
-    final created = m.hasCreatedAt()
-        ? m.createdAt.toDateTime().microsecondsSinceEpoch
-        : 0;
-    final at = created < 0 ? 0 : created;
+    final at = _createdMicros(m);
     final ciphertext = Uint8List.fromList(m.ciphertext);
     final rowlessKey = '${pass.uid}|$id|$mid';
     try {
@@ -799,16 +803,30 @@ class MessageReceiver implements EpochMessageSink {
 /// `created_at`, then id.
 void _sort(List<pb.Message> messages) {
   messages.sort((a, b) {
-    final ta = a.hasCreatedAt()
-        ? a.createdAt.toDateTime().microsecondsSinceEpoch
-        : 0;
-    final tb = b.hasCreatedAt()
-        ? b.createdAt.toDateTime().microsecondsSinceEpoch
-        : 0;
-    final t = ta.compareTo(tb);
+    final t = _createdMicros(a).compareTo(_createdMicros(b));
     return t != 0 ? t : a.id.compareTo(b.id);
   });
 }
+
+/// The largest whole second whose microseconds stay exact on the web
+/// (below 2^53).
+final Int64 _maxSeconds = Int64(9007199254);
+
+/// A server time in microseconds since the epoch; null when it is not a
+/// time this client holds exactly (negative, nanos out of range, or past
+/// 2^53 microseconds). Never throws (a server value never reaches
+/// `DateTime`).
+int? _micros(Int64 seconds, int nanos) {
+  if (seconds.isNegative || seconds > _maxSeconds) return null;
+  if (nanos < 0 || nanos > 999999999) return null;
+  return seconds.toInt() * 1000000 + nanos ~/ 1000;
+}
+
+/// A message's `created_at` in microseconds: 0 (the oldest possible) when it
+/// is unset or out of range, so such a message sorts first and is hidden by
+/// any `cleared_at`.
+int _createdMicros(pb.Message m) =>
+    m.hasCreatedAt() ? _micros(m.createdAt.seconds, m.createdAt.nanos) ?? 0 : 0;
 
 bool _sameBytes(List<int> a, List<int> b) {
   if (a.length != b.length) return false;
@@ -882,8 +900,10 @@ class _Write {
     bool epochMustAdvance = false,
   }) async {
     final keptRow = hidden ? null : row;
+    // An answer without a since token keeps the stored one.
+    final newToken = token != null && token!.isNotEmpty ? token : null;
     final needSync =
-        (token != null && token != sync.sinceToken) ||
+        (newToken != null && newToken != sync.sinceToken) ||
         (epochMustAdvance && !sync.epochMustAdvance);
     if (keptRow == null &&
         group == null &&
@@ -903,7 +923,7 @@ class _Write {
         await tx.putConversationSync(
           id,
           sync.copyWith(
-            sinceToken: token,
+            sinceToken: newToken,
             epochMustAdvance: epochMustAdvance ? true : null,
           ),
         );

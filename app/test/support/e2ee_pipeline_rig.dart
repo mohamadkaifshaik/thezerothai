@@ -380,6 +380,9 @@ class RigServer {
   /// refused (`page_token`).
   int refuseEpochPageTokens = 0;
 
+  /// Replaces a ListMessages answer (to forge an empty or odd one).
+  pb.ListMessagesResponse Function(pb.ListMessagesResponse real)? rewriteLive;
+
   /// Replaces a ListEpochMessages answer (to reorder, forge or add).
   pb.ListEpochMessagesResponse Function(pb.ListEpochMessagesResponse real)?
   rewriteEpoch;
@@ -596,6 +599,15 @@ class RigMessaging implements MessagingRepository {
     String pageToken = '',
   }) async {
     await _server._enter('listMlsMessages');
+    final real = _listMls(conversationId, sinceToken, pageToken);
+    return _server.rewriteLive?.call(real) ?? real;
+  }
+
+  pb.ListMessagesResponse _listMls(
+    String conversationId,
+    String sinceToken,
+    String pageToken,
+  ) {
     // The repository's rule: at most one token.
     if (sinceToken.isNotEmpty && pageToken.isNotEmpty) {
       throw ArgumentError('At most one of sinceToken and pageToken');
