@@ -25,11 +25,12 @@ final Expando<bool> _deciding = Expando<bool>('requestSignOut');
 
 /// Whether this device keeps an encrypted vault that a sign-out deletes: a
 /// device is provided, the platform supports a vault and one is known to
-/// exist. Any failure to read the fact is "no": a sign-out is never blocked
-/// by bookkeeping. Nothing is logged.
+/// exist. A throw while reading the device's facts is "no": a sign-out is
+/// never blocked by bookkeeping. Nothing is logged.
 bool _hasVaultToLose(BuildContext context) {
+  final device = context.read<EncryptionDevice?>();
+  if (device == null) return false;
   try {
-    final device = context.read<EncryptionDevice>();
     return device.vaultStatus.value != VaultStatus.unsupported &&
         device.vaultKnown;
   } catch (_) {
@@ -88,7 +89,7 @@ Future<void> requestSignOut(BuildContext context) async {
   final report = context.read<UnexpectedErrorReporter?>();
   try {
     if (warnVault) {
-      var confirmed = true;
+      bool confirmed;
       try {
         if (!navigator.mounted) return;
         confirmed =
@@ -106,9 +107,10 @@ Future<void> requestSignOut(BuildContext context) async {
             ) ??
             false;
       } catch (_, stack) {
-        // A dialog that cannot open never makes sign-out impossible.
+        // Without the warning nothing is deleted: the user stays signed in
+        // and the next tap tries again (the latch is released below).
         report?.call(StateError('Sign-out warning could not be shown.'), stack);
-        confirmed = true;
+        return;
       }
       if (!confirmed) return;
     }

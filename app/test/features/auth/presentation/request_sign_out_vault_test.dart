@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
@@ -33,8 +34,10 @@ void main() {
 
   late _MockAuthBloc auth;
   late FakeDraftsRepository drafts;
+  late List<Object> reported;
 
   setUp(() {
+    reported = [];
     auth = _MockAuthBloc();
     when(() => auth.add(any())).thenReturn(null);
     whenListen(
@@ -66,8 +69,15 @@ void main() {
   Widget Function(Widget) providers({
     Object? device = _absent,
     bool withDrafts = true,
+    bool withReporter = false,
   }) => (app) {
     Widget child = BlocProvider<AuthBloc>.value(value: auth, child: app);
+    if (withReporter) {
+      child = RepositoryProvider<UnexpectedErrorReporter>.value(
+        value: (error, stack) => reported.add(error),
+        child: child,
+      );
+    }
     if (withDrafts) {
       child = RepositoryProvider<DraftsRepository>.value(
         value: drafts,
@@ -272,6 +282,8 @@ void main() {
       trigger: button,
     );
     await tapSignOut(tester);
+    expect(warning, findsOneWidget);
+    expect(find.byType(SignOutDraftsDialog), findsNothing);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(find.byType(SignOutDraftsDialog), findsNothing);
@@ -333,7 +345,7 @@ void main() {
       const Stream<AuthState>.empty(),
       initialState: const AuthState(),
     );
-    final device = FakeEncryptionDevice();
+    final device = _FailOnReadDevice();
     await pumpTabletModalHost(
       tester,
       wrap: providers(device: device),
@@ -342,8 +354,93 @@ void main() {
     await tapSignOut(tester);
     expect(warning, findsNothing);
     verify(() => auth.add(const AuthSignOutRequested())).called(1);
-    expect(device.vaultStatus.listenerCount, 0);
+    expect(device.reads, isEmpty);
   });
+
+  testWidgets('a warning that cannot be shown leaves the user signed in and '
+      'the next tap warns again', (tester) async {
+    // No MaterialLocalizations above the navigator: showDialog throws.
+    await tester.pumpWidget(
+      providers(device: FakeEncryptionDevice(), withReporter: true)(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Navigator(
+            onGenerateRoute: (_) => PageRouteBuilder<void>(
+              pageBuilder: (context, _, _) => Center(
+                child: GestureDetector(
+                  key: const Key('sign-out'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => requestSignOut(context),
+                  child: const SizedBox(width: 100, height: 40),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('sign-out')));
+    await tester.pumpAndSettle();
+    expectNoSignOut();
+    expect(reported, hasLength(1));
+    expect(
+      reported.single.toString(),
+      StateError('Sign-out warning could not be shown.').toString(),
+    );
+
+    // The latch is released: a working tree warns on the next tap.
+    await pumpTabletModalHost(
+      tester,
+      wrap: providers(device: FakeEncryptionDevice(), withReporter: true),
+      trigger: button,
+    );
+    await tapSignOut(tester);
+    expect(warning, findsOneWidget);
+    expectNoSignOut();
+  });
+
+  for (final flag in E2eeFlag.values) {
+    testWidgets('confirm adds exactly one AuthSignOutRequested, flag $flag', (
+      tester,
+    ) async {
+      await pumpTabletModalHost(
+        tester,
+        wrap: providers(device: FakeEncryptionDevice(flag: flag)),
+        trigger: button,
+      );
+      await tapSignOut(tester);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(Dialog),
+          matching: find.text(kSignOutVaultLabel),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final events = verify(() => auth.add(captureAny())).captured;
+      expect(events, [const AuthSignOutRequested(uid: 'uid-1')]);
+    });
+  }
+
+  for (final status in [
+    VaultStatus.opening,
+    VaultStatus.unavailable,
+    VaultStatus.keyLost,
+    VaultStatus.storageChanged,
+    VaultStatus.heldElsewhere,
+  ]) {
+    testWidgets('vaultKnown true, status $status: the warning shows', (
+      tester,
+    ) async {
+      await pumpTabletModalHost(
+        tester,
+        wrap: providers(device: FakeEncryptionDevice(status: status)),
+        trigger: button,
+      );
+      await tapSignOut(tester);
+      expect(warning, findsOneWidget);
+      expectNoSignOut();
+    });
+  }
 
   // Three widths: phone, tablet (beside the rail) and desktop (the feed
   // column), the alert width, never wider than 400.
@@ -376,6 +473,18 @@ void main() {
 }
 
 const Object _absent = Object();
+
+/// A device whose every getter fails the test: nobody signed in never reads it.
+/// The production code may swallow the throw, so reads are also recorded.
+class _FailOnReadDevice implements EncryptionDevice {
+  final List<Symbol> reads = [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    reads.add(invocation.memberName);
+    throw TestFailure('the device was read: ${invocation.memberName}');
+  }
+}
 
 class _ThrowingStatusDevice extends FakeEncryptionDevice {
   @override
