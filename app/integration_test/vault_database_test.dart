@@ -343,7 +343,8 @@ void main() {
       }
       // The key is still there (deleteVaultKey is separate): a new, empty
       // vault opens under it.
-      final again = await vaultFor(uid, cipher);
+      // (vault.close() ended the first cipher, so this is a new one.)
+      final again = await vaultFor(uid, await cipherFor(uid));
       expect(await again.hasMessage('c1', 'm1'), isFalse);
     });
 
@@ -373,7 +374,8 @@ void main() {
 
       VaultStatus? status;
       try {
-        await vaultFor(uid, cipher);
+        // vault.close() ended the first cipher; open with a new one.
+        await vaultFor(uid, await cipherFor(uid));
       } on VaultOpenException catch (e) {
         status = e.status;
       }
@@ -386,7 +388,7 @@ void main() {
       // empty vault opens on the remaining (empty) IndexedDB schema.
       await wipeVaultFile(uid: uid);
       final remaining = await existingWebStorageApis(name);
-      final afterReset = await vaultFor(uid, cipher);
+      final afterReset = await vaultFor(uid, await cipherFor(uid));
       expect(await afterReset.hasMessage('c1', 'm1'), isFalse);
       binding.reportData = {
         ...?binding.reportData,
