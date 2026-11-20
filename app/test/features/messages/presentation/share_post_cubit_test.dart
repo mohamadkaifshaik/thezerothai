@@ -737,6 +737,73 @@ void main() {
       addTearDown(c.close);
       await c.send();
       expect(c.state.allSent, isTrue);
+      expect(port.sent, hasLength(1));
+    });
+
+    test('with a port, a repost that is itself followers-only by another '
+        'author is refused', () async {
+      answers[_postId] = view(
+        _postId,
+        originalId: 'orig',
+        visibility: posts_pb.Visibility.VISIBILITY_FOLLOWERS,
+      );
+      answers['orig'] = view('orig');
+      final c = make2()
+        ..toggle(_peer(1))
+        ..toggle(_peer(2));
+      addTearDown(c.close);
+      await c.send();
+      expectRefused(c, protectedText);
+    });
+
+    test('with a port, a flag that turns on after the check was skipped '
+        'sends nothing unchecked', () async {
+      final answersList = [false, true, true, true];
+      final c = SharePostCubit(
+        repository: repo,
+        postId: _postId,
+        url: _url,
+        ownUserId: 'u-me',
+        isEnabled: () => answersList.isEmpty ? true : answersList.removeAt(0),
+        encrypted: port,
+        getPost: lookup,
+      )..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expect(looked, isEmpty);
+      expect(port.sent, isEmpty);
+      expect(repo.sendKeys, isEmpty);
+      expect(c.state.endedBy, isA<FeatureDisabledException>());
+    });
+
+    test('a reporter that throws still leaves every row failed', () async {
+      answers[_postId] = StateError('boom');
+      final c = make2(onError: (_, _) => throw StateError('reporter'))
+        ..toggle(_peer(1))
+        ..toggle(_peer(2));
+      addTearDown(c.close);
+      await c.send();
+      expectRefused(c, protectedText);
+      expect(c.state.sending, isFalse);
+    });
+
+    test('rows after the first stay idle while the first send is pending '
+        'after a passing check', () async {
+      answers[_postId] = view(_postId);
+      port.holdSend = Completer<void>();
+      final c = make2()
+        ..toggle(_peer(1))
+        ..toggle(_peer(2));
+      addTearDown(c.close);
+      final sending = c.send();
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(c.state.recipients[0].status, ShareRowStatus.sending);
+      expect(c.state.recipients[1].status, ShareRowStatus.idle);
+      port.holdSend!.complete();
+      port.holdSend = null;
+      await sending;
+      expect(c.state.allSent, isTrue);
     });
 
     test('a retry after a refusal runs the check again', () async {

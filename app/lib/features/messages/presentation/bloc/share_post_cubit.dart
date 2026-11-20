@@ -259,28 +259,39 @@ class SharePostCubit extends Cubit<SharePostState> {
       for (final r in state.recipients)
         if (r.status != ShareRowStatus.sent) r.peer.userId,
     ];
-    final enabled = _isEnabled();
-    final check = _encrypted != null && postId.isNotEmpty && enabled;
-    if (check) {
-      // One emit, so an earlier failure is never shown again: the unsent
-      // rows go straight to the existing sending state.
+    // With no port (or no post) the flag is read only in the loop, as before.
+    final guarded = _encrypted != null && postId.isNotEmpty;
+    final enabled = !guarded || _isEnabled();
+    if (guarded && !enabled) {
+      emit(state.copyWith(started: true, endedBy: null));
+      // Decided once: never fall into the loop unchecked.
+      _endShare(
+        ids,
+        const FeatureDisabledException(
+          'This feature is not available.',
+          feature: kFeatureDmPostShare,
+        ),
+      );
+      return;
+    }
+    if (guarded) {
+      // One emit, so an earlier failure is never shown again: the first row
+      // goes to the existing sending state, the others are cleared to idle.
       emit(
         state.copyWith(
           started: true,
           endedBy: null,
           recipients: [
             for (final r in state.recipients)
-              if (ids.contains(r.peer.userId))
+              if (r.peer.userId == ids.first)
                 r.withStatus(ShareRowStatus.sending)
+              else if (ids.contains(r.peer.userId))
+                r.withStatus(ShareRowStatus.idle)
               else
                 r,
           ],
         ),
       );
-    } else {
-      emit(state.copyWith(started: true, endedBy: null));
-    }
-    if (check) {
       // The server cannot check an encrypted share, so it is asked once for
       // the post, in the existing sending state, before any send.
       _checking = true;
@@ -297,10 +308,8 @@ class SharePostCubit extends Cubit<SharePostState> {
         }
         return;
       }
-      // Back to "chosen, nothing sent" (never the old failures again).
-      for (final id in ids) {
-        _setRow(id, ShareRowStatus.idle);
-      }
+    } else {
+      emit(state.copyWith(started: true, endedBy: null));
     }
     for (var i = 0; i < ids.length; i++) {
       if (isClosed) return;
@@ -399,37 +408,47 @@ class SharePostCubit extends Cubit<SharePostState> {
     final lookup = _getPost;
     if (lookup == null) return protected;
     try {
-      const blocked = posts_pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED;
-      var answer = await lookup(postId);
-      if (!answer.hasPost() || answer.embedViewerState == blocked) {
-        return protected;
-      }
-      var judged = answer.post;
+      final answer = await lookup(postId);
+      // The id sent is this post's, so it must pass on its own.
+      if (!_verified(answer)) return protected;
+      final judged = answer.post;
       if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) {
         // The embed names the original and its author but not its
-        // visibility, so the original is fetched once more.
+        // visibility, so the original is fetched once more and must pass too.
         final originalId = judged.embedded.postId;
         if (originalId.isEmpty) return protected;
-        answer = await lookup(originalId);
-        if (!answer.hasPost() || answer.embedViewerState == blocked) {
+        final original = await lookup(originalId);
+        if (!_verified(original)) return protected;
+        if (original.post.kind == posts_pb.PostKind.POST_KIND_REPOST) {
           return protected;
         }
-        judged = answer.post;
-        if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) return protected;
       }
-      // Allow-list: only what can be verified goes.
-      final own = ownUserId;
-      final ownPost =
-          own != null && own.isNotEmpty && judged.author.userId == own;
-      final public = judged.visibility == posts_pb.Visibility.VISIBILITY_PUBLIC;
-      return public || ownPost ? null : protected;
+      return null;
     } on AppException catch (error) {
       // An error that would end any share keeps its own, truer copy.
       return sharePostErrorEndsShare(error) ? error : protected;
     } on Object catch (_, stack) {
-      onUnexpectedError?.call(StateError('sharedPost'), stack);
+      try {
+        onUnexpectedError?.call(StateError('sharedPost'), stack);
+      } on Object {
+        // A failing reporter must not leave the rows stuck in "sending".
+      }
       return protected;
     }
+  }
+
+  /// Allow-list: the answer carries a post, the embed is not blocked for the
+  /// sender, and the post is public or the sender's own.
+  bool _verified(posts_pb.PostView answer) {
+    if (!answer.hasPost() ||
+        answer.embedViewerState ==
+            posts_pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED) {
+      return false;
+    }
+    final post = answer.post;
+    final own = ownUserId;
+    final ownPost = own != null && own.isNotEmpty && post.author.userId == own;
+    return post.visibility == posts_pb.Visibility.VISIBILITY_PUBLIC || ownPost;
   }
 
   ShareRecipient _row(String userId) =>
