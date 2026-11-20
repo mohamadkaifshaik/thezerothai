@@ -49,6 +49,7 @@ void main() {
           AppRouter.mutedAccountsPath,
           AppRouter.messageSettingsPath,
           AppRouter.encryptionSettingsPath,
+          AppRouter.resetEncryptionPath,
           AppRouter.notificationSettingsPath,
         ])
           path: settingsCategoryOfLeaf(path),
@@ -62,6 +63,7 @@ void main() {
         AppRouter.mutedAccountsPath: SettingsCategory.privacy,
         AppRouter.messageSettingsPath: SettingsCategory.privacy,
         AppRouter.encryptionSettingsPath: SettingsCategory.privacy,
+        AppRouter.resetEncryptionPath: SettingsCategory.privacy,
         AppRouter.notificationSettingsPath: SettingsCategory.notifications,
       },
     );

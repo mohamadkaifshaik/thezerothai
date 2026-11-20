@@ -596,14 +596,14 @@ void main() {
     });
 
     testWidgets(
-      'vault keyLost: card with Try again, no Reset yet, no device call',
+      'vault keyLost: card with Try again and Reset, no device call',
       (tester) async {
         device.vaultStatus.value = VaultStatus.keyLost;
         await pump(tester);
         expect(find.text(kStatusKeyLostTitle), findsOneWidget);
         expect(find.text(kStatusTryAgain), findsOneWidget);
-        // Task 12 (the vault reset screen) adds the route; until then Reset is hidden.
-        expect(find.text(kStatusReset), findsNothing);
+        // Task 12: Reset opens the reset screen.
+        expect(find.text(kStatusReset), findsOneWidget);
         expect(find.text(kDevicesThisHeader), findsNothing);
         expect(port.calls, isEmpty);
         expect(find.text(kDevicesAboutHeader), findsOneWidget);
