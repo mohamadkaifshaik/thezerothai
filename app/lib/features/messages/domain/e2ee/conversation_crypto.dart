@@ -350,6 +350,7 @@ class ConversationCrypto {
       held: id,
       serverPairs: {id: server},
       parent: pass,
+      fromSwitch: true,
     );
     if (!pass.live) return CatchUpResult.interrupted;
     final after2 = await vault.groups(id);
@@ -919,12 +920,14 @@ class ConversationCrypto {
     String? held,
     Map<String, MlsPair>? serverPairs,
     _Poll? parent,
+    bool fromSwitch = false,
   }) async {
     final poll = await _startPoll(
       priority,
       held: held,
       serverPairs: serverPairs,
       parent: parent,
+      fromSwitch: fromSwitch,
     );
     if (poll == null) return const [];
     final joined = <String>[];
@@ -991,6 +994,7 @@ class ConversationCrypto {
     String? held,
     Map<String, MlsPair>? serverPairs,
     _Poll? parent,
+    bool fromSwitch = false,
   }) async {
     final vault = _session.vault;
     if (vault == null) return null;
@@ -1013,6 +1017,7 @@ class ConversationCrypto {
         held: held,
         serverPairs: serverPairs,
         handled: parent?.handled,
+        fromSwitch: fromSwitch,
       );
     } on Object catch (e, s) {
       // A closed or changed vault: nothing to do now.
@@ -1026,7 +1031,7 @@ class ConversationCrypto {
     final id = w.conversationId;
     _Join result;
     try {
-      result = await _welcomeSteps(poll, w, mayWalk: true);
+      result = await _welcomeSteps(poll, w, mayWalk: !poll.fromSwitch);
       final label = result.label;
       if (result.kind == _Outcome.walkFirst && label != null) {
         // Step 6 / L6: a stored generation not walked to its end goes first.
@@ -1973,8 +1978,15 @@ class _Poll {
     this.held,
     Map<String, MlsPair>? serverPairs,
     Set<String>? handled,
+    this.fromSwitch = false,
   }) : serverPairs = serverPairs ?? {},
        handled = handled ?? {};
+
+  /// The poll of catch-up's generation switch (the held conversation was
+  /// just walked): its welcome never starts another walk (I-1's gate is
+  /// "not already held by a catch-up"; a lower generation catch-up does not
+  /// walk would otherwise loop).
+  final bool fromSwitch;
 
   /// Welcome ids handled in this poll and the polls nested in it (m6: each
   /// is acknowledged at most once per outer poll).

@@ -1102,6 +1102,33 @@ void main() {
       expect([for (final a in rig.server.acks) ...a.ids], [reset.welcomeId]);
     });
 
+    test('a welcome joined by the generation switch never starts another '
+        'walk, even with a lower generation still unwalked', () async {
+      await join(_c1);
+      final v = rig.device.vault;
+      // A second final group beside generation 1 (as an own init settled
+      // there would leave it); neither generation is walked.
+      final g1 = (await v.group(_c1, 1))!;
+      await v.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+      await rig.offer(_c1, bob, generation: 3);
+
+      expect(
+        await rig.crypto.processWelcomes().timeout(const Duration(seconds: 10)),
+        [_c1],
+      );
+      expect(await v.group(_c1, 3), isNotNull);
+      expect(await v.group(_c1, 2), isNull);
+    });
+
     test('a reset seen from generation 1: remaining commits of 1 applied, '
         'epoch-0 record never applied, welcome of 2 joined, one '
         'encryptionReset row', () async {
