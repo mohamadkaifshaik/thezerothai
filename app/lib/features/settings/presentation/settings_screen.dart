@@ -29,7 +29,12 @@ import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/request_sign_out.dart';
 import '../../beacons/domain/beacons_feature_flag.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
+import '../../messages/domain/e2ee/encryption_access.dart';
 import '../../messages/domain/messaging_feature_gate.dart';
+import '../../messages/presentation/e2ee/encryption_access_builder.dart';
+import '../../messages/presentation/e2ee/encryption_copy.dart';
+import '../../messages/presentation/e2ee/encryption_status.dart';
+import '../../messages/presentation/e2ee/encryption_status_card.dart';
 import '../../messages/presentation/widgets/messaging_access_builder.dart';
 import '../../notifications/presentation/notification_settings_messages.dart';
 import '../../notifications/presentation/notification_settings_screen.dart';
@@ -643,7 +648,14 @@ class _SettingsRowsScope extends StatelessWidget {
     // The message-privacy cubit (no RPC on creation) is above every row, so
     // the list, the categories and their summaries see the same values.
     return MessagePrivacyScope(
-      child: LocationSettingsScope(child: Builder(builder: _withDrafts)),
+      child: LocationSettingsScope(
+        // The encrypted-messages row follows the vault's status (the access
+        // rule reads it): no EncryptionDevice in the tree = no row, nothing
+        // else changes.
+        child: EncryptionAccessBuilder(
+          builder: (context, _) => Builder(builder: _withDrafts),
+        ),
+      ),
     );
   }
 
@@ -720,6 +732,7 @@ class _SettingsRows {
     required this.blocked,
     required this.muted,
     required this.messageSettings,
+    required this.encryption,
     required this.location,
     required this.readReceipts,
     required this.notifications,
@@ -746,6 +759,9 @@ class _SettingsRows {
   final Widget? blocked;
   final Widget? muted;
   final Widget? messageSettings;
+
+  /// Encrypted messages: only with encryption access `full` or `manage`.
+  final Widget? encryption;
   final Widget? location;
   final Widget? readReceipts;
   final Widget? notifications;
@@ -774,6 +790,7 @@ class _SettingsRows {
       ?blocked,
       ?muted,
       ?messageSettings,
+      ?encryption,
       ?location,
       ?readReceipts,
       ...telemetry,
@@ -809,6 +826,7 @@ class _SettingsRows {
         ?blocked,
         ?muted,
         ?messageSettings,
+        ?encryption,
         ?location,
         ?readReceipts,
         ?protect,
@@ -845,6 +863,7 @@ class _SettingsRows {
       SettingsCategory.privacy => [
         if (blocked != null) 'blocked and muted accounts',
         if (messageSettings != null || messages != null) 'messages',
+        if (encryption != null) 'encrypted messages',
         if (protect != null) 'protect your posts',
         if (location != null) 'location',
         if (readReceipts != null) 'read receipts',
@@ -940,6 +959,27 @@ _SettingsRows _rowsFor(
     MessagingAccess.readOnly => true,
     MessagingAccess.hidden => false,
   };
+
+  // Encrypted messages: with access full or manage only (hidden and
+  // unsupported have no row). The subtitle is the status card's title while
+  // the status blocks messaging; no device call is made from this list.
+  final encryptionAccess = EncryptionAccessBuilder.of(context);
+  final encryptionStatusLine = context.select<EncryptionStatusCubit?, String?>(
+    (cubit) => cubit != null && cubit.state.blocksMessaging
+        ? encryptionStatusTitle(cubit.state)
+        : null,
+  );
+  final encryptionRow =
+      encryptionAccess == EncryptionAccess.full ||
+          encryptionAccess == EncryptionAccess.manage
+      ? SettingsRow(
+          icon: Icons.lock_outline,
+          title: kEncryptionSettingsTitle,
+          subtitle: encryptionStatusLine,
+          selected: isSelected(AppRouter.encryptionSettingsPath),
+          onTap: () => open(AppRouter.encryptionSettingsPath),
+        )
+      : null;
 
   Widget external(IconData icon, String title, VoidCallback onTap) =>
       SettingsRow(
@@ -1074,6 +1114,7 @@ _SettingsRows _rowsFor(
             onTap: () => open(AppRouter.messageSettingsPath),
           )
         : null,
+    encryption: encryptionRow,
     location: locationReady && (locationOn || locationState != null)
         ? SettingsRow(
             icon: Icons.place_outlined,

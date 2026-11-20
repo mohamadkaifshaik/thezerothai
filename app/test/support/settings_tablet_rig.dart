@@ -21,6 +21,11 @@ import 'package:dzeroth/features/location/presentation/location_rationale_screen
 import 'package:dzeroth/features/location/presentation/location_settings_screen.dart';
 import 'package:dzeroth/features/search/presentation/explore_settings_screen.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encryption_device.dart';
+import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status.dart';
+import 'package:dzeroth/features/settings/presentation/encryption_settings_screen.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
@@ -177,6 +182,12 @@ class SettingsTabletRig {
     NotificationsRepository? notifications,
     PostsRepository? posts,
     LocationRepository? locationRepo,
+
+    /// Encrypted messages (Task 11): all absent by default, which is the app
+    /// today (no row, no route body). With a device the Settings rows and the
+    /// page read the access rule; a status cubit is built over it.
+    EncryptionDevice? encryptionDevice,
+    EncryptedMessaging? encryptedMessaging,
   }) async {
     UrlLauncherPlatform.instance = launcher;
     final onboarding = this.onboarding = _MockOnboardingBloc();
@@ -313,6 +324,10 @@ class SettingsTabletRig {
               builder: (context, state) => const MessageSettingsScreen(),
             ),
             GoRoute(
+              path: AppRouter.encryptionSettingsPath,
+              builder: (context, state) => const EncryptionSettingsScreen(),
+            ),
+            GoRoute(
               path: AppRouter.dataUsagePath,
               builder: (context, state) => const DataUsageScreen(),
             ),
@@ -337,8 +352,19 @@ class SettingsTabletRig {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, height);
     addTearDown(tester.view.reset);
+    EncryptionStatusCubit? encryptionStatus;
+    if (encryptionDevice != null) {
+      encryptionStatus = EncryptionStatusCubit(
+        device: encryptionDevice,
+        messaging: encryptedMessaging,
+        flagOn: () => flags.contains(kFeatureE2eeDm),
+      );
+      addTearDown(encryptionStatus.close);
+    }
     Widget app = MultiBlocProvider(
       providers: [
+        if (encryptionStatus != null)
+          BlocProvider<EncryptionStatusCubit>.value(value: encryptionStatus),
         BlocProvider<OnboardingBloc>.value(value: onboarding),
         BlocProvider<AuthBloc>.value(value: auth),
         BlocProvider<UnreadBadgeCubit>.value(value: unread),
@@ -360,6 +386,12 @@ class SettingsTabletRig {
             value: identityRepository,
           ),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+          if (encryptionDevice != null)
+            RepositoryProvider<EncryptionDevice>.value(value: encryptionDevice),
+          if (encryptionDevice != null)
+            RepositoryProvider<EncryptedMessaging?>.value(
+              value: encryptedMessaging,
+            ),
           // The device's unsent posts (the Unsent posts row, and sign-out's
           // drafts question); none without it.
           if (drafts != null)
