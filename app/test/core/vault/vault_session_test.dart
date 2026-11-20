@@ -913,6 +913,31 @@ void main() {
       },
     );
 
+    test(
+      'resetByUser asked while the vault is opening and the open SUCCEEDS '
+      'does nothing and returns false (the user never saw a ready vault)',
+      () async {
+        world = FakeVaultWorld();
+        final hold = Completer<void>();
+        final reachedWrite = Completer<void>();
+        world.markers.onWriteKnown = () async {
+          reachedWrite.complete();
+          await hold.future;
+        };
+        final s = world.launch();
+        final signing = s.onSignedIn(_a, flag: E2eeFlag.on);
+        await reachedWrite.future;
+        expect(s.status.value, VaultStatus.opening);
+        final asked = s.resetByUser();
+        hold.complete();
+        await signing;
+        expect(await asked, isFalse);
+        expect(s.status.value, VaultStatus.ready);
+        expect(world.calls.where(_destructive), isEmpty);
+        expect(world.owedUids, isEmpty);
+      },
+    );
+
     test('a failed reset wipe stays owed', () async {
       final s = await signIn(_a);
       world.wipeFileFails.add(_a);
@@ -1686,6 +1711,27 @@ void main() {
       expect(world.files[_a]!.rows, isEmpty, reason: 'a fresh vault');
       expect(world.markers.keyLostByAlias, isEmpty);
       expect(world.known(_a), isNotNull);
+    });
+
+    test('a confirmable key loss reached by an on answer (a soft block left '
+        'by a failed known-marker read at sign-in) wipes nothing: keyLost, '
+        'the next launch confirms', () async {
+      await keyLostLaunch();
+      world.advance(_hour);
+      world.loseKey(_a);
+      world.markers.failKnownReads = true;
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.markers.failKnownReads = false;
+      world.calls.clear();
+      await s.onFlagChanged(E2eeFlag.on, uid: _a);
+      expect(world.calls.where(_destructive), isEmpty);
+      expect(s.status.value, VaultStatus.keyLost);
+      expect(world.files[_a]!.rows['k'], 'history');
+      // A sign-in (another launch) may confirm it.
+      final next = await keyLostLaunch();
+      expect(world.calls, containsAllInOrder(['wipeFile:$_a', 'key:$_a']));
+      expect(next.status.value, VaultStatus.ready);
     });
 
     test('Android-style key loss (the cipher reports it) needs two launches '
