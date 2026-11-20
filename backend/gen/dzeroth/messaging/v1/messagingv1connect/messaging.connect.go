@@ -421,7 +421,9 @@ type MessagingServiceClient interface {
 	// ("dm_share_check") on for the caller; a verified email (EMAIL_NOT_VERIFIED); "posts" and "dm_post_share" on for the
 	// caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = the off flag); post_id 19 digits (VALIDATION
 	// "post_id").
-	// Answers, byte-identical to SendMessage with shared_post_id: NOT_FOUND "post not found" when the caller may not see
+	// Answers, byte-identical to SendMessage with shared_post_id except one: a raw read failure (a timeout or contention
+	// reading the post or the directory) is INTERNAL here (SendMessage: UNAVAILABLE "busy, please retry"), so the client's
+	// automatic retry of NO_SIDE_EFFECTS calls on UNAVAILABLE does not fire on it. NOT_FOUND "post not found" when the caller may not see
 	// the post by the GetPost rules or a block stands either way between the caller and its author (or a QUOTE's or the
 	// REPOST original's embedded author); FAILED_PRECONDITION + PROTECTED_ACCOUNT for a protected author's post shared by
 	// anyone else; UNAVAILABLE "temporarily busy, please retry" when the protected set cannot be read. A REPOST id is
@@ -958,7 +960,9 @@ type MessagingServiceHandler interface {
 	// ("dm_share_check") on for the caller; a verified email (EMAIL_NOT_VERIFIED); "posts" and "dm_post_share" on for the
 	// caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = the off flag); post_id 19 digits (VALIDATION
 	// "post_id").
-	// Answers, byte-identical to SendMessage with shared_post_id: NOT_FOUND "post not found" when the caller may not see
+	// Answers, byte-identical to SendMessage with shared_post_id except one: a raw read failure (a timeout or contention
+	// reading the post or the directory) is INTERNAL here (SendMessage: UNAVAILABLE "busy, please retry"), so the client's
+	// automatic retry of NO_SIDE_EFFECTS calls on UNAVAILABLE does not fire on it. NOT_FOUND "post not found" when the caller may not see
 	// the post by the GetPost rules or a block stands either way between the caller and its author (or a QUOTE's or the
 	// REPOST original's embedded author); FAILED_PRECONDITION + PROTECTED_ACCOUNT for a protected author's post shared by
 	// anyone else; UNAVAILABLE "temporarily busy, please retry" when the protected set cannot be read. A REPOST id is

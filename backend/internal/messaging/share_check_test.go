@@ -81,18 +81,19 @@ func TestCheckPostShare_GatesBeforeAnyRead(t *testing.T) {
 		reason  commonv1.ErrorReason
 		meta    map[string]string
 		message string
+		sendToo bool // SendMessage refuses the same caller with the same wire bytes
 	}{
-		{"messaging off", checkFlags(FlagName), verifiedCtx(), postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": FlagName}, ""},
-		{"dm_share_check off", checkFlags(ShareCheckFlagName), verifiedCtx(), postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": ShareCheckFlagName}, ""},
-		{"dm_share_check off answers before the email", checkFlags(ShareCheckFlagName), unverified, postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": ShareCheckFlagName}, ""},
-		{"unverified email", checkFlags(), unverified, postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED, nil, "please verify your email before sending messages"},
-		{"unverified email answers before posts off", checkFlags(postsFlagName), unverified, postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED, nil, ""},
-		{"posts off", checkFlags(postsFlagName), verifiedCtx(), postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": postsFlagName}, ""},
-		{"dm_post_share off", checkFlags(PostShareFlagName), verifiedCtx(), postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": PostShareFlagName}, ""},
-		{"dm_post_share off answers before the id", checkFlags(PostShareFlagName), verifiedCtx(), "123", connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": PostShareFlagName}, ""},
-		{"empty id", checkFlags(), verifiedCtx(), "", connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "post_id"}, "post_id must be a 19-digit post id"},
-		{"not 19 digits", checkFlags(), verifiedCtx(), "123", connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "post_id"}, "post_id must be a 19-digit post id"},
-		{"not digits", checkFlags(), verifiedCtx(), "000000000000000000x", connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "post_id"}, ""},
+		{"messaging off", checkFlags(FlagName), verifiedCtx(), postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": FlagName}, "", true},
+		{"dm_share_check off", checkFlags(ShareCheckFlagName), verifiedCtx(), postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": ShareCheckFlagName}, "", false},
+		{"dm_share_check off answers before the email", checkFlags(ShareCheckFlagName), unverified, postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": ShareCheckFlagName}, "", false},
+		{"unverified email", checkFlags(), unverified, postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED, nil, "please verify your email before sending messages", true},
+		{"unverified email answers before posts off", checkFlags(postsFlagName), unverified, postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED, nil, "", false},
+		{"posts off", checkFlags(postsFlagName), verifiedCtx(), postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": postsFlagName}, "", false},
+		{"dm_post_share off", checkFlags(PostShareFlagName), verifiedCtx(), postOrig, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": PostShareFlagName}, "", false},
+		{"dm_post_share off answers before the id", checkFlags(PostShareFlagName), verifiedCtx(), "123", connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": PostShareFlagName}, "", false},
+		{"empty id", checkFlags(), verifiedCtx(), "", connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "post_id"}, "post_id must be a 19-digit post id", false},
+		{"not 19 digits", checkFlags(), verifiedCtx(), "123", connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "post_id"}, "post_id must be a 19-digit post id", false},
+		{"not digits", checkFlags(), verifiedCtx(), "000000000000000000x", connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "post_id"}, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -108,6 +109,14 @@ func TestCheckPostShare_GatesBeforeAnyRead(t *testing.T) {
 				}
 			}
 			r.untouched(t, 0)
+			if tt.sendToo {
+				// SendMessage's own gate answers the same bytes for the same caller.
+				s := newCheckRig(t, false, tt.specs...)
+				_, serr := s.svc.Send(tt.ctx, alice, sharing(key1, bob, "look", tt.postID))
+				if got, want := wireBytes(t, err), wireBytes(t, serr); !bytes.Equal(got, want) {
+					t.Fatalf("check bytes %q != send bytes %q", got, want)
+				}
+			}
 		})
 	}
 }
@@ -125,6 +134,7 @@ func TestCheckPostShare_ParityWithSend(t *testing.T) {
 		code     connect.Code
 		reason   commonv1.ErrorReason
 		internal bool
+		rawRead  bool // internal here, but SendMessage answers UNAVAILABLE "busy, please retry"
 	}{
 		{name: "visible original", postID: postOrig, wantID: postOrig},
 		{name: "a REPOST id answers its original", postID: postRepost, wantID: postOrig},
@@ -134,6 +144,8 @@ func TestCheckPostShare_ParityWithSend(t *testing.T) {
 		{name: "protected set unreadable: UNAVAILABLE", postID: postOrig, checkErr: unavailableSet(), code: connect.CodeUnavailable, reason: commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED},
 		{name: "ErrPostNotVisible wrapped", postID: postOrig, checkErr: errors.Join(errors.New("x"), ErrPostNotVisible), code: connect.CodeNotFound, reason: commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED},
 		{name: "any other failure is internal", postID: postOrig, checkErr: errors.New("boom " + alice + " " + postOrig), internal: true},
+		// The one difference from SendMessage: a raw read failure is INTERNAL here (Send: UNAVAILABLE busy).
+		{name: "raw read failure is INTERNAL, not UNAVAILABLE", postID: postOrig, checkErr: context.DeadlineExceeded, internal: true, rawRead: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -156,7 +168,17 @@ func TestCheckPostShare_ParityWithSend(t *testing.T) {
 					t.Fatalf("check answered %q, send stored %q; want %q", resp.GetSharedPostId(), send.repo.sends[0].SharedPostID, tt.wantID)
 				}
 			case tt.internal:
-				if cerr == nil || errors.As(cerr, new(*apierr.Error)) || serr == nil || errors.As(serr, new(*apierr.Error)) {
+				if tt.rawRead {
+					if cerr == nil || errors.As(cerr, new(*apierr.Error)) {
+						t.Fatalf("check = %v; want an internal error", cerr)
+					}
+					if got := apierr.ToConnect(cerr).Code(); got != connect.CodeInternal {
+						t.Fatalf("check code = %v, want INTERNAL", got)
+					}
+					if got := apierr.ToConnect(serr).Code(); got != connect.CodeUnavailable {
+						t.Fatalf("send code = %v (%v), want UNAVAILABLE", got, serr)
+					}
+				} else if cerr == nil || errors.As(cerr, new(*apierr.Error)) || serr == nil || errors.As(serr, new(*apierr.Error)) {
 					t.Fatalf("check = %v, send = %v; want internal errors", cerr, serr)
 				}
 				if msg := cerr.Error(); bytes.Contains([]byte(msg), []byte(alice)) || bytes.Contains([]byte(msg), []byte(postOrig)) {

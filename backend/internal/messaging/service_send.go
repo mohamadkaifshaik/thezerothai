@@ -155,14 +155,20 @@ func (in sendInput) starting() bool { return in.enc != nil && in.enc.Init != nil
 // guardE2EE is the caller's FEATURE_E2EE_DM gate of an mls_init: FAILED_PRECONDITION + FEATURE_DISABLED with
 // metadata["feature"] = "e2ee_dm", before any lookup (the shape of guard). A nil checker is off.
 func (s *service) guardE2EE(ctx context.Context, uid string) error {
-	err := flags.Guard(ctx, func(uid, name string) bool { return s.flags != nil && s.flags.Enabled(uid, name) }, uid, keys.FlagName)
+	return s.guardFlag(ctx, uid, keys.FlagName)
+}
+
+// guardFlag is the caller's gate on one named flag: FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] =
+// name, before any lookup. A nil checker is off.
+func (s *service) guardFlag(ctx context.Context, uid, name string) error {
+	err := flags.Guard(ctx, func(uid, name string) bool { return s.flags != nil && s.flags.Enabled(uid, name) }, uid, name)
 	if err == nil {
 		return nil
 	}
-	logger.SetRequestField(ctx, "feature", keys.FlagName)
+	logger.SetRequestField(ctx, "feature", name)
 	var ae *apierr.Error
 	if errors.As(err, &ae) {
-		return ae.WithMeta("feature", keys.FlagName)
+		return ae.WithMeta("feature", name)
 	}
 	return err
 }

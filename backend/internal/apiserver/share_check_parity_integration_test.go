@@ -114,7 +114,7 @@ func TestShareCheckParity_MatchesSendMessage(t *testing.T) {
 			w.protect(t, z.x)
 			return z.x, id
 		}},
-		{name: "repost of a protected original", want: parityOnly, setup: func(t *testing.T, z world) (dmUser, string) {
+		{name: "repost of a protected original", want: protected, setup: func(t *testing.T, z world) (dmUser, string) {
 			id := w.post(t, z.c, "protected original")
 			rp := w.repost(t, z.c, id)
 			w.protect(t, z.c)

@@ -187,7 +187,10 @@ func TestCheckPostShare_ParityWithSendOverPostShareCheck(t *testing.T) {
 				t.Fatalf("message = %q, want GetPost's", ce.Message())
 			}
 			var ae *apierr.Error
-			if errors.As(cerr, &ae) && (tt.reason != 0 && ae.Reason != tt.reason || ae.Metadata["feature"] != tt.feature) {
+			if !errors.As(cerr, &ae) {
+				t.Fatalf("check error %v is not an apierr", cerr)
+			}
+			if tt.reason != 0 && ae.Reason != tt.reason || ae.Metadata["feature"] != tt.feature {
 				t.Fatalf("reason %v feature %q, want %v %q", ae.Reason, ae.Metadata["feature"], tt.reason, tt.feature)
 			}
 			if got, want := shareCheckWire(t, cerr), shareCheckWire(t, serr); !bytes.Equal(got, want) {

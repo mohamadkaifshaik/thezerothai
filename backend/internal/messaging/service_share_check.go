@@ -5,12 +5,9 @@ package messaging
 
 import (
 	"context"
-	"errors"
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -25,7 +22,9 @@ const kindShareCheck = "share_check"
 // caller (as Send), "dm_share_check" on for the caller, the verified email (Send's bytes), then Send's shared_post_id gate
 // (posts, dm_post_share, the id shape with VALIDATION "post_id") and Send's check (checkPostShare: NOT_FOUND "post not
 // found", PROTECTED_ACCOUNT, or the check's own apierr such as UNAVAILABLE, all passed through). Any other failure is a
-// redacted INTERNAL. Writes nothing and never records a share. The per-minute bucket and the daily call cap run in the
+// redacted INTERNAL. That includes a raw read failure (a timeout or contention reading the post or the directory): it is
+// INTERNAL here, whereas SendMessage answers UNAVAILABLE "busy, please retry" (deliberate: read-path timeouts stay
+// INTERNAL, and the client auto-retries NO_SIDE_EFFECTS calls on UNAVAILABLE). Every other answer is byte-identical. Writes nothing and never records a share. The per-minute bucket and the daily call cap run in the
 // rate-limit interceptor. The request line carries kind=share_check and shared_post=true, never the post id.
 func (s *service) CheckPostShare(ctx context.Context, uid string, req *messagingv1.CheckPostShareRequest) (*messagingv1.CheckPostShareResponse, error) {
 	if err := s.guard(ctx, uid, perCaller); err != nil {
@@ -54,14 +53,5 @@ func (s *service) CheckPostShare(ctx context.Context, uid string, req *messaging
 // guardShareCheck is the caller's FEATURE_DM_SHARE_CHECK gate: FAILED_PRECONDITION + FEATURE_DISABLED with
 // metadata["feature"] = "dm_share_check", before any lookup (the shape of guard). A nil checker is off.
 func (s *service) guardShareCheck(ctx context.Context, uid string) error {
-	err := flags.Guard(ctx, func(uid, name string) bool { return s.flags != nil && s.flags.Enabled(uid, name) }, uid, ShareCheckFlagName)
-	if err == nil {
-		return nil
-	}
-	logger.SetRequestField(ctx, "feature", ShareCheckFlagName)
-	var ae *apierr.Error
-	if errors.As(err, &ae) {
-		return ae.WithMeta("feature", ShareCheckFlagName)
-	}
-	return err
+	return s.guardFlag(ctx, uid, ShareCheckFlagName)
 }
