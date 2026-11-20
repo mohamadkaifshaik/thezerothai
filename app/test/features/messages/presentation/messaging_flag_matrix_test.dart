@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encryption_device.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
-import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status_banner.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
 import 'package:dzeroth/features/messages/domain/people_source.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
 import 'package:dzeroth/features/messages/presentation/recipient_picker_screen.dart';
@@ -18,8 +21,9 @@ import 'package:dzeroth/features/moderation/domain/reports_feature_flag.dart';
 import 'package:dzeroth/features/notifications/domain/notifications_feature_flag.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.connect.spec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_encryption_device.dart';
@@ -261,6 +265,58 @@ void main() {
         );
       });
     }
+  }
+
+  // The encryption flag off and no vault on this device (the encrypted
+  // messaging objects may be in the tree): today's inbox, empty state and
+  // picker, and not one call into the port.
+  for (final empty in [false, true]) {
+    testWidgets('e2ee_dm off, no vault: today\'s ${empty ? 'empty ' : ''}inbox '
+        'and picker', (tester) async {
+      final server = empty
+          ? FakeMessagingServer()
+          : MessagingFlowRig.serverWithConversation();
+      final rig = MessagingFlowRig(
+        server: server,
+        flags: {'graph', 'messaging'},
+      );
+      final port = FakeEncryptedMessaging();
+      addTearDown(port.dispose);
+      await rig.pump(
+        tester,
+        extraProviders: [
+          RepositoryProvider<EncryptionDevice>.value(
+            value: FakeEncryptionDevice(flag: E2eeFlag.off, vaultKnown: false),
+          ),
+          RepositoryProvider<EncryptedMessaging?>.value(value: port),
+        ],
+      );
+
+      expect(find.byType(ConversationsScreen), findsOneWidget);
+      if (empty) {
+        expect(find.text('Welcome to your inbox'), findsOneWidget);
+        expect(find.byType(NotEncryptedNote), findsOneWidget);
+      } else {
+        expect(find.text('hello from sam'), findsOneWidget);
+        expect(find.text(kEncryptedPlaceholderText), findsNothing);
+      }
+      expect(find.text(kEncryptionMixedNoteText), findsNothing);
+      expect(find.byType(EncryptionStatusBanner), findsNothing);
+
+      unawaited(rig.appRouter.router.push(AppRouter.messageNewPath));
+      await tester.pumpAndSettle();
+      expect(find.byType(RecipientPicker), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(RecipientPicker),
+          matching: find.byType(NotEncryptedNote),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text(kEncryptionMixedNoteText), findsNothing);
+      expect(port.calls, isEmpty, reason: 'no new call');
+      await tester.pumpWidget(const SizedBox());
+    });
   }
 
   // Messaging off for this caller only (the third mode). The reports

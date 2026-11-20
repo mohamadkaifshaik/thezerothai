@@ -6,6 +6,9 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../../shared/widgets/primitives/app_badge.dart' show AppUnreadDot;
+import '../../domain/e2ee/encrypted_messaging.dart'
+    show ConversationPreview, PreviewKind;
+import '../e2ee/encryption_copy.dart';
 
 /// Text shown for a last message that has no text (tombstones).
 const kConversationDeletedSnippet = 'Message deleted';
@@ -20,7 +23,21 @@ const kConversationSelfPrefix = 'You: ';
 /// The second line of a row: the preview text with the "You: " prefix for the
 /// caller's own messages, or the tombstone text. Empty when there is no
 /// preview yet.
-String conversationSnippet(pb.Conversation conversation) {
+///
+/// An encrypted row (the server marks its last message encrypted, or
+/// [knownEncrypted]: the vault or the sticky cached marker knows it) takes its
+/// line ONLY from [preview], whatever snippet the server sent, and is never
+/// blank: without a preview it is [kEncryptedPlaceholderText]. Any other row
+/// ignores [preview].
+String conversationSnippet(
+  pb.Conversation conversation, {
+  ConversationPreview? preview,
+  bool knownEncrypted = false,
+}) {
+  if (knownEncrypted ||
+      (conversation.hasLastMessage() && conversation.lastMessage.encrypted)) {
+    return _encryptedSnippet(preview);
+  }
   if (!conversation.hasLastMessage()) return '';
   final last = conversation.lastMessage;
   final text = switch (last.state) {
@@ -35,6 +52,31 @@ String conversationSnippet(pb.Conversation conversation) {
   };
   if (text.isEmpty) return '';
   return last.fromSelf ? '$kConversationSelfPrefix$text' : text;
+}
+
+/// The line of an encrypted row from the port's [preview] (memory only). The
+/// "You: " prefix is added when the preview is the caller's own, never for
+/// `generic` and never for `undecryptable` (the pipeline gives an undecryptable
+/// row a side only for a lost own send, so the side is not relied on there).
+String _encryptedSnippet(ConversationPreview? preview) {
+  if (preview == null) return kEncryptedPlaceholderText;
+  final text = switch (preview.kind) {
+    PreviewKind.text =>
+      preview.text.isEmpty ? kEncryptedPlaceholderText : preview.text,
+    PreviewKind.sharedPost => kConversationSharedPostSnippet,
+    PreviewKind.removed => kConversationRemovedSnippet,
+    PreviewKind.deletedAccount => kConversationDeletedSnippet,
+    PreviewKind.undecryptable => kCouldNotDecryptText,
+    PreviewKind.unverified => kCouldNotVerifyText,
+    PreviewKind.undecodable => kCannotDisplayText,
+    PreviewKind.generic => kEncryptedPlaceholderText,
+  };
+  final prefixed =
+      preview.mine &&
+      preview.kind != PreviewKind.generic &&
+      preview.kind != PreviewKind.undecryptable &&
+      text != kEncryptedPlaceholderText;
+  return prefixed ? '$kConversationSelfPrefix$text' : text;
 }
 
 /// Whether [text] is empty or a single link (no spaces): what a share
@@ -66,9 +108,18 @@ class ConversationRow extends StatelessWidget {
     required this.now,
     this.onTap,
     this.selected = false,
+    this.preview,
+    this.knownEncrypted = false,
   });
 
   final pb.Conversation conversation;
+
+  /// The port's preview of an encrypted row (memory only, never cached).
+  final ConversationPreview? preview;
+
+  /// The vault or the sticky cached marker knows this conversation as
+  /// encrypted, whatever the server's flag says.
+  final bool knownEncrypted;
 
   /// The clock the relative time is drawn against (injected, never read here).
   final DateTime now;
@@ -93,7 +144,11 @@ class ConversationRow extends StatelessWidget {
         : peer.displayName;
     final unread = conversation.unreadCount > 0;
     final silent = conversation.silent;
-    final snippet = conversationSnippet(conversation);
+    final snippet = conversationSnippet(
+      conversation,
+      preview: preview,
+      knownEncrypted: knownEncrypted,
+    );
     final activity = _activityTime();
     final shortTime = activity == null ? '' : formatRelativeTime(activity, now);
     final spokenTime = activity == null

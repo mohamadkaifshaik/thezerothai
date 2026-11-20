@@ -9,10 +9,19 @@ import '../../../../core/widgets/shell_geometry.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../data/messaging_repository.dart';
+import '../../domain/e2ee/encrypted_messaging.dart';
+import '../../domain/e2ee/encryption_access.dart';
+import '../../domain/e2ee/encryption_device.dart';
 import '../../domain/message_search.dart';
+import '../../domain/messaging_feature_flag.dart';
 import '../bloc/message_search_cubit.dart';
 import '../bloc/message_search_state.dart';
+import '../e2ee/encrypted_search_results.dart';
+import '../e2ee/encryption_access_builder.dart';
+import '../e2ee/encryption_copy.dart';
 import '../messaging_error_messages.dart';
 
 const kMessageSearchHint = 'Search messages';
@@ -102,11 +111,14 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
   @override
   void initState() {
     super.initState();
+    final vault = _vaultSource(context);
     _cubit = MessageSearchCubit(
       repository: context.read<MessagingRepository>(),
       conversationId: widget.conversationId,
       debounce: widget.debounce,
       onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+      encrypted: vault.port,
+      encryptedAllowed: vault.allowed,
     );
   }
 
@@ -138,7 +150,33 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
                 _header(context, gutter),
                 Expanded(
                   child: BlocBuilder<MessageSearchCubit, MessageSearchState>(
-                    builder: (context, state) => _body(context, state, gutter),
+                    builder: (context, state) => EncryptionAccessBuilder(
+                      builder: (context, access) {
+                        final saved =
+                            (access == EncryptionAccess.full ||
+                                access == EncryptionAccess.manage) &&
+                            _cubit.encryptedUsable;
+                        return ValueListenableBuilder<EncryptedHitGroups>(
+                          valueListenable: _cubit.encryptedResults,
+                          builder: (context, vault, _) {
+                            // With access lost the decrypted hits are not
+                            // drawn, and the cubit drops them after the frame.
+                            if (!saved && !vault.isEmpty) {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (mounted) _cubit.accessChanged();
+                              });
+                            }
+                            return _body(
+                              context,
+                              state,
+                              saved ? vault : EncryptedHitGroups.empty,
+                              gutter,
+                              saved: saved,
+                            );
+                          },
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -201,7 +239,13 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
     );
   }
 
-  Widget _body(BuildContext context, MessageSearchState state, double gutter) {
+  Widget _body(
+    BuildContext context,
+    MessageSearchState state,
+    EncryptedHitGroups vault,
+    double gutter, {
+    required bool saved,
+  }) {
     final theme = Theme.of(context);
     final note = Padding(
       padding: EdgeInsets.fromLTRB(
@@ -221,17 +265,18 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
       return ListView(
         children: [
           note,
-          const AppEmptyView(
+          AppEmptyView(
             icon: Icons.search,
             title: 'Search your messages',
-            subtitle:
-                'Finds messages from conversations you have opened on this '
-                'device.',
+            subtitle: saved
+                ? kSearchSavedIdleSubtitle
+                : 'Finds messages from conversations you have opened on this '
+                      'device.',
           ),
         ],
       );
     }
-    final rows = _rows(state);
+    final rows = _rows(state, vault);
     final empty = state.status == MessageSearchStatus.ready && rows.isEmpty;
     final body = empty ? 1 : rows.length;
     return ListView.builder(
@@ -240,41 +285,93 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
         if (index == 0) return note;
         if (index == body + 1) return _footer(context, state, gutter);
         if (empty) {
-          return const AppEmptyView(
+          return AppEmptyView(
             icon: Icons.search_off,
             title: 'No messages found',
-            subtitle: 'Only messages cached on this device are searched.',
+            subtitle: saved
+                ? kSearchSavedEmptySubtitle
+                : 'Only messages cached on this device are searched.',
           );
         }
         return switch (rows[index - 1]) {
-          _GroupRow() => _groupHeader(
+          _GroupRow(:final conversation) => _groupHeader(
             context,
-            (rows[index - 1] as _GroupRow).group,
+            conversation,
             gutter,
           ),
-          _HitRow(:final hit) => _hitRow(context, hit, gutter),
+          _HitRow(:final entry) => _hitRow(context, entry, gutter),
         };
       },
     );
   }
 
-  List<_Row> _rows(MessageSearchState state) {
+  /// The cache's groups and the vault's merged for display: a conversation in
+  /// both is one group, hits and groups newest first. The vault's rows come
+  /// straight from the hits (no pb.Message is built from decrypted text), and
+  /// only for the query on screen.
+  List<_Row> _rows(MessageSearchState state, EncryptedHitGroups vault) {
     final single = widget.conversationId != null;
+    final merged = <String, _Merged>{};
+    for (final g in state.groups) {
+      final group = merged.putIfAbsent(
+        g.conversation.id,
+        () => _Merged(g.conversation),
+      );
+      for (final h in g.hits) {
+        group.entries.add(_Entry.cache(h));
+      }
+    }
+    if (vault.query == state.query) {
+      for (final g in vault.groups) {
+        final group = merged.putIfAbsent(
+          g.conversation.id,
+          () => _Merged(g.conversation),
+        );
+        for (var i = 0; i < g.hits.length; i++) {
+          final entry = _Entry.vault(g.conversation, g.hits[i], g.ranges[i]);
+          group.entries.removeWhere((e) => e.messageId == entry.messageId);
+          group.entries.add(entry);
+        }
+      }
+    }
+    final groups = [
+      for (final g in merged.values)
+        if (g.entries.isNotEmpty) g..entries.sort(_Entry.newestFirst),
+    ]..sort((a, b) => _Entry.newestFirst(a.entries.first, b.entries.first));
     return [
-      for (final g in state.groups) ...[
-        if (!single) _GroupRow(g),
-        for (final h in g.hits) _HitRow(h),
+      for (final g in groups) ...[
+        if (!single) _GroupRow(g.conversation),
+        for (final e in g.entries) _HitRow(e),
       ],
     ];
   }
 
+  void _open(_Entry entry) {
+    final cached = entry.cached;
+    if (cached != null) {
+      widget.onOpenHit(cached);
+      return;
+    }
+    // An id-only message: opening a hit needs the ids, never the text.
+    widget.onOpenHit(
+      MessageSearchHit(
+        conversation: entry.conversation,
+        message: pb.Message(
+          id: entry.messageId,
+          conversationId: entry.conversation.id,
+        ),
+        ranges: const [],
+      ),
+    );
+  }
+
   Widget _groupHeader(
     BuildContext context,
-    ConversationHits group,
+    pb.Conversation conversation,
     double gutter,
   ) {
     final theme = Theme.of(context);
-    final peer = group.conversation.peer;
+    final peer = conversation.peer;
     final name = peer.displayName.isEmpty
         ? '@${peer.handle}'
         : peer.displayName;
@@ -282,7 +379,7 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
     return Semantics(
       header: true,
       child: InkWell(
-        onTap: open == null ? null : () => open(group.conversation.id),
+        onTap: open == null ? null : () => open(conversation.id),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
           child: Padding(
@@ -312,20 +409,18 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
     );
   }
 
-  Widget _hitRow(BuildContext context, MessageSearchHit hit, double gutter) {
+  Widget _hitRow(BuildContext context, _Entry entry, double gutter) {
     final theme = Theme.of(context);
-    final at = hit.message.hasCreatedAt()
-        ? hit.message.createdAt.toDateTime()
-        : null;
+    final at = entry.at;
     final when = at == null ? '' : formatRelativeTimeSpoken(at, DateTime.now());
-    final who = hit.message.fromSelf ? 'You' : 'Them';
+    final who = entry.mine ? 'You' : 'Them';
     return Semantics(
       button: true,
-      label: '$who, $when: ${hit.message.text}',
+      label: '$who, $when: ${entry.text}',
       excludeSemantics: true,
-      onTap: () => widget.onOpenHit(hit),
+      onTap: () => _open(entry),
       child: InkWell(
-        onTap: () => widget.onOpenHit(hit),
+        onTap: () => _open(entry),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
           child: Padding(
@@ -336,7 +431,7 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                HighlightedMatch(text: hit.message.text, ranges: hit.ranges),
+                HighlightedMatch(text: entry.text, ranges: entry.ranges),
                 if (when.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: AppSpacing.xs),
@@ -398,11 +493,83 @@ sealed class _Row {
 }
 
 class _GroupRow extends _Row {
-  const _GroupRow(this.group);
-  final ConversationHits group;
+  const _GroupRow(this.conversation);
+  final pb.Conversation conversation;
 }
 
 class _HitRow extends _Row {
-  const _HitRow(this.hit);
-  final MessageSearchHit hit;
+  const _HitRow(this.entry);
+  final _Entry entry;
+}
+
+/// One conversation's rows for display, the cache's and the vault's together.
+class _Merged {
+  _Merged(this.conversation);
+  final pb.Conversation conversation;
+  final List<_Entry> entries = [];
+}
+
+/// One result row, from the cache (a `pb.Message`) or straight from a vault
+/// hit. No toString: it may hold decrypted text.
+class _Entry {
+  _Entry.cache(MessageSearchHit hit)
+    : conversation = hit.conversation,
+      cached = hit,
+      messageId = hit.message.id,
+      text = hit.message.text,
+      ranges = hit.ranges,
+      mine = hit.message.fromSelf,
+      at = hit.message.hasCreatedAt()
+          ? hit.message.createdAt.toDateTime()
+          : null;
+
+  _Entry.vault(
+    this.conversation,
+    EncryptedSearchHit hit,
+    List<SearchRange> found,
+  ) : cached = null,
+      messageId = hit.messageId,
+      text = hit.text,
+      ranges = found,
+      mine = hit.mine,
+      at = hit.at;
+
+  final pb.Conversation conversation;
+  final MessageSearchHit? cached;
+  final String messageId;
+  final String text;
+  final List<SearchRange> ranges;
+  final bool mine;
+  final DateTime? at;
+
+  int get _micros => at?.microsecondsSinceEpoch ?? 0;
+
+  static int newestFirst(_Entry a, _Entry b) {
+    final byTime = b._micros.compareTo(a._micros);
+    return byTime != 0 ? byTime : b.messageId.compareTo(a.messageId);
+  }
+}
+
+/// The port and the access check the panel's cubit takes from the tree: null
+/// without the encryption wiring (today's search). Closed over objects, not
+/// the context, so the cubit may outlive the widget.
+({EncryptedMessaging? port, bool Function()? allowed}) _vaultSource(
+  BuildContext context,
+) {
+  final port = context.read<EncryptedMessaging?>();
+  final device = context.read<EncryptionDevice?>();
+  if (port == null || device == null) return (port: null, allowed: null);
+  final onboarding = context.read<OnboardingBloc>();
+  return (
+    port: port,
+    allowed: () {
+      final access = encryptionAccessOf(
+        flagOn: onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
+        vaultKnown: device.vaultKnown,
+        status: device.vaultStatus.value,
+      );
+      return access == EncryptionAccess.full ||
+          access == EncryptionAccess.manage;
+    },
+  );
 }
