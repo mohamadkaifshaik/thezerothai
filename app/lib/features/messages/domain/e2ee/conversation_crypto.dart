@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../../../core/crypto/crypto_engine.dart';
 import '../../../../core/crypto/crypto_types.dart';
+import '../../../../core/crypto/guarded_crypto_engine.dart';
 import '../../../../core/crypto/mls_pair.dart';
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
@@ -34,6 +35,48 @@ const int kAckWelcomesMaxIds = 50;
 /// group (security read M8): 50 commits a page, so far above any real
 /// generation's distance from the start.
 const int _kSettlePagesMax = 200;
+
+/// R12, MP "Catch-up": a conversation waiting for a welcome may be reset this
+/// long after its first-saw time.
+const Duration kResetWaitWithoutWelcome = Duration(hours: 24);
+
+/// The contract's page size for `ListConversationCommits` (at most 50).
+const int kCommitPageSize = 50;
+
+/// Generation switches one catch-up pass follows before it stops (each needs
+/// a stored welcome; the next pass goes on).
+const int _kSwitchesPerPass = 4;
+
+/// What one catch-up pass ended with.
+///
+/// `interrupted`: a transient failure (budget pause, deadline, network, vault
+/// closed): nothing was lost; try again later.
+enum CatchUpResult {
+  current,
+  waitingForWelcome,
+  stuck,
+  notEncrypted,
+  interrupted,
+}
+
+/// Implemented by Task 6; Task 5 tests use a recording double.
+abstract interface class EpochMessageSink {
+  /// Called under the conversation lock with every message of one closed
+  /// epoch, before its commit is applied.
+  Future<void> completeEpoch(
+    String conversationId,
+    MlsPair pair, {
+    required BudgetPriority priority,
+  });
+
+  /// Called when an epoch's messages can no longer be decrypted by this
+  /// device (state lost, commit unusable).
+  Future<void> markEpochUndecryptable(
+    String conversationId,
+    MlsPair pair, {
+    required BudgetPriority priority,
+  });
+}
 
 /// The encrypted conversations' crypto service: joins from welcomes and
 /// attributes the members it met (Task 5).
@@ -90,6 +133,685 @@ class ConversationCrypto {
   final void Function(String conversationId) _onChanged;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
+  /// Set by Task 6.
+  EpochMessageSink? sink;
+
+  /// Applies commits from the after-pair to the server's current pair, then
+  /// attributes new members (M2).
+  Future<CatchUpResult> catchUp(
+    String conversationId, {
+    BudgetPriority priority = BudgetPriority.background,
+  }) => _locks.run(
+    conversationId,
+    () => _catchUpLocked(conversationId, priority: priority),
+  );
+
+  /// Catch-up with [id]'s lock held. Never throws: an unexpected failure is
+  /// `interrupted` (nothing was written by a failed body).
+  Future<CatchUpResult> _catchUpLocked(
+    String id, {
+    required BudgetPriority priority,
+  }) async {
+    final context = _contexts.of(id);
+    // Set again only by a pass that ends at the server pair (step 8).
+    context.syncedSinceStart = false;
+    try {
+      final pass = await _startPoll(priority);
+      if (pass == null) return CatchUpResult.interrupted;
+      for (var i = 0; i < _kSwitchesPerPass; i++) {
+        final step = await _passLocked(pass, id);
+        if (step == null) continue; // a newer generation was joined
+        switch (step) {
+          case CatchUpResult.stuck:
+            context.stuck = true;
+          case CatchUpResult.current:
+          case CatchUpResult.waitingForWelcome:
+          case CatchUpResult.notEncrypted:
+            context.stuck = false;
+          case CatchUpResult.interrupted:
+            break;
+        }
+        return step;
+      }
+      return CatchUpResult.interrupted;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'catchUp');
+      return CatchUpResult.interrupted;
+    }
+  }
+
+  /// One pass over the current group's generation. Null: a newer generation
+  /// was joined, start again with it.
+  Future<CatchUpResult?> _passLocked(_Poll pass, String id) async {
+    if (!pass.live) return CatchUpResult.interrupted;
+    final context = _contexts.of(id);
+    final vault = pass.vault;
+    final groups = await vault.groups(id);
+    GroupRecord? current;
+    for (final group in groups) {
+      if (!group.provisional) current = group; // ascending generation
+    }
+    final record = await vault.conversation(id);
+    final accepted = record?.sync.requestAccepted ?? false;
+    if (accepted) context.acceptedSeenAt ??= _now();
+
+    // 1. No group: learn the current pair once.
+    if (current == null) {
+      // A provisional group only: Task 8 settles it; nothing to apply.
+      if (groups.isNotEmpty) return CatchUpResult.interrupted;
+      final page = await _listCommits(pass, id, null);
+      final server = page == null ? null : _serverPairOf(page);
+      if (server == null) return CatchUpResult.interrupted;
+      if (server == const MlsPair(0, 0)) {
+        context.serverPair = null;
+        return CatchUpResult.notEncrypted;
+      }
+      context.serverPair = server;
+      await _noteWaiting(pass, id, server.generation);
+      return CatchUpResult.waitingForWelcome;
+    }
+
+    final g = current.generation;
+    var e = current.epoch;
+    // The pair of the last commit applied to this group.
+    var after = e >= 1 ? MlsPair(g, e - 1) : record?.afterPair;
+    MlsPair? server;
+    var switching = false;
+    var gStuck = false;
+    pages:
+    while (true) {
+      final page = await _listCommits(pass, id, after);
+      server = page == null ? null : _serverPairOf(page);
+      if (page == null || server == null) return CatchUpResult.interrupted;
+      context.serverPair = server;
+      final serverAhead = server.generation > g;
+      for (final c in page.commits) {
+        final cg = pairComponentFromInt64(c.mlsGeneration);
+        final ce = pairComponentFromInt64(c.mlsEpoch);
+        if (cg != null && cg > g) {
+          // 6. A later generation: g is done; its epoch-0 record is never
+          // applied.
+          switching = true;
+          break pages;
+        }
+        if (cg != g || ce != e) {
+          // 5. A gap (or a pair the client cannot hold).
+          if (serverAhead) {
+            gStuck = true;
+            switching = true;
+            break pages;
+          }
+          return CatchUpResult.stuck;
+        }
+        switch (await _applyLocked(pass, id, MlsPair(g, e), c)) {
+          case _Applied.ok:
+            after = MlsPair(g, e);
+            e++;
+          case _Applied.selfRemoved:
+            return CatchUpResult.waitingForWelcome;
+          case _Applied.interrupted:
+            return CatchUpResult.interrupted;
+          case _Applied.stuck:
+            if (serverAhead) {
+              gStuck = true;
+              switching = true;
+              break pages;
+            }
+            return CatchUpResult.stuck;
+        }
+      }
+      if (!page.more || page.commits.isEmpty) break;
+    }
+
+    if (!switching) {
+      final here = MlsPair(g, e);
+      if (server.generation > g) {
+        switching = true;
+      } else if (server == here) {
+        return _atServerPair(id, server, pass.priority);
+      } else if (server.compareTo(here) > 0) {
+        // 5. No commit returned while the server pair is ahead.
+        return CatchUpResult.stuck;
+      } else {
+        // The server is behind this device: nothing to apply; look again.
+        return CatchUpResult.interrupted;
+      }
+    }
+
+    // 6. Generation switch: g's last epoch is walked to its end first (L6).
+    final last = MlsPair(g, e);
+    final sink = this.sink;
+    try {
+      if (gStuck) {
+        await sink?.markEpochUndecryptable(id, last, priority: pass.priority);
+      } else {
+        await sink?.completeEpoch(id, last, priority: pass.priority);
+      }
+    } on Object catch (err, s) {
+      _reportIfBug(err, s, 'completeEpoch');
+      return CatchUpResult.interrupted;
+    }
+    await _noteWalked(pass, id, last);
+    await _pollWelcomes(
+      priority: pass.priority,
+      held: id,
+      serverPairs: {id: server},
+    );
+    if (!pass.live) return CatchUpResult.interrupted;
+    final after2 = await vault.groups(id);
+    if (after2.any((x) => !x.provisional && x.generation > g)) return null;
+    await _noteWaiting(pass, id, server.generation);
+    return CatchUpResult.waitingForWelcome;
+  }
+
+  /// Step 8: the pair is current. Attribution when a member is unattributed
+  /// and not concluded this run; then R7 / M10's `syncedSinceStart`.
+  Future<CatchUpResult> _atServerPair(
+    String id,
+    MlsPair server,
+    BudgetPriority priority,
+  ) async {
+    final context = _contexts.of(id);
+    final vault = _session.vault;
+    if (vault == null) return CatchUpResult.interrupted;
+    final unattributed = (await vault.members(id))
+        .any((m) => m.side == MemberSide.unattributed);
+    if (!unattributed) {
+      context
+        ..attributionPending = false
+        ..attributionConcluded = true
+        ..deferredSince = null;
+    } else if (!context.attributionConcluded) {
+      try {
+        await _attributeMembersLocked(id, priority: priority);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'attribute');
+        context.attributionPending = true;
+      }
+    }
+    context.syncedSinceStart =
+        !context.attributionPending && context.livePulledAt == server;
+    return CatchUpResult.current;
+  }
+
+  /// One `ListConversationCommits` call (one sync-budget unit); null when it
+  /// could not be made or failed.
+  Future<pb.ListConversationCommitsResponse?> _listCommits(
+    _Poll pass,
+    String id,
+    MlsPair? after,
+  ) async {
+    if (!await _takeSyncUnit(pass.priority)) return null;
+    try {
+      return await _messaging.listConversationCommits(
+        conversationId: id,
+        after: after,
+        pageSize: kCommitPageSize,
+      );
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'listConversationCommits');
+      return null;
+    }
+  }
+
+  static MlsPair? _serverPairOf(pb.ListConversationCommitsResponse page) {
+    final g = pairComponentFromInt64(page.mlsGeneration);
+    final e = pairComponentFromInt64(page.mlsEpoch);
+    return g == null || e == null ? null : MlsPair(g, e);
+  }
+
+  /// Step 4 for the commit at [at]: confirm (own, by bytes) or process, then
+  /// ONE transaction with the result, in one runWrite body.
+  Future<_Applied> _applyLocked(
+    _Poll pass,
+    String id,
+    MlsPair at,
+    pb.ConversationCommit commit,
+  ) async {
+    try {
+      await sink?.completeEpoch(id, at, priority: pass.priority);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'completeEpoch');
+      return _Applied.interrupted;
+    }
+    final _Applied applied;
+    try {
+      applied = await _session.runWrite((v) async {
+        pass.check(v);
+        final group = await v.group(id, at.generation);
+        if (group == null || group.provisional || group.epoch != at.epoch) {
+          return _Applied.interrupted;
+        }
+        final deviceState = await v.deviceState();
+        if (deviceState == null) return _Applied.interrupted;
+        final record = await v.conversation(id);
+        final pins = await v.members(id);
+        final engine = _engine();
+        final bytes = Uint8List.fromList(commit.commit);
+        final pending = group.pending;
+        final Uint8List next;
+        MlsCommitEvent? event;
+        GroupDescription? described;
+        try {
+          if (pending != null && _sameBytes(bytes, pending.commit)) {
+            // This device's own accepted commit: merged, never processed.
+            next = await engine.confirmCommit(deviceState, group.state);
+          } else {
+            var state = group.state;
+            // A migrated v1 group with a pending commit and no record.
+            if (pending == null &&
+                (await engine.describe(state)).hasPendingCommit) {
+              state = await engine.discardCommit(deviceState, state);
+            }
+            final result = await engine.process(deviceState, state, bytes);
+            final ev = result.event;
+            // An application message in the commit list is unprocessable.
+            if (ev is! MlsCommitEvent) return _Applied.stuck;
+            event = ev;
+            next = result.groupState;
+          }
+          if (event == null || !event.selfRemoved) {
+            described = await engine.describe(next);
+          }
+        } on MlsException catch (err) {
+          return _transient(err.code) ? _Applied.interrupted : _Applied.stuck;
+        }
+        final newMember = await _writeApplied(
+          v,
+          id,
+          at,
+          next: next,
+          event: event,
+          described: described,
+          record: record,
+          pins: pins,
+          thisDevice: pass.deviceId,
+        );
+        if (newMember) {
+          _contexts.of(id)
+            ..attributionConcluded = false
+            ..attributionPending = true;
+        }
+        return event?.selfRemoved ?? false ? _Applied.selfRemoved : _Applied.ok;
+      });
+    } on _Stopped {
+      return _Applied.interrupted;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'applyCommit');
+      return _Applied.interrupted;
+    }
+    if (applied == _Applied.ok || applied == _Applied.selfRemoved) {
+      _onChanged(id);
+    }
+    return applied;
+  }
+
+  /// The one transaction of an applied commit (inside the runWrite body that
+  /// computed [next]). Returns whether a member was pinned unattributed
+  /// (added, or a changed key).
+  Future<bool> _writeApplied(
+    SecureVault v,
+    String id,
+    MlsPair at, {
+    required Uint8List next,
+    required MlsCommitEvent? event,
+    required GroupDescription? described,
+    required ConversationRecord? record,
+    required List<MemberRecord> pins,
+    required Uint8List thisDevice,
+  }) async {
+    final nextPair = at.next;
+    final sync = record?.sync ?? const ConversationSync();
+    final accepted = sync.requestAccepted;
+    final nowMicros = _now().microsecondsSinceEpoch;
+    final completed = [
+      ...sync.completedEpochs,
+      if (!sync.completedEpochs.contains(at)) at,
+    ];
+    final needKnown = !_known.contains(id);
+    final groups = await v.groups(id);
+    var newMember = false;
+    try {
+      await v.transaction((tx) async {
+        if (event != null && event.selfRemoved) {
+          // This device was removed: groups and pins go; the pins are kept
+          // as former pins (H2) and the rejoin is compared with them.
+          for (final group in groups) {
+            await tx.deleteGroup(id, group.generation);
+          }
+          for (final p in pins) {
+            await tx.deleteMember(id, p.deviceId);
+          }
+          await _formerPins.putIn(tx, id, pins);
+          if (MlsPair.above(at, record?.afterPair)) {
+            await tx.setAfterPair(id, at);
+          }
+          await tx.clearSentBefore(id, nextPair);
+          await tx.putConversationSync(
+            id,
+            sync.copyWith(
+              completedEpochs: completed,
+              epochMustAdvance: false,
+              firstSawGeneration: at.generation,
+              firstSawGenerationAtMicros: nowMicros,
+            ),
+          );
+          if (needKnown) await _known.addIn(tx, id);
+          return;
+        }
+        final byHex = {for (final p in pins) vaultDeviceIdHex(p.deviceId): p};
+        final thisHex = vaultDeviceIdHex(thisDevice);
+        final members = described?.members ?? const <GroupMember>[];
+        final inGroup = {for (final m in members) vaultDeviceIdHex(m.deviceId)};
+        // Removed: from the event, or (an own commit, no event) the pins the
+        // group no longer has.
+        final removed = event != null
+            ? [for (final r in event.removed) vaultDeviceIdHex(r)]
+            : [
+                for (final hex in byHex.keys)
+                  if (hex != thisHex && !inGroup.contains(hex)) hex,
+              ];
+        for (final hex in removed) {
+          final pinned = byHex.remove(hex);
+          if (pinned == null) continue;
+          await tx.deleteMember(id, pinned.deviceId);
+          // R10: no system row of any kind while unaccepted.
+          if (!accepted) continue;
+          await tx.putMessage(
+            _systemRow(
+              id,
+              nextPair,
+              SystemLine.deviceRemoved,
+              nowMicros,
+              deviceId: pinned.deviceId,
+              side: pinned.side,
+            ),
+          );
+        }
+        // Added, and the (id, key) comparison after every commit: a member
+        // not pinned, or pinned with another key, is pinned unattributed
+        // with the key the group holds (never kept on its old side).
+        final added = <String, Uint8List>{};
+        if (event != null) {
+          for (var i = 0; i < event.added.length; i++) {
+            if (i < event.addedSignatureKeys.length) {
+              added[vaultDeviceIdHex(event.added[i])] =
+                  event.addedSignatureKeys[i];
+            }
+          }
+        }
+        for (final m in members) {
+          final hex = vaultDeviceIdHex(m.deviceId);
+          added[hex] = m.signaturePublicKey;
+        }
+        for (final entry in added.entries) {
+          if (entry.key == thisHex) continue;
+          final pinned = byHex[entry.key];
+          if (pinned != null && _sameBytes(pinned.signatureKey, entry.value)) {
+            continue;
+          }
+          final deviceId = _deviceIdOf(entry.key, event, members);
+          if (deviceId == null) continue;
+          newMember = true;
+          await tx.putMember(
+            MemberRecord(
+              conversationId: id,
+              deviceId: deviceId,
+              signatureKey: entry.value,
+              side: MemberSide.unattributed,
+              since: nextPair,
+            ),
+          );
+        }
+        await tx.putGroup(
+          GroupRecord(
+            conversationId: id,
+            generation: at.generation,
+            epoch: nextPair.epoch,
+            state: next,
+          ),
+        );
+        if (MlsPair.above(at, record?.afterPair)) {
+          await tx.setAfterPair(id, at);
+        }
+        await tx.clearSentBefore(id, nextPair);
+        await tx.putConversationSync(
+          id,
+          sync.copyWith(completedEpochs: completed, epochMustAdvance: false),
+        );
+        if (needKnown) await _known.addIn(tx, id);
+      });
+    } on Object {
+      _known.discardStaged();
+      rethrow;
+    }
+    _known.commitStaged();
+    return newMember;
+  }
+
+  static Uint8List? _deviceIdOf(
+    String hex,
+    MlsCommitEvent? event,
+    List<GroupMember> members,
+  ) {
+    for (final m in members) {
+      if (vaultDeviceIdHex(m.deviceId) == hex) return m.deviceId;
+    }
+    for (final a in event?.added ?? const <Uint8List>[]) {
+      if (vaultDeviceIdHex(a) == hex) return a;
+    }
+    return null;
+  }
+
+  StoredMessage _systemRow(
+    String id,
+    MlsPair pair,
+    String line,
+    int nowMicros, {
+    Uint8List? deviceId,
+    String? side,
+  }) => StoredMessage(
+    conversationId: id,
+    messageId: systemLineId(id, pair, line, deviceId: deviceId),
+    createdAtMicros: nowMicros,
+    mine: false,
+    state: StoredMessageState.visible,
+    generation: pair.generation,
+    epoch: pair.epoch,
+    content: SystemLineContent(
+      line: line,
+      deviceId: deviceId,
+      side: side,
+    ).encode(),
+    kind: StoredMessageKind.system,
+  );
+
+  /// `internal`, `deadline` and `unavailable` are transient: the pass stops
+  /// and changes nothing; the commit is never skipped.
+  static bool _transient(MlsErrorCode code) =>
+      code == MlsErrorCode.internal ||
+      code == MlsErrorCode.deadline ||
+      code == MlsErrorCode.unavailable;
+
+  /// Steps 1 and 6: the device waits for a welcome of [generation]. The
+  /// first-saw record is written when that generation is not recorded yet
+  /// (never moved earlier), with the known set (C1) in the same transaction.
+  Future<void> _noteWaiting(_Poll pass, String id, int generation) async {
+    final wrote = await _session.runWrite((v) async {
+      pass.check(v);
+      final record = await v.conversation(id);
+      final sync = record?.sync ?? const ConversationSync();
+      final seen = sync.firstSawGeneration;
+      final record0 =
+          seen == null ||
+          seen < generation ||
+          sync.firstSawGenerationAtMicros == null;
+      final needKnown = !_known.contains(id);
+      if (!record0 && !needKnown) return false;
+      try {
+        await v.transaction((tx) async {
+          if (record0) {
+            await tx.putConversationSync(
+              id,
+              sync.copyWith(
+                firstSawGeneration: generation,
+                firstSawGenerationAtMicros: _now().microsecondsSinceEpoch,
+              ),
+            );
+          }
+          if (needKnown) await _known.addIn(tx, id);
+        });
+      } on Object {
+        _known.discardStaged();
+        rethrow;
+      }
+      _known.commitStaged();
+      return needKnown;
+    });
+    if (wrote) {
+      try {
+        await _messaging.noteEverEncrypted(id, session: pass.cacheSession);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'noteEverEncrypted');
+      }
+    }
+  }
+
+  /// L6: [last], generation g's last epoch, was walked to its end after the
+  /// server reported a later generation (completed or marked undecryptable):
+  /// recorded in `completedEpochs`, which the next join reads to delete g.
+  Future<void> _noteWalked(_Poll pass, String id, MlsPair last) =>
+      _session.runWrite((v) async {
+        pass.check(v);
+        final sync =
+            (await v.conversation(id))?.sync ?? const ConversationSync();
+        if (sync.completedEpochs.contains(last)) return;
+        await v.transaction(
+          (tx) => tx.putConversationSync(
+            id,
+            sync.copyWith(completedEpochs: [...sync.completedEpochs, last]),
+          ),
+        );
+      });
+
+  /// Builds the 5b state from the vault and the context. Takes no lock (a
+  /// read only); never throws for a closed vault.
+  Future<ConversationCryptoState> describeState(String conversationId) async {
+    final id = conversationId;
+    final context = _contexts.of(id);
+    final engine = _engine();
+    final engineDown =
+        engine is GuardedCryptoEngine && engine.unavailable.value;
+    final vault = _session.vault;
+    final List<GroupRecord> groups;
+    final ConversationRecord? record;
+    final List<MemberRecord> pins;
+    try {
+      if (vault == null) throw StateError('No vault.');
+      groups = await vault.groups(id);
+      record = await vault.conversation(id);
+      pins = await vault.members(id);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'describeState');
+      return ConversationCryptoState(
+        phase: ConversationPhase.notEncrypted,
+        sendBlock: SendBlock.unavailable,
+        requestAccepted: false,
+        incomingRequest: context.incomingRequest ?? true,
+        deviceListUnverifiable: false,
+        unknownDevicePresent: false,
+        committingPausedToday: false,
+        unattributedPresent: false,
+        myDeviceCount: 0,
+        theirDeviceCount: 0,
+        canReset: false,
+      );
+    }
+    final sync = record?.sync ?? const ConversationSync();
+    final accepted = sync.requestAccepted;
+    GroupRecord? current;
+    for (final group in groups) {
+      if (!group.provisional) current = group;
+    }
+    final server = context.serverPair;
+    final ConversationPhase phase;
+    if (groups.any((x) => x.provisional)) {
+      phase = ConversationPhase.provisional;
+    } else if (context.stuck) {
+      phase = ConversationPhase.stuck;
+    } else if (current != null &&
+        (server == null || current.generation >= server.generation) &&
+        (sync.firstSawGeneration ?? 0) <= current.generation) {
+      phase = ConversationPhase.ready;
+    } else if (current != null || record != null || _known.contains(id)) {
+      phase = ConversationPhase.waitingForWelcome;
+    } else {
+      phase = ConversationPhase.notEncrypted;
+    }
+    final unattributed = pins.any((p) => p.side == MemberSide.unattributed);
+    final unknown =
+        accepted &&
+        pins.any(
+          (p) =>
+              p.side == MemberSide.unattributed &&
+              context.unknownDevices.contains(vaultDeviceIdHex(p.deviceId)),
+        );
+    final now = _now();
+    final unverifiable =
+        context.listUnverifiable ||
+        deferralOutlasted(
+          deferredSince: context.deferredSince,
+          unattributedPresent: unattributed,
+          now: now,
+        );
+    final SendBlock block;
+    if (engineDown) {
+      block = SendBlock.unavailable;
+    } else if (phase == ConversationPhase.stuck) {
+      block = SendBlock.stuck;
+    } else if (phase == ConversationPhase.waitingForWelcome) {
+      block = SendBlock.waitingForWelcome;
+    } else if (phase == ConversationPhase.provisional) {
+      block = SendBlock.provisional;
+    } else if (phase == ConversationPhase.notEncrypted) {
+      block = context.canReply ? SendBlock.none : SendBlock.cannotMessage;
+    } else if (unknown) {
+      block = SendBlock.unknownDevice;
+    } else if (sync.epochMustAdvance) {
+      block = SendBlock.epochMustAdvance;
+    } else if (!context.syncedSinceStart ||
+        context.attributionPending ||
+        unattributed) {
+      block = SendBlock.notSynced;
+    } else if (!context.canReply) {
+      block = SendBlock.cannotMessage;
+    } else {
+      block = SendBlock.none;
+    }
+    final seenAt = sync.firstSawGenerationAtMicros;
+    return ConversationCryptoState(
+      phase: phase,
+      sendBlock: block,
+      requestAccepted: accepted,
+      incomingRequest: context.incomingRequest ?? !accepted,
+      deviceListUnverifiable: unverifiable,
+      unknownDevicePresent: unknown,
+      // Task 9 (M5) and Task 10 own these.
+      committingPausedToday: false,
+      unattributedPresent: unattributed,
+      myDeviceCount: pins.where((p) => p.side == MemberSide.mine).length,
+      theirDeviceCount: pins.where((p) => p.side == MemberSide.theirs).length,
+      canReset: false,
+      resetAllowedAt:
+          phase == ConversationPhase.waitingForWelcome && seenAt != null
+          ? DateTime.fromMicrosecondsSinceEpoch(
+              seenAt,
+              isUtc: true,
+            ).add(kResetWaitWithoutWelcome)
+          : null,
+    );
+  }
+
   // ---------------------------------------------------------------------
   // Welcomes (R5, R8)
 
@@ -106,8 +828,13 @@ class ConversationCrypto {
   Future<List<String>> _pollWelcomes({
     required BudgetPriority priority,
     String? held,
+    Map<String, MlsPair>? serverPairs,
   }) async {
-    final poll = await _startPoll(priority);
+    final poll = await _startPoll(
+      priority,
+      held: held,
+      serverPairs: serverPairs,
+    );
     if (poll == null) return const [];
     final joined = <String>[];
     final listed = <String>{};
@@ -154,7 +881,11 @@ class ConversationCrypto {
     return joined;
   }
 
-  Future<_Poll?> _startPoll(BudgetPriority priority) async {
+  Future<_Poll?> _startPoll(
+    BudgetPriority priority, {
+    String? held,
+    Map<String, MlsPair>? serverPairs,
+  }) async {
     final vault = _session.vault;
     if (vault == null) return null;
     try {
@@ -171,6 +902,8 @@ class ConversationCrypto {
         deviceIdString: idString,
         cacheSession: _messaging.cacheSession,
         priority: priority,
+        held: held,
+        serverPairs: serverPairs,
       );
     } on Object catch (e, s) {
       // A closed or changed vault: nothing to do now.
@@ -227,6 +960,18 @@ class ConversationCrypto {
         !MlsPair.above(label, record?.joinHighWater)) {
       return const _Join(_Outcome.permanent);
     }
+
+    // A welcome of a generation below the server's current one is useless
+    // (MP "Catch-up"): acknowledged, no engine call. One call per
+    // conversation per poll (catch-up hands over the pair it read).
+    var server = poll.serverPairs[id];
+    if (server == null) {
+      final page = await _listCommits(poll, id, null);
+      server = page == null ? null : _serverPairOf(page);
+      if (server == null) return const _Join(_Outcome.transient);
+      poll.serverPairs[id] = server;
+    }
+    if (g < server.generation) return const _Join(_Outcome.permanent);
 
     // 2a. A provisional group of the labelled generation (security read M8).
     final provisional = await poll.vault.group(id, g);
@@ -323,6 +1068,27 @@ class ConversationCrypto {
             current: current,
             former: former,
           );
+          // Step 7: a join of a later generation where pins of an earlier
+          // one existed is a reset: one row per join (the same id when a
+          // join is processed again), never while unaccepted (R10).
+          // "Pins of an earlier generation": pins are stored and the
+          // after-pair is of a lower generation (a kept pin keeps its old
+          // `since`, so `since` alone would call a same-generation re-add a
+          // reset).
+          final afterPair = stored?.afterPair;
+          if ((stored?.sync.requestAccepted ?? false) &&
+              current.isNotEmpty &&
+              afterPair != null &&
+              afterPair.generation < g) {
+            await tx.putMessage(
+              _systemRow(
+                id,
+                label.next,
+                SystemLine.encryptionReset,
+                _now().microsecondsSinceEpoch,
+              ),
+            );
+          }
           await _formerPins.deleteIn(tx, id);
           await _known.addIn(tx, id);
           if (MlsPair.above(label, stored?.afterPair)) {
@@ -563,21 +1329,19 @@ class ConversationCrypto {
       _reportIfBug(e, s, 'noteEverEncrypted');
     }
     _onChanged(id);
-    final context = _contexts.of(id)
+    _contexts.of(id)
       ..attributionPending = true
       ..syncedSinceStart = false
       ..livePulledAt = null
+      ..attributionConcluded = false
       // A later join is never a baseline: it replaces an earlier first one.
       ..baselineSince = baselineSince;
-    // Stage 3 seam: the brief's step 6 runs `catchUp` here (as
-    // `_catchUpLocked`, which attributes once the pair is current). Until
-    // then the join's own members are attributed directly.
-    try {
-      await _attributeMembersLocked(id, priority: poll.priority);
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'attributeAfterJoin');
-      context.attributionPending = true;
-    }
+    // Joined in place by catch-up's generation switch: that pass goes on
+    // (and attributes once current); a nested catch-up would poll again.
+    if (poll.held == id) return;
+    // Step 6: catch-up, through the locked variant (this lock is held). It
+    // never throws, and never changes the acknowledgement.
+    await _catchUpLocked(id, priority: poll.priority);
   }
 
   // ---------------------------------------------------------------------
@@ -611,7 +1375,10 @@ class ConversationCrypto {
     final context = _contexts.of(id);
     if (!(await vault.members(id))
         .any((m) => m.side == MemberSide.unattributed)) {
-      context.attributionPending = false;
+      context
+        ..attributionPending = false
+        ..attributionConcluded = true
+        ..deferredSince = null;
       return;
     }
     final ref = await _peerRef(id, priority);
@@ -620,6 +1387,11 @@ class ConversationCrypto {
         ? const DeviceList.unreadable()
         : await _directory.peer(ref, fresh: true, priority: priority);
     final baselineSince = context.baselineSince;
+    final unreadable =
+        own.state == ListState.unreadable || peer.state == ListState.unreadable;
+    final deferred =
+        !unreadable &&
+        (own.state == ListState.deferred || peer.state == ListState.deferred);
     final outcome = await _session.runWrite((v) async {
       if (!identical(v, vault) || v.uid != uid) {
         throw StateError('The vault changed.');
@@ -627,6 +1399,17 @@ class ConversationCrypto {
       final current = await v.members(id);
       final accepted =
           (await v.conversation(id))?.sync.requestAccepted ?? false;
+      final now = _now();
+      final acceptedSeenAt = accepted ? (context.acceptedSeenAt ??= now) : null;
+      // The peer fetch is the full registered list only from
+      // kConversationCopyStale after this run knew the conversation accepted.
+      final peerFetched = peer.fetchedAt;
+      final counts =
+          !unreadable &&
+          !deferred &&
+          peerFetched != null &&
+          fetchCounts(fetchedAt: peerFetched, acceptedSeenAt: acceptedSeenAt);
+      var waiting = false;
       final everMine = accepted
           ? await _formerPins.everPinnedMine(excluding: id)
           : const <({String deviceIdHex, String keyB64})>{};
@@ -646,14 +1429,35 @@ class ConversationCrypto {
           ownList: own,
           peerList: peer,
         );
+        final hex = vaultDeviceIdHex(m.deviceId);
         if (side == MemberSide.unattributed) {
-          // Stage 3 seam: the unknownDevice row (both lists readable and the
-          // peer fetch counting), the re-attribution at acceptedSeenAt +
-          // kConversationCopyStale, listUnverifiable on an unreadable list
-          // and the M4 deferral bound.
           stillUnattributed = true;
+          // R10: unaccepted, an unmatched member just stays unattributed.
+          // An unreadable or deferred list decides nothing (handled below).
+          if (!accepted || unreadable || deferred) continue;
+          if (!counts) {
+            // The server may still answer with active devices only: no row,
+            // no flag; one re-attribution at the time the fetch counts.
+            waiting = true;
+            context.reattributeAt = acceptedSeenAt!.add(kConversationCopyStale);
+            continue;
+          }
+          // M2: unknown with both lists readable and a counting fetch. One
+          // row per device and pair (the stored row is the record of it).
+          context.firstSeenUnattributed[hex] ??= now;
+          context.unknownDevices.add(hex);
+          final row = _systemRow(
+            id,
+            m.since,
+            SystemLine.unknownDevice,
+            nowMicros,
+            deviceId: m.deviceId,
+          );
+          if (!await v.hasMessage(id, row.messageId)) rows.add(row);
           continue;
         }
+        context.unknownDevices.remove(hex);
+        context.firstSeenUnattributed.remove(hex);
         if (side == MemberSide.theirs) theirsFromPeer = true;
         pins.add(
           MemberRecord(
@@ -707,7 +1511,12 @@ class ConversationCrypto {
           );
         }
       }
-      if (pins.isEmpty) return (wrote: false, pending: stillUnattributed);
+      // Pending: a member is unattributed for a reason a later attribution
+      // may settle (a list not readable, a fetch not counting yet). In an
+      // unaccepted conversation attribution runs once per join.
+      final pending =
+          accepted && stillUnattributed && (unreadable || deferred || waiting);
+      if (pins.isEmpty && rows.isEmpty) return (wrote: false, pending: pending);
       try {
         await v.transaction((tx) async {
           for (final p in pins) {
@@ -726,9 +1535,33 @@ class ConversationCrypto {
         rethrow;
       }
       _known.commitStaged();
-      return (wrote: true, pending: stillUnattributed);
+      return (wrote: true, pending: pending);
     });
-    context.attributionPending = outcome.pending;
+    final now = _now();
+    final unattributedLeft = (await vault.members(id))
+        .any((m) => m.side == MemberSide.unattributed);
+    if (unreadable) {
+      context.listUnverifiable = true;
+    } else if (deferred) {
+      // M4: silent while deferred, up to kDeferredWithUnattributedLimit with
+      // an unattributed member; then it reads as unreadable.
+      if (unattributedLeft) context.deferredSince ??= now;
+      if (deferralOutlasted(
+        deferredSince: context.deferredSince,
+        unattributedPresent: unattributedLeft,
+        now: now,
+      )) {
+        context.listUnverifiable = true;
+      }
+    } else {
+      context
+        ..deferredSince = null
+        ..listUnverifiable = false;
+    }
+    context
+      ..attributionPending = outcome.pending
+      ..attributionConcluded = !outcome.pending;
+    if (!outcome.pending) context.reattributeAt = null;
     if (outcome.wrote) _onChanged(id);
   }
 
@@ -880,6 +1713,8 @@ enum _Outcome { joined, permanent, transient, stop }
 
 enum _Settled { ownStored, discarded, unknown }
 
+enum _Applied { ok, selfRemoved, stuck, interrupted }
+
 class _Join {
   const _Join(this.kind, {this.baselineSince});
 
@@ -904,7 +1739,17 @@ class _Poll {
     required this.deviceIdString,
     required this.cacheSession,
     required this.priority,
-  });
+    this.held,
+    Map<String, MlsPair>? serverPairs,
+  }) : serverPairs = serverPairs ?? {};
+
+  /// The conversation whose lock the caller holds (catch-up's generation
+  /// switch): its welcome is joined in place and no catch-up follows the
+  /// join (the caller's pass goes on).
+  final String? held;
+
+  /// The server's current pair per conversation, read once per poll.
+  final Map<String, MlsPair> serverPairs;
 
   final VaultSession session;
   final SecureVault vault;

@@ -756,4 +756,108 @@ void main() {
     expect(await rig.device.vault.group(_c1, 1), isNotNull);
     expect(await rig.device.vault.group(_c2, 1), isNotNull);
   });
+
+  test("a welcome of a generation below the server's current one is "
+      'acknowledged without an engine call', () async {
+    final offer = await rig.offer(_c1, bob);
+    // The server already moved to generation 2.
+    rig.server.addCommit(
+      _c1,
+      const MlsPair(2, 0),
+      rigBytes('a reset'),
+      fromUser: 'user-b',
+    );
+    final before = await rig.dump();
+    rig.device.engine.calls.clear();
+
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+
+    expect(await ackedIds(), [offer.welcomeId]);
+    expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+    expect(await rig.dump(), before);
+  });
+
+  test('a join deletes an older generation only when its last epoch is in '
+      'completedEpochs', () async {
+    await rig.offer(_c1, bob);
+    await rig.offer(_c2, bob);
+    expect((await rig.crypto.processWelcomes()).toSet(), {_c1, _c2});
+    final v = rig.device.vault;
+    // Generation 1 of _c1 was walked to its end (L6); _c2's was not.
+    final stored = (await v.conversation(_c1))!.sync;
+    await v.transaction(
+      (tx) => tx.putConversationSync(
+        _c1,
+        stored.copyWith(completedEpochs: const [MlsPair(1, 1)]),
+      ),
+    );
+
+    await rig.offer(_c1, bob, generation: 2);
+    await rig.offer(_c2, bob, generation: 2);
+    expect((await rig.crypto.processWelcomes()).toSet(), {_c1, _c2});
+
+    expect(await v.group(_c1, 2), isNotNull);
+    expect(await v.group(_c1, 1), isNull);
+    expect(await v.group(_c2, 2), isNotNull);
+    expect(await v.group(_c2, 1), isNotNull);
+    expect((await v.conversation(_c1))!.sync.completedEpochs, isEmpty);
+  });
+
+  test('a rejoin keeps a current pin with the same key, deletes a pin absent '
+      'from the group and re-pins a changed key unattributed', () async {
+    final carol = await RigPeer.create('carol');
+    final dave = await RigPeer.create('dave');
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(carol.idString, carol.key),
+      rigKeyDevice(dave.idString, dave.key),
+    ];
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(
+      _c1,
+      bob,
+      others: [await carol.keyPackage(), await dave.keyPackage()],
+    );
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    final v = rig.device.vault;
+    MemberRecord? pinOf(List<MemberRecord> all, Uint8List id) {
+      for (final m in all) {
+        if (rigEq(m.deviceId, id)) return m;
+      }
+      return null;
+    }
+
+    final before = await v.members(_c1);
+    expect(pinOf(before, bob.id)!.side, MemberSide.theirs);
+    expect(pinOf(before, carol.id)!.side, MemberSide.theirs);
+    expect(pinOf(before, dave.id)!.side, MemberSide.theirs);
+
+    // Generation 2 holds bob, carol (with another key) and not dave.
+    final newKey = Uint8List.fromList(List.filled(32, 5));
+    await rig.offer(
+      _c1,
+      bob,
+      generation: 2,
+      others: [await carol.keyPackage()],
+    );
+    rig.device.engine.describeMembers = (real) => [
+      for (final m in real)
+        rigEq(m.deviceId, carol.id)
+            ? GroupMember(deviceId: carol.id, signaturePublicKey: newKey)
+            : m,
+    ];
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    rig.device.engine.describeMembers = null;
+
+    final after = await v.members(_c1);
+    final bobPin = pinOf(after, bob.id)!;
+    expect(bobPin.side, MemberSide.theirs);
+    // Kept as it was: not re-pinned at the new generation.
+    expect(bobPin.since, pinOf(before, bob.id)!.since);
+    final carolPin = pinOf(after, carol.id)!;
+    expect(carolPin.side, MemberSide.unattributed);
+    expect(rigEq(carolPin.signatureKey, newKey), isTrue);
+    expect(carolPin.since, const MlsPair(2, 1));
+    expect(pinOf(after, dave.id), isNull);
+  });
 }

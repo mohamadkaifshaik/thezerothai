@@ -67,6 +67,11 @@ class ConversationContext {
   /// after a restart: then nothing is treated as a baseline (rows are
   /// written), which may show a line too many, never one too few.
   MlsPair? baselineSince;
+
+  /// The server's current pair as the last catch-up pass of this run read
+  /// it; null before one (`describeState`'s "server's last known
+  /// generation").
+  MlsPair? serverPair;
 }
 
 /// The [ConversationContext] of every conversation, by id.

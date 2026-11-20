@@ -166,13 +166,20 @@ class RigEngine implements CryptoEngine {
     return inner.encrypt(deviceState, groupState, plaintext);
   }
 
+  /// When set, the next `process` call waits for it before it answers (then
+  /// it is cleared): a result that arrives late.
+  Future<void>? holdNextProcess;
+
   @override
   Future<ProcessResult> process(
     Uint8List deviceState,
     Uint8List groupState,
     Uint8List wire,
-  ) {
+  ) async {
     _enter('process');
+    final hold = holdNextProcess;
+    holdNextProcess = null;
+    if (hold != null) await hold;
     return inner.process(deviceState, groupState, wire);
   }
 
