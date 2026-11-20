@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 import '../../data/messaging_repository.dart';
 import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/messaging_feature_flag.dart';
@@ -149,6 +150,9 @@ class SharePostState {
 
 const Object _keep = Object();
 
+/// Fetches a post under the caller's own rules (PostsRepository.getPost).
+typedef SharedPostLookup = Future<posts_pb.PostView> Function(String postId);
+
 /// Sends one post to up to [kSharePostMaxRecipients] people, one
 /// `SendMessage` after another (never in parallel: the per-minute bucket and
 /// a result list in order), each with its own idempotency key and its own
@@ -171,10 +175,12 @@ class SharePostCubit extends Cubit<SharePostState> {
     this.ownUserId,
     bool Function()? isEnabled,
     EncryptedMessaging? encrypted,
+    SharedPostLookup? getPost,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _repository = repository,
        _encrypted = encrypted,
+       _getPost = getPost,
        _isEnabled = isEnabled ?? (() => true),
        _uuid = uuid ?? const Uuid(),
        super(const SharePostState());
@@ -183,6 +189,11 @@ class SharePostCubit extends Cubit<SharePostState> {
 
   /// The encrypted port, tried first for each person; null: today's path.
   final EncryptedMessaging? _encrypted;
+
+  /// Asks the server for the shared post before an encrypted share (the
+  /// server cannot see the post id inside the ciphertext); see [_refusal].
+  final SharedPostLookup? _getPost;
+  bool _checking = false;
   final bool Function() _isEnabled;
   final Uuid _uuid;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
@@ -242,13 +253,36 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// Sends to every row that is not sent yet, in order. Pressed again after a
   /// failure it retries the failed and the skipped rows with their own keys.
   Future<void> send() async {
-    if (isClosed || !state.canSend) return;
+    if (isClosed || _checking || !state.canSend) return;
     emit(state.copyWith(started: true, endedBy: null));
     final body = text;
     final ids = [
       for (final r in state.recipients)
         if (r.status != ShareRowStatus.sent) r.peer.userId,
     ];
+    if (_encrypted != null && postId.isNotEmpty && _isEnabled()) {
+      // The server cannot check an encrypted share, so it is asked once for
+      // the post, in the existing sending state, before any send.
+      final before = state.recipients;
+      _checking = true;
+      for (final id in ids) {
+        _setRow(id, ShareRowStatus.sending);
+      }
+      AppException? refusal;
+      try {
+        refusal = await _refusal();
+      } finally {
+        _checking = false;
+      }
+      if (isClosed) return;
+      if (refusal != null) {
+        for (final id in ids) {
+          _setRow(id, ShareRowStatus.failed, error: refusal);
+        }
+        return;
+      }
+      emit(state.copyWith(recipients: before));
+    }
     for (var i = 0; i < ids.length; i++) {
       if (isClosed) return;
       final id = ids[i];
@@ -334,6 +368,45 @@ class SharePostCubit extends Cubit<SharePostState> {
           error: const UnknownApiException('Something went wrong.'),
         );
       }
+    }
+  }
+
+  /// The error that refuses the whole share, or null when the post may go.
+  /// Fails closed: a protected author's post (the original's, for a REPOST)
+  /// goes only from its author; anything unknown refuses. Nothing about the
+  /// post is logged or reported (a fixed StateError at most).
+  Future<AppException?> _refusal() async {
+    const protected = ProtectedAccountException();
+    final lookup = _getPost;
+    if (lookup == null) return protected;
+    try {
+      var judged = (await lookup(postId)).post;
+      if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) {
+        // The embed names the original and its author but not its
+        // visibility, so the original is fetched once more.
+        final originalId = judged.embedded.postId;
+        if (originalId.isEmpty) return protected;
+        judged = (await lookup(originalId)).post;
+        if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) return protected;
+      }
+      if (judged.visibility == posts_pb.Visibility.VISIBILITY_FOLLOWERS) {
+        final own = ownUserId;
+        if (own == null || own.isEmpty || judged.author.userId != own) {
+          return protected;
+        }
+      }
+      return null;
+    } on AppException catch (error) {
+      return switch (error) {
+        NotFoundException() ||
+        ProtectedAccountException() ||
+        ValidationException() ||
+        FeatureDisabledException() => error,
+        _ => protected,
+      };
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('sharedPost'), stack);
+      return protected;
     }
   }
 
