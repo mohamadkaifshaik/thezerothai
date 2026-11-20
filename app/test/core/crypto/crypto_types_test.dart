@@ -37,4 +37,23 @@ void main() {
     expect(MlsErrorCode.parse('own_leaf'), MlsErrorCode.ownLeaf);
     expect(MlsErrorCode.ownLeaf.wire, 'own_leaf');
   });
+
+  test('a worker reply with no code, an unknown code or internal is internal '
+      'with the fixed text, never its own text', () {
+    const leaked = 'TypeError: secret-device-id 0123abcd';
+    for (final code in <String?>[null, '', 'ERR_X', 'deadline', 'internal']) {
+      final e = MlsException.fromEngineReply(code, leaked);
+      expect(e.code, MlsErrorCode.internal, reason: '$code');
+      expect(e.message, kUncodedEngineErrorText, reason: '$code');
+      expect(e.toString(), isNot(contains('secret')), reason: '$code');
+    }
+    // A core code keeps the core's fixed text.
+    final coded = MlsException.fromEngineReply('bad_input', 'unknown op');
+    expect(coded.code, MlsErrorCode.badInput);
+    expect(coded.message, 'unknown op');
+    expect(
+      MlsException.fromEngineReply('wrong_epoch', null).message,
+      kUncodedEngineErrorText,
+    );
+  });
 }

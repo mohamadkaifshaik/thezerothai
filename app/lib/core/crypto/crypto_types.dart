@@ -63,10 +63,33 @@ enum MlsErrorCode {
   }
 }
 
+/// The one message of an engine failure that carries no core code (a wasm
+/// trap, a glue error, anything unexpected): its own text is never kept.
+const String kUncodedEngineErrorText = 'the MLS worker failed';
+
 /// A failed engine call. [message] carries codes and sizes only, never state,
 /// keys, plaintext or wire bytes.
 class MlsException implements Exception {
   const MlsException(this.code, this.message);
+
+  /// A failure reply of the engine's worker. Only a core code other than
+  /// `internal` keeps the reply's text (the core's fixed text with sizes);
+  /// no code, an unknown code, a Dart-only code or `internal` becomes
+  /// [MlsErrorCode.internal] with [kUncodedEngineErrorText], whatever text
+  /// came with it (the worker's own guard is the first line; this is the
+  /// second).
+  factory MlsException.fromEngineReply(String? code, String? message) {
+    final parsed = MlsErrorCode.parse(code ?? '');
+    if (parsed == MlsErrorCode.internal || message == null) {
+      return MlsException(
+        message == null && parsed != MlsErrorCode.internal
+            ? parsed
+            : MlsErrorCode.internal,
+        kUncodedEngineErrorText,
+      );
+    }
+    return MlsException(parsed, message);
+  }
 
   final MlsErrorCode code;
   final String message;

@@ -103,11 +103,9 @@ class WebCryptoEngine implements CryptoEngine, EngineHealth {
     } else {
       final code = _str(_field(data, 'code'));
       final message = _str(_field(data, 'message'));
+      // An uncoded or unknown failure never carries its own text.
       completer.completeError(
-        MlsException(
-          MlsErrorCode.parse(code?.toDart ?? ''),
-          message?.toDart ?? 'worker error',
-        ),
+        MlsException.fromEngineReply(code?.toDart, message?.toDart),
       );
     }
   }

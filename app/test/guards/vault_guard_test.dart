@@ -138,6 +138,11 @@ const Map<String, Map<String, String>> _allowedToStrings = {
   'lib/core/crypto/mls_pair.dart': {
     'MlsPair': "=> 'MlsPair(\$generation, \$epoch)';",
   },
+  // Prints the code and a fixed message; uncoded engine errors are replaced
+  // by a fixed text (MlsException.fromEngineReply, mls_worker.js failure()).
+  'lib/core/crypto/crypto_types.dart': {
+    'MlsException': "=> 'MlsException(\${code.wire}): \$message';",
+  },
   'lib/features/keys/domain/device_keys_service.dart': {
     'DeviceKeysStatus': "=> phase == DeviceKeysPhase.failed ? 'DeviceKeysStatus.failed(retryable: \$retryable)' : 'DeviceKeysStatus.\${phase.name}';",
     'DeviceKeysError': "=> 'DeviceKeysError(\$step)';",
@@ -838,6 +843,8 @@ void main() {
         ..._vaultAndKeys(),
         'lib/core/crypto/mls_pair.dart':
             _libFiles()['lib/core/crypto/mls_pair.dart']!,
+        'lib/core/crypto/crypto_types.dart':
+            _libFiles()['lib/core/crypto/crypto_types.dart']!,
       };
       for (final e in scanned.entries) {
         final d = toStringDeclarations(e.value);
