@@ -43,7 +43,9 @@ var expectedDailyCaps = map[string][]string{
 	// TestMessagingSyncChain_CommitAndResetCaps pins the reset cap and TestMessagingSyncChain_PerConversationCommitCap the
 	// per-conversation cap through the wired server.
 	"messages_commits_daily": {messagingv1connect.MessagingServiceCommitConversationProcedure},
-	"profile_update_daily":   {identityv1connect.IdentityServiceUpdateProfileProcedure},
+	// CheckPostShare (MESSAGES_SHARE_CHECKS_PER_DAY): the side-effect-free share check, its own counter.
+	"messages_share_checks_daily": {messagingv1connect.MessagingServiceCheckPostShareProcedure},
+	"profile_update_daily":        {identityv1connect.IdentityServiceUpdateProfileProcedure},
 	"community_mod_actions_daily": {
 		communitiesv1connect.CommunityServiceHideCommunityPostProcedure, communitiesv1connect.CommunityServiceSetMemberRoleProcedure,
 	},

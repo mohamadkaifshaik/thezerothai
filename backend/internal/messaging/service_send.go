@@ -83,7 +83,7 @@ func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMes
 	// A shared post: its flags and its id shape run after the existing checks and before any lookup.
 	if in.sharedRaw != "" {
 		logger.SetRequestField(ctx, fieldSharedPost, true)
-		if err := s.guardPostShare(ctx, uid, in.sharedRaw); err != nil {
+		if err := s.guardPostShare(ctx, uid, in.sharedRaw, fieldSharedPostID); err != nil {
 			return nil, err
 		}
 	}

@@ -142,6 +142,7 @@ func TestFeatureRegistry_IncludesUITablet(t *testing.T) {
 func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
 	for _, flag := range []struct{ env, wire string }{
 		{"FEATURE_DM_POST_SHARE", "dm_post_share"},
+		{"FEATURE_DM_SHARE_CHECK", "dm_share_check"},
 		{"FEATURE_SHARE_COUNT", "share_count"},
 		{"FEATURE_HANDLE_SUGGESTIONS", "handle_suggestions"},
 		{"FEATURE_LIST_FOLLOWS", "list_follows"},

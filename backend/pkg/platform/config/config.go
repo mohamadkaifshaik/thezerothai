@@ -207,6 +207,11 @@ type Config struct {
 	// direct message): on for the caller, on top of FEATURE_MESSAGING. While it is globally off every Message.shared_post
 	// card is the unavailable form. FEATURE_DM_POST_SHARE[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureDMPostShare flags.Spec
+	// FeatureDMShareCheck is the flag (wire name `dm_share_check`) gating MessagingService.CheckPostShare (the server's
+	// share check for an encrypted post share): on for the caller, on top of FEATURE_MESSAGING; FEATURE_POSTS and
+	// FEATURE_DM_POST_SHARE are checked after it. FEATURE_DM_SHARE_CHECK[_ALLOWLIST|_PERCENT], default off in every
+	// environment.
+	FeatureDMShareCheck flags.Spec
 	// FeatureShareCount is the flag (wire name `share_count`) gating EngagementService.RecordPostShare (on for the caller);
 	// a direct-message share is recorded for Post.share_count while it is not globally off. Clients show the count only
 	// when it is on for the viewer. FEATURE_SHARE_COUNT[_ALLOWLIST|_PERCENT], default off in every environment.
@@ -641,6 +646,8 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_MESSAGES_READ_PER_MIN", 30, &rl.MessagesReadPerUserPerMinute},
 		// ListMessageSuggestions (F30) has its own bucket, 10/min per instance (30 with 3).
 		{"RATE_LIMIT_DM_SUGGESTIONS_PER_MIN", 10, &rl.DMSuggestionsPerUserPerMinute},
+		// CheckPostShare has its own bucket, 10/min per instance (30 with 3).
+		{"RATE_LIMIT_MESSAGES_SHARE_CHECK_PER_MIN", 10, &rl.MessagesShareCheckPerUserPerMinute},
 		// Encrypted conversations: CommitConversation 20/min; the four sync RPCs (ListConversationCommits, ListEpochMessages,
 		// ListWelcomes, AckWelcomes) share 60/min (per instance, x3).
 		{"RATE_LIMIT_MESSAGES_COMMIT_PER_MIN", 20, &rl.MessagesCommitPerUserPerMinute},
@@ -759,6 +766,8 @@ func Load() (Config, error) {
 		{&rl.MessagesCommitsPerDay, "MESSAGES_COMMITS_PER_DAY", 500},
 		{&rl.MessagesCommitsPerConversationPerDay, "MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY", 20},
 		{&rl.MessagesResetsPerDay, "MESSAGES_RESETS_PER_DAY", 10},
+		// CheckPostShare per uid, limit_name "messages_share_checks_daily".
+		{&rl.MessagesShareChecksPerDay, "MESSAGES_SHARE_CHECKS_PER_DAY", 300},
 		// Community mod actions (Hide, SetMemberRole) per actor, CreatePost into one community per uid|cid, SearchPeople alone,
 		// and ListFollowers + ListFollowing together; all in memory per instance.
 		{&rl.CommunityModActionsPerDay, "COMMUNITY_MOD_ACTIONS_PER_DAY", 200},
@@ -1058,6 +1067,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureDMShareCheck, err := flags.LoadSpec("DM_SHARE_CHECK", "dm_share_check", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureShareCount, err := flags.LoadSpec("SHARE_COUNT", "share_count", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1324,6 +1337,7 @@ func Load() (Config, error) {
 		FeaturePostBeaconEmbed:       featurePostBeaconEmbed,
 		FeatureChatSharedPlans:       featureChatSharedPlans,
 		FeatureDMPostShare:           featureDMPostShare,
+		FeatureDMShareCheck:          featureDMShareCheck,
 		FeatureShareCount:            featureShareCount,
 		FeatureHandleSuggestions:     featureHandleSuggestions,
 		FeatureListFollows:           featureListFollows,

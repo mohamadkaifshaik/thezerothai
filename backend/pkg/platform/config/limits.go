@@ -45,6 +45,11 @@ type RateLimitConfig struct {
 	// 10, per instance (30 per minute with 3). No daily cap: one call reads at most about 27 source documents plus
 	// cache-first profiles and follow edges.
 	DMSuggestionsPerUserPerMinute int
+	// MessagesShareCheckPerUserPerMinute is the CheckPostShare bucket, env RATE_LIMIT_MESSAGES_SHARE_CHECK_PER_MIN, default
+	// 10 per instance (30 with 3): tighter than the send bucket (20), because the check is the side-effect-free,
+	// recipient-free form of a share's answer. Its own bucket, so checks never drain sends (one check precedes the sends of
+	// one share action).
+	MessagesShareCheckPerUserPerMinute int
 
 	// NotificationsListPerUserPerMinute is the ListNotifications bucket, env RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN,
 	// default 30 per instance (90 with 3), the read-bucket norm (messages, lists, communities and beacons reads are 30).
@@ -72,6 +77,11 @@ type RateLimitConfig struct {
 	// ratelimit.DailyCap), env MESSAGES_SENDS_PER_DAY, default 300, logged as limit_name "messages_daily".
 	// Worst case per account: 300 x 3 instances = 900 messages a day. The new-account value is Messaging.NewAccountSendsPerDay.
 	MessagesSendsPerDay int64
+
+	// MessagesShareChecksPerDay is the in-memory daily cap on CheckPostShare calls (one counter per uid per instance,
+	// ratelimit.DailyCap), env MESSAGES_SHARE_CHECKS_PER_DAY, default 300 (= MessagesSendsPerDay), logged as limit_name
+	// "messages_share_checks_daily". One number per procedure: there is no new-account tier (owner decision 2026-11-20).
+	MessagesShareChecksPerDay int64
 
 	// MessagesMarkReadPerDay is the in-memory daily cap on MarkConversationRead calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env MESSAGES_MARK_READ_PER_DAY, default 500, logged as limit_name "messages_mark_read_daily"
