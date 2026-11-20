@@ -1327,12 +1327,19 @@ void main() {
         for (final status in [
           VaultStatus.unavailable,
           VaultStatus.storageChanged,
+          // The vault open says the key does not open it: the first launch
+          // that sees this only records it (no hour has passed), so the
+          // cipher ends closed, with the stored key still there.
+          VaultStatus.keyLost,
         ]) {
           world.openFails[_a] = status;
+          final before = world.ciphers.length;
           final s = await signIn(_a);
           expect(s.status.value, status);
+          expect(world.ciphers.length, before + 1, reason: status.name);
           final cipher = world.ciphers.last;
           expect(cipher.closed, isTrue, reason: status.name);
+          expect(cipher.closeCalls, 1, reason: status.name);
           expect(cipher.destroyed, isFalse, reason: status.name);
           expect(world.keys.containsKey(_a), isTrue, reason: status.name);
         }
@@ -1358,9 +1365,13 @@ void main() {
       final cipher = world.ciphers.single;
       expect(s.status.value, VaultStatus.ready);
       expect(cipher.closed, isFalse);
-      await s.onFlagChanged(false, uid: _a);
+      // A session lost without an explicit end closes the vault, and with it
+      // the cipher exactly once; the stored key stays.
+      await s.onSessionEnded(_a, SessionEnd.sessionLost);
+      expect(cipher.closed, isTrue);
+      expect(cipher.closeCalls, 1);
       expect(cipher.destroyed, isFalse);
-      expect(cipher.closeCalls, lessThanOrEqualTo(1));
+      expect(world.keys.containsKey(_a), isTrue);
     });
 
     test('owner refused: heldElsewhere, the cipher is never opened', () async {

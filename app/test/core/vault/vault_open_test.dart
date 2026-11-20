@@ -517,7 +517,7 @@ void main() {
           conversationId: 'c1',
           messageId: 'm1',
           createdAtMicros: 1,
-          fromSelf: true,
+          mine: true,
           state: StoredMessageState.visible,
           generation: 1,
           epoch: 1,

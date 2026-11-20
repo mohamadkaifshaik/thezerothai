@@ -384,11 +384,15 @@ void main() {
     expect(late.keys.single, everyElement(0));
   });
 
-  test('close is idempotent and a no-op after destroy', () async {
+  test('close is idempotent', () async {
     final cipher = await _open(engine);
     await cipher.close();
     await cipher.close();
+    expect(engine.keys.single, everyElement(0));
+    expect(keystore.calls.where((c) => c.method == 'delete'), isEmpty);
+  });
 
+  test('close after destroy is a no-op', () async {
     final other = await _open(engine, uid: 'user-2');
     await other.destroy();
     final deletes = keystore.calls.where((c) => c.method == 'delete').length;

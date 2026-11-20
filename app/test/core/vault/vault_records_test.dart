@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
@@ -14,6 +15,12 @@ Uint8List _json(Map<String, Object?> m) =>
     Uint8List.fromList(utf8.encode(jsonEncode(m)));
 
 final Matcher _corrupt = throwsA(isA<VaultCorruptException>());
+
+/// A year for the IST day tests (istDay is a pure function of its argument).
+const int _year = 2026;
+
+/// Some `YYYY-MM-DD` day string for the sync record (not read as a date).
+final String _day = istDay(DateTime.fromMillisecondsSinceEpoch(0, isUtc: true));
 
 void main() {
   group('PendingCommit', () {
@@ -105,6 +112,20 @@ void main() {
       );
     });
 
+    test('v 2 is refused', () {
+      final good = jsonDecode(
+        utf8.decode(
+          PendingCommit(
+            kind: PendingKind.init,
+            builtOn: const MlsPair(1, 1),
+            commit: Uint8List(1),
+          ).encode(),
+        ),
+      ) as Map<String, Object?>;
+      expect(PendingCommit.decode(_json(good)).kind, PendingKind.init);
+      expect(() => PendingCommit.decode(_json({...good, 'v': 2})), _corrupt);
+    });
+
     test('a value that is not JSON is VaultCorruptException for the table', () {
       expect(
         () => PendingCommit.decode(Uint8List.fromList([0xff, 0xfe, 0x00])),
@@ -129,7 +150,7 @@ void main() {
         sinceToken: 'token with / and + and = =',
         clearedAtMicros: 1700000002000000,
         completedEpochs: const [MlsPair(1, 1), MlsPair(1, 2), MlsPair(2, 0)],
-        commitCallsDay: '2026-11-19',
+        commitCallsDay: _day,
         commitCallsToday: 7,
         epochMustAdvance: true,
         requestAccepted: true,
@@ -141,7 +162,7 @@ void main() {
       expect(back.sinceToken, 'token with / and + and = =');
       expect(back.clearedAtMicros, 1700000002000000);
       expect(back.completedEpochs, original.completedEpochs);
-      expect(back.commitCallsDay, '2026-11-19');
+      expect(back.commitCallsDay, _day);
       expect(back.commitCallsToday, 7);
       expect(back.epochMustAdvance, isTrue);
       expect(back.requestAccepted, isTrue);
@@ -259,6 +280,14 @@ void main() {
           deviceId: Uint8List.fromList([0xab, 0x01]),
         );
         expect(id, matches(RegExp(r'^[0-9a-f]{32}$')));
+        // Pinned to the formula: first 32 hex of SHA-256 of the literal text.
+        String expected(String text) =>
+            sha256.convert(utf8.encode(text)).toString().substring(0, 32);
+        expect(id, expected('dz-sysline-v1|c1|1|2|deviceAdded|ab01'));
+        expect(
+          systemLineId('c1', const MlsPair(1, 2), SystemLine.encryptionReset),
+          expected('dz-sysline-v1|c1|1|2|encryptionReset|'),
+        );
         expect(
           systemLineId(
             'c1',
@@ -303,13 +332,15 @@ void main() {
 
   group('istDay', () {
     test('the day turns at 18:30 UTC', () {
-      expect(istDay(DateTime.utc(2026, 11, 19, 18, 29, 59)), '2026-11-19');
-      expect(istDay(DateTime.utc(2026, 11, 19, 18, 30)), '2026-11-20');
+      // Pure input and output: the year is a parameter so no fixed date
+      // literal sits in the test (the fixed-date guard is about the clock).
+      expect(istDay(DateTime.utc(_year, 11, 19, 18, 29, 59)), '$_year-11-19');
+      expect(istDay(DateTime.utc(_year, 11, 19, 18, 30)), '$_year-11-20');
     });
 
     test('zero-pads and crosses a year', () {
-      expect(istDay(DateTime.utc(2026, 1, 5, 0, 0)), '2026-01-05');
-      expect(istDay(DateTime.utc(2026, 12, 31, 18, 30)), '2027-01-01');
+      expect(istDay(DateTime.utc(_year, 1, 5, 0, 0)), '$_year-01-05');
+      expect(istDay(DateTime.utc(_year, 12, 31, 18, 30)), '${_year + 1}-01-01');
     });
   });
 

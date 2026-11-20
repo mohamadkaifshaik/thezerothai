@@ -4,11 +4,15 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
+import 'package:dzeroth/core/crypto/mls_derivations.dart';
+import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_cipher.dart';
 import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_open.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart'
+    show MessageCheck;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_vault_cipher.dart';
@@ -18,18 +22,24 @@ const _uid = 'user-1';
 Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
 String _s(Uint8List? b) => b == null ? '<null>' : utf8.decode(b);
 
+PendingCommit _pending() => PendingCommit(
+  kind: PendingKind.change,
+  builtOn: const MlsPair(5, 8),
+  commit: _b('commit bytes'),
+);
+
 StoredMessage _msg(
   String id, {
   String conversation = 'c1',
   int at = 1000,
   String? text,
   String state = StoredMessageState.visible,
-  bool fromSelf = false,
+  bool mine = false,
 }) => StoredMessage(
   conversationId: conversation,
   messageId: id,
   createdAtMicros: at,
-  fromSelf: fromSelf,
+  mine: mine,
   state: state,
   generation: 1,
   epoch: 2,
@@ -41,12 +51,14 @@ StoredMessage _msg(
 OutboxItem _outbox(String key, {String? conversation = 'c1', int at = 10}) =>
     OutboxItem(
       idempotencyKey: key,
+      localId: key,
+      expectedMessageId: expectedMessageId(_uid, key),
       conversationId: conversation,
       recipientUserId: conversation == null ? 'recipient-user-9' : null,
       generation: 3,
       epoch: 4,
       ciphertext: _b('wire ciphertext $key'),
-      reportCommitment: _b('commitment $key'),
+      reportCommitment: Uint8List.fromList(List.filled(32, 7)),
       content: _b('outbox plaintext $key'),
       createdAtMicros: at,
       attempts: 2,
@@ -57,11 +69,21 @@ Future<int> _count(VaultDatabase db, String table) async =>
     (await db.customSelect('SELECT COUNT(*) AS n FROM $table').getSingle())
         .read<int>('n');
 
+/// Every table `seed` writes holds exactly one row. The legacy v1
+/// `vault_groups` is never written by version 2, so it holds none.
+bool _seededOnce(Map<String, int> counts) => counts.entries.every(
+  (e) => e.key == 'vault_groups' ? e.value == 0 : e.value == 1,
+);
+
 Future<Map<String, int>> _counts(VaultDatabase db) async => {
   for (final t in [
     'vault_meta',
     'vault_device',
     'vault_groups',
+    'vault_group_states',
+    'vault_conversations',
+    'vault_members',
+    'vault_sent',
     'vault_messages',
     'vault_outbox',
     'vault_settings',
@@ -114,12 +136,22 @@ void main() {
           generation: 1,
           epoch: 1,
           state: _b('group-state'),
-          pendingCommit: false,
         ),
       );
       await tx.putMessage(_msg('m1'));
       await tx.putOutbox(_outbox('k1'));
       await tx.putSetting('s', _b('setting'));
+      await tx.setAfterPair('c1', const MlsPair(1, 1));
+      await tx.putMember(
+        MemberRecord(
+          conversationId: 'c1',
+          deviceId: _b('dev'),
+          signatureKey: _b('sig'),
+          side: MemberSide.theirs,
+          since: const MlsPair(1, 1),
+        ),
+      );
+      await tx.addSent('c1', const MlsPair(1, 1), 'a' * 64);
     });
     await vault.close();
   }
@@ -178,7 +210,7 @@ void main() {
       expect(rows, hasLength(1));
       expect(rows.single.metaKey, 'vault');
       expect(rows.single.ownerUid, _uid);
-      expect(rows.single.schemaVersion, 1);
+      expect(rows.single.schemaVersion, 2, reason: 'a new vault is stamped 2');
       expect(latin1.decode(rows.single.sentinel), isNot(contains('sentinel')));
       final opened = await cipher.open(
         'vault_meta.sentinel',
@@ -226,7 +258,7 @@ void main() {
       final after = fileDb(path);
       addTearDown(after.close);
       expect(await _counts(after), countsBefore);
-      expect(countsBefore.values.every((c) => c == 1), isTrue);
+      expect(_seededOnce(countsBefore), isTrue);
       expect(
         (await after.select(after.vaultMeta).getSingle()).sentinel,
         sentinelBefore,
@@ -287,7 +319,7 @@ void main() {
       );
       final after = fileDb(path);
       addTearDown(after.close);
-      expect((await _counts(after)).values.every((c) => c == 1), isTrue);
+      expect(_seededOnce(await _counts(after)), isTrue);
     });
 
     test('an unavailable cipher on a new vault writes nothing', () async {
@@ -309,7 +341,7 @@ void main() {
       // Same key material (the stamp alone is wrong, e.g. corrupted).
       final vault = await open(db, FakeVaultCipher(), uid: 'user-2');
       addTearDown(vault.close);
-      expect((await _counts(db)).values.every((c) => c == 1), isTrue);
+      expect(_seededOnce(await _counts(db)), isTrue);
       expect((await db.select(db.vaultMeta).getSingle()).ownerUid, 'user-2');
       expect(
         _s((await vault.message('c1', 'm1'))!.content),
@@ -327,7 +359,7 @@ void main() {
       );
       final after = fileDb(path);
       addTearDown(after.close);
-      expect((await _counts(after)).values.every((c) => c == 1), isTrue);
+      expect(_seededOnce(await _counts(after)), isTrue);
       expect((await after.select(after.vaultMeta).getSingle()).ownerUid, _uid);
     });
 
@@ -341,7 +373,7 @@ void main() {
       );
       final after = fileDb(path);
       addTearDown(after.close);
-      expect((await _counts(after)).values.every((c) => c == 1), isTrue);
+      expect(_seededOnce(await _counts(after)), isTrue);
       expect((await after.select(after.vaultMeta).getSingle()).ownerUid, _uid);
     });
 
@@ -357,7 +389,7 @@ void main() {
       final path = newPath();
       await seed(path, FakeVaultCipher());
       final raw = fileDb(path);
-      await raw.customStatement('UPDATE vault_meta SET schema_version = 2');
+      await raw.customStatement('UPDATE vault_meta SET schema_version = 3');
       await raw.close();
       await expectLater(
         open(fileDb(path), FakeVaultCipher()),
@@ -451,10 +483,10 @@ void main() {
             generation: 5,
             epoch: 9007199254740991,
             state: _b('mls group state'),
-            pendingCommit: true,
+            pending: _pending(),
           ),
         );
-        await tx.putMessage(_msg('m1', at: 42, fromSelf: true));
+        await tx.putMessage(_msg('m1', at: 42, mine: true));
         await tx.putMessage(
           _msg('m2', at: 43, state: StoredMessageState.removed),
         );
@@ -465,24 +497,26 @@ void main() {
 
       expect(_s(await vault.deviceId()), 'dev-id');
       expect(_s(await vault.deviceState()), 'dev-state-2');
-      final g = (await vault.group('c1'))!;
+      final g = (await vault.group('c1', 5))!;
       expect(
-        [g.generation, g.epoch, g.pendingCommit],
-        [5, 9007199254740991, true],
+        [g.generation, g.epoch, g.hasPending, g.provisional],
+        [5, 9007199254740991, true, false],
       );
       expect(_s(g.state), 'mls group state');
-      expect(await vault.group('c2'), isNull);
+      expect(_s(g.pending!.commit), 'commit bytes');
+      expect(await vault.group('c2', 5), isNull);
+      expect(await vault.group('c1', 6), isNull);
 
       final m1 = (await vault.message('c1', 'm1'))!;
       expect(m1.createdAtMicros, 42);
-      expect(m1.fromSelf, isTrue);
+      expect(m1.mine, isTrue);
       expect(m1.state, StoredMessageState.visible);
       expect([m1.generation, m1.epoch], [1, 2]);
       expect(_s(m1.content), 'secret text of m1');
       final m2 = (await vault.message('c1', 'm2'))!;
       expect(m2.state, StoredMessageState.removed);
       expect(m2.content, isNull);
-      expect(m2.fromSelf, isFalse);
+      expect(m2.mine, isFalse);
 
       final read = await vault.outbox();
       expect(read.unreadableKeys, isEmpty);
@@ -496,7 +530,11 @@ void main() {
         [3, 4, 7, 2],
       );
       expect(_s(k1.ciphertext), 'wire ciphertext k1');
-      expect(_s(k1.reportCommitment), 'commitment k1');
+      expect(k1.reportCommitment, List.filled(32, 7));
+      expect(k1.localId, 'k1');
+      expect(k1.expectedMessageId, expectedMessageId(_uid, 'k1'));
+      expect(k1.stage, OutboxStage.encrypted);
+      expect(k1.init, isNull);
       expect(_s(k1.content), 'outbox plaintext k1');
       expect(k1.lastError, 'network down k1');
       expect(out.last.conversationId, isNull);
@@ -510,10 +548,10 @@ void main() {
       expect(await vault.setting('none'), isNull);
 
       await vault.transaction((tx) async {
-        await tx.deleteGroup('c1');
+        await tx.deleteGroup('c1', 5);
         await tx.deleteOutbox('k1');
       });
-      expect(await vault.group('c1'), isNull);
+      expect(await vault.group('c1', 5), isNull);
       expect((await vault.outbox()).items.map((o) => o.idempotencyKey), ['k2']);
     });
 
@@ -536,7 +574,6 @@ void main() {
             generation: 1,
             epoch: 1,
             state: _b('old state'),
-            pendingCommit: false,
           ),
         );
       });
@@ -548,22 +585,22 @@ void main() {
               generation: 1,
               epoch: 2,
               state: _b('new state'),
-              pendingCommit: true,
+              pending: _pending(),
             ),
           );
           await tx.putMessage(_msg('m-new'));
           // The writes are visible inside the transaction...
-          expect(_s((await vault.group('c1'))!.state), 'new state');
+          expect(_s((await vault.group('c1', 1))!.state), 'new state');
           expect(await vault.hasMessage('c1', 'm-new'), isTrue);
           throw StateError('engine failed');
         }),
         throwsStateError,
       );
       // ...and gone after it.
-      final g = (await vault.group('c1'))!;
+      final g = (await vault.group('c1', 1))!;
       expect(_s(g.state), 'old state');
       expect(g.epoch, 1);
-      expect(g.pendingCommit, isFalse);
+      expect(g.hasPending, isFalse);
       expect(await vault.hasMessage('c1', 'm-new'), isFalse);
       expect(await vault.message('c1', 'm-new'), isNull);
       expect(await _count(db, 'vault_messages'), 0);
@@ -605,19 +642,39 @@ void main() {
               generation: 1,
               epoch: 1,
               state: _b('PLAIN-group'),
-              pendingCommit: true,
+              pending: PendingCommit(
+                kind: PendingKind.change,
+                builtOn: const MlsPair(1, 1),
+                commit: _b('PLAIN-commit'),
+              ),
             ),
           );
-          await tx.putMessage(_msg('m1', text: 'PLAIN-message'));
+          await tx.putMessage(
+            StoredMessage(
+              conversationId: 'c1',
+              messageId: 'm1',
+              createdAtMicros: 1000,
+              mine: true,
+              state: StoredMessageState.visible,
+              generation: 1,
+              epoch: 2,
+              content: _b('PLAIN-message'),
+              check: StoredMessageCheck.unverified,
+              senderDeviceId: _b('PLAIN-sender'),
+            ),
+          );
           await tx.putOutbox(
             OutboxItem(
               idempotencyKey: 'k1',
+              localId: 'k1',
+              expectedMessageId: expectedMessageId(_uid, 'k1'),
               recipientUserId: 'PLAIN-recipient',
               generation: 1,
               epoch: 1,
               ciphertext: _b('PLAIN-ciphertext'),
-              reportCommitment: _b('PLAIN-commitment'),
+              reportCommitment: Uint8List(32),
               content: _b('PLAIN-outbox'),
+              init: _b('PLAIN-init'),
               createdAtMicros: 1,
               attempts: 12345,
               lastError: 'PLAIN-error',
@@ -629,7 +686,13 @@ void main() {
         const clear = {
           'vault_meta': {'meta_key', 'owner_uid', 'schema_version'},
           'vault_device': {'slot'},
-          'vault_groups': {'conversation_id', 'generation', 'epoch'},
+          'vault_group_states': {
+            'conversation_id',
+            'generation',
+            'epoch',
+            'provisional',
+            'provisional_created_at',
+          },
           'vault_messages': {
             'conversation_id',
             'message_id',
@@ -637,6 +700,9 @@ void main() {
             'state',
             'generation',
             'epoch',
+            'check_state',
+            'kind',
+            'mine',
           },
           'vault_outbox': {
             'idempotency_key',
@@ -644,6 +710,9 @@ void main() {
             'sort_key',
             'generation',
             'epoch',
+            'stage',
+            'expected_message_id',
+            'local_id',
           },
           'vault_settings': {'setting_key'},
         };
@@ -777,7 +846,6 @@ void main() {
             generation: 1,
             epoch: 1,
             state: _b('old'),
-            pendingCommit: false,
           ),
         ),
       );
@@ -789,7 +857,7 @@ void main() {
               generation: 1,
               epoch: 2,
               state: _b('new'),
-              pendingCommit: true,
+              pending: _pending(),
             ),
           );
           cipher.unavailable = true;
@@ -798,8 +866,8 @@ void main() {
         throwsA(isA<VaultKeyException>()),
       );
       cipher.unavailable = false;
-      final g = (await vault.group('c1'))!;
-      expect([_s(g.state), g.epoch, g.pendingCommit], ['old', 1, false]);
+      final g = (await vault.group('c1', 1))!;
+      expect([_s(g.state), g.epoch, g.hasPending], ['old', 1, false]);
       expect(await vault.hasMessage('c1', 'm1'), isFalse);
     });
 
@@ -814,7 +882,6 @@ void main() {
               generation: 1,
               epoch: 1,
               state: _b('g1'),
-              pendingCommit: false,
             ),
           );
           await tx.putGroup(
@@ -823,7 +890,6 @@ void main() {
               generation: 1,
               epoch: 1,
               state: _b('g2'),
-              pendingCommit: false,
             ),
           );
           await tx.putSetting('a', _b('1'));
@@ -833,7 +899,7 @@ void main() {
           'UPDATE vault_device SET device_state = device_id',
         );
         await db.customStatement(
-          "UPDATE vault_groups SET state = (SELECT state FROM vault_groups WHERE conversation_id = 'c2') "
+          "UPDATE vault_group_states SET state = (SELECT state FROM vault_group_states WHERE conversation_id = 'c2') "
           "WHERE conversation_id = 'c1'",
         );
         await db.customStatement(
@@ -845,8 +911,8 @@ void main() {
         );
         await expectLater(vault.deviceState(), corrupt('vault_device'));
         expect(_s(await vault.deviceId()), 'id');
-        await expectLater(vault.group('c1'), corrupt('vault_groups'));
-        expect(_s((await vault.group('c2'))!.state), 'g2');
+        await expectLater(vault.group('c1', 1), corrupt('vault_group_states'));
+        expect(_s((await vault.group('c2', 1))!.state), 'g2');
         await expectLater(vault.setting('a'), corrupt('vault_settings'));
       },
     );
@@ -992,7 +1058,7 @@ void main() {
           conversationId: 'c1',
           messageId: 'x',
           createdAtMicros: 1,
-          fromSelf: false,
+          mine: false,
           state: StoredMessageState.removed,
           generation: 1,
           epoch: 1,
@@ -1002,7 +1068,7 @@ void main() {
           conversationId: 'c1',
           messageId: 'y',
           createdAtMicros: 1,
-          fromSelf: false,
+          mine: false,
           state: StoredMessageState.visible,
           generation: 1,
           epoch: 1,
@@ -1039,7 +1105,6 @@ void main() {
             generation: 1,
             epoch: 1,
             state: _b('g'),
-            pendingCommit: false,
           ),
         );
       });
@@ -1053,7 +1118,7 @@ void main() {
       await vault.transaction((tx) => tx.deleteConversation('c1'));
       expect(await vault.messages('c1'), isEmpty);
       expect(await vault.hasMessage('c2', 'other'), isTrue);
-      expect(await vault.group('c1'), isNotNull);
+      expect(await vault.group('c1', 1), isNotNull);
     });
 
     test('deleteConversation bounds: inclusive, below zero deletes nothing, '
@@ -1271,7 +1336,13 @@ void main() {
         () => vault.transaction((tx) async => null),
         vault.deviceId,
         vault.deviceState,
-        () => vault.group('c1'),
+        () => vault.group('c1', 1),
+        () => vault.groups('c1'),
+        vault.groupConversationIds,
+        () => vault.conversation('c1'),
+        () => vault.members('c1'),
+        () => vault.hasOutboxExpecting('x'),
+        () => vault.hasSent('c1', const MlsPair(1, 1), 'a' * 64),
         () => vault.messages('c1'),
         () => vault.message('c1', 'm1'),
         () => vault.hasMessage('c1', 'm1'),
@@ -1285,6 +1356,765 @@ void main() {
       }
       expect(cipher.destroyCalls, 0);
       await vault.close();
+    });
+  });
+
+  group('schema v2: groups, marks, members, sync and system rows', () {
+    late VaultDatabase db;
+    late FakeVaultCipher cipher;
+    late SecureVault vault;
+
+    setUp(() async {
+      db = VaultDatabase.forTesting(NativeDatabase.memory());
+      cipher = FakeVaultCipher();
+      vault = await open(db, cipher);
+    });
+
+    tearDown(() async {
+      try {
+        await vault.close();
+      } catch (_) {}
+    });
+
+    GroupRecord group(
+      int generation, {
+      int epoch = 1,
+      bool provisional = false,
+      String conversation = 'c1',
+    }) => GroupRecord(
+      conversationId: conversation,
+      generation: generation,
+      epoch: epoch,
+      state: _b('state g$generation e$epoch'),
+      provisional: provisional,
+      provisionalCreatedAtMicros: provisional ? 555 : null,
+    );
+
+    Future<Map<String, Object?>> markRow([String conversation = 'c1']) async =>
+        (await db
+                .customSelect(
+                  'SELECT after_generation, after_epoch, join_generation, '
+                  'join_epoch FROM vault_conversations '
+                  'WHERE conversation_id = ?',
+                  variables: [Variable.withString(conversation)],
+                )
+                .getSingleOrNull())
+            ?.data ??
+        {};
+
+    test('two generations of one conversation coexist', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1, epoch: 4));
+        await tx.putGroup(group(2, epoch: 0));
+        await tx.putGroup(group(1, conversation: 'c0'));
+      });
+      expect(_s((await vault.group('c1', 1))!.state), 'state g1 e4');
+      expect(_s((await vault.group('c1', 2))!.state), 'state g2 e0');
+      final all = await vault.groups('c1');
+      expect(all.map((g) => g.generation), [1, 2]);
+      expect(await vault.groupConversationIds(), ['c0', 'c1']);
+      // A second write of one generation replaces it.
+      await vault.transaction((tx) => tx.putGroup(group(1, epoch: 5)));
+      expect((await vault.groups('c1')).map((g) => g.epoch), [5, 0]);
+      expect(await _count(db, 'vault_group_states'), 3);
+    });
+
+    test('deleteGroup removes one generation only', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1));
+        await tx.putGroup(group(2));
+        await tx.putGroup(group(1, conversation: 'c2'));
+      });
+      await vault.transaction((tx) => tx.deleteGroup('c1', 1));
+      expect(await vault.group('c1', 1), isNull);
+      expect(await vault.group('c1', 2), isNotNull);
+      expect(await vault.group('c2', 1), isNotNull);
+      expect(await vault.groupConversationIds(), ['c1', 'c2']);
+    });
+
+    test('a provisional group writes no mark, and deleting it leaves the '
+        'earlier marks', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1));
+        await tx.setAfterPair('c1', const MlsPair(1, 3));
+        await tx.setJoinHighWater('c1', const MlsPair(1, 2));
+      });
+      final marksBefore = await markRow();
+      await vault.transaction((tx) => tx.putGroup(group(2, provisional: true)));
+      final provisional = (await vault.group('c1', 2))!;
+      expect(provisional.provisional, isTrue);
+      expect(provisional.provisionalCreatedAtMicros, 555);
+      expect(await markRow(), marksBefore, reason: 'no mark for a provisional');
+      await vault.transaction((tx) => tx.deleteGroup('c1', 2));
+      expect(await vault.group('c1', 2), isNull);
+      expect(await markRow(), marksBefore);
+      final record = (await vault.conversation('c1'))!;
+      expect(record.afterPair, const MlsPair(1, 3));
+      expect(record.joinHighWater, const MlsPair(1, 2));
+      // A provisional group needs its creation time.
+      await expectLater(
+        vault.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: 'c1',
+              generation: 3,
+              epoch: 0,
+              state: _b('x'),
+              provisional: true,
+            ),
+          ),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('putGroup, deleteGroup and putConversationSync never touch the '
+        'marks', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1));
+        await tx.setAfterPair('c1', const MlsPair(1, 3));
+        await tx.setJoinHighWater('c1', const MlsPair(1, 2));
+      });
+      final before = await markRow();
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1, epoch: 9));
+        await tx.putConversationSync(
+          'c1',
+          const ConversationSync(sinceToken: 'abc', commitCallsToday: 2),
+        );
+        await tx.deleteGroup('c1', 1);
+      });
+      expect(await markRow(), before);
+      final record = (await vault.conversation('c1'))!;
+      expect(record.sync.sinceToken, 'abc');
+      expect(record.afterPair, const MlsPair(1, 3));
+      // The marks do not touch the sync record either.
+      await vault.transaction(
+        (tx) => tx.setAfterPair('c1', const MlsPair(1, 4)),
+      );
+      expect((await vault.conversation('c1'))!.sync.sinceToken, 'abc');
+    });
+
+    test(
+      'clearProvisional writes the marks and clears the flag atomically',
+      () async {
+        await vault.transaction((tx) async {
+          await tx.putGroup(group(1));
+          await tx.setAfterPair('c1', const MlsPair(1, 2));
+          await tx.putGroup(group(2, provisional: true));
+        });
+        final marksBefore = await markRow();
+
+        // A throwing transaction leaves both the flag and the marks unchanged.
+        await expectLater(
+          vault.transaction((tx) async {
+            await tx.clearProvisional(
+              'c1',
+              2,
+              afterPair: const MlsPair(2, 0),
+              joinHighWater: const MlsPair(2, 0),
+            );
+            throw StateError('engine failed');
+          }),
+          throwsStateError,
+        );
+        expect((await vault.group('c1', 2))!.provisional, isTrue);
+        expect(await markRow(), marksBefore);
+
+        await vault.transaction(
+          (tx) => tx.clearProvisional(
+            'c1',
+            2,
+            afterPair: const MlsPair(2, 0),
+            joinHighWater: const MlsPair(2, 0),
+          ),
+        );
+        final cleared = (await vault.group('c1', 2))!;
+        expect(cleared.provisional, isFalse);
+        expect(cleared.provisionalCreatedAtMicros, isNull);
+        final raw = await db
+            .customSelect(
+              'SELECT provisional, provisional_created_at FROM '
+              "vault_group_states WHERE generation = 2",
+            )
+            .getSingle();
+        expect(raw.data['provisional'], 0);
+        expect(raw.data['provisional_created_at'], isNull);
+        final record = (await vault.conversation('c1'))!;
+        expect(record.afterPair, const MlsPair(2, 0));
+        expect(record.joinHighWater, const MlsPair(2, 0));
+      },
+    );
+
+    test('clearProvisional refuses an absent group, a final group and marks '
+        'that would move back, and writes nothing', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1));
+        await tx.setAfterPair('c1', const MlsPair(1, 5));
+        await tx.putGroup(group(2, provisional: true));
+      });
+      final before = await markRow();
+      for (final attempt in <Future<void> Function(VaultTx)>[
+        (tx) => tx.clearProvisional('c1', 9, afterPair: const MlsPair(9, 0)),
+        (tx) => tx.clearProvisional('c1', 1, afterPair: const MlsPair(9, 0)),
+        (tx) => tx.clearProvisional('c1', 2, afterPair: const MlsPair(1, 5)),
+        (tx) => tx.clearProvisional('c1', 2, afterPair: const MlsPair(1, 4)),
+        (tx) => tx
+            .clearProvisional(
+              'c1',
+              2,
+              afterPair: const MlsPair(2, 0),
+              joinHighWater: const MlsPair(2, 0),
+            )
+            .then(
+              (_) =>
+                  tx.clearProvisional('c1', 2, afterPair: const MlsPair(3, 0)),
+            ),
+      ]) {
+        await expectLater(vault.transaction(attempt), throwsStateError);
+      }
+      expect((await vault.group('c1', 2))!.provisional, isTrue);
+      expect(await markRow(), before);
+    });
+
+    test('setAfterPair refuses a provisional generation and a pair not above '
+        'the mark', () async {
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(1));
+        await tx.putGroup(group(2, provisional: true));
+        await tx.setAfterPair('c1', const MlsPair(1, 3));
+        await tx.setJoinHighWater('c1', const MlsPair(1, 3));
+      });
+      final before = await markRow();
+      final refused = <Future<void> Function(VaultTx)>[
+        (tx) => tx.setAfterPair('c1', const MlsPair(2, 0)), // provisional
+        (tx) => tx.setJoinHighWater('c1', const MlsPair(2, 7)),
+        (tx) => tx.setAfterPair('c1', const MlsPair(1, 3)), // not above
+        (tx) => tx.setAfterPair('c1', const MlsPair(1, 2)), // back
+        (tx) => tx.setAfterPair('c1', const MlsPair(0, 99)),
+        (tx) => tx.setJoinHighWater('c1', const MlsPair(1, 3)),
+        (tx) => tx.setJoinHighWater('c1', const MlsPair(0, 9)),
+      ];
+      for (final attempt in refused) {
+        await expectLater(vault.transaction(attempt), throwsStateError);
+      }
+      expect(await markRow(), before);
+      // Strictly above is accepted, in either mark.
+      await vault.transaction((tx) async {
+        await tx.setAfterPair('c1', const MlsPair(1, 4));
+        await tx.setJoinHighWater('c1', const MlsPair(1, 9));
+      });
+      final record = (await vault.conversation('c1'))!;
+      expect(record.afterPair, const MlsPair(1, 4));
+      expect(record.joinHighWater, const MlsPair(1, 9));
+      // The largest component a web number holds exactly is accepted.
+      await expectLater(
+        vault.transaction(
+          (tx) => tx.setAfterPair('c1', const MlsPair(1, kMaxPairComponent)),
+        ),
+        completes,
+      );
+    });
+
+    test('MlsPair.above(pair, null) for a conversation with no row', () async {
+      expect(await vault.conversation('nope'), isNull);
+      expect(MlsPair.above(const MlsPair(0, 0), null), isTrue);
+      await vault.transaction((tx) async {
+        await tx.putGroup(group(0, conversation: 'fresh', epoch: 0));
+        await tx.setAfterPair('fresh', const MlsPair(0, 0));
+        await tx.setJoinHighWater('fresh', const MlsPair(0, 0));
+      });
+      final record = (await vault.conversation('fresh'))!;
+      expect(record.afterPair, const MlsPair(0, 0));
+      expect(record.joinHighWater, const MlsPair(0, 0));
+      expect(record.sync.sinceToken, '');
+      // A conversation row made by a sync write has no marks yet.
+      await vault.transaction(
+        (tx) => tx.putConversationSync('syncOnly', const ConversationSync()),
+      );
+      final syncOnly = (await vault.conversation('syncOnly'))!;
+      expect(syncOnly.afterPair, isNull);
+      expect(syncOnly.joinHighWater, isNull);
+      expect(MlsPair.above(const MlsPair(0, 0), syncOnly.afterPair), isTrue);
+    });
+
+    test('members and conversation sync round-trip and are sealed', () async {
+      final deviceA = Uint8List.fromList([0xab, 0x01, 0xff]);
+      final deviceB = Uint8List.fromList([0x00, 0x10]);
+      final keyA = _b('SIGNATURE-KEY-A');
+      const sync = ConversationSync(
+        firstSawGeneration: 3,
+        sinceToken: 'TOKEN-SECRET',
+        commitCallsDay: 'DAY-MARKER',
+        commitCallsToday: 4,
+        epochMustAdvance: true,
+        completedEpochs: [MlsPair(3, 1)],
+      );
+      await vault.transaction((tx) async {
+        await tx.putMember(
+          MemberRecord(
+            conversationId: 'c1',
+            deviceId: deviceA,
+            signatureKey: keyA,
+            side: MemberSide.mine,
+            since: const MlsPair(3, 0),
+          ),
+        );
+        await tx.putMember(
+          MemberRecord(
+            conversationId: 'c1',
+            deviceId: deviceB,
+            signatureKey: _b('SIGNATURE-KEY-B'),
+            side: MemberSide.unattributed,
+            since: const MlsPair(3, 2),
+          ),
+        );
+        await tx.putConversationSync('c1', sync);
+      });
+      final members = await vault.members('c1');
+      expect(members.map((m) => m.deviceId), [
+        deviceB,
+        deviceA,
+      ], reason: 'ascending device id hex: 0010 before ab01ff');
+      expect(members.last.signatureKey, keyA);
+      expect(members.last.side, MemberSide.mine);
+      expect(members.last.since, const MlsPair(3, 0));
+      expect(await vault.members('other'), isEmpty);
+      final back = (await vault.conversation('c1'))!.sync;
+      expect(back.sinceToken, 'TOKEN-SECRET');
+      expect(back.commitCallsDay, 'DAY-MARKER');
+      expect(back.commitCallsToday, 4);
+      expect(back.epochMustAdvance, isTrue);
+      expect(back.completedEpochs, [const MlsPair(3, 1)]);
+
+      // Raw rows: the device id is clear lower-case hex, nothing else
+      // readable (no key bytes, no token, no day string).
+      final raw = await db
+          .customSelect('SELECT * FROM vault_members ORDER BY device_id')
+          .get();
+      expect(raw.map((r) => r.data['device_id']), ['0010', 'ab01ff']);
+      final conv = await db
+          .customSelect('SELECT * FROM vault_conversations')
+          .getSingle();
+      for (final row in [...raw, conv]) {
+        for (final column in row.data.entries) {
+          final value = column.value;
+          if (value is Uint8List) {
+            final text = latin1.decode(value);
+            for (final secret in [
+              'SIGNATURE-KEY',
+              'TOKEN-SECRET',
+              'DAY-MARKER',
+              'sinceToken',
+            ]) {
+              expect(text, isNot(contains(secret)), reason: column.key);
+            }
+          }
+        }
+      }
+      expect(raw.first.data['signature_key'], isA<Uint8List>());
+      expect(conv.data['sync'], isA<Uint8List>());
+
+      await vault.transaction((tx) => tx.deleteMember('c1', deviceA));
+      expect((await vault.members('c1')).single.deviceId, deviceB);
+      await expectLater(
+        vault.transaction(
+          (tx) => tx.putMember(
+            MemberRecord(
+              conversationId: 'c1',
+              deviceId: deviceB,
+              signatureKey: keyA,
+              side: 'bogus',
+              since: const MlsPair(1, 1),
+            ),
+          ),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('a sync or pending value that does not open or is malformed is '
+        'VaultCorruptException', () async {
+      await vault.transaction((tx) async {
+        await tx.putConversationSync('c1', const ConversationSync());
+        await tx.putConversationSync('c2', const ConversationSync());
+      });
+      await db.customStatement(
+        "UPDATE vault_conversations SET sync = (SELECT sync FROM vault_conversations WHERE conversation_id = 'c2') "
+        "WHERE conversation_id = 'c1'",
+      );
+      await expectLater(
+        vault.conversation('c1'),
+        throwsA(
+          isA<VaultCorruptException>().having(
+            (e) => e.table,
+            'table',
+            'vault_conversations',
+          ),
+        ),
+      );
+      expect((await vault.conversation('c2'))!.sync.sinceToken, '');
+      // Authentic, but not a sync record (another v).
+      await vault.transaction((tx) async {
+        await tx.putSetting('x', _b('x')); // keep a write path exercised
+      });
+      final other = await cipher.seal(
+        'vault_conversations.sync',
+        vaultRowKey(['c3']),
+        _b('{"v":2}'),
+      );
+      await db.customInsert(
+        'INSERT INTO vault_conversations (conversation_id, sync) VALUES (?, ?)',
+        variables: [Variable.withString('c3'), Variable.withBlob(other)],
+      );
+      await expectLater(
+        vault.conversation('c3'),
+        throwsA(isA<VaultCorruptException>()),
+      );
+    });
+
+    test('an unverified and an undecodable visible message keep their '
+        'content', () async {
+      StoredMessage message(String id, String check) => StoredMessage(
+        conversationId: 'c1',
+        messageId: id,
+        createdAtMicros: id == 'u' ? 10 : 20,
+        mine: false,
+        state: StoredMessageState.visible,
+        generation: 1,
+        epoch: 1,
+        content: _b('content of $id'),
+        check: check,
+        senderDeviceId: _b('sender-$id'),
+      );
+      await vault.transaction((tx) async {
+        await tx.putMessage(message('u', StoredMessageCheck.unverified));
+        await tx.putMessage(message('d', StoredMessageCheck.undecodable));
+        await tx.putMessage(_msg('ok', at: 30));
+      });
+      final u = (await vault.message('c1', 'u'))!;
+      expect(u.check, StoredMessageCheck.unverified);
+      expect(u.state, StoredMessageState.visible);
+      expect(_s(u.content), 'content of u');
+      expect(_s(u.senderDeviceId), 'sender-u');
+      final d = (await vault.message('c1', 'd'))!;
+      expect(d.check, StoredMessageCheck.undecodable);
+      expect(_s(d.content), 'content of d');
+      final ok = (await vault.message('c1', 'ok'))!;
+      expect(ok.check, StoredMessageCheck.ok);
+      expect(ok.kind, StoredMessageKind.message);
+      expect(ok.senderDeviceId, isNull);
+      // A non-ok check only on a visible message row.
+      for (final bad in [
+        StoredMessage(
+          conversationId: 'c1',
+          messageId: 'b1',
+          createdAtMicros: 1,
+          mine: false,
+          state: StoredMessageState.removed,
+          generation: 1,
+          epoch: 1,
+          content: null,
+          check: StoredMessageCheck.unverified,
+        ),
+        StoredMessage(
+          conversationId: 'c1',
+          messageId: 'b2',
+          createdAtMicros: 1,
+          mine: false,
+          state: StoredMessageState.visible,
+          generation: 1,
+          epoch: 1,
+          content: _b('line'),
+          kind: StoredMessageKind.system,
+          check: StoredMessageCheck.unverified,
+        ),
+        StoredMessage(
+          conversationId: 'c1',
+          messageId: 'b3',
+          createdAtMicros: 1,
+          mine: false,
+          state: StoredMessageState.visible,
+          generation: 1,
+          epoch: 1,
+          content: null,
+          check: StoredMessageCheck.unverified,
+        ),
+        StoredMessage(
+          conversationId: 'c1',
+          messageId: 'b4',
+          createdAtMicros: 1,
+          mine: false,
+          state: StoredMessageState.visible,
+          generation: 1,
+          epoch: 1,
+          content: _b('x'),
+          check: 'bogus',
+        ),
+      ]) {
+        await expectLater(
+          vault.transaction((tx) => tx.putMessage(bad)),
+          throwsArgumentError,
+          reason: bad.messageId,
+        );
+      }
+      // A tombstone resets the check, so a removed row is never unverified.
+      await vault.transaction(
+        (tx) => tx.setMessageState('c1', 'u', StoredMessageState.removed),
+      );
+      final removed = (await vault.message('c1', 'u'))!;
+      expect(removed.check, StoredMessageCheck.ok);
+      expect(removed.content, isNull);
+    });
+
+    test('mine is stored in clear and the legacy sealed from_self always '
+        'equals it', () async {
+      await vault.transaction((tx) async {
+        await tx.putMessage(_msg('a', mine: true));
+        await tx.putMessage(_msg('b', at: 2));
+      });
+      final raw = await db
+          .customSelect(
+            'SELECT message_id, mine, from_self FROM vault_messages '
+            'ORDER BY message_id',
+          )
+          .get();
+      expect(raw.map((r) => r.data['mine']), [1, 0]);
+      for (final r in raw) {
+        final flag = await cipher.open(
+          'vault_messages.from_self',
+          vaultRowKey(['c1', r.data['message_id']! as String]),
+          r.data['from_self']! as Uint8List,
+        );
+        expect(flag, [r.data['mine']]);
+      }
+      expect((await vault.message('c1', 'a'))!.mine, isTrue);
+      expect((await vault.message('c1', 'b'))!.mine, isFalse);
+    });
+
+    test('a system row round-trips and systemLineId is stable', () async {
+      final deviceId = Uint8List.fromList([1, 2, 3, 4]);
+      const pair = MlsPair(2, 5);
+      final id = systemLineId(
+        'c1',
+        pair,
+        SystemLine.deviceAdded,
+        deviceId: deviceId,
+      );
+      final content = SystemLineContent(
+        line: SystemLine.deviceAdded,
+        deviceId: deviceId,
+        side: MemberSide.theirs,
+      );
+      StoredMessage row() => StoredMessage(
+        conversationId: 'c1',
+        messageId: id,
+        createdAtMicros: 77,
+        mine: false,
+        state: StoredMessageState.visible,
+        generation: pair.generation,
+        epoch: pair.epoch,
+        content: content.encode(),
+        kind: StoredMessageKind.system,
+      );
+      await vault.transaction((tx) => tx.putMessage(row()));
+      // Re-processing the same event writes the same row.
+      expect(
+        systemLineId('c1', pair, SystemLine.deviceAdded, deviceId: deviceId),
+        id,
+      );
+      await vault.transaction((tx) => tx.putMessage(row()));
+      expect(await _count(db, 'vault_messages'), 1);
+      final back = (await vault.message('c1', id))!;
+      expect(back.kind, StoredMessageKind.system);
+      expect(back.state, StoredMessageState.visible);
+      final decoded = SystemLineContent.decode(back.content!)!;
+      expect(decoded.line, SystemLine.deviceAdded);
+      expect(decoded.deviceId, deviceId);
+      expect(decoded.side, MemberSide.theirs);
+    });
+
+    test('putOutbox refuses a plain row with ciphertext and an encrypted row '
+        'with a 31-byte commitment', () async {
+      OutboxItem item({
+        required String stage,
+        Uint8List? ciphertext,
+        Uint8List? commitment,
+        Uint8List? init,
+        int generation = 0,
+        int epoch = 0,
+      }) => OutboxItem(
+        idempotencyKey: 'k-$stage',
+        localId: 'k-$stage',
+        expectedMessageId: expectedMessageId(_uid, 'k-$stage'),
+        conversationId: 'c1',
+        generation: generation,
+        epoch: epoch,
+        ciphertext: ciphertext ?? Uint8List(0),
+        reportCommitment: commitment ?? Uint8List(0),
+        content: _b('plain content'),
+        createdAtMicros: 5,
+        stage: stage,
+        init: init,
+      );
+      final commitment32 = Uint8List(32);
+      final refused = [
+        item(stage: OutboxStage.plain, ciphertext: _b('x')),
+        item(stage: OutboxStage.plain, commitment: commitment32),
+        item(stage: OutboxStage.plain, generation: 1),
+        item(stage: OutboxStage.plain, epoch: 1),
+        item(stage: OutboxStage.plain, init: _b('init')),
+        item(
+          stage: OutboxStage.encrypted,
+          ciphertext: _b('x'),
+          commitment: Uint8List(31),
+          generation: 1,
+        ),
+        item(
+          stage: OutboxStage.encrypted,
+          commitment: commitment32,
+          generation: 1,
+        ),
+        item(
+          stage: OutboxStage.encrypted,
+          ciphertext: Uint8List(8193),
+          commitment: commitment32,
+          generation: 1,
+        ),
+        item(stage: 'bogus'),
+      ];
+      for (final bad in refused) {
+        await expectLater(
+          vault.transaction((tx) => tx.putOutbox(bad)),
+          throwsArgumentError,
+          reason: '${bad.stage} ${bad.ciphertext.length}',
+        );
+      }
+      expect(await _count(db, 'vault_outbox'), 0);
+
+      // The accepted forms: a plain row, and an encrypted row at both ends
+      // of the ciphertext range with an init.
+      await vault.transaction((tx) async {
+        await tx.putOutbox(item(stage: OutboxStage.plain));
+        await tx.putOutbox(
+          OutboxItem(
+            idempotencyKey: 'k-enc',
+            localId: 'local-enc',
+            expectedMessageId: expectedMessageId(_uid, 'k-enc'),
+            recipientUserId: 'ref-as-sent',
+            generation: 2,
+            epoch: 3,
+            ciphertext: Uint8List(8192),
+            reportCommitment: commitment32,
+            content: _b('c'),
+            createdAtMicros: 6,
+            init: _b('serialized MlsInit'),
+          ),
+        );
+      });
+      final read = await vault.outbox();
+      expect(read.unreadableKeys, isEmpty);
+      final plain = read.items.first;
+      expect(plain.stage, OutboxStage.plain);
+      expect(plain.ciphertext, isEmpty);
+      expect(plain.reportCommitment, isEmpty);
+      expect(plain.init, isNull);
+      final enc = read.items.last;
+      expect(enc.stage, OutboxStage.encrypted);
+      expect(enc.localId, 'local-enc');
+      expect(enc.recipientUserId, 'ref-as-sent');
+      expect(enc.ciphertext.length, 8192);
+      expect(_s(enc.init), 'serialized MlsInit');
+    });
+
+    test('hasOutboxExpecting and hasSent read no sealed column', () async {
+      final digest = 'ab' * 32;
+      await vault.transaction((tx) async {
+        await tx.putOutbox(_outbox('k1'));
+        await tx.addSent('c1', const MlsPair(1, 2), digest);
+      });
+      cipher.throwsEverything = true; // any open or seal would throw
+      expect(
+        await vault.hasOutboxExpecting(expectedMessageId(_uid, 'k1')),
+        isTrue,
+      );
+      expect(
+        await vault.hasOutboxExpecting(expectedMessageId(_uid, 'zz')),
+        isFalse,
+      );
+      expect(await vault.hasSent('c1', const MlsPair(1, 2), digest), isTrue);
+      expect(await vault.hasSent('c1', const MlsPair(1, 3), digest), isFalse);
+      expect(
+        await vault.hasSent('c1', const MlsPair(1, 2), 'cd' * 32),
+        isFalse,
+      );
+      expect(await vault.hasSent('c2', const MlsPair(1, 2), digest), isFalse);
+      cipher.throwsEverything = false;
+      // The digest is 64 lower-case hex.
+      for (final bad in ['AB' * 32, 'ab' * 31, 'zz' * 32, '']) {
+        await expectLater(
+          vault.transaction((tx) => tx.addSent('c1', const MlsPair(1, 2), bad)),
+          throwsArgumentError,
+        );
+      }
+    });
+
+    test('clearSentBefore keeps the current pair', () async {
+      String d(int i) => i.toRadixString(16).padLeft(64, '0');
+      await vault.transaction((tx) async {
+        await tx.addSent('c1', const MlsPair(1, 1), d(1));
+        await tx.addSent('c1', const MlsPair(1, 2), d(2));
+        await tx.addSent('c1', const MlsPair(1, 2), d(3));
+        await tx.addSent('c1', const MlsPair(1, 3), d(4));
+        await tx.addSent('c1', const MlsPair(2, 0), d(5));
+        await tx.addSent('c2', const MlsPair(1, 1), d(6));
+      });
+      await vault.transaction(
+        (tx) => tx.clearSentBefore('c1', const MlsPair(1, 2)),
+      );
+      expect(await vault.hasSent('c1', const MlsPair(1, 1), d(1)), isFalse);
+      expect(await vault.hasSent('c1', const MlsPair(1, 2), d(2)), isTrue);
+      expect(await vault.hasSent('c1', const MlsPair(1, 2), d(3)), isTrue);
+      expect(await vault.hasSent('c1', const MlsPair(1, 3), d(4)), isTrue);
+      expect(await vault.hasSent('c1', const MlsPair(2, 0), d(5)), isTrue);
+      expect(await vault.hasSent('c2', const MlsPair(1, 1), d(6)), isTrue);
+      await vault.transaction(
+        (tx) => tx.clearSentBefore('c1', const MlsPair(2, 0)),
+      );
+      expect(await vault.hasSent('c1', const MlsPair(1, 3), d(4)), isFalse);
+      expect(await vault.hasSent('c1', const MlsPair(2, 0), d(5)), isTrue);
+      // The same digest twice is one row.
+      await vault.transaction(
+        (tx) => tx.addSent('c1', const MlsPair(2, 0), d(5)),
+      );
+      expect(await _count(db, 'vault_sent'), 2);
+    });
+
+    test('a pair above 2^53 - 1 is refused', () async {
+      const tooBig = 9007199254740992;
+      await expectLater(
+        vault.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: 'c1',
+              generation: 1,
+              epoch: tooBig,
+              state: _b('x'),
+            ),
+          ),
+        ),
+        throwsArgumentError,
+      );
+      expect(await _count(db, 'vault_group_states'), 0);
+    });
+
+    test('StoredMessageCheck values equal MessageCheck.name', () {
+      expect(StoredMessageCheck.ok, MessageCheck.ok.name);
+      expect(StoredMessageCheck.unverified, MessageCheck.unverified.name);
+      expect(StoredMessageCheck.undecodable, MessageCheck.undecodable.name);
+      expect(StoredMessageCheck.all, {
+        for (final c in MessageCheck.values) c.name,
+      });
     });
   });
 
@@ -1320,7 +2150,6 @@ void main() {
           generation: 1,
           epoch: 1,
           state: _b('SECRET'),
-          pendingCommit: false,
         ),
         const VaultOpenException(VaultStatus.keyLost),
         const VaultCorruptException('vault_groups'),

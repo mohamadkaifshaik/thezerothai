@@ -11,8 +11,11 @@ part 'vault_database.g.dart';
 // [vaultSealLabel] and [vaultRowKey]); `vault_schema_test.dart` pins them.
 //
 // Clear columns are only: ids (conversation, message, idempotency key,
-// setting key, the fixed meta/device slot), sort keys, message state,
-// generation, epoch, the owner uid and the schema version. Every other
+// setting key, the fixed meta/device slot, the device id as hex, the expected
+// message id, the local id), sort keys, message state, check and kind, the
+// outbox stage, `mine`, generation, epoch (and the other pair columns: marks,
+// member `since`, sent digests), the provisional flag and time, the member
+// side, the owner uid and the schema version. Every other
 // column holds `VaultCipher.seal(vaultSealLabel(table, column),
 // vaultRowKey(parts), bytes)`.
 
@@ -58,7 +61,100 @@ class VaultDevice extends Table {
   Set<Column> get primaryKey => {slot};
 }
 
-/// MLS group state per conversation.
+/// MLS group state per conversation and generation (schema version 2).
+@DataClassName('VaultGroupStateRow')
+class VaultGroupStates extends Table {
+  @override
+  String get tableName => 'vault_group_states';
+
+  TextColumn get conversationId => text()();
+  IntColumn get generation => integer()();
+  IntColumn get epoch => integer()();
+
+  /// Clear: 1 while the group was created locally and the server has not
+  /// accepted it yet.
+  IntColumn get provisional => integer().withDefault(const Constant(0))();
+
+  /// Clear: when a provisional group was created (microseconds).
+  IntColumn get provisionalCreatedAt => integer().nullable()();
+
+  /// Sealed.
+  BlobColumn get state => blob()();
+
+  /// Sealed: an encoded `PendingCommit`; NULL when there is none.
+  BlobColumn get pending => blob().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {conversationId, generation};
+}
+
+/// The marks and the sync record of one conversation (schema version 2).
+@DataClassName('VaultConversationRow')
+class VaultConversations extends Table {
+  @override
+  String get tableName => 'vault_conversations';
+
+  TextColumn get conversationId => text()();
+
+  /// Clear: the after-pair mark (both columns, or neither).
+  IntColumn get afterGeneration => integer().nullable()();
+  IntColumn get afterEpoch => integer().nullable()();
+
+  /// Clear: the join high-water mark (both columns, or neither).
+  IntColumn get joinGeneration => integer().nullable()();
+  IntColumn get joinEpoch => integer().nullable()();
+
+  /// Sealed: an encoded `ConversationSync`; NULL before the first write.
+  BlobColumn get sync => blob().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {conversationId};
+}
+
+/// The devices pinned in a conversation (schema version 2).
+@DataClassName('VaultMemberRow')
+class VaultMembers extends Table {
+  @override
+  String get tableName => 'vault_members';
+
+  TextColumn get conversationId => text()();
+
+  /// Clear: lower-case hex of the device id bytes.
+  TextColumn get deviceId => text()();
+
+  /// Clear: one of `MemberSide`.
+  TextColumn get side => text()();
+  IntColumn get sinceGeneration => integer()();
+  IntColumn get sinceEpoch => integer()();
+
+  /// Sealed.
+  BlobColumn get signatureKey => blob()();
+
+  @override
+  Set<Column> get primaryKey => {conversationId, deviceId};
+}
+
+/// Digests of the commits this device sent, per pair (schema version 2).
+@DataClassName('VaultSentRow')
+class VaultSent extends Table {
+  @override
+  String get tableName => 'vault_sent';
+
+  TextColumn get conversationId => text()();
+  IntColumn get generation => integer()();
+  IntColumn get epoch => integer()();
+
+  /// Clear: 64 hex.
+  TextColumn get digest => text()();
+
+  @override
+  Set<Column> get primaryKey => {conversationId, generation, epoch, digest};
+}
+
+/// Version 1 MLS group state, one row per conversation. Never written by
+/// version 2 (its rows are copied to `vault_group_states` and left in place,
+/// sealed and unread); kept in the schema, in [VaultDatabase.vaultTables] and
+/// so covered by the wipe.
 @DataClassName('VaultGroupRow')
 class VaultGroups extends Table {
   @override
@@ -100,11 +196,25 @@ class VaultMessages extends Table {
   IntColumn get generation => integer()();
   IntColumn get epoch => integer()();
 
-  /// Sealed: one byte, 1 for a message this user sent.
+  /// Sealed: one byte, 1 for a message this user sent. Legacy (version 1):
+  /// version 2 always writes it equal to [mine].
   BlobColumn get fromSelf => blob()();
 
   /// Sealed; NULL for a tombstone (never a sealed empty value).
   BlobColumn get content => blob().nullable()();
+
+  /// Clear (version 2): one of `StoredMessageCheck`.
+  TextColumn get checkState => text().withDefault(const Constant('ok'))();
+
+  /// Clear (version 2): one of `StoredMessageKind`.
+  TextColumn get kind => text().withDefault(const Constant('message'))();
+
+  /// Clear (version 2): 1 for a message from this user's own devices; NULL
+  /// for a version 1 row whose sealed [fromSelf] did not authenticate.
+  IntColumn get mine => integer().nullable()();
+
+  /// Sealed (version 2): the sender's device id; NULL when not known.
+  BlobColumn get senderDeviceId => blob().nullable()();
 
   @override
   Set<Column> get primaryKey => {conversationId, messageId};
@@ -144,6 +254,18 @@ class VaultOutbox extends Table {
   /// Sealed (utf8); NULL when there was no error.
   BlobColumn get lastError => blob().nullable()();
 
+  /// Clear (version 2): one of `OutboxStage`.
+  TextColumn get stage => text().withDefault(const Constant('encrypted'))();
+
+  /// Clear (version 2): the message id the server will give this send.
+  TextColumn get expectedMessageId => text().nullable()();
+
+  /// Clear (version 2): stable across re-keying; the first idempotency key.
+  TextColumn get localId => text().nullable()();
+
+  /// Sealed (version 2): the serialized `MlsInit`, exact bytes.
+  BlobColumn get init => blob().nullable()();
+
   @override
   Set<Column> get primaryKey => {idempotencyKey};
 }
@@ -164,7 +286,7 @@ class VaultSettings extends Table {
 }
 
 /// The schema version this build writes and stamps into `vault_meta`.
-const int kVaultSchemaVersion = 1;
+const int kVaultSchemaVersion = 2;
 
 /// The fixed primary key of the one `vault_meta` row.
 const String kVaultMetaKey = 'vault';
@@ -183,7 +305,10 @@ const String kVaultSentinel = 'dzeroth.vault.sentinel.v1';
 ///
 /// - `vault_meta`: `[kVaultMetaKey]`
 /// - `vault_device`: `[kVaultDeviceSlot]`
-/// - `vault_groups`: `[conversationId]`
+/// - `vault_groups` (legacy, version 1): `[conversationId]`
+/// - `vault_group_states`: `[conversationId, '$generation']`
+/// - `vault_conversations`: `[conversationId]`
+/// - `vault_members`: `[conversationId, deviceIdHex]`
 /// - `vault_messages`: `[conversationId, messageId]`
 /// - `vault_outbox`: `[idempotencyKey]`
 /// - `vault_settings`: `[settingKey]`
@@ -237,6 +362,10 @@ String vaultDatabaseNameForAlias(String alias) =>
     VaultMeta,
     VaultDevice,
     VaultGroups,
+    VaultGroupStates,
+    VaultConversations,
+    VaultMembers,
+    VaultSent,
     VaultMessages,
     VaultOutbox,
     VaultSettings,
@@ -257,17 +386,48 @@ class VaultDatabase extends _$VaultDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
     onUpgrade: (m, from, to) async {
-      // No upgrades yet (version 1). To add one: bump [kVaultSchemaVersion],
-      // add `if (from < N) { ... }` steps here that only ADD tables, columns
-      // or indexes (never rename or drop: sealed values are bound to table,
-      // column and row key names), and add a hand-written migration test
-      // from version N-1 in `vault_schema_test.dart`.
+      // Additive SQL only: steps ADD tables and columns (never rename, drop
+      // or rewrite: sealed values are bound to table, column and row key
+      // names), run when drift opens the file, before the sentinel is
+      // checked, and change no existing row, so a file whose key is lost
+      // keeps every sealed byte. The part that needs the key (re-sealing)
+      // is `_migrateSealedV1` in secure_vault.dart. Drift does not run this
+      // in one transaction and sets `user_version` only afterwards, so every
+      // step is safe to run again after a crash halfway.
+      if (from < 2) {
+        await m.createTable(vaultGroupStates);
+        await m.createTable(vaultConversations);
+        await m.createTable(vaultMembers);
+        await m.createTable(vaultSent);
+        await _addColumn(m, vaultMessages, vaultMessages.checkState);
+        await _addColumn(m, vaultMessages, vaultMessages.kind);
+        await _addColumn(m, vaultMessages, vaultMessages.mine);
+        await _addColumn(m, vaultMessages, vaultMessages.senderDeviceId);
+        await _addColumn(m, vaultOutbox, vaultOutbox.stage);
+        await _addColumn(m, vaultOutbox, vaultOutbox.expectedMessageId);
+        await _addColumn(m, vaultOutbox, vaultOutbox.localId);
+        await _addColumn(m, vaultOutbox, vaultOutbox.init);
+      }
     },
     // Deleted rows are overwritten with zeros instead of lingering in free
     // pages (on Android it is also set by the connection's setup callback,
     // before the schema is created). Per connection, so set on every open.
     beforeOpen: (_) => customStatement('PRAGMA secure_delete = ON'),
   );
+
+  /// `ALTER TABLE ... ADD COLUMN`, unless [column] is already there (a
+  /// previous attempt added it and stopped before `user_version` moved).
+  Future<void> _addColumn(
+    Migrator m,
+    TableInfo<Table, Object?> table,
+    GeneratedColumn<Object> column,
+  ) async {
+    final info = await customSelect(
+      'PRAGMA table_info(${table.actualTableName})',
+    ).get();
+    if (info.any((row) => row.read<String>('name') == column.$name)) return;
+    await m.addColumn(table, column);
+  }
 
   /// Rebuilds the file without free pages. Must run outside a transaction.
   Future<void> vacuum() => customStatement('VACUUM');
@@ -282,11 +442,16 @@ class VaultDatabase extends _$VaultDatabase {
     return null;
   }
 
-  /// Every vault table (there are no foreign keys, so any order deletes).
+  /// Every vault table, the legacy `vault_groups` included (there are no
+  /// foreign keys, so any order deletes).
   List<TableInfo<Table, Object?>> get vaultTables => [
     vaultMessages,
     vaultOutbox,
     vaultGroups,
+    vaultGroupStates,
+    vaultConversations,
+    vaultMembers,
+    vaultSent,
     vaultDevice,
     vaultSettings,
     vaultMeta,
