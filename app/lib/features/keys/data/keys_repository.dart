@@ -51,12 +51,13 @@ class KeysRepository {
   /// long as it is not globally off: sent when the flag is on or this device
   /// holds a vault. Otherwise nothing is sent. A server FEATURE_DISABLED is
   /// rethrown and NOT recorded in the gate (it means globally off here, and
-  /// must not switch off the flag-gated calls).
+  /// must not switch off the flag-gated calls). An unexpected
+  /// [UnknownApiException] still reaches the gate's `onUnexpectedError`.
   Future<T> _open<T>(Future<T> Function() call) async {
     if (!(_gate.enabled || _deviceFacts())) {
       throw const FeatureDisabledException('This feature is not available.');
     }
-    return await guardApiCall(call);
+    return await _gate.runUnrecorded(call);
   }
 
   /// Publishes this device (idempotent for the same id and key).

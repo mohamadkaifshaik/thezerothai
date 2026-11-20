@@ -78,6 +78,19 @@ class ServiceFeatureGate extends ChangeNotifier {
     }
   }
 
+  /// Runs an API [call] the caller already decided may be sent (no flag
+  /// check): errors are converted by [guardApiCall] and an unexpected
+  /// [UnknownApiException] goes to `onUnexpectedError`, as in [run], but a
+  /// FEATURE_DISABLED is only rethrown, never recorded.
+  Future<T> runUnrecorded<T>(Future<T> Function() call) async {
+    try {
+      return await guardApiCall(call);
+    } on UnknownApiException catch (error, stack) {
+      _onUnexpectedError?.call(error, stack);
+      rethrow;
+    }
+  }
+
   void _requestRefresh() {
     final callback = _onDisabledByServer;
     if (callback == null) return;

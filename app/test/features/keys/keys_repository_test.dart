@@ -246,6 +246,30 @@ void main() {
     expect(repo.enabled, isTrue);
   });
 
+  test('an unknown error on listMine with the flag off and a vault reports '
+      'once', () async {
+    final reported = <Object>[];
+    gate = ServiceFeatureGate(
+      isEnabled: () => flag,
+      onDisabledByServer: () => refreshes++,
+      onUnexpectedError: (error, _) => reported.add(error),
+    );
+    repo = KeysRepository(
+      apiClient: server.apiClient,
+      gate: gate,
+      deviceFacts: () => hasVault,
+    );
+    flag = false;
+    hasVault = true;
+    server.failNext['list'] = [
+      connect.ConnectException(connect.Code.internal, 'boom'),
+    ];
+    await expectLater(repo.listMine(), throwsA(isA<UnknownApiException>()));
+    expect(reported, hasLength(1));
+    expect(reported.single, isA<UnknownApiException>());
+    expect(refreshes, 0);
+  });
+
   test('claim carries conversationId and lookup carries inactive', () async {
     server.claimConversationId = '0123456789abcdef0123456789abcdef';
     await repo.registerDevice(
