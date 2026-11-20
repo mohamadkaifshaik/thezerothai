@@ -19,11 +19,11 @@ import 'package:dzeroth/core/vault/vault_cipher_stub.dart'
 ///
 /// The key never appears in an error, a log or [Object.toString].
 ///
-/// [destroy] is the only way to end a cipher, and it also deletes the stored
-/// key. A cipher that is simply dropped (no [destroy]) leaves its in-memory
-/// key bytes (Android) to the garbage collector: they are not zeroed. A
-/// non-destructive `close()` that zeroes without deleting is left for a
-/// later plan.
+/// A cipher ends in one of two ways: [close] ends it and keeps the stored key
+/// (the same key opens again with [openVaultCipher]); [destroy] ends it and
+/// also deletes the stored key. A cipher that is simply dropped leaves its
+/// in-memory key bytes (Android) to the garbage collector: they are not
+/// zeroed, so close a cipher that will not be used.
 abstract interface class VaultCipher {
   /// True when [openVaultCipher] found no stored key for this user and made a
   /// new one. Informational only: whether a vault's data is readable is
@@ -58,7 +58,17 @@ abstract interface class VaultCipher {
   ///
   /// A [seal] or [open] result that completes after [destroy] began must not
   /// be stored: the vault session serialises its writes before [destroy].
+  ///
+  /// Allowed after [close] (the stored key is still deleted). A second
+  /// [destroy] throws [StateError].
   Future<void> destroy();
+
+  /// Ends this cipher WITHOUT deleting the stored key: new calls are refused
+  /// at once ([StateError]), calls in flight finish first (at most 5 s), then
+  /// the in-memory key is zeroed (Android) or its handle dropped (web). The
+  /// same key opens again with [openVaultCipher]. Idempotent; a no-op after
+  /// [destroy].
+  Future<void> close();
 }
 
 /// Why the vault key could not be opened.

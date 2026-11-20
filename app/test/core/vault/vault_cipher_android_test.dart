@@ -170,6 +170,7 @@ class _LateFailingOpenEngine extends _CapturingEngine {
 }
 
 Uint8List _b(String s) => Uint8List.fromList(utf8.encode(s));
+String _s(Uint8List b) => utf8.decode(b);
 
 Future<VaultCipher> _open(FakeCryptoEngine engine, {String uid = 'user-1'}) =>
     openIoVaultCipher(uid: uid, engine: engine, isAndroid: true);
@@ -343,6 +344,70 @@ void main() {
       );
     },
   );
+
+  test('after close seal and open throw StateError, no delete was sent, and a '
+      'new open reads rows sealed before', () async {
+    final cipher = await _open(engine);
+    final sealed = await cipher.seal('messages', 'r1', _b('old'));
+    await cipher.close();
+
+    await expectLater(cipher.seal('messages', 'r2', _b('x')), throwsStateError);
+    await expectLater(cipher.open('messages', 'r1', sealed), throwsStateError);
+    expect(keystore.calls.where((c) => c.method == 'delete'), isEmpty);
+    expect(keystore.stored, isNotEmpty);
+
+    final again = await _open(engine);
+    expect(again.freshlyCreated, isFalse);
+    expect(_s(await again.open('messages', 'r1', sealed)), 'old');
+  });
+
+  test('close zeroes the key bytes', () async {
+    final cipher = await _open(engine);
+    expect(engine.keys.single, isNot(everyElement(0)));
+    await cipher.close();
+    expect(engine.keys.single, everyElement(0));
+  });
+
+  test('close waits for a seal in flight, then zeroes the key', () async {
+    final late = _LateReadEngine()..sealGate = Completer<void>();
+    final cipher = await _open(late);
+    final sealing = cipher.seal('messages', 'r1', _b('x'));
+    await pumpEventQueue();
+    var closed = false;
+    final closing = cipher.close().then((_) => closed = true);
+    await pumpEventQueue();
+    expect(closed, isFalse);
+    expect(late.keys.single, isNot(everyElement(0)));
+    late.sealGate!.complete();
+    await sealing;
+    await closing;
+    expect(late.keys.single, everyElement(0));
+  });
+
+  test('close is idempotent and a no-op after destroy', () async {
+    final cipher = await _open(engine);
+    await cipher.close();
+    await cipher.close();
+
+    final other = await _open(engine, uid: 'user-2');
+    await other.destroy();
+    final deletes = keystore.calls.where((c) => c.method == 'delete').length;
+    await other.close();
+    expect(keystore.calls.where((c) => c.method == 'delete').length, deletes);
+  });
+
+  test('destroy after close still deletes the stored key', () async {
+    final cipher = await _open(engine);
+    await cipher.close();
+    expect(keystore.stored, isNotEmpty);
+    await cipher.destroy();
+    expect(keystore.stored, isEmpty);
+    expect(
+      (keystore.calls.last.arguments as Map<Object?, Object?>)['alias'],
+      vaultKeyAlias('user-1'),
+    );
+    await expectLater(cipher.destroy(), throwsStateError);
+  });
 
   test(
     'a failed delete still ends the cipher and reports unavailable',

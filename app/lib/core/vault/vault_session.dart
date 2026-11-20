@@ -863,12 +863,15 @@ class VaultSession {
       known = await _markers.known(alias);
     } catch (_, stack) {
       _report('markers', stack);
+      await _closeCipher(cipher);
       await _clearStreak(alias, quiet: true);
       return _fail(uid, VaultStatus.unavailable);
     }
 
     // 4. The vault; on the web the marker's storage is checked before
-    // anything is created.
+    // anything is created. A cipher that does not end up inside a published
+    // vault is CLOSED on every path (its key zeroed or its handle dropped;
+    // the stored key stays: only a confirmed wipe destroys it).
     final SecureVault vault;
     try {
       vault = await _openVault(
@@ -879,19 +882,25 @@ class VaultSession {
     } on VaultOpenException catch (e) {
       switch (e.status) {
         case VaultStatus.keyLost:
-          return _onKeyLost(uid, cipher, allowConfirmedWipe);
+          await _onKeyLost(uid, cipher, allowConfirmedWipe);
+          await _closeCipher(cipher);
+          return;
         case VaultStatus.storageChanged:
+          await _closeCipher(cipher);
           await _clearStreak(alias);
           return _fail(uid, VaultStatus.storageChanged);
         case VaultStatus.unsupported:
+          await _closeCipher(cipher);
           await _releaseOwner();
           return _setStatus(VaultStatus.unsupported);
         default:
+          await _closeCipher(cipher);
           await _clearStreak(alias);
           return _fail(uid, VaultStatus.unavailable);
       }
     } catch (_, stack) {
       _report('open', stack);
+      await _closeCipher(cipher);
       await _clearStreak(alias);
       return _fail(uid, VaultStatus.unavailable);
     }
@@ -962,6 +971,15 @@ class VaultSession {
     } catch (_) {}
   }
 
+  /// Ends a cipher that no published vault holds. Never deletes the stored
+  /// key (a no-op for a cipher already destroyed or closed).
+  Future<void> _closeCipher(VaultCipher? cipher) async {
+    if (cipher == null) return;
+    try {
+      await cipher.close();
+    } catch (_) {}
+  }
+
   /// The vault's key does not open it. The first launch that sees this
   /// records it (launch and time) and wipes nothing; only a DIFFERENT launch
   /// at least [kVaultKeyLossConfirmAfter] later that sees it again wipes the
@@ -1009,6 +1027,8 @@ class VaultSession {
     // Confirmed. With the lock still held the live cipher ends the key;
     // after a lost lock the closed path takes its own lock (or is refused).
     final held = !_lost && _ownedAlias == alias;
+    // A cipher the wipe will not destroy is closed before the key goes.
+    if (!held) await _closeCipher(cipher);
     final wiped = await _wipeClosed(alias, cipher: held ? cipher : null);
     if (!wiped) {
       // The key stays (a failed file wipe never deletes it); owed.

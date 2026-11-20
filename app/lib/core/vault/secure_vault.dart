@@ -806,7 +806,13 @@ class _DriftSecureVault implements SecureVault {
     try {
       await _db.close();
     } finally {
-      _releaseRegistration();
+      try {
+        // Ends the cipher, zeroing its in-memory key; the stored key stays
+        // (only wipe() destroys it).
+        await _cipher.close();
+      } finally {
+        _releaseRegistration();
+      }
     }
   }
 }

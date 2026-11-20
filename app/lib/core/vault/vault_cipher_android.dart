@@ -197,8 +197,11 @@ class AndroidVaultCipher implements VaultCipher {
   // flight.
   final Uint8List _key;
 
-  // Set first by destroy: new calls are refused while in-flight ones finish.
+  // Set first by close or destroy: new calls are refused while in-flight ones
+  // finish. [_destroyed] is set by destroy only: close after it is a no-op,
+  // and destroy after close still deletes the stored key.
   bool _closed = false;
+  bool _destroyed = false;
   int _inFlight = 0;
   Completer<void>? _drained;
 
@@ -311,14 +314,17 @@ class AndroidVaultCipher implements VaultCipher {
         }
       });
 
-  /// Refuses new calls at once, waits for the ones in flight at most
-  /// [_destroyWait] (5 s, as on the web: a hung engine call must not hold a
-  /// sign-out's wipe forever), zeroes the key, then deletes the platform
-  /// key. A call still running after the bound gets no result (StateError),
-  /// so nothing sealed or opened after the key was zeroed is ever stored.
-  @override
-  Future<void> destroy() async {
-    if (_closed) throw StateError('The vault cipher was destroyed.');
+  // The one end of the in-memory key, shared by close and destroy: refuses
+  // new calls at once (synchronously, before the first await), waits for the
+  // ones in flight at most [_destroyWait] (5 s, as on the web: a hung engine
+  // call must not hold a sign-out's wipe forever), then zeroes the key. A
+  // call still running after the bound gets no result (StateError), so
+  // nothing sealed or opened after the key was zeroed is ever stored.
+  Future<void>? _ending;
+
+  Future<void> _end() => _ending ??= _endNow();
+
+  Future<void> _endNow() async {
     _closed = true;
     if (_inFlight > 0) {
       final drained = _drained = Completer<void>();
@@ -326,6 +332,22 @@ class AndroidVaultCipher implements VaultCipher {
     }
     _zeroed = true;
     _key.fillRange(0, _key.length, 0);
+  }
+
+  /// Ends the cipher and zeroes the key; the stored (wrapped) key stays.
+  @override
+  Future<void> close() async {
+    if (_destroyed) return;
+    await _end();
+  }
+
+  /// Ends the cipher (as [close] does, when it has not been closed yet),
+  /// then deletes the platform key.
+  @override
+  Future<void> destroy() async {
+    if (_destroyed) throw StateError('The vault cipher was destroyed.');
+    _destroyed = true;
+    await _end();
     await _serialized(_alias, () => _deleteAlias(_alias));
   }
 }

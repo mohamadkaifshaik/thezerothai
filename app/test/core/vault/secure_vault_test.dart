@@ -124,6 +124,22 @@ void main() {
     await vault.close();
   }
 
+  test('close() closes the cipher and does not destroy it', () async {
+    final cipher = FakeVaultCipher();
+    final vault = await open(fileDb(newPath()), cipher);
+    await vault.close();
+    expect(cipher.closeCalls, 1);
+    expect(cipher.closed, isTrue);
+    expect(cipher.destroyCalls, 0);
+    await vault.close(); // idempotent
+    expect(cipher.closeCalls, 1);
+    await expectLater(
+      cipher.seal('t', 'r', _b('x')),
+      throwsStateError,
+      reason: 'the closed cipher refuses new calls',
+    );
+  });
+
   group('open and the sentinel', () {
     test('createdThisOpen is true only for the open that wrote the '
         'sentinel; storageName is what the opener passed', () async {
@@ -138,14 +154,16 @@ void main() {
       expect(first.createdThisOpen, isTrue);
       expect(first.storageName, 'opfsLocks');
       await first.close();
-      final again = await open(fileDb(path), cipher);
+      // A closed cipher refuses new calls: each open gets a new one on the
+      // same key, as a restart does.
+      final again = await open(fileDb(path), FakeVaultCipher());
       expect(again.createdThisOpen, isFalse);
       expect(again.storageName, 'native', reason: 'the default');
       await again.close();
       // A vault with rows, reopened: not created either.
       final seeded = newPath();
-      await seed(seeded, cipher);
-      final reopened = await open(fileDb(seeded), cipher);
+      await seed(seeded, FakeVaultCipher());
+      final reopened = await open(fileDb(seeded), FakeVaultCipher());
       expect(reopened.createdThisOpen, isFalse);
       await reopened.close();
     });
@@ -236,10 +254,9 @@ void main() {
 
     test('a sentinel holding another value is keyLost', () async {
       final path = newPath();
-      final cipher = FakeVaultCipher();
-      await seed(path, cipher);
+      await seed(path, FakeVaultCipher());
       final raw = fileDb(path);
-      final other = await cipher.seal(
+      final other = await FakeVaultCipher().seal(
         'vault_meta.sentinel',
         vaultRowKey(['vault']),
         _b('not the sentinel'),

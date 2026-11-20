@@ -1315,6 +1315,54 @@ void main() {
       expect(world.calls.where(_destructive), isEmpty);
     });
 
+    test(
+      'a cipher opened for a failed open is closed, never destroyed',
+      () async {
+        final ready = await signIn(_a);
+        expect(world.ciphers.single.closed, isFalse);
+        await ready.onSessionEnded(_a, SessionEnd.sessionLost);
+        world.ciphers.clear();
+        world.calls.clear();
+
+        for (final status in [
+          VaultStatus.unavailable,
+          VaultStatus.storageChanged,
+        ]) {
+          world.openFails[_a] = status;
+          final s = await signIn(_a);
+          expect(s.status.value, status);
+          final cipher = world.ciphers.last;
+          expect(cipher.closed, isTrue, reason: status.name);
+          expect(cipher.destroyed, isFalse, reason: status.name);
+          expect(world.keys.containsKey(_a), isTrue, reason: status.name);
+        }
+        expect(world.calls.where(_destructive), isEmpty);
+        world.openFails.clear();
+
+        // Key lost, seen once: nothing is wiped and the cipher is still closed.
+        world.cipherKeyLost.add(_a);
+        final lost = await signIn(_a);
+        expect(lost.status.value, VaultStatus.keyLost);
+        world.cipherKeyLost.clear();
+        expect(world.calls.where(_destructive), isEmpty);
+        expect(world.keys.containsKey(_a), isTrue);
+        for (final c in world.ciphers) {
+          expect(c.destroyed, isFalse);
+        }
+      },
+    );
+
+    test('a vault that is published keeps its cipher open until it closes, '
+        'then the cipher is closed once', () async {
+      final s = await signIn(_a);
+      final cipher = world.ciphers.single;
+      expect(s.status.value, VaultStatus.ready);
+      expect(cipher.closed, isFalse);
+      await s.onFlagChanged(false, uid: _a);
+      expect(cipher.destroyed, isFalse);
+      expect(cipher.closeCalls, lessThanOrEqualTo(1));
+    });
+
     test('owner refused: heldElsewhere, the cipher is never opened', () async {
       world.heldElsewhere.add(_a);
       final s = await signIn(_a);

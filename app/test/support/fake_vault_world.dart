@@ -34,6 +34,10 @@ class FakeVaultWorld {
 
   final List<String> calls = [];
 
+  /// Every cipher a launch opened, in order (to see which were closed or
+  /// destroyed).
+  final List<FakeWorldCipher> ciphers = [];
+
   final Map<String, String> _uidByAlias = {};
 
   /// Makes [uid] known to the log's alias -> uid mapping.
@@ -166,12 +170,14 @@ class FakeVaultWorld {
     }
     final existing = keys[uid];
     final version = existing ?? (keys[uid] = _nextKey++);
-    return FakeWorldCipher(
+    final cipher = FakeWorldCipher(
       this,
       uid,
       version,
       freshlyCreated: existing == null,
     );
+    ciphers.add(cipher);
+    return cipher;
   }
 
   Future<SecureVault> _openVault({
@@ -296,6 +302,11 @@ class FakeWorldCipher implements VaultCipher {
   final int version;
   bool destroyed = false;
 
+  /// How many times [close] ended this cipher (not recorded in
+  /// [FakeVaultWorld.calls], so call-order assertions stay as they are).
+  int closeCalls = 0;
+  bool closed = false;
+
   @override
   final bool freshlyCreated;
 
@@ -303,6 +314,14 @@ class FakeWorldCipher implements VaultCipher {
   Future<void> destroy() async {
     destroyed = true;
     await _world._deleteKey(alias: vaultKeyAlias(uid));
+  }
+
+  /// Ends the cipher; the key stays. A no-op after [destroy] or [close].
+  @override
+  Future<void> close() async {
+    if (destroyed || closed) return;
+    closeCalls++;
+    closed = true;
   }
 
   @override
@@ -394,6 +413,7 @@ class FakeWorldVault implements SecureVault {
     if (closed) return;
     _world.calls.add('vault.close:$uid');
     closed = true;
+    await _cipher.close();
   }
 
   @override

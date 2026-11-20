@@ -110,6 +110,21 @@ void main() {
       );
     });
 
+    testWidgets('close then reopen opens earlier rows', (tester) async {
+      final cipher = await openVaultCipher(uid: uid, engine: engine);
+      final sealed = await cipher.seal('messages', 'r1', _b('kept'));
+      await cipher.close();
+      await expectLater(
+        cipher.open('messages', 'r1', sealed),
+        throwsStateError,
+      );
+
+      final again = await openVaultCipher(uid: uid, engine: engine);
+      live = again;
+      expect(again.freshlyCreated, isFalse);
+      expect(await again.open('messages', 'r1', sealed), _b('kept'));
+    });
+
     testWidgets('two concurrent opens share one key; one is fresh', (
       tester,
     ) async {
@@ -284,6 +299,21 @@ void main() {
       final third = await open();
       expect(third.freshlyCreated, isFalse);
       expect(await third.open('messages', 'r1', fromA), _b('a'));
+    });
+
+    testWidgets('close then reopen opens earlier rows', (tester) async {
+      final cipher = await open();
+      final sealed = await cipher.seal('messages', 'r1', _b('kept'));
+      await cipher.close();
+      expect(await storedVaultKeyExists(uid), isTrue);
+      await expectLater(
+        cipher.open('messages', 'r1', sealed),
+        throwsStateError,
+      );
+
+      final again = await open();
+      expect(again.freshlyCreated, isFalse);
+      expect(await again.open('messages', 'r1', sealed), _b('kept'));
     });
 
     testWidgets('destroy deletes the record; later calls throw StateError', (
