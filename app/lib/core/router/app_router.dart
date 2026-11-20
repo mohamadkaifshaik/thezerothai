@@ -147,6 +147,12 @@ class AppRouter {
   static const messageSettingsPath = '/settings/messages';
   static const dataUsagePath = '/settings/data-usage';
 
+  /// Encrypted messages on this device and the reset below it. Declared with
+  /// the screens (Plan 5b Tasks 11 and 12); every caller is behind access
+  /// `full` or `manage`.
+  static const encryptionSettingsPath = '/settings/encryption';
+  static const resetEncryptionPath = '/settings/encryption/reset';
+
   /// Settings > Location (the chosen area). Reachable in every flag mode so a
   /// stored area can always be cleared; its consent leaf and the picker need
   /// `location`.

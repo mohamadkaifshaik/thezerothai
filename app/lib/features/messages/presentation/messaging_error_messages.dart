@@ -26,6 +26,9 @@ String messagingErrorMessage(AppException error) {
     NetworkException() => 'No connection. Check your network and try again.',
     NotFoundException() => "This conversation isn't available anymore.",
     ValidationException() => "That message can't be sent. Check it and retry.",
+    // Fixed text from common.proto; never the server's.
+    EncryptionRequiredException() => 'Update the app to keep messaging',
+    StaleEpochException() => "Couldn't send that. Please try again.",
     _ => "Couldn't complete that. Please try again.",
   };
 }
