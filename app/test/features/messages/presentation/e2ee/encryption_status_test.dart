@@ -275,6 +275,84 @@ void main() {
     );
   });
 
+  test('the removedElsewhere device phase alone yields the removed-elsewhere '
+      'status', () {
+    // No DeviceKeysStatus with that phase can be built outside the service,
+    // so the phase-level function is tested.
+    for (final vault in [VaultStatus.ready, VaultStatus.unavailable]) {
+      final s = encryptionStatusOfPhase(
+        access: EncryptionAccess.full,
+        vault: vault,
+        flag: E2eeFlag.on,
+        mayStart: true,
+        historyLost: false,
+        phase: DeviceKeysPhase.removedElsewhere,
+        phaseRetryable: false,
+        localRecordUnusable: false,
+        engineUnavailable: false,
+        removedElsewhere: false,
+      );
+      expect(s.kind, EncryptionStatusKind.removedElsewhere, reason: '$vault');
+      expect(s.blocksMessaging, isTrue);
+    }
+    // Hidden access still wins.
+    expect(
+      encryptionStatusOfPhase(
+        access: EncryptionAccess.hidden,
+        vault: VaultStatus.ready,
+        flag: E2eeFlag.on,
+        mayStart: true,
+        historyLost: false,
+        phase: DeviceKeysPhase.removedElsewhere,
+        phaseRetryable: false,
+        localRecordUnusable: false,
+        engineUnavailable: false,
+        removedElsewhere: false,
+      ).kind,
+      EncryptionStatusKind.none,
+    );
+  });
+
+  test('vaultNotOpen is true exactly for opening, keyLostPending, '
+      'storageChanged, unavailable and heldElsewhere', () {
+    final notOpen = {
+      EncryptionStatusKind.opening,
+      EncryptionStatusKind.keyLostPending,
+      EncryptionStatusKind.storageChanged,
+      EncryptionStatusKind.unavailable,
+      EncryptionStatusKind.heldElsewhere,
+    };
+    for (final kind in EncryptionStatusKind.values) {
+      expect(
+        EncryptionStatus(kind: kind).vaultNotOpen,
+        notOpen.contains(kind),
+        reason: '$kind',
+      );
+    }
+    expect(
+      EncryptionStatus(
+        kind: EncryptionStatusKind.unavailable,
+        unavailableLong: true,
+      ).vaultNotOpen,
+      isTrue,
+    );
+  });
+
+  test('vaultNotOpen stays true when removed-elsewhere outranks a vault '
+      'status that is not open', () {
+    for (final vault in VaultStatus.values) {
+      final s = of(vault: vault, removedElsewhere: true);
+      expect(s.kind, EncryptionStatusKind.removedElsewhere);
+      final open =
+          vault == VaultStatus.ready ||
+          vault == VaultStatus.off ||
+          vault == VaultStatus.unsupported;
+      expect(s.vaultNotOpen, !open, reason: '$vault');
+    }
+    // Engine unavailable on a ready vault: the vault is open.
+    expect(of(engineUnavailable: true).vaultNotOpen, isFalse);
+  });
+
   test('mayStart and access are carried', () {
     final s = of(
       access: EncryptionAccess.manage,

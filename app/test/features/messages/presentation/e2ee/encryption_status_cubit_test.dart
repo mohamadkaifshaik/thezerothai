@@ -193,7 +193,12 @@ void main() {
       expect(device.deviceKeys.listenerCount, 1);
       expect(device.engineUnavailable.listenerCount, 1);
       expect(device.unavailableLong.listenerCount, 1);
+      // The port's notifier has no counter: its listener is observed instead.
+      // ignore: invalid_use_of_protected_member
+      expect(messaging.removedElsewhere.hasListeners, isTrue);
       await cubit.close();
+      // ignore: invalid_use_of_protected_member
+      expect(messaging.removedElsewhere.hasListeners, isFalse);
       expect(device.vaultStatus.listenerCount, 0);
       expect(device.deviceKeys.listenerCount, 0);
       expect(device.engineUnavailable.listenerCount, 0);

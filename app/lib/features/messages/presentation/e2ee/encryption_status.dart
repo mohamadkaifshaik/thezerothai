@@ -48,6 +48,7 @@ class EncryptionStatus {
     this.historyLost = false,
     this.mayStart = false,
     this.access = EncryptionAccess.hidden,
+    this.vault = VaultStatus.off,
     this.unavailableLong = false,
   });
 
@@ -55,6 +56,41 @@ class EncryptionStatus {
   final bool historyLost;
   final bool mayStart;
   final EncryptionAccess access;
+
+  /// The vault status this was computed from (an enum, nothing readable). It only keeps [vaultNotOpen] truthful
+  /// when removed-elsewhere outranks a vault status that is not open; a hand-built status leaves it `off`.
+  final VaultStatus vault;
+
+  /// The vault on this device is not open: its kind is opening, keyLostPending, storageChanged, unavailable
+  /// (long or not) or heldElsewhere, OR the underlying [vault] status is one of those while a higher-precedence
+  /// kind (removed-elsewhere) is shown. False for engine-unavailable on an open vault. Tasks 5 and 6 read "the
+  /// vault is not open" only from here, never from the vault status or from [blocksMessaging].
+  bool get vaultNotOpen =>
+      switch (kind) {
+        EncryptionStatusKind.opening ||
+        EncryptionStatusKind.keyLostPending ||
+        EncryptionStatusKind.storageChanged ||
+        EncryptionStatusKind.unavailable ||
+        EncryptionStatusKind.heldElsewhere => true,
+        EncryptionStatusKind.none ||
+        EncryptionStatusKind.engineUnavailable ||
+        EncryptionStatusKind.removedElsewhere ||
+        EncryptionStatusKind.deviceLimitReached ||
+        EncryptionStatusKind.deviceRecordUnusable ||
+        EncryptionStatusKind.setupFailed ||
+        EncryptionStatusKind.dormant ||
+        EncryptionStatusKind.offline => false,
+      } ||
+      switch (vault) {
+        VaultStatus.opening ||
+        VaultStatus.keyLost ||
+        VaultStatus.storageChanged ||
+        VaultStatus.unavailable ||
+        VaultStatus.heldElsewhere => true,
+        VaultStatus.off ||
+        VaultStatus.unsupported ||
+        VaultStatus.ready => false,
+      };
 
   /// Second re-read R4: meaningful only for [EncryptionStatusKind.unavailable].
   final bool unavailableLong;
@@ -116,11 +152,12 @@ class EncryptionStatus {
       other.historyLost == historyLost &&
       other.mayStart == mayStart &&
       other.access == access &&
+      other.vault == vault &&
       other.unavailableLong == unavailableLong;
 
   @override
   int get hashCode =>
-      Object.hash(kind, historyLost, mayStart, access, unavailableLong);
+      Object.hash(kind, historyLost, mayStart, access, vault, unavailableLong);
 }
 
 /// Pure. Precedence (first match): access hidden or unsupported => none; removedElsewhere; then by vault status
@@ -137,12 +174,42 @@ EncryptionStatus encryptionStatusOf({
   required bool engineUnavailable,
   required bool removedElsewhere,
   bool unavailableLong = false,
+}) => encryptionStatusOfPhase(
+  access: access,
+  vault: vault,
+  flag: flag,
+  mayStart: mayStart,
+  historyLost: historyLost,
+  phase: deviceKeys.phase,
+  phaseRetryable: deviceKeys.retryable,
+  localRecordUnusable: localRecordUnusable,
+  engineUnavailable: engineUnavailable,
+  removedElsewhere: removedElsewhere,
+  unavailableLong: unavailableLong,
+);
+
+/// [encryptionStatusOf] at the level where the device-keys phase is an input (a `DeviceKeysStatus` with the
+/// `removedElsewhere` phase cannot be built outside the service). The removed-elsewhere phase is treated exactly
+/// like the port's boolean: either one gives [EncryptionStatusKind.removedElsewhere].
+EncryptionStatus encryptionStatusOfPhase({
+  required EncryptionAccess access,
+  required VaultStatus vault,
+  required E2eeFlag flag,
+  required bool mayStart,
+  required bool historyLost,
+  required DeviceKeysPhase phase,
+  required bool phaseRetryable,
+  required bool localRecordUnusable,
+  required bool engineUnavailable,
+  required bool removedElsewhere,
+  bool unavailableLong = false,
 }) {
   EncryptionStatus make(EncryptionStatusKind kind) => EncryptionStatus(
     kind: kind,
     historyLost: historyLost,
     mayStart: mayStart,
     access: access,
+    vault: vault,
     unavailableLong:
         kind == EncryptionStatusKind.unavailable && unavailableLong,
   );
@@ -155,7 +222,9 @@ EncryptionStatus encryptionStatusOf({
     case EncryptionAccess.full:
       break;
   }
-  if (removedElsewhere) return make(EncryptionStatusKind.removedElsewhere);
+  if (removedElsewhere || phase == DeviceKeysPhase.removedElsewhere) {
+    return make(EncryptionStatusKind.removedElsewhere);
+  }
   switch (vault) {
     case VaultStatus.off:
     case VaultStatus.unsupported:
@@ -174,17 +243,17 @@ EncryptionStatus encryptionStatusOf({
       break;
   }
   if (engineUnavailable) return make(EncryptionStatusKind.engineUnavailable);
-  switch (deviceKeys.phase) {
+  switch (phase) {
     case DeviceKeysPhase.deviceLimitReached:
       return make(EncryptionStatusKind.deviceLimitReached);
     case DeviceKeysPhase.failed:
       return make(
-        !deviceKeys.retryable && localRecordUnusable
+        !phaseRetryable && localRecordUnusable
             ? EncryptionStatusKind.deviceRecordUnusable
             : EncryptionStatusKind.setupFailed,
       );
     // The flag decides dormant and offline below; these phases add nothing of
-    // their own. The port's boolean is the only source of removedElsewhere.
+    // their own (removedElsewhere was handled before the vault status).
     case DeviceKeysPhase.idle:
     case DeviceKeysPhase.ready:
     case DeviceKeysPhase.dormant:

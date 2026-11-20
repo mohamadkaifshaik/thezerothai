@@ -77,14 +77,12 @@ class EncryptionStatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasKind = status.kind != EncryptionStatusKind.none;
     if (!hasKind && !status.historyLost) return const SizedBox.shrink();
-    final stack = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     final sections = <Widget>[
       if (status.historyLost)
         _Section(
           icon: Icons.history,
           title: kStatusHistoryLostTitle,
           body: kStatusHistoryLostBody,
-          stack: stack,
           actions: [
             if (onDismissHistoryLost != null)
               AppPillButton(
@@ -104,7 +102,6 @@ class EncryptionStatusCard extends StatelessWidget {
           title: encryptionStatusTitle(status),
           body: encryptionStatusBody(status)!,
           progress: status.kind == EncryptionStatusKind.opening,
-          stack: stack,
           actions: _kindActions(),
         ),
     ];
@@ -197,7 +194,6 @@ class _Section extends StatelessWidget {
     required this.icon,
     required this.body,
     required this.actions,
-    required this.stack,
     this.title,
     this.progress = false,
   });
@@ -206,7 +202,6 @@ class _Section extends StatelessWidget {
   final String? title;
   final String body;
   final List<Widget> actions;
-  final bool stack;
   final bool progress;
 
   @override
@@ -249,23 +244,28 @@ class _Section extends StatelessWidget {
           ],
           if (actions.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
-            if (stack)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (var i = 0; i < actions.length; i++) ...[
-                    if (i > 0) const SizedBox(height: AppSpacing.sm),
-                    actions[i],
-                  ],
-                ],
-              )
-            else
-              Wrap(
-                alignment: WrapAlignment.end,
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: actions,
-              ),
+            // Decided from the width the card actually gets, not the window:
+            // a narrow pane on a wide window stacks.
+            LayoutBuilder(
+              builder: (context, constraints) =>
+                  constraints.maxWidth + 2 * AppSpacing.md <
+                      AppBreakpoints.mobile
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < actions.length; i++) ...[
+                          if (i > 0) const SizedBox(height: AppSpacing.sm),
+                          actions[i],
+                        ],
+                      ],
+                    )
+                  : Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: actions,
+                    ),
+            ),
           ],
         ],
       ),

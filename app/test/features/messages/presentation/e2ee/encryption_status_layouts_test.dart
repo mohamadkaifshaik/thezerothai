@@ -96,6 +96,40 @@ void main() {
     textScales: const [2.0],
   );
 
+  testWidgets('a 320 dp wide card inside a 1400 dp window stacks its actions', (
+    tester,
+  ) async {
+    await pumpThemed(
+      tester,
+      Align(
+        alignment: AlignmentDirectional.topStart,
+        child: SizedBox(
+          width: 320,
+          child: _card(EncryptionStatusKind.removedElsewhere),
+        ),
+      ),
+      size: const Size(1400, 900),
+    );
+    expect(tester.takeException(), isNull);
+    final a = tester.getTopLeft(_button(kSetUpAgainAction));
+    final b = tester.getTopLeft(_button(kStatusCheckAgain));
+    expect(a.dy, lessThan(b.dy), reason: 'stacked in a narrow pane');
+  });
+
+  testWidgets('actions are 48 dp tap targets with labels at phone width', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await pumpThemed(
+      tester,
+      _card(EncryptionStatusKind.removedElsewhere, historyLost: true),
+      size: const Size(390, 800),
+    );
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    handle.dispose();
+  });
+
   testWidgets('right to left lays out without an exception', (tester) async {
     for (final width in _widths) {
       for (final kind in EncryptionStatusKind.values) {

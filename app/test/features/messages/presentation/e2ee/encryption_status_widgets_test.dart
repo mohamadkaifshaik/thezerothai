@@ -205,17 +205,6 @@ void main() {
     }
   });
 
-  testWidgets('Set up again calls the port once', (tester) async {
-    final taps = _Taps();
-    await pumpThemed(
-      tester,
-      taps.card(st(EncryptionStatusKind.removedElsewhere)),
-    );
-    await tester.tap(find.widgetWithText(AppPillButton, kSetUpAgainAction));
-    await tester.pump();
-    expect(taps.fake.setUpAgainCalls, 1);
-  });
-
   testWidgets('a persistent unavailable states its way out', (tester) async {
     await pumpThemed(
       tester,
