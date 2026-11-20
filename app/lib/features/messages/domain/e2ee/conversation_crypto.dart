@@ -49,6 +49,8 @@ const int kCommitPageSize = 50;
 /// a stored welcome; the next pass goes on).
 const int _kSwitchesPerPass = 4;
 
+const FormerPins _formerPins = FormerPins();
+
 /// What one catch-up pass ended with.
 ///
 /// `interrupted`: a transient failure (budget pause, deadline, network, vault
@@ -134,7 +136,6 @@ class ConversationCrypto {
   final ConversationLocks _locks;
   final ConversationContexts _contexts;
   final KnownConversations _known;
-  static const FormerPins _formerPins = FormerPins();
   final JoinBaselines _baselines;
   final DeviceKeyHistory _keyHistory;
   final DateTime Function() _now;
@@ -427,12 +428,6 @@ class ConversationCrypto {
     }
   }
 
-  static MlsPair? _serverPairOf(pb.ListConversationCommitsResponse page) {
-    final g = pairComponentFromInt64(page.mlsGeneration);
-    final e = pairComponentFromInt64(page.mlsEpoch);
-    return g == null || e == null ? null : MlsPair(g, e);
-  }
-
   /// Step 4 for the commit at [at]: confirm (own, by bytes) or process, then
   /// ONE transaction with the result, in one runWrite body.
   Future<_Applied> _applyLocked(
@@ -719,20 +714,6 @@ class ConversationCrypto {
     return (newMember: newMember, knownGrew: needKnown);
   }
 
-  static Uint8List? _deviceIdOf(
-    String hex,
-    MlsCommitEvent? event,
-    List<GroupMember> members,
-  ) {
-    for (final m in members) {
-      if (vaultDeviceIdHex(m.deviceId) == hex) return m.deviceId;
-    }
-    for (final a in event?.added ?? const <Uint8List>[]) {
-      if (vaultDeviceIdHex(a) == hex) return a;
-    }
-    return null;
-  }
-
   StoredMessage _systemRow(
     String id,
     MlsPair pair,
@@ -755,13 +736,6 @@ class ConversationCrypto {
     ).encode(),
     kind: StoredMessageKind.system,
   );
-
-  /// `internal`, `deadline` and `unavailable` are transient: the pass stops
-  /// and changes nothing; the commit is never skipped.
-  static bool _transient(MlsErrorCode code) =>
-      code == MlsErrorCode.internal ||
-      code == MlsErrorCode.deadline ||
-      code == MlsErrorCode.unavailable;
 
   /// Steps 1 and 6: the device waits for a welcome of [generation]. The
   /// first-saw record is written when that generation is not recorded yet
@@ -1158,26 +1132,6 @@ class ConversationCrypto {
         // Only once per welcome (mayWalk false the second time).
         return _Outcome.transient;
     }
-  }
-
-  /// L6: a stored non-provisional group of a generation up to [generation]
-  /// whose (generation, epoch) is not recorded as walked to its end.
-  static Future<bool> _unwalked(
-    SecureVault vault,
-    String id,
-    int generation,
-  ) async {
-    final groups = await vault.groups(id);
-    if (groups.isEmpty) return false;
-    final done =
-        (await vault.conversation(id))?.sync.completedEpochs ??
-        const <MlsPair>[];
-    return groups.any(
-      (g) =>
-          !g.provisional &&
-          g.generation <= generation &&
-          !done.contains(MlsPair(g.generation, g.epoch)),
-    );
   }
 
   /// [mayWalk]: a stored generation not walked to its end yields
@@ -2057,30 +2011,6 @@ class ConversationCrypto {
     }
   }
 
-  static Future<Map<String, int>> _readSkew(SecureVault v) async {
-    final bytes = await v.setting(kVaultSettingWelcomeSkew);
-    if (bytes == null) return {};
-    try {
-      final m = jsonDecode(utf8.decode(bytes));
-      if (m is! Map<String, Object?> || m['v'] != 1) {
-        throw const FormatException('shape');
-      }
-      final n = m['n'];
-      if (n is! Map<String, Object?>) throw const FormatException('shape');
-      return {
-        for (final e in n.entries)
-          e.key: e.value is int && (e.value! as int) >= 0
-              ? e.value! as int
-              : throw const FormatException('count'),
-      };
-    } on FormatException {
-      throw const VaultCorruptException('vault_settings');
-    }
-  }
-
-  static Uint8List _encodeSkew(Map<String, int> counts) =>
-      Uint8List.fromList(utf8.encode(jsonEncode({'v': 1, 'n': counts})));
-
   // ---------------------------------------------------------------------
 
   /// One unit of the sync budget; false (make no call) while paused, when a
@@ -2104,19 +2034,85 @@ class ConversationCrypto {
       _onUnexpectedError?.call(E2eePipelineError(step), s);
     }
   }
-
-  static bool _sameBytes(List<int> a, List<int> b) {
-    if (a.length != b.length) return false;
-    var diff = 0;
-    for (var i = 0; i < a.length; i++) {
-      diff |= a[i] ^ b[i];
-    }
-    return diff == 0;
-  }
-
-  static String _hexOf(Uint8List b) =>
-      b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 }
+
+MlsPair? _serverPairOf(pb.ListConversationCommitsResponse page) {
+  final g = pairComponentFromInt64(page.mlsGeneration);
+  final e = pairComponentFromInt64(page.mlsEpoch);
+  return g == null || e == null ? null : MlsPair(g, e);
+}
+
+Uint8List? _deviceIdOf(
+  String hex,
+  MlsCommitEvent? event,
+  List<GroupMember> members,
+) {
+  for (final m in members) {
+    if (vaultDeviceIdHex(m.deviceId) == hex) return m.deviceId;
+  }
+  for (final a in event?.added ?? const <Uint8List>[]) {
+    if (vaultDeviceIdHex(a) == hex) return a;
+  }
+  return null;
+}
+
+/// `internal`, `deadline` and `unavailable` are transient: the pass stops
+/// and changes nothing; the commit is never skipped.
+bool _transient(MlsErrorCode code) =>
+    code == MlsErrorCode.internal ||
+    code == MlsErrorCode.deadline ||
+    code == MlsErrorCode.unavailable;
+
+/// L6: a stored non-provisional group of a generation up to [generation]
+/// whose (generation, epoch) is not recorded as walked to its end.
+Future<bool> _unwalked(SecureVault vault, String id, int generation) async {
+  final groups = await vault.groups(id);
+  if (groups.isEmpty) return false;
+  final done =
+      (await vault.conversation(id))?.sync.completedEpochs ?? const <MlsPair>[];
+  return groups.any(
+    (g) =>
+        !g.provisional &&
+        g.generation <= generation &&
+        !done.contains(MlsPair(g.generation, g.epoch)),
+  );
+}
+
+Future<Map<String, int>> _readSkew(SecureVault v) async {
+  final bytes = await v.setting(kVaultSettingWelcomeSkew);
+  if (bytes == null) return {};
+  try {
+    final m = jsonDecode(utf8.decode(bytes));
+    if (m is! Map<String, Object?> || m['v'] != 1) {
+      throw const FormatException('shape');
+    }
+    final n = m['n'];
+    if (n is! Map<String, Object?>) throw const FormatException('shape');
+    return {
+      for (final e in n.entries)
+        e.key: e.value is int && (e.value! as int) >= 0
+            ? e.value! as int
+            : throw const FormatException('count'),
+    };
+  } on FormatException {
+    throw const VaultCorruptException('vault_settings');
+  }
+}
+
+Uint8List _encodeSkew(Map<String, int> counts) =>
+    Uint8List.fromList(utf8.encode(jsonEncode({'v': 1, 'n': counts})));
+
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff == 0;
+}
+
+String _hexOf(Uint8List b) =>
+    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
 /// `joinedInPlace`: joined and acknowledged by the nested poll of the
 /// catch-up a `walkFirst` started (nothing more to acknowledge);
