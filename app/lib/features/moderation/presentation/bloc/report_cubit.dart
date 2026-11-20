@@ -67,16 +67,26 @@ class ReportCubit extends Cubit<ReportState> {
     required ReportTargetType targetType,
     required String targetId,
     this.onUnexpectedError,
+    Uint8List? messagePayload,
     Uuid? uuid,
   }) : _repository = repository,
        _targetType = targetType,
        _targetId = targetId,
+       _messagePayload = _validPayload(messagePayload),
        _uuid = uuid ?? const Uuid(),
        super(const ReportState());
 
   final ModerationRepository _repository;
   final ReportTargetType _targetType;
   final String _targetId;
+
+  /// The exact decrypted bytes of one encrypted message (R13), or null. Kept
+  /// only here: never in [ReportState], never logged. Sent unchanged with
+  /// every submit and retry. A length outside 1-8192 counts as no payload.
+  final Uint8List? _messagePayload;
+
+  static Uint8List? _validPayload(Uint8List? bytes) =>
+      bytes == null || bytes.isEmpty || bytes.length > 8192 ? null : bytes;
   final Uuid _uuid;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
   String? _key;
@@ -104,6 +114,7 @@ class ReportCubit extends Cubit<ReportState> {
         targetId: _targetId,
         reason: state.reason!,
         note: state.note.trim(),
+        messagePayload: _messagePayload,
       );
       if (isClosed) return;
       emit(

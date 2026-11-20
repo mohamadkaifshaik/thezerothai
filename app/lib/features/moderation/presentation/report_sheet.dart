@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -45,6 +46,7 @@ Future<ReportOutcome> showReportSheet(
   String? blockLabel,
   String? detail,
   String? notFoundMessage,
+  Uint8List? messagePayload,
 }) async {
   final repository = context.read<ModerationRepository>();
   final onError = context.read<UnexpectedErrorReporter>();
@@ -52,6 +54,7 @@ Future<ReportOutcome> showReportSheet(
     repository: repository,
     targetType: targetType,
     targetId: targetId,
+    messagePayload: messagePayload,
     onUnexpectedError: onError,
   );
   try {
