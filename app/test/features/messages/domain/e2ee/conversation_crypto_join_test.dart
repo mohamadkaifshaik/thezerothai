@@ -133,6 +133,10 @@ void main() {
   late RigCrypto rig;
   late RigPeer bob;
 
+  /// The `keyHistory.read` reports the running test expects (checked and
+  /// reset by the shared tearDown).
+  var unreadableHistories = 0;
+
   setUp(() async {
     rig = await RigCrypto.create();
     bob = await RigPeer.create('bob');
@@ -140,6 +144,12 @@ void main() {
 
   tearDown(() async {
     final refused = rig.server.refusedAcks.length;
+    // An unreadable key history fails closed, so a test could pass under
+    // one without meaning to: only a test that says so may meet one.
+    final unreadable = rig.keyHistoryErrors.length;
+    final expected = unreadableHistories;
+    unreadableHistories = 0;
+    expect(unreadable, expected, reason: 'unreadable key histories');
     await rig.dispose();
     // The client swallows a refused ack: every test fails on one.
     expect(refused, 0, reason: 'the rig refused an AckWelcomes call');
@@ -1186,6 +1196,7 @@ void main() {
     }
     // One report per conversation.
     expect(rig.keyHistoryErrors, hasLength(4));
+    unreadableHistories = 4;
     // With no state at all the history starts empty and is written.
     expect((await pinIn(withNothing, bob.id))!.side, MemberSide.theirs);
     expect((await rig.keyHistoryIds(withNothing)).keys, [
@@ -1506,6 +1517,9 @@ void main() {
         ),
       );
     });
+    // The transaction that stored the provisional group wrote the key
+    // history too (empty: no pin is seeded here).
+    await rig.putKeyHistory(_c1);
     // Another device's init of generation 2 was stored first.
     await rig.offer(_c1, bob, generation: 2);
 

@@ -107,6 +107,10 @@ void main() {
   late RigPeer bob;
   late _Sink sink;
 
+  /// The `keyHistory.read` reports the running test expects (checked and
+  /// reset by the shared tearDown).
+  var unreadableHistories = 0;
+
   void rebuild({CryptoEngine Function()? engine}) {
     rig.crypto = ConversationCrypto(
       session: rig.device.session,
@@ -135,6 +139,12 @@ void main() {
 
   tearDown(() async {
     final refused = rig.server.refusedAcks.length;
+    // An unreadable key history fails closed, so a test could pass under
+    // one without meaning to: only a test that says so may meet one.
+    final unreadable = rig.keyHistoryErrors.length;
+    final expected = unreadableHistories;
+    unreadableHistories = 0;
+    expect(unreadable, expected, reason: 'unreadable key histories');
     await rig.dispose();
     // The client swallows a refused ack: every test fails on one.
     expect(refused, 0, reason: 'the rig refused an AckWelcomes call');
@@ -409,6 +419,7 @@ void main() {
       final changed = (await pin(_c1, bob.id))!;
       expect(changed.side, MemberSide.unattributed);
       expect(rigEq(changed.signatureKey, newKey), isTrue);
+      await expectTainted(_c1, bob.id);
       final state = await rig.crypto.describeState(_c1);
       expect(state.unattributedPresent, isTrue);
       expect(state.sendBlock, isNot(SendBlock.none));
@@ -442,6 +453,9 @@ void main() {
       rig.device.engine.describeMembers = null;
 
       expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      await expectTainted(_c1, bob.id);
+      // A bystander of the same commit is attributed as usual.
+      expect((await pin(_c1, carol.id))!.side, MemberSide.theirs);
       final bobLines = [
         for (final l in await rig.lines(_c1))
           if (rigEq(l.deviceId ?? const [], bob.id)) l.line,
@@ -1156,6 +1170,7 @@ void main() {
       expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
       expect(await rig.lines(_c1), isEmpty);
       expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      unreadableHistories = 1;
       expect(await rig.keyHistory(_c1), history);
     });
 
@@ -1357,6 +1372,40 @@ void main() {
       // A conversation with nothing stored gets no history from it.
       expect(await rig.crypto.allowNewDevices(c3), isFalse);
       expect(await rig.keyHistory(c3), isNull);
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      unreadableHistories = 1;
+    });
+
+    test('a key history that fails to open is unreadable, and commits still '
+        'apply', () async {
+      final carol = await RigPeer.create('carol');
+      rig.keys.peerFails = true;
+      final offer = await join(_c1);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      // The stored bytes are replaced by bytes the vault cannot open.
+      const key = 'messages.e2ee.keys.$_c1';
+      final garbage = Uint8List.fromList(List.generate(64, (i) => i * 7 % 251));
+      await rig.replaySealedSetting(key, garbage);
+
+      rig.keys.peerFails = false;
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      await bobCommit(offer, _c1, add: [carol]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+
+      // The commit was applied; nobody is attributed; nothing was rewritten.
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
+      expect(await rig.lines(_c1), isEmpty);
+      expect(await rig.sealedSetting(key), garbage);
+      final state = await rig.crypto.describeState(_c1);
+      expect(state.keyHistoryClosed, isFalse);
+      expect(state.mayAllowMoreDevices, isFalse);
+      expect(await rig.crypto.allowNewDevices(_c1), isFalse);
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      unreadableHistories = 1;
     });
 
     test('an unreadable key history refuses every unattributed member of that '
@@ -1381,6 +1430,7 @@ void main() {
       expect(await rig.lines(_c1), isEmpty);
       // Reported once for that conversation.
       expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      unreadableHistories = 1;
       expect(await rawHistory(_c1), '{"v":1');
       final state = await rig.crypto.describeState(_c1);
       expect(state.unattributedPresent, isTrue);
@@ -1441,6 +1491,7 @@ void main() {
             l,
       ], isEmpty);
       expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      unreadableHistories = 1;
       // Never overwritten, by the commit, the join or attribution.
       expect(await rawHistory(_c1), '{"v":1');
     });
@@ -1484,6 +1535,7 @@ void main() {
       // Not recreated by attribution, the commit or the join.
       expect(await rig.keyHistory(_c1), isNull);
       expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      unreadableHistories = 1;
     });
 
     test('an older sealed key history replayed over a newer one is '
@@ -1523,6 +1575,7 @@ void main() {
         isNot(contains(SystemLine.deviceAdded)),
       );
       expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      unreadableHistories = 1;
       expect(await rig.sealedSetting(key), old);
     });
 
@@ -1950,6 +2003,9 @@ void main() {
             ),
           ),
         );
+        // The transaction that stored the provisional group wrote the key
+        // history too (empty: no pin is seeded here).
+        await rig.putKeyHistory(_c1);
         rig.contexts.of(_c1).stuck = true;
 
         final state = await rig.crypto.describeState(_c1);
