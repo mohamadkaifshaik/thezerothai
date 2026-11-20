@@ -121,7 +121,8 @@ cd app && flutter drive --driver=test_driver/integration_test.dart --target=inte
 ```
 
 and again with `--wasm`. CI runs those five files as JS and wasm in the job "crypto web integration" (and when the
-vault code changes). Firefox and Safari are not run.
+vault code changes). That job is advisory: it does not block merging, so read its result by name on the PR. Firefox and
+Safari are not run.
 
 `flutter test integration_test -d chrome` is not supported on Flutter 3.50 ("Web devices are not supported for
 integration tests yet"), hence `flutter drive`. The driver (run from `app/`) serves `../testdata/mls/vectors-v1.json`, the
@@ -254,8 +255,8 @@ one key to about 2^32 seals; a device writes far fewer rows than that over the l
 **Rules a change must not break:**
 - Only `VaultSession` wipes a vault or deletes a key. Nothing else calls the wipe or key-delete functions.
 - Code outside `core/vault` reaches the vault through `VaultSession`, `SecureVault` (with its record types in
-  `vault_records.dart`, which is public), `VaultStatus` and `KeyedMutex` only, with one exception: at start-up `app/lib/app/bootstrap.dart` wires the production cipher, markers, opener and
-  owner into the session (`openVaultCipher`, `deleteVaultKeyForAlias`, `DriftVaultMarkers`, `vaultMarkersPersistent`,
+  `vault_records.dart`, which is public), `VaultStatus` and `KeyedMutex` only, with one exception: at start-up
+  `app/lib/app/bootstrap.dart` wires the production cipher, markers, opener and owner into the session (`openVaultCipher`, `deleteVaultKeyForAlias`, `DriftVaultMarkers`, `vaultMarkersPersistent`,
   `openVault`, `wipeVaultFileForAlias`, `createVaultOwner`); the guard allowlists the files that may be imported from
   outside `core/vault` (the five above for everyone; the four wiring files only for `bootstrap.dart`), never a
   platform implementation file, and exempts only those two destructive tear-offs in `bootstrap.dart`.

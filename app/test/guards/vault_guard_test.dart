@@ -196,13 +196,15 @@ bool _noToStringViolation(String className) =>
     className.startsWith('RemovalQueue');
 
 /// Files under lib/ outside the generated trees.
+bool _isGenerated(String path) =>
+    path.startsWith('lib/gen/') ||
+    path.startsWith('lib/core/crypto/frb_generated/') ||
+    path.endsWith('.g.dart') ||
+    path.endsWith('.freezed.dart');
+
 Map<String, String> _handWrittenLib() => {
   for (final e in _libFiles().entries)
-    if (!e.key.startsWith('lib/gen/') &&
-        !e.key.startsWith('lib/core/crypto/frb_generated/') &&
-        !e.key.endsWith('.g.dart') &&
-        !e.key.endsWith('.freezed.dart'))
-      e.key: e.value,
+    if (!_isGenerated(e.key)) e.key: e.value,
 };
 
 void main() {
@@ -674,12 +676,14 @@ void main() {
         // The message layer's secret names.
         '_report(commit, stack);',
         '_report(welcomeBytes, stack);',
-        "_log.warning('x \$pendingCommit');",
-        'reportUnexpectedError(initKey, stack);',
+        // One case per new fragment, each name containing ONLY that fragment
+        // (no 'key', 'commit', ...), so deleting a fragment fails its case.
+        "_log.warning('x \$pendingOps');",
+        'reportUnexpectedError(initBytes, stack);',
         '_report(digest, stack);',
-        '_onUnexpectedError?.call(reportPayload, stack);',
-        'reportUnexpectedError(reportKey, stack);',
         "Logger('x').info(payload);",
+        // 'reportkey' is covered by 'key' already; this case holds either way.
+        'reportUnexpectedError(reportKey, stack);',
       ]) {
         expect(loggingViolations(bad), isNotEmpty, reason: bad);
       }
@@ -732,6 +736,47 @@ void main() {
             'On the web an int is a double; setUint64/getUint64/setInt64/'
             'getInt64 lose bits past 2^53. Use Int64 or a range-checked '
             '53-bit value.\n${bad.join('\n')}',
+      );
+    });
+
+    test('self-test: the generated-code exclusions, and nothing else', () {
+      for (final p in [
+        'lib/gen/dzeroth/messaging/v1/messaging.pb.dart',
+        'lib/core/crypto/frb_generated/api.dart',
+        'lib/core/vault/vault_database.g.dart',
+        'lib/features/x/y.freezed.dart',
+      ]) {
+        expect(_isGenerated(p), isTrue, reason: p);
+      }
+      for (final p in [
+        'lib/core/crypto/mls_pair.dart',
+        'lib/core/crypto/native_crypto_engine.dart',
+        'lib/generated_name.dart',
+        'lib/core/vault/vault_records.dart',
+      ]) {
+        expect(_isGenerated(p), isFalse, reason: p);
+      }
+    });
+
+    test('the scans still see files under crypto and the message codec', () {
+      final logging = _loggingFiles().keys;
+      expect(
+        logging.where(
+          (k) =>
+              k.startsWith('lib/core/crypto/') &&
+              !k.startsWith('lib/core/crypto/frb_generated/'),
+        ),
+        isNotEmpty,
+      );
+      expect(
+        logging.where(
+          (k) => k.startsWith('lib/features/messages/domain/e2ee/'),
+        ),
+        isNotEmpty,
+      );
+      expect(
+        _handWrittenLib().keys.where((k) => k.startsWith('lib/core/crypto/')),
+        isNotEmpty,
       );
     });
 

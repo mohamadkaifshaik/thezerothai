@@ -232,7 +232,7 @@ const List<String> sensitiveFragments = [
   'init',
   'digest',
   'payload',
-  'reportkey',
+  'reportkey', // named by the plan; 'key' above already flags every such name
 ];
 
 final RegExp _printCall = RegExp(r'(?<![\w$.])(?:debugPrint|print)\s*\(');
