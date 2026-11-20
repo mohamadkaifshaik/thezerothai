@@ -254,20 +254,36 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// failure it retries the failed and the skipped rows with their own keys.
   Future<void> send() async {
     if (isClosed || _checking || !state.canSend) return;
-    emit(state.copyWith(started: true, endedBy: null));
     final body = text;
     final ids = [
       for (final r in state.recipients)
         if (r.status != ShareRowStatus.sent) r.peer.userId,
     ];
-    if (_encrypted != null && postId.isNotEmpty && _isEnabled()) {
+    final enabled = _isEnabled();
+    final check = _encrypted != null && postId.isNotEmpty && enabled;
+    if (check) {
+      // One emit, so an earlier failure is never shown again: the unsent
+      // rows go straight to the existing sending state.
+      emit(
+        state.copyWith(
+          started: true,
+          endedBy: null,
+          recipients: [
+            for (final r in state.recipients)
+              if (ids.contains(r.peer.userId))
+                r.withStatus(ShareRowStatus.sending)
+              else
+                r,
+          ],
+        ),
+      );
+    } else {
+      emit(state.copyWith(started: true, endedBy: null));
+    }
+    if (check) {
       // The server cannot check an encrypted share, so it is asked once for
       // the post, in the existing sending state, before any send.
-      final before = state.recipients;
       _checking = true;
-      for (final id in ids) {
-        _setRow(id, ShareRowStatus.sending);
-      }
       AppException? refusal;
       try {
         refusal = await _refusal();
@@ -281,7 +297,10 @@ class SharePostCubit extends Cubit<SharePostState> {
         }
         return;
       }
-      emit(state.copyWith(recipients: before));
+      // Back to "chosen, nothing sent" (never the old failures again).
+      for (final id in ids) {
+        _setRow(id, ShareRowStatus.idle);
+      }
     }
     for (var i = 0; i < ids.length; i++) {
       if (isClosed) return;
@@ -380,30 +399,33 @@ class SharePostCubit extends Cubit<SharePostState> {
     final lookup = _getPost;
     if (lookup == null) return protected;
     try {
-      var judged = (await lookup(postId)).post;
+      const blocked = posts_pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED;
+      var answer = await lookup(postId);
+      if (!answer.hasPost() || answer.embedViewerState == blocked) {
+        return protected;
+      }
+      var judged = answer.post;
       if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) {
         // The embed names the original and its author but not its
         // visibility, so the original is fetched once more.
         final originalId = judged.embedded.postId;
         if (originalId.isEmpty) return protected;
-        judged = (await lookup(originalId)).post;
-        if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) return protected;
-      }
-      if (judged.visibility == posts_pb.Visibility.VISIBILITY_FOLLOWERS) {
-        final own = ownUserId;
-        if (own == null || own.isEmpty || judged.author.userId != own) {
+        answer = await lookup(originalId);
+        if (!answer.hasPost() || answer.embedViewerState == blocked) {
           return protected;
         }
+        judged = answer.post;
+        if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) return protected;
       }
-      return null;
+      // Allow-list: only what can be verified goes.
+      final own = ownUserId;
+      final ownPost =
+          own != null && own.isNotEmpty && judged.author.userId == own;
+      final public = judged.visibility == posts_pb.Visibility.VISIBILITY_PUBLIC;
+      return public || ownPost ? null : protected;
     } on AppException catch (error) {
-      return switch (error) {
-        NotFoundException() ||
-        ProtectedAccountException() ||
-        ValidationException() ||
-        FeatureDisabledException() => error,
-        _ => protected,
-      };
+      // An error that would end any share keeps its own, truer copy.
+      return sharePostErrorEndsShare(error) ? error : protected;
     } on Object catch (_, stack) {
       onUnexpectedError?.call(StateError('sharedPost'), stack);
       return protected;

@@ -638,5 +638,171 @@ void main() {
       expect(looked, [_postId]);
       expect(port.sent, hasLength(1));
     });
+
+    test(
+      'with a port, a post with an unspecified visibility is refused',
+      () async {
+        answers[_postId] = view(
+          _postId,
+          visibility: posts_pb.Visibility.VISIBILITY_UNSPECIFIED,
+        );
+        final c = make2()
+          ..toggle(_peer(1))
+          ..toggle(_peer(2));
+        addTearDown(c.close);
+        await c.send();
+        expectRefused(c, protectedText);
+      },
+    );
+
+    test('with a port, an answer with no post is refused', () async {
+      answers[_postId] = posts_pb.PostView();
+      final c = make2()..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expectRefused(c, protectedText);
+    });
+
+    test('with a port, a lookup that fails for no connection refuses the '
+        'share with the connection text', () async {
+      answers[_postId] = const NetworkException('offline');
+      final c = make2()
+        ..toggle(_peer(1))
+        ..toggle(_peer(2));
+      addTearDown(c.close);
+      await c.send();
+      final text = sharePostErrorMessage(const NetworkException('x'));
+      expect(text, isNot(protectedText));
+      expectRefused(c, text);
+      expect(c.state.recipients.first.error, isA<NetworkException>());
+    });
+
+    test('with a port, a lookup that is rate limited refuses the share with '
+        'its own text', () async {
+      answers[_postId] = const RateLimitedException('slow');
+      final c = make2()..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      final text = sharePostErrorMessage(const RateLimitedException('x'));
+      expect(text, isNot(protectedText));
+      expectRefused(c, text);
+    });
+
+    test('with a port, a post whose embedded post is blocked for the sender '
+        'is refused', () async {
+      answers[_postId] = view(_postId)
+        ..embedViewerState =
+            posts_pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED;
+      final c = make2()..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expectRefused(c, protectedText);
+    });
+
+    test('with a port, a repost whose original is blocked for the sender is '
+        'refused', () async {
+      answers[_postId] = view(_postId, originalId: 'orig');
+      answers['orig'] = view('orig')
+        ..embedViewerState =
+            posts_pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED;
+      final c = make2()..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expectRefused(c, protectedText);
+    });
+
+    test('with a port, a repost of a public original is shared after two '
+        'lookups', () async {
+      answers[_postId] = view(_postId, originalId: 'orig');
+      answers['orig'] = view('orig');
+      final c = make2()
+        ..toggle(_peer(1))
+        ..toggle(_peer(2));
+      addTearDown(c.close);
+      await c.send();
+      expect(looked, [_postId, 'orig']);
+      expect(port.sent, hasLength(2));
+      expect(c.state.allSent, isTrue);
+    });
+
+    test('with a port, a repost of the sender\'s own protected original is '
+        'shared', () async {
+      answers[_postId] = view(_postId, originalId: 'orig');
+      answers['orig'] = view(
+        'orig',
+        author: 'u-me',
+        visibility: posts_pb.Visibility.VISIBILITY_FOLLOWERS,
+      );
+      final c = make2()..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expect(c.state.allSent, isTrue);
+    });
+
+    test('a retry after a refusal runs the check again', () async {
+      answers[_postId] = view(
+        _postId,
+        visibility: posts_pb.Visibility.VISIBILITY_FOLLOWERS,
+      );
+      final c = make2()..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expectRefused(c, protectedText);
+      answers[_postId] = view(_postId);
+      await c.send();
+      expect(looked, [_postId, _postId]);
+      expect(c.state.allSent, isTrue);
+      expect(c.state.lastError, isNull);
+    });
+
+    test('a retry that passes never re-emits the old failure', () async {
+      answers[_postId] = view(
+        _postId,
+        visibility: posts_pb.Visibility.VISIBILITY_FOLLOWERS,
+      );
+      final c = make2()..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      answers[_postId] = view(_postId);
+      final errors = <Object?>[];
+      final sub = c.stream.listen((s) {
+        if (s.lastError != null) errors.add(s.lastError);
+      });
+      await c.send();
+      await sub.cancel();
+      expect(errors, isEmpty);
+    });
+
+    test('closing during a pending lookup sends nothing', () async {
+      answers[_postId] = view(_postId);
+      lookupGate = Completer<void>();
+      final c = make2()..toggle(_peer(1));
+      final sending = c.send();
+      await Future<void>.delayed(Duration.zero);
+      await c.close();
+      lookupGate!.complete();
+      await sending;
+      expect(port.sent, isEmpty);
+      expect(repo.sendKeys, isEmpty);
+    });
+
+    test('with a port and the share flag off, no lookup and no send '
+        'happen', () async {
+      final c = SharePostCubit(
+        repository: repo,
+        postId: _postId,
+        url: _url,
+        ownUserId: 'u-me',
+        isEnabled: () => false,
+        encrypted: port,
+        getPost: lookup,
+      )..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expect(looked, isEmpty);
+      expect(port.sent, isEmpty);
+      expect(repo.sendKeys, isEmpty);
+      expect(c.state.endedBy, isA<FeatureDisabledException>());
+    });
   });
 }
