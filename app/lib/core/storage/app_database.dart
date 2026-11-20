@@ -234,6 +234,13 @@ class MessagingStateEntries extends Table {
   Set<Column> get primaryKey => {stateKey};
 }
 
+/// Prefix of the [MessagingStateEntries] keys that each hold one conversation
+/// id the device has seen as end-to-end encrypted ("ever encrypted": an id
+/// only, never content). Conversation ids do not change with `public_ids`, so
+/// [AppDatabase.clearIdBearingCache] keeps these; [AppDatabase.clearAll] removes
+/// them with the rest of the account's cache.
+const kEverEncryptedStatePrefix = 'enc:';
+
 /// Prefix of the [AppSettingEntries] keys that hold data derived from one
 /// account's graph (for example the cached "Who to follow" list). Unlike the
 /// other device settings these are wiped on sign-out ([AppDatabase.clearAll]),
@@ -836,7 +843,10 @@ class AppDatabase extends _$AppDatabase {
       );
       await delete(conversationEntries).go();
       await delete(messageEntries).go();
-      await delete(messagingStateEntries).go();
+      await (delete(
+            messagingStateEntries,
+          )..where((t) => t.stateKey.like('$kEverEncryptedStatePrefix%').not()))
+          .go();
       await (delete(
         appSettingEntries,
       )..where((t) => t.settingKey.like('$kIdBearingSettingPrefix%'))).go();

@@ -6,6 +6,7 @@ import 'package:fixnum/fixnum.dart' show Int64;
 import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import '../domain/conversation_id.dart';
 
 /// Messages kept per conversation ("the last 200 messages per conversation in drift per uid").
 const kMessagesPerConversation = 200;
@@ -179,9 +180,11 @@ class MessagingStore {
             .get();
     final items = <pb.Conversation>[];
     final undecodable = <String>[];
+    final everEncrypted = await _everEncryptedIds();
     for (final row in rows) {
       try {
-        items.add(pb.Conversation.fromBuffer(row.payload));
+        final c = pb.Conversation.fromBuffer(row.payload);
+        items.add(everEncrypted.contains(c.id) ? _asEncrypted(c) : c);
       } catch (_) {
         undecodable.add(row.conversationId);
       }
@@ -216,11 +219,137 @@ class MessagingStore {
       _db.conversationEntries,
     )..where((t) => t.conversationId.equals(id))).getSingleOrNull();
     if (row == null) return null;
+    pb.Conversation c;
     try {
-      return pb.Conversation.fromBuffer(row.payload);
+      c = pb.Conversation.fromBuffer(row.payload);
     } catch (_) {
       return null;
     }
+    return await isEverEncrypted(id) ? _asEncrypted(c) : c;
+  }
+
+  // --- the ever-encrypted set ----------------------------------------------
+  //
+  // One small row per conversation id in the state table, keyed
+  // `enc:<conversationId>`: ids only, never content (R14), and only ids of
+  // the conversation-id shape ([isConversationId]), so a server cannot fill
+  // the table with rows of its choosing. It is the authority for "this
+  // conversation was ever encrypted": no server answer removes it (not a cold
+  // open, a since refresh, a NONE row, an accept NOT_FOUND), and neither does
+  // the user's delete-for-me (D2, owner approved 2026-11-20: the
+  // conversation id is fixed per pair, and the vault keeps its own record
+  // through delete-for-me, so the two must agree). Only the account-wide
+  // cache clear (`AppDatabase.clearAll`, sign-out) removes it.
+  //
+  // Read overlay: [conversation], [conversationWithPeer] and
+  // [readConversations] show a marked conversation's row with
+  // `lastMessage.encrypted` set and an empty snippet. The stored row is not
+  // rewritten by a read; but the read-modify-write helpers
+  // ([markConversationRead], [markConversationAccepted],
+  // [markConversationReadOnly]) read through [conversation] and write the
+  // overlaid copy back, which only ever moves a row toward encrypted.
+  //
+  // Known window (D9): a list refresh in flight that read the mark before a
+  // sign-out-time clear ([AppDatabase.clearAll]) can write it back with its
+  // own write (that write is guarded by the session it started under, like
+  // every write here). Since delete-for-me keeps the mark (D2), this no
+  // longer concerns delete-for-me.
+
+  String _everEncryptedKey(String id) => '$kEverEncryptedStatePrefix$id';
+
+  /// Whether [id] was ever recorded as encrypted on this device.
+  Future<bool> isEverEncrypted(String id) async =>
+      isConversationId(id) && await _state(_everEncryptedKey(id)) != null;
+
+  Future<Set<String>> _everEncryptedIds() async {
+    final rows = await (_db.select(
+      _db.messagingStateEntries,
+    )..where((t) => t.stateKey.like('$kEverEncryptedStatePrefix%'))).get();
+    return {
+      for (final r in rows)
+        r.stateKey.substring(kEverEncryptedStatePrefix.length),
+    };
+  }
+
+  /// Which of [ids] are in the ever-encrypted set: ONE select, whatever the
+  /// number of ids (none for an empty [ids]).
+  Future<Set<String>> everEncryptedAmong(Iterable<String> ids) async {
+    final keys = {
+      for (final id in ids)
+        if (isConversationId(id)) _everEncryptedKey(id),
+    };
+    if (keys.isEmpty) return const {};
+    final rows = await (_db.select(
+      _db.messagingStateEntries,
+    )..where((t) => t.stateKey.isIn(keys))).get();
+    return {
+      for (final r in rows)
+        r.stateKey.substring(kEverEncryptedStatePrefix.length),
+    };
+  }
+
+  /// The cached rows of [ids] AS STORED (no ever-encrypted overlay), by id:
+  /// ONE select, whatever the number of ids (none for an empty [ids]). An
+  /// undecodable row is left out (the next read of its folder drops it).
+  Future<Map<String, pb.Conversation>> storedConversations(
+    Iterable<String> ids,
+  ) async {
+    final wanted = {
+      for (final id in ids)
+        if (id.isNotEmpty) id,
+    };
+    if (wanted.isEmpty) return const {};
+    final rows = await (_db.select(
+      _db.conversationEntries,
+    )..where((t) => t.conversationId.isIn(wanted))).get();
+    final out = <String, pb.Conversation>{};
+    for (final row in rows) {
+      try {
+        out[row.conversationId] = pb.Conversation.fromBuffer(row.payload);
+      } catch (_) {
+        // Dropped by the next read of its folder.
+      }
+    }
+    return out;
+  }
+
+  /// Records [ids] as ever encrypted (idempotent); an id that is not of the
+  /// conversation-id shape is ignored. Returns the ids of [ids] that are now
+  /// in the set; empty when the write was dropped because [session] ended,
+  /// like every cache write.
+  Future<Set<String>> markEverEncrypted(
+    Iterable<String> ids, {
+    required int session,
+  }) async {
+    return await _tx(session, () => _putEverEncrypted(ids)) ?? const {};
+  }
+
+  Future<Set<String>> _putEverEncrypted(Iterable<String> ids) async {
+    final recorded = <String>{};
+    for (final id in ids) {
+      if (!isConversationId(id) || !recorded.add(id)) continue;
+      await _db
+          .into(_db.messagingStateEntries)
+          .insert(
+            MessagingStateEntriesCompanion.insert(
+              stateKey: _everEncryptedKey(id),
+              updatedAt: DateTime.now(),
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+    }
+    return recorded;
+  }
+
+  /// [c] as an encrypted conversation's row: the marker set and the snippet
+  /// empty (a copy; the preview's other fields stay; the stored row is not
+  /// touched).
+  pb.Conversation _asEncrypted(pb.Conversation c) {
+    if (c.lastMessage.encrypted && c.lastMessage.snippet.isEmpty) return c;
+    return c.deepCopy()
+      ..lastMessage = (c.lastMessage.deepCopy()
+        ..encrypted = true
+        ..snippet = '');
   }
 
   /// Replaces [folder] with a first page (no tokens sent).
@@ -234,12 +363,17 @@ class MessagingStore {
       _db.conversationEntries,
     )..orderBy([(t) => OrderingTerm.desc(t.sortKey)])).get();
     for (final row in rows) {
+      pb.Conversation c;
       try {
-        final c = pb.Conversation.fromBuffer(row.payload);
-        if (c.peer.userId == peerUserId) return c;
+        c = pb.Conversation.fromBuffer(row.payload);
       } catch (_) {
         // An undecodable row is dropped by the next read of its folder.
+        continue;
       }
+      if (c.peer.userId != peerUserId) continue;
+      // The same overlay as [conversation]: a marked conversation reads as
+      // encrypted whatever the stored row says.
+      return await isEverEncrypted(c.id) ? _asEncrypted(c) : c;
     }
     return null;
   }
@@ -251,8 +385,10 @@ class MessagingStore {
     required String nextPageToken,
     required int session,
     int? requestCount,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       await (_db.delete(
         _db.conversationEntries,
       )..where((t) => t.folder.equals(folder.value))).go();
@@ -282,8 +418,10 @@ class MessagingStore {
     required int session,
     int? requestCount,
     int? requestCountGeneration,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       await _upsertConversations(_validConversations(items), folder);
       // An Accept or Delete since the refresh was sent already moved the local
       // count; the answer predates it, so keep the local value (rows and token
@@ -305,8 +443,10 @@ class MessagingStore {
     required List<pb.Conversation> items,
     required String nextPageToken,
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       await _upsertConversations(_validConversations(items), folder);
       await _saveState(
         _folderStateKey(folder),
@@ -369,7 +509,9 @@ class MessagingStore {
     )..where((t) => t.conversationId.equals(id))).go();
   }
 
-  /// Removes [id] and everything cached for it (after DeleteConversation).
+  /// Removes [id] and everything cached for it (after DeleteConversation, or
+  /// an Accept NOT_FOUND) EXCEPT its ever-encrypted mark, which only the
+  /// account-wide clear removes (D2, owner approved 2026-11-20).
   /// Unguarded on purpose: removing rows can never leak data.
   Future<void> removeConversation(String id) {
     return _db.transaction(() async {
@@ -428,8 +570,10 @@ class MessagingStore {
     required String sinceToken,
     required String nextPageToken,
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       final valid = _validMessages(items);
       final known = await _knownIds(conversationId);
       await (_db.delete(
@@ -470,8 +614,10 @@ class MessagingStore {
     required List<pb.Message> items,
     required String sinceToken,
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       final valid = _validMessages(items);
       final known = await _knownIds(conversationId);
       await _upsertMessages(conversationId, valid);
@@ -487,8 +633,10 @@ class MessagingStore {
     required List<pb.Message> items,
     required String nextPageToken,
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       final valid = _validMessages(items);
       await _upsertMessages(conversationId, valid);
       if (valid.isNotEmpty && nextPageToken.isNotEmpty) {
@@ -520,8 +668,10 @@ class MessagingStore {
     pb.Message message,
     pb.Conversation? conversation, {
     required int session,
+    Iterable<String> encryptedIds = const [],
   }) {
     return _tx(session, () async {
+      await _putEverEncrypted(encryptedIds);
       final conversationId = message.conversationId.isNotEmpty
           ? message.conversationId
           : conversation?.id ?? '';

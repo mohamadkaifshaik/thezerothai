@@ -223,6 +223,34 @@ void main() {
     });
   });
 
+  test('an encrypted thread read through listMlsMessages leaves no row in '
+      'MessagingStore', () async {
+    await db.claimCacheFor('a');
+    final encrypted = [
+      for (final m in thread(1, 2))
+        m.deepCopy()
+          ..text = ''
+          ..ciphertext = [1, 2, 3]
+          ..mlsGeneration = Int64(1),
+    ];
+    msgAnswers.add(page(encrypted, since: 's9', next: 'older'));
+
+    final answer = await repo.listMlsMessages(conversationId: kThreadId);
+
+    expect(answer.messages, hasLength(2));
+    expect(msgRequests.single.pageSize, 50);
+    final snapshot = await repo.cachedThread(kThreadId);
+    expect(snapshot.messages, isEmpty);
+    expect(snapshot.conversation, isNull);
+    expect(snapshot.sinceToken, isEmpty);
+    expect(snapshot.olderPageToken, isEmpty);
+    expect(await repo.hasCachedConversations(), isFalse);
+    expect(
+      (await repo.cachedConversations(Folder.FOLDER_INBOX)).conversations,
+      isEmpty,
+    );
+  });
+
   test('an account switch clears the inbox and the threads: the next account '
       'never sees them', () async {
     await db.claimCacheFor('a');
