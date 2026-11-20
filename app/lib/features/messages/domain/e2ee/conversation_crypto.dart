@@ -1375,7 +1375,9 @@ class ConversationCrypto {
   /// first, and only a pair it does not refuse may keep or get a side: a
   /// refused one (an id seen with another key, a new id while the history
   /// is closed) is pinned unattributed, which beats a kept pin and the
-  /// former side. The caller writes [history] once, at the end of this
+  /// former side. One exception: while the history is unreadable a current
+  /// pin with a side and the same key is kept (every other member is
+  /// unattributed). The caller writes [history] once, at the end of this
   /// transaction; pins absent from the group go, their history stays.
   Future<void> _pinJoined(
     VaultTx tx,
@@ -1403,7 +1405,10 @@ class ConversationCrypto {
             p.side != MemberSide.unattributed &&
             (!isThis || p.side == MemberSide.mine),
       );
-      if (kept.isNotEmpty && !changed) continue;
+      // An unreadable history never demotes a pin that already has a side
+      // and the same key (it was attributable when it got the side, and a
+      // taint always replaces the pin with an unattributed one).
+      if (kept.isNotEmpty && (!changed || history.unreadable)) continue;
       final side = isThis
           ? MemberSide.mine
           : changed

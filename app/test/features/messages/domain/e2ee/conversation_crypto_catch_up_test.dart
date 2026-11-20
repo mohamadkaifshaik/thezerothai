@@ -1330,7 +1330,7 @@ void main() {
       expect(rig.keyHistoryErrors, ['keyHistory.read']);
       // Never overwritten, by the commit, the join or attribution.
       expect(await rawHistory(_c1), '{"v":1');
-    }, skip: 'stage 3: a sided pin is kept under an unreadable history');
+    });
 
     test('a deleted key history with pins present refuses everyone and is not '
         'recreated', () async {
