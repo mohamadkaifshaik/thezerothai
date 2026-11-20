@@ -1919,10 +1919,12 @@ class ConversationCrypto {
   /// (the caller shows the confirmation; nothing here runs on its own).
   ///
   /// One transaction under the conversation lock: the key history, read
-  /// fresh and cross-checked, is reopened, its allowance raised by one step,
-  /// and the devices refused only because it was closed are admitted (they
-  /// stay unattributed until a list shows them). No id and no taint is
-  /// dropped.
+  /// fresh and cross-checked, has its allowance raised by one step, and the
+  /// devices it only remembered because it was full are admitted, each on
+  /// the key it was first seen with, while there is room (their pins stay
+  /// unattributed until a list shows them; a device whose key changed
+  /// meanwhile is tainted and never admitted). It reopens only when none is
+  /// left held. No id and no taint is dropped.
   ///
   /// True when the allowance was raised. False, with nothing written, when
   /// the history is not closed, cannot be raised further, is unreadable, or
@@ -1945,9 +1947,10 @@ class ConversationCrypto {
           currentPins: current,
           formerPins: former,
         );
-        // Only a closed, readable history below the maximum is reopened.
+        // Only a closed, readable history below the maximum gets more.
         if (!history.mayAllowMore) return false;
-        history.allowNewDevices(currentPins: current, formerPins: former);
+        // Promotion uses only the keys the history holds, never a pin's.
+        history.allowNewDevices();
         await v.transaction((tx) => _keyHistory.writeIn(tx, id, history));
         return true;
       });

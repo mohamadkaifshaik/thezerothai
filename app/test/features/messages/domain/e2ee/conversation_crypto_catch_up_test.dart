@@ -875,6 +875,7 @@ void main() {
         'v': 1,
         'ids': {vaultDeviceIdHex(bob.id): base64Encode(bob.key)},
         'changed': <Object?>[],
+        'held': <String, Object?>{},
         'closed': false,
         'allow': 256,
       });
@@ -1207,6 +1208,10 @@ void main() {
       expect(ids, hasLength(256));
       expect(ids.keys, isNot(contains(vaultDeviceIdHex(eve.id))));
       expect(history['changed'], isEmpty);
+      // Not admitted, but remembered with the key it was first seen with.
+      expect(history['held'], {
+        vaultDeviceIdHex(eve.id): base64Encode(eve.key),
+      });
       // Recorded devices keep working.
       expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
       expect((await pin(_c1, dave.id))!.side, MemberSide.theirs);
@@ -1233,14 +1238,16 @@ void main() {
         rigKeyDevice(frank.idString, frank.key),
       ];
       rig.directory.clear();
-      final closed = await rig.keyHistory(_c1);
+      final closed = (await rig.keyHistory(_c1))!;
+      final eveHeld = {vaultDeviceIdHex(eve.id): base64Encode(eve.key)};
 
       await bobCommit(offer, _c1, add: [eve]);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       rig.clock.advance(const Duration(minutes: 3));
       await rig.crypto.attributeMembers(_c1);
       expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
-      expect(await rig.keyHistory(_c1), closed);
+      // Not admitted (`ids` is as it was), but remembered with its key.
+      expect(await rig.keyHistory(_c1), {...closed, 'held': eveHeld});
 
       await rig.offer(
         _c1,
@@ -1255,7 +1262,13 @@ void main() {
       expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
       expect((await pin(_c1, frank.id))!.side, MemberSide.unattributed);
       expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
-      expect(await rig.keyHistory(_c1), closed);
+      expect(await rig.keyHistory(_c1), {
+        ...closed,
+        'held': {
+          ...eveHeld,
+          vaultDeviceIdHex(frank.id): base64Encode(frank.key),
+        },
+      });
       expect([
         for (final l in await rig.lines(_c1))
           if (l.line == SystemLine.deviceAdded) l,
@@ -1287,6 +1300,7 @@ void main() {
       expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
       final closed = (await rig.keyHistory(_c1))!;
       expect(closed['closed'], isTrue);
+      expect(closed['held'], {vaultDeviceIdHex(eve.id): base64Encode(eve.key)});
       var state = await rig.crypto.describeState(_c1);
       expect(state.keyHistoryClosed, isTrue);
       expect(state.mayAllowMoreDevices, isTrue);
@@ -1297,6 +1311,7 @@ void main() {
       final open = (await rig.keyHistory(_c1))!;
       expect(open['closed'], isFalse);
       expect(open['allow'], 512);
+      expect(open['held'], isEmpty);
       // Nothing dropped: every id with its key, the taint, plus eve.
       expect(open['changed'], [vaultDeviceIdHex(carol.id)]);
       expect(open['ids'], {
@@ -1329,6 +1344,130 @@ void main() {
       expect(await rig.crypto.allowNewDevices(_c1), isFalse);
       expect(await rig.keyHistory(_c1), before);
       expect(rig.keyHistoryErrors, isEmpty);
+    });
+
+    test('a key change while the history is closed taints the id, and '
+        'allowing new devices never admits it', () async {
+      final eve = await RigPeer.create('eve');
+      final frank = await RigPeer.create('frank');
+      final eveHex = vaultDeviceIdHex(eve.id);
+      final frankHex = vaultDeviceIdHex(frank.id);
+      final offer = await join(_c1);
+      // Really full: bob and 255 ids long gone.
+      await rig.putKeyHistory(_c1, ids: [(bob.id, bob.key)], fillers: 255);
+      rig.clock.advance(const Duration(seconds: 61));
+      await bobCommit(offer, _c1, add: [eve, frank]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      // Both are remembered with the key first seen, outside the allowance.
+      expect(await rig.keyHistoryHeld(_c1), {
+        eveHex: base64Encode(eve.key),
+        frankHex: base64Encode(frank.key),
+      });
+      expect((await rig.keyHistory(_c1))!['closed'], isTrue);
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+
+      // A commit changes eve's key while the history is closed. The rig's
+      // engine refuses an empty commit, so the commit that carries the
+      // change removes a device added just before: it adds nobody.
+      final newKey = Uint8List.fromList(List.filled(32, 9));
+      final gone = await RigPeer.create('gone');
+      await bobCommit(offer, _c1, add: [gone]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await bobCommit(offer, _c1, remove: [gone.id]);
+      rig.device.engine.describeMembers = onKey(eve.id, newKey);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await expectTainted(_c1, eve.id);
+      expect(await rig.keyHistoryHeld(_c1), {
+        frankHex: base64Encode(frank.key),
+        vaultDeviceIdHex(gone.id): base64Encode(gone.key),
+      });
+      // One entry over the allowance, and still readable.
+      expect(await rig.keyHistoryIds(_c1), hasLength(256));
+      expect((await rig.keyHistory(_c1))!['allow'], 256);
+
+      // The user allows new devices; the directory lists eve's new key.
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(eve.idString, newKey),
+        rigKeyDevice(frank.idString, frank.key),
+      ];
+      rig.directory.clear();
+      expect(await rig.crypto.allowNewDevices(_c1), isTrue);
+      final open = (await rig.keyHistory(_c1))!;
+      expect(open['allow'], 512);
+      expect(open['closed'], isFalse);
+      expect(open['held'], isEmpty);
+      expect(open['changed'], [eveHex]);
+      final ids = open['ids']! as Map<String, Object?>;
+      expect(ids.keys, isNot(contains(eveHex)));
+      expect(ids[frankHex], base64Encode(frank.key));
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.device.engine.describeMembers = null;
+
+      final evePin = (await pin(_c1, eve.id))!;
+      expect(evePin.side, MemberSide.unattributed);
+      expect(rigEq(evePin.signatureKey, newKey), isTrue);
+      expect(
+        linesOf(await rig.lines(_c1), eve.id),
+        isNot(contains(SystemLine.deviceAdded)),
+      );
+      await expectTainted(_c1, eve.id);
+      // The device held beside it, never changed, is attributed.
+      expect((await pin(_c1, frank.id))!.side, MemberSide.theirs);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+    });
+
+    test('a removal and re-add on another key while closed taints the '
+        'id', () async {
+      final eve = await RigPeer.create('eve');
+      final frank = await RigPeer.create('frank');
+      final eveHex = vaultDeviceIdHex(eve.id);
+      final offer = await join(_c1);
+      await rig.putKeyHistory(_c1, ids: [(bob.id, bob.key)], fillers: 255);
+      rig.clock.advance(const Duration(seconds: 61));
+      await bobCommit(offer, _c1, add: [eve]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await rig.keyHistoryHeld(_c1), {eveHex: base64Encode(eve.key)});
+
+      // Removed: the pin goes, what the history remembers does not.
+      await bobCommit(offer, _c1, remove: [eve.id]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await pin(_c1, eve.id), isNull);
+      expect(await rig.keyHistoryHeld(_c1), {eveHex: base64Encode(eve.key)});
+
+      // Added again on another key, with a bystander.
+      final newKey = Uint8List.fromList(List.filled(32, 6));
+      await bobCommit(offer, _c1, add: [eve, frank]);
+      rig.device.engine.describeMembers = onKey(eve.id, newKey);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await expectTainted(_c1, eve.id);
+      expect(await rig.keyHistoryHeld(_c1), {
+        vaultDeviceIdHex(frank.id): base64Encode(frank.key),
+      });
+
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(eve.idString, newKey),
+        rigKeyDevice(frank.idString, frank.key),
+      ];
+      rig.directory.clear();
+      expect(await rig.crypto.allowNewDevices(_c1), isTrue);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.device.engine.describeMembers = null;
+
+      final evePin = (await pin(_c1, eve.id))!;
+      expect(evePin.side, MemberSide.unattributed);
+      expect(rigEq(evePin.signatureKey, newKey), isTrue);
+      expect(
+        linesOf(await rig.lines(_c1), eve.id),
+        isNot(contains(SystemLine.deviceAdded)),
+      );
+      await expectTainted(_c1, eve.id);
+      expect((await pin(_c1, frank.id))!.side, MemberSide.theirs);
     });
 
     test('the allowance stops at 1024', () async {

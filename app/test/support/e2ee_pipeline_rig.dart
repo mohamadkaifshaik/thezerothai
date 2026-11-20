@@ -892,13 +892,20 @@ class RigCrypto {
   Future<List<Object?>> keyHistoryChanged(String c) async =>
       (await keyHistory(c))!['changed']! as List<Object?>;
 
+  /// The device ids (hex, to key base64) [c]'s key history remembers
+  /// without admitting them: first seen while its allowance was full.
+  Future<Map<String, Object?>> keyHistoryHeld(String c) async =>
+      (await keyHistory(c))!['held']! as Map<String, Object?>;
+
   /// Stores [c]'s key history as the pipeline's transactions would have left
   /// it: [ids] (device id, key) pairs seen with one key, [changed] tainted
-  /// device ids, and [fillers] more ids no test device has.
+  /// device ids, [held] pairs first seen while the allowance was full, and
+  /// [fillers] more ids no test device has.
   Future<void> putKeyHistory(
     String c, {
     List<(Uint8List, Uint8List)> ids = const [],
     List<Uint8List> changed = const [],
+    List<(Uint8List, Uint8List)> held = const [],
     int fillers = 0,
     bool closed = false,
     int allow = 256,
@@ -916,6 +923,9 @@ class RigCrypto {
               ),
           },
           'changed': [for (final id in changed) vaultDeviceIdHex(id)],
+          'held': {
+            for (final e in held) vaultDeviceIdHex(e.$1): base64Encode(e.$2),
+          },
           'closed': closed,
           'allow': allow,
         }),

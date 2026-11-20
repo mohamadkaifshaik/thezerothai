@@ -9,24 +9,31 @@ import 'e2ee_types.dart';
 /// under `messages.e2ee.keys.<conversationId>`. The conversation id in the
 /// key is already a clear column (pins, groups, conversations, messages).
 /// Sealed
-/// `{"v":1,"ids":{deviceIdHex:keyB64},"changed":[deviceIdHex],"closed":false,"allow":256}`.
+/// `{"v":1,"ids":{deviceIdHex:keyB64},"changed":[deviceIdHex],"held":{deviceIdHex:keyB64},"closed":false,"allow":256}`
+/// (a record without `held` reads as an empty `held`).
 const String kVaultSettingKeyHistoryPrefix = 'messages.e2ee.keys.';
 
 /// One allowance step: the entries (`ids` plus `changed`) a conversation's
 /// history holds before it closes, and what one "allow new devices here"
-/// adds.
+/// adds. The allowance limits which ids are attributable, never which are
+/// remembered, and is enforced only when a new id is admitted.
 const int kKeyHistoryAllowanceStep = 256;
 
 /// The allowance never grows past this.
 const int kMaxKeyHistoryAllowance = 1024;
 
+/// The entries one history ever holds: `ids`, `changed` and `held`
+/// together. Past it a new id cannot be recorded at all.
+const int kMaxKeyHistoryTotal = 2048;
+
 /// Why a (device id, key) pair is not attributable in a conversation.
 ///
 /// `tainted`: the id was seen in the conversation with two keys (refused on
-/// every key, its first included). `unrecorded`: a new id while the history
-/// is closed or at its allowance, or a pin the history does not hold.
-/// `unreadable`: the history cannot be read (or is missing or contradicts
-/// the pins).
+/// every key, its first included). `unrecorded`: an id the history only
+/// remembers (first seen while it was closed or at its allowance: held
+/// with its key, never attributable until the user allows new devices), or
+/// an id it does not hold at all. `unreadable`: the history cannot be read
+/// (or is missing or contradicts the pins).
 enum KeyRefusal { none, tainted, unrecorded, unreadable }
 
 /// The device key histories, read from and written to the vault.
@@ -43,6 +50,22 @@ enum KeyRefusal { none, tainted, unrecorded, unreadable }
 /// only `none` may get a side) and calls [writeIn] once at its end. Nothing
 /// ever shrinks a record: removals, `selfRemoved`, joins, provisional
 /// discards and resets leave it; only a vault wipe removes it.
+///
+/// A closed history still remembers what it sees. An id first seen while
+/// the allowance is full is held with its key (`held`): not attributable,
+/// but a later change of its key taints it like any recorded id, and the
+/// user's "allow new devices" admits it only on the key first seen. The
+/// only moves between the lists are `ids` to `changed` and `held` to
+/// `changed` (a key change) and `held` to `ids` (that promotion).
+///
+/// The one case where an id is not remembered: the record already holds
+/// [kMaxKeyHistoryTotal] entries. A new id is then refused and cannot be
+/// recorded. That is safe because nothing can ever admit it: an id enters
+/// `ids` only when first seen by an open record with room, or by promotion
+/// out of `held`. It is not in `held`; and a record at the bound is closed
+/// and never reopens (reopening needs `held` empty and room, which would
+/// put the total under the allowance, and the total never shrinks). So it
+/// stays unknown in this conversation for good, on every key.
 ///
 /// Fails closed, per conversation: an unreadable history refuses every
 /// unattributed member of that conversation, is reported once per
@@ -128,6 +151,7 @@ class KeyHistory {
   KeyHistory._({
     required Map<String, String> ids,
     required Set<String> changed,
+    required Map<String, String> held,
     required bool closed,
     required int allowance,
     required bool dirty,
@@ -135,6 +159,7 @@ class KeyHistory {
     required String? thisDeviceHex,
   }) : _ids = ids,
        _changed = changed,
+       _held = held,
        _closed = closed,
        _allowance = allowance,
        _dirty = dirty,
@@ -145,6 +170,7 @@ class KeyHistory {
   factory KeyHistory.unreadableRecord() => KeyHistory._(
     ids: {},
     changed: {},
+    held: {},
     closed: false,
     allowance: kKeyHistoryAllowanceStep,
     dirty: false,
@@ -157,10 +183,14 @@ class KeyHistory {
   /// Null with [hasState] is unreadable; null without is empty and dirty.
   /// Bytes that do not decode are unreadable. Then every pin of
   /// [currentPins] and [formerPins] other than [thisDeviceHex] must agree
-  /// with the record, or the whole record is unreadable: a pin whose id is
-  /// recorded with another key, or whose id is in neither list. One
-  /// exemption: an `unattributed` pin absent from a `closed` record (an
-  /// overflow refusal, refused anyway).
+  /// with the record, or the whole record is unreadable:
+  /// - an id in `ids`: the pin has the recorded key;
+  /// - an id in `changed`: any pin;
+  /// - an id in `held`: the pin is `unattributed` and has the held key (a
+  ///   held id never gets a side, and a pin on another key cannot exist:
+  ///   the change would have tainted the id);
+  /// - an id in none of them: only an `unattributed` pin of a record at
+  ///   [kMaxKeyHistoryTotal] entries (it could not be recorded).
   factory KeyHistory.read(
     Uint8List? bytes, {
     required bool hasState,
@@ -173,6 +203,7 @@ class KeyHistory {
       return KeyHistory._(
         ids: {},
         changed: {},
+        held: {},
         closed: false,
         allowance: kKeyHistoryAllowanceStep,
         dirty: true,
@@ -197,7 +228,15 @@ class KeyHistory {
         continue;
       }
       if (history._changed.contains(hex)) continue;
-      if (history._closed && pin.side == MemberSide.unattributed) continue;
+      final unattributed = pin.side == MemberSide.unattributed;
+      final heldKey = history._held[hex];
+      if (heldKey != null) {
+        if (unattributed && heldKey == base64Encode(pin.signatureKey)) {
+          continue;
+        }
+        return KeyHistory.unreadableRecord();
+      }
+      if (unattributed && history.total == kMaxKeyHistoryTotal) continue;
       return KeyHistory.unreadableRecord();
     }
     return history;
@@ -205,6 +244,7 @@ class KeyHistory {
 
   final Map<String, String> _ids;
   final Set<String> _changed;
+  final Map<String, String> _held;
   final String? _thisHex;
   bool _closed;
   int _allowance;
@@ -224,47 +264,50 @@ class KeyHistory {
   /// This conversation's allowance: 256, raised in steps of 256 up to 1024.
   int get allowance => _allowance;
 
-  /// The entries held: ids seen with one key plus tainted ids.
+  /// The entries the allowance counts: ids seen with one key plus tainted
+  /// ids. It can pass the allowance, by taints of held ids only.
   int get size => _ids.length + _changed.length;
+
+  /// Every entry the record holds, held ids included: never more than
+  /// [kMaxKeyHistoryTotal], and it never shrinks.
+  int get total => size + _held.length;
 
   /// Closed, and the allowance can still be raised.
   bool get mayAllowMore =>
       !unreadable && _closed && _allowance < kMaxKeyHistoryAllowance;
 
-  /// The user's "allow new devices here": clears `closed`, raises the
-  /// allowance by one step (a [StateError] at the maximum or when
-  /// [unreadable]), then admits every unattributed current or former pin
-  /// the record does not hold (an overflow refusal: never seen before, so
-  /// admitting it drops nothing). No id and no taint is ever dropped.
-  void allowNewDevices({
-    required List<MemberRecord> currentPins,
-    required List<MemberRecord> formerPins,
-  }) {
+  /// The user's "allow new devices here": raises the allowance by one step
+  /// (a [StateError] at the maximum or when [unreadable]), then promotes
+  /// held ids into `ids`, in device id order, while there is room under the
+  /// new allowance. Each is admitted on the key it was first seen with (the
+  /// key in `held`), never on the key of a current pin. `closed` clears
+  /// only when no id is held any more and there is room; otherwise the
+  /// record stays closed. No id and no taint is ever dropped.
+  void allowNewDevices() {
     if (unreadable) throw StateError('The key history is unreadable.');
     if (_allowance >= kMaxKeyHistoryAllowance) {
       throw StateError('The key history allowance is at its maximum.');
     }
-    _closed = false;
     _allowance += kKeyHistoryAllowanceStep;
     _dirty = true;
-    for (final pin in [...currentPins, ...formerPins]) {
-      if (pin.side != MemberSide.unattributed) continue;
-      final hex = vaultDeviceIdHex(pin.deviceId);
-      if (hex == _thisHex) continue;
-      if (_ids.containsKey(hex) || _changed.contains(hex)) continue;
-      // Through admit: it closes again at the new allowance.
-      admit(hex, pin.signatureKey);
+    for (final hex in _held.keys.toList()..sort()) {
+      if (size >= _allowance) break;
+      _ids[hex] = _held.remove(hex)!;
     }
+    if (_held.isEmpty && size < _allowance) _closed = false;
   }
 
   /// Records the pair, then returns its refusal.
   ///
-  /// An unknown id is added with its key (`none`), or, while closed or at
-  /// the allowance, the record closes and the id is `unrecorded`. The same
-  /// key again is `none`. Another key moves the id to the tainted list for
-  /// good: `tainted`, on every key from then on. An unreadable record
-  /// answers `unreadable` and never changes. This device is never recorded
-  /// and never refused.
+  /// An unknown id is added with its key (`none`) when the record is open
+  /// and has room under its allowance. Otherwise the record closes and the
+  /// id is held with its key: remembered, `unrecorded`, not attributable
+  /// (at [kMaxKeyHistoryTotal] entries it cannot even be held). The same
+  /// key again is `none` for a recorded id and still `unrecorded` for a
+  /// held one. Another key moves the id, recorded or held, to the tainted
+  /// list for good: `tainted`, on every key from then on. An unreadable
+  /// record answers `unreadable` and never changes. This device is never
+  /// recorded and never refused.
   KeyRefusal admit(String deviceIdHex, Uint8List signatureKey) {
     if (unreadable) return KeyRefusal.unreadable;
     if (deviceIdHex == _thisHex) return KeyRefusal.none;
@@ -278,9 +321,24 @@ class KeyHistory {
       _dirty = true;
       return KeyRefusal.tainted;
     }
+    final held = _held[deviceIdHex];
+    if (held != null) {
+      if (held == key) return KeyRefusal.unrecorded;
+      // A key change while held taints like any other: the allowance is
+      // not asked, and the total does not change.
+      _held.remove(deviceIdHex);
+      _changed.add(deviceIdHex);
+      _dirty = true;
+      return KeyRefusal.tainted;
+    }
     if (_closed || size >= _allowance) {
       if (!_closed) {
         _closed = true;
+        _dirty = true;
+      }
+      // Remembered with the key first seen, unless the record is full.
+      if (total < kMaxKeyHistoryTotal) {
+        _held[deviceIdHex] = key;
         _dirty = true;
       }
       return KeyRefusal.unrecorded;
@@ -291,17 +349,22 @@ class KeyHistory {
   }
 
   /// Read-only, for attribution: the id recorded with exactly this key is
-  /// `none`; a tainted id (or a recorded id asked with another key) is
-  /// `tainted`; an absent id is `unrecorded`.
+  /// `none`; a tainted id (or a recorded or held id asked with another key)
+  /// is `tainted`; a held id on its key, or an absent id, is `unrecorded`.
+  /// Nothing moves here: the commit or join that brings a changed key goes
+  /// through [admit].
   KeyRefusal refusal(String deviceIdHex, Uint8List signatureKey) {
     if (unreadable) return KeyRefusal.unreadable;
     if (deviceIdHex == _thisHex) return KeyRefusal.none;
     if (_changed.contains(deviceIdHex)) return KeyRefusal.tainted;
+    final key = base64Encode(signatureKey);
     final recorded = _ids[deviceIdHex];
-    if (recorded == null) return KeyRefusal.unrecorded;
-    return recorded == base64Encode(signatureKey)
-        ? KeyRefusal.none
-        : KeyRefusal.tainted;
+    if (recorded != null) {
+      return recorded == key ? KeyRefusal.none : KeyRefusal.tainted;
+    }
+    final held = _held[deviceIdHex];
+    if (held != null && held != key) return KeyRefusal.tainted;
+    return KeyRefusal.unrecorded;
   }
 
   /// Read-only, for claims and adds: [admit] would return `none`.
@@ -311,6 +374,7 @@ class KeyHistory {
     if (_changed.contains(deviceIdHex)) return false;
     final recorded = _ids[deviceIdHex];
     if (recorded != null) return recorded == base64Encode(signatureKey);
+    if (_held.containsKey(deviceIdHex)) return false;
     return !_closed && size < _allowance;
   }
 
@@ -321,6 +385,7 @@ class KeyHistory {
         'v': 1,
         'ids': _ids,
         'changed': _changed.toList(),
+        'held': _held,
         'closed': _closed,
         'allow': _allowance,
       }),
@@ -328,6 +393,21 @@ class KeyHistory {
   );
 
   static final RegExp _hex = RegExp(r'^([0-9a-f]{2})*$');
+
+  /// A stored `{deviceIdHex: keyB64}` map (`ids` or `held`), checked.
+  static Map<String, String> _decodeKeys(Map<String, Object?> raw) {
+    final out = <String, String>{};
+    for (final e in raw.entries) {
+      final key = e.value;
+      if (!_hex.hasMatch(e.key) || key is! String || key.isEmpty) {
+        throw const FormatException('entry');
+      }
+      // A key that is not base64 cannot be compared: unreadable. Stored in
+      // the canonical form the comparisons use.
+      out[e.key] = base64Encode(base64Decode(key));
+    }
+    return out;
+  }
 
   static KeyHistory _decode(Uint8List bytes, String? thisDeviceHex) {
     final m = jsonDecode(utf8.decode(bytes));
@@ -349,16 +429,10 @@ class KeyHistory {
         allow % kKeyHistoryAllowanceStep != 0) {
       throw const FormatException('allow');
     }
-    final ids = <String, String>{};
-    for (final e in rawIds.entries) {
-      final key = e.value;
-      if (!_hex.hasMatch(e.key) || key is! String || key.isEmpty) {
-        throw const FormatException('entry');
-      }
-      // A key that is not base64 cannot be compared: unreadable. Stored in
-      // the canonical form the comparisons use.
-      ids[e.key] = base64Encode(base64Decode(key));
-    }
+    // A record written before `held` existed has none.
+    final rawHeld = m.containsKey('held') ? m['held'] : <String, Object?>{};
+    if (rawHeld is! Map<String, Object?>) throw const FormatException('shape');
+    final ids = _decodeKeys(rawIds);
     final changed = <String>{};
     for (final id in rawChanged) {
       if (id is! String || !_hex.hasMatch(id) || ids.containsKey(id)) {
@@ -366,13 +440,25 @@ class KeyHistory {
       }
       if (!changed.add(id)) throw const FormatException('entry');
     }
-    // Against the stored allowance, not the constant.
-    if (ids.length + changed.length > allow) {
+    // An id is in exactly one of the three.
+    final held = _decodeKeys(rawHeld);
+    for (final id in held.keys) {
+      if (ids.containsKey(id) || changed.contains(id)) {
+        throw const FormatException('entry');
+      }
+    }
+    // An id is held only while the record is closed.
+    if (held.isNotEmpty && !closed) throw const FormatException('closed');
+    // The allowance is enforced when a new id is admitted, not here: a
+    // taint of a held id takes `ids` plus `changed` past it, and a taint
+    // must never make the record unreadable. The total bounds the cost.
+    if (ids.length + changed.length + held.length > kMaxKeyHistoryTotal) {
       throw const FormatException('size');
     }
     return KeyHistory._(
       ids: ids,
       changed: changed,
+      held: held,
       closed: closed,
       allowance: allow,
       dirty: false,
@@ -384,5 +470,5 @@ class KeyHistory {
   @override
   String toString() =>
       'KeyHistory(unreadable: $unreadable, closed: $_closed, '
-      'size: $size, allowance: $_allowance)';
+      'size: $size, held: ${_held.length}, allowance: $_allowance)';
 }

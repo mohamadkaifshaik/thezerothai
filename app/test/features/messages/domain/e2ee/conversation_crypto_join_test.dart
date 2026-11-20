@@ -1039,6 +1039,7 @@ void main() {
         vaultDeviceIdHex(carol.id): base64Encode(carol.key),
       },
       'changed': <Object?>[],
+      'held': <String, Object?>{},
       'closed': false,
       'allow': 256,
     });

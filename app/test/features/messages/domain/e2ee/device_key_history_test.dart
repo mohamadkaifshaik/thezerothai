@@ -37,14 +37,21 @@ Uint8List _json(Map<String, Object?> m) =>
 Map<String, Object?> _record({
   Map<String, String> ids = const {},
   List<String> changed = const [],
+  Map<String, String> held = const {},
   bool closed = false,
   int allow = 256,
 }) => {
   'v': 1,
   'ids': ids,
   'changed': changed,
+  'held': held,
   'closed': closed,
   'allow': allow,
+};
+
+/// [n] ids from [from] on, each with the key of [key].
+Map<String, String> _many(int n, {int from = 0, int key = 1}) => {
+  for (var i = from; i < from + n; i++) _hex(i): base64Encode(_key(key)),
 };
 
 KeyHistory _read(
@@ -93,10 +100,13 @@ void main() {
     expect(h.size, 256);
     expect(h.closed, isFalse);
 
-    // The next new id closes the record and is refused.
+    // The next new id closes the record and is refused: remembered with its
+    // key, outside the allowance.
     expect(h.admit(_hex(1000), _key(1)), KeyRefusal.unrecorded);
     expect(h.closed, isTrue);
     expect(h.size, 256);
+    expect(h.total, 257);
+    expect(_stored(h)['held'], {_hex(1000): base64Encode(_key(1))});
     expect(h.mayAllowMore, isTrue);
     // Recorded ids keep their verdicts.
     expect(h.admit(_hex(2), _key(1)), KeyRefusal.none);
@@ -110,6 +120,7 @@ void main() {
     expect(again.dirty, isFalse);
     expect(again.closed, isTrue);
     expect(again.size, 256);
+    expect(again.total, 257);
     expect(_stored(again), _stored(h));
   });
 
@@ -118,26 +129,242 @@ void main() {
       _json(_record(ids: {_hex(1): base64Encode(_key(1))}, closed: true)),
     );
     expect(h.admit(_hex(2), _key(1)), KeyRefusal.unrecorded);
-    expect(h.dirty, isFalse);
+    // Not admitted, but remembered with its key.
+    expect(h.dirty, isTrue);
     expect(h.size, 1);
+    expect(_stored(h)['held'], {_hex(2): base64Encode(_key(1))});
+    expect(h.closed, isTrue);
   });
 
-  test('decode checks the size against the stored allowance, not the '
-      'constant', () {
-    Map<String, String> ids(int n) => {
-      for (var i = 0; i < n; i++) _hex(i): base64Encode(_key(1)),
-    };
-    expect(_read(_json(_record(ids: ids(256)))).unreadable, isFalse);
-    expect(_read(_json(_record(ids: ids(257)))).unreadable, isTrue);
-    final wide = _read(_json(_record(ids: ids(257), allow: 512)));
+  test('an id first seen while the history is closed is remembered with its '
+      'key and not attributable', () {
+    final x = _hex(1000);
+    final h = _read(_json(_record(ids: _many(256))));
+    expect(h.admit(x, _key(7)), KeyRefusal.unrecorded);
+    expect(h.closed, isTrue);
+    expect(h.dirty, isTrue);
+    expect(_stored(h)['held'], {x: base64Encode(_key(7))});
+    expect(_stored(h)['ids'], _many(256));
+    expect(h.size, 256);
+    expect(h.total, 257);
+    // Held: refused on its own key, by every question.
+    expect(h.refusal(x, _key(7)), KeyRefusal.unrecorded);
+    expect(h.admissible(x, _key(7)), isFalse);
+    expect(h.admissible(x, _key(8)), isFalse);
+
+    // Read back: still held, and seeing it again on that key writes
+    // nothing.
+    final again = _read(
+      h.encode(),
+      current: [_pin(x, _key(7), MemberSide.unattributed)],
+    );
+    expect(again.unreadable, isFalse);
+    expect(again.admit(x, _key(7)), KeyRefusal.unrecorded);
+    expect(again.refusal(x, _key(7)), KeyRefusal.unrecorded);
+    expect(again.dirty, isFalse);
+    expect(_stored(again), _stored(h));
+  });
+
+  test('a key change of a held id never makes the history unreadable', () {
+    final x = _hex(1000);
+    final h = _read(_json(_record(ids: _many(256))));
+    expect(h.admit(x, _key(1)), KeyRefusal.unrecorded);
+    final closed = _read(h.encode());
+    expect(closed.admit(x, _key(2)), KeyRefusal.tainted);
+    expect(closed.dirty, isTrue);
+    expect(_stored(closed)['changed'], [x]);
+    expect(_stored(closed)['held'], isEmpty);
+
+    final again = _read(
+      closed.encode(),
+      current: [_pin(x, _key(2), MemberSide.unattributed)],
+    );
+    expect(again.unreadable, isFalse);
+    expect(again.closed, isTrue);
+    expect(again.allowance, 256);
+    expect(again.size, 257);
+    expect(again.total, 257);
+    for (final k in [1, 2, 3]) {
+      expect(again.refusal(x, _key(k)), KeyRefusal.tainted);
+      expect(again.admit(x, _key(k)), KeyRefusal.tainted);
+    }
+    // Recorded ids keep their verdicts.
+    expect(again.refusal(_hex(5), _key(1)), KeyRefusal.none);
+    expect(again.dirty, isFalse);
+  });
+
+  test('refusal on a held id with another key answers tainted and leaves the '
+      'record bytes unchanged', () {
+    final x = _hex(1000);
+    final bytes = _json(
+      _record(ids: _many(256), held: {x: base64Encode(_key(1))}, closed: true),
+    );
+    final h = _read(bytes);
+    expect(h.unreadable, isFalse);
+    expect(h.refusal(x, _key(2)), KeyRefusal.tainted);
+    expect(h.refusal(x, _key(1)), KeyRefusal.unrecorded);
+    expect(h.dirty, isFalse);
+    expect(h.encode(), bytes);
+    expect(_stored(h)['held'], {x: base64Encode(_key(1))});
+    expect(_stored(h)['changed'], isEmpty);
+  });
+
+  test('a record without held decodes as an empty held', () {
+    final k = base64Encode(_key(1));
+    final old = {
+      ..._record(ids: {_hex(1): k}, changed: [_hex(2)]),
+    }..remove('held');
+    final h = _read(_json(old));
+    expect(h.unreadable, isFalse);
+    expect(h.dirty, isFalse);
+    expect(h.total, 2);
+    expect(h.refusal(_hex(1), _key(1)), KeyRefusal.none);
+    expect(h.refusal(_hex(2), _key(1)), KeyRefusal.tainted);
+    expect(_stored(h), _record(ids: {_hex(1): k}, changed: [_hex(2)]));
+  });
+
+  test('an id in two of ids, changed and held makes the record '
+      'unreadable', () {
+    final k = base64Encode(_key(1));
+    final x = _hex(1);
+    final bad = [
+      _record(ids: {x: k}, changed: [x]),
+      _record(ids: {x: k}, held: {x: k}, closed: true),
+      _record(changed: [x], held: {x: k}, closed: true),
+      _record(ids: {x: k}, changed: [x], held: {x: k}, closed: true),
+    ];
+    for (var i = 0; i < bad.length; i++) {
+      expect(_read(_json(bad[i])).unreadable, isTrue, reason: 'case $i');
+    }
+    // Each in one place: readable.
+    expect(
+      _read(
+        _json(
+          _record(
+            ids: {x: k},
+            changed: [_hex(2)],
+            held: {_hex(3): k},
+            closed: true,
+          ),
+        ),
+      ).unreadable,
+      isFalse,
+    );
+  });
+
+  test('at the hard bound a new id is refused, is not recorded and is never '
+      'admitted later', () {
+    expect(kMaxKeyHistoryTotal, 2048);
+    final x = _hex(9000);
+    // 768 attributable ids and 1280 held: 2048 entries.
+    final bytes = _json(
+      _record(
+        ids: _many(768),
+        held: _many(1280, from: 1000, key: 2),
+        closed: true,
+        allow: 768,
+      ),
+    );
+    final h = _read(bytes);
+    expect(h.unreadable, isFalse);
+    expect(h.total, 2048);
+    expect(h.admissible(x, _key(3)), isFalse);
+    expect(h.admit(x, _key(3)), KeyRefusal.unrecorded);
+    expect(h.dirty, isFalse);
+    expect(h.total, 2048);
+    expect(h.encode(), bytes);
+    expect(h.refusal(x, _key(3)), KeyRefusal.unrecorded);
+
+    // Allowing new devices promotes held ids only: the id that could not be
+    // recorded is in no list, so nothing ever reaches it.
+    h.allowNewDevices();
+    expect(h.allowance, 1024);
+    expect(h.size, 1024);
+    expect(h.total, 2048);
+    expect(h.closed, isTrue);
+    expect(h.mayAllowMore, isFalse);
+    expect(h.refusal(x, _key(3)), KeyRefusal.unrecorded);
+    expect(h.admit(x, _key(3)), KeyRefusal.unrecorded);
+    expect(h.admissible(x, _key(3)), isFalse);
+    final stored = _stored(h);
+    for (final list in ['ids', 'held']) {
+      expect((stored[list]! as Map).keys, isNot(contains(x)));
+    }
+    expect(stored['changed'], isEmpty);
+    expect(h.total, 2048);
+
+    // An open record at the bound (only taints of held ids can take one
+    // there) closes on the new id and still does not record it.
+    final open = _read(
+      _json(_record(changed: [for (var i = 0; i < 2048; i++) _hex(i)])),
+    );
+    expect(open.unreadable, isFalse);
+    expect(open.closed, isFalse);
+    expect(open.admit(x, _key(3)), KeyRefusal.unrecorded);
+    expect(open.closed, isTrue);
+    expect(open.dirty, isTrue);
+    expect(open.total, 2048);
+    expect(_stored(open)['held'], isEmpty);
+  });
+
+  test('decode bounds the total, and the allowance is enforced when '
+      'admitting', () {
+    expect(_read(_json(_record(ids: _many(256)))).unreadable, isFalse);
+    // Over the allowance, within the bound: it decodes (a taint of a held
+    // id leaves such a record), and a new id is held, not admitted.
+    final over = _read(
+      _json(_record(ids: _many(256), changed: [_hex(5000)], closed: true)),
+    );
+    expect(over.unreadable, isFalse);
+    expect(over.size, 257);
+    expect(over.allowance, 256);
+    expect(over.admissible(_hex(6000), _key(1)), isFalse);
+    expect(over.admit(_hex(6000), _key(1)), KeyRefusal.unrecorded);
+    expect(_stored(over)['held'], {_hex(6000): base64Encode(_key(1))});
+    expect(over.size, 257);
+    // The same while not closed: it closes.
+    final open = _read(_json(_record(ids: _many(300))));
+    expect(open.unreadable, isFalse);
+    expect(open.admit(_hex(6000), _key(1)), KeyRefusal.unrecorded);
+    expect(open.closed, isTrue);
+    expect(_stored(open)['held'], {_hex(6000): base64Encode(_key(1))});
+    final wide = _read(_json(_record(ids: _many(257), allow: 512)));
     expect(wide.unreadable, isFalse);
     expect(wide.allowance, 512);
-    expect(_read(_json(_record(ids: ids(513), allow: 512))).unreadable, isTrue);
-    // ids and changed count together.
-    expect(
-      _read(_json(_record(ids: ids(256), changed: [_hex(5000)]))).unreadable,
-      isTrue,
+    expect(wide.admit(_hex(6000), _key(1)), KeyRefusal.none);
+
+    // The total: 2048 entries decode, 2049 do not, wherever they are.
+    Map<String, Object?> sized(int ids, int changed, int held) => _record(
+      ids: _many(ids),
+      changed: [for (var i = 0; i < changed; i++) _hex(3000 + i)],
+      held: _many(held, from: 6000),
+      closed: held > 0,
+      allow: 1024,
     );
+    for (final (ids, changed, held) in [
+      (2048, 0, 0),
+      (0, 2048, 0),
+      (0, 0, 2048),
+      (1024, 24, 1000),
+    ]) {
+      expect(
+        _read(_json(sized(ids, changed, held))).unreadable,
+        isFalse,
+        reason: '$ids $changed $held',
+      );
+    }
+    for (final (ids, changed, held) in [
+      (2049, 0, 0),
+      (0, 2049, 0),
+      (0, 0, 2049),
+      (1024, 25, 1000),
+    ]) {
+      expect(
+        _read(_json(sized(ids, changed, held))).unreadable,
+        isTrue,
+        reason: '$ids $changed $held',
+      );
+    }
     for (final allow in [0, 255, 257, 300, 1280, -256]) {
       expect(
         _read(_json(_record(allow: allow))).unreadable,
@@ -148,8 +375,8 @@ void main() {
     expect(_read(_json(_record(allow: 1024))).unreadable, isFalse);
   });
 
-  test('the cross-check exempts an absent unattributed pin only while '
-      'closed', () {
+  test('the cross-check accepts a held pin only unattributed on its key, and '
+      'an absent pin only at the hard bound', () {
     final k1 = base64Encode(_key(1));
     Uint8List record({bool closed = false}) =>
         _json(_record(ids: {_hex(1): k1}, changed: [_hex(2)], closed: closed));
@@ -195,19 +422,91 @@ void main() {
         isTrue,
       );
     }
-    // Closed: only an unattributed absent pin is an overflow refusal.
+    // Closed changes nothing: an absent pin was never remembered, so the
+    // record is not the one this vault wrote.
+    for (final side in [MemberSide.unattributed, MemberSide.theirs]) {
+      expect(
+        _read(
+          record(closed: true),
+          current: [_pin(_hex(3), _key(1), side)],
+        ).unreadable,
+        isTrue,
+      );
+      expect(
+        _read(
+          record(closed: true),
+          former: [_pin(_hex(4), _key(1), side)],
+        ).unreadable,
+        isTrue,
+      );
+    }
+    // A held id: consistent only as an unattributed pin on the held key.
+    final held = _json(
+      _record(
+        ids: {_hex(1): k1},
+        held: {_hex(3): k1, _hex(4): base64Encode(_key(2))},
+        closed: true,
+      ),
+    );
     expect(
       _read(
-        record(closed: true),
+        held,
         current: [_pin(_hex(3), _key(1), MemberSide.unattributed)],
+        former: [_pin(_hex(4), _key(2), MemberSide.unattributed)],
+      ).unreadable,
+      isFalse,
+    );
+    for (final side in [MemberSide.theirs, MemberSide.mine]) {
+      expect(
+        _read(held, current: [_pin(_hex(3), _key(1), side)]).unreadable,
+        isTrue,
+      );
+      expect(
+        _read(held, former: [_pin(_hex(3), _key(1), side)]).unreadable,
+        isTrue,
+      );
+    }
+    // A pin of a held id on another key cannot exist: the change would
+    // have tainted the id.
+    expect(
+      _read(
+        held,
+        current: [_pin(_hex(3), _key(2), MemberSide.unattributed)],
+      ).unreadable,
+      isTrue,
+    );
+    expect(
+      _read(
+        held,
         former: [_pin(_hex(4), _key(1), MemberSide.unattributed)],
+      ).unreadable,
+      isTrue,
+    );
+    // The hard bound: an id met there could not be recorded, so its
+    // unattributed pin is consistent; one entry short it is not.
+    Uint8List sized(int n) => _json(
+      _record(ids: _many(256), held: _many(n - 256, from: 1000), closed: true),
+    );
+    final lost = _hex(9000);
+    expect(
+      _read(
+        sized(2048),
+        current: [_pin(lost, _key(1), MemberSide.unattributed)],
+        former: [_pin(_hex(9001), _key(1), MemberSide.unattributed)],
       ).unreadable,
       isFalse,
     );
     expect(
       _read(
-        record(closed: true),
-        current: [_pin(_hex(3), _key(1), MemberSide.theirs)],
+        sized(2048),
+        current: [_pin(lost, _key(1), MemberSide.theirs)],
+      ).unreadable,
+      isTrue,
+    );
+    expect(
+      _read(
+        sized(2047),
+        current: [_pin(lost, _key(1), MemberSide.unattributed)],
       ).unreadable,
       isTrue,
     );
@@ -291,6 +590,13 @@ void main() {
     expect(full.admissible(_hex(999), _key(1)), isFalse);
     expect(full.admissible(_hex(5), _key(1)), isTrue);
     expect(full.closed, isFalse);
+    // A held id is not admissible on any key.
+    final held = _read(
+      _json(_record(held: {_hex(3): base64Encode(_key(1))}, closed: true)),
+    );
+    expect(held.admissible(_hex(3), _key(1)), isFalse);
+    expect(held.admissible(_hex(3), _key(2)), isFalse);
+    expect(held.dirty, isFalse);
     // Unreadable: nothing is admissible, admit changes nothing.
     final bad = KeyHistory.unreadableRecord();
     expect(bad.admissible(_hex(1), _key(1)), isFalse);
@@ -337,7 +643,18 @@ void main() {
       },
       _record(changed: [_hex(1), _hex(1)]),
       _record(ids: {_hex(1): k}, changed: [_hex(1)]),
-      _record(ids: {for (var i = 0; i < 257; i++) _hex(i): k}),
+      _record(ids: {for (var i = 0; i < 2049; i++) _hex(i): k}),
+      // `held` is checked like `ids`, and is never non-empty while open.
+      {..._record(closed: true), 'held': <Object?>[]},
+      _record(held: {_hex(1): ''}, closed: true),
+      _record(held: {_hex(1): 'not base64!'}, closed: true),
+      {
+        ..._record(closed: true),
+        'held': {_hex(1): 7},
+      },
+      _record(held: {'ABCD': k}, closed: true),
+      _record(held: {'abc': k}, closed: true),
+      _record(held: {_hex(1): k}),
       [1, 2],
       'text',
     ];
@@ -353,14 +670,17 @@ void main() {
     expect(_read(_json(_record(ids: {_hex(1): k}))).unreadable, isFalse);
   });
 
-  test('allowing new devices raises the allowance by one step, admits the '
-      'absent unattributed pins and stops at the maximum', () {
-    final k = base64Encode(_key(1));
+  test('allowing new devices admits a held id on the key it was first seen '
+      'with', () {
     final h = _read(
       _json(
         _record(
-          ids: {for (var i = 0; i < 255; i++) _hex(i): k},
+          ids: _many(255),
           changed: [_hex(900)],
+          held: {
+            _hex(1000): base64Encode(_key(1)),
+            _hex(1001): base64Encode(_key(2)),
+          },
           closed: true,
         ),
       ),
@@ -371,13 +691,21 @@ void main() {
       _pin(_hex(1000), _key(1), MemberSide.unattributed),
     ];
     final former = [_pin(_hex(1001), _key(2), MemberSide.unattributed)];
-    h.allowNewDevices(currentPins: current, formerPins: former);
+    h.allowNewDevices();
     expect(h.closed, isFalse);
     expect(h.allowance, 512);
     expect(h.dirty, isTrue);
     expect(h.size, 258);
+    expect(h.total, 258);
+    // On the key first seen, and on no other.
     expect(h.refusal(_hex(1000), _key(1)), KeyRefusal.none);
     expect(h.refusal(_hex(1001), _key(2)), KeyRefusal.none);
+    expect(h.refusal(_hex(1000), _key(2)), KeyRefusal.tainted);
+    expect(h.refusal(_hex(1001), _key(1)), KeyRefusal.tainted);
+    final stored = _stored(h);
+    expect(stored['held'], isEmpty);
+    expect((stored['ids']! as Map)[_hex(1000)], base64Encode(_key(1)));
+    expect((stored['ids']! as Map)[_hex(1001)], base64Encode(_key(2)));
     // No id and no taint dropped.
     expect(h.refusal(_hex(900), _key(4)), KeyRefusal.tainted);
     for (var i = 0; i < 255; i++) {
@@ -387,23 +715,107 @@ void main() {
       _read(h.encode(), current: current, former: former).unreadable,
       isFalse,
     );
+    // A pin of a promoted id on another key contradicts the record.
+    expect(
+      _read(
+        h.encode(),
+        current: [_pin(_hex(1000), _key(2), MemberSide.unattributed)],
+      ).unreadable,
+      isTrue,
+    );
 
-    h.allowNewDevices(currentPins: const [], formerPins: const []);
-    h.allowNewDevices(currentPins: const [], formerPins: const []);
+    h.allowNewDevices();
+    h.allowNewDevices();
     expect(h.allowance, 1024);
     expect(h.mayAllowMore, isFalse);
-    expect(
-      () => h.allowNewDevices(currentPins: const [], formerPins: const []),
-      throwsStateError,
-    );
+    expect(h.allowNewDevices, throwsStateError);
     expect(h.allowance, 1024);
-    expect(
-      () => KeyHistory.unreadableRecord().allowNewDevices(
-        currentPins: const [],
-        formerPins: const [],
+    expect(KeyHistory.unreadableRecord().allowNewDevices, throwsStateError);
+  });
+
+  test('allowing new devices with more held ids than room stays closed and '
+      'promotes in a fixed order', () {
+    // 258 held ids, stored from the highest id down, each with its own key.
+    final held = {
+      for (var i = 257; i >= 0; i--)
+        _hex(2000 + i): base64Encode(_key(i % 200 + 2)),
+    };
+    final h = _read(_json(_record(ids: _many(256), held: held, closed: true)));
+    expect(h.unreadable, isFalse);
+    h.allowNewDevices();
+    expect(h.allowance, 512);
+    expect(h.size, 512);
+    expect(h.total, 514);
+    // Still closed: two ids are still held.
+    expect(h.closed, isTrue);
+    expect(h.mayAllowMore, isTrue);
+    final stored = _stored(h);
+    // The 256 lowest ids, each on its held key; the two highest stay held.
+    expect(stored['held'], {
+      _hex(2256): held[_hex(2256)],
+      _hex(2257): held[_hex(2257)],
+    });
+    expect(stored['ids'], {
+      ..._many(256),
+      for (var i = 0; i < 256; i++) _hex(2000 + i): held[_hex(2000 + i)],
+    });
+    expect(stored['changed'], isEmpty);
+    expect(h.refusal(_hex(2000), _key(2)), KeyRefusal.none);
+    expect(h.refusal(_hex(2257), _key(57 + 2)), KeyRefusal.unrecorded);
+    // A new id while still closed is held, behind them.
+    expect(h.admit(_hex(1), _key(1)), KeyRefusal.none);
+    expect(h.admit(_hex(100), _key(1)), KeyRefusal.none);
+    expect(h.admit(_hex(9000), _key(1)), KeyRefusal.unrecorded);
+    expect(h.total, 515);
+
+    // The next allowance takes the rest and reopens.
+    final again = _read(h.encode());
+    again.allowNewDevices();
+    expect(again.allowance, 768);
+    expect(again.size, 515);
+    expect(again.total, 515);
+    expect(again.closed, isFalse);
+    expect(_stored(again)['held'], isEmpty);
+    expect(again.refusal(_hex(2257), _key(57 + 2)), KeyRefusal.none);
+  });
+
+  test('allowing new devices over the allowance promotes nothing and stays '
+      'closed', () {
+    final x = _hex(9000);
+    final taints = [for (var i = 0; i < 300; i++) _hex(3000 + i)];
+    // 556 entries against an allowance of 256: 300 held ids were tainted.
+    final h = _read(
+      _json(
+        _record(
+          ids: _many(256),
+          changed: taints,
+          held: {x: base64Encode(_key(1))},
+          closed: true,
+        ),
       ),
-      throwsStateError,
     );
+    expect(h.unreadable, isFalse);
+    h.allowNewDevices();
+    expect(h.allowance, 512);
+    expect(h.dirty, isTrue);
+    expect(h.closed, isTrue);
+    expect(h.refusal(x, _key(1)), KeyRefusal.unrecorded);
+    expect(_stored(h)['held'], {x: base64Encode(_key(1))});
+    // Empty-handed too: no held id, but still no room.
+    final none = _read(
+      _json(_record(ids: _many(256), changed: taints, closed: true)),
+    );
+    none.allowNewDevices();
+    expect(none.allowance, 512);
+    expect(none.closed, isTrue);
+    expect(none.admit(x, _key(1)), KeyRefusal.unrecorded);
+    // With room at last, the held id is admitted and the record reopens.
+    h.allowNewDevices();
+    expect(h.allowance, 768);
+    expect(h.size, 557);
+    expect(h.closed, isFalse);
+    expect(h.refusal(x, _key(1)), KeyRefusal.none);
+    expect(_stored(h)['changed'], taints);
   });
 
   test('toString prints no id or key', () {
@@ -463,6 +875,7 @@ void main() {
         'v': 1,
         'ids': {_hex(1): base64Encode(_key(1))},
         'changed': <Object?>[],
+        'held': <String, Object?>{},
         'closed': false,
         'allow': 256,
       });
