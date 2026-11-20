@@ -200,6 +200,36 @@ void main() {
       );
     });
 
+    test('checkClaims for a new group drops a claim whose device id is '
+        'pinned with another key', () {
+      // Claim (id 5, key 5) while id 5 is pinned with key 6, on any side.
+      for (final side in [
+        MemberSide.theirs,
+        MemberSide.mine,
+        MemberSide.unattributed,
+      ]) {
+        expect(
+          _check(members: [_member(5, side, key: 6)], forNewGroup: true).usable,
+          isEmpty,
+          reason: side,
+        );
+        expect(
+          _check(members: [_member(5, side, key: 6)]).usable,
+          isEmpty,
+          reason: side,
+        );
+      }
+      // Same id and same key, unattributed: the claim is kept (a reset
+      // reclaims it).
+      expect(
+        _check(
+          members: [_member(5, MemberSide.unattributed)],
+          forNewGroup: true,
+        ).usable,
+        hasLength(1),
+      );
+    });
+
     test('a peer claim with a deferred own list that lacks the device is '
         'dropped', () {
       final deferredOwn = DeviceList(ListState.deferred, [
@@ -750,6 +780,29 @@ void main() {
       );
       expect(r.map((e) => e.deviceId), [_id(1)]);
       expect(r.single.side, ClaimSide.mine);
+    });
+
+    test('a deferred own list with a readable peer list adds no peer '
+        'device', () {
+      final deferredOwn = DeviceList(ListState.deferred, [_dev(1)], _base);
+      expect(
+        devicesToAdd(
+          ownList: deferredOwn,
+          peerList: _list([_dev(2), _dev(3)]),
+          members: const [],
+          thisDeviceId: _id(99),
+        ),
+        isEmpty,
+      );
+      expect(
+        devicesToAdd(
+          ownList: _unreadable,
+          peerList: _list([_dev(2)]),
+          members: const [],
+          thisDeviceId: _id(99),
+        ),
+        isEmpty,
+      );
     });
 
     test('adds stop at 10 members, own side first', () {

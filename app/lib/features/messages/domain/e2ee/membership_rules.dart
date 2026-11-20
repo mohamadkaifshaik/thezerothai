@@ -103,7 +103,9 @@ String _sideName(ClaimSide side) =>
 /// repeated under two ids in the claims (every claim with it is dropped); its
 /// key is not pinned in [members] to the OTHER attributed side or to another
 /// device id (a pin that is unattributed, same id and same key, does not
-/// refuse: a reset must be able to reclaim it); for [ClaimSide.theirs] the id
+/// refuse: a reset must be able to reclaim it); its id is not pinned in
+/// [members] with ANOTHER key, on any side, [forNewGroup] included (a known
+/// id never changes key); for [ClaimSide.theirs] the id
 /// is not in [ownList] and [ownList] is readable (an unknown own list cannot
 /// show that a device is not ours).
 /// Claims without a package go to `emptyFor` (device ids) and nowhere else,
@@ -160,6 +162,14 @@ ClaimCheck checkClaims({
     if (_bytesEqual(id, thisDeviceId)) continue;
     if (counts[deviceIdHex(id)]! > 1) continue;
     if (keyCounts[_hex(key)]! > 1) continue;
+    // A known device id never changes key (the contract refuses it): the same
+    // id pinned with another key, on any side and for a new group too, is a
+    // server hiding a new key behind a known id.
+    if (members.any(
+      (m) => _bytesEqual(m.deviceId, id) && !_bytesEqual(m.signatureKey, key),
+    )) {
+      continue;
+    }
     if (!forNewGroup && members.any((m) => _bytesEqual(m.deviceId, id))) {
       continue;
     }
@@ -377,8 +387,9 @@ bool mayRemoveUnattributed({
 
 /// Devices to add: listed and not inactive in a readable list, not a member,
 /// not this device, not listed twice (own side wins: every id of the own list,
-/// inactive ones too, is withheld from the peer side); own side first; never
-/// more than [kMaxGroupMembers] minus the current members.
+/// inactive ones too, is withheld from the peer side); own side first; no peer
+/// device at all unless the own list is readable; never more than
+/// [kMaxGroupMembers] minus the current members.
 List<DeviceToAdd> devicesToAdd({
   required DeviceList ownList,
   required DeviceList peerList,
@@ -409,7 +420,10 @@ List<DeviceToAdd> devicesToAdd({
   }
 
   collect(ownList, ClaimSide.mine);
-  collect(peerList, ClaimSide.theirs);
+  // checkClaims drops every peer claim while the own list is not readable
+  // (it cannot show the device is not ours): claiming one would only burn a
+  // one-time key package and the per-target daily cap.
+  if (ownList.readable) collect(peerList, ClaimSide.theirs);
   return out;
 }
 
