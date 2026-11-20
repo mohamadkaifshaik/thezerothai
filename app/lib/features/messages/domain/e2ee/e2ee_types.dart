@@ -52,6 +52,8 @@ class ConversationCryptoState {
     required this.theirDeviceCount,
     required this.canReset,
     this.resetAllowedAt,
+    this.keyHistoryClosed = false,
+    this.mayAllowMoreDevices = false,
   });
 
   final ConversationPhase phase;
@@ -68,6 +70,15 @@ class ConversationCryptoState {
   final int theirDeviceCount;
   final bool canReset;
   final DateTime? resetAllowedAt;
+
+  /// This conversation's device key history is closed: every device id
+  /// first seen from now on stays an unknown device here until the user
+  /// allows new devices.
+  final bool keyHistoryClosed;
+
+  /// [keyHistoryClosed], and the user may still allow new devices here (the
+  /// allowance is below its maximum).
+  final bool mayAllowMoreDevices;
 
   /// `ready` excludes provisional (its own phase): no code on a provisional
   /// group.
@@ -106,7 +117,9 @@ class ConversationCryptoState {
       other.myDeviceCount == myDeviceCount &&
       other.theirDeviceCount == theirDeviceCount &&
       other.canReset == canReset &&
-      other.resetAllowedAt == resetAllowedAt;
+      other.resetAllowedAt == resetAllowedAt &&
+      other.keyHistoryClosed == keyHistoryClosed &&
+      other.mayAllowMoreDevices == mayAllowMoreDevices;
 
   @override
   int get hashCode => Object.hash(
@@ -122,6 +135,8 @@ class ConversationCryptoState {
     theirDeviceCount,
     canReset,
     resetAllowedAt,
+    keyHistoryClosed,
+    mayAllowMoreDevices,
   );
 
   @override
@@ -134,7 +149,9 @@ class ConversationCryptoState {
       'committingPausedToday: $committingPausedToday, '
       'unattributedPresent: $unattributedPresent, '
       'myDeviceCount: $myDeviceCount, theirDeviceCount: $theirDeviceCount, '
-      'canReset: $canReset, hasResetAllowedAt: ${resetAllowedAt != null})';
+      'canReset: $canReset, hasResetAllowedAt: ${resetAllowedAt != null}, '
+      'keyHistoryClosed: $keyHistoryClosed, '
+      'mayAllowMoreDevices: $mayAllowMoreDevices)';
 }
 
 /// `OutgoingStatus` is taken by `message_outbox.dart`, hence the suffix.

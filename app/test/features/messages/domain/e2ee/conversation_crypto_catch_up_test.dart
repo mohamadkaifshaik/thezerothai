@@ -1201,6 +1201,8 @@ void main() {
       final state = await rig.crypto.describeState(_c1);
       expect(state.unknownDevicePresent, isTrue);
       expect(state.sendBlock, SendBlock.unknownDevice);
+      expect(state.keyHistoryClosed, isTrue);
+      expect(state.mayAllowMoreDevices, isTrue);
       expect(rig.keyHistoryErrors, isEmpty);
     });
 
@@ -1244,6 +1246,117 @@ void main() {
           if (l.line == SystemLine.deviceAdded) l,
       ], isEmpty);
       expect(rig.keyHistoryErrors, isEmpty);
+    });
+
+    test('allowing new devices clears closed, raises the allowance by 256, '
+        'admits the overflow-refused pins and drops no id or taint', () async {
+      final carol = await RigPeer.create('carol');
+      final dave = await RigPeer.create('dave');
+      final eve = await RigPeer.create('eve');
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(dave.idString, dave.key));
+      final offer = await join(_c1, others: [dave]);
+      // At its allowance: bob, dave, a tainted id and 253 ids long gone.
+      await rig.putKeyHistory(
+        _c1,
+        ids: [(bob.id, bob.key), (dave.id, dave.key)],
+        changed: [carol.id],
+        fillers: 253,
+      );
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(eve.idString, eve.key));
+      rig.directory.clear();
+      rig.clock.advance(const Duration(seconds: 61));
+      await bobCommit(offer, _c1, add: [eve]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      final closed = (await rig.keyHistory(_c1))!;
+      expect(closed['closed'], isTrue);
+      var state = await rig.crypto.describeState(_c1);
+      expect(state.keyHistoryClosed, isTrue);
+      expect(state.mayAllowMoreDevices, isTrue);
+      rig.changed.clear();
+
+      expect(await rig.crypto.allowNewDevices(_c1), isTrue);
+
+      final open = (await rig.keyHistory(_c1))!;
+      expect(open['closed'], isFalse);
+      expect(open['allow'], 512);
+      // Nothing dropped: every id with its key, the taint, plus eve.
+      expect(open['changed'], [vaultDeviceIdHex(carol.id)]);
+      expect(open['ids'], {
+        ...closed['ids']! as Map<String, Object?>,
+        vaultDeviceIdHex(eve.id): base64Encode(eve.key),
+      });
+      state = await rig.crypto.describeState(_c1);
+      expect(state.keyHistoryClosed, isFalse);
+      expect(state.mayAllowMoreDevices, isFalse);
+      expect(rig.changed, [_c1]);
+      // Admitted is not attributed: the lists decide, at the next pass.
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect((await pin(_c1, eve.id))!.side, MemberSide.theirs);
+      expect(
+        linesOf(await rig.lines(_c1), eve.id),
+        unorderedEquals([SystemLine.unknownDevice, SystemLine.deviceAdded]),
+      );
+      // A tainted id stays refused on its key however wide the allowance.
+      await bobCommit(offer, _c1, add: [carol]);
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      rig.directory.clear();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
+
+      // Not closed any more: a second call changes nothing.
+      final before = await rig.keyHistory(_c1);
+      expect(await rig.crypto.allowNewDevices(_c1), isFalse);
+      expect(await rig.keyHistory(_c1), before);
+      expect(rig.keyHistoryErrors, isEmpty);
+    });
+
+    test('the allowance stops at 1024', () async {
+      const c2 = '22222222222222222222222222222222';
+      const c3 = '33333333333333333333333333333333';
+      await join(_c1);
+      await rig.putKeyHistory(
+        _c1,
+        ids: [(bob.id, bob.key)],
+        closed: true,
+        allow: 768,
+      );
+      expect(await rig.crypto.allowNewDevices(_c1), isTrue);
+      expect((await rig.keyHistory(_c1))!['allow'], 1024);
+      expect((await rig.keyHistory(_c1))!['closed'], isFalse);
+
+      // Closed again at the maximum: no further exit.
+      await rig.putKeyHistory(
+        _c1,
+        ids: [(bob.id, bob.key)],
+        closed: true,
+        allow: 1024,
+      );
+      final full = await rig.keyHistory(_c1);
+      var state = await rig.crypto.describeState(_c1);
+      expect(state.keyHistoryClosed, isTrue);
+      expect(state.mayAllowMoreDevices, isFalse);
+      expect(await rig.crypto.allowNewDevices(_c1), isFalse);
+      expect(await rig.keyHistory(_c1), full);
+      expect(rig.keyHistoryErrors, isEmpty);
+      expect(rig.unexpected, isEmpty);
+
+      // An unreadable history is never reopened or rewritten.
+      await join(c2);
+      await corruptHistory(c2);
+      expect(await rig.crypto.allowNewDevices(c2), isFalse);
+      expect(await rawHistory(c2), '{"v":1');
+      state = await rig.crypto.describeState(c2);
+      expect(state.keyHistoryClosed, isFalse);
+      expect(state.mayAllowMoreDevices, isFalse);
+      // A conversation with nothing stored gets no history from it.
+      expect(await rig.crypto.allowNewDevices(c3), isFalse);
+      expect(await rig.keyHistory(c3), isNull);
     });
 
     test('an unreadable key history refuses every unattributed member of that '

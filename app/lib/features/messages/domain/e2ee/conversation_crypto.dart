@@ -863,6 +863,22 @@ class ConversationCrypto {
         canReset: false,
       );
     }
+    // The key history's state (a read only; false for both when it cannot
+    // be read: the allowance is no exit from an unreadable history).
+    var keyHistoryClosed = false;
+    var mayAllowMoreDevices = false;
+    try {
+      final history = await _keyHistory.of(
+        vault,
+        id,
+        currentPins: pins,
+        formerPins: await _formerPins.of(vault, id),
+      );
+      keyHistoryClosed = !history.unreadable && history.closed;
+      mayAllowMoreDevices = history.mayAllowMore;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'describeState');
+    }
     final sync = record?.sync ?? const ConversationSync();
     final accepted = sync.requestAccepted;
     GroupRecord? current;
@@ -947,6 +963,8 @@ class ConversationCrypto {
               isUtc: true,
             ).add(kResetWaitWithoutWelcome)
           : null,
+      keyHistoryClosed: keyHistoryClosed,
+      mayAllowMoreDevices: mayAllowMoreDevices,
     );
   }
 
@@ -1892,6 +1910,61 @@ class ConversationCrypto {
       ..attributionConcluded = !outcome.pending;
     if (!outcome.pending) context.reattributeAt = null;
     if (outcome.wrote) _onChanged(id);
+  }
+
+  // ---------------------------------------------------------------------
+  // The key history's allowance
+
+  /// The user's confirmed "allow new devices here" for [conversationId]
+  /// (the caller shows the confirmation; nothing here runs on its own).
+  ///
+  /// One transaction under the conversation lock: the key history, read
+  /// fresh and cross-checked, is reopened, its allowance raised by one step,
+  /// and the devices refused only because it was closed are admitted (they
+  /// stay unattributed until a list shows them). No id and no taint is
+  /// dropped.
+  ///
+  /// True when the allowance was raised. False, with nothing written, when
+  /// the history is not closed, cannot be raised further, is unreadable, or
+  /// the vault is closed or changed. Never throws.
+  Future<bool> allowNewDevices(String conversationId) =>
+      _locks.run(conversationId, () => _allowNewDevicesLocked(conversationId));
+
+  Future<bool> _allowNewDevicesLocked(String id) async {
+    try {
+      final pass = await _startPoll(BudgetPriority.user);
+      if (pass == null) return false;
+      final raised = await _session.runWrite((v) async {
+        pass.check(v);
+        // Read fresh in this body, with its vault.
+        final current = await v.members(id);
+        final former = await _formerPins.of(v, id);
+        final history = await _keyHistory.of(
+          v,
+          id,
+          currentPins: current,
+          formerPins: former,
+        );
+        // Only a closed, readable history below the maximum is reopened.
+        if (!history.mayAllowMore) return false;
+        history.allowNewDevices(currentPins: current, formerPins: former);
+        await v.transaction((tx) => _keyHistory.writeIn(tx, id, history));
+        return true;
+      });
+      if (!raised) return false;
+      // The admitted devices are still unattributed: the next pass asks the
+      // lists.
+      _contexts.of(id)
+        ..attributionConcluded = false
+        ..attributionPending = true;
+      _onChanged(id);
+      return true;
+    } on _Stopped {
+      return false;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'allowNewDevices');
+      return false;
+    }
   }
 
   /// The peer's user reference: this run's context, else the cached header,
