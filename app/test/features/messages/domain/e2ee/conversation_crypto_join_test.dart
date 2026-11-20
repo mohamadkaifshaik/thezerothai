@@ -66,6 +66,62 @@ class _BigPage extends RigMessaging {
   }
 }
 
+/// A server that always says `more`: every `ListWelcomes` page holds two
+/// fresh welcomes with a label the client refuses (each is permanent,
+/// without an engine call). A hang guard: after [_kEndlessGuard] pages it
+/// says no more, so a client without a page cap ends instead of spinning.
+class _EndlessWelcomes extends RigMessaging {
+  _EndlessWelcomes(RigServer server) : super(server, 'user-a');
+
+  static const _kEndlessGuard = 60;
+
+  int listCalls = 0;
+  final Set<String> listed = {};
+  final List<String> acked = [];
+  final List<List<String>> refused = [];
+
+  @override
+  Future<pb.ListWelcomesResponse> listWelcomes({
+    required String deviceId,
+  }) async {
+    final page = listCalls++;
+    final welcomes = [
+      for (var i = 0; i < 2; i++)
+        pb.Welcome(
+          id: _conv(1000 + page * 2 + i),
+          conversationId: _conv(1000 + page * 2 + i),
+          mlsGeneration: Int64(-1),
+          mlsEpoch: Int64.ZERO,
+          welcome: Uint8List(4),
+        ),
+    ];
+    listed.addAll(welcomes.map((w) => w.id));
+    return pb.ListWelcomesResponse(
+      welcomes: welcomes,
+      more: listCalls < _kEndlessGuard,
+    );
+  }
+
+  @override
+  Future<void> ackWelcomes({
+    required String idempotencyKey,
+    required String deviceId,
+    required List<String> ids,
+  }) async {
+    // Not stored on the rig server: checked here as strictly (1-50 ids, each
+    // listed and acknowledged once).
+    if (ids.isEmpty ||
+        ids.length > kAckWelcomesMaxIds ||
+        ids.toSet().length != ids.length ||
+        !listed.containsAll(ids) ||
+        ids.any(acked.contains)) {
+      refused.add([...ids]);
+      throw StateError('rig: refused ack');
+    }
+    acked.addAll(ids);
+  }
+}
+
 /// Records the `after` and page size of every `ListConversationCommits` call.
 class _Recording extends RigMessaging {
   _Recording(RigServer server) : super(server, 'user-a');
@@ -443,6 +499,46 @@ void main() {
       {for (final a in view.acks) ...a},
       {for (var i = 0; i < 60; i++) _conv(i)},
     );
+  });
+
+  test('a server that always says more ends a welcome poll after the page '
+      'cap', () async {
+    await rig.dispose();
+    late _EndlessWelcomes view;
+    rig = await RigCrypto.create(messaging: (s) => view = _EndlessWelcomes(s));
+    // A skew counter of a welcome no page lists: only a COMPLETE poll drops
+    // it, and a poll the cap ended is not complete.
+    final stale = _conv(9999);
+    await rig.device.vault.transaction(
+      (tx) => tx.putSetting(
+        kVaultSettingWelcomeSkew,
+        rigBytes(
+          jsonEncode({
+            'v': 1,
+            'n': {stale: 1},
+          }),
+        ),
+      ),
+    );
+
+    expect(
+      await rig.crypto.processWelcomes().timeout(const Duration(seconds: 30)),
+      isEmpty,
+    );
+
+    // 20 pages (the cap), each acknowledged once it was handled; nothing of
+    // a page past the cap.
+    expect(view.listCalls, 20);
+    expect(view.refused, isEmpty);
+    expect(view.acked, [for (var i = 0; i < 40; i++) _conv(1000 + i)]);
+    final skew = jsonDecode(
+      utf8.decode((await rig.device.vault.setting(kVaultSettingWelcomeSkew))!),
+    );
+    expect(skew, {
+      'v': 1,
+      'n': {stale: 1},
+    });
+    expect(rig.unexpected, isEmpty);
   });
 
   test('a first join writes no device rows for peer-side members', () async {

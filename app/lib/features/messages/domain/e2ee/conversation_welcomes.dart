@@ -33,6 +33,7 @@ extension _WelcomePoll on ConversationCrypto {
     // shared with the nested polls.
     final handled = poll.handled;
     var complete = false;
+    var pages = 0;
     while (poll.live) {
       if (!await _takeSyncUnit(priority)) break;
       final pb.ListWelcomesResponse page;
@@ -76,6 +77,8 @@ extension _WelcomePoll on ConversationCrypto {
       }
       // The same page would come back.
       if (ackIds.isEmpty && !joinedInPlace) break;
+      // The page cap: no more for now (incomplete; the next poll goes on).
+      if (++pages >= _kWelcomePagesMax) break;
     }
     if (complete && poll.live) await _dropSkew(poll, listed);
     return joined;

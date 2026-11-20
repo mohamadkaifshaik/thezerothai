@@ -49,6 +49,19 @@ const int kAckWelcomesMaxIds = 50;
 /// generation's distance from the start.
 const int _kSettlePagesMax = 200;
 
+/// The most `ListWelcomes` pages one welcome poll reads: the sync budget is
+/// a rate, not a cap, so a server that always says `more` would otherwise
+/// hold the poll forever. At the cap the poll ends as if the server had no
+/// more for now (incomplete: no skew counter is dropped); the next poll goes
+/// on with what is still unacknowledged.
+const int _kWelcomePagesMax = 20;
+
+/// The most `ListConversationCommits` pages one catch-up pass reads while it
+/// holds the conversation lock (50 commits a page). At the cap the pass ends
+/// `interrupted`; every applied commit is stored, and the next pass goes on
+/// from the stored after-pair.
+const int _kCommitPagesMax = 20;
+
 /// R12, MP "Catch-up": a conversation waiting for a welcome may be reset this
 /// long after its first-saw time.
 const Duration kResetWaitWithoutWelcome = Duration(hours: 24);

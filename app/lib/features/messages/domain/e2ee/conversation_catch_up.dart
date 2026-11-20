@@ -81,6 +81,7 @@ extension _CatchUp on ConversationCrypto {
     MlsPair? server;
     var switching = false;
     var gStuck = false;
+    var read = 0;
     pages:
     while (true) {
       final page = await _listCommits(pass, id, after);
@@ -124,6 +125,9 @@ extension _CatchUp on ConversationCrypto {
         }
       }
       if (!page.more || page.commits.isEmpty) break;
+      // The page cap: every applied commit is stored; the next pass goes on
+      // from the stored after-pair (never stuck, never a switch).
+      if (++read >= _kCommitPagesMax) return CatchUpResult.interrupted;
     }
 
     if (!switching) {

@@ -7,12 +7,14 @@ import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/crypto/guarded_crypto_engine.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/keys/data/keys_repository.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
+import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -100,6 +102,28 @@ class _EventRewrite extends RigEngine {
     if (f == null || event is! MlsCommitEvent) return real;
     return ProcessResult(groupState: real.groupState, event: f(event));
   }
+}
+
+/// The rig's key directory with a hook that runs before every peer lookup
+/// (between the start of an attribution and its write body).
+class _HookKeys implements KeysRepository {
+  _HookKeys(this.inner);
+
+  final RigKeys inner;
+  void Function()? beforePeer;
+
+  @override
+  Future<kpb.ListMyKeyDevicesResponse> listMine() => inner.listMine();
+
+  @override
+  Future<kpb.GetKeyDevicesResponse> getDevices(List<String> userIds) {
+    beforePeer?.call();
+    return inner.getDevices(userIds);
+  }
+
+  @override
+  Object? noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
 }
 
 void main() {
@@ -1274,6 +1298,67 @@ void main() {
           if (l.line == SystemLine.deviceAdded) l,
       ], isEmpty);
       expect(rig.keyHistoryErrors, isEmpty);
+    });
+
+    test('a key change of a held id at a join taints it', () async {
+      final eve = await RigPeer.create('eve');
+      final eveHex = vaultDeviceIdHex(eve.id);
+      final k2 = Uint8List.fromList(List.filled(32, 7));
+      final offer = await join(_c1);
+      // At its allowance: bob and 255 ids long gone.
+      await rig.putKeyHistory(_c1, ids: [(bob.id, bob.key)], fillers: 255);
+      rig.clock.advance(const Duration(seconds: 61));
+      // eve is first seen on K1 while the history is full: held.
+      await bobCommit(offer, _c1, add: [eve]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await rig.keyHistoryHeld(_c1), {eveHex: base64Encode(eve.key)});
+      expect((await rig.keyHistory(_c1))!['closed'], isTrue);
+
+      // A join whose tree has eve on K2; the directory lists K2.
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(eve.idString, k2),
+      ];
+      rig.directory.clear();
+      await rig.offer(
+        _c1,
+        bob,
+        generation: 2,
+        others: [await eve.keyPackage()],
+      );
+      rig.device.engine.describeMembers = onKey(eve.id, k2);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      rig.device.engine.describeMembers = null;
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+
+      // Tainted, no longer held, pinned unattributed on K2, never added.
+      await expectTainted(_c1, eve.id);
+      expect(await rig.keyHistoryHeld(_c1), isEmpty);
+      final evePin = (await pin(_c1, eve.id))!;
+      expect(evePin.side, MemberSide.unattributed);
+      expect(rigEq(evePin.signatureKey, k2), isTrue);
+      expect(
+        linesOf(await rig.lines(_c1), eve.id),
+        isNot(contains(SystemLine.deviceAdded)),
+      );
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+
+      // Allowing new devices never makes it attributable.
+      expect(await rig.crypto.allowNewDevices(_c1), isTrue);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      expect(
+        linesOf(await rig.lines(_c1), eve.id),
+        isNot(contains(SystemLine.deviceAdded)),
+      );
+      await expectTainted(_c1, eve.id);
+      expect(
+        (await rig.crypto.describeState(_c1)).unknownDevicePresent,
+        isTrue,
+      );
     });
 
     test('allowing new devices clears closed, raises the allowance by 256, '
@@ -2615,6 +2700,123 @@ void main() {
     });
   });
 
+  group('failing transactions', () {
+    setUp(() => setUpRig());
+
+    /// Unloads the known set the first time `describe` runs inside an
+    /// applied commit's write body: the known-set write, last in that
+    /// transaction after the group, pins and marks, then fails and the whole
+    /// transaction must roll back (the join test's trick). Returns how often
+    /// it fired.
+    int Function() failNextApply() {
+      var fired = 0;
+      rig.device.engine.describeMembers = (real) {
+        fired++;
+        rig.known.clear();
+        return real;
+      };
+      return () => fired;
+    }
+
+    test('a failing transaction while applying a commit stores '
+        'nothing', () async {
+      final carol = await RigPeer.create('carol');
+      final offer = await join(_c1);
+      await bobCommit(offer, _c1, add: [carol]);
+      final before = await rig.dump();
+      final fired = failNextApply();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      rig.device.engine.describeMembers = null;
+
+      expect(fired(), greaterThan(0));
+      expect(await rig.dump(), before);
+      expect(await pin(_c1, carol.id), isNull);
+
+      // A retry applies it.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
+      expect(rig.unexpected, isEmpty);
+    });
+
+    test("a failing transaction while applying this device's removal stores "
+        'nothing', () async {
+      final offer = await join(_c1);
+      await bobCommit(offer, _c1, remove: [rig.device.deviceId]);
+      final before = await rig.dump();
+      final fired = failNextApply();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      rig.device.engine.describeMembers = null;
+
+      expect(fired(), 1);
+      expect(await rig.dump(), before);
+
+      // A retry applies it.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
+      final v = rig.device.vault;
+      expect(await v.groups(_c1), isEmpty);
+      expect(await v.members(_c1), isEmpty);
+      expect(await const FormerPins().of(v, _c1), hasLength(2));
+      expect(rig.unexpected, isEmpty);
+    });
+
+    test('a failing transaction during attribution stores nothing', () async {
+      // The peer lookup runs after the attribution started (the known set
+      // loaded) and before its write body: unloading the known set there
+      // makes the transaction's known-set write, after the pins and rows,
+      // fail.
+      final keys = _HookKeys(rig.keys);
+      rig.directory = DeviceDirectory(
+        keys: keys,
+        budget: SyncBudget(
+          perMinute: 100000,
+          ownDeviceCount: () => 1,
+          now: rig.clock.now,
+        ),
+        now: rig.clock.now,
+      );
+      rebuild();
+      final eve = await RigPeer.create('eve');
+      final offer = await join(_c1);
+      rig.clock.advance(const Duration(seconds: 61));
+      await bobCommit(offer, _c1, add: [eve]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      expect(linesOf(await rig.lines(_c1), eve.id), [SystemLine.unknownDevice]);
+      // The directory lists eve now: attribution pins her theirs.
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(eve.idString, eve.key));
+      rig.clock.advance(const Duration(minutes: 3));
+      final before = await rig.dump();
+      var fired = 0;
+      keys.beforePeer = () {
+        fired++;
+        rig.known.clear();
+      };
+
+      await rig.crypto.attributeMembers(_c1);
+      keys.beforePeer = null;
+
+      expect(fired, 1);
+      expect(await rig.dump(), before);
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+
+      // A retry attributes her.
+      await rig.crypto.attributeMembers(_c1);
+      expect((await pin(_c1, eve.id))!.side, MemberSide.theirs);
+      expect(
+        linesOf(await rig.lines(_c1), eve.id),
+        unorderedEquals([SystemLine.unknownDevice, SystemLine.deviceAdded]),
+      );
+      expect(
+        (await rig.crypto.describeState(_c1)).unknownDevicePresent,
+        isFalse,
+      );
+      expect(rig.unexpected, isEmpty);
+    });
+  });
+
   group('paging and budgets', () {
     late _Recording recording;
 
@@ -2640,6 +2842,50 @@ void main() {
         (await rig.device.vault.conversation(_c1))!.afterPair,
         const MlsPair(1, 52),
       );
+    });
+
+    test('a server that always has another commit page ends a catch-up pass '
+        'after the page cap and resumes next time', () async {
+      final carol = await RigPeer.create('carol');
+      final offer = await join(_c1);
+      // 24 real commits, built on (1, 1) to (1, 24).
+      for (var i = 0; i < 12; i++) {
+        await bobCommit(offer, _c1, add: [carol]);
+        await bobCommit(offer, _c1, remove: [carol.id]);
+      }
+      // One commit a page, and always "more" (a page past the last commit
+      // is empty, which ends a pass on its own).
+      rig.server.rewriteCommits = (real) => pb.ListConversationCommitsResponse(
+        commits: real.commits.take(1),
+        more: true,
+        mlsGeneration: real.mlsGeneration,
+        mlsEpoch: real.mlsEpoch,
+      );
+      recording.afters.clear();
+      final v = rig.device.vault;
+
+      expect(
+        await rig.crypto.catchUp(_c1).timeout(const Duration(seconds: 30)),
+        CatchUpResult.interrupted,
+      );
+      // 20 pages (the cap): the commits on (1, 1) to (1, 20) are applied
+      // and stored, nothing past them.
+      expect(recording.afters, [for (var e = 0; e < 20; e++) MlsPair(1, e)]);
+      expect((await v.group(_c1, 1))!.epoch, 21);
+      expect((await v.conversation(_c1))!.afterPair, const MlsPair(1, 20));
+
+      recording.afters.clear();
+      expect(
+        await rig.crypto.catchUp(_c1).timeout(const Duration(seconds: 30)),
+        CatchUpResult.current,
+      );
+      // The next pass goes on from the stored after-pair and applies the
+      // rest.
+      expect(recording.afters, [for (var e = 20; e < 25; e++) MlsPair(1, e)]);
+      expect((await v.group(_c1, 1))!.epoch, 25);
+      expect((await v.conversation(_c1))!.afterPair, const MlsPair(1, 24));
+      expect(await pin(_c1, carol.id), isNull);
+      expect(rig.unexpected, isEmpty);
     });
 
     test('every sync RPC takes one budget unit', () async {
