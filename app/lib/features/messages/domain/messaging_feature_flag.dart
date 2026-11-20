@@ -9,8 +9,10 @@ const kFeatureMessaging = 'messaging';
 const kFeatureDmPostShare = 'dm_post_share';
 
 /// Server feature flag for end-to-end encrypted direct messages, per
-/// caller. While it is off nothing opens the encrypted vault, generates a
-/// key or calls the key directory (`VaultSession`).
+/// caller. It gates STARTING encryption. A user with no vault on this device
+/// and the flag off or unknown opens no vault, generates no key and makes no
+/// key-directory or MLS call; a vault that already exists opens whatever the
+/// flag says (`VaultSession`).
 const kFeatureE2eeDm = 'e2ee_dm';
 
 /// The most people one share action may be sent to (design Q7).

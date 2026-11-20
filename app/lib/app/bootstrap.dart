@@ -25,6 +25,7 @@ import '../core/vault/vault_markers.dart';
 import '../core/vault/vault_open.dart' as vault_open;
 import '../core/vault/vault_owner.dart';
 import '../core/vault/vault_session.dart';
+import '../core/vault/vault_status.dart' show E2eeFlag;
 import '../features/messages/domain/messaging_feature_flag.dart'
     show kFeatureE2eeDm;
 import '../core/network/auth_token_provider.dart';
@@ -324,13 +325,17 @@ Future<void> bootstrap() async {
     }
   });
   // e2ee_dm as GetMe answers it for the signed-in user. Only a ready state
-  // whose flags are known decides (flagsPending: not answered yet); a
-  // sign-out ends the vault through wireAuthSession instead.
+  // whose flags are known decides (flagsPending: not answered yet): until
+  // then the answer is unknown, which is NOT off. A failed GetMe never turns
+  // a known answer into unknown (the listener below only passes known ones).
+  // A sign-out ends the vault through wireAuthSession instead.
   bool flagsKnown(OnboardingState s) =>
       s.status == OnboardingStatus.ready && !s.flagsPending;
-  bool e2eeEnabled() =>
-      flagsKnown(onboardingBloc.state) &&
-      onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm);
+  E2eeFlag readE2eeFlag() => !flagsKnown(onboardingBloc.state)
+      ? E2eeFlag.unknown
+      : onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm)
+      ? E2eeFlag.on
+      : E2eeFlag.off;
   onboardingBloc.stream.listen((state) {
     if (flagsKnown(state)) {
       // Bound to the user this state was EMITTED for (captured at emission;
@@ -339,7 +344,9 @@ Future<void> bootstrap() async {
       // the vault session's user when it runs.
       unawaited(
         vaultSession.onFlagChanged(
-          state.enabledFeatures.contains(kFeatureE2eeDm),
+          state.enabledFeatures.contains(kFeatureE2eeDm)
+              ? E2eeFlag.on
+              : E2eeFlag.off,
           uid: onboardingBloc.uidOf(state),
         ),
       );
@@ -349,8 +356,10 @@ Future<void> bootstrap() async {
   // E2EE device keys: this install's encryption device in the key directory
   // and its key-package pool. Runs after each vault open (the session hook,
   // outside its queue), on resume and at most hourly; removed from the
-  // directory before an explicit wipe. Inert with e2ee_dm off (no vault, and
-  // the gate sends nothing).
+  // directory before an explicit wipe. Inert for a user with no vault on this
+  // device and e2ee_dm off or unknown (no vault, nothing generated, nothing
+  // sent); a device that already exists stays listable and removable with the
+  // flag off.
   deviceKeys = DeviceKeysService(
     session: vaultSession,
     repository: KeysRepository(
@@ -360,14 +369,16 @@ Future<void> bootstrap() async {
         kFeatureE2eeDm,
         onUnexpectedError: reportUnexpectedError,
       ),
-      deviceFacts: () => vaultSession.vault != null,
+      deviceFacts: () => vaultSession.vaultKnown,
     ),
     engine: engine,
     currentUid: () => authBloc.state.user?.uid,
     onUnexpectedError: reportUnexpectedError,
   );
+  // The device keys come first among the ready hooks; later pipeline starts
+  // register after them.
   vaultSession
-    ..onVaultReady = deviceKeys.onVaultReady
+    ..addVaultReadyHook(deviceKeys.onVaultReady)
     ..beforeExplicitWipe = deviceKeys.removeThisDevice;
   // Lives as long as the app (the binding keeps it).
   AppLifecycleListener(
@@ -624,7 +635,7 @@ Future<void> bootstrap() async {
     messagingRepository: messagingRepository,
     initialUser: authBloc.state.isAuthenticated ? authBloc.state.user : null,
     vaultSession: vaultSession,
-    readE2eeFlag: e2eeEnabled,
+    readE2eeFlag: readE2eeFlag,
   );
 
   runApp(
@@ -755,7 +766,8 @@ VaultSession _buildVaultSession({
   required UnexpectedErrorReporter onUnexpectedError,
 }) {
   return VaultSession(
-    openCipher: (uid) => openVaultCipher(uid: uid, engine: engine()),
+    openCipher: (uid, {required create}) =>
+        openVaultCipher(uid: uid, engine: engine(), create: create),
     openVault: vault_open.openVault,
     wipeVaultFile: vault_open.wipeVaultFileForAlias,
     deleteVaultKey: deleteVaultKeyForAlias,

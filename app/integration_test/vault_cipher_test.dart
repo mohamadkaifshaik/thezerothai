@@ -154,6 +154,26 @@ void main() {
       );
       expect(await vaultStoragePersisted(), isTrue);
     });
+
+    testWidgets(
+      'create false with no stored key generates nothing and is keyLost',
+      (tester) async {
+        await expectLater(
+          openVaultCipher(uid: uid, engine: engine, create: false),
+          throwsA(
+            isA<VaultKeyException>().having(
+              (e) => e.failure,
+              'failure',
+              VaultKeyFailure.keyLost,
+            ),
+          ),
+        );
+        // Nothing was stored: a normal open still finds no key.
+        final made = await openVaultCipher(uid: uid, engine: engine);
+        live = made;
+        expect(made.freshlyCreated, isTrue);
+      },
+    );
   });
 
   // flutter drive reports only testWidgets results on the web, so this group
@@ -193,6 +213,25 @@ void main() {
       live.add(c);
       return c;
     }
+
+    testWidgets(
+      'create false with no stored key generates nothing and is keyLost',
+      (tester) async {
+        await expectLater(
+          openVaultCipher(uid: uid, engine: engine, create: false),
+          throwsA(
+            isA<VaultKeyException>().having(
+              (e) => e.failure,
+              'failure',
+              VaultKeyFailure.keyLost,
+            ),
+          ),
+        );
+        // No record was added: a normal open still finds none.
+        final made = await open();
+        expect(made.freshlyCreated, isTrue);
+      },
+    );
 
     testWidgets('round trip; the nonce is fresh and random', (tester) async {
       final cipher = await open();

@@ -57,8 +57,13 @@ const _destroyWait = Duration(seconds: 5);
 Future<VaultCipher> openPlatformVaultCipher({
   required String uid,
   required CryptoEngine engine,
-}) =>
-    openIoVaultCipher(uid: uid, engine: engine, isAndroid: Platform.isAndroid);
+  bool create = true,
+}) => openIoVaultCipher(
+  uid: uid,
+  engine: engine,
+  isAndroid: Platform.isAndroid,
+  create: create,
+);
 
 /// [openPlatformVaultCipher] with the platform check passed in, for tests.
 /// [destroyWait] bounds how long `destroy` waits for calls in flight.
@@ -68,12 +73,13 @@ Future<VaultCipher> openIoVaultCipher({
   required CryptoEngine engine,
   required bool isAndroid,
   Duration destroyWait = _destroyWait,
+  bool create = true,
 }) {
   _requireAndroid(isAndroid);
   final alias = vaultKeyAlias(uid);
   return _serialized(
     alias,
-    () => AndroidVaultCipher._open(alias, engine, destroyWait),
+    () => AndroidVaultCipher._open(alias, engine, destroyWait, create),
   );
 }
 
@@ -217,11 +223,16 @@ class AndroidVaultCipher implements VaultCipher {
     String alias,
     CryptoEngine engine,
     Duration destroyWait,
+    bool create,
   ) async {
     final stored = await _unwrap(alias);
     if (stored != null) {
       return AndroidVaultCipher._(alias, engine, stored, false, destroyWait);
     }
+    // No stored key and not allowed to make one: generates and stores
+    // nothing (no random bytes, no wrap); the vault existed, so its key is
+    // gone.
+    if (!create) throw _keyLost;
 
     // No stored key: first use for this user on this device.
     final Uint8List key;

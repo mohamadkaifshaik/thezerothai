@@ -435,7 +435,8 @@ abstract interface class VaultTx {
 /// It never deletes a row.
 ///
 /// - No `vault_meta` row and no other rows: a new vault. The owner stamp
-///   and the sealed sentinel are written in one transaction.
+///   and the sealed sentinel are written in one transaction. With [create]
+///   false (the flag is not on) nothing is written: [VaultStatus.unavailable].
 /// - The sentinel opens to the expected value under [cipher]: ready. When
 ///   the owner stamp names another uid (the file is per user, so only
 ///   corruption can do that) and the sentinel still opens, the stamp is
@@ -469,10 +470,11 @@ Future<SecureVault> openVaultOnDatabase(
   Duration openTimeout = const Duration(seconds: 30),
   String? registerAs,
   String storageName = 'native',
+  bool create = true,
 }) async {
   final bool created;
   try {
-    created = await _claim(db, uid, cipher).timeout(openTimeout);
+    created = await _claim(db, uid, cipher, create).timeout(openTimeout);
   } catch (error) {
     await db.closeQuietly();
     throw VaultOpenException(_statusFor(error));
@@ -523,7 +525,14 @@ final _sentinelLabel = vaultSealLabel('vault_meta', 'sentinel');
 final _sentinelRowKey = vaultRowKey([kVaultMetaKey]);
 
 /// True when this claim created the vault (wrote the stamp and sentinel).
-Future<bool> _claim(VaultDatabase db, String uid, VaultCipher cipher) async {
+/// With [create] false it never creates one: no `vault_meta` row and no
+/// rows is [VaultStatus.unavailable], before anything is sealed or written.
+Future<bool> _claim(
+  VaultDatabase db,
+  String uid,
+  VaultCipher cipher,
+  bool create,
+) async {
   // The first query opens the file (and, on the web, checks the storage).
   final meta = await (db.select(
     db.vaultMeta,
@@ -563,6 +572,10 @@ Future<bool> _claim(VaultDatabase db, String uid, VaultCipher cipher) async {
     // Rows without a stamp and sentinel: inconsistent, treated as loss.
     throw const VaultOpenException(VaultStatus.keyLost);
   }
+
+  // No vault here and the caller may not start one (the flag is not on):
+  // nothing is sealed, stamped or written.
+  if (!create) throw const VaultOpenException(VaultStatus.unavailable);
 
   final sentinel = await cipher.seal(
     _sentinelLabel,

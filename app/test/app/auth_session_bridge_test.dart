@@ -199,7 +199,7 @@ void main() {
     late FakeVaultWorld world;
     late VaultSession vault;
 
-    void wireVault({AppUser? initialUser, bool flag = true}) {
+    void wireVault({AppUser? initialUser, E2eeFlag flag = E2eeFlag.on}) {
       subscription = wireAuthSession(
         authStates: auth.stream,
         onboardingBloc: onboarding,
@@ -274,7 +274,8 @@ void main() {
       expect(world.files.containsKey('a'), isFalse);
       // M1: B's flags are not known yet; B opens when they are.
       expect(vault.status.value, VaultStatus.off);
-      await vault.onFlagChanged(true, uid: 'b');
+      expect(vault.flag, E2eeFlag.unknown, reason: 'a direct switch');
+      await vault.onFlagChanged(E2eeFlag.on, uid: 'b');
       expect(world.files.keys, ['b']);
       expect(vault.status.value, VaultStatus.ready);
     });
@@ -294,9 +295,10 @@ void main() {
         expect(world.calls, isNot(contains('cipher:b')));
         expect(vault.status.value, VaultStatus.off);
         // B's GetMe says off: still nothing for B.
-        await vault.onFlagChanged(false, uid: 'b');
+        expect(vault.flag, E2eeFlag.unknown);
+        await vault.onFlagChanged(E2eeFlag.off, uid: 'b');
         expect(world.calls, isNot(contains('open:b')));
-        await vault.onFlagChanged(true, uid: 'b');
+        await vault.onFlagChanged(E2eeFlag.on, uid: 'b');
         expect(vault.vault!.uid, 'b');
       },
     );
@@ -309,11 +311,36 @@ void main() {
     });
 
     test('flag off at sign-in: the vault stays off', () async {
-      wireVault(flag: false);
+      wireVault(flag: E2eeFlag.off);
       auth.add(signedIn('a'));
       await settle();
       expect(vault.status.value, VaultStatus.off);
       expect(world.calls, isEmpty);
+    });
+
+    test('the tri-state reaches onSignedIn: unknown with no vault touches '
+        'nothing', () async {
+      wireVault(flag: E2eeFlag.unknown);
+      auth.add(signedIn('a'));
+      await settle();
+      expect(vault.flag, E2eeFlag.unknown);
+      expect(vault.status.value, VaultStatus.off);
+      expect(world.calls, isEmpty);
+    });
+
+    test('the tri-state reaches onSignedIn: unknown with a known vault opens '
+        'it without creating', () async {
+      // A vault from an earlier run exists for b.
+      final first = world.launch();
+      await first.onSignedIn('b', flag: E2eeFlag.on);
+      await first.onSessionEnded('b', SessionEnd.sessionLost);
+      world.createFlags.clear();
+      wireVault(flag: E2eeFlag.unknown);
+      auth.add(signedIn('b'));
+      await settle();
+      expect(vault.status.value, VaultStatus.ready);
+      expect(vault.flag, E2eeFlag.unknown);
+      expect(world.createFlags, [(cipher: false, vault: false)]);
     });
 
     test('the initial user signs in to the vault too', () async {

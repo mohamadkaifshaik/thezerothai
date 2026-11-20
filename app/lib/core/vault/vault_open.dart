@@ -111,6 +111,7 @@ WasmStorageImplementation chooseVaultWebStorage({
   required Set<MissingBrowserFeature> missingFeatures,
   required String name,
   String? expectedStorage,
+  bool create = true,
 }) {
   if (!isTrustedVaultWebProbe(missingFeatures)) {
     throw const VaultOpenException(VaultStatus.unavailable);
@@ -120,6 +121,13 @@ WasmStorageImplementation chooseVaultWebStorage({
     for (final (api, existingName) in existing)
       if (existingName == name) api,
   ];
+  // [create] false (the flag is not on): a vault is only ever opened, never
+  // started. No copy listed in any storage means nothing is opened or
+  // created ([VaultStatus.unavailable]); a copy under another storage than
+  // [expectedStorage] still falls through to [VaultStatus.storageChanged].
+  if (!create && mine.isEmpty) {
+    throw const VaultOpenException(VaultStatus.unavailable);
+  }
   var chosen = ranked.isEmpty
       ? WasmStorageImplementation.inMemory
       : ranked.first;
@@ -203,11 +211,13 @@ Future<void> _closeConnection(DatabaseConnection connection) async {
 Future<(VaultDatabase, String)> _openDatabase(
   String uid,
   String? expectedStorage,
+  bool create,
 ) async {
   if (uid.isEmpty) throw ArgumentError.value(uid, 'uid', 'empty');
   final pending = impl.openPlatformVaultConnection(
     vaultDatabaseName(uid),
     expectedStorage: expectedStorage,
+    create: create,
   );
   try {
     final (connection, storage) = await pending.timeout(_platformTimeout);
@@ -244,18 +254,27 @@ Future<(VaultDatabase, String)> _openDatabase(
 /// durable, or the cipher cannot run; [VaultStatus.keyLost] when the
 /// sentinel shows the key no longer opens this vault (the file is left
 /// untouched). See [openVaultOnDatabase].
+///
+/// [create] false (the e2ee_dm flag is not on): only an existing vault is
+/// opened. Where none exists (Android: no file, or an empty one; web: no copy
+/// listed in any storage; any platform: no `vault_meta` row and no rows) it
+/// creates nothing, stamps nothing and throws [VaultOpenException] with
+/// [VaultStatus.unavailable]. A web copy listed under another storage than
+/// [expectedStorage] stays [VaultStatus.storageChanged].
 Future<SecureVault> openVault({
   required String uid,
   required VaultCipher cipher,
   String? expectedStorage,
+  bool create = true,
 }) async {
-  final (db, storage) = await _openDatabase(uid, expectedStorage);
+  final (db, storage) = await _openDatabase(uid, expectedStorage, create);
   return openVaultOnDatabase(
     db,
     uid: uid,
     cipher: cipher,
     registerAs: vaultDatabaseName(uid),
     storageName: storage,
+    create: create,
   );
 }
 

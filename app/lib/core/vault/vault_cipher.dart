@@ -134,10 +134,16 @@ Uint8List vaultRowAad(String table, String rowKey) {
 /// IndexedDB (`vault_cipher_web.dart`). Every other platform throws
 /// [UnsupportedError].
 /// Failures throw [VaultKeyException]; a lost key is never silently replaced.
+///
+/// With [create] false nothing is ever generated or stored: no stored key for
+/// [uid] throws [VaultKeyException] with [VaultKeyFailure.keyLost] (the vault
+/// session only opens that way for a user whose device already has a vault,
+/// so a missing key is a lost one).
 Future<VaultCipher> openVaultCipher({
   required String uid,
   required CryptoEngine engine,
-}) => impl.openPlatformVaultCipher(uid: uid, engine: engine);
+  bool create = true,
+}) => impl.openPlatformVaultCipher(uid: uid, engine: engine, create: create);
 
 /// Deletes the stored vault key of [uid] without opening it or creating one
 /// (idempotent). Rows sealed under it can never be opened again. Used by the

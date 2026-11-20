@@ -19,8 +19,9 @@ WasmStorageImplementation? get lastWebStorage => null;
 Future<(DatabaseConnection, String)> openPlatformVaultConnection(
   String name, {
   String? expectedStorage,
+  bool create = true,
 }) async => (
-  openIoVaultConnection(name, isAndroid: Platform.isAndroid),
+  openIoVaultConnection(name, isAndroid: Platform.isAndroid, create: create),
   kVaultNativeStorage,
 );
 
@@ -36,17 +37,19 @@ Future<(DatabaseConnection, String)> openPlatformVaultConnection(
 /// maps to [VaultStatus.unavailable]; there is no in-memory fallback.
 ///
 /// [reportPath] receives the main file path sqlite opened (see
-/// [vaultNativeOptions]); the wipe uses it.
+/// [vaultNativeOptions]); the wipe uses it. [create] false: see
+/// [vaultNativeOptions].
 @visibleForTesting
 DatabaseConnection openIoVaultConnection(
   String name, {
   required bool isAndroid,
   SendPort? reportPath,
+  bool create = true,
 }) {
   if (!isAndroid) throw const VaultOpenException(VaultStatus.unsupported);
   return driftDatabase(
     name: name,
-    native: vaultNativeOptions(reportPath: reportPath),
+    native: vaultNativeOptions(reportPath: reportPath, create: create),
   );
 }
 
@@ -66,16 +69,44 @@ DatabaseConnection openIoVaultConnection(
 /// Then `secure_delete` is turned on: deleted rows are zeroed rather than
 /// left in free pages.
 ///
+/// With [create] false (the flag is not on, only an existing vault may be
+/// opened) the setup refuses a file sqlite has just made empty (zero bytes:
+/// no vault was ever stored there) by throwing before drift reads or creates
+/// anything, so no schema, stamp or sentinel is written and the open fails
+/// (`VaultStatus.unavailable`). sqlite itself makes the zero-byte file when
+/// it opens a missing path; that empty file holds no data, and it is the
+/// only trace: drift_flutter offers no open mode that refuses to create it,
+/// and its directory lookup (path_provider) is not a dependency of the app.
+///
 /// The `setup` closure is sent to the database isolate, so it captures
-/// nothing but [reportPath] (a [SendPort]); never let it reference a
-/// [ReceivePort], a Completer or other local state of this function.
+/// nothing but [reportPath] (a [SendPort]) and [create] (a bool); never let
+/// it reference a [ReceivePort], a Completer or other local state of this
+/// function.
 @visibleForTesting
 DriftNativeOptions vaultNativeOptions({
   SendPort? reportPath,
   Future<Object> Function()? directory,
   Future<String?> Function()? tempDirectory,
+  bool create = true,
 }) => DriftNativeOptions(
   setup: (database) {
+    if (!create) {
+      String? mainFile;
+      for (final row in database.select('PRAGMA database_list')) {
+        if (row['name'] == 'main') {
+          final file = row['file'];
+          if (file is String) mainFile = file;
+          break;
+        }
+      }
+      if (mainFile == null || mainFile.isEmpty) {
+        throw StateError('no vault file');
+      }
+      final stored = File(mainFile);
+      if (!stored.existsSync() || stored.lengthSync() == 0) {
+        throw StateError('no vault stored');
+      }
+    }
     if (reportPath != null) {
       try {
         for (final row in database.select('PRAGMA database_list')) {

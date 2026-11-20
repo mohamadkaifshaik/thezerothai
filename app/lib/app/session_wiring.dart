@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
 import '../core/feature_flags/service_feature_gate.dart';
 import '../core/storage/app_database.dart';
 import '../core/vault/vault_session.dart';
+import '../core/vault/vault_status.dart' show E2eeFlag;
 import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/messages/data/messaging_repository.dart';
@@ -156,8 +157,10 @@ Future<void> wipeSessionData({
 ///   the old one as [SessionEnd.sessionLost] (never explicit); a new uid
 ///   signs in with [readE2eeFlag]'s current answer, except after a direct
 ///   switch, where that answer is still the previous user's: it signs in
-///   with the flag off and the flag listener opens the vault. The cache
-///   steps above are the same for every reason.
+///   with the flag unknown (no answer yet, not off) and the flag listener
+///   starts the vault once the flag is known on; a vault this device
+///   already has for the user opens at once. The cache steps above are the
+///   same for every reason.
 ///
 /// [initialUser] is the user the app started with (already claimed at startup).
 /// Returns the subscription to [authStates].
@@ -172,7 +175,7 @@ StreamSubscription<AuthState> wireAuthSession({
   AppUser? initialUser,
   UnexpectedErrorReporter onUnexpectedError = reportUnexpectedError,
   VaultSession? vaultSession,
-  bool Function()? readE2eeFlag,
+  E2eeFlag Function()? readE2eeFlag,
 }) {
   var cacheOps = Future<void>.value();
   AppUser? lastUser;
@@ -193,12 +196,15 @@ StreamSubscription<AuthState> wireAuthSession({
 
   // [switched]: a direct switch from another user. The flag read now is the
   // previous user's (GetMe has not answered for this one), so it is passed
-  // as off and the flag listener opens the vault once this user's flags
-  // are known.
+  // as unknown (not off: no answer yet) and the flag listener starts the
+  // vault once this user's flags are known. A vault this device already has
+  // for the user opens at once, whatever the flag says.
   void vaultSignedIn(String uid, {bool switched = false}) => unawaited(
     vaultSession?.onSignedIn(
       uid,
-      e2eeEnabled: !switched && (readE2eeFlag?.call() ?? false),
+      flag: switched
+          ? E2eeFlag.unknown
+          : (readE2eeFlag?.call() ?? E2eeFlag.unknown),
     ),
   );
 

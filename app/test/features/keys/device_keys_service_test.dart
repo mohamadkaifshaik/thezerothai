@@ -8,6 +8,8 @@ import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/session/session_end.dart';
+import 'package:dzeroth/core/vault/vault_records.dart'
+    show kVaultSettingRegisteredOnce;
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/keys/data/keys_repository.dart';
@@ -151,7 +153,7 @@ class _Rig {
       repository: KeysRepository(
         apiClient: server.apiClient,
         gate: gate,
-        deviceFacts: () => false,
+        deviceFacts: () => session.vaultKnown,
       ),
       engine: () => engine,
       currentUid: () => uid,
@@ -167,15 +169,19 @@ class _Rig {
       onUnexpectedError: (error, _) => reported.add(error),
     );
     session
-      ..onVaultReady = service.onVaultReady
+      ..addVaultReadyHook(service.onVaultReady)
       ..beforeExplicitWipe = service.removeThisDevice;
   }
+
+  /// What the session is told about e2ee_dm at sign-in (null: [flag]).
+  E2eeFlag? answer;
+  E2eeFlag get sessionFlag => answer ?? (flag ? E2eeFlag.on : E2eeFlag.off);
 
   /// Signs [user] in and waits for the device run the open started.
   Future<void> signIn(String user) async {
     uid = user;
     await session.start(restoredUid: null, restoreDefinitive: true);
-    await session.onSignedIn(user, e2eeEnabled: flag);
+    await session.onSignedIn(user, flag: sessionFlag);
     await service.ensureReady();
   }
 
@@ -295,7 +301,7 @@ void main() {
         'registration, one upload', () async {
       rig.uid = _a;
       await rig.session.start(restoredUid: null, restoreDefinitive: true);
-      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
       await Future.wait([
         rig.service.ensureReady(),
         rig.service.ensureReady(),
@@ -407,7 +413,7 @@ void main() {
       rig.server.hold['upload'] = Completer<void>(); // never answers
       rig.uid = _a;
       await rig.session.start(restoredUid: null, restoreDefinitive: true);
-      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
       // Let the run reach the held upload.
       for (var i = 0; i < 20 && rig.server.uploads.isEmpty; i++) {
         await Future<void>.delayed(Duration.zero);
@@ -437,7 +443,7 @@ void main() {
       rig.server.hold['register'] = Completer<void>(); // never answers
       rig.uid = _a;
       await rig.session.start(restoredUid: null, restoreDefinitive: true);
-      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
       for (var i = 0; i < 20 && rig.server.registrations.isEmpty; i++) {
         await Future<void>.delayed(Duration.zero);
       }
@@ -752,7 +758,7 @@ void main() {
       final hold = rig.server.hold['register'] = Completer<void>();
       rig.uid = _a;
       await rig.session.start(restoredUid: null, restoreDefinitive: true);
-      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
       for (var i = 0; i < 20 && rig.server.registrations.isEmpty; i++) {
         await Future<void>.delayed(Duration.zero);
       }
@@ -802,7 +808,7 @@ void main() {
       final hold = rig.server.hold['register'] = Completer<void>();
       rig.uid = _a;
       await rig.session.start(restoredUid: null, restoreDefinitive: true);
-      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
       for (var i = 0; i < 20 && rig.server.registrations.isEmpty; i++) {
         await Future<void>.delayed(Duration.zero);
       }
@@ -829,7 +835,7 @@ void main() {
         final hold = rig.server.hold['register'] = Completer<void>();
         rig.uid = _a;
         await rig.session.start(restoredUid: null, restoreDefinitive: true);
-        await rig.session.onSignedIn(_a, e2eeEnabled: true);
+        await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
         for (var i = 0; i < 20 && rig.server.registrations.isEmpty; i++) {
           await Future<void>.delayed(Duration.zero);
         }
@@ -840,16 +846,16 @@ void main() {
         await rig.session.onSessionEnded(_a, SessionEnd.sessionLost);
         rig.server.hold.remove('register');
         rig.uid = _b;
-        await rig.session.onSignedIn(_b, e2eeEnabled: true);
+        await rig.session.onSignedIn(_b, flag: E2eeFlag.on);
         hold.complete();
         await rig.service.ensureReady();
 
         // A different user signing in wiped A's vault (global wipe rule).
         expect(rig.file(_a), isNull);
         final idB = rig.storedId(_b)!;
-        // B's own run: create, last-seen after register, state after
-        // generation, last-seen after upload. A write of the old run would
-        // be a fifth.
+        // B's own run: create, last-seen (and the registered-once marker)
+        // after register, state after generation, last-seen after upload. A
+        // write of the old run would be a fifth.
         expect(rig.file(_b)!.commits, 4);
         expect(idB, isNot(idA));
         // B's file holds B's device only, with B's key.
@@ -868,17 +874,17 @@ void main() {
         final hold = rig.server.hold['register'] = Completer<void>();
         rig.uid = _a;
         await rig.session.start(restoredUid: null, restoreDefinitive: true);
-        await rig.session.onSignedIn(_a, e2eeEnabled: true);
+        await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
         for (var i = 0; i < 20 && rig.server.registrations.isEmpty; i++) {
           await Future<void>.delayed(Duration.zero);
         }
         final id = rig.storedId()!;
 
-        // The same user's vault is closed and opened again: a new vault
-        // object over the same file.
-        await rig.session.onFlagChanged(false, uid: _a);
+        // The same user's vault is closed (a lost session) and opened again:
+        // a new vault object over the same file.
+        await rig.session.onSessionEnded(_a, SessionEnd.sessionLost);
         rig.server.hold.remove('register');
-        await rig.session.onFlagChanged(true, uid: _a);
+        await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
         expect(rig.session.status.value, VaultStatus.ready);
         hold.complete();
         await rig.service.ensureReady();
@@ -894,14 +900,16 @@ void main() {
       },
     );
 
-    test('with the gate off while the vault is still open, a removal sends '
-        'nothing', () async {
+    test('flag off: removeThisDevice still sends RemoveKeyDevice', () async {
       await rig.signIn(_a);
-      final before = rig.server.rpcCount;
-      rig.flag = false;
-      await rig.service.removeThisDevice(_a);
-      expect(rig.server.rpcCount, before);
       expect(rig.devices, hasLength(1));
+      final before = rig.server.calls.length;
+      rig.flag = false;
+      await rig.session.onFlagChanged(E2eeFlag.off, uid: _a);
+      expect(rig.session.vaultKnown, isTrue);
+      await rig.service.removeThisDevice(_a);
+      expect(rig.rpcs(before), ['remove']);
+      expect(rig.devices, isEmpty);
     });
   });
 
@@ -937,18 +945,90 @@ void main() {
   });
 
   group('gates', () {
-    test(
-      'flag off: the vault never opens, nothing is generated or sent',
-      () async {
+    test('no device in the vault, flag off or unknown: nothing is generated or '
+        'sent', () async {
+      for (final answer in [E2eeFlag.off, E2eeFlag.unknown]) {
+        rig = _Rig()..launch();
         rig.flag = false;
+        rig.answer = answer;
         await rig.signIn(_a);
         await rig.service.ensureReady();
         await rig.service.onAppResumed();
-        expect(rig.server.rpcCount, 0);
-        expect(rig.engine.createdIds, isEmpty);
+        expect(rig.server.rpcCount, 0, reason: '$answer');
+        expect(rig.engine.createdIds, isEmpty, reason: '$answer');
+        expect(rig.log, isEmpty, reason: 'no engine call at all');
         expect(rig.service.status.value, DeviceKeysStatus.idle);
-      },
-    );
+        expect(rig.world.calls, isEmpty, reason: 'no vault opened');
+        expect(rig.world.files, isEmpty);
+      }
+    });
+
+    test('flag off with a device in the vault: dormant, no register, no '
+        'upload, no list', () async {
+      await rig.signIn(_a);
+      final id = rig.storedId()!;
+      final calls = rig.server.calls.length;
+      final commits = rig.file()!.commits;
+      rig.flag = false;
+      await rig.session.onFlagChanged(E2eeFlag.off, uid: _a);
+      rig.advance(const Duration(days: 40));
+      rig.log.clear();
+      await rig.service.ensureReady();
+      await rig.service.onAppResumed();
+      expect(rig.service.status.value.phase, DeviceKeysPhase.dormant);
+      expect(rig.rpcs(calls), isEmpty);
+      expect(rig.log, isEmpty, reason: 'no key package generated');
+      expect(rig.file()!.commits, commits);
+      expect(rig.storedId(), id);
+      expect(rig.reported, isEmpty);
+    });
+
+    test('a flag-off vault with no device row is idle, not dormant', () async {
+      rig.flag = false;
+      rig.answer = E2eeFlag.on; // the session opens (creates) the vault
+      await rig.signIn(_a);
+      expect(rig.service.status.value, DeviceKeysStatus.idle);
+      expect(rig.storedId(), isNull);
+      expect(rig.server.rpcCount, 0);
+      expect(rig.engine.createdIds, isEmpty);
+    });
+
+    test('the registered-once marker is written after the first successful '
+        'register and not rewritten', () async {
+      await rig.signIn(_a);
+      expect(rig.setting(kVaultSettingRegisteredOnce), '\u0001');
+      expect(rig.file()!.settingWrites[kVaultSettingRegisteredOnce], 1);
+      // A later register for the same id (a week on) leaves it alone.
+      rig.advance(const Duration(days: 8));
+      await rig.service.ensureReady();
+      expect(rig.server.registrations.length, greaterThanOrEqualTo(2));
+      expect(rig.file()!.settingWrites[kVaultSettingRegisteredOnce], 1);
+    });
+
+    test('the marker is not written when the register fails', () async {
+      rig.server.failNext['register'] = [keyServerUnavailable()];
+      await rig.signIn(_a);
+      expect(rig.setting(kVaultSettingRegisteredOnce), '');
+    });
+
+    test('flag back on resumes upkeep under the same device id', () async {
+      await rig.signIn(_a);
+      final id = rig.storedId()!;
+      rig.flag = false;
+      await rig.session.onFlagChanged(E2eeFlag.off, uid: _a);
+      rig.advance(_hour * 2);
+      await rig.service.ensureReady();
+      expect(rig.service.status.value.phase, DeviceKeysPhase.dormant);
+      final calls = rig.server.calls.length;
+      rig.flag = true;
+      await rig.session.onFlagChanged(E2eeFlag.on, uid: _a);
+      rig.advance(_hour * 2);
+      await rig.service.ensureReady();
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+      expect(rig.rpcs(calls), contains('list'));
+      expect(rig.storedId(), id);
+      expect(rig.engine.createdIds, hasLength(1));
+    });
 
     test(
       'the flag reads off for the gate while a vault is open: no RPC',
@@ -956,7 +1036,7 @@ void main() {
         rig.uid = _a;
         await rig.session.start(restoredUid: null, restoreDefinitive: true);
         rig.flag = false; // the gate's view
-        await rig.session.onSignedIn(_a, e2eeEnabled: true);
+        await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
         await rig.service.ensureReady();
         expect(rig.server.rpcCount, 0);
         expect(rig.engine.createdIds, isEmpty);
@@ -1050,7 +1130,7 @@ void main() {
       await rig.session.onSessionEnded(_a, SessionEnd.sessionLost);
       final before = rig.server.calls.length;
       rig.uid = _b;
-      await rig.session.onSignedIn(_b, e2eeEnabled: true);
+      await rig.session.onSignedIn(_b, flag: E2eeFlag.on);
       await rig.service.ensureReady();
       expect(rig.rpcs(before), ['register', 'upload']);
       expect(rig.service.status.value, DeviceKeysStatus.ready);
@@ -1074,7 +1154,7 @@ void main() {
       rig.server.hold.remove('list');
       final before = rig.server.calls.length;
       rig.uid = _b;
-      await rig.session.onSignedIn(_b, e2eeEnabled: true);
+      await rig.session.onSignedIn(_b, flag: E2eeFlag.on);
       await rig.service.ensureReady().timeout(const Duration(seconds: 5));
       expect(rig.rpcs(before), ['register', 'upload']);
       expect(rig.service.status.value, DeviceKeysStatus.ready);
@@ -1089,7 +1169,7 @@ void main() {
       final hold = rig.server.hold['register'] = Completer<void>();
       rig.uid = _a;
       await rig.session.start(restoredUid: null, restoreDefinitive: true);
-      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
       await rig.service.ensureReady().timeout(const Duration(seconds: 5));
       expect(
         rig.service.status.value,
@@ -1116,7 +1196,7 @@ void main() {
       final hold = rig.server.hold['upload'] = Completer<void>();
       rig.uid = _a;
       await rig.session.start(restoredUid: null, restoreDefinitive: true);
-      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
       await rig.service.ensureReady().timeout(const Duration(seconds: 5));
       expect(rig.server.uploads, hasLength(2));
       expect(
@@ -1178,7 +1258,7 @@ void main() {
       rig.launch();
       rig.uid = _a;
       await rig.session.start(restoredUid: _a, restoreDefinitive: true);
-      await rig.session.onSignedIn(_a, e2eeEnabled: true);
+      await rig.session.onSignedIn(_a, flag: E2eeFlag.on);
       await rig.service.ensureReady();
 
       expect(rig.session.status.value, VaultStatus.ready);

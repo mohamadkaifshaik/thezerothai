@@ -230,6 +230,36 @@ void main() {
     expect(await second.open('messages', 'r1', sealed), _b('kept'));
   });
 
+  test(
+    'create false with no stored key generates nothing and is keyLost',
+    () async {
+      await expectLater(
+        openIoVaultCipher(
+          uid: 'user-1',
+          engine: engine,
+          isAndroid: true,
+          create: false,
+        ),
+        _keyFailure(VaultKeyFailure.keyLost),
+      );
+      expect(keystore.calls.map((c) => c.method), ['unwrap']);
+      expect(keystore.calls.where((c) => c.method == 'wrap'), isEmpty);
+      // Nothing was stored: a normal open still finds no key and creates one.
+      final created = await _open(engine);
+      expect(created.freshlyCreated, isTrue);
+      // And with a stored key, create false opens it.
+      keystore.calls.clear();
+      final again = await openIoVaultCipher(
+        uid: 'user-1',
+        engine: engine,
+        isAndroid: true,
+        create: false,
+      );
+      expect(again.freshlyCreated, isFalse);
+      expect(keystore.calls.map((c) => c.method), ['unwrap']);
+    },
+  );
+
   test('a row sealed for one (table, rowKey) does not open under another', () async {
     final cipher = await _open(engine);
     final sealed = await cipher.seal('messages', 'r1', _b('secret'));

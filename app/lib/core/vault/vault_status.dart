@@ -1,6 +1,13 @@
+/// `e2ee_dm` for the signed-in user. `unknown`: no answer yet (offline,
+/// GetMe failed, a direct user switch); it is NOT `off`. The flag only gates
+/// STARTING encryption: a vault that already exists on the device opens
+/// whatever the flag says, and no flag answer ever closes or wipes one.
+enum E2eeFlag { on, off, unknown }
+
 /// Where the encrypted vault stands for the signed-in user.
 enum VaultStatus {
-  /// Encrypted messaging is off (the `e2ee_dm` flag is not enabled).
+  /// No vault on this device for the signed-in user and the `e2ee_dm` flag is
+  /// off or unknown: nothing is opened, generated or sent.
   off,
 
   /// This platform has no vault (anything but Android and the web).

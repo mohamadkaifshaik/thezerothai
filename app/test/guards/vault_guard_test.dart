@@ -64,11 +64,11 @@ const Map<String, List<String>> _destructiveWiring = {
 /// lib/core/vault that may reference each (null: none may, until a UI plan
 /// adds a caller and updates this guard). `onSessionEnded` turns an explicit
 /// end into a wipe; `noteAccountDeleted` journals one;
-/// `resetVaultForStorageChange` destroys history on purpose.
+/// `resetByUser` destroys history on purpose.
 const Map<String, String?> _sessionEntryOwners = {
   'onSessionEnded': 'lib/app/session_wiring.dart',
   'noteAccountDeleted': 'lib/app/bootstrap.dart',
-  'resetVaultForStorageChange': null,
+  'resetByUser': null,
 };
 
 /// Same-named members that are NOT the session's: exact fragments removed
@@ -353,7 +353,7 @@ void main() {
             'Only the session wiring ends the vault session '
             '(onSessionEnded), only bootstrap forwards an account deletion '
             '(noteAccountDeleted), and nothing calls '
-            'resetVaultForStorageChange yet (a UI plan must update this '
+            'resetByUser yet (a UI plan must update this '
             'guard). Each can wipe a vault.\n${bad.join('\n')}',
       );
     });
@@ -393,14 +393,14 @@ void main() {
         'await session.onSessionEnded(uid, SessionEnd.userSignedOut);',
         'unawaited(vaultSession?.onSessionEnded(a, b));',
         'final f = vaultSession.noteAccountDeleted;',
-        'session..resetVaultForStorageChange();',
-        'await s.resetVaultForStorageChange();',
+        'session..resetByUser();',
+        'await s.resetByUser();',
       ]) {
         expect(memberReferences(bad, names), isNotEmpty, reason: bad);
       }
       for (final ok in [
         '// vaultSession.onSessionEnded(a, b)',
-        "final s = 'x.resetVaultForStorageChange()';",
+        "final s = 'x.resetByUser()';",
         'void noteAccountDeleted(String uid) {}',
       ]) {
         expect(memberReferences(ok, names), isEmpty, reason: ok);
@@ -456,11 +456,8 @@ void main() {
         isEmpty,
       );
       expect(
-        _entryViolations(
-          'lib/app/bootstrap.dart',
-          'session.resetVaultForStorageChange();',
-        ),
-        ['resetVaultForStorageChange'],
+        _entryViolations('lib/app/bootstrap.dart', 'session.resetByUser();'),
+        ['resetByUser'],
       );
     });
   });
@@ -689,10 +686,11 @@ void main() {
 
     const pinned = {
       'test/core/vault/vault_session_test.dart':
-          'flag off / unsupported, nothing known: no collaborator is ever '
-          'called',
+          'no vault on this device, flag off or unknown, or unsupported: no '
+          'collaborator is ever called',
       'test/features/keys/device_keys_service_test.dart':
-          'flag off: the vault never opens, nothing is generated or sent',
+          'no device in the vault, flag off or unknown: nothing is generated '
+          'or sent',
       'test/features/keys/keys_repository_test.dart':
           'flag off and no vault on this device: nothing is sent and '
           'FeatureDisabled is thrown',

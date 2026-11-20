@@ -91,7 +91,8 @@ const _keyLost = VaultKeyException(VaultKeyFailure.keyLost);
 Future<VaultCipher> openPlatformVaultCipher({
   required String uid,
   required CryptoEngine engine,
-}) => WebVaultCipher._open(vaultKeyAlias(uid));
+  bool create = true,
+}) => WebVaultCipher._open(vaultKeyAlias(uid), create);
 
 /// Deletes the stored vault key of [uid] without opening it (idempotent).
 /// Rows sealed under it can never be opened again. Throws [VaultKeyException]
@@ -383,7 +384,7 @@ class WebVaultCipher implements VaultCipher {
   /// For a fresh answer call `vaultStoragePersisted()` in vault_cipher.dart.
   bool get persisted => _pagePersisted;
 
-  static Future<WebVaultCipher> _open(String alias) async {
+  static Future<WebVaultCipher> _open(String alias, bool create) async {
     final env = _Env.require();
     await _requestPersistence();
     final db = await _openDb(env);
@@ -392,6 +393,10 @@ class WebVaultCipher implements VaultCipher {
       if (stored.exists) {
         return WebVaultCipher._(env, alias, _existingKey(stored.value), false);
       }
+
+      // No record and not allowed to make a key (create false): nothing is
+      // generated or stored; the vault existed, so its key is gone.
+      if (!create) throw _keyLost;
 
       // No record: first use for this user in this browser profile. The key
       // is made before the transaction (a transaction cannot wait on it).
