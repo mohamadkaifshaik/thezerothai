@@ -394,6 +394,13 @@ void main() {
     },
   );
 
+  test('a flipped last byte is badInput on the fake', () async {
+    final bob = await device(2);
+    final kp = await keyPackage(bob);
+    final flipped = Uint8List.fromList(kp)..[kp.length - 1] ^= 0xFF;
+    await _fails(engine.inspectKeyPackage(flipped), MlsErrorCode.badInput);
+  });
+
   test('inspecting a key package changes nothing: it still joins', () async {
     final alice = await device(1);
     final bob = await device(2);

@@ -25,7 +25,9 @@ import 'package:dzeroth/core/crypto/crypto_types.dart';
 /// and message counters are 32-bit; there are no leaf keys, update paths or
 /// Update proposals, so selfUpdate is an empty commit that only advances the
 /// epoch, and the real engine's refusal of a commit that changes a member's
-/// device id has no counterpart here.
+/// device id has no counterpart here. Key packages carry no signature and no
+/// lifetime, so tampering (beyond a broken header or a last-resort flag byte
+/// other than 0 or 1) and expiry cannot be simulated by the fake.
 class FakeCryptoEngine implements CryptoEngine {
   static const int _maxPlaintext = 4096;
   static const int _maxWire = 65536;
@@ -695,8 +697,11 @@ class FakeCryptoEngine implements CryptoEngine {
       final id = r.bytes();
       final key = r.bytes();
       final kpId = r.u32();
-      r.u8();
+      final flag = r.u8();
       r.finish();
+      if (flag > 1) {
+        throw const MlsException(MlsErrorCode.badInput, 'not a key package');
+      }
       return _KeyPackage(_Member(id, key), kpId);
     } on FormatException {
       throw const MlsException(MlsErrorCode.badInput, 'not a key package');
