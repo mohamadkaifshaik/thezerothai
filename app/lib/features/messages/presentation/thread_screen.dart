@@ -1280,6 +1280,23 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                           onOpenLink: _openLink,
                           onOpenPost: _openPost,
                           onRetry: _retryEncrypted,
+                          onReport:
+                              reportsEnabled &&
+                                  conversation != null &&
+                                  item.message.canReport &&
+                                  !item.message.mine &&
+                                  item.message.state ==
+                                      EncryptedMessageState.visible &&
+                                  isConversationId(item.message.id)
+                              ? (anchor) => unawaited(
+                                  _encryptedMessageMenu(
+                                    anchor,
+                                    cubit,
+                                    conversation,
+                                    item.message,
+                                  ),
+                                )
+                              : null,
                         ),
                         SystemLineItem() => SystemLineRow(
                           line: item.line,
@@ -1596,12 +1613,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
 
   /// A long press on a peer's bubble: a one-item menu "Report message" at the
   /// press point, then the shared report sheet.
-  Future<void> _messageMenu(
-    Rect anchor,
-    ThreadCubit cubit,
-    pb.Conversation conversation,
-    pb.Message message,
-  ) async {
+  Future<bool> _chooseReport(Rect anchor) async {
     final overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
     final choice = await showMenu<bool>(
@@ -1617,7 +1629,37 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         ),
       ],
     );
-    if (choice != true || !mounted) return;
+    return choice == true && mounted;
+  }
+
+  /// The same menu for a decrypted peer message; the payload is read only
+  /// after "Report message" is chosen.
+  Future<void> _encryptedMessageMenu(
+    Rect anchor,
+    ThreadCubit cubit,
+    pb.Conversation conversation,
+    DecryptedMessage message,
+  ) async {
+    if (!await _chooseReport(anchor)) return;
+    // The helper already checked `mounted`; repeated for the analyzer.
+    if (!mounted) return;
+    await reportEncryptedMessage(
+      context,
+      conversationId: cubit.conversationId,
+      message: message,
+      peerHandle: conversation.peer.handle,
+    );
+  }
+
+  Future<void> _messageMenu(
+    Rect anchor,
+    ThreadCubit cubit,
+    pb.Conversation conversation,
+    pb.Message message,
+  ) async {
+    if (!await _chooseReport(anchor)) return;
+    // The helper already checked `mounted`; repeated for the analyzer.
+    if (!mounted) return;
     await reportPeerMessage(
       context,
       conversationId: cubit.conversationId,

@@ -1,10 +1,17 @@
+import 'dart:typed_data';
+
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../moderation/presentation/report_sheet.dart';
+import '../domain/e2ee/encrypted_messaging.dart';
+import '../domain/e2ee/message_content_codec.dart' show MessageCheck;
 import 'bloc/thread_cubit.dart' show isConversationId;
+import 'e2ee/encryption_copy.dart';
 
 /// The toast after a report was sent: the thread does not change.
 const kReportSentText = 'Report sent';
@@ -52,6 +59,70 @@ Future<void> reportPeerMessage(
     targetId: targetId,
     subject: peerHandle.isEmpty ? 'this message' : "@$peerHandle's message",
     detail: kReportMessageDetail,
+  );
+  thankForReport(messenger, outcome);
+}
+
+/// The `target_id` of an encrypted message report: `"<convId>:<msgId>"`.
+/// Throws [ArgumentError] unless [message] is the peer's visible message that
+/// can be reported and both ids have the right shape.
+String encryptedReportTargetId(
+  String conversationId,
+  DecryptedMessage message,
+) {
+  if (!message.canReport ||
+      message.mine ||
+      message.state != EncryptedMessageState.visible ||
+      !isConversationId(conversationId) ||
+      !isConversationId(message.id)) {
+    throw ArgumentError('This message cannot be reported');
+  }
+  return '$conversationId:${message.id}';
+}
+
+/// Opens the shared report sheet for one decrypted peer [message] (R13).
+///
+/// Called after the user chose "Report message". Reads the message's exact
+/// bytes from the port once, and passes them into the sheet; nothing is sent
+/// until the user presses "Send report" in that sheet, whose intro says what
+/// is shared. No payload (null, empty, over 8192 bytes, or a failed read):
+/// the [kReportUnavailableText] snackbar and no sheet. A failed read reaches
+/// `UnexpectedErrorReporter` as a fixed `StateError('reportPayload')`.
+Future<void> reportEncryptedMessage(
+  BuildContext context, {
+  required String conversationId,
+  required DecryptedMessage message,
+  required String peerHandle,
+}) async {
+  final targetId = encryptedReportTargetId(conversationId, message);
+  final port = context.read<EncryptedMessaging?>();
+  final reporter = context.read<UnexpectedErrorReporter>();
+  final messenger = ScaffoldMessenger.of(context);
+  Uint8List? payload;
+  try {
+    payload = await port?.reportPayload(conversationId, message.id);
+  } on Object catch (_, stack) {
+    reporter.call(StateError('reportPayload'), stack);
+  }
+  if (payload != null && (payload.isEmpty || payload.length > 8192)) {
+    payload = null;
+  }
+  if (!context.mounted) return;
+  if (payload == null) {
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text(kReportUnavailableText)));
+    return;
+  }
+  final outcome = await showReportSheet(
+    context,
+    targetType: ReportTargetType.REPORT_TARGET_TYPE_MESSAGE,
+    targetId: targetId,
+    subject: peerHandle.isEmpty ? 'this message' : "@$peerHandle's message",
+    detail: message.check == MessageCheck.ok
+        ? kReportEncryptedDetail
+        : '$kReportEncryptedDetail $kReportUnverifiedDetail',
+    messagePayload: payload,
   );
   thankForReport(messenger, outcome);
 }
