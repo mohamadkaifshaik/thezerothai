@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
@@ -198,6 +200,31 @@ void main() {
       await resolve(tester, '/settings/messages'),
       '/settings/messages',
       reason: 'the own row (public id) matches the GetMe id',
+    );
+  });
+
+  testWidgets('/settings/encryption: a typed URL in a ready session stays; '
+      'a cold start goes through the splash', (tester) async {
+    setStates(signedIn, ready);
+    expect(
+      await resolve(tester, AppRouter.encryptionSettingsPath),
+      AppRouter.encryptionSettingsPath,
+    );
+    setStates(unknown, idle);
+    expect(await resolve(tester, AppRouter.encryptionSettingsPath), '/');
+  });
+
+  test('the encrypted messages route is behind AuthGate', () {
+    final source = File('lib/core/router/routes/shell_routes.dart')
+        .readAsStringSync();
+    expect(
+      source,
+      contains(
+        RegExp(
+          r'path: AppRouter\.encryptionSettingsPath,\s+builder: \(context, state\) =>\s+'
+          r'const AuthGate\(child: EncryptionSettingsScreen\(\)\),',
+        ),
+      ),
     );
   });
 

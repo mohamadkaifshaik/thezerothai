@@ -39,6 +39,31 @@ String conversationResetErrorMessage(Object error) {
   };
 }
 
+/// The text of a refused send shown above the field (Task 6). [vaultBlocked] is true ONLY when, at the time of the
+/// refusal, the status says the vault on this device is not open (`EncryptionStatus.vaultNotOpen`); every other
+/// `blocked` refusal says [kStateBlockedTitle]. `retryable` reuses the existing stale-epoch text (no new string).
+String composerRefusalText(
+  SendProblem problem,
+  AppException? error, {
+  bool vaultBlocked = false,
+}) {
+  return switch (problem) {
+    SendProblem.peerHasNoDevice => kStatePeerNoDeviceText,
+    SendProblem.tryTomorrow => kOutgoingTryTomorrowText,
+    SendProblem.blocked =>
+      vaultBlocked ? kSendWaitsForVaultText : kStateBlockedTitle,
+    SendProblem.retryable => messagingErrorMessage(
+      const StaleEpochException('', generation: 0, epoch: 0),
+    ),
+    // A refusal is definitive: with no typed reason the line says "Not sent" and promises no retry.
+    SendProblem.refused =>
+      error == null
+          ? kOutgoingNotSentBlockedText
+          : messagingErrorMessage(error),
+    SendProblem.none => '',
+  };
+}
+
 /// The status line of an own row that is not delivered (Task 4). A delivered row has no status line (empty).
 /// Exhaustive over both enums: a new value is a compile error here, never a silent "Tap to retry".
 String sendStatusText(
@@ -51,7 +76,9 @@ String sendStatusText(
     SendProgress.sending => kOutgoingSendingText,
     SendProgress.waiting => kOutgoingWaitingText,
     SendProgress.notSent => switch (problem) {
-      SendProblem.none || SendProblem.retryable => kOutgoingNotSentText,
+      // Only a retryable row can be retried, so only it says so.
+      SendProblem.retryable => kOutgoingNotSentText,
+      SendProblem.none => kOutgoingNotSentBlockedText,
       SendProblem.blocked => kOutgoingNotSentBlockedText,
       SendProblem.peerHasNoDevice => kStatePeerNoDeviceText,
       SendProblem.tryTomorrow => kOutgoingTryTomorrowText,

@@ -53,6 +53,8 @@ import '../../../features/profile/presentation/edit_profile_screen.dart';
 import '../../../features/profile/presentation/profile_screen.dart';
 import '../../../features/settings/domain/settings_categories.dart';
 import '../../../features/settings/presentation/data_usage_screen.dart';
+import '../../../features/settings/presentation/encryption_settings_screen.dart';
+import '../../../features/settings/presentation/reset_encryption_screen.dart';
 import '../../../features/settings/presentation/message_settings_screen.dart';
 import '../../../features/settings/presentation/settings_screen.dart';
 import '../main_shell.dart';
@@ -370,6 +372,16 @@ RouteBase shellRoute({required OnboardingBloc onboardingBloc}) => ShellRoute(
       path: AppRouter.messageSettingsPath,
       builder: (context, state) =>
           const AuthGate(child: MessageSettingsScreen()),
+    ),
+    GoRoute(
+      path: AppRouter.encryptionSettingsPath,
+      builder: (context, state) =>
+          const AuthGate(child: EncryptionSettingsScreen()),
+    ),
+    GoRoute(
+      path: AppRouter.resetEncryptionPath,
+      builder: (context, state) =>
+          const AuthGate(child: ResetEncryptionScreen()),
     ),
     GoRoute(
       path: AppRouter.dataUsagePath,

@@ -6,8 +6,11 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 import '../../data/messaging_repository.dart';
+import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/messaging_feature_flag.dart';
+import '../e2ee/encryption_error_messages.dart';
 import '../share_post_error_messages.dart';
 
 /// Where one recipient of a share stands.
@@ -36,6 +39,7 @@ class ShareRecipient {
     required this.key,
     this.status = ShareRowStatus.idle,
     this.error,
+    this.problem = SendProblem.none,
   });
 
   final common.AuthorSnapshot peer;
@@ -46,8 +50,21 @@ class ShareRecipient {
   final ShareRowStatus status;
   final AppException? error;
 
-  ShareRecipient withStatus(ShareRowStatus status, {AppException? error}) =>
-      ShareRecipient(peer: peer, key: key, status: status, error: error);
+  /// The port's reason when it refused this send with no typed [error]
+  /// (the text drawn is then `composerRefusalText(problem, null)`).
+  final SendProblem problem;
+
+  ShareRecipient withStatus(
+    ShareRowStatus status, {
+    AppException? error,
+    SendProblem problem = SendProblem.none,
+  }) => ShareRecipient(
+    peer: peer,
+    key: key,
+    status: status,
+    error: error,
+    problem: problem,
+  );
 }
 
 @immutable
@@ -104,6 +121,16 @@ class SharePostState {
     return null;
   }
 
+  /// The port's refusal reason of the row [lastError] comes from (none when
+  /// the share ended or the error is typed).
+  SendProblem get lastProblem {
+    if (endedBy != null) return SendProblem.none;
+    for (final r in recipients.reversed) {
+      if (r.status == ShareRowStatus.failed) return r.problem;
+    }
+    return SendProblem.none;
+  }
+
   SharePostState copyWith({
     List<ShareRecipient>? recipients,
     String? caption,
@@ -122,6 +149,9 @@ class SharePostState {
 }
 
 const Object _keep = Object();
+
+/// Fetches a post under the caller's own rules (PostsRepository.getPost).
+typedef SharedPostLookup = Future<posts_pb.PostView> Function(String postId);
 
 /// Sends one post to up to [kSharePostMaxRecipients] people, one
 /// `SendMessage` after another (never in parallel: the per-minute bucket and
@@ -144,14 +174,26 @@ class SharePostCubit extends Cubit<SharePostState> {
     required this.url,
     this.ownUserId,
     bool Function()? isEnabled,
+    EncryptedMessaging? encrypted,
+    SharedPostLookup? getPost,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _repository = repository,
+       _encrypted = encrypted,
+       _getPost = getPost,
        _isEnabled = isEnabled ?? (() => true),
        _uuid = uuid ?? const Uuid(),
        super(const SharePostState());
 
   final MessagingRepository _repository;
+
+  /// The encrypted port, tried first for each person; null: today's path.
+  final EncryptedMessaging? _encrypted;
+
+  /// Asks the server for the shared post before an encrypted share (the
+  /// server cannot see the post id inside the ciphertext); see [_refusal].
+  final SharedPostLookup? _getPost;
+  bool _checking = false;
   final bool Function() _isEnabled;
   final Uuid _uuid;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
@@ -211,13 +253,64 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// Sends to every row that is not sent yet, in order. Pressed again after a
   /// failure it retries the failed and the skipped rows with their own keys.
   Future<void> send() async {
-    if (isClosed || !state.canSend) return;
-    emit(state.copyWith(started: true, endedBy: null));
+    if (isClosed || _checking || !state.canSend) return;
     final body = text;
     final ids = [
       for (final r in state.recipients)
         if (r.status != ShareRowStatus.sent) r.peer.userId,
     ];
+    // With no port (or no post) the flag is read only in the loop, as before.
+    final guarded = _encrypted != null && postId.isNotEmpty;
+    final enabled = !guarded || _isEnabled();
+    if (guarded && !enabled) {
+      emit(state.copyWith(started: true, endedBy: null));
+      // Decided once: never fall into the loop unchecked.
+      _endShare(
+        ids,
+        const FeatureDisabledException(
+          'This feature is not available.',
+          feature: kFeatureDmPostShare,
+        ),
+      );
+      return;
+    }
+    if (guarded) {
+      // One emit, so an earlier failure is never shown again: the first row
+      // goes to the existing sending state, the others are cleared to idle.
+      emit(
+        state.copyWith(
+          started: true,
+          endedBy: null,
+          recipients: [
+            for (final r in state.recipients)
+              if (r.peer.userId == ids.first)
+                r.withStatus(ShareRowStatus.sending)
+              else if (ids.contains(r.peer.userId))
+                r.withStatus(ShareRowStatus.idle)
+              else
+                r,
+          ],
+        ),
+      );
+      // The server cannot check an encrypted share, so it is asked once for
+      // the post, in the existing sending state, before any send.
+      _checking = true;
+      AppException? refusal;
+      try {
+        refusal = await _refusal();
+      } finally {
+        _checking = false;
+      }
+      if (isClosed) return;
+      if (refusal != null) {
+        for (final id in ids) {
+          _setRow(id, ShareRowStatus.failed, error: refusal);
+        }
+        return;
+      }
+    } else {
+      emit(state.copyWith(started: true, endedBy: null));
+    }
     for (var i = 0; i < ids.length; i++) {
       if (isClosed) return;
       final id = ids[i];
@@ -233,8 +326,56 @@ class SharePostCubit extends Cubit<SharePostState> {
       }
       _setRow(id, ShareRowStatus.sending);
       try {
+        final row = _row(id);
+        final port = _encrypted;
+        // With a port the person is addressed only from the snapshot the
+        // row was chosen from (R1). The port is tried first.
+        SendOutcome? outcome;
+        if (port != null) {
+          try {
+            outcome = await port.send(
+              to: ThreadRef.recipientOf(row.peer),
+              localId: row.key,
+              text: body,
+              sharedPostId: postId,
+            );
+          } on Object catch (_, stack) {
+            // Never the thrown object: it may carry the caption.
+            onUnexpectedError?.call(StateError('send'), stack);
+            _setRow(
+              id,
+              ShareRowStatus.failed,
+              error: const UnknownApiException('Something went wrong.'),
+            );
+            continue;
+          }
+        }
+        switch (outcome?.kind) {
+          case SendOutcomeKind.queued:
+            _setRow(id, ShareRowStatus.sent);
+            continue;
+          case SendOutcomeKind.refused:
+            final error =
+                outcome!.error ??
+                UnknownApiException(composerRefusalText(outcome.problem, null));
+            _setRow(
+              id,
+              ShareRowStatus.failed,
+              error: error,
+              problem: outcome.error == null
+                  ? outcome.problem
+                  : SendProblem.none,
+            );
+            if (sharePostErrorEndsShare(error)) {
+              _endShare(ids.sublist(i + 1), error);
+              return;
+            }
+            continue;
+          case SendOutcomeKind.notEncrypted || null:
+            break;
+        }
         await _repository.sendMessage(
-          idempotencyKey: _row(id).key,
+          idempotencyKey: row.key,
           text: body,
           recipientUserId: id,
           // A link-only share (a plan) names no post.
@@ -258,17 +399,74 @@ class SharePostCubit extends Cubit<SharePostState> {
     }
   }
 
+  /// The error that refuses the whole share, or null when the post may go.
+  /// Fails closed: a protected author's post (the original's, for a REPOST)
+  /// goes only from its author; anything unknown refuses. Nothing about the
+  /// post is logged or reported (a fixed StateError at most).
+  Future<AppException?> _refusal() async {
+    const protected = ProtectedAccountException();
+    final lookup = _getPost;
+    if (lookup == null) return protected;
+    try {
+      final answer = await lookup(postId);
+      // The id sent is this post's, so it must pass on its own.
+      if (!_verified(answer)) return protected;
+      final judged = answer.post;
+      if (judged.kind == posts_pb.PostKind.POST_KIND_REPOST) {
+        // The embed names the original and its author but not its
+        // visibility, so the original is fetched once more and must pass too.
+        final originalId = judged.embedded.postId;
+        if (originalId.isEmpty) return protected;
+        final original = await lookup(originalId);
+        if (!_verified(original)) return protected;
+        if (original.post.kind == posts_pb.PostKind.POST_KIND_REPOST) {
+          return protected;
+        }
+      }
+      return null;
+    } on AppException catch (error) {
+      // An error that would end any share keeps its own, truer copy.
+      return sharePostErrorEndsShare(error) ? error : protected;
+    } on Object catch (_, stack) {
+      try {
+        onUnexpectedError?.call(StateError('sharedPost'), stack);
+      } on Object {
+        // A failing reporter must not leave the rows stuck in "sending".
+      }
+      return protected;
+    }
+  }
+
+  /// Allow-list: the answer carries a post, the embed is not blocked for the
+  /// sender, and the post is public or the sender's own.
+  bool _verified(posts_pb.PostView answer) {
+    if (!answer.hasPost() ||
+        answer.embedViewerState ==
+            posts_pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED) {
+      return false;
+    }
+    final post = answer.post;
+    final own = ownUserId;
+    final ownPost = own != null && own.isNotEmpty && post.author.userId == own;
+    return post.visibility == posts_pb.Visibility.VISIBILITY_PUBLIC || ownPost;
+  }
+
   ShareRecipient _row(String userId) =>
       state.recipients.firstWhere((r) => r.peer.userId == userId);
 
-  void _setRow(String userId, ShareRowStatus status, {AppException? error}) {
+  void _setRow(
+    String userId,
+    ShareRowStatus status, {
+    AppException? error,
+    SendProblem problem = SendProblem.none,
+  }) {
     if (isClosed) return;
     emit(
       state.copyWith(
         recipients: [
           for (final r in state.recipients)
             if (r.peer.userId == userId)
-              r.withStatus(status, error: error)
+              r.withStatus(status, error: error, problem: problem)
             else
               r,
         ],

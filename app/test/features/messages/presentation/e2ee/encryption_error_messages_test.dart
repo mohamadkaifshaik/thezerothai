@@ -102,10 +102,14 @@ void main() {
       );
     });
 
-    test('none and retryable both offer the retry', () {
+    test('only retryable offers the retry; none reads Not sent', () {
+      expect(
+        sendStatusText(SendProgress.notSent, SendProblem.retryable, null),
+        'Not sent. Tap to retry',
+      );
       expect(
         sendStatusText(SendProgress.notSent, SendProblem.none, null),
-        'Not sent. Tap to retry',
+        'Not sent',
       );
     });
   });
