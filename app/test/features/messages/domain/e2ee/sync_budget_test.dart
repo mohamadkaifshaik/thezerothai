@@ -186,6 +186,54 @@ void main() {
     });
   });
 
+  test('pauseUntil releases waiting calls with BudgetPaused', () {
+    fakeAsync((async) {
+      final rig = _Rig(async, perMinute: 1);
+      rig.take('a');
+      rig.settle();
+      final errors = <Object>[];
+      rig.budget
+          .take(BudgetPriority.background)
+          .catchError((Object e) => errors.add(e));
+      rig.budget
+          .take(BudgetPriority.user)
+          .catchError((Object e) => errors.add(e));
+      rig.settle();
+      expect(errors, isEmpty);
+      rig.budget.pauseUntil(rig.now().add(const Duration(hours: 20)));
+      rig.settle();
+      expect(errors, hasLength(2));
+      expect(errors.every((e) => e is BudgetPaused), isTrue);
+      expect(errors.first, isNot(isA<StateError>()));
+      expect(errors.first.toString(), 'BudgetPaused');
+      expect(async.pendingTimers, isEmpty);
+      // A call made after the pause still waits for its end.
+      rig.take('b');
+      rig.settle();
+      expect(rig.served, ['a']);
+      async.elapse(const Duration(hours: 20));
+      expect(rig.served, ['a', 'b']);
+    });
+  });
+
+  test('a clock moved back never extends a pause past 24 h', () {
+    fakeAsync((async) {
+      final rig = _Rig(async);
+      rig.budget.pauseUntil(rig.now().add(const Duration(hours: 24)));
+      // The clock is set back two hours: without a cap the pause would now
+      // end 26 h from now.
+      rig.skew = const Duration(hours: -2);
+      expect(rig.budget.paused, isTrue);
+      rig.take('a');
+      rig.settle();
+      async.elapse(const Duration(hours: 23, minutes: 59));
+      expect(rig.served, isEmpty);
+      async.elapse(const Duration(minutes: 1));
+      expect(rig.served, ['a']);
+      expect(rig.budget.paused, isFalse);
+    });
+  });
+
   test('reset fails the waiting calls, clears the pause and the window', () {
     fakeAsync((async) {
       final rig = _Rig(async, perMinute: 1);

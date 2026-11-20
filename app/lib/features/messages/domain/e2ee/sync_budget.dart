@@ -13,6 +13,16 @@ const int kDirectoryCallsPerMinute = 60;
 /// capped at now + this.
 const Duration kMaxServerRetryWait = Duration(hours: 24);
 
+/// A call waiting in a [SyncBudget] was released because [SyncBudget.pauseUntil]
+/// paused the budget: it is not made. Not a [StateError] (that is a reset).
+/// Carries nothing; prints only its name.
+class BudgetPaused implements Exception {
+  const BudgetPaused();
+
+  @override
+  String toString() => 'BudgetPaused';
+}
+
 /// Who is waiting for a unit of a [SyncBudget].
 enum BudgetPriority {
   /// The open conversation and sends.
@@ -53,17 +63,29 @@ class SyncBudget {
   }
 
   /// True while a [pauseUntil] time has not passed.
-  bool get paused {
+  bool get paused => _pauseEnd(_now()) != null;
+
+  /// The end of the pause as of [now], or null when there is none (cleared
+  /// once passed). Clamped to [now] + [kMaxServerRetryWait] whenever it is
+  /// read, so a clock set back never stretches a pause past 24 h.
+  DateTime? _pauseEnd(DateTime now) {
     final until = _pausedUntil;
-    if (until == null) return false;
-    if (_now().isBefore(until)) return true;
-    _pausedUntil = null;
-    return false;
+    if (until == null) return null;
+    if (!now.isBefore(until)) {
+      _pausedUntil = null;
+      return null;
+    }
+    final cap = now.add(kMaxServerRetryWait);
+    if (until.isAfter(cap)) return _pausedUntil = cap;
+    return until;
   }
 
   /// Completes when one call may be made: at most
   /// floor(perMinute / max(1, ownDeviceCount())) per rolling minute (never
-  /// less than one). Fails with [StateError] when [reset] ran while waiting.
+  /// less than one). Fails with [StateError] when [reset] ran while waiting,
+  /// and with [BudgetPaused] when [pauseUntil] ran while waiting. A call
+  /// taken while already paused waits for the pause to end (callers check
+  /// [paused] first).
   Future<void> take(BudgetPriority priority) {
     final waiter = Completer<void>();
     (priority == BudgetPriority.user ? _userWaiting : _backgroundWaiting).add(
@@ -75,11 +97,19 @@ class SyncBudget {
 
   /// RATE_LIMITED: no call before [until], capped at now +
   /// [kMaxServerRetryWait]. A later pause never shortens an earlier one.
+  /// Every call waiting at that moment is released with [BudgetPaused] (it
+  /// would otherwise wait the whole pause, up to 24 h, holding its lock).
   void pauseUntil(DateTime until) {
     final cap = _now().add(kMaxServerRetryWait);
     final capped = until.isAfter(cap) ? cap : until;
     final current = _pausedUntil;
     if (current == null || capped.isAfter(current)) _pausedUntil = capped;
+    final waiting = [..._userWaiting, ..._backgroundWaiting];
+    _userWaiting.clear();
+    _backgroundWaiting.clear();
+    for (final w in waiting) {
+      w.completeError(const BudgetPaused());
+    }
     _pump();
   }
 
@@ -114,8 +144,8 @@ class SyncBudget {
       _calls.removeFirst();
     }
     while (_userWaiting.isNotEmpty || _backgroundWaiting.isNotEmpty) {
-      final until = _pausedUntil;
-      if (until != null && now.isBefore(until)) {
+      final until = _pauseEnd(now);
+      if (until != null) {
         return _wake(until.difference(now));
       }
       if (_calls.length >= _limit) {

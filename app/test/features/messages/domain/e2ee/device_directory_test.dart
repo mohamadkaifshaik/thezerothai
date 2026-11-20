@@ -346,6 +346,194 @@ void main() {
     );
   });
 
+  test('a lookup waiting for the budget returns deferred at once when '
+      'another answer pauses it', () {
+    fakeAsync((async) {
+      final keys = _Keys();
+      DateTime now() => _epoch.add(async.elapsed);
+      final budget = SyncBudget(
+        perMinute: 1,
+        ownDeviceCount: () => 1,
+        now: now,
+      );
+      final directory = DeviceDirectory(keys: keys, budget: budget, now: now);
+      DeviceList? first;
+      directory.peer('p2').then((l) => first = l);
+      async.flushMicrotasks();
+      expect(first?.readableNonEmpty, isTrue);
+      final fetched = first!.fetchedAt;
+      async.elapse(const Duration(minutes: 31));
+      // p1 takes this minute's unit; p2 (stale) and the own list wait.
+      directory.peer('p1');
+      DeviceList? waitingPeer;
+      DeviceList? waitingOwn;
+      Map<String, DeviceList>? waitingBatch;
+      directory.peer('p2').then((l) => waitingPeer = l);
+      directory.own().then((l) => waitingOwn = l);
+      directory.peers(['p2', 'p3']).then((m) => waitingBatch = m);
+      async.flushMicrotasks();
+      expect(waitingPeer, isNull);
+      expect(waitingOwn, isNull);
+      expect(waitingBatch, isNull);
+      final callsBefore = keys.getCalls.length + keys.listCalls;
+      // Another conversation's answer was RATE_LIMITED for 20 hours.
+      budget.pauseUntil(now().add(const Duration(hours: 20)));
+      async.flushMicrotasks();
+      expect(waitingPeer?.state, ListState.deferred);
+      expect(waitingPeer?.devices, hasLength(1));
+      expect(waitingPeer?.fetchedAt, fetched);
+      expect(waitingOwn?.state, ListState.deferred);
+      expect(waitingOwn?.devices, isEmpty);
+      expect(waitingBatch?['p2']?.state, ListState.deferred);
+      expect(waitingBatch?['p2']?.devices, hasLength(1));
+      expect(waitingBatch?['p3']?.state, ListState.deferred);
+      expect(keys.getCalls.length + keys.listCalls, callsBefore);
+      expect(async.pendingTimers, isEmpty);
+    });
+  });
+
+  test('fetchedAt is when the request was sent, so a slow answer does not '
+      'count early', () async {
+    final rig = _Rig();
+    final sent = rig.clock;
+    final peerAnswer = Completer<pb.GetKeyDevicesResponse>();
+    final ownAnswer = Completer<pb.ListMyKeyDevicesResponse>();
+    rig.keys.onGet = (_) => peerAnswer.future;
+    rig.keys.onList = () => ownAnswer.future;
+    final peer = rig.directory.peer('p1');
+    final own = rig.directory.own();
+    await pumpEventQueue();
+    rig.advance(const Duration(seconds: 25));
+    peerAnswer.complete(_usersFor(['p1']));
+    ownAnswer.complete(pb.ListMyKeyDevicesResponse(devices: [_device(1)]));
+    expect((await peer).fetchedAt, sent);
+    expect((await own).fetchedAt, sent);
+  });
+
+  test('a RATE_LIMITED answer that arrives after clear does not pause the '
+      'next session', () async {
+    final rig = _Rig();
+    final peerAnswer = Completer<pb.GetKeyDevicesResponse>();
+    final ownAnswer = Completer<pb.ListMyKeyDevicesResponse>();
+    final batchAnswer = Completer<pb.GetKeyDevicesResponse>();
+    rig.keys.onGet = (ids) =>
+        ids.length > 1 ? batchAnswer.future : peerAnswer.future;
+    rig.keys.onList = () => ownAnswer.future;
+    final peer = rig.directory.peer('p1');
+    final own = rig.directory.own();
+    final batch = rig.directory.peers(['a', 'b']);
+    await pumpEventQueue();
+    rig.directory.clear();
+    const limited = RateLimitedException(
+      'slow down',
+      retryAfter: Duration(hours: 5),
+    );
+    peerAnswer.completeError(limited);
+    ownAnswer.completeError(limited);
+    batchAnswer.completeError(limited);
+    await peer;
+    await own;
+    await batch;
+    expect(rig.budget.pauses, isEmpty);
+    expect(rig.budget.paused, isFalse);
+  });
+
+  test(
+    'a CANNOT_MESSAGE answer that arrives after clear parks nobody',
+    () async {
+      final rig = _Rig();
+      final answer = Completer<pb.GetKeyDevicesResponse>();
+      rig.keys.onGet = (_) => answer.future;
+      final peer = rig.directory.peer('b');
+      await pumpEventQueue();
+      rig.directory.clear();
+      answer.completeError(const CannotMessageException());
+      await peer;
+      rig.keys.onGet = (ids) async => _usersFor(ids);
+      rig.keys.getCalls.clear();
+      expect((await rig.directory.peers(['b']))['b']!.readableNonEmpty, isTrue);
+      expect(rig.keys.getCalls, [
+        ['b'],
+      ]);
+    },
+  );
+
+  test('an own list of 60 devices does not lower the budget below 12 a '
+      'minute', () {
+    fakeAsync((async) {
+      final keys = _Keys()
+        ..onList = () async => pb.ListMyKeyDevicesResponse(
+          devices: [for (var i = 1; i <= 60; i++) _device(i)],
+        );
+      DateTime now() => _epoch.add(async.elapsed);
+      final directory = DeviceDirectory(
+        keys: keys,
+        budget: SyncBudget(perMinute: 1000, ownDeviceCount: () => 1, now: now),
+        now: now,
+      );
+      DeviceList? own;
+      directory.own().then((l) => own = l);
+      async.flushMicrotasks();
+      expect(own?.devices, hasLength(60));
+      expect(directory.ownDeviceCount, 5);
+      final budget = SyncBudget(
+        perMinute: kDirectoryCallsPerMinute,
+        ownDeviceCount: () => directory.ownDeviceCount,
+        now: now,
+      );
+      var served = 0;
+      for (var i = 0; i < 13; i++) {
+        budget.take(BudgetPriority.background).then((_) => served++);
+      }
+      async.flushMicrotasks();
+      expect(served, 12);
+      async.elapse(const Duration(minutes: 1));
+      expect(served, 13);
+    });
+  });
+
+  test('an own list with a repeated device id is unreadable', () async {
+    final rig = _Rig();
+    rig.keys.onList = () async => pb.ListMyKeyDevicesResponse(
+      devices: [_device(1), _device(2), _device(1)],
+    );
+    final own = await rig.directory.own();
+    expect(own.state, ListState.unreadable);
+    expect(own.devices, isEmpty);
+    expect(rig.directory.ownDeviceCount, 5);
+    rig.keys.onGet = (ids) async => pb.GetKeyDevicesResponse(
+      users: [
+        pb.UserKeyDevices(
+          userId: ids.single,
+          devices: [_device(3), _device(3)],
+        ),
+      ],
+    );
+    expect((await rig.directory.peer('p1')).state, ListState.unreadable);
+  });
+
+  test('a parked peer is not asked again by peer() until markUsable', () async {
+    final rig = _Rig();
+    var refuseB = true;
+    rig.keys.onGet = (ids) async {
+      if (refuseB && ids.contains('b')) throw const CannotMessageException();
+      return _usersFor(ids);
+    };
+    expect((await rig.directory.peer('b')).state, ListState.unreadable);
+    rig.keys.getCalls.clear();
+    rig.advance(const Duration(minutes: 31));
+    expect((await rig.directory.peer('b')).state, ListState.unreadable);
+    expect(rig.keys.getCalls, isEmpty);
+
+    refuseB = false;
+    rig.directory.markUsable('b');
+    final again = await rig.directory.peer('b');
+    expect(rig.keys.getCalls, [
+      ['b'],
+    ]);
+    expect(again.readableNonEmpty, isTrue);
+  });
+
   test('a deferral outlasting the limit with an unattributed member is '
       'reported unreadable; without one it stays silent', () {
     final since = _epoch.add(const Duration(days: 1));
