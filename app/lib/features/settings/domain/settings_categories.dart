@@ -56,6 +56,7 @@ SettingsCategory? settingsCategoryOfLeaf(String path) => switch (path) {
   '/settings/blocked' ||
   '/settings/muted' ||
   '/settings/messages' ||
+  '/settings/encryption' ||
   '/settings/location' ||
   '/settings/location/consent' => SettingsCategory.privacy,
   '/settings/notifications' => SettingsCategory.notifications,

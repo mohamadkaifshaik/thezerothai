@@ -48,6 +48,7 @@ void main() {
           AppRouter.blockedAccountsPath,
           AppRouter.mutedAccountsPath,
           AppRouter.messageSettingsPath,
+          AppRouter.encryptionSettingsPath,
           AppRouter.notificationSettingsPath,
         ])
           path: settingsCategoryOfLeaf(path),
@@ -60,6 +61,7 @@ void main() {
         AppRouter.blockedAccountsPath: SettingsCategory.privacy,
         AppRouter.mutedAccountsPath: SettingsCategory.privacy,
         AppRouter.messageSettingsPath: SettingsCategory.privacy,
+        AppRouter.encryptionSettingsPath: SettingsCategory.privacy,
         AppRouter.notificationSettingsPath: SettingsCategory.notifications,
       },
     );

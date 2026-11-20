@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
@@ -286,6 +288,63 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(outcome, ReportOutcome.sent);
+  });
+
+  testWidgets('the payload reaches the cubit', (tester) async {
+    when(
+      () => repo.report(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        targetType: any(named: 'targetType'),
+        targetId: any(named: 'targetId'),
+        reason: any(named: 'reason'),
+        note: any(named: 'note'),
+        messagePayload: any(named: 'messagePayload'),
+      ),
+    ).thenAnswer(
+      (_) async => const ReportReceipt(reportId: 'r', alreadyReported: false),
+    );
+    tester.view.physicalSize = const Size(800, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      RepositoryProvider<ModerationRepository>.value(
+        value: repo,
+        child: RepositoryProvider<UnexpectedErrorReporter>.value(
+          value: (e, s) {},
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showReportSheet(
+                  context,
+                  targetType: ReportTargetType.REPORT_TARGET_TYPE_MESSAGE,
+                  targetId: 'c:m',
+                  subject: 'this message',
+                  messagePayload: Uint8List.fromList([9, 8]),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text("It's spam"));
+    await tester.pump();
+    await tester.tap(sendButton());
+    await tester.pumpAndSettle();
+
+    verify(
+      () => repo.report(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        targetType: ReportTargetType.REPORT_TARGET_TYPE_MESSAGE,
+        targetId: 'c:m',
+        reason: ReportReason.REPORT_REASON_SPAM,
+        note: '',
+        messagePayload: Uint8List.fromList([9, 8]),
+      ),
+    ).called(1);
   });
 
   testWidgets('dismissing before sending is cancelled', (tester) async {
