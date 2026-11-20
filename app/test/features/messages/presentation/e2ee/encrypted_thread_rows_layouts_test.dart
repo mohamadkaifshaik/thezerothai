@@ -115,6 +115,8 @@ Widget _thread() {
             OwnDeviceAlertItem() => OwnDeviceAlert(onCheckDevices: () {}),
             DaySeparatorItem() => const SizedBox.shrink(),
             MessageItem() => const SizedBox.shrink(),
+            EncryptionNoteItem() ||
+            PlaintextBoundaryItem() => const SizedBox.shrink(),
           },
       ],
     ),

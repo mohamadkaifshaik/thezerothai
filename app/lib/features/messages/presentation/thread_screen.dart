@@ -6,6 +6,8 @@ import 'widgets/thread_side_boxes.dart';
 import 'dart:async';
 import 'dart:ui' show SemanticsRole;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -21,6 +23,7 @@ import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
@@ -43,6 +46,16 @@ import '../domain/message_search.dart';
 import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
 import '../domain/thread_push_coverage.dart';
+import '../../../core/vault/vault_status.dart';
+import '../domain/e2ee/encrypted_messaging.dart';
+import '../domain/e2ee/encryption_access.dart';
+import '../domain/e2ee/encryption_device.dart';
+import 'e2ee/encryption_copy.dart';
+import 'e2ee/widgets/conversation_encryption_note.dart';
+import 'e2ee/widgets/own_device_alert.dart';
+import 'e2ee/widgets/system_line_row.dart';
+import 'e2ee/encrypted_thread_items.dart';
+import 'e2ee/encryption_access_builder.dart';
 import 'bloc/message_composer_cubit.dart';
 import 'bloc/messages_badge_cubit.dart';
 import 'bloc/thread_cubit.dart';
@@ -256,12 +269,20 @@ class ThreadScreen extends StatelessWidget {
             ),
             onError: report,
           );
+    // Encrypted messaging is absent today (no provider) and ignored with
+    // access `hidden`: the thread is then exactly the plaintext thread.
+    final device = context.read<EncryptionDevice?>();
+    final port = EncryptionAccessBuilder.of(context) == EncryptionAccess.hidden
+        ? null
+        : context.read<EncryptedMessaging?>();
     cubit = ThreadCubit(
       repository: repository,
       poller: poller,
       conversationId: conversationId,
       onUnexpectedError: report,
       onOpenedUnread: context.read<MessagesBadgeCubit>().clearUnread,
+      encrypted: port,
+      vaultUsable: () => device?.vaultStatus.value == VaultStatus.ready,
     )..load();
     return cubit;
   }
@@ -483,6 +504,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_onScroll);
+    // A vault that becomes usable (or stops being) re-runs the cubit's rules.
+    _vaultStatus = context.read<EncryptionDevice?>()?.vaultStatus
+      ?..addListener(_onVaultChanged);
     final target = widget.highlightMessageId;
     if (target != null && target.isNotEmpty) {
       final cubit = context.read<ThreadCubit>();
@@ -507,8 +531,15 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     _syncVisible();
   }
 
+  ValueListenable<VaultStatus>? _vaultStatus;
+
+  void _onVaultChanged() {
+    if (mounted) context.read<ThreadCubit>().refreshVault();
+  }
+
   @override
   void dispose() {
+    _vaultStatus?.removeListener(_onVaultChanged);
     _highlightTimer?.cancel();
     unawaited(_readyWait?.cancel());
     _sideColumn.dispose();
@@ -585,6 +616,19 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(content: Text("Couldn't open link.")));
     }
+  }
+
+  /// "Not sent. Tap to retry" on a retryable row of an encrypted thread. The
+  /// port owns the retry; a failure is reported as a fixed StateError.
+  void _retryEncrypted(String localId) {
+    final port = context.read<EncryptedMessaging?>();
+    if (port == null) return;
+    final report = context.read<UnexpectedErrorReporter>();
+    unawaited(
+      port.retrySend(localId).catchError((Object _, StackTrace stack) {
+        report(StateError('retrySend'), stack);
+      }),
+    );
   }
 
   /// A shared post's card opens the post in the app (GetPost decides again).
@@ -768,7 +812,10 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
             listeners: [
               BlocListener<ThreadCubit, ThreadState>(
                 listenWhen: (a, b) =>
-                    a.messages != b.messages || a.hasMore != b.hasMore,
+                    a.messages != b.messages ||
+                    a.hasMore != b.hasMore ||
+                    a.entries != b.entries ||
+                    a.encryptedHasMore != b.encryptedHasMore,
                 listener: (context, state) {
                   if (widget.now == null) _now = DateTime.now();
                   WidgetsBinding.instance.addPostFrameCallback(
@@ -823,7 +870,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                       a.peerBlocked != b.peerBlocked ||
                       a.cannotMessage != b.cannotMessage ||
                       a.accepting != b.accepting ||
-                      a.deleting != b.deleting,
+                      a.deleting != b.deleting ||
+                      a.mls != b.mls ||
+                      a.knownPlain != b.knownPlain,
                   builder: (context, state) =>
                       _bottom(cubit, state, graphEnabled, canAccept),
                 ),
@@ -932,6 +981,13 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
             buildWhen: (a, b) => a.outgoing != b.outgoing,
             builder: (context, composer) {
               final outgoing = _visibleOutgoing(composer, state);
+              if (state.encrypted) {
+                // Nothing is drawn until the port's first thread arrived.
+                if (state.security == null) return const _ThreadSkeleton();
+                return state.entries.isNotEmpty || outgoing.isNotEmpty
+                    ? _messages(cubit, state, outgoing, reportsEnabled)
+                    : const _EncryptedEmpty();
+              }
               return state.hasMessages || outgoing.isNotEmpty
                   ? _messages(cubit, state, outgoing, reportsEnabled)
                   : _noMessages(state);
@@ -940,6 +996,34 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         ),
       ],
     );
+  }
+
+  /// The rows of an encrypted thread, newest first: the port's entries, the
+  /// encryption note above the oldest loaded one once nothing older is in the
+  /// vault, and above that, the earlier plaintext messages of the cache (older
+  /// than the oldest entry) under one separator (security read M12). Server
+  /// text newer than the boundary is never drawn; with no entry yet, or while
+  /// older rows exist in the vault, no plaintext row is drawn.
+  List<ThreadItem> _encryptedItems(ThreadState state) {
+    final rows = buildEncryptedThreadItems(state.entries);
+    if (state.encryptedHasMore || state.entries.isEmpty) return rows;
+    final boundary = state.entries.last.at;
+    final earlier = [
+      for (final m in state.messages)
+        if (m.mlsGeneration.toInt() == 0 &&
+            m.ciphertext.isEmpty &&
+            m.state != MessageState.MESSAGE_STATE_DELETED_ACCOUNT &&
+            m.state != MessageState.MESSAGE_STATE_REMOVED &&
+            m.hasCreatedAt() &&
+            m.createdAt.toDateTime().isBefore(boundary))
+          m,
+    ];
+    return [
+      ...rows,
+      const EncryptionNoteItem(),
+      if (earlier.isNotEmpty) const PlaintextBoundaryItem(),
+      ...buildThreadItems(earlier),
+    ];
   }
 
   /// The rows still on their way, newest first: those the thread does not
@@ -974,7 +1058,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     List<OutgoingMessage> outgoing,
     bool reportsEnabled,
   ) {
-    final items = buildThreadItems(state.messages);
+    final items = state.encrypted
+        ? _encryptedItems(state)
+        : buildThreadItems(state.messages);
     final conversation = state.conversation;
     final peer = conversation?.peer;
     final peerName = peer == null || peer.displayName.isEmpty
@@ -1075,10 +1161,47 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                         DaySeparatorItem() => _DaySeparator(
                           label: formatDaySeparator(item.day, _now),
                         ),
-                        // Task 5 of the E2EE screens plan wires these rows.
-                        EncryptedMessageItem() ||
-                        SystemLineItem() ||
-                        OwnDeviceAlertItem() => const SizedBox.shrink(),
+                        EncryptedMessageItem() => MessageBubble.encrypted(
+                          entry: item.message,
+                          peerName: peerName,
+                          now: _now,
+                          firstOfGroup: item.firstOfGroup,
+                          lastOfGroup: item.lastOfGroup,
+                          use24Hour: use24Hour,
+                          // A stranger's link is plain text until accepted.
+                          linksEnabled:
+                              item.message.mine ||
+                              (conversation != null &&
+                                  conversation.state !=
+                                      ConversationState
+                                          .CONVERSATION_STATE_REQUEST),
+                          onOpenLink: _openLink,
+                          onOpenPost: _openPost,
+                          onRetry: _retryEncrypted,
+                        ),
+                        SystemLineItem() => SystemLineRow(
+                          line: item.line,
+                          peerName: peerName,
+                        ),
+                        OwnDeviceAlertItem() => OwnDeviceAlert(
+                          onCheckDevices: () => unawaited(
+                            context.push<void>(
+                              AppRouter.encryptionSettingsPath,
+                            ),
+                          ),
+                        ),
+                        EncryptionNoteItem() => const _CentredRow(
+                          child: ConversationEncryptionNote(
+                            encrypted: true,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        PlaintextBoundaryItem() => const _CentredRow(
+                          child: Text(
+                            kNotEncryptedAboveText,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                       },
                     );
                   },
@@ -1222,7 +1345,17 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       accepting: state.accepting,
       deleting: state.deleting,
       blocking: _blocking,
+      note: _requestNote(cubit, state),
     );
+  }
+
+  /// Today's note unless encrypted messaging is present here: an encrypted
+  /// conversation says so; a conversation known to be plaintext keeps the old
+  /// note; an unknown one shows neither (UNSPECIFIED is never "not encrypted").
+  RequestNote _requestNote(ThreadCubit cubit, ThreadState state) {
+    if (state.mls) return RequestNote.encrypted;
+    if (!cubit.hasPort || state.knownPlain) return RequestNote.notEncrypted;
+    return RequestNote.none;
   }
 
   /// A long press on a peer's bubble: a one-item menu "Report message" at the
@@ -1482,6 +1615,53 @@ class ThreadReadOnlyLine extends StatelessWidget {
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A quiet centred row (the encryption note, the plaintext separator), in the
+/// bubble column's width, wrapping at any text scale.
+class _CentredRow extends StatelessWidget {
+  const _CentredRow({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      child: Center(
+        child: DefaultTextStyle.merge(
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// The empty state of an encrypted thread: "No messages yet" with the
+/// encryption note as its body.
+class _EncryptedEmpty extends StatelessWidget {
+  const _EncryptedEmpty();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: AppEmptyView(
+        icon: Icons.chat_bubble_outline,
+        title: 'No messages yet',
+        action: ConversationEncryptionNote(
+          encrypted: true,
+          textAlign: TextAlign.center,
         ),
       ),
     );

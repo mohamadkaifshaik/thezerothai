@@ -62,6 +62,8 @@ String _shape(List<ThreadItem> items) => [
       OwnDeviceAlertItem() => 'alert',
       DaySeparatorItem() => 'day',
       MessageItem() => 'plain',
+      EncryptionNoteItem() => 'note',
+      PlaintextBoundaryItem() => 'boundary',
     },
 ].join(', ');
 

@@ -70,6 +70,26 @@ class OwnDeviceAlertItem extends ThreadItem {
   String get key => 'alert-${line.id}';
 }
 
+/// The per-conversation encryption note of an encrypted thread, above the
+/// oldest loaded encrypted row (security read M12: directly under the
+/// [PlaintextBoundaryItem] when earlier plaintext rows are drawn).
+class EncryptionNoteItem extends ThreadItem {
+  const EncryptionNoteItem();
+
+  @override
+  String get key => 'encryption-note';
+}
+
+/// The centred separator between the earlier plaintext messages of a
+/// conversation that became encrypted and its first encrypted row (security
+/// read M12): "Messages above this line are not end-to-end encrypted".
+class PlaintextBoundaryItem extends ThreadItem {
+  const PlaintextBoundaryItem();
+
+  @override
+  String get key => 'plaintext-boundary';
+}
+
 /// "Today", "Yesterday" or a date, between two days.
 class DaySeparatorItem extends ThreadItem {
   const DaySeparatorItem(this.day);

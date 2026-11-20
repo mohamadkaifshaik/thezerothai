@@ -13,7 +13,9 @@ void main() {
         DaySeparatorItem() => 'day',
         EncryptedMessageItem() ||
         SystemLineItem() ||
-        OwnDeviceAlertItem() => throw StateError('unused'),
+        OwnDeviceAlertItem() ||
+        EncryptionNoteItem() ||
+        PlaintextBoundaryItem() => throw StateError('unused'),
       },
   ];
 

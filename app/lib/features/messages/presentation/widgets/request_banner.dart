@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
-import 'not_encrypted_note.dart';
+import '../e2ee/widgets/conversation_encryption_note.dart';
 
 /// Messages a sender may send to a request before the recipient accepts it
 /// (`MESSAGES_REQUEST_MAX_UNANSWERED`). Copy only: the server
@@ -31,6 +31,20 @@ bool isSentRequest(pb.Conversation conversation) =>
     conversation.folder == Folder.FOLDER_INBOX &&
     conversation.canReply;
 
+/// Which encryption note the request banner carries.
+enum RequestNote {
+  /// Today's [NotEncryptedNote]: no encrypted messaging here, or the
+  /// conversation is known to be plaintext.
+  notEncrypted,
+
+  /// The conversation is encrypted (`ConversationEncryptionNote`).
+  encrypted,
+
+  /// Encryption is unknown (an UNSPECIFIED header with encrypted messaging
+  /// present): neither sentence is shown.
+  none,
+}
+
 /// What the request banner can ask of the conversation screen. The
 /// screen owns the confirmations, the calls and the snackbars; the banner only
 /// draws buttons.
@@ -42,7 +56,11 @@ class ThreadRequestActions {
     this.accepting = false,
     this.deleting = false,
     this.blocking = false,
+    this.note = RequestNote.notEncrypted,
   });
+
+  /// The note under the title; the default is today's.
+  final RequestNote note;
 
   /// Null hides Accept (read-only Messages cannot accept; Delete, Block
   /// and the info menu's Report stay).
@@ -79,6 +97,7 @@ Widget? buildRequestBanner(
         conversation.peer.handle,
       ),
       actions: actions,
+      note: actions.note,
     );
   }
   if (isSentRequest(conversation)) return const SentRequestNote();
@@ -104,10 +123,12 @@ class RequestBanner extends StatelessWidget {
     super.key,
     required this.peerName,
     required this.actions,
+    this.note = RequestNote.notEncrypted,
   });
 
   final String peerName;
   final ThreadRequestActions actions;
+  final RequestNote note;
 
   static const acceptKey = ValueKey('request-accept');
   static const deleteKey = ValueKey('request-delete');
@@ -139,8 +160,12 @@ class RequestBanner extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: AppSpacing.xs),
-            const NotEncryptedNote(),
+            if (note != RequestNote.none) ...[
+              const SizedBox(height: AppSpacing.xs),
+              ConversationEncryptionNote(
+                encrypted: note == RequestNote.encrypted,
+              ),
+            ],
             const SizedBox(height: AppSpacing.smd),
             Wrap(
               spacing: AppSpacing.sm,

@@ -11,6 +11,7 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../data/messaging_repository.dart';
 import '../../data/messaging_store.dart';
 import '../../domain/conversation_id.dart';
+import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/thread_poller.dart';
 import '../widgets/request_banner.dart' show isSentRequest;
 
@@ -49,9 +50,50 @@ class ThreadState {
     this.cannotMessage = false,
     this.error,
     this.notice,
+    this.encrypted = false,
+    this.entries = const [],
+    this.security,
+    this.encryptedHasMore = false,
+    this.resetting = false,
+    this.resetError,
+    this.mls = false,
+    this.knownPlain = false,
+    this.vaultBlocked = false,
   });
 
   final ThreadStatus status;
+
+  /// This thread is rendered from [entries] (the port's stream). Never goes
+  /// back to false for the cubit's lifetime.
+  final bool encrypted;
+
+  /// The decrypted rows, newest first; empty unless [encrypted]. Readable
+  /// text: this class defines no `toString`.
+  final List<ThreadEntry> entries;
+
+  /// Null until the first `EncryptedThread`.
+  final ConversationSecurity? security;
+  final bool encryptedHasMore;
+
+  /// `resetConversation` is in flight.
+  final bool resetting;
+
+  /// Why the last reset failed: a typed [AppException] or a
+  /// [ResetRefusedException], never text. The screen shows it once.
+  final Object? resetError;
+
+  /// The conversation is known to be encrypted (the `isMls` latch).
+  final bool mls;
+
+  /// A header said NONE and nothing ever said MLS: known to be plaintext.
+  /// UNSPECIFIED is unknown, never "not encrypted".
+  final bool knownPlain;
+
+  /// There is no port, or the vault on this device is not usable.
+  final bool vaultBlocked;
+
+  /// The header says MLS but there is no port or no usable vault (R11).
+  bool get encryptedNoVault => mls && vaultBlocked;
 
   /// The messages on screen, newest first. While the reader is scrolled up
   /// this is held back from the latest (see [pendingNew]).
@@ -110,6 +152,15 @@ class ThreadState {
     bool? cannotMessage,
     Object? error = _keep,
     Object? notice = _keep,
+    bool? encrypted,
+    List<ThreadEntry>? entries,
+    ConversationSecurity? security,
+    bool? encryptedHasMore,
+    bool? resetting,
+    Object? resetError = _keep,
+    bool? mls,
+    bool? knownPlain,
+    bool? vaultBlocked,
   }) {
     return ThreadState(
       status: status ?? this.status,
@@ -126,6 +177,15 @@ class ThreadState {
       cannotMessage: cannotMessage ?? this.cannotMessage,
       error: identical(error, _keep) ? this.error : error as AppException?,
       notice: identical(notice, _keep) ? this.notice : notice as AppException?,
+      encrypted: encrypted ?? this.encrypted,
+      entries: entries ?? this.entries,
+      security: security ?? this.security,
+      encryptedHasMore: encryptedHasMore ?? this.encryptedHasMore,
+      resetting: resetting ?? this.resetting,
+      resetError: identical(resetError, _keep) ? this.resetError : resetError,
+      mls: mls ?? this.mls,
+      knownPlain: knownPlain ?? this.knownPlain,
+      vaultBlocked: vaultBlocked ?? this.vaultBlocked,
     );
   }
 }
@@ -155,8 +215,12 @@ class ThreadCubit extends Cubit<ThreadState> {
     this.onUnexpectedError,
     this.onOpenedUnread,
     Uuid? uuid,
+    EncryptedMessaging? encrypted,
+    bool Function()? vaultUsable,
   }) : _repository = repository,
        _poller = poller,
+       _port = encrypted,
+       _vaultUsable = vaultUsable,
        _uuid = uuid ?? const Uuid(),
        super(
          isConversationId(conversationId)
@@ -190,6 +254,97 @@ class ThreadCubit extends Cubit<ThreadState> {
   String? _acceptKey;
   StreamSubscription<void>? _changes;
 
+  final EncryptedMessaging? _port;
+  final bool Function()? _vaultUsable;
+  StreamSubscription<EncryptedThread>? _watch;
+
+  /// The `isMls` latch: once true it stays true for the cubit's lifetime.
+  bool _mls = false;
+
+  /// A header said NONE at least once.
+  bool _sawNone = false;
+
+  /// The cached inbox row was ever seen marked encrypted (5a keeps the marker
+  /// sticky; a later server answer never clears it).
+  bool _rowMarked = false;
+
+  /// Whether the conversation is end-to-end encrypted: true as soon as any
+  /// sign says so, then for good. False means unknown or plaintext, see
+  /// [ThreadState.knownPlain]. Never read from the port's stream.
+  bool get isMls => _mls;
+
+  /// Encrypted messaging is present for this thread (a port was given).
+  bool get hasPort => _port != null;
+
+  /// The vault became (un)usable: re-evaluates the rules. The screen calls it
+  /// when the vault status changes.
+  void refreshVault() => _reevaluate();
+
+  static bool _rowEncrypted(pb.Conversation? c) =>
+      c != null && c.hasLastMessage() && c.lastMessage.encrypted;
+
+  /// Latches `isMls` from every sign this cubit holds, then subscribes to the
+  /// port when the thread is to be rendered from it. Evaluated on every data
+  /// path (cache, refresh, poll, row follow, vault change). `hasLocal` is read
+  /// each time until it answers true, because it is false before the vault is
+  /// ready.
+  void _reevaluate() {
+    if (isClosed) return;
+    final port = _port;
+    final header = state.conversation;
+    if (header != null &&
+        header.encryption ==
+            ConversationEncryption.CONVERSATION_ENCRYPTION_NONE) {
+      _sawNone = true;
+    }
+    if (!_mls) {
+      _mls =
+          _rowMarked ||
+          (header != null &&
+              header.encryption ==
+                  ConversationEncryption.CONVERSATION_ENCRYPTION_MLS) ||
+          _rowEncrypted(header) ||
+          _latest.any((m) => m.mlsGeneration.toInt() > 0) ||
+          (port != null && port.hasLocal(conversationId));
+    }
+    final usable = port != null && (_vaultUsable?.call() ?? true);
+    final encrypted = state.encrypted || (_mls && usable);
+    final knownPlain = _sawNone && !_mls;
+    if (_mls != state.mls ||
+        knownPlain != state.knownPlain ||
+        !usable != state.vaultBlocked ||
+        encrypted != state.encrypted) {
+      emit(
+        state.copyWith(
+          mls: _mls,
+          knownPlain: knownPlain,
+          vaultBlocked: !usable,
+          encrypted: encrypted,
+        ),
+      );
+    }
+    if (encrypted && port != null && _watch == null) {
+      _watch = port
+          .watchThread(ThreadRef.conversation(conversationId))
+          .listen(
+            _onEncryptedThread,
+            onError: (Object _, StackTrace stack) =>
+                onUnexpectedError?.call(StateError('watchThread'), stack),
+          );
+    }
+  }
+
+  void _onEncryptedThread(EncryptedThread thread) {
+    if (isClosed) return;
+    emit(
+      state.copyWith(
+        entries: thread.entries,
+        security: thread.security,
+        encryptedHasMore: thread.hasMore,
+      ),
+    );
+  }
+
   /// Opens the screen: cache first, then one refresh.
   Future<void> load() async {
     if (!isConversationId(conversationId)) return;
@@ -214,6 +369,8 @@ class ThreadCubit extends Cubit<ThreadState> {
       _apply(cached, open: true);
       emit(state.copyWith(status: ThreadStatus.ready));
     }
+    // Also with nothing cached: the vault may know the conversation.
+    _reevaluate();
     _poller.start();
     await _refresh(open: true);
   }
@@ -233,6 +390,10 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
     final header = state.conversation;
     if (isClosed || row == null || header == null) return;
+    if (_rowEncrypted(row) && !_rowMarked) {
+      _rowMarked = true;
+      _reevaluate();
+    }
     if (row.state == ConversationState.CONVERSATION_STATE_UNSPECIFIED ||
         row.folder == Folder.FOLDER_UNSPECIFIED) {
       return;
@@ -413,6 +574,7 @@ class ThreadCubit extends Cubit<ThreadState> {
         hasMore: snapshot.hasMore,
       ),
     );
+    _reevaluate();
   }
 
   Future<void> _noteAnswered() async {
@@ -454,6 +616,16 @@ class ThreadCubit extends Cubit<ThreadState> {
 
   /// Scroll older: the page below the oldest cached message.
   Future<void> loadMore() async {
+    if (state.encrypted) {
+      if (isClosed ||
+          state.loadingMore ||
+          !state.encryptedHasMore ||
+          state.loadMoreFailed) {
+        return;
+      }
+      await _loadOlderEncrypted();
+      return;
+    }
     if (isClosed ||
         state.loadingMore ||
         state.refreshing ||
@@ -467,7 +639,62 @@ class ThreadCubit extends Cubit<ThreadState> {
   /// The footer's inline retry.
   Future<void> retryLoadMore() async {
     if (isClosed || state.loadingMore) return;
+    if (state.encrypted) {
+      await _loadOlderEncrypted();
+      return;
+    }
     await _loadMore();
+  }
+
+  /// One more page from the vault; the stream re-emits the wider window.
+  Future<void> _loadOlderEncrypted() async {
+    final port = _port;
+    if (port == null) return;
+    emit(state.copyWith(loadingMore: true, loadMoreFailed: false));
+    try {
+      await port.loadOlder(ThreadRef.conversation(conversationId));
+      if (!isClosed) emit(state.copyWith(loadingMore: false));
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('loadOlder'), stack);
+      if (!isClosed) {
+        emit(state.copyWith(loadingMore: false, loadMoreFailed: true));
+      }
+    }
+  }
+
+  /// Reset encryption for this conversation (R6 step 5, M5, stuck member):
+  /// asks the port once. A failure is kept as [ThreadState.resetError], typed,
+  /// never as text. Refused here for a sent request or when the pipeline does
+  /// not offer it, so a stale tap does nothing.
+  Future<void> resetEncryption() async {
+    final port = _port;
+    final security = state.security;
+    if (isClosed ||
+        port == null ||
+        security == null ||
+        !security.canReset ||
+        security.sentRequest ||
+        state.resetting) {
+      return;
+    }
+    emit(state.copyWith(resetting: true, resetError: null));
+    try {
+      await port.resetConversation(conversationId);
+      if (!isClosed) emit(state.copyWith(resetting: false));
+    } on Object catch (error, stack) {
+      final typed = error is AppException || error is ResetRefusedException;
+      if (!typed) {
+        onUnexpectedError?.call(StateError('resetConversation'), stack);
+      }
+      if (!isClosed) {
+        emit(
+          state.copyWith(
+            resetting: false,
+            resetError: typed ? error : StateError('resetConversation'),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _loadMore() async {
@@ -623,6 +850,8 @@ class ThreadCubit extends Cubit<ThreadState> {
   @override
   Future<void> close() {
     unawaited(_changes?.cancel());
+    unawaited(_watch?.cancel());
+    _watch = null;
     _poller.dispose();
     return super.close();
   }
