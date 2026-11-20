@@ -531,10 +531,11 @@ void main() {
       rigKeyDevice(carol.idString, carol.key),
     ];
     rig.header(_c1, 'ref-bob');
-    // This device was in generation 1 with bob, then left it: marks and
-    // former pins stay.
+    // This device was in generation 1 with bob, then left it: marks, former
+    // pins and the key history stay.
     const formerPins = FormerPins();
     final v = rig.device.vault;
+    await rig.putKeyHistory(_c1, ids: [(bob.id, bob.key)]);
     await v.transaction((tx) async {
       await tx.putConversationSync(
         _c1,
@@ -982,14 +983,215 @@ void main() {
       if (rigEq(l.deviceId ?? const [], id)) l.line,
   ];
 
-  /// [c]'s entry of the sealed key-changed marker, read raw.
-  Future<Map<String, Object?>?> markedOf(String c) async {
-    final raw = await rig.device.vault.setting('messages.e2ee.keyChanged');
-    if (raw == null) return null;
-    final m = jsonDecode(utf8.decode(raw)) as Map<String, Object?>;
-    expect(m['v'], 1);
-    return (m['byConv']! as Map<String, Object?>)[c] as Map<String, Object?>?;
+  /// [id] is tainted in [c]'s key history (in `changed`, its key no longer
+  /// kept), and the history was read: a refusal from an unreadable history
+  /// would pass the pin assertions too.
+  Future<void> expectTainted(String c, Uint8List id) async {
+    final hex = vaultDeviceIdHex(id);
+    expect(await rig.keyHistoryChanged(c), contains(hex));
+    expect((await rig.keyHistoryIds(c)).keys, isNot(contains(hex)));
+    expect(rig.keyHistoryErrors, isEmpty);
   }
+
+  /// [id]'s member with [key] in what `describe` reports.
+  List<GroupMember> Function(List<GroupMember>) onKey(
+    Uint8List id,
+    Uint8List key,
+  ) =>
+      (real) => [
+        for (final m in real)
+          rigEq(m.deviceId, id)
+              ? GroupMember(deviceId: id, signaturePublicKey: key)
+              : m,
+      ];
+
+  Future<MemberRecord?> pinIn(String c, Uint8List id) async {
+    for (final m in await rig.device.vault.members(c)) {
+      if (rigEq(m.deviceId, id)) return m;
+    }
+    return null;
+  }
+
+  // The provisional group and the empty record are Task 8's half of this
+  // test (a joined group always holds another device).
+  test('the first join and the first provisional group write the key '
+      'history, even empty (the first join)', () async {
+    final carol = await RigPeer.create('carol');
+    expect(await rig.keyHistory(_c1), isNull);
+    await rig.offer(_c1, bob, others: [await carol.keyPackage()]);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    // Written in the join's transaction; this device is never recorded.
+    expect(await rig.keyHistory(_c1), {
+      'v': 1,
+      'ids': {
+        vaultDeviceIdHex(bob.id): base64Encode(bob.key),
+        vaultDeviceIdHex(carol.id): base64Encode(carol.key),
+      },
+      'changed': <Object?>[],
+      'closed': false,
+      'allow': 256,
+    });
+    expect(rig.keyHistoryErrors, isEmpty);
+  });
+
+  test('a device dropped by a join and re-added on another key stays '
+      'unknown', () async {
+    final carol = await RigPeer.create('carol');
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(carol.idString, carol.key),
+    ];
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob, others: [await carol.keyPackage()]);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    expect((await pinIn(_c1, carol.id))!.side, MemberSide.theirs);
+
+    // Generation 2 drops carol: her pin goes.
+    await rig.offer(_c1, bob, generation: 2);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    expect(await pinIn(_c1, carol.id), isNull);
+
+    // Generation 3 holds her on another key, which the directory lists.
+    final newKey = Uint8List.fromList(List.filled(32, 5));
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(carol.idString, newKey),
+    ];
+    rig.directory.clear();
+    await rig.offer(
+      _c1,
+      bob,
+      generation: 3,
+      others: [await carol.keyPackage()],
+    );
+    rig.device.engine.describeMembers = onKey(carol.id, newKey);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    rig.device.engine.describeMembers = null;
+    rig.clock.advance(const Duration(minutes: 3));
+    await rig.crypto.attributeMembers(_c1);
+
+    final carolPin = (await pinIn(_c1, carol.id))!;
+    expect(carolPin.side, MemberSide.unattributed);
+    expect(rigEq(carolPin.signatureKey, newKey), isTrue);
+    await expectTainted(_c1, carol.id);
+    expect((await pinIn(_c1, bob.id))!.side, MemberSide.theirs);
+    final carolLines = linesOf(await rig.lines(_c1), carol.id);
+    expect(carolLines, isNot(contains(SystemLine.deviceAdded)));
+    expect(carolLines, contains(SystemLine.unknownDevice));
+  });
+
+  test('a device pinned by a discarded provisional group and joined on '
+      'another key stays unknown', () async {
+    final erin = await RigPeer.create('erin');
+    final newKey = Uint8List.fromList(List.filled(32, 6));
+    rig.keys.peers['ref-bob'] = [
+      rigKeyDevice(bob.idString, bob.key),
+      rigKeyDevice(erin.idString, newKey),
+    ];
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    // This device's own init pinned bob and erin (on her first key).
+    await rig.seedProvisional(_c1, [bob, erin]);
+
+    // Bob's init won: the provisional group and its pins go, and his
+    // welcome holds erin on another key, which the directory lists.
+    await rig.offer(_c1, bob, others: [await erin.keyPackage()]);
+    rig.device.engine.describeMembers = onKey(erin.id, newKey);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    rig.device.engine.describeMembers = null;
+    rig.clock.advance(const Duration(minutes: 3));
+    await rig.crypto.attributeMembers(_c1);
+
+    expect((await rig.device.vault.group(_c1, 1))!.provisional, isFalse);
+    final erinPin = (await pinIn(_c1, erin.id))!;
+    expect(erinPin.side, MemberSide.unattributed);
+    expect(rigEq(erinPin.signatureKey, newKey), isTrue);
+    await expectTainted(_c1, erin.id);
+    expect((await pinIn(_c1, bob.id))!.side, MemberSide.theirs);
+    expect(
+      linesOf(await rig.lines(_c1), erin.id),
+      isNot(contains(SystemLine.deviceAdded)),
+    );
+  });
+
+  test('a missing key history is unreadable when the conversation has a '
+      'group, a pin, a former pin or a mark', () async {
+    final carol = await RigPeer.create('carol');
+    rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+    final v = rig.device.vault;
+    final withGroup = _conv(0xa1);
+    final withPin = _conv(0xa2);
+    final withFormer = _conv(0xa3);
+    final withMark = _conv(0xa4);
+    final withNothing = _conv(0xa5);
+    MemberRecord carolPin(String c) => MemberRecord(
+      conversationId: c,
+      deviceId: carol.id,
+      signatureKey: carol.key,
+      side: MemberSide.theirs,
+      since: const MlsPair(1, 1),
+    );
+    await v.transaction((tx) async {
+      // A group of generation 1 already walked to its end.
+      await tx.putGroup(
+        GroupRecord(
+          conversationId: withGroup,
+          generation: 1,
+          epoch: 1,
+          state: rigBytes('a stored group'),
+        ),
+      );
+      await tx.putConversationSync(
+        withGroup,
+        const ConversationSync(completedEpochs: [MlsPair(1, 1)]),
+      );
+      await tx.putMember(carolPin(withPin));
+      await const FormerPins().putIn(tx, v, withFormer, [carolPin(withFormer)]);
+      await tx.setJoinHighWater(withMark, const MlsPair(1, 0));
+    });
+    final all = [withGroup, withPin, withFormer, withMark, withNothing];
+    for (final c in all) {
+      await rig.accept(c);
+      rig.header(c, 'ref-bob');
+      await rig.offer(c, bob, generation: 2);
+    }
+    // The sync record `accept` wrote replaced the walked mark: put it back.
+    await v.transaction(
+      (tx) => tx.putConversationSync(
+        withGroup,
+        const ConversationSync(
+          requestAccepted: true,
+          completedEpochs: [MlsPair(1, 1)],
+        ),
+      ),
+    );
+
+    expect((await rig.crypto.processWelcomes()).toSet(), all.toSet());
+    rig.clock.advance(const Duration(minutes: 3));
+    for (final c in all) {
+      await rig.crypto.attributeMembers(c);
+    }
+
+    for (final c in [withGroup, withPin, withFormer, withMark]) {
+      expect(
+        (await pinIn(c, bob.id))!.side,
+        MemberSide.unattributed,
+        reason: c,
+      );
+      // Never created as a fresh one.
+      expect(await rig.keyHistory(c), isNull, reason: c);
+      expect(await rig.lines(c), isEmpty, reason: c);
+    }
+    // One report per conversation.
+    expect(rig.keyHistoryErrors, hasLength(4));
+    // With no state at all the history starts empty and is written.
+    expect((await pinIn(withNothing, bob.id))!.side, MemberSide.theirs);
+    expect((await rig.keyHistoryIds(withNothing)).keys, [
+      vaultDeviceIdHex(bob.id),
+    ]);
+  });
 
   test('a later join with a changed key stays unknown and is never written '
       'as deviceAdded', () async {
@@ -1041,9 +1243,8 @@ void main() {
     final carolPin = pinOf(await v.members(_c1), carol.id);
     expect(carolPin.side, MemberSide.unattributed);
     expect(rigEq(carolPin.signatureKey, newKey), isTrue);
-    expect(await markedOf(_c1), {
-      vaultDeviceIdHex(carol.id): base64Encode(newKey),
-    });
+    await expectTainted(_c1, carol.id);
+    expect(pinOf(await v.members(_c1), bob.id).side, MemberSide.theirs);
     final carolLines = linesOf(await rig.lines(_c1), carol.id);
     expect(carolLines, isNot(contains(SystemLine.deviceAdded)));
     expect(carolLines, contains(SystemLine.unknownDevice));
@@ -1051,8 +1252,8 @@ void main() {
     expect(state.unknownDevicePresent, isTrue);
     expect(state.sendBlock, SendBlock.unknownDevice);
 
-    // Generation 3 still holds carol on the marked key: re-pinned at its
-    // label, still marked, still never attributed.
+    // Generation 3 still holds carol on that key: re-pinned at its label,
+    // still tainted, still never attributed.
     await rig.offer(
       _c1,
       bob,
@@ -1072,28 +1273,25 @@ void main() {
     final again = pinOf(await v.members(_c1), carol.id);
     expect(again.side, MemberSide.unattributed);
     expect(again.since, const MlsPair(3, 1));
-    expect(await markedOf(_c1), {
-      vaultDeviceIdHex(carol.id): base64Encode(newKey),
-    });
+    await expectTainted(_c1, carol.id);
     expect(
       linesOf(await rig.lines(_c1), carol.id),
       isNot(contains(SystemLine.deviceAdded)),
     );
 
-    // Generation 4 no longer holds carol: her pin goes, her mark stays (for
-    // the life of the conversation's local state).
+    // Generation 4 no longer holds carol: her pin goes, her taint stays.
+    final before = await rig.keyHistory(_c1);
     await rig.offer(_c1, bob, generation: 4);
     expect(await rig.crypto.processWelcomes(), [_c1]);
     expect(
       (await v.members(_c1)).where((m) => rigEq(m.deviceId, carol.id)),
       isEmpty,
     );
-    expect(await markedOf(_c1), {
-      vaultDeviceIdHex(carol.id): base64Encode(newKey),
-    });
+    expect(await rig.keyHistory(_c1), before);
+    await expectTainted(_c1, carol.id);
   });
 
-  test('a rejoin on a third key is marked against the former pin', () async {
+  test('a rejoin on a third key stays unknown', () async {
     final carol = await RigPeer.create('carol');
     final k2 = Uint8List.fromList(List.filled(32, 2));
     final k3 = Uint8List.fromList(List.filled(32, 3));
@@ -1102,10 +1300,11 @@ void main() {
       rigKeyDevice(carol.idString, k3),
     ];
     rig.header(_c1, 'ref-bob');
-    // This device left generation 1, where carol was pinned theirs on k2;
-    // no mark was ever written.
+    // This device left generation 1, where carol was pinned theirs on k2:
+    // the history holds her with that key.
     const formerPins = FormerPins();
     final v = rig.device.vault;
+    await rig.putKeyHistory(_c1, ids: [(bob.id, bob.key), (carol.id, k2)]);
     await v.transaction((tx) async {
       await tx.putConversationSync(
         _c1,
@@ -1152,17 +1351,18 @@ void main() {
     final carolPin = (await v.members(_c1))
         .singleWhere((m) => rigEq(m.deviceId, carol.id));
     expect(carolPin.side, MemberSide.unattributed);
-    expect(await markedOf(_c1), {vaultDeviceIdHex(carol.id): base64Encode(k3)});
+    await expectTainted(_c1, carol.id);
+    // Bob, on the key the history holds, gets his former side back.
+    expect((await pinIn(_c1, bob.id))!.side, MemberSide.theirs);
     expect(
       linesOf(await rig.lines(_c1), carol.id),
       isNot(contains(SystemLine.deviceAdded)),
     );
   });
 
-  test('a marked device that changes key again at a join is marked with the '
-      'newest key', () async {
+  test('a tainted device that changes key again at a join stays '
+      'unknown', () async {
     final carol = await RigPeer.create('carol');
-    final k2 = Uint8List.fromList(List.filled(32, 2));
     final k3 = Uint8List.fromList(List.filled(32, 3));
     rig.keys.peers['ref-bob'] = [
       rigKeyDevice(bob.idString, bob.key),
@@ -1173,21 +1373,9 @@ void main() {
     await rig.offer(_c1, bob);
     expect(await rig.crypto.processWelcomes(), [_c1]);
     final v = rig.device.vault;
-    // Carol was marked on k2 earlier and holds no pin now (she left), and
-    // no former pin holds her: only the mark knows her old key.
-    await v.transaction(
-      (tx) => tx.putSetting(
-        'messages.e2ee.keyChanged',
-        rigBytes(
-          jsonEncode({
-            'v': 1,
-            'byConv': {
-              _c1: {vaultDeviceIdHex(carol.id): base64Encode(k2)},
-            },
-          }),
-        ),
-      ),
-    );
+    // Carol was tainted earlier (k2 was her second key) and holds no pin now
+    // (she left), and no former pin holds her: only the history knows.
+    await rig.putKeyHistory(_c1, ids: [(bob.id, bob.key)], changed: [carol.id]);
 
     await rig.offer(
       _c1,
@@ -1209,7 +1397,9 @@ void main() {
     final carolPin = (await v.members(_c1))
         .singleWhere((m) => rigEq(m.deviceId, carol.id));
     expect(carolPin.side, MemberSide.unattributed);
-    expect(await markedOf(_c1), {vaultDeviceIdHex(carol.id): base64Encode(k3)});
+    expect(rigEq(carolPin.signatureKey, k3), isTrue);
+    await expectTainted(_c1, carol.id);
+    expect((await pinIn(_c1, bob.id))!.side, MemberSide.theirs);
     expect(
       linesOf(await rig.lines(_c1), carol.id),
       isNot(contains(SystemLine.deviceAdded)),

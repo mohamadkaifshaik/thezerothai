@@ -187,14 +187,21 @@ void main() {
   int count(List<String> calls, String name) =>
       calls.where((c) => c == name).length;
 
-  /// [c]'s entry of the sealed key-changed marker (device id hex to key
-  /// base64), read raw; null when the setting or the entry is absent.
-  Future<Map<String, Object?>?> markedOf(String c) async {
-    final raw = await rig.device.vault.setting('messages.e2ee.keyChanged');
-    if (raw == null) return null;
-    final m = jsonDecode(utf8.decode(raw)) as Map<String, Object?>;
-    expect(m['v'], 1);
-    return (m['byConv']! as Map<String, Object?>)[c] as Map<String, Object?>?;
+  /// [id] is tainted in [c]'s key history (in `changed`, its key no longer
+  /// kept), and the history was read: a refusal from an unreadable history
+  /// would pass the pin assertions too.
+  Future<void> expectTainted(String c, Uint8List id) async {
+    final hex = vaultDeviceIdHex(id);
+    expect(await rig.keyHistoryChanged(c), contains(hex));
+    expect((await rig.keyHistoryIds(c)).keys, isNot(contains(hex)));
+    expect(rig.keyHistoryErrors, isEmpty);
+  }
+
+  /// [id] is recorded in [c]'s key history with [key] and is not tainted.
+  Future<void> expectRecorded(String c, Uint8List id, Uint8List key) async {
+    final hex = vaultDeviceIdHex(id);
+    expect((await rig.keyHistoryIds(c))[hex], base64Encode(key));
+    expect(await rig.keyHistoryChanged(c), isNot(contains(hex)));
   }
 
   List<String> linesOf(List<SystemLineContent> lines, Uint8List id) => [
@@ -466,11 +473,9 @@ void main() {
 
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       rig.device.engine.describeMembers = null;
-      // Marked in the commit's transaction although unaccepted; no row yet.
+      // Tainted in the commit's transaction although unaccepted; no row yet.
       expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
-      expect(await markedOf(_c1), {
-        vaultDeviceIdHex(bob.id): base64Encode(newKey),
-      });
+      await expectTainted(_c1, bob.id);
       expect(linesOf(await rig.lines(_c1), bob.id), isEmpty);
 
       // Accepted later (a restart between): still unknown, now with its row.
@@ -489,8 +494,7 @@ void main() {
       expect(state.sendBlock, SendBlock.unknownDevice);
     });
 
-    test('a marked device that leaves the conversation stays '
-        'marked', () async {
+    test('a device that leaves keeps its key history', () async {
       final carol = await RigPeer.create('carol');
       final dave = await RigPeer.create('dave');
       rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
@@ -506,18 +510,20 @@ void main() {
       ];
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       rig.device.engine.describeMembers = null;
-      expect(await markedOf(_c1), {
-        vaultDeviceIdHex(carol.id): base64Encode(newKey),
-      });
+      await expectTainted(_c1, carol.id);
+      await expectRecorded(_c1, dave.id, dave.key);
+      final before = await rig.keyHistory(_c1);
 
-      await bobCommit(offer, _c1, remove: [carol.id]);
+      // The tainted device and an ordinary one both leave.
+      await bobCommit(offer, _c1, remove: [carol.id, dave.id]);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
 
       expect(await pin(_c1, carol.id), isNull);
-      // Kept for the life of the conversation's local state.
-      expect(await markedOf(_c1), {
-        vaultDeviceIdHex(carol.id): base64Encode(newKey),
-      });
+      expect(await pin(_c1, dave.id), isNull);
+      // Nothing ever leaves the history: the taint and the recorded key stay.
+      expect(await rig.keyHistory(_c1), before);
+      await expectTainted(_c1, carol.id);
+      await expectRecorded(_c1, dave.id, dave.key);
     });
 
     test('a changed key stays unknown after this device is removed and '
@@ -535,9 +541,7 @@ void main() {
       await bobCommit(offer, _c1, add: [carol]);
       rig.device.engine.describeMembers = bobOnNewKey;
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
-      expect(await markedOf(_c1), {
-        vaultDeviceIdHex(bob.id): base64Encode(newKey),
-      });
+      await expectTainted(_c1, bob.id);
 
       // This device is removed: the former pins keep bob on the new key.
       await bobCommit(offer, _c1, remove: [rig.device.deviceId]);
@@ -556,9 +560,7 @@ void main() {
       final bobPin = (await pin(_c1, bob.id))!;
       expect(bobPin.side, MemberSide.unattributed);
       expect(rigEq(bobPin.signatureKey, newKey), isTrue);
-      expect(await markedOf(_c1), {
-        vaultDeviceIdHex(bob.id): base64Encode(newKey),
-      });
+      await expectTainted(_c1, bob.id);
       expect(
         linesOf(await rig.lines(_c1), bob.id),
         isNot(contains(SystemLine.deviceAdded)),
@@ -605,9 +607,7 @@ void main() {
       expect(carolPin.side, MemberSide.unattributed);
       expect(rigEq(carolPin.signatureKey, newKey), isTrue);
       expect((await pin(_c1, erin.id))!.side, MemberSide.theirs);
-      expect(await markedOf(_c1), {
-        vaultDeviceIdHex(carol.id): base64Encode(newKey),
-      });
+      await expectTainted(_c1, carol.id);
       expect(
         linesOf(await rig.lines(_c1), carol.id),
         isNot(contains(SystemLine.deviceAdded)),
@@ -615,7 +615,7 @@ void main() {
     });
 
     test('a commit that removes and re-adds a device id with another key '
-        'marks it', () async {
+        'taints it', () async {
       final carol = await RigPeer.create('carol');
       final dave = await RigPeer.create('dave');
       rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
@@ -655,48 +655,281 @@ void main() {
       final carolPin = (await pin(_c1, carol.id))!;
       expect(carolPin.side, MemberSide.unattributed);
       expect(rigEq(carolPin.signatureKey, newKey), isTrue);
-      expect(await markedOf(_c1), {
-        vaultDeviceIdHex(carol.id): base64Encode(newKey),
-      });
+      await expectTainted(_c1, carol.id);
+      // A bystander of the same commit is attributed as usual.
+      expect((await pin(_c1, dave.id))!.side, MemberSide.theirs);
       expect(
         linesOf(await rig.lines(_c1), carol.id),
         isNot(contains(SystemLine.deviceAdded)),
       );
     });
 
-    test('a commit that adds a device id whose former pin has another key '
-        'marks it', () async {
-      final carol = await RigPeer.create('carol');
-      final offer = await join(_c1);
-      // Former pins of this conversation hold carol on another key.
-      final oldKey = Uint8List.fromList(List.filled(32, 8));
-      final v = rig.device.vault;
-      await v.transaction(
-        (tx) => const FormerPins().putIn(tx, v, _c1, [
-          MemberRecord(
-            conversationId: _c1,
-            deviceId: carol.id,
-            signatureKey: oldKey,
-            side: MemberSide.theirs,
-            since: const MlsPair(1, 1),
-          ),
-        ]),
-      );
-      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
-      await bobCommit(offer, _c1, add: [carol]);
+    /// [id]'s member with [key] in what `describe` reports.
+    List<GroupMember> Function(List<GroupMember>) onKey(
+      Uint8List id,
+      Uint8List key,
+    ) =>
+        (real) => [
+          for (final m in real)
+            rigEq(m.deviceId, id)
+                ? GroupMember(deviceId: id, signaturePublicKey: key)
+                : m,
+        ];
 
+    test('a device removed by one commit and re-added on another key by a '
+        'later commit stays unknown', () async {
+      final carol = await RigPeer.create('carol');
+      final erin = await RigPeer.create('erin');
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      final offer = await join(_c1, others: [carol]);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.theirs);
+
+      // Commit N removes carol: her pin goes, her recorded key does not.
+      await bobCommit(offer, _c1, remove: [carol.id]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await pin(_c1, carol.id), isNull);
+
+      // Commit N+1 adds her again on another key, which the directory lists.
+      final newKey = Uint8List.fromList(List.filled(32, 4));
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(carol.idString, newKey),
+        rigKeyDevice(erin.idString, erin.key),
+      ];
+      rig.directory.clear();
+      rig.clock.advance(const Duration(seconds: 61));
+      await bobCommit(offer, _c1, add: [carol, erin]);
+      rig.device.engine.describeMembers = onKey(carol.id, newKey);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      rig.device.engine.describeMembers = null;
+
+      final carolPin = (await pin(_c1, carol.id))!;
+      expect(carolPin.side, MemberSide.unattributed);
+      expect(rigEq(carolPin.signatureKey, newKey), isTrue);
+      await expectTainted(_c1, carol.id);
+      expect((await pin(_c1, erin.id))!.side, MemberSide.theirs);
+      final carolLines = linesOf(await rig.lines(_c1), carol.id);
+      expect(carolLines, isNot(contains(SystemLine.deviceAdded)));
+      expect(carolLines, contains(SystemLine.unknownDevice));
+    });
+
+    test('a device seen only while unaccepted, dropped by a join and re-added '
+        'on another key stays unknown after acceptance', () async {
+      final carol = await RigPeer.create('carol');
+      final erin = await RigPeer.create('erin');
+      await join(_c1, accepted: false, others: [carol]);
+      expect(await pin(_c1, carol.id), isNotNull);
+      expect(await rig.lines(_c1), isEmpty);
+
+      // Generation 2 no longer holds carol: her pin goes.
+      final second = await rig.offer(_c1, bob, generation: 2);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      expect(await pin(_c1, carol.id), isNull);
+
+      // A commit of generation 2 adds her on another key, which is listed.
+      final newKey = Uint8List.fromList(List.filled(32, 4));
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(carol.idString, newKey),
+        rigKeyDevice(erin.idString, erin.key),
+      ];
+      rig.directory.clear();
+      await bobCommit(second, _c1, add: [carol, erin]);
+      rig.device.engine.describeMembers = onKey(carol.id, newKey);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await rig.lines(_c1), isEmpty);
+
+      await rig.accept(_c1);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      await rig.crypto.attributeMembers(_c1);
+      rig.device.engine.describeMembers = null;
+
+      expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
+      await expectTainted(_c1, carol.id);
+      expect((await pin(_c1, erin.id))!.side, MemberSide.theirs);
+      expect(linesOf(await rig.lines(_c1), carol.id), [
+        SystemLine.unknownDevice,
+      ]);
+    });
+
+    test('a device id that returns to its first key stays unknown', () async {
+      final carol = await RigPeer.create('carol');
+      final dave = await RigPeer.create('dave');
+      final erin = await RigPeer.create('erin');
+      rig.keys.peers['ref-bob']!
+        ..add(rigKeyDevice(carol.idString, carol.key))
+        ..add(rigKeyDevice(dave.idString, dave.key))
+        ..add(rigKeyDevice(erin.idString, erin.key));
+      final offer = await join(_c1, others: [carol]);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.theirs);
+
+      // Another key under her id, then her first key again; the directory
+      // lists the first key all along.
+      final newKey = Uint8List.fromList(List.filled(32, 4));
+      await bobCommit(offer, _c1, add: [dave]);
+      rig.device.engine.describeMembers = onKey(carol.id, newKey);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.device.engine.describeMembers = null;
+      await bobCommit(offer, _c1, add: [erin]);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       rig.clock.advance(const Duration(minutes: 3));
       await rig.crypto.attributeMembers(_c1);
 
-      expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
-      expect(await markedOf(_c1), {
-        vaultDeviceIdHex(carol.id): base64Encode(carol.key),
-      });
+      final carolPin = (await pin(_c1, carol.id))!;
+      expect(rigEq(carolPin.signatureKey, carol.key), isTrue);
+      expect(carolPin.side, MemberSide.unattributed);
+      await expectTainted(_c1, carol.id);
+      expect((await pin(_c1, erin.id))!.side, MemberSide.theirs);
       expect(
         linesOf(await rig.lines(_c1), carol.id),
         isNot(contains(SystemLine.deviceAdded)),
       );
+    });
+
+    test('a tainted device re-added on a third key stays unknown', () async {
+      final carol = await RigPeer.create('carol');
+      final dave = await RigPeer.create('dave');
+      final erin = await RigPeer.create('erin');
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      final offer = await join(_c1, others: [carol]);
+      final k2 = Uint8List.fromList(List.filled(32, 2));
+      final k3 = Uint8List.fromList(List.filled(32, 3));
+      await bobCommit(offer, _c1, add: [dave]);
+      rig.device.engine.describeMembers = onKey(carol.id, k2);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await expectTainted(_c1, carol.id);
+      await bobCommit(offer, _c1, remove: [carol.id]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await pin(_c1, carol.id), isNull);
+
+      // Added again on a third key, which the directory lists.
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(carol.idString, k3),
+        rigKeyDevice(dave.idString, dave.key),
+        rigKeyDevice(erin.idString, erin.key),
+      ];
+      rig.directory.clear();
+      await bobCommit(offer, _c1, add: [carol, erin]);
+      rig.device.engine.describeMembers = onKey(carol.id, k3);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      rig.device.engine.describeMembers = null;
+
+      final carolPin = (await pin(_c1, carol.id))!;
+      expect(rigEq(carolPin.signatureKey, k3), isTrue);
+      expect(carolPin.side, MemberSide.unattributed);
+      await expectTainted(_c1, carol.id);
+      expect((await pin(_c1, erin.id))!.side, MemberSide.theirs);
+      expect(
+        linesOf(await rig.lines(_c1), carol.id),
+        isNot(contains(SystemLine.deviceAdded)),
+      );
+    });
+
+    test('a commit that pins nothing new leaves the key history bytes '
+        'unchanged', () async {
+      final carol = await RigPeer.create('carol');
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      final dave = await RigPeer.create('dave');
+      final offer = await join(_c1, others: [carol, dave]);
+      final before = await rig.sealedSetting('messages.e2ee.keys.$_c1');
+      expect(before, isNotNull);
+
+      await bobCommit(offer, _c1, remove: [carol.id]);
+      await bobCommit(offer, _c1, remove: [dave.id]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await rig.crypto.attributeMembers(_c1);
+
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 3);
+      expect(await rig.sealedSetting('messages.e2ee.keys.$_c1'), before);
+      expect(rig.keyHistoryErrors, isEmpty);
+    });
+
+    test('the key history is one sealed setting per conversation whose value '
+        'holds no id or key in clear', () async {
+      const c2 = '22222222222222222222222222222222';
+      final carol = await RigPeer.create('carol');
+      await join(_c1);
+      await join(c2, others: [carol]);
+
+      expect(await rig.keyHistory(_c1), {
+        'v': 1,
+        'ids': {vaultDeviceIdHex(bob.id): base64Encode(bob.key)},
+        'changed': <Object?>[],
+        'closed': false,
+        'allow': 256,
+      });
+      // This device is never recorded.
+      expect((await rig.keyHistoryIds(c2)).keys.toSet(), {
+        vaultDeviceIdHex(bob.id),
+        vaultDeviceIdHex(carol.id),
+      });
+      // No vault-wide marker is left.
+      expect(
+        await rig.device.vault.setting('messages.e2ee.keyChanged'),
+        isNull,
+      );
+      for (final c in [_c1, c2]) {
+        final sealed = latin1.decode(
+          (await rig.sealedSetting('messages.e2ee.keys.$c'))!,
+        );
+        for (final clear in [
+          vaultDeviceIdHex(bob.id),
+          utf8.decode(bob.id),
+          base64Encode(bob.key),
+          latin1.decode(bob.key),
+          '"ids"',
+          c,
+        ]) {
+          expect(sealed, isNot(contains(clear)));
+        }
+      }
+    });
+
+    test('selfRemoved, a removal, a join drop and a provisional discard leave '
+        'the key history unchanged', () async {
+      const c2 = '22222222222222222222222222222222';
+      final carol = await RigPeer.create('carol');
+      final dave = await RigPeer.create('dave');
+      final erin = await RigPeer.create('erin');
+      final offer = await join(_c1, others: [carol, dave]);
+      final history = await rig.keyHistory(_c1);
+      expect((history!['ids']! as Map<String, Object?>).keys, hasLength(3));
+
+      // A removal by a commit.
+      await bobCommit(offer, _c1, remove: [carol.id]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await pin(_c1, carol.id), isNull);
+      expect(await rig.keyHistory(_c1), history);
+
+      // A join that drops a device.
+      final second = await rig.offer(_c1, bob, generation: 2);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      expect(await pin(_c1, dave.id), isNull);
+      expect(await rig.keyHistory(_c1), history);
+
+      // selfRemoved.
+      await bobCommit(second, _c1, remove: [rig.device.deviceId]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
+      expect(await rig.device.vault.members(_c1), isEmpty);
+      expect(await rig.keyHistory(_c1), history);
+
+      // A provisional group (bob and erin pinned) discarded for the winner's
+      // welcome, which holds bob only.
+      rig.header(c2, 'ref-bob');
+      await rig.seedProvisional(c2, [bob, erin]);
+      final provisional = await rig.keyHistory(c2);
+      await rig.offer(c2, bob);
+      expect(await rig.crypto.processWelcomes(), [c2]);
+      expect((await rig.device.vault.group(c2, 1))!.provisional, isFalse);
+      expect(await pin(c2, erin.id), isNull);
+      expect(await rig.keyHistory(c2), provisional);
+      expect(rig.keyHistoryErrors, isEmpty);
     });
 
     test('applying a commit for a stored group not yet in the known set '
@@ -843,7 +1076,7 @@ void main() {
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
       expect(linesOf(await rig.lines(_c1), eve.id), [SystemLine.unknownDevice]);
-      expect(await markedOf(_c1), isNull);
+      await expectRecorded(_c1, eve.id, eve.key);
 
       // The directory lists eve now (Task 9's recheck re-attributes).
       rig.keys.peers['ref-bob']!.add(rigKeyDevice(eve.idString, eve.key));
@@ -860,71 +1093,324 @@ void main() {
       expect(state.unattributedPresent, isFalse);
     });
 
-    test('an unreadable key-changed marker attributes nobody in that '
-        'conversation', () async {
+    /// [id]'s member with [key] in what `describe` reports.
+    List<GroupMember> Function(List<GroupMember>) onKey(
+      Uint8List id,
+      Uint8List key,
+    ) =>
+        (real) => [
+          for (final m in real)
+            rigEq(m.deviceId, id)
+                ? GroupMember(deviceId: id, signaturePublicKey: key)
+                : m,
+        ];
+
+    Future<void> corruptHistory(String c) => rig.device.vault.transaction(
+      (tx) => tx.putSetting('messages.e2ee.keys.$c', rigBytes('{"v":1')),
+    );
+
+    Future<String> rawHistory(String c) async =>
+        utf8.decode((await rig.device.vault.setting('messages.e2ee.keys.$c'))!);
+
+    test('a pin missing from the key history makes it unreadable and is never '
+        'attributed', () async {
+      final eve = await RigPeer.create('eve');
       final carol = await RigPeer.create('carol');
       rig.keys.peerFails = true;
       final offer = await join(_c1);
       expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      final history = await rig.keyHistory(_c1);
+      // A pin no writer admitted (a writer that forgot, or an edited file).
       await rig.device.vault.transaction(
-        (tx) => tx.putSetting('messages.e2ee.keyChanged', rigBytes('{"v":1')),
+        (tx) => tx.putMember(
+          MemberRecord(
+            conversationId: _c1,
+            deviceId: eve.id,
+            signatureKey: eve.key,
+            side: MemberSide.unattributed,
+            since: const MlsPair(1, 1),
+          ),
+        ),
       );
-
       rig.keys.peerFails = false;
-      await rig.crypto.attributeMembers(_c1);
-      await rig.crypto.attributeMembers(_c1);
-
-      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
-      // No display row from a marker that cannot be read.
-      expect(await rig.lines(_c1), isEmpty);
-
-      // The writers meet the unreadable value too: a commit that changes
-      // bob's key, then a join of generation 2 holding carol.
-      final newKey = Uint8List.fromList(List.filled(32, 9));
       rig.keys.peers['ref-bob'] = [
-        rigKeyDevice(bob.idString, newKey),
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(eve.idString, eve.key),
         rigKeyDevice(carol.idString, carol.key),
       ];
-      rig.directory.clear();
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      // A later commit does not repair it either.
       await bobCommit(offer, _c1, add: [carol]);
       rig.device.engine.describeMembers = (real) => [
-        for (final m in real)
-          rigEq(m.deviceId, bob.id)
-              ? GroupMember(deviceId: bob.id, signaturePublicKey: newKey)
-              : m,
+        ...real,
+        GroupMember(deviceId: eve.id, signaturePublicKey: eve.key),
       ];
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.device.engine.describeMembers = null;
+      await rig.crypto.attributeMembers(_c1);
+
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      // The whole record is unreadable: nobody else is attributed either.
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
+      expect(await rig.lines(_c1), isEmpty);
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      expect(await rig.keyHistory(_c1), history);
+    });
+
+    test('at the cap a new device id stays unknown, the history closes, and '
+        'recorded devices stay attributable', () async {
+      final dave = await RigPeer.create('dave');
+      final eve = await RigPeer.create('eve');
+      final offer = await join(_c1, others: [dave]);
+      expect((await pin(_c1, dave.id))!.side, MemberSide.unattributed);
+      // The history is at its allowance: bob, dave and 254 ids long gone.
+      await rig.putKeyHistory(
+        _c1,
+        ids: [(bob.id, bob.key), (dave.id, dave.key)],
+        fillers: 254,
+      );
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(dave.idString, dave.key),
+        rigKeyDevice(eve.idString, eve.key),
+      ];
+      rig.directory.clear();
+      rig.clock.advance(const Duration(seconds: 61));
+      await bobCommit(offer, _c1, add: [eve]);
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      final history = (await rig.keyHistory(_c1))!;
+      expect(history['closed'], isTrue);
+      expect(history['allow'], 256);
+      final ids = history['ids']! as Map<String, Object?>;
+      expect(ids, hasLength(256));
+      expect(ids.keys, isNot(contains(vaultDeviceIdHex(eve.id))));
+      expect(history['changed'], isEmpty);
+      // Recorded devices keep working.
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      expect((await pin(_c1, dave.id))!.side, MemberSide.theirs);
+      // The refused device shows as an unknown device and blocks sending.
+      final eveLines = linesOf(await rig.lines(_c1), eve.id);
+      expect(eveLines, [SystemLine.unknownDevice]);
+      final state = await rig.crypto.describeState(_c1);
+      expect(state.unknownDevicePresent, isTrue);
+      expect(state.sendBlock, SendBlock.unknownDevice);
+      expect(rig.keyHistoryErrors, isEmpty);
+    });
+
+    test('a closed key history admits no new id after a later commit or '
+        'join', () async {
+      final eve = await RigPeer.create('eve');
+      final frank = await RigPeer.create('frank');
+      final offer = await join(_c1);
+      await rig.putKeyHistory(_c1, ids: [(bob.id, bob.key)], closed: true);
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(eve.idString, eve.key),
+        rigKeyDevice(frank.idString, frank.key),
+      ];
+      rig.directory.clear();
+      final closed = await rig.keyHistory(_c1);
+
+      await bobCommit(offer, _c1, add: [eve]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      expect(await rig.keyHistory(_c1), closed);
+
       await rig.offer(
         _c1,
         bob,
         generation: 2,
-        others: [await carol.keyPackage()],
+        others: [await eve.keyPackage(), await frank.keyPackage()],
+      );
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+
+      expect((await pin(_c1, eve.id))!.side, MemberSide.unattributed);
+      expect((await pin(_c1, frank.id))!.side, MemberSide.unattributed);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      expect(await rig.keyHistory(_c1), closed);
+      expect([
+        for (final l in await rig.lines(_c1))
+          if (l.line == SystemLine.deviceAdded) l,
+      ], isEmpty);
+      expect(rig.keyHistoryErrors, isEmpty);
+    });
+
+    test('an unreadable key history refuses every unattributed member of that '
+        'conversation and none of another', () async {
+      const c2 = '22222222222222222222222222222222';
+      rig.keys.peerFails = true;
+      await join(_c1);
+      await join(c2);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      expect((await pin(c2, bob.id))!.side, MemberSide.unattributed);
+      await corruptHistory(_c1);
+
+      rig.keys.peerFails = false;
+      rig.clock.advance(const Duration(minutes: 3));
+      for (final c in [_c1, c2, _c1, c2]) {
+        await rig.crypto.attributeMembers(c);
+      }
+
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      expect((await pin(c2, bob.id))!.side, MemberSide.theirs);
+      // No display row from a history that cannot be read.
+      expect(await rig.lines(_c1), isEmpty);
+      // Reported once for that conversation.
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      expect(await rawHistory(_c1), '{"v":1');
+      final state = await rig.crypto.describeState(_c1);
+      expect(state.unattributedPresent, isTrue);
+      expect(state.sendBlock, isNot(SendBlock.none));
+    });
+
+    test('an unreadable key history keeps sided pins at a join and is never '
+        'overwritten by a key-changing commit, a join or '
+        'attribution', () async {
+      final carol = await RigPeer.create('carol');
+      final dave = await RigPeer.create('dave');
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      final offer = await join(_c1, others: [carol]);
+      final bobBefore = (await pin(_c1, bob.id))!;
+      expect(bobBefore.side, MemberSide.theirs);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.theirs);
+      await corruptHistory(_c1);
+
+      // A commit that changes carol's key and adds dave; all are listed.
+      final newKey = Uint8List.fromList(List.filled(32, 9));
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(carol.idString, newKey),
+        rigKeyDevice(dave.idString, dave.key),
+      ];
+      rig.directory.clear();
+      await bobCommit(offer, _c1, add: [dave]);
+      rig.device.engine.describeMembers = onKey(carol.id, newKey);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.theirs);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
+      expect((await pin(_c1, dave.id))!.side, MemberSide.unattributed);
+
+      // A join of generation 2 with all three: bob's sided pin is kept as
+      // it was, the others stay unattributed.
+      await rig.offer(
+        _c1,
+        bob,
+        generation: 2,
+        others: [await carol.keyPackage(), await dave.keyPackage()],
       );
       expect(await rig.crypto.processWelcomes(), [_c1]);
       rig.device.engine.describeMembers = null;
       rig.clock.advance(const Duration(minutes: 3));
       await rig.crypto.attributeMembers(_c1);
 
-      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      final bobAfter = (await pin(_c1, bob.id))!;
+      expect(bobAfter.side, MemberSide.theirs);
+      expect(bobAfter.since, bobBefore.since);
       expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
+      expect((await pin(_c1, dave.id))!.side, MemberSide.unattributed);
       expect([
         for (final l in await rig.lines(_c1))
-          if (l.line == SystemLine.deviceAdded) l,
+          if (l.line == SystemLine.deviceAdded ||
+              l.line == SystemLine.unknownDevice)
+            l,
       ], isEmpty);
-      expect(
-        [
-          for (final e in rig.unexpected)
-            if (e is E2eePipelineError) e.step,
-        ],
-        ['keyChanged.read'],
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      // Never overwritten, by the commit, the join or attribution.
+      expect(await rawHistory(_c1), '{"v":1');
+    }, skip: 'stage 3: a sided pin is kept under an unreadable history');
+
+    test('a deleted key history with pins present refuses everyone and is not '
+        'recreated', () async {
+      final carol = await RigPeer.create('carol');
+      final dave = await RigPeer.create('dave');
+      rig.keys.peerFails = true;
+      final offer = await join(_c1);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      // The row is deleted from the vault file; the pins stay.
+      await rig.deleteSettingRow('messages.e2ee.keys.$_c1');
+      expect(await rig.keyHistory(_c1), isNull);
+
+      rig.keys.peerFails = false;
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(carol.idString, carol.key),
+        rigKeyDevice(dave.idString, dave.key),
+      ];
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      await bobCommit(offer, _c1, add: [carol]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await rig.offer(
+        _c1,
+        bob,
+        generation: 2,
+        others: [await carol.keyPackage(), await dave.keyPackage()],
       );
-      // Never overwritten, by attribution, the commit or the join.
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+
+      for (final p in [bob, carol, dave]) {
+        expect((await pin(_c1, p.id))!.side, MemberSide.unattributed);
+        // No device row of any kind from a history that is not there.
+        expect(linesOf(await rig.lines(_c1), p.id), isEmpty);
+      }
+      // Not recreated by attribution, the commit or the join.
+      expect(await rig.keyHistory(_c1), isNull);
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+    });
+
+    test('an older sealed key history replayed over a newer one is '
+        'unreadable', () async {
+      final carol = await RigPeer.create('carol');
+      final dave = await RigPeer.create('dave');
+      rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      final offer = await join(_c1, others: [carol]);
+      expect((await pin(_c1, carol.id))!.side, MemberSide.theirs);
+      const key = 'messages.e2ee.keys.$_c1';
+      final old = (await rig.sealedSetting(key))!;
+
+      // Carol is tainted; then the older sealed value is put back.
+      final newKey = Uint8List.fromList(List.filled(32, 4));
+      await bobCommit(offer, _c1, add: [dave]);
+      rig.device.engine.describeMembers = onKey(carol.id, newKey);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.device.engine.describeMembers = null;
+      await expectTainted(_c1, carol.id);
+      await rig.replaySealedSetting(key, old);
+      // It opens and decodes: the seal binds no counter.
+      await expectRecorded(_c1, carol.id, carol.key);
+
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(carol.idString, newKey),
+        rigKeyDevice(dave.idString, dave.key),
+      ];
+      rig.directory.clear();
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+
+      // Carol's current pin contradicts the replayed record.
+      expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
       expect(
-        utf8.decode(
-          (await rig.device.vault.setting('messages.e2ee.keyChanged'))!,
-        ),
-        '{"v":1',
+        linesOf(await rig.lines(_c1), carol.id),
+        isNot(contains(SystemLine.deviceAdded)),
       );
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      expect(await rig.sealedSetting(key), old);
     });
 
     test('an unmatched member seen 30 s after acceptance is pending, not '

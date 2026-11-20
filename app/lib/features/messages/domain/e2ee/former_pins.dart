@@ -20,8 +20,8 @@ const String kVaultSettingFormerPins = 'messages.e2ee.formerPins';
 /// vault could be published while an old body still runs). Never logs. No
 /// `toString`.
 ///
-/// Any future writer of former pins must keep the conversation's key-changed
-/// marks (`KeyChangedDevices`): a former pin holds a changed key's NEW key.
+/// Every pin writer admits to the key history (`DeviceKeyHistory`): a former
+/// pin is cross-checked against it on every read, and never decides a key.
 class FormerPins {
   const FormerPins();
 

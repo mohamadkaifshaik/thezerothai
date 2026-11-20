@@ -18,12 +18,14 @@ import 'package:dzeroth/features/messages/domain/e2ee/conversation_context.dart'
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
@@ -870,6 +872,145 @@ class RigCrypto {
       canReply: true,
     );
   }
+
+  /// [c]'s sealed device key history (`messages.e2ee.keys.<c>`), opened and
+  /// decoded; null when the setting is absent.
+  Future<Map<String, Object?>?> keyHistory(String c) async {
+    final raw = await device.vault.setting('messages.e2ee.keys.$c');
+    if (raw == null) return null;
+    final m = jsonDecode(utf8.decode(raw)) as Map<String, Object?>;
+    if (m['v'] != 1) throw StateError('key history version');
+    return m;
+  }
+
+  /// The ids [c]'s key history holds with one key (device id hex to key
+  /// base64).
+  Future<Map<String, Object?>> keyHistoryIds(String c) async =>
+      (await keyHistory(c))!['ids']! as Map<String, Object?>;
+
+  /// The tainted device ids (hex) of [c]'s key history.
+  Future<List<Object?>> keyHistoryChanged(String c) async =>
+      (await keyHistory(c))!['changed']! as List<Object?>;
+
+  /// Stores [c]'s key history as the pipeline's transactions would have left
+  /// it: [ids] (device id, key) pairs seen with one key, [changed] tainted
+  /// device ids, and [fillers] more ids no test device has.
+  Future<void> putKeyHistory(
+    String c, {
+    List<(Uint8List, Uint8List)> ids = const [],
+    List<Uint8List> changed = const [],
+    int fillers = 0,
+    bool closed = false,
+    int allow = 256,
+  }) => device.vault.transaction(
+    (tx) => tx.putSetting(
+      'messages.e2ee.keys.$c',
+      rigBytes(
+        jsonEncode({
+          'v': 1,
+          'ids': {
+            for (final e in ids) vaultDeviceIdHex(e.$1): base64Encode(e.$2),
+            for (var i = 0; i < fillers; i++)
+              'f1${i.toRadixString(16).padLeft(6, '0')}': base64Encode(
+                Uint8List.fromList(List.filled(32, 1)),
+              ),
+          },
+          'changed': [for (final id in changed) vaultDeviceIdHex(id)],
+          'closed': closed,
+          'allow': allow,
+        }),
+      ),
+    ),
+  );
+
+  /// This device's own provisional init of [c] (generation 1, built on
+  /// (1, 0)) with [peers], stored as the transaction that creates a
+  /// provisional group leaves it: the group, the pins (peers `theirs`), and
+  /// the key history holding each peer with its key.
+  Future<void> seedProvisional(String c, List<RigPeer> peers) async {
+    final v = device.vault;
+    final engine = device.engine.inner;
+    final state = (await v.deviceState())!;
+    final group = await engine.createGroup(state, mlsGroupId(c, 1));
+    final commit = await engine.commitChange(
+      state,
+      group,
+      addKeyPackages: [for (final p in peers) await p.keyPackage()],
+    );
+    final confirmed = await engine.confirmCommit(state, commit.groupState);
+    await v.transaction((tx) async {
+      await tx.putGroup(
+        GroupRecord(
+          conversationId: c,
+          generation: 1,
+          epoch: 1,
+          state: confirmed,
+          provisional: true,
+          provisionalCreatedAtMicros: clock.now().microsecondsSinceEpoch,
+          pending: PendingCommit(
+            kind: PendingKind.init,
+            builtOn: const MlsPair(1, 0),
+            commit: commit.commit,
+            welcome: commit.welcome,
+            welcomeDeviceIds: [for (final p in peers) p.idString],
+          ),
+        ),
+      );
+      await tx.putMember(
+        MemberRecord(
+          conversationId: c,
+          deviceId: device.deviceId,
+          signatureKey: device.signatureKey,
+          side: MemberSide.mine,
+          since: const MlsPair(1, 1),
+        ),
+      );
+      for (final p in peers) {
+        await tx.putMember(
+          MemberRecord(
+            conversationId: c,
+            deviceId: p.id,
+            signatureKey: p.key,
+            side: MemberSide.theirs,
+            since: const MlsPair(1, 1),
+          ),
+        );
+      }
+    });
+    await putKeyHistory(c, ids: [for (final p in peers) (p.id, p.key)]);
+  }
+
+  /// The `keyHistory.read` reports so far (one per conversation per run).
+  List<String> get keyHistoryErrors => [
+    for (final e in unexpected)
+      if (e is E2eePipelineError && e.step == 'keyHistory.read') e.step,
+  ];
+
+  /// The stored (sealed) bytes of the setting [key], straight from the
+  /// file; null when there is no row.
+  Future<Uint8List?> sealedSetting(String key) async {
+    final rows = await device.db
+        .customSelect(
+          'SELECT value FROM vault_settings WHERE setting_key = ?',
+          variables: [Variable<String>(key)],
+        )
+        .get();
+    return rows.isEmpty ? null : rows.single.read<Uint8List>('value');
+  }
+
+  /// Someone with write access to the vault file puts [sealed] (bytes read
+  /// earlier with [sealedSetting]) back as the row of [key]: a replay.
+  Future<void> replaySealedSetting(String key, Uint8List sealed) =>
+      device.db.customStatement(
+        'UPDATE vault_settings SET value = ? WHERE setting_key = ?',
+        [sealed, key],
+      );
+
+  /// Someone with write access to the vault file deletes the row of [key].
+  Future<void> deleteSettingRow(String key) => device.db.customStatement(
+    'DELETE FROM vault_settings WHERE setting_key = ?',
+    [key],
+  );
 
   /// Every stored row of the vault's tables, as text (for "byte-identical").
   Future<String> dump() async {
