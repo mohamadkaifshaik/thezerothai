@@ -277,23 +277,27 @@ columns, each step guarded so a file where it stopped halfway completes. Second,
 is claimed, only while the stamp in `vault_meta` is below 2: it copies each v1 group into `vault_group_states`
 (re-sealed), fills `mine` on old messages and `local_id` and the expected message id on outbox rows, in one transaction
 that ends by writing the stamp. It never deletes a row. A failure rolls the whole step back and the next open starts it
-again; a step that runs past the 30 s open timeout rolls back too and restarts at the next open (it does not finish
-late). A row that cannot be opened is left as it is and skipped; a cipher that cannot run fails the open.
+again; a step that runs past the 30 s open timeout never half-applies: it is one transaction, so it either commits
+whole or rolls back and restarts at the next open. A row that cannot be opened is left as it is and skipped; a cipher that cannot run fails the open.
 
 **Close keeps the key.** `SecureVault.close()` closes its cipher (zeroes the Android data key, drops the web handle)
 and deletes nothing. A closed vault is reopened with a new cipher. Only `wipe()` and `destroy()` delete the stored key.
 
 **The open rule.** A user with no vault on this device and the flag `e2ee_dm` off or unknown causes no vault open, no
-key generation, no key-directory call and no MLS call. The vault opens when the flag is `on` or a known-vault marker
+key generation, no key-directory call and no MLS call. The device's markers are still READ at sign-in (that is how
+the session knows there is no vault), and another user's vault left on the device is still wiped at sign-in (a
+different user signing in is an allowed cause). The vault opens when the flag is `on` or a known-vault marker
 exists; it is created (`create: true`) only when the flag is `on`. At sign-in the flag is unknown until the first
 answer, so a user with a marker opens with `create: false` (the cipher generates no key; the opener makes no schema,
-stamp or sentinel), and a vault that already exists opens whatever the flag says. A flag answer never wipes. An `on`
-answer opens or creates the vault, and with a vault open calls `DeviceKeysService.ensureReady()` (the ready hooks are
-not run again). A block left by a `create: false` open that found nothing, or by the sign-in marker read, with no wipe
-owed, is cleared by the `on` answer; a block from an owed wipe, a lost key or a held lock is not. On Android a
+stamp or sentinel), and a vault that already exists opens whatever the flag says. A flag answer never wipes: a key
+loss that an `on` answer's open could confirm stays `keyLost` pending, and a later sign-in or launch confirms it. An
+`on` answer opens or creates the vault, and with a vault open calls `DeviceKeysService.ensureReady()` (the ready hooks
+are not run again). A block left by a `create: false` open that answered unavailable (whatever the cause: nothing
+here to open, a timeout, a cipher or storage failure, a newer schema stamp), or by the sign-in marker read, with no
+wipe owed, is cleared by the `on` answer; a block from an owed wipe, a lost key or a held lock is not. On Android a
 `create: false` open of a missing file leaves a zero-byte sqlite file behind (sqlite creates it before the opener can
 refuse; nothing is written into it and the open answers `unavailable`). On the web a `create: false` open creates no
-storage.
+vault storage and no key (the empty key store itself may be created before the open refuses).
 
 What `app/test/guards/vault_guard_test.dart` enforces, each rule with a self-test: who wipes (the `wipeVault*`,
 `deleteVaultKey*`, `.wipe` and `.destroy` names appear outside `core/vault` only in bootstrap's exact wiring); who may
