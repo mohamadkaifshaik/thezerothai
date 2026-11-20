@@ -118,11 +118,10 @@ class _EncryptionPage extends StatelessWidget {
                         AppSpacing.md,
                         AppSpacing.md,
                       ),
-                      // This page is the manage screen, and the vault reset
-                      // screen is not built yet: those two actions stay out.
+                      // This page is the manage screen: its action stays out;
+                      // Reset opens the reset screen.
                       child: ConnectedEncryptionStatusCard(
                         showManageDevices: false,
-                        showReset: false,
                       ),
                     ),
                   if (devices) _DevicesSection(port: port, now: now),

@@ -27,7 +27,8 @@ import 'encryption_status_card.dart';
 ///   again is always wired (the card shows it on every removed-elsewhere status);
 /// - Sign out: `requestSignOut` (which carries the vault warning);
 /// - Manage devices / Reset: `AppRouter.encryptionSettingsPath` / `resetEncryptionPath` through go_router, unless
-///   hidden by [showManageDevices] / [showReset] (the Settings screen is itself the manage screen).
+///   hidden by [showManageDevices] / [showReset]. The Settings page hides only Manage devices (it is the manage
+///   screen) and keeps Reset, which opens the reset screen.
 /// No cubit in the tree draws nothing.
 class ConnectedEncryptionStatusCard extends StatefulWidget {
   const ConnectedEncryptionStatusCard({

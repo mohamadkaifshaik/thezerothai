@@ -67,11 +67,13 @@ const Map<String, List<String>> _destructiveWiring = {
 /// lib/core/vault that may reference each (null: none may, until a UI plan
 /// adds a caller and updates this guard). `onSessionEnded` turns an explicit
 /// end into a wipe; `noteAccountDeleted` journals one;
-/// `resetByUser` destroys history on purpose.
+/// `resetByUser` destroys history on the user's own request: only the reset
+/// screen may reference it (addendum R15).
 const Map<String, String?> _sessionEntryOwners = {
   'onSessionEnded': 'lib/app/session_wiring.dart',
   'noteAccountDeleted': 'lib/app/bootstrap.dart',
-  'resetByUser': null,
+  'resetByUser':
+      'lib/features/settings/presentation/reset_encryption_screen.dart',
 };
 
 /// Same-named members that are NOT the session's: exact fragments removed
