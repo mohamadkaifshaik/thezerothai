@@ -7,6 +7,8 @@ import 'vault_cipher.dart';
 import 'vault_database.dart';
 import 'vault_status.dart';
 
+export 'vault_records.dart';
+
 /// The `state` values of a [StoredMessage].
 abstract final class StoredMessageState {
   /// A readable message; the only state that has content.
