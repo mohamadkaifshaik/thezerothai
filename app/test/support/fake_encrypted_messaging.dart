@@ -240,6 +240,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   @override
   bool hasLocal(String conversationId) {
     calls.add('hasLocal');
+    // Only a named failure: the global failNext keeps skipping this check.
+    final named = _failOn.remove('hasLocal');
+    if (named != null) throw named;
     return local.contains(conversationId);
   }
 

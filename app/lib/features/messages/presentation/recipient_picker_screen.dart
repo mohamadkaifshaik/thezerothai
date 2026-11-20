@@ -39,7 +39,7 @@ import 'bloc/share_post_cubit.dart';
 import 'messaging_error_messages.dart';
 import 'open_conversation.dart';
 import 'share_post_error_messages.dart' show sharePostRowReason;
-import 'widgets/not_encrypted_note.dart';
+import 'widgets/messages_encryption_note.dart';
 import 'widgets/share_post_bar.dart';
 import '../../../core/session/user_ids.dart';
 
@@ -407,7 +407,7 @@ class _PickerViewState extends State<_PickerView> {
             ),
             child: const Align(
               alignment: AlignmentDirectional.centerStart,
-              child: NotEncryptedNote(),
+              child: MessagesEncryptionNote(),
             ),
           ),
           if (_share == null) ..._search() else _shareSearch(),

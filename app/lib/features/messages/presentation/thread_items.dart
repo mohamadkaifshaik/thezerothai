@@ -2,6 +2,7 @@ import 'package:intl/intl.dart';
 
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../shared/format/scheduled_time.dart';
+import '../domain/e2ee/encrypted_messaging.dart';
 
 /// One row of the conversation list, in list order: index 0 is the NEWEST row
 /// (the list is reversed, so index 0 draws at the bottom).
@@ -30,6 +31,63 @@ class MessageItem extends ThreadItem {
 
   @override
   String get key => 'message-${message.id}';
+}
+
+/// A decrypted message of an encrypted thread and where it sits in its group.
+/// Holds readable text: it defines no `toString`.
+class EncryptedMessageItem extends ThreadItem {
+  const EncryptedMessageItem(
+    this.message, {
+    required this.firstOfGroup,
+    required this.lastOfGroup,
+  });
+
+  final DecryptedMessage message;
+  final bool firstOfGroup;
+  final bool lastOfGroup;
+
+  @override
+  String get key => 'message-${message.id}';
+}
+
+/// A centred system line of an encrypted thread (reset, device changes).
+class SystemLineItem extends ThreadItem {
+  const SystemLineItem(this.line);
+
+  final SystemLineEntry line;
+
+  @override
+  String get key => 'line-${line.id}';
+}
+
+/// The alert for a device added to the caller's own account.
+class OwnDeviceAlertItem extends ThreadItem {
+  const OwnDeviceAlertItem(this.line);
+
+  final SystemLineEntry line;
+
+  @override
+  String get key => 'alert-${line.id}';
+}
+
+/// The per-conversation encryption note of an encrypted thread, above the
+/// oldest loaded encrypted row (security read M12: directly under the
+/// [PlaintextBoundaryItem] when earlier plaintext rows are drawn).
+class EncryptionNoteItem extends ThreadItem {
+  const EncryptionNoteItem();
+
+  @override
+  String get key => 'encryption-note';
+}
+
+/// The centred separator between the earlier plaintext messages of a
+/// conversation that became encrypted and its first encrypted row (security
+/// read M12): "Messages above this line are not end-to-end encrypted".
+class PlaintextBoundaryItem extends ThreadItem {
+  const PlaintextBoundaryItem();
+
+  @override
+  String get key => 'plaintext-boundary';
 }
 
 /// "Today", "Yesterday" or a date, between two days.

@@ -91,6 +91,9 @@ abstract final class AppLayout {
 
   /// Fixed width of the right-hand column shown from [AppBreakpoints.tablet].
   static const double sideColumnWidth = AppSize.sideColumn;
+
+  /// Widest a conversation state notice grows (it centres above the composer).
+  static const double stateNoticeMaxWidth = 720;
 }
 
 abstract final class AppRadius {
@@ -1751,6 +1754,12 @@ abstract final class AppMessagesLayout {
   static const double heroDotGlowAlpha = 0.45;
   static const double heroDotGlowBlur = 22;
   static const double heroDotGlowSpread = 6;
+
+  // Encrypted thread rows: the lock before a system line, the widest the
+  // own-device alert grows on desktop, and the dimmed bubble of a row on its way.
+  static const double lineIcon = 14;
+  static const double ownDeviceAlertMaxWidth = 480;
+  static const double pendingOpacity = 0.6;
 }
 
 /// Communities geometry per screen size (dp), from the dzeroth-mobile, tablet

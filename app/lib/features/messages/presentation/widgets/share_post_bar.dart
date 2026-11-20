@@ -143,7 +143,7 @@ class SharePostBar extends StatelessWidget {
                   ? 'Send'
                   : 'Send (${state.recipients.length})';
               final note = error != null
-                  ? sharePostErrorMessage(error)
+                  ? sharePostErrorMessage(error, problem: state.lastProblem)
                   : state.limitHit
                   ? 'You can send to up to $kSharePostMaxRecipients people '
                         'at once.'

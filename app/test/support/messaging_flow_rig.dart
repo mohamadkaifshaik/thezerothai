@@ -18,6 +18,8 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encryption_device.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/conversations_session.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
@@ -418,6 +420,8 @@ class MessagingFlowRig {
     TextDirection textDirection = TextDirection.ltr,
     List<RepositoryProvider<dynamic>> extraProviders = const [],
     List<BlocProvider<dynamic>> extraBlocs = const [],
+    EncryptedMessaging? encrypted,
+    EncryptionDevice? device,
   }) async {
     final auth = _auth = _MockAuthBloc();
     final onboarding = _MockOnboardingBloc();
@@ -455,6 +459,11 @@ class MessagingFlowRig {
       MultiRepositoryProvider(
         providers: [
           ...extraProviders,
+          // Encrypted messaging, above the router (absent unless given).
+          if (encrypted != null)
+            RepositoryProvider<EncryptedMessaging>.value(value: encrypted),
+          if (device != null)
+            RepositoryProvider<EncryptionDevice>.value(value: device),
           if (hoistedSession != null)
             RepositoryProvider<ConversationsSession>.value(
               value: hoistedSession,

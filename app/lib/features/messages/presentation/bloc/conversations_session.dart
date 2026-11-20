@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart' show PageStorageBucket;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../data/messaging_repository.dart';
+import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/messaging_feature_gate.dart';
 import 'conversations_cubit.dart';
 
@@ -38,11 +39,20 @@ class ConversationsSession {
     this.onInboxSynced,
     this.onUnexpectedError,
     DateTime Function()? now,
+    this.encrypted,
+    this.previewsAllowed,
   }) : _repository = repository,
        _now = now;
 
   final MessagingRepository _repository;
   final DateTime Function()? _now;
+
+  /// The encrypted messaging port the lists take local previews from, or null
+  /// (no wiring). [previewsAllowed] (the encryption access of this device is
+  /// `full` or `manage`; closed over objects, never a `BuildContext`) is
+  /// REQUIRED for any use: a port without it is never called (fails closed).
+  final EncryptedMessaging? encrypted;
+  final bool Function()? previewsAllowed;
 
   /// The Messages badge re-syncs from a loaded Inbox first page.
   final void Function(List<pb.Conversation> rows, {required bool hasMore})?
@@ -68,6 +78,8 @@ class ConversationsSession {
       now: _now,
       onUnexpectedError: onUnexpectedError,
       onInboxSynced: key == Folder.FOLDER_INBOX ? onInboxSynced : null,
+      encrypted: encrypted,
+      previewsAllowed: previewsAllowed,
     );
   }
 
