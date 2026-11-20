@@ -1137,6 +1137,7 @@ void main() {
     final withFormer = _conv(0xa3);
     final withMark = _conv(0xa4);
     final withNothing = _conv(0xa5);
+    final withAfterPair = _conv(0xa6);
     MemberRecord carolPin(String c) => MemberRecord(
       conversationId: c,
       deviceId: carol.id,
@@ -1161,8 +1162,13 @@ void main() {
       await tx.putMember(carolPin(withPin));
       await const FormerPins().putIn(tx, v, withFormer, [carolPin(withFormer)]);
       await tx.setJoinHighWater(withMark, const MlsPair(1, 0));
+      // The after-pair alone, no join high-water mark.
+      await tx.setAfterPair(withAfterPair, const MlsPair(1, 0));
     });
-    final all = [withGroup, withPin, withFormer, withMark, withNothing];
+    expect((await v.conversation(withAfterPair))!.joinHighWater, isNull);
+    expect((await v.conversation(withMark))!.afterPair, isNull);
+    final withState = [withGroup, withPin, withFormer, withMark, withAfterPair];
+    final all = [...withState, withNothing];
     for (final c in all) {
       await rig.accept(c);
       rig.header(c, 'ref-bob');
@@ -1185,7 +1191,7 @@ void main() {
       await rig.crypto.attributeMembers(c);
     }
 
-    for (final c in [withGroup, withPin, withFormer, withMark]) {
+    for (final c in withState) {
       expect(
         (await pinIn(c, bob.id))!.side,
         MemberSide.unattributed,
@@ -1196,8 +1202,8 @@ void main() {
       expect(await rig.lines(c), isEmpty, reason: c);
     }
     // One report per conversation.
-    expect(rig.keyHistoryErrors, hasLength(4));
-    unreadableHistories = 4;
+    expect(rig.keyHistoryErrors, hasLength(5));
+    unreadableHistories = 5;
     // With no state at all the history starts empty and is written.
     expect((await pinIn(withNothing, bob.id))!.side, MemberSide.theirs);
     expect((await rig.keyHistoryIds(withNothing)).keys, [

@@ -614,6 +614,31 @@ void main() {
     expect(h.size, 0);
   });
 
+  test('this device is never refused, also by an unreadable history', () {
+    final unreadable = [
+      // Missing with state, undecodable, and contradicted by a pin.
+      _read(null, thisHex: _hex(9)),
+      _read(Uint8List.fromList(utf8.encode('{"v":1')), thisHex: _hex(9)),
+      _read(
+        _json(_record()),
+        current: [_pin(_hex(1), _key(1), MemberSide.theirs)],
+        thisHex: _hex(9),
+      ),
+    ];
+    for (var i = 0; i < unreadable.length; i++) {
+      final h = unreadable[i];
+      expect(h.unreadable, isTrue, reason: 'case $i');
+      expect(h.admit(_hex(9), _key(1)), KeyRefusal.none, reason: 'case $i');
+      expect(h.refusal(_hex(9), _key(2)), KeyRefusal.none, reason: 'case $i');
+      expect(h.admissible(_hex(9), _key(3)), isTrue, reason: 'case $i');
+      // Every other device is still refused, and nothing changes.
+      expect(h.admit(_hex(1), _key(1)), KeyRefusal.unreadable);
+      expect(h.refusal(_hex(1), _key(1)), KeyRefusal.unreadable);
+      expect(h.admissible(_hex(1), _key(1)), isFalse);
+      expect(h.dirty, isFalse);
+    }
+  });
+
   test('decode treats a bad version, key or id, an id in both lists, or an '
       'oversize record as unreadable', () {
     final k = base64Encode(_key(1));
@@ -655,6 +680,10 @@ void main() {
       _record(held: {'ABCD': k}, closed: true),
       _record(held: {'abc': k}, closed: true),
       _record(held: {_hex(1): k}),
+      // An empty device id, in any of the three.
+      _record(ids: {'': k}),
+      _record(changed: ['']),
+      _record(held: {'': k}, closed: true),
       [1, 2],
       'text',
     ];

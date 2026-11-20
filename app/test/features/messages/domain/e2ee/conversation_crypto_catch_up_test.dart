@@ -1682,14 +1682,21 @@ void main() {
       final carol = await RigPeer.create('carol');
       final dave = await RigPeer.create('dave');
       rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+      final gone = await RigPeer.create('gone');
       final offer = await join(_c1, others: [carol]);
       expect((await pin(_c1, carol.id))!.side, MemberSide.theirs);
       const key = 'messages.e2ee.keys.$_c1';
+      // The older value already records every device pinned later, so only
+      // carol's key can contradict it.
+      await bobCommit(offer, _c1, add: [dave, gone]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await expectRecorded(_c1, dave.id, dave.key);
       final old = (await rig.sealedSetting(key))!;
 
-      // Carol is tainted; then the older sealed value is put back.
+      // Carol is tainted by a commit that adds nobody; then the older
+      // sealed value is put back.
       final newKey = Uint8List.fromList(List.filled(32, 4));
-      await bobCommit(offer, _c1, add: [dave]);
+      await bobCommit(offer, _c1, remove: [gone.id]);
       rig.device.engine.describeMembers = onKey(carol.id, newKey);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       rig.device.engine.describeMembers = null;
@@ -1697,6 +1704,12 @@ void main() {
       await rig.replaySealedSetting(key, old);
       // It opens and decodes: the seal binds no counter.
       await expectRecorded(_c1, carol.id, carol.key);
+      // Every other pin agrees with it: bob and dave on their keys.
+      await expectRecorded(_c1, bob.id, bob.key);
+      await expectRecorded(_c1, dave.id, dave.key);
+      expect([
+        for (final m in await rig.device.vault.members(_c1)) m.deviceId,
+      ], hasLength(4));
 
       rig.keys.peers['ref-bob'] = [
         rigKeyDevice(bob.idString, bob.key),
@@ -1709,6 +1722,7 @@ void main() {
 
       // Carol's current pin contradicts the replayed record.
       expect((await pin(_c1, carol.id))!.side, MemberSide.unattributed);
+      expect((await pin(_c1, dave.id))!.side, MemberSide.unattributed);
       expect(
         linesOf(await rig.lines(_c1), carol.id),
         isNot(contains(SystemLine.deviceAdded)),
@@ -1716,6 +1730,32 @@ void main() {
       expect(rig.keyHistoryErrors, ['keyHistory.read']);
       unreadableHistories = 1;
       expect(await rig.sealedSetting(key), old);
+    });
+
+    test('describeState never reports an unreadable key history', () async {
+      rig.keys.peerFails = true;
+      await join(_c1);
+      await corruptHistory(_c1);
+
+      // It reads the history without a lock, so it must not spend the one
+      // report of this conversation.
+      for (var i = 0; i < 2; i++) {
+        final state = await rig.crypto.describeState(_c1);
+        expect(state.keyHistoryClosed, isFalse);
+        expect(state.mayAllowMoreDevices, isFalse);
+      }
+      expect(rig.keyHistoryErrors, isEmpty);
+      expect(rig.unexpected, isEmpty);
+
+      // A write body that meets it still reports it, once.
+      rig.keys.peerFails = false;
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.crypto.attributeMembers(_c1);
+      await rig.crypto.describeState(_c1);
+      await rig.crypto.attributeMembers(_c1);
+      expect((await pin(_c1, bob.id))!.side, MemberSide.unattributed);
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      unreadableHistories = 1;
     });
 
     test('an unmatched member seen 30 s after acceptance is pending, not '

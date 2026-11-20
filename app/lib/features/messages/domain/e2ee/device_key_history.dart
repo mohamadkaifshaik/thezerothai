@@ -92,11 +92,17 @@ class DeviceKeyHistory {
   /// Then every current and former pin (this device excluded) is checked
   /// against the record ([KeyHistory.read]). [currentPins] and [formerPins]
   /// are the body's own reads.
+  ///
+  /// [report] false: an unreadable history is not reported and does not
+  /// spend this conversation's one report. For a reader that holds no lock
+  /// (`describeState`), which can meet a half-written state; every write
+  /// body reports.
   Future<KeyHistory> of(
     SecureVault vault,
     String conversationId, {
     required List<MemberRecord> currentPins,
     required List<MemberRecord> formerPins,
+    bool report = true,
   }) async {
     final thisDevice = await vault.deviceId();
     final thisHex = thisDevice == null ? null : vaultDeviceIdHex(thisDevice);
@@ -104,8 +110,8 @@ class DeviceKeyHistory {
     try {
       bytes = await vault.setting(_keyOf(conversationId));
     } on VaultCorruptException catch (_, stack) {
-      _unreadable(conversationId, stack);
-      return KeyHistory.unreadableRecord();
+      if (report) _unreadable(conversationId, stack);
+      return KeyHistory.unreadableRecord(thisDeviceHex: thisHex);
     }
     var hasState = currentPins.isNotEmpty || formerPins.isNotEmpty;
     if (bytes == null && !hasState) {
@@ -122,7 +128,9 @@ class DeviceKeyHistory {
       formerPins: formerPins,
       thisDeviceHex: thisHex,
     );
-    if (history.unreadable) _unreadable(conversationId, StackTrace.current);
+    if (history.unreadable && report) {
+      _unreadable(conversationId, StackTrace.current);
+    }
     return history;
   }
 
@@ -165,9 +173,9 @@ class KeyHistory {
        _dirty = dirty,
        _thisHex = thisDeviceHex;
 
-  /// A history that cannot be read: every pair is refused and nothing
-  /// changes it.
-  factory KeyHistory.unreadableRecord() => KeyHistory._(
+  /// A history that cannot be read: every pair is refused, except this
+  /// device's ([thisDeviceHex]), and nothing changes it.
+  factory KeyHistory.unreadableRecord({String? thisDeviceHex}) => KeyHistory._(
     ids: {},
     changed: {},
     held: {},
@@ -175,7 +183,7 @@ class KeyHistory {
     allowance: kKeyHistoryAllowanceStep,
     dirty: false,
     unreadable: true,
-    thisDeviceHex: null,
+    thisDeviceHex: thisDeviceHex,
   );
 
   /// The history stored as [bytes] (null: no setting), cross-checked.
@@ -199,7 +207,9 @@ class KeyHistory {
     required String? thisDeviceHex,
   }) {
     if (bytes == null) {
-      if (hasState) return KeyHistory.unreadableRecord();
+      if (hasState) {
+        return KeyHistory.unreadableRecord(thisDeviceHex: thisDeviceHex);
+      }
       return KeyHistory._(
         ids: {},
         changed: {},
@@ -215,7 +225,7 @@ class KeyHistory {
     try {
       history = _decode(bytes, thisDeviceHex);
     } on FormatException {
-      return KeyHistory.unreadableRecord();
+      return KeyHistory.unreadableRecord(thisDeviceHex: thisDeviceHex);
     }
     for (final pin in [...currentPins, ...formerPins]) {
       final hex = vaultDeviceIdHex(pin.deviceId);
@@ -223,7 +233,7 @@ class KeyHistory {
       final key = history._ids[hex];
       if (key != null) {
         if (key != base64Encode(pin.signatureKey)) {
-          return KeyHistory.unreadableRecord();
+          return KeyHistory.unreadableRecord(thisDeviceHex: thisDeviceHex);
         }
         continue;
       }
@@ -234,10 +244,10 @@ class KeyHistory {
         if (unattributed && heldKey == base64Encode(pin.signatureKey)) {
           continue;
         }
-        return KeyHistory.unreadableRecord();
+        return KeyHistory.unreadableRecord(thisDeviceHex: thisDeviceHex);
       }
       if (unattributed && history.total == kMaxKeyHistoryTotal) continue;
-      return KeyHistory.unreadableRecord();
+      return KeyHistory.unreadableRecord(thisDeviceHex: thisDeviceHex);
     }
     return history;
   }
@@ -309,8 +319,9 @@ class KeyHistory {
   /// record answers `unreadable` and never changes. This device is never
   /// recorded and never refused.
   KeyRefusal admit(String deviceIdHex, Uint8List signatureKey) {
-    if (unreadable) return KeyRefusal.unreadable;
+    // This device first: never refused, also by an unreadable history.
     if (deviceIdHex == _thisHex) return KeyRefusal.none;
+    if (unreadable) return KeyRefusal.unreadable;
     if (_changed.contains(deviceIdHex)) return KeyRefusal.tainted;
     final key = base64Encode(signatureKey);
     final recorded = _ids[deviceIdHex];
@@ -354,8 +365,8 @@ class KeyHistory {
   /// Nothing moves here: the commit or join that brings a changed key goes
   /// through [admit].
   KeyRefusal refusal(String deviceIdHex, Uint8List signatureKey) {
-    if (unreadable) return KeyRefusal.unreadable;
     if (deviceIdHex == _thisHex) return KeyRefusal.none;
+    if (unreadable) return KeyRefusal.unreadable;
     if (_changed.contains(deviceIdHex)) return KeyRefusal.tainted;
     final key = base64Encode(signatureKey);
     final recorded = _ids[deviceIdHex];
@@ -369,8 +380,8 @@ class KeyHistory {
 
   /// Read-only, for claims and adds: [admit] would return `none`.
   bool admissible(String deviceIdHex, Uint8List signatureKey) {
-    if (unreadable) return false;
     if (deviceIdHex == _thisHex) return true;
+    if (unreadable) return false;
     if (_changed.contains(deviceIdHex)) return false;
     final recorded = _ids[deviceIdHex];
     if (recorded != null) return recorded == base64Encode(signatureKey);
@@ -392,7 +403,8 @@ class KeyHistory {
     ),
   );
 
-  static final RegExp _hex = RegExp(r'^([0-9a-f]{2})*$');
+  /// A device id: lower-case hex, whole bytes, never empty.
+  static final RegExp _hex = RegExp(r'^([0-9a-f]{2})+$');
 
   /// A stored `{deviceIdHex: keyB64}` map (`ids` or `held`), checked.
   static Map<String, String> _decodeKeys(Map<String, Object?> raw) {

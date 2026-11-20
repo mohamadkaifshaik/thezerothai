@@ -864,7 +864,10 @@ class ConversationCrypto {
       );
     }
     // The key history's state (a read only; false for both when it cannot
-    // be read: the allowance is no exit from an unreadable history).
+    // be read: the allowance is no exit from an unreadable history). No
+    // lock is held here, so a first join can commit between these reads
+    // and make the history look missing: this read never reports, and so
+    // never spends the conversation's one `keyHistory.read` report.
     var keyHistoryClosed = false;
     var mayAllowMoreDevices = false;
     try {
@@ -873,6 +876,7 @@ class ConversationCrypto {
         id,
         currentPins: pins,
         formerPins: await _formerPins.of(vault, id),
+        report: false,
       );
       keyHistoryClosed = !history.unreadable && history.closed;
       mayAllowMoreDevices = history.mayAllowMore;
