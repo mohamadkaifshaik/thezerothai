@@ -6,6 +6,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/widgets/system_line_row.dart';
 import 'package:dzeroth/features/messages/presentation/report_conversation.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_bubble.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -16,6 +17,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../../support/fake_encrypted_messaging.dart';
 import '../../../../support/fake_encryption_device.dart';
 import '../../../../support/messaging_flow_rig.dart';
+import '../../../../support/theme_harness.dart';
 import '../../../../support/thread_test_support.dart';
 
 const _peerMsg = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -135,6 +137,49 @@ void main() {
       expect(sent.targetType, ReportTargetType.REPORT_TARGET_TYPE_MESSAGE);
       expect(sent.targetId, '$kThreadId:$_peerMsg');
       expect(sent.messagePayload, bytes(40));
+      expect(sent.reason, ReportReason.REPORT_REASON_SPAM);
+      expect(sent.note, '');
+      expect(sent.idempotencyKey, isNotEmpty);
+      expect(
+        r.port.calls.where((c) => c == 'reportPayload'),
+        hasLength(1),
+        reason: 'Send does not read the payload again',
+      );
+    });
+
+    testWidgets('a report payload read that throws sends nothing and reports '
+        'no message detail', (tester) async {
+      final r = await open(tester, payload: bytes(40));
+      final reported = <Object>[];
+      r.rig.onUnexpectedError = (e, _) => reported.add(e);
+      r.port.failNextOn(
+        'reportPayload',
+        StateError('boom $_peerMsg secret $_peerMsg'),
+      );
+
+      await choose(tester, _peerMsg);
+
+      expect(find.text(kReportUnavailableText), findsOneWidget);
+      expect(find.text('Send report'), findsNothing);
+      expect(r.rig.server.reports, isEmpty);
+      expect(reported, hasLength(1));
+      expect(reported.single, isA<StateError>());
+      expect((reported.single as StateError).message, 'reportPayload');
+    });
+
+    testWidgets('dismissing the report sheet after the payload was read '
+        'sends nothing', (tester) async {
+      final r = await open(tester, payload: bytes(40));
+
+      await choose(tester, _peerMsg);
+      expect(find.text('Send report'), findsOneWidget);
+      // The system back gesture dismisses the sheet.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Send report'), findsNothing);
+      expect(r.port.calls.where((c) => c == 'reportPayload'), hasLength(1));
+      expect(r.rig.server.reports, isEmpty);
     });
 
     testWidgets('an unverified message adds the unverified sentence', (
@@ -151,12 +196,11 @@ void main() {
     });
 
     testWidgets('an undecodable message is reportable', (tester) async {
-      final r = await open(
+      await open(
         tester,
         payload: bytes(10),
         entries: [entry(_peerMsg, check: MessageCheck.undecodable)],
       );
-      r.port.setReportPayload(kThreadId, _peerMsg, bytes(10));
 
       await choose(tester, _peerMsg);
 
@@ -222,7 +266,39 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text(kReportMessageLabel), findsNothing, reason: id);
       }
+      await tester.longPress(find.byType(SystemLineRow));
+      await tester.pumpAndSettle();
+      expect(find.text(kReportMessageLabel), findsNothing);
       expect(r.port.calls.where((c) => c == 'reportPayload'), isEmpty);
+    });
+
+    // The strict fake refuses a row with canReport on an own or undecryptable
+    // message (its invariant), so the screen guard is pinned at the bubble.
+    testWidgets('a bubble handler is never called for an own or undecryptable '
+        'row even scripted with canReport', (tester) async {
+      var reports = 0;
+      for (final e in [
+        entry(_ownMsg, mine: true),
+        entry(_lostMsg, state: EncryptedMessageState.undecryptable),
+        entry(_goneMsg, state: EncryptedMessageState.removed),
+      ]) {
+        await pumpThemed(
+          tester,
+          MessageBubble.encrypted(
+            entry: e,
+            peerName: 'Sam',
+            now: base,
+            firstOfGroup: true,
+            lastOfGroup: true,
+            linksEnabled: true,
+            onOpenLink: (_) {},
+            onReport: (_) => reports++,
+          ),
+        );
+        await tester.longPress(bubble(e.id));
+        await tester.pump();
+      }
+      expect(reports, 0);
     });
 
     testWidgets('nothing is called when the reports flag is off', (

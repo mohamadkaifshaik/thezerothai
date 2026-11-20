@@ -1641,6 +1641,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     DecryptedMessage message,
   ) async {
     if (!await _chooseReport(anchor)) return;
+    // The helper already checked `mounted`; repeated for the analyzer.
     if (!mounted) return;
     await reportEncryptedMessage(
       context,
@@ -1657,6 +1658,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     pb.Message message,
   ) async {
     if (!await _chooseReport(anchor)) return;
+    // The helper already checked `mounted`; repeated for the analyzer.
     if (!mounted) return;
     await reportPeerMessage(
       context,

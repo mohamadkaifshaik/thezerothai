@@ -308,6 +308,10 @@ class MessagingFlowRig {
   final UnreadBadgeCubit unreadBadge = UnreadBadgeCubit();
   late AppRouter appRouter;
 
+  /// What the app's `UnexpectedErrorReporter` calls; tests set it to record
+  /// the errors a screen reports.
+  void Function(Object error, StackTrace stack) onUnexpectedError = (_, _) {};
+
   /// The app-level inbox and Requests folders (`AppWidget` provides them),
   /// present when [pump] ran with `hoisted: true`. Disposed with the tree.
   ConversationsSession? session;
@@ -476,7 +480,9 @@ class MessagingFlowRig {
             value: moderationRepository,
           ),
           RepositoryProvider<IdentityRepository>.value(value: _MockIdentity()),
-          RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+          RepositoryProvider<UnexpectedErrorReporter>.value(
+            value: (e, s) => onUnexpectedError(e, s),
+          ),
         ],
         child: MultiBlocProvider(
           providers: [
