@@ -557,7 +557,7 @@ class MessagingRepository {
     required MlsPair pair,
     required Uint8List reportCommitment,
     Uint8List? mlsInit,
-  }) {
+  }) async {
     assert(
       (conversationId == null) != (recipientUserId == null),
       'Exactly one of conversationId and recipientUserId',

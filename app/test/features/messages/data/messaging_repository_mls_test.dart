@@ -9,7 +9,9 @@ import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
+import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:drift/native.dart';
 import 'package:fake_async/fake_async.dart';
@@ -17,6 +19,7 @@ import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/fake_transport.dart';
+import '../../../support/posts_fixtures.dart';
 
 const _svc = '/dzeroth.messaging.v1.MessagingService';
 const _conv = '0123456789abcdef0123456789abcdef';
@@ -29,6 +32,7 @@ void main() {
   late MessagingStore store;
   late FakeTransport transport;
   late MessagingRepository repo;
+  late MessagingFeatureGate gate;
   late bool flagOn;
   late List<Object> requests;
   Completer<Object>? hang;
@@ -69,7 +73,7 @@ void main() {
     repo = MessagingRepository(
       apiClient: ApiClient.withTransport(transport),
       store: store,
-      gate: MessagingFeatureGate(isMessagingEnabled: () => flagOn),
+      gate: gate = MessagingFeatureGate(isMessagingEnabled: () => flagOn),
       rateLimitHold: RateLimitHold(monotonic: () => Duration.zero),
     );
   });
@@ -120,9 +124,9 @@ void main() {
     expect(r.mlsInit.welcomeDeviceIds, ['d1']);
   });
 
-  test('sendEncrypted with both or neither target asserts', () {
-    expect(
-      () => repo.sendEncrypted(
+  test('sendEncrypted with both or neither target asserts', () async {
+    await expectLater(
+      repo.sendEncrypted(
         idempotencyKey: _key,
         ciphertext: _b([1]),
         pair: const MlsPair(1, 1),
@@ -131,6 +135,24 @@ void main() {
       throwsA(isA<AssertionError>()),
     );
   });
+
+  test(
+    'a malformed mlsInit fails the returned Future, sends nothing',
+    () async {
+      await expectLater(
+        repo.sendEncrypted(
+          idempotencyKey: _key,
+          recipientUserId: 'u-peer',
+          ciphertext: _b([1]),
+          pair: const MlsPair(1, 1),
+          reportCommitment: _b([3]),
+          mlsInit: _b([0xff]),
+        ),
+        throwsA(isA<Exception>()),
+      );
+      expect(requests, isEmpty);
+    },
+  );
 
   test('nothing is written to the cache by sendEncrypted', () async {
     override = (p) => p == '$_svc/SendMessage'
@@ -295,6 +317,50 @@ void main() {
     await repo.listWelcomes(deviceId: 'dev-1');
     await repo.ackWelcomes(idempotencyKey: _key, deviceId: 'dev-1', ids: []);
     expect(requests, hasLength(4));
+  });
+
+  test('sendEncrypted answered FEATURE_DISABLED for e2ee_dm throws and plain '
+      'sending stays on', () async {
+    var refused = false;
+    override = (p) {
+      if (p == '$_svc/SendMessage' && !refused) {
+        refused = true;
+        throw serverError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          metadata: {'feature': kFeatureE2eeDm},
+        );
+      }
+      return null;
+    };
+    await expectLater(
+      repo.sendEncrypted(
+        idempotencyKey: _key,
+        recipientUserId: 'u-peer',
+        ciphertext: _b([1]),
+        pair: const MlsPair(1, 1),
+        reportCommitment: _b([3]),
+        mlsInit: pb.MlsInit(commit: [1]).writeToBuffer(),
+      ),
+      throwsA(
+        isA<FeatureDisabledException>().having(
+          (e) => e.feature,
+          'feature',
+          kFeatureE2eeDm,
+        ),
+      ),
+    );
+    expect(gate.canSend, isTrue);
+    await repo.sendMessage(
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
+      text: 'plain',
+      conversationId: _conv,
+    );
+    expect(transport.calledProcedures, [
+      '$_svc/SendMessage',
+      '$_svc/SendMessage',
+    ]);
+    expect(gate.canSend, isTrue);
   });
 
   test('a call that never answers throws NetworkException at 30 s', () {
