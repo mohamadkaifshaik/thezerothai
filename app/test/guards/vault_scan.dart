@@ -224,6 +224,15 @@ const List<String> sensitiveFragments = [
   'ciphertext',
   'deviceid',
   'uid',
+  // The MLS message layer: commits, welcomes, pending state, init keys,
+  // digests, report payloads.
+  'commit',
+  'welcome',
+  'pending',
+  'init',
+  'digest',
+  'payload',
+  'reportkey',
 ];
 
 final RegExp _printCall = RegExp(r'(?<![\w$.])(?:debugPrint|print)\s*\(');
@@ -312,6 +321,38 @@ Map<String, String> toStringDeclarations(String source) {
     out[owner] = body.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
   return out;
+}
+
+final RegExp _wideInts = RegExp(
+  r'\b(?:setUint64|getUint64|setInt64|getInt64)\b',
+);
+
+/// `ByteData` 64-bit accessors in [source], comments and strings ignored. On
+/// the web (dart2js) an `int` is a double: a 64-bit accessor silently loses
+/// bits past 2^53, so wire and storage integers go through `Int64` or a
+/// range-checked 53-bit value instead.
+List<String> wideIntAccessors(String source) => [
+  for (final m in _wideInts.allMatches(stripSource(source, keepStrings: false)))
+    m.group(0)!,
+];
+
+/// The members of the `vaultTables` getter's list in [source] (a
+/// `VaultDatabase`), in order; empty if the getter is absent.
+List<String> vaultTableNames(String source) {
+  final text = stripSource(source, keepStrings: false);
+  final m = RegExp(r'\bvaultTables\s*=>\s*\[([^\]]*)\]').firstMatch(text);
+  if (m == null) return const [];
+  return [
+    for (final id in RegExp(r'[A-Za-z_]\w*').allMatches(m.group(1)!))
+      id.group(0)!,
+  ];
+}
+
+/// The value of `const int kVaultSchemaVersion = N;` in [source], or null.
+int? vaultSchemaVersion(String source) {
+  final m = RegExp(r'\bconst\s+int\s+kVaultSchemaVersion\s*=\s*(\d+)\s*;')
+      .firstMatch(stripSource(source, keepStrings: false));
+  return m == null ? null : int.parse(m.group(1)!);
 }
 
 final RegExp _memory = RegExp(
