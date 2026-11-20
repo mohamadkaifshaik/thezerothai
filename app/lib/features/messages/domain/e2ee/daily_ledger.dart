@@ -312,6 +312,11 @@ class DailyLedger {
   /// replaced by an empty one, an unreadable one by a capped one (stored
   /// through [tx]); a stale copy never clears [DailyRecord.exhausted]. Decide
   /// through the accessors, never the raw fields (see [read]).
+  ///
+  /// [change] must build its result from its parameter ONLY (never from a
+  /// record captured earlier, [current] included) and should use
+  /// [DailyRecord.copyWith]. Whatever it returns, the exhausted marker of
+  /// the fresh record is kept: a result without it is written with it.
   Future<void> writeIn(
     VaultTx tx,
     DailyRecord current,
@@ -320,7 +325,32 @@ class DailyLedger {
     final vault = _session.vault;
     if (vault == null) throw StateError('The vault is not ready.');
     final fresh = await _load(vault, tx: tx);
-    await tx.putSetting(kVaultSettingE2eeDaily, change(fresh).encode());
+    await tx.putSetting(
+      kVaultSettingE2eeDaily,
+      _applied(fresh, change).encode(),
+    );
+  }
+
+  /// [change] applied to [fresh], with [DailyRecord.exhausted] enforced in
+  /// code: a result that dropped the marker of an exhausted record (a newly
+  /// built record) gets it back, on [fresh]'s day, so every counter keeps
+  /// reading at its cap.
+  DailyRecord _applied(
+    DailyRecord fresh,
+    DailyRecord Function(DailyRecord) change,
+  ) {
+    final result = change(fresh);
+    if (!fresh.exhausted || (result.exhausted && result.day == fresh.day)) {
+      return result;
+    }
+    return DailyRecord(
+      day: fresh.day,
+      undone: result.undone,
+      did: result.did,
+      lostSendUpdate: result.lostSendUpdate,
+      emptyClaim: result.emptyClaim,
+      exhausted: true,
+    );
   }
 
   /// [DailyRecord.isUndoOfOwnChange] on today's record (true for every
@@ -341,8 +371,10 @@ class DailyLedger {
         _checkVault(vault);
         final current = await _load(vault);
         await vault.transaction(
-          (tx) =>
-              tx.putSetting(kVaultSettingE2eeDaily, change(current).encode()),
+          (tx) => tx.putSetting(
+            kVaultSettingE2eeDaily,
+            _applied(current, change).encode(),
+          ),
         );
       });
 

@@ -290,6 +290,32 @@ void main() {
     expect(await l.undone('other'), kAntiFlapUndosPerDay);
   });
 
+  test(
+    'a change that builds a new record keeps the exhausted marker',
+    () async {
+      final l = ledger();
+      final current = await l.read();
+      await store(DailyRecord.capped(dayOffset(0)).encode());
+      // A change that ignores copyWith and builds a fresh (not exhausted)
+      // record, through writeIn ...
+      await writeInBody(
+        l,
+        current,
+        (r) => DailyRecord(day: r.day, lostSendUpdate: {_conv}),
+      );
+      var after = await l.read();
+      expect(after.exhausted, isTrue);
+      expect(await l.undone('other'), kAntiFlapUndosPerDay);
+      expect(await l.lostSendUpdateDone('other'), isTrue);
+      expect(await l.emptyClaimTried(Uint8List.fromList([9])), isTrue);
+      // ... and through the ledger's own writes.
+      await l.addUndone(_conv);
+      after = await l.read();
+      expect(after.exhausted, isTrue);
+      expect(await l.undone('other'), kAntiFlapUndosPerDay);
+    },
+  );
+
   test('writeIn over an unreadable value stores the capped record through '
       'the caller transaction', () async {
     final l = ledger();

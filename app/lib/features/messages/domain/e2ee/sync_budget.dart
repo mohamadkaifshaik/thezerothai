@@ -97,13 +97,22 @@ class SyncBudget {
 
   /// RATE_LIMITED: no call before [until], capped at now +
   /// [kMaxServerRetryWait]. A later pause never shortens an earlier one.
-  /// Every call waiting at that moment is released with [BudgetPaused] (it
-  /// would otherwise wait the whole pause, up to 24 h, holding its lock).
+  /// When the budget ends up paused (the capped time is after now), every
+  /// call waiting at that moment is released with [BudgetPaused] (it would
+  /// otherwise wait the whole pause, up to 24 h, holding its lock); a time
+  /// that is not in the future releases nobody.
   void pauseUntil(DateTime until) {
-    final cap = _now().add(kMaxServerRetryWait);
+    final now = _now();
+    final cap = now.add(kMaxServerRetryWait);
     final capped = until.isAfter(cap) ? cap : until;
     final current = _pausedUntil;
     if (current == null || capped.isAfter(current)) _pausedUntil = capped;
+    // A time that is not in the future (a zero retry time) pauses nothing:
+    // nobody is released for it.
+    if (_pauseEnd(now) == null) {
+      _pump();
+      return;
+    }
     final waiting = [..._userWaiting, ..._backgroundWaiting];
     _userWaiting.clear();
     _backgroundWaiting.clear();

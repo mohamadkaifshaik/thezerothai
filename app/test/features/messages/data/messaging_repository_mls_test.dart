@@ -1121,20 +1121,37 @@ void main() {
           for (final r in await db.select(db.messagingStateEntries).get())
             if (r.stateKey.startsWith(kEverEncryptedStatePrefix)) r.stateKey,
         ];
-        await repo.noteEverEncrypted(_conv);
-        await repo.noteEverEncrypted(_conv);
-        await repo.noteEverEncrypted('not-a-conversation-id');
-        await repo.noteEverEncrypted('');
-        await repo.noteEverEncrypted(_conv.toUpperCase());
+        final session = repo.cacheSession;
+        await repo.noteEverEncrypted(_conv, session: session);
+        await repo.noteEverEncrypted(_conv, session: session);
+        await repo.noteEverEncrypted('not-a-conversation-id', session: session);
+        await repo.noteEverEncrypted('', session: session);
+        await repo.noteEverEncrypted(_conv.toUpperCase(), session: session);
         expect(await marks(), ['$kEverEncryptedStatePrefix$_conv']);
         expect(await repo.cachedEverEncrypted(_conv), isTrue);
-        // Bound to the session it was called in: nothing lands once that
+        // Bound to the session it was given: nothing lands once that
         // session ended (a sign-out while the write was queued).
         const other = 'fedcba9876543210fedcba9876543210';
-        final pending = repo.noteEverEncrypted(other);
+        final pending = repo.noteEverEncrypted(other, session: session);
         db.sessionEpoch.end();
         await pending;
         expect(await marks(), ['$kEverEncryptedStatePrefix$_conv']);
+      });
+
+      test('a mark noted with a session that ended is dropped', () async {
+        // Captured by user a's work before its call.
+        final session = repo.cacheSession;
+        // User b claims the cache before the stale call runs.
+        await db.claimCacheFor('b');
+        await repo.noteEverEncrypted(_conv, session: session);
+        expect(await store.isEverEncrypted(_conv), isFalse);
+        expect([
+          for (final r in await db.select(db.messagingStateEntries).get())
+            if (r.stateKey.startsWith(kEverEncryptedStatePrefix)) r,
+        ], isEmpty);
+        // The same call with b's session lands.
+        await repo.noteEverEncrypted(_conv, session: repo.cacheSession);
+        expect(await store.isEverEncrypted(_conv), isTrue);
       });
 
       test('an MLS since page followed by a failing gap page still records '

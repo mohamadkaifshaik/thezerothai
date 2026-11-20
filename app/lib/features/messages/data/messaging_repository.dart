@@ -751,12 +751,22 @@ class MessagingRepository {
   /// Records [conversationId] in the ever-encrypted set, for the pipeline to
   /// call wherever it extends the conversations it knows as encrypted (so the
   /// mark outlives the vault). Idempotent; an id that is not of the
-  /// conversation-id shape is ignored; bound to the session it was called in
-  /// (dropped once that session ended). Local only; no report.
-  Future<void> noteEverEncrypted(String conversationId) async {
+  /// conversation-id shape is ignored. [session] is the [cacheSession] the
+  /// caller captured BEFORE its work: the write is dropped when that session
+  /// ended since (a sign-out, another account claiming the cache), so a
+  /// stale call never lands in the next user's set. Local only; no report.
+  Future<void> noteEverEncrypted(
+    String conversationId, {
+    required int session,
+  }) async {
     if (!isConversationId(conversationId)) return;
-    await _store.markEverEncrypted({conversationId}, session: _store.session);
+    await _store.markEverEncrypted({conversationId}, session: session);
   }
+
+  /// The cache session of the signed-in user, as the store's guarded writes
+  /// take it. Capture it before starting work whose result is written later
+  /// ([noteEverEncrypted]).
+  int get cacheSession => _store.session;
 
   // --- encrypted messages and the cache (R14) -------------------------------
 

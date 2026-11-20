@@ -216,6 +216,29 @@ void main() {
     });
   });
 
+  test('pauseUntil with a time that is not in the future releases nobody', () {
+    fakeAsync((async) {
+      final rig = _Rig(async, perMinute: 1);
+      rig.take('a');
+      rig.settle();
+      final errors = <Object>[];
+      rig.budget
+          .take(BudgetPriority.background)
+          .then((_) => rig.served.add('b'))
+          .catchError((Object e) => errors.add(e));
+      rig.settle();
+      // A RATE_LIMITED answer with a zero retry time, and one in the past.
+      rig.budget.pauseUntil(rig.now());
+      rig.budget.pauseUntil(rig.now().subtract(const Duration(seconds: 5)));
+      rig.settle();
+      expect(errors, isEmpty);
+      expect(rig.budget.paused, isFalse);
+      async.elapse(const Duration(minutes: 1));
+      expect(rig.served, ['a', 'b']);
+      expect(errors, isEmpty);
+    });
+  });
+
   test('a clock moved back never extends a pause past 24 h', () {
     fakeAsync((async) {
       final rig = _Rig(async);
