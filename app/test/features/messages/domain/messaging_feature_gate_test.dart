@@ -37,6 +37,25 @@ void main() {
     );
   });
 
+  for (final feature in ['dm_post_share', 'dm_share_check', 'e2ee_dm']) {
+    test('a FEATURE_DISABLED answer for the sub-feature $feature turns '
+        'nothing off', () async {
+      await expectLater(
+        gate.run(
+          () async => throw withDetail(
+            connect.Code.failedPrecondition,
+            common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+            metadata: {'feature': feature},
+          ),
+        ),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(gate.canSend, isTrue);
+      expect(gate.canRead, isTrue);
+      expect(asked, 0);
+    });
+  }
+
   test('flag on for the caller: sends and reads both run', () async {
     expect(gate.canSend, isTrue);
     expect(gate.canRead, isTrue);
