@@ -246,7 +246,7 @@ void main() {
       },
     );
 
-    test('a 31-byte report key is unverified', () async {
+    test('a 31-byte report key is stored as badReportKey', () async {
       await setUpJoined();
       final bytes = pb.MessageContent(
         text: 'short key',
@@ -257,9 +257,51 @@ void main() {
       await rig.receiver.pullLive(_c1);
 
       final m = (await row(_mid(1)))!;
-      expect(m.check, StoredMessageCheck.unverified);
+      expect(m.check, StoredMessageCheck.badReportKey);
       expect(m.content, bytes);
     });
+
+    test('a message with a matching commitment and a bad report key is stored '
+        'as badReportKey', () async {
+      await setUpJoined();
+      final bytes = pb.MessageContent(
+        text: 'long key',
+        reportKey: List.filled(33, 7),
+      ).writeToBuffer();
+      await say(bobGroup(), 1, bytes: bytes);
+
+      await rig.receiver.pullLive(_c1);
+
+      final m = (await row(_mid(1)))!;
+      expect(m.state, StoredMessageState.visible);
+      expect(m.check, StoredMessageCheck.badReportKey);
+      expect(m.content, bytes);
+    });
+
+    test(
+      'a message whose commitment does not match is stored as unverified',
+      () async {
+        await setUpJoined();
+        // A bad key length too: the mismatch wins, so it is not badReportKey.
+        final bytes = pb.MessageContent(
+          text: 'short key, wrong commitment',
+          reportKey: List.filled(31, 7),
+        ).writeToBuffer();
+        await say(
+          bobGroup(),
+          1,
+          bytes: bytes,
+          commitment: Uint8List.fromList(List.filled(32, 9)),
+        );
+
+        await rig.receiver.pullLive(_c1);
+
+        final m = (await row(_mid(1)))!;
+        expect(m.state, StoredMessageState.visible);
+        expect(m.check, StoredMessageCheck.unverified);
+        expect(m.content, bytes);
+      },
+    );
 
     test('bytes that are not a MessageContent with a matching commitment are '
         'undecodable with content kept', () async {

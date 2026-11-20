@@ -702,7 +702,7 @@ class MessageReceiver implements EpochMessageSink {
           return write.commit(row: undecryptable());
         }
         final plaintext = event.plaintext;
-        final check = checkMessageContent(
+        final check = checkMessageContentDetail(
           plaintext,
           Uint8List.fromList(m.reportCommitment),
         );
@@ -725,7 +725,7 @@ class MessageReceiver implements EpochMessageSink {
             generation: p.generation,
             epoch: p.epoch,
             content: plaintext,
-            check: check.name,
+            check: check.storedName,
             senderDeviceId: event.senderDeviceId,
           ),
         );
