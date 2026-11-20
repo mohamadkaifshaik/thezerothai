@@ -8,7 +8,7 @@ extension _CommitApply on ConversationCrypto {
   /// Step 4 for the commit at [at]: confirm (own, by bytes) or process, then
   /// ONE transaction with the result, in one runWrite body.
   Future<_Applied> _applyLocked(
-    _Poll pass,
+    _Operation pass,
     String id,
     MlsPair at,
     pb.ConversationCommit commit,

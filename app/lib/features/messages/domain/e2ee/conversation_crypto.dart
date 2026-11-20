@@ -382,11 +382,11 @@ class ConversationCrypto {
 
   /// [parent]: the poll (or pass) this one runs inside; its handled set is
   /// shared.
-  Future<_Poll?> _startPoll(
+  Future<_Operation?> _startOperation(
     BudgetPriority priority, {
     String? held,
     Map<String, MlsPair>? serverPairs,
-    _Poll? parent,
+    _Operation? parent,
     bool fromSwitch = false,
   }) async {
     final vault = _session.vault;
@@ -399,7 +399,7 @@ class ConversationCrypto {
       // Loaded for THIS vault (not only loaded): a set of another vault is
       // replaced before anything is written.
       if (!_known.isLoadedFor(vault)) await _known.load(vault);
-      return _Poll(
+      return _Operation(
         session: _session,
         vault: vault,
         uid: uid,
@@ -454,7 +454,7 @@ class ConversationCrypto {
 
   Future<bool> _allowNewDevicesLocked(String id) async {
     try {
-      final pass = await _startPoll(BudgetPriority.user);
+      final pass = await _startOperation(BudgetPriority.user);
       if (pass == null) return false;
       final raised = await _session.runWrite((v) async {
         pass.check(v);
@@ -529,9 +529,12 @@ class _Stopped implements Exception {
   const _Stopped();
 }
 
-/// One welcome poll's fixed facts, captured when it started. No `toString`.
-class _Poll {
-  _Poll({
+/// One operation's fixed facts (a welcome poll, a catch-up pass, an
+/// attribution or an allowance change), captured by `_startOperation` when
+/// it started: the vault and its user, this device, the priority, and the
+/// welcome poll's shared sets. No `toString`.
+class _Operation {
+  _Operation({
     required this.session,
     required this.vault,
     required this.uid,
@@ -577,7 +580,7 @@ class _Poll {
     return identical(v, vault) && v?.uid == uid;
   }
 
-  /// The first thing every runWrite body of the poll does.
+  /// The first thing every runWrite body of the operation does.
   void check(SecureVault v) {
     if (!identical(v, vault) || v.uid != uid || !live) throw const _Stopped();
   }

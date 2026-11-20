@@ -10,7 +10,7 @@ extension _WelcomeJoin on ConversationCrypto {
   /// [mayWalk]: a stored generation not walked to its end yields
   /// [_Outcome.walkFirst] (the caller catches up first) instead of a join.
   Future<_Join> _welcomeSteps(
-    _Poll poll,
+    _Operation poll,
     pb.Welcome w, {
     required bool mayWalk,
   }) async {
@@ -307,7 +307,7 @@ extension _WelcomeJoin on ConversationCrypto {
   /// Step 2a: settles a provisional group of the welcome's generation from
   /// the server's first stored commit of that generation.
   Future<_Settled> _settleProvisional(
-    _Poll poll,
+    _Operation poll,
     String id,
     GroupRecord provisional,
   ) async {

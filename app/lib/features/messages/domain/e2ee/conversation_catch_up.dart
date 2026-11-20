@@ -13,13 +13,13 @@ extension _CatchUp on ConversationCrypto {
   Future<CatchUpResult> _catchUpLocked(
     String id, {
     required BudgetPriority priority,
-    _Poll? parent,
+    _Operation? parent,
   }) async {
     final context = _contexts.of(id);
     // Set again only by a pass that ends at the server pair (step 8).
     context.syncedSinceStart = false;
     try {
-      final pass = await _startPoll(priority, parent: parent);
+      final pass = await _startOperation(priority, parent: parent);
       if (pass == null) return CatchUpResult.interrupted;
       for (var i = 0; i < _kSwitchesPerPass; i++) {
         final step = await _passLocked(pass, id);
@@ -45,7 +45,7 @@ extension _CatchUp on ConversationCrypto {
 
   /// One pass over the current group's generation. Null: a newer generation
   /// was joined, start again with it.
-  Future<CatchUpResult?> _passLocked(_Poll pass, String id) async {
+  Future<CatchUpResult?> _passLocked(_Operation pass, String id) async {
     if (!pass.live) return CatchUpResult.interrupted;
     final context = _contexts.of(id);
     final vault = pass.vault;
@@ -188,7 +188,7 @@ extension _CatchUp on ConversationCrypto {
   /// Step 8: the pair is current. Attribution when a member is unattributed
   /// and not concluded this run; then R7 / M10's `syncedSinceStart`.
   Future<CatchUpResult> _atServerPair(
-    _Poll pass,
+    _Operation pass,
     String id,
     MlsPair server,
   ) async {
@@ -217,7 +217,7 @@ extension _CatchUp on ConversationCrypto {
   /// One `ListConversationCommits` call (one sync-budget unit); null when it
   /// could not be made or failed.
   Future<pb.ListConversationCommitsResponse?> _listCommits(
-    _Poll pass,
+    _Operation pass,
     String id,
     MlsPair? after,
   ) async {
@@ -237,7 +237,7 @@ extension _CatchUp on ConversationCrypto {
   /// Steps 1 and 6: the device waits for a welcome of [generation]. The
   /// first-saw record is written when that generation is not recorded yet
   /// (never moved earlier), with the known set (C1) in the same transaction.
-  Future<void> _noteWaiting(_Poll pass, String id, int generation) async {
+  Future<void> _noteWaiting(_Operation pass, String id, int generation) async {
     final wrote = await _session.runWrite((v) async {
       pass.check(v);
       final record = await v.conversation(id);
@@ -283,7 +283,7 @@ extension _CatchUp on ConversationCrypto {
   /// reported a later generation (completed or marked undecryptable):
   /// recorded in `completedEpochs`, which the next join reads to delete
   /// those generations.
-  Future<void> _noteWalked(_Poll pass, String id, List<MlsPair> walked) =>
+  Future<void> _noteWalked(_Operation pass, String id, List<MlsPair> walked) =>
       _session.runWrite((v) async {
         pass.check(v);
         final sync =

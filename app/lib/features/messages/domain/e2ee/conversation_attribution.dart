@@ -10,7 +10,7 @@ extension _Attribution on ConversationCrypto {
   /// loaded for the current vault like every other entry point. Never throws.
   Future<void> _attributeEntry(String id, BudgetPriority priority) async {
     try {
-      final pass = await _startPoll(priority);
+      final pass = await _startOperation(priority);
       if (pass == null) return;
       await _attributeMembersLocked(pass, id);
     } on _Stopped {
@@ -29,7 +29,7 @@ extension _Attribution on ConversationCrypto {
   /// attributed: it stays an unknown device. An ordinary unknown device
   /// (recorded with that one key; its row written by an earlier unknown
   /// verdict) is attributed once a list shows it.
-  Future<void> _attributeMembersLocked(_Poll pass, String id) async {
+  Future<void> _attributeMembersLocked(_Operation pass, String id) async {
     final priority = pass.priority;
     final vault = pass.vault;
     if (!pass.live) return;

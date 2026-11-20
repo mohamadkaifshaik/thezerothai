@@ -13,10 +13,10 @@ extension _WelcomePoll on ConversationCrypto {
     required BudgetPriority priority,
     String? held,
     Map<String, MlsPair>? serverPairs,
-    _Poll? parent,
+    _Operation? parent,
     bool fromSwitch = false,
   }) async {
-    final poll = await _startPoll(
+    final poll = await _startOperation(
       priority,
       held: held,
       serverPairs: serverPairs,
@@ -82,7 +82,7 @@ extension _WelcomePoll on ConversationCrypto {
   }
 
   /// One welcome under its conversation's lock (held by the caller).
-  Future<_Outcome> _welcomeLocked(_Poll poll, pb.Welcome w) async {
+  Future<_Outcome> _welcomeLocked(_Operation poll, pb.Welcome w) async {
     final id = w.conversationId;
     _Join result;
     try {
@@ -147,7 +147,7 @@ extension _WelcomePoll on ConversationCrypto {
 
   /// Step 5: a permanent welcome extends the known set only for a cached
   /// conversation of this user (C1, re-read N5).
-  Future<void> _notePermanent(_Poll poll, String id) async {
+  Future<void> _notePermanent(_Operation poll, String id) async {
     if (await _messaging.cachedConversation(id) == null) return;
     if (!poll.live) throw const _Stopped();
     if (!_known.contains(id)) await _known.add(id);
@@ -156,7 +156,7 @@ extension _WelcomePoll on ConversationCrypto {
 
   /// Step 6, under the conversation's lock after a stored join. A failure
   /// here never changes the acknowledgement: the join is stored.
-  Future<void> _afterJoinLocked(_Poll poll, String id) async {
+  Future<void> _afterJoinLocked(_Operation poll, String id) async {
     try {
       await _messaging.noteEverEncrypted(id, session: poll.cacheSession);
     } on Object catch (e, s) {
@@ -181,7 +181,7 @@ extension _WelcomePoll on ConversationCrypto {
 
   /// Acknowledges [ids] in calls of at most [kAckWelcomesMaxIds]; false when
   /// a call could not be made or failed (the rest come back next poll).
-  Future<bool> _ack(_Poll poll, List<String> ids) async {
+  Future<bool> _ack(_Operation poll, List<String> ids) async {
     for (var i = 0; i < ids.length; i += kAckWelcomesMaxIds) {
       final end = i + kAckWelcomesMaxIds > ids.length
           ? ids.length
@@ -212,7 +212,7 @@ extension _WelcomePoll on ConversationCrypto {
   }
 
   /// After a complete poll: the counters of welcome ids it did not list go.
-  Future<void> _dropSkew(_Poll poll, Set<String> listed) =>
+  Future<void> _dropSkew(_Operation poll, Set<String> listed) =>
       _editSkew(poll, (n) {
         final before = n.length;
         n.removeWhere((id, _) => !listed.contains(id));
@@ -223,7 +223,7 @@ extension _WelcomePoll on ConversationCrypto {
   /// [edit] changed them. A failure is quiet: the counters are only ever
   /// conservative (a stale entry is dropped at the next complete poll).
   Future<void> _editSkew(
-    _Poll poll,
+    _Operation poll,
     bool Function(Map<String, int> counts) edit,
   ) async {
     try {
