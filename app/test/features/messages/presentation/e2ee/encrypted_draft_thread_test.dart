@@ -226,7 +226,19 @@ void main() {
     expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
   });
 
-  testWidgets('without the flag the draft shows no note and the composer '
+  testWidgets('with the flag off and a vault on this device the draft asks '
+      'the port first', (tester) async {
+    final o = await open(tester, flagOn: false);
+    o.port.nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted);
+    expect(find.text(kMessagesNotEncryptedText), findsNothing);
+    await typeAndSend(tester, 'hello');
+    await tester.pumpAndSettle();
+    expect(o.port.sent, hasLength(1));
+    expect(o.rig.server.sends, hasLength(1));
+  });
+
+  testWidgets('without the flag and no vault on this device the draft shows '
+      'no note and the composer '
       'does not use the port for a person it knows nothing about', (
     tester,
   ) async {

@@ -315,6 +315,81 @@ void main() {
       expect(cubit.state.draft.text, 'hello and more');
     });
 
+    Future<MessageComposerCubit> failedRow(String text) async {
+      port.nextSendOutcome = _plain;
+      repo.failures.add(const NetworkException('offline'));
+      final cubit = make();
+      cubit.textChanged(text);
+      await cubit.send();
+      expect(cubit.state.outgoing.single.status, OutgoingStatus.failed);
+      return cubit;
+    }
+
+    test('a retried failed row answered queued leaves outgoing and the '
+        'outbox', () async {
+      final cubit = await failedRow('hello');
+      final id = cubit.state.outgoing.single.localId;
+      port.nextSendOutcome = _queued;
+      await cubit.retry(id);
+      expect(cubit.state.outgoing, isEmpty);
+      expect(repo.outbox.rowsOf(kThreadId), isEmpty);
+      expect(repo.sendKeys, hasLength(1));
+    });
+
+    test('a retry whose port send throws keeps the row failed and never calls '
+        'sendMessage', () async {
+      final cubit = await failedRow('hello');
+      final id = cubit.state.outgoing.single.localId;
+      port.failNextOn('send', StateError('boom'));
+      await cubit.retry(id);
+      expect(cubit.state.outgoing.single.status, OutgoingStatus.failed);
+      expect(cubit.state.outgoing.single.localId, id);
+      expect(repo.sendKeys, hasLength(1));
+      expect(cubit.state.isSending, isFalse);
+    });
+
+    test('a retried row shows sending while the port is asked and failed '
+        'again when refused', () async {
+      final cubit = await failedRow('hello');
+      final id = cubit.state.outgoing.single.localId;
+      final hold = Completer<void>();
+      port.holdSend = hold;
+      port.nextSendOutcome = _refused(SendProblem.blocked);
+      final retrying = cubit.retry(id);
+      await Future<void>.delayed(Duration.zero);
+      expect(cubit.state.outgoing.single.status, OutgoingStatus.sending);
+      expect(cubit.state.canSend, isFalse);
+      hold.complete();
+      await retrying;
+      expect(cubit.state.outgoing.single.status, OutgoingStatus.failed);
+      expect(cubit.state.outgoing.single.text, 'hello');
+    });
+
+    test('a retry keeps the row\'s position among other failed rows', () async {
+      port.nextSendOutcome = _plain;
+      final cubit = make();
+      for (final t in ['a', 'b', 'c']) {
+        repo.failures.add(const NetworkException('offline'));
+        cubit.textChanged(t);
+        await cubit.send();
+      }
+      final ids = [for (final m in cubit.state.outgoing) m.localId];
+      expect(ids, hasLength(3));
+      repo.failures.add(const NetworkException('offline'));
+      await cubit.retry(ids[1]);
+      expect([for (final m in cubit.state.outgoing) m.localId], ids);
+      expect(cubit.state.outgoing[1].status, OutgoingStatus.failed);
+    });
+
+    test('a retry never touches the text in the field', () async {
+      final cubit = await failedRow('hello');
+      final id = cubit.state.outgoing.single.localId;
+      cubit.textChanged('hello');
+      port.nextSendOutcome = _queued;
+      await cubit.retry(id);
+      expect(cubit.state.draft.text, 'hello');
+    });
+
     test('the text is never passed to onUnexpectedError', () async {
       port.failNextOn(
         'send',

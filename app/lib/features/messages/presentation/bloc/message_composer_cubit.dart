@@ -282,11 +282,16 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   /// text on this device and sends when it may. While it answers the composer
   /// is in its sending state and the text stays in the field. The text is
   /// never reported.
+  ///
+  /// [retried] is the failed row being retried: it shows as sending while the
+  /// port answers and is restored on a refusal or a throw, it keeps its place,
+  /// and the field is left alone.
   Future<void> _sendThroughPort(
     EncryptedMessaging port,
     String key,
-    String text,
-  ) async {
+    String text, {
+    OutgoingMessage? retried,
+  }) async {
     final id = _conversationId;
     final person = recipient;
     final ThreadRef? to = id != null
@@ -300,7 +305,21 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       );
       return;
     }
-    emit(state.copyWith(sendPending: true, clearError: true));
+    emit(
+      state.copyWith(
+        sendPending: true,
+        outgoing: retried == null
+            ? null
+            : _replace(
+                key,
+                retried.copyWith(
+                  status: OutgoingStatus.sending,
+                  clearError: true,
+                ),
+              ),
+        clearError: true,
+      ),
+    );
     onActivity?.call();
     final SendOutcome outcome;
     try {
@@ -308,10 +327,14 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     } on Object catch (error, stack) {
       // Never the thrown object: an ArgumentError can carry what was typed.
       onUnexpectedError?.call(StateError('send'), stack);
-      if (isClosed) return;
+      if (isClosed) {
+        _keepFailed(key, retried);
+        return;
+      }
       emit(
         state.copyWith(
           sendPending: false,
+          outgoing: retried == null ? null : _replace(key, retried),
           error: error is ArgumentError
               ? const ValidationException('That message cannot be sent.')
               : const UnknownApiException('Something went wrong.'),
@@ -326,12 +349,16 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
           ..forgetKey(_scope, text)
           ..save(
             _scope,
-            draft: state.draft.text == text ? '' : state.draft.text,
+            draft: retried == null && state.draft.text == text
+                ? ''
+                : state.draft.text,
             rows: [
               for (final m in state.outgoing)
                 if (m.localId != key) m,
             ],
           );
+      } else {
+        _keepFailed(key, retried);
       }
       return;
     }
@@ -341,7 +368,9 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
         emit(
           state.copyWith(
             sendPending: false,
-            draft: state.draft.text == text ? analyzePostDraft('') : null,
+            draft: retried == null && state.draft.text == text
+                ? analyzePostDraft('')
+                : null,
             // A retried row now lives in the port's thread.
             outgoing: state.outgoing.any((m) => m.localId == key)
                 ? _replace(key, null)
@@ -353,12 +382,27 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
         if (created != null) conversationKnown(created);
       case SendOutcomeKind.notEncrypted:
         emit(state.copyWith(sendPending: false));
-        await _sendPlain(key, text);
+        if (retried != null) {
+          // The row is already sending, in its place: today's delivery.
+          await _deliver(key, text);
+        } else {
+          await _sendPlain(key, text);
+        }
       case SendOutcomeKind.refused:
         final error = outcome.error;
+        if (retried != null && error is CannotMessageException) {
+          // Nothing to retry: the row goes, as in a failed plain send.
+          _outbox.forgetKey(_scope, text);
+        }
         emit(
           state.copyWith(
             sendPending: false,
+            outgoing: retried == null
+                ? null
+                : _replace(
+                    key,
+                    error is CannotMessageException ? null : retried,
+                  ),
             refusedProblem: outcome.problem,
             refusedVaultBlocked:
                 outcome.problem == SendProblem.blocked &&
@@ -370,6 +414,17 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
         );
         if (error is CannotMessageException) onCannotMessage?.call();
     }
+  }
+
+  /// The screen is gone before a retried row's answer was used: the row waits
+  /// in the outbox as "Not sent" again.
+  void _keepFailed(String key, OutgoingMessage? retried) {
+    if (retried == null) return;
+    _outbox.markFailed(
+      _scope,
+      key,
+      retried.error ?? const UnknownApiException('Something went wrong.'),
+    );
   }
 
   /// Draft mode: the conversation of the first send is known (from the
@@ -411,7 +466,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       // the conversation become encrypted): never plaintext around the port.
       // A not-encrypted or refused answer saved nothing, so the id is free.
       emit(state.copyWith(degraded: false, clearError: true));
-      await _sendThroughPort(port, entry.localId, entry.text);
+      await _sendThroughPort(port, entry.localId, entry.text, retried: entry);
       return;
     }
     emit(
