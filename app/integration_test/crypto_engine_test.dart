@@ -437,7 +437,13 @@ void main() {
       MlsErrorCode.ownLeaf,
     );
     aliceGroup = await engine.confirmCommit(alice.deviceState, c1.groupState);
-    final bobJoin = await engine.joinFromWelcome(bob.deviceState, c1.welcome!);
+    // The device state that holds the key package's private keys is the one
+    // generateKeyPackages returned, not the one createDevice returned.
+    final bobJoin = await engine.joinFromWelcome(
+      bobKp.deviceState,
+      c1.welcome!,
+    );
+    final bobDevice = bobJoin.deviceState;
 
     // Own echo of an application message is ownLeaf; a peer replay is not.
     final m = await engine.encrypt(
@@ -450,12 +456,12 @@ void main() {
       MlsErrorCode.ownLeaf,
     );
     final got = await engine.process(
-      bob.deviceState,
+      bobDevice,
       bobJoin.groupState,
       m.ciphertext,
     );
     await _fails(
-      engine.process(bob.deviceState, got.groupState, m.ciphertext),
+      engine.process(bobDevice, got.groupState, m.ciphertext),
       MlsErrorCode.duplicate,
     );
     aliceGroup = m.groupState;
@@ -466,7 +472,7 @@ void main() {
       aliceGroup,
       addKeyPackages: [carolKp.keyPackages.single],
     );
-    final p2 = await engine.process(bob.deviceState, got.groupState, c2.commit);
+    final p2 = await engine.process(bobDevice, got.groupState, c2.commit);
     final e2 = p2.event as MlsCommitEvent;
     expect(e2.committerDeviceId, aliceId);
     expect(e2.added, [carolId]);
@@ -489,7 +495,7 @@ void main() {
       aliceGroup,
       removeDeviceIds: [carolId],
     );
-    final p3 = await engine.process(bob.deviceState, p2.groupState, rm.commit);
+    final p3 = await engine.process(bobDevice, p2.groupState, rm.commit);
     final e3 = p3.event as MlsCommitEvent;
     expect(e3.committerDeviceId, aliceId);
     expect(e3.addedSignatureKeys, isEmpty);
