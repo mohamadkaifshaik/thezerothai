@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/share_post_cubit.dart';
 import 'package:dzeroth/features/messages/presentation/share_post_error_messages.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_send_repository.dart';
 
 const _postId = '1234567890123456789';
@@ -271,5 +274,141 @@ void main() {
         CannotMessageException.userMessage,
       );
     });
+  });
+
+  group('with an encrypted port', () {
+    late FakeEncryptedMessaging port;
+
+    SharePostCubit withPort({bool Function()? isEnabled}) => SharePostCubit(
+      repository: repo,
+      postId: _postId,
+      url: _url,
+      ownUserId: 'u-me',
+      isEnabled: isEnabled,
+      encrypted: port,
+      onUnexpectedError: (_, _) => unexpected++,
+    );
+
+    setUp(() => port = FakeEncryptedMessaging());
+    tearDown(() => port.dispose());
+
+    test('with a port, a queued share is sent and sendMessage is not called '
+        'for it', () async {
+      final c = withPort()..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expect(c.state.recipients.single.status, ShareRowStatus.sent);
+      expect(port.sent.single.to, ThreadRef.recipientOf(_peer(1)));
+      expect(port.sent.single.text, _url);
+      expect(port.sent.single.sharedPostId, _postId);
+      expect(repo.sendKeys, isEmpty);
+    });
+
+    test('a recipient row stays in its existing sending state while the '
+        'port\'s send is pending', () async {
+      final hold = Completer<void>();
+      port.holdSend = hold;
+      final c = withPort()..toggle(_peer(1));
+      addTearDown(c.close);
+      final sending = c.send();
+      await Future<void>.delayed(Duration.zero);
+      expect(c.state.recipients.single.status, ShareRowStatus.sending);
+      expect(c.state.sending, isTrue);
+      hold.complete();
+      await sending;
+      expect(c.state.recipients.single.status, ShareRowStatus.sent);
+    });
+
+    test('notEncrypted falls back to sendMessage with the row key', () async {
+      port.nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted);
+      final c = withPort()..toggle(_peer(1));
+      addTearDown(c.close);
+      final key = c.state.recipients.single.key;
+      await c.send();
+      expect(c.state.recipients.single.status, ShareRowStatus.sent);
+      expect(repo.sendKeys, [key]);
+      expect(port.sent.single.localId, key);
+    });
+
+    test('refused marks the row failed with the outcome\'s error, or a text '
+        'when there is none', () async {
+      port.queueSendOutcomes([
+        const SendOutcome(
+          SendOutcomeKind.refused,
+          problem: SendProblem.refused,
+          error: CannotMessageException(),
+        ),
+        const SendOutcome(
+          SendOutcomeKind.refused,
+          problem: SendProblem.tryTomorrow,
+        ),
+      ]);
+      final c = withPort()
+        ..toggle(_peer(1))
+        ..toggle(_peer(2));
+      addTearDown(c.close);
+      await c.send();
+      final rows = c.state.recipients;
+      expect(rows[0].status, ShareRowStatus.failed);
+      expect(rows[0].error, isA<CannotMessageException>());
+      expect(rows[1].status, ShareRowStatus.failed);
+      expect(rows[1].error!.message, kOutgoingTryTomorrowText);
+      expect(repo.sendKeys, isEmpty);
+    });
+
+    test('the line drawn under the rows for a refusal with no error is the '
+        'composer\'s text for it', () async {
+      // The widget draws sharePostErrorMessage(lastError, problem: lastProblem).
+      for (final (problem, text) in [
+        (SendProblem.tryTomorrow, kOutgoingTryTomorrowText),
+        (SendProblem.peerHasNoDevice, kStatePeerNoDeviceText),
+      ]) {
+        port.nextSendOutcome = SendOutcome(
+          SendOutcomeKind.refused,
+          problem: problem,
+        );
+        final c = withPort()..toggle(_peer(1));
+        addTearDown(c.close);
+        await c.send();
+        expect(
+          sharePostErrorMessage(
+            c.state.lastError!,
+            problem: c.state.lastProblem,
+          ),
+          text,
+          reason: '$problem',
+        );
+      }
+    });
+
+    test('the share flag is checked before the port\'s send, so a disabled '
+        'share sends nothing (the only client check; the post\'s protection '
+        'is the server\'s)', () async {
+      final c = withPort(isEnabled: () => false)..toggle(_peer(1));
+      addTearDown(c.close);
+      await c.send();
+      expect(port.sent, isEmpty);
+      expect(repo.sendKeys, isEmpty);
+      expect(c.state.endedBy, isA<FeatureDisabledException>());
+    });
+
+    test(
+      'a thrown error marks the row failed and reports a fixed error',
+      () async {
+        port.failNextOn('send', StateError('secret'));
+        final reports = <Object>[];
+        final c = SharePostCubit(
+          repository: repo,
+          postId: _postId,
+          url: _url,
+          encrypted: port,
+          onUnexpectedError: (e, _) => reports.add(e),
+        )..toggle(_peer(1));
+        addTearDown(c.close);
+        await c.send();
+        expect(c.state.recipients.single.status, ShareRowStatus.failed);
+        expect(reports.single.toString(), isNot(contains('secret')));
+      },
+    );
   });
 }
