@@ -51,7 +51,9 @@ String sendStatusText(
     SendProgress.sending => kOutgoingSendingText,
     SendProgress.waiting => kOutgoingWaitingText,
     SendProgress.notSent => switch (problem) {
-      SendProblem.none || SendProblem.retryable => kOutgoingNotSentText,
+      // Only a retryable row can be retried, so only it says so.
+      SendProblem.retryable => kOutgoingNotSentText,
+      SendProblem.none => kOutgoingNotSentBlockedText,
       SendProblem.blocked => kOutgoingNotSentBlockedText,
       SendProblem.peerHasNoDevice => kStatePeerNoDeviceText,
       SendProblem.tryTomorrow => kOutgoingTryTomorrowText,

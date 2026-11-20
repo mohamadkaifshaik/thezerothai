@@ -122,6 +122,23 @@ Widget _thread() {
 }
 
 void main() {
+  testWidgets('every row kind draws right to left without an exception', (
+    tester,
+  ) async {
+    await pumpThemed(
+      tester,
+      Directionality(textDirection: TextDirection.rtl, child: _thread()),
+      size: const Size(834, 1194),
+      textScale: 2.0,
+    );
+    expect(tester.takeException(), isNull);
+    // The own bubble sits at the start in rtl, i.e. on the right-hand side's
+    // mirror: the row kinds are all present.
+    expect(find.byType(MessageBubble), findsWidgets);
+    expect(find.byType(SystemLineRow), findsWidgets);
+    expect(find.byType(OwnDeviceAlert), findsOneWidget);
+  });
+
   forEachThemeAndWidth(
     'every row state fits without overflow',
     (tester, env) async {

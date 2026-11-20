@@ -308,6 +308,31 @@ void main() {
     expect(find.text(messagingErrorMessage(error)), findsOneWidget);
   });
 
+  testWidgets(
+    'a notSent row with no problem says Not sent and is not a button',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      final retried = <String>[];
+      await pumpThemed(
+        tester,
+        _bubble(
+          _entry(mine: true, progress: SendProgress.notSent),
+          onRetry: retried.add,
+        ),
+      );
+      expect(find.text(kOutgoingNotSentBlockedText), findsOneWidget);
+      expect(find.text(kOutgoingNotSentText), findsNothing);
+      expect(find.byType(InkWell), findsNothing);
+      final node = tester.getSemantics(
+        find.bySemanticsLabel(RegExp('You said hello there')),
+      );
+      expect(node.getSemanticsData().flagsCollection.isButton, isFalse);
+      await tester.tap(find.text(kOutgoingNotSentBlockedText));
+      expect(retried, isEmpty);
+      handle.dispose();
+    },
+  );
+
   testWidgets('a refusal with no typed reason reads Not sent', (tester) async {
     await pumpThemed(
       tester,
