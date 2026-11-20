@@ -34,6 +34,11 @@ class FakeVaultCipher implements VaultCipher {
   Future<void> Function()? onDestroy;
   bool _destroyed = false;
 
+  /// When it answers true for a seal label (`table.column`), sealing a value
+  /// under it throws [StateError] (a write that fails part-way through a
+  /// transaction).
+  bool Function(String label)? failSeal;
+
   int sealCalls = 0;
   int openCalls = 0;
 
@@ -77,6 +82,7 @@ class FakeVaultCipher implements VaultCipher {
     Uint8List plaintext,
   ) async {
     _guard();
+    if (failSeal?.call(table) ?? false) throw StateError('fake seal failure');
     sealCalls++;
     final aad = vaultRowAad(table, rowKey);
     final nonce = List<int>.generate(12, (_) => _random.nextInt(256));

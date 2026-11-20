@@ -17,6 +17,8 @@ import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_context.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
@@ -168,6 +170,9 @@ class RigEngine implements CryptoEngine {
     return inner.encrypt(deviceState, groupState, plaintext);
   }
 
+  /// The wire bytes of every `process` call, in order (failed calls too).
+  final List<Uint8List> processed = [];
+
   /// When set, the next `process` call waits for it before it answers (then
   /// it is cleared): a result that arrives late.
   Future<void>? holdNextProcess;
@@ -178,6 +183,7 @@ class RigEngine implements CryptoEngine {
     Uint8List groupState,
     Uint8List wire,
   ) async {
+    processed.add(Uint8List.fromList(wire));
     _enter('process');
     final hold = holdNextProcess;
     holdNextProcess = null;
@@ -356,6 +362,65 @@ class RigServer {
     ...?_welcomes[deviceId]?.values,
   ];
 
+  // --- messages (ListMessages / ListEpochMessages) -------------------------
+
+  final Map<String, List<_Stored>> _messages = {};
+  int _messageSeq = 0;
+
+  /// conversationId -> the caller's DeleteConversation time (`cleared_at`).
+  final Map<String, DateTime> clearedAt = {};
+
+  /// The page size of a ListMessages answer (the repository asks for 50).
+  int livePageSize = 50;
+
+  /// Since tokens the server no longer accepts (a retired token).
+  final Set<String> retiredSince = {};
+
+  /// The next this many ListEpochMessages calls that carry a page token are
+  /// refused (`page_token`).
+  int refuseEpochPageTokens = 0;
+
+  /// Replaces a ListEpochMessages answer (to reorder, forge or add).
+  pb.ListEpochMessagesResponse Function(pb.ListEpochMessagesResponse real)?
+  rewriteEpoch;
+
+  /// Stores [m] (a send, as the server keeps it).
+  void addMessage(pb.Message m) {
+    final list = _messages.putIfAbsent(m.conversationId, () => []);
+    if (list.any((s) => s.message.id == m.id)) {
+      throw StateError('one message per id');
+    }
+    list.add(_Stored(m.deepCopy(), ++_messageSeq));
+  }
+
+  /// A takedown or an account deletion: the state changes and the
+  /// ciphertext and commitment go (the change is listed after any since
+  /// token issued before it).
+  void tombstone(String conversationId, String id, MessageState state) {
+    final s = _messages[conversationId]!.singleWhere((s) => s.message.id == id);
+    s.message
+      ..state = state
+      ..ciphertext = <int>[]
+      ..reportCommitment = <int>[]
+      ..ciphertextRemoved = true;
+    s.seq = ++_messageSeq;
+  }
+
+  /// The messages changed after since-sequence [since], newest first.
+  List<pb.Message> _changed(String conversationId, int since) {
+    final list = [
+      for (final s in _messages[conversationId] ?? const <_Stored>[])
+        if (s.seq > since) s,
+    ];
+    list.sort((a, b) {
+      final t = b.message.createdAt.toDateTime().compareTo(
+        a.message.createdAt.toDateTime(),
+      );
+      return t != 0 ? t : b.message.id.compareTo(a.message.id);
+    });
+    return [for (final s in list) s.message.deepCopy()];
+  }
+
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
 
@@ -363,6 +428,13 @@ class RigServer {
     calls.add(call);
     await onCall?.call(call);
   }
+}
+
+class _Stored {
+  _Stored(this.message, this.seq);
+
+  final pb.Message message;
+  int seq;
 }
 
 class _Commit {
@@ -441,7 +513,40 @@ class RigMessaging implements MessagingRepository {
     String pageToken = '',
   }) async {
     await _server._enter('listEpochMessages');
-    return pb.ListEpochMessagesResponse();
+    // Stricter than the server: the contract's pair (both >= 1) and page
+    // size (at most 50); a token is bound to the conversation and pair.
+    if (pair.generation < 1 || pair.epoch < 1) {
+      throw const ValidationException('pair', field: 'mls_epoch');
+    }
+    if (pageSize < 1 || pageSize > 50) {
+      throw const ValidationException('page_size', field: 'page_size');
+    }
+    final prefix = 'e:$conversationId:${pair.generation}:${pair.epoch}:';
+    var offset = 0;
+    if (pageToken.isNotEmpty) {
+      if (_server.refuseEpochPageTokens > 0 || !pageToken.startsWith(prefix)) {
+        if (_server.refuseEpochPageTokens > 0) {
+          _server.refuseEpochPageTokens--;
+        }
+        throw const ValidationException('page_token', field: 'page_token');
+      }
+      offset = int.parse(pageToken.substring(prefix.length));
+    }
+    final all = [
+      for (final s in _server._messages[conversationId] ?? const <_Stored>[])
+        if (s.message.mlsGeneration == Int64(pair.generation) &&
+            s.message.mlsEpoch == Int64(pair.epoch))
+          s.message.deepCopy(),
+    ]..sort((a, b) => a.id.compareTo(b.id));
+    final page = all.skip(offset).take(pageSize).toList();
+    final end = offset + page.length;
+    final cleared = _server.clearedAt[conversationId];
+    final real = pb.ListEpochMessagesResponse(
+      messages: page,
+      nextPageToken: end < all.length ? '$prefix$end' : '',
+      clearedAt: cleared == null ? null : ts.Timestamp.fromDateTime(cleared),
+    );
+    return _server.rewriteEpoch?.call(real) ?? real;
   }
 
   @override
@@ -491,8 +596,51 @@ class RigMessaging implements MessagingRepository {
     String pageToken = '',
   }) async {
     await _server._enter('listMlsMessages');
+    // The repository's rule: at most one token.
+    if (sinceToken.isNotEmpty && pageToken.isNotEmpty) {
+      throw ArgumentError('At most one of sinceToken and pageToken');
+    }
+    final size = _server.livePageSize;
+    final now = 's:${_server._messageSeq}';
+    if (sinceToken.isNotEmpty) {
+      final since = sinceToken.startsWith('s:')
+          ? int.tryParse(sinceToken.substring(2))
+          : null;
+      if (since == null || _server.retiredSince.contains(sinceToken)) {
+        throw const ValidationException('since', field: 'since_token');
+      }
+      final changed = _server._changed(conversationId, since);
+      final page = changed.take(size).toList();
+      return pb.ListMessagesResponse(
+        messages: page,
+        sinceToken: now,
+        gapPageToken: changed.length > size ? 'p:$since:$size' : '',
+      );
+    }
+    if (pageToken.isNotEmpty) {
+      final parts = pageToken.split(':');
+      if (parts.length != 3 || parts[0] != 'p') {
+        throw const ValidationException('page', field: 'page_token');
+      }
+      final since = int.parse(parts[1]);
+      final offset = int.parse(parts[2]);
+      final list = _server._changed(conversationId, since);
+      final page = list.skip(offset).take(size).toList();
+      final end = offset + page.length;
+      return pb.ListMessagesResponse(
+        messages: page,
+        nextPageToken: end < list.length ? 'p:$since:$end' : '',
+      );
+    }
+    final all = _server._changed(conversationId, 0);
+    final page = all.take(size).toList();
     final row = _server.rows[conversationId];
-    return pb.ListMessagesResponse(conversation: row);
+    return pb.ListMessagesResponse(
+      messages: page,
+      conversation: row,
+      sinceToken: now,
+      nextPageToken: all.length > size ? 'p:0:$size' : '',
+    );
   }
 
   @override
@@ -747,6 +895,10 @@ class RigCrypto {
   final ConversationContexts contexts = ConversationContexts();
   late KnownConversations known;
   late ConversationCrypto crypto;
+
+  /// The receiver, set as [crypto]'s sink (Task 6).
+  late MessageReceiver receiver;
+  late DailyLedger ledger;
   final List<String> changed = [];
   final List<Object> unexpected = [];
 
@@ -801,6 +953,25 @@ class RigCrypto {
       onChanged: changed.add,
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
+    ledger = DailyLedger(
+      session: device.session,
+      now: clock.now,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+    receiver = MessageReceiver(
+      crypto: crypto,
+      session: device.session,
+      engine: () => device.engine,
+      messaging: messaging,
+      syncBudget: syncBudget,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+      ledger: ledger,
+    );
+    crypto.sink = receiver;
   }
 
   /// An app restart: the vault file is opened again; memory starts again.
