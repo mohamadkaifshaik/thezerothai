@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../../app/session_wiring.dart' show UnexpectedErrorReporter;
+import '../../../../core/network/app_exception.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/tablet_modal.dart';
@@ -12,6 +13,7 @@ import '../../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../auth/presentation/request_sign_out.dart';
 import '../../domain/e2ee/encrypted_messaging.dart';
 import 'encryption_copy.dart';
+import 'encryption_error_messages.dart';
 import 'encryption_status.dart';
 import 'encryption_status_card.dart';
 
@@ -19,9 +21,10 @@ import 'encryption_status_card.dart';
 /// so no screen wires them itself:
 /// - Try again: the cubit's `retry` (busy while it runs);
 /// - Check again / Set up again: the port's `checkRemovedAgain` / `setUpDeviceAgain`, one call in flight at a time,
-///   a failure reported as a fixed `StateError('<step>')` and nothing shown beyond the card's own copy. Passed only
-///   when a port exists; with a port, Check again is always wired (the card shows it on every removed-elsewhere
-///   status);
+///   a failure reported as a fixed `StateError('<step>')`. A failed Check again shows nothing beyond the card's own
+///   copy; a failed Set up again also shows a snackbar with `encryptionErrorMessage` (a typed error by its type, any
+///   other error as the generic text; never the error itself). Passed only when a port exists; with a port, Check
+///   again is always wired (the card shows it on every removed-elsewhere status);
 /// - Sign out: `requestSignOut` (which carries the vault warning);
 /// - Manage devices / Reset: `AppRouter.encryptionSettingsPath` / `resetEncryptionPath` through go_router, unless
 ///   hidden by [showManageDevices] / [showReset] (the Settings screen is itself the manage screen).
@@ -91,8 +94,21 @@ class _ConnectedEncryptionStatusCardState
       if (!confirmed) return;
       try {
         await port.setUpDeviceAgain();
-      } catch (_, stack) {
+      } catch (e, stack) {
         report?.call(StateError('setUpDeviceAgain'), stack);
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  encryptionErrorMessage(
+                    e is AppException ? e : const UnknownApiException(''),
+                  ),
+                ),
+              ),
+            );
+        }
       }
     } finally {
       _settingUp = false;
