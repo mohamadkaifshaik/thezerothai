@@ -34,6 +34,8 @@ String sharePostErrorMessage(AppException error) {
     FeatureDisabledException(feature: kFeatureDmPostShare) =>
       "Sending a post in a message isn't available right now.",
     ValidationException() => "That post can't be sent. Check it and retry.",
+    EncryptionRequiredException() => 'Update the app to keep messaging',
+    StaleEpochException() => "Couldn't send that. Please try again.",
     _ => messagingErrorMessage(error),
   };
 }

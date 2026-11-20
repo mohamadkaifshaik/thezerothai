@@ -100,4 +100,19 @@ void main() {
       );
     },
   );
+
+  test('ENCRYPTION_REQUIRED says to update the app', () {
+    expect(
+      messagingErrorMessage(const EncryptionRequiredException('secret')),
+      'Update the app to keep messaging',
+    );
+  });
+
+  test('STALE_EPOCH is a retry message, never the server text', () {
+    final text = messagingErrorMessage(
+      const StaleEpochException('secret', generation: 1, epoch: 2),
+    );
+    expect(text, "Couldn't send that. Please try again.");
+    expect(text, isNot(contains('secret')));
+  });
 }
