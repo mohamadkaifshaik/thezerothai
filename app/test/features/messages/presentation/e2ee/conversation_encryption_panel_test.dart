@@ -42,6 +42,14 @@ class _HeldMessaging extends FakeEncryptedMessaging {
   }
 }
 
+/// Counts the routes popped off the navigator.
+class _PopCounter extends NavigatorObserver {
+  int pops = 0;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => pops++;
+}
+
 void main() {
   final base = DateTime.now().toUtc().subtract(const Duration(minutes: 30));
 
@@ -57,6 +65,9 @@ void main() {
       EncryptionDevice? device,
       Stream<ConversationSecurity?>? changes,
       Stream<List<ThreadEntry>>? entries,
+      // Opens the panel from a page pushed over the home page.
+      bool fromPage = false,
+      NavigatorObserver? observer,
     }) async {
       final port = using ?? FakeEncryptedMessaging();
       addTearDown(port.dispose);
@@ -66,33 +77,42 @@ void main() {
       addTearDown(tester.view.reset);
       final never = StreamController<ConversationSecurity?>.broadcast();
       addTearDown(never.close);
-      final router = GoRouter(
-        routes: [
-          GoRoute(
-            path: '/',
-            builder: (context, _) => Scaffold(
-              body: Center(
-                child: TextButton(
-                  onPressed: () => unawaited(
-                    showModalBottomSheet<void>(
-                      context: context,
-                      isScrollControlled: true,
-                      builder: (_) => ConversationEncryptionHost(
-                        messaging: port,
-                        conversationId: _id,
-                        peerName: peerName,
-                        access: access,
-                        device: device,
-                        securityChanges: changes ?? never.stream,
-                        entryChanges: entries,
-                        isWeb: isWeb,
-                      ),
+      Widget openButton(BuildContext context, {String? label}) => Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (label != null) Text(label),
+              TextButton(
+                onPressed: () => unawaited(
+                  showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => ConversationEncryptionHost(
+                      messaging: port,
+                      conversationId: _id,
+                      peerName: peerName,
+                      access: access,
+                      device: device,
+                      securityChanges: changes ?? never.stream,
+                      entryChanges: entries,
+                      isWeb: isWeb,
                     ),
                   ),
-                  child: const Text('open'),
                 ),
+                child: const Text('open'),
               ),
-            ),
+            ],
+          ),
+        ),
+      );
+      final router = GoRouter(
+        observers: [?observer],
+        routes: [
+          GoRoute(path: '/', builder: (context, _) => openButton(context)),
+          GoRoute(
+            path: '/page',
+            builder: (context, _) => openButton(context, label: 'pushed page'),
           ),
           GoRoute(
             path: AppRouter.encryptionSettingsPath,
@@ -104,6 +124,10 @@ void main() {
       await tester.pumpWidget(
         MaterialApp.router(theme: appLightTheme, routerConfig: router),
       );
+      if (fromPage) {
+        unawaited(router.push<void>('/page'));
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
       return port;
@@ -387,6 +411,7 @@ void main() {
 
       testWidgets('a device swap that keeps both counts reloads the code and '
           'never shows the old digits meanwhile', (tester) async {
+        final semantics = tester.ensureSemantics();
         final port = _HeldMessaging();
         final changes = StreamController<ConversationSecurity?>.broadcast();
         addTearDown(changes.close);
@@ -415,11 +440,12 @@ void main() {
         expect(loads(port), before + 1);
         expect(find.text('11111'), findsNothing);
         expect(hasDigitText(tester), isFalse);
-        expect(find.text(kSecurityCodeLoading), findsNothing);
+        expect(find.bySemanticsLabel(kSecurityCodeLoading), findsOneWidget);
         gate.complete();
         await tester.pumpAndSettle();
         expect(find.text('11111'), findsNothing);
         expect(find.text('09876'), findsWidgets);
+        semantics.dispose();
       });
 
       testWidgets('the identical security object does not reload', (
@@ -573,7 +599,7 @@ void main() {
         expect(find.text('open'), findsOneWidget);
       });
 
-      testWidgets('the panel closes when the access rule turns hidden', (
+      testWidgets('the panel closes when the vault goes back to opening', (
         tester,
       ) async {
         final device = FakeEncryptionDevice(vaultKnown: true);
@@ -592,24 +618,89 @@ void main() {
         expect(find.text(kSecurityCodeHeader), findsNothing);
       });
 
-      testWidgets('several losses at once pop once', (tester) async {
+      testWidgets('several losses at once pop exactly once', (tester) async {
         final port = FakeEncryptedMessaging();
         final device = FakeEncryptionDevice();
         final changes = StreamController<ConversationSecurity?>.broadcast();
+        final observer = _PopCounter();
         await pumpPanel(
           tester,
           const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
           using: port,
           device: device,
           changes: changes.stream,
+          fromPage: true,
+          observer: observer,
         );
         port.removedElsewhere.value = true;
         device.vaultStatus.value = VaultStatus.keyLost;
         await changes.close();
         await tester.pumpAndSettle();
         expect(find.text(kSecurityCodeHeader), findsNothing);
-        expect(find.text('open'), findsOneWidget);
+        expect(observer.pops, 1);
+        expect(find.text('pushed page'), findsOneWidget);
         expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('losing the vault right after Check devices leaves the '
+          'settings page shown', (tester) async {
+        final device = FakeEncryptionDevice();
+        await pumpPanel(
+          tester,
+          const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
+          device: device,
+        );
+        await tester.tap(find.text(kOwnDeviceAlertAction));
+        await tester.pump();
+        // The panel is still mounted through its exit animation.
+        device.vaultStatus.value = VaultStatus.heldElsewhere;
+        await tester.pumpAndSettle();
+        expect(find.text('settings'), findsOneWidget);
+        expect(find.text(kSecurityCodeHeader), findsNothing);
+      });
+
+      testWidgets('losing access while the panel is closing pops nothing '
+          'else', (tester) async {
+        final device = FakeEncryptionDevice();
+        await pumpPanel(
+          tester,
+          const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
+          device: device,
+          fromPage: true,
+        );
+        // The user dismisses the sheet (a tap on the barrier).
+        await tester.tapAt(const Offset(195, 4));
+        await tester.pump(const Duration(milliseconds: 50));
+        device.vaultStatus.value = VaultStatus.heldElsewhere;
+        await tester.pumpAndSettle();
+        expect(find.text(kSecurityCodeHeader), findsNothing);
+        expect(find.text('pushed page'), findsOneWidget);
+      });
+
+      testWidgets('opening while the vault is not ready shows no code and '
+          'closes', (tester) async {
+        final device = FakeEncryptionDevice(status: VaultStatus.heldElsewhere);
+        await pumpPanel(
+          tester,
+          const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
+          device: device,
+        );
+        expect(hasDigitText(tester), isFalse);
+        expect(find.text(kSecurityCodeHeader), findsNothing);
+        expect(find.text('open'), findsOneWidget);
+      });
+
+      testWidgets('opening while removed elsewhere shows no code and closes', (
+        tester,
+      ) async {
+        final port = FakeEncryptedMessaging()..removedElsewhere.value = true;
+        await pumpPanel(
+          tester,
+          const SecurityCode(digits: _digits, myDevices: 1, theirDevices: 1),
+          using: port,
+        );
+        expect(hasDigitText(tester), isFalse);
+        expect(find.text(kSecurityCodeHeader), findsNothing);
       });
     });
   });
@@ -624,6 +715,8 @@ void main() {
       expect(entry, lessThan(tester.getTopLeft(find.text('Block @sam')).dy));
     }
 
+    late MessagingFlowRig lastRig;
+
     Future<FakeEncryptedMessaging> pumpThread(
       WidgetTester tester,
       double width, {
@@ -632,6 +725,8 @@ void main() {
       Set<String> flags = _plain,
       String? displayName,
       EncryptionDevice? device,
+      String? handle,
+      ConversationSecurity? security,
     }) async {
       final server = MessagingFlowRig.serverWithConversation();
       if (encrypted) {
@@ -640,6 +735,9 @@ void main() {
       }
       if (displayName != null) {
         server.conversations[kThreadId]!.peer.displayName = displayName;
+      }
+      if (handle != null) {
+        server.conversations[kThreadId]!.peer.handle = handle;
       }
       final port = FakeEncryptedMessaging();
       addTearDown(port.dispose);
@@ -654,14 +752,16 @@ void main() {
           entries: [
             DecryptedMessage(id: 'e1', at: base, mine: false, text: 'hello'),
           ],
-          security: ConversationSecurity(
-            state: request
-                ? ConversationEncryptionState.pendingRequest
-                : ConversationEncryptionState.ready,
-          ),
+          security:
+              security ??
+              ConversationSecurity(
+                state: request
+                    ? ConversationEncryptionState.pendingRequest
+                    : ConversationEncryptionState.ready,
+              ),
         ),
       );
-      final rig = MessagingFlowRig(server: server, flags: flags);
+      final rig = lastRig = MessagingFlowRig(server: server, flags: flags);
       await rig.pump(
         tester,
         location: AppRouter.messagePath(kThreadId),
@@ -735,6 +835,70 @@ void main() {
       await tester.tap(find.text(kEncryptionEntryLabel));
       await tester.pumpAndSettle();
       expect(find.text(securityCodeIntro('@sam')), findsOneWidget);
+    });
+
+    testWidgets('a peer with neither a name nor a handle gets the intro\'s own '
+        'fallback', (tester) async {
+      await pumpThread(tester, 390, displayName: '', handle: '');
+      await tester.tap(find.byTooltip(kConversationInfoLabel));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kEncryptionEntryLabel));
+      await tester.pumpAndSettle();
+      expect(find.text(securityCodeIntro('')), findsOneWidget);
+    });
+
+    testWidgets('a device-added line with the same counts reloads the code '
+        'through the thread', (tester) async {
+      // One security object for both thread values: only the new line can
+      // tell the panel the devices changed.
+      const sec = ConversationSecurity(
+        state: ConversationEncryptionState.ready,
+        myDevices: 1,
+        theirDevices: 1,
+      );
+      final port = await pumpThread(tester, 390, security: sec);
+      await tester.tap(find.byTooltip(kConversationInfoLabel));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kEncryptionEntryLabel));
+      await tester.pumpAndSettle();
+      expect(find.text('11111'), findsOneWidget);
+
+      port.setSecurityCode(
+        kThreadId,
+        SecurityCode(digits: '0987654321' * 6, myDevices: 1, theirDevices: 1),
+      );
+      port.setThread(
+        ThreadRef.conversation(kThreadId),
+        EncryptedThread(
+          conversationId: kThreadId,
+          entries: [
+            SystemLineEntry(
+              id: 'line-1',
+              at: base,
+              kind: SystemLineKind.deviceAdded,
+              side: LineSide.theirs,
+            ),
+            DecryptedMessage(id: 'e1', at: base, mine: false, text: 'hello'),
+          ],
+          security: sec,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('11111'), findsNothing);
+      expect(find.text('09876'), findsWidgets);
+    });
+
+    testWidgets('leaving the thread closes the panel', (tester) async {
+      await pumpThread(tester, 390);
+      await tester.tap(find.byTooltip(kConversationInfoLabel));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kEncryptionEntryLabel));
+      await tester.pumpAndSettle();
+      expect(find.text(kSecurityCodeHeader), findsOneWidget);
+      lastRig.appRouter.router.go(AppRouter.messagesPath);
+      await tester.pumpAndSettle();
+      expect(find.text(kSecurityCodeHeader), findsNothing);
+      expect(find.text('11111'), findsNothing);
     });
 
     testWidgets('the panel names the peer by display name', (tester) async {

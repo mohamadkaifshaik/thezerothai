@@ -193,6 +193,7 @@ Future<void> showConversationEncryption(
 /// Owns the cubit and the subscriptions of one open panel. Public for tests
 /// only: production code opens the panel through [showConversationEncryption],
 /// which resolves the port and the access rule from the context.
+@visibleForTesting
 class ConversationEncryptionHost extends StatefulWidget {
   const ConversationEncryptionHost({
     super.key,
@@ -267,6 +268,8 @@ class _ConversationEncryptionHostState
     });
     widget.device?.vaultStatus.addListener(_accessChanged);
     widget.messaging.removedElsewhere.addListener(_accessChanged);
+    // Opened while access is already lost: close before any digit shows.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _accessChanged());
   }
 
   static Set<String> _lineIds(List<ThreadEntry> entries) => {
@@ -275,32 +278,39 @@ class _ConversationEncryptionHostState
   };
 
   /// Encryption access is lost while the panel is open: the vault is not
-  /// ready any more, the access rule turned hidden, or this device was
-  /// removed elsewhere.
+  /// ready any more, or this device was removed elsewhere. (A vault that is
+  /// ready is a known vault, so the access rule cannot turn `hidden` while
+  /// the vault stays ready: that case needs no clause of its own.)
   void _accessChanged() {
     if (_closing) return;
     final device = widget.device;
     final lost =
         widget.messaging.removedElsewhere.value ||
-        (device != null &&
-            (device.vaultStatus.value != VaultStatus.ready ||
-                encryptionAccessOf(
-                      flagOn: widget.access == EncryptionAccess.full,
-                      vaultKnown: device.vaultKnown,
-                      status: device.vaultStatus.value,
-                    ) ==
-                    EncryptionAccess.hidden));
+        (device != null && device.vaultStatus.value != VaultStatus.ready);
     if (lost) _close();
   }
 
-  /// Clears the code, then pops, once. The digits are gone before the route
-  /// animates out.
+  /// Clears the code, then closes THIS route, once. The digits are gone before
+  /// the route animates out. A route that is no longer active (the user
+  /// dismissed it, or Check devices popped it) is left alone: the State stays
+  /// mounted through the exit animation and the navigator's top is then
+  /// someone else's page.
   void _close() {
     if (_closing) return;
     _closing = true;
     _cubit.clear();
-    if (mounted && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
+    _removeRoute();
+  }
+
+  void _removeRoute() {
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return;
+    final navigator = Navigator.of(context);
+    if (route.isCurrent) {
+      navigator.pop();
+    } else {
+      navigator.removeRoute(route);
     }
   }
 
@@ -316,7 +326,8 @@ class _ConversationEncryptionHostState
 
   void _checkDevices() {
     final router = widget.router ?? GoRouter.maybeOf(context);
-    Navigator.of(context).pop();
+    _closing = true;
+    _removeRoute();
     if (router != null) {
       unawaited(router.push<void>(AppRouter.encryptionSettingsPath));
     }

@@ -309,11 +309,12 @@ class ThreadScreen extends StatelessWidget {
 enum _MenuAction { viewProfile, encryption, block, report, delete }
 
 /// How the thread names the peer in its copy: the display name, else the
-/// `@handle`.
-String _peerLabel(common.AuthorSnapshot? peer) =>
-    peer == null || peer.displayName.isEmpty
-    ? '@${peer?.handle ?? ''}'
-    : peer.displayName;
+/// `@handle`, else '' (the copy's own fallback applies).
+String _peerLabel(common.AuthorSnapshot? peer) {
+  if (peer == null) return '';
+  if (peer.displayName.isNotEmpty) return peer.displayName;
+  return peer.handle.isEmpty ? '' : '@${peer.handle}';
+}
 
 /// The Encryption entry: an encrypted thread whose security is known and is
 /// not an incoming request (nothing to compare there).
@@ -1196,7 +1197,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         : buildThreadItems(state.messages);
     final conversation = state.conversation;
     final peer = conversation?.peer;
-    final peerName = _peerLabel(peer);
+    // The thread's own copy keeps its bare '@' when there is no handle.
+    final label = _peerLabel(peer);
+    final peerName = label.isEmpty ? '@' : label;
     final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
     final seenId = _seenMessageId(state, conversation);
     // Row keys must be unique: the day separator above the earlier plaintext
