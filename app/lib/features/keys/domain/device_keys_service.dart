@@ -696,8 +696,10 @@ class DeviceKeysService {
   }
 
   /// Whether the vault holds a usable device (the existing-device branch of
-  /// [_loadOrCreate]). Read only: creates and writes nothing, never touches
-  /// the engine. Any failure reads as "no".
+  /// [_loadOrCreate]). Read only: creates and writes nothing and makes no
+  /// MLS engine call itself (on Android a vault read unseals through the
+  /// engine's cipher, so the engine may still run). Any failure reads as
+  /// "no".
   Future<bool> _hasUsableDevice(SecureVault v) async {
     try {
       if (_decodeId(await v.deviceId()) == null) return false;

@@ -268,8 +268,14 @@ class AndroidVaultCipher implements VaultCipher {
   // flight and destroy zeroes the key only after they finish, or after
   // [_destroyWait]. A call that outlives that bound returns no result: it
   // fails with StateError (its key may have been zeroed under it).
+  StateError _endedError() => StateError(
+    _destroyed
+        ? 'The vault cipher was destroyed.'
+        : 'The vault cipher was closed.',
+  );
+
   Future<T> _run<T>(Future<T> Function(Uint8List key) body) async {
-    if (_closed) throw StateError('The vault cipher was destroyed.');
+    if (_closed) throw _endedError();
     _inFlight++;
     try {
       final T result;
@@ -277,10 +283,10 @@ class AndroidVaultCipher implements VaultCipher {
         result = await body(_key);
       } on Object {
         // A late failure may be the zeroed key's doing: not a bad row.
-        if (_zeroed) throw StateError('The vault cipher was destroyed.');
+        if (_zeroed) throw _endedError();
         rethrow;
       }
-      if (_zeroed) throw StateError('The vault cipher was destroyed.');
+      if (_zeroed) throw _endedError();
       return result;
     } finally {
       _inFlight--;
