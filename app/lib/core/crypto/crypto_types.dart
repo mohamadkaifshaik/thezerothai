@@ -26,7 +26,9 @@ enum MlsErrorCode {
   duplicate('duplicate'),
 
   /// The wire message names this device's own leaf as its sender (its own
-  /// application message or commit, echoed back). **Not authenticated.**
+  /// application message or commit, echoed back). Returned only at the
+  /// group's current epoch: an own commit processed after `confirmCommit` is
+  /// [wrongEpoch]. **Not authenticated.**
   /// OpenMLS decides this from the sender data alone, before the content is
   /// decrypted or the signature checked, and every member holds the
   /// sender-data secret: any member can forge it and the server can replay

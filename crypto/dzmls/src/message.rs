@@ -123,15 +123,18 @@ pub struct Processed {
 ///
 /// Error codes: `wrong_epoch` when the message's epoch is not the group's (older or newer); `evicted` when this
 /// device is no longer a member; `duplicate` when the message's generation was already consumed (a replay);
-/// `own_leaf` when the message names this device's own leaf as its sender (this device's own application message or
-/// commit echoed back, with or without a pending commit in the state; no state is returned). **Not authenticated.**
-/// OpenMLS decides this from the sender data alone, before the content is decrypted or the signature checked, and
-/// every member holds the sender-data secret: any member can forge it and the server can replay this device's real
-/// ciphertext. Callers decide what to believe (addendum R7); `bad_input` for a message more than 50 generations behind the newest one seen
-/// from its sender (its key is gone, so it was never read and cannot be read), and for anything oversized,
-/// unparsable, for another group, failing decryption or validation, or of a kind this engine does not take
-/// (Welcome, standalone proposal), and for a commit that adds a device id already in the group (or twice) or changes
-/// a member's device id. On any error no state is returned.
+/// `own_leaf` when the message names this device's own leaf as its sender (see below); `bad_input` for a message
+/// more than 50 generations behind the newest one seen from its sender (its key is gone, so it was never read and
+/// cannot be read), and for anything oversized, unparsable, for another group, failing decryption or validation, or
+/// of a kind this engine does not take (Welcome, standalone proposal), and for a commit that adds a device id already
+/// in the group (or twice) or changes a member's device id. On any error no state is returned.
+///
+/// `own_leaf` covers this device's own application message or commit echoed back, with or without a pending commit in
+/// the state; no state is returned. It is returned only at the group's current epoch: an own commit processed after
+/// `confirm_commit` (the group has moved to the next epoch) is `wrong_epoch`. **Not authenticated.** OpenMLS decides
+/// this from the sender data alone, before the content is decrypted or the signature checked, and every member holds
+/// the sender-data secret: any member can forge it and the server can replay this device's real ciphertext. Callers
+/// decide what to believe (addendum R7).
 ///
 /// A commit from another member for the epoch this device has a pending commit on means that commit lost:
 /// processing it merges the winner and drops the pending commit.

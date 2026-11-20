@@ -23,7 +23,8 @@ pub enum ErrorCode {
     /// The message was already processed.
     Duplicate,
     /// The wire message names this device's own leaf as its sender: this device's own application message or its
-    /// own commit, echoed back. No state is returned.
+    /// own commit, echoed back. No state is returned. Returned only at the group's current epoch: an own commit
+    /// processed after `confirm_commit` is `WrongEpoch`.
     ///
     /// **Not authenticated.** OpenMLS decides this from the sender data alone, before the content is decrypted or
     /// the signature checked, and every member holds the sender-data secret: any member can forge it and the
