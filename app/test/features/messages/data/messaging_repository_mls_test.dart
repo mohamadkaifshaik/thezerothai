@@ -14,6 +14,8 @@ import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:fixnum/fixnum.dart';
@@ -28,6 +30,21 @@ const _conv = '0123456789abcdef0123456789abcdef';
 const _key = '11111111-1111-4111-8111-111111111111';
 
 Uint8List _b(List<int> v) => Uint8List.fromList(v);
+
+/// Counts the SELECT statements the cache database runs.
+class _CountSelects extends QueryInterceptor {
+  int selects = 0;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    selects++;
+    return super.runSelect(executor, statement, args);
+  }
+}
 
 void main() {
   late AppDatabase db;
@@ -1032,21 +1049,276 @@ void main() {
         expect(await repo.cachedEverEncrypted(_conv), isTrue);
       });
 
-      test('delete-for-me clears the marker', () async {
+      // D2, owner approved 2026-11-20: delete-for-me used to clear the mark;
+      // it now keeps it (only sign-out clears it).
+      test('delete-for-me keeps the ever-encrypted mark and a later NONE '
+          'header stays encrypted', () async {
         await mark();
         await repo.deleteConversation(
           idempotencyKey: _key,
           conversationId: _conv,
         );
-        expect(await repo.cachedEverEncrypted(_conv), isFalse);
-        await mark();
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
         override = (p) =>
             throw connect.ConnectException(connect.Code.notFound, 'gone');
         await repo.deleteConversation(
           idempotencyKey: _key,
           conversationId: _conv,
         );
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+        // The server later answers NONE for the same (fixed) conversation id.
+        script('$_svc/ListMessages', [
+          listAnswer(
+            [msg(1, conversationId: _conv)],
+            conversation: conv(_conv, snippet: 'plain words'),
+            since: 's1',
+          ),
+        ]);
+        final snap = await repo.refreshThread(_conv);
+        expect(snap.conversation!.lastMessage.encrypted, isTrue);
+        expect(snap.conversation!.lastMessage.snippet, isEmpty);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('a successful sendEncrypted records the conversation as ever '
+          'encrypted', () async {
+        override = (p) => p == '$_svc/SendMessage'
+            ? pb.SendMessageResponse(
+                message: pb.Message(id: hexId(1), conversationId: _conv),
+              )
+            : null;
         expect(await repo.cachedEverEncrypted(_conv), isFalse);
+        await repo.sendEncrypted(
+          idempotencyKey: _key,
+          recipientUserId: 'u-peer',
+          ciphertext: _b([1]),
+          pair: const MlsPair(1, 1),
+          reportCommitment: _b([3]),
+        );
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+        expect(await db.select(db.messageEntries).get(), isEmpty);
+        expect(await db.select(db.conversationEntries).get(), isEmpty);
+        // A failed send records nothing.
+        const other = 'fedcba9876543210fedcba9876543210';
+        override = (p) =>
+            throw connect.ConnectException(connect.Code.unavailable, 'down');
+        await expectLater(
+          repo.sendEncrypted(
+            idempotencyKey: _key,
+            conversationId: other,
+            ciphertext: _b([1]),
+            pair: const MlsPair(1, 1),
+            reportCommitment: _b([3]),
+          ),
+          throwsA(isA<NetworkException>()),
+        );
+        expect(await repo.cachedEverEncrypted(other), isFalse);
+      });
+
+      test('noteEverEncrypted records a valid id once and ignores an invalid '
+          'one', () async {
+        Future<List<String>> marks() async => [
+          for (final r in await db.select(db.messagingStateEntries).get())
+            if (r.stateKey.startsWith(kEverEncryptedStatePrefix)) r.stateKey,
+        ];
+        await repo.noteEverEncrypted(_conv);
+        await repo.noteEverEncrypted(_conv);
+        await repo.noteEverEncrypted('not-a-conversation-id');
+        await repo.noteEverEncrypted('');
+        await repo.noteEverEncrypted(_conv.toUpperCase());
+        expect(await marks(), ['$kEverEncryptedStatePrefix$_conv']);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+        // Bound to the session it was called in: nothing lands once that
+        // session ended (a sign-out while the write was queued).
+        const other = 'fedcba9876543210fedcba9876543210';
+        final pending = repo.noteEverEncrypted(other);
+        db.sessionEpoch.end();
+        await pending;
+        expect(await marks(), ['$kEverEncryptedStatePrefix$_conv']);
+      });
+
+      test('an MLS since page followed by a failing gap page still records '
+          'the mark', () async {
+        script('$_svc/ListMessages', [
+          listAnswer(
+            [msg(1, conversationId: _conv)],
+            conversation: conv(_conv, snippet: 'hi'),
+            since: 's1',
+          ),
+          listAnswer(
+            [enc(2)],
+            conversation: mlsHeader(),
+            since: 's2',
+            gap: 'g1',
+          ),
+          connect.ConnectException(connect.Code.unavailable, 'down'),
+        ]);
+        await repo.refreshThread(_conv);
+        expect(await repo.cachedEverEncrypted(_conv), isFalse);
+        await expectLater(
+          repo.refreshThread(_conv),
+          throwsA(isA<NetworkException>()),
+        );
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+        expect(encrypted, [_conv]);
+        await expectNoCiphertextStored();
+      });
+
+      test('a message carrying only a report commitment or an epoch is not '
+          'cached', () async {
+        final epochOnly = msg(2, conversationId: _conv, text: '')
+          ..mlsEpoch = Int64(3);
+        final commitmentOnly = msg(3, conversationId: _conv, text: '')
+          ..reportCommitment = [5, 5];
+        answers.add(
+          listAnswer(
+            [msg(1, conversationId: _conv), epochOnly, commitmentOnly],
+            conversation: conv(_conv, snippet: 'hi'),
+            since: 's1',
+          ),
+        );
+        final snap = await repo.refreshThread(_conv);
+        expect([for (final m in snap.messages) m.id], [hexId(1)]);
+        for (final r in await db.select(db.messageEntries).get()) {
+          final m = pb.Message.fromBuffer(r.payload);
+          expect(m.mlsEpoch, Int64.ZERO);
+          expect(m.reportCommitment, isEmpty);
+        }
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('an invalid conversation id is not recorded as ever '
+          'encrypted', () async {
+        await store.markEverEncrypted({
+          'c1',
+          'not-hex',
+          '',
+          _conv.toUpperCase(),
+          '$_conv%',
+          _conv,
+        }, session: store.session);
+        final keys = [
+          for (final r in await db.select(db.messagingStateEntries).get())
+            r.stateKey,
+        ];
+        expect(keys, ['$kEverEncryptedStatePrefix$_conv']);
+        // Through a read too: a server-chosen id that is not one is dropped.
+        answers.add(listAnswer([enc(1)..conversationId = 'c1'], since: 's1'));
+        await repo.refreshThread('c1');
+        expect(await store.isEverEncrypted('c1'), isFalse);
+        expect(await db.select(db.messageEntries).get(), isEmpty);
+      });
+
+      test('a refresh that learns nothing new about a marked conversation '
+          'makes no report', () async {
+        pb.Conversation shownEncrypted() =>
+            conv(_conv)..lastMessage = pb.MessagePreview(encrypted: true);
+        await mark();
+        script('$_svc/ListConversations', [
+          inbox([shownEncrypted()], since: 't1'),
+          inbox([shownEncrypted()], since: 't2'),
+          inbox([
+            shownEncrypted()
+              ..encryption = ConversationEncryption.CONVERSATION_ENCRYPTION_MLS,
+          ], since: 't3'),
+        ]);
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        expect(encrypted, isEmpty);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('conversationWithPeer shows a marked conversation as '
+          'encrypted', () async {
+        await store.applyConversationsColdOpen(
+          Folder.FOLDER_INBOX,
+          items: [conv(_conv, snippet: 'plain words')],
+          sinceToken: 't1',
+          nextPageToken: '',
+          session: store.session,
+        );
+        var row = (await repo.cachedConversationWith('u-$_conv'))!;
+        expect(row.lastMessage.snippet, 'plain words');
+        await mark();
+        row = (await repo.cachedConversationWith('u-$_conv'))!;
+        expect(row.lastMessage.encrypted, isTrue);
+        expect(row.lastMessage.snippet, isEmpty);
+        // The stored row is not rewritten by the read.
+        final stored = pb.Conversation.fromBuffer(
+          (await db.select(db.conversationEntries).get()).single.payload,
+        );
+        expect(stored.lastMessage.snippet, 'plain words');
+      });
+
+      test('dropBlockedRequest keeps the mark', () async {
+        await store.applyConversationsColdOpen(
+          Folder.FOLDER_REQUESTS,
+          items: [
+            conv(
+              _conv,
+              folder: Folder.FOLDER_REQUESTS,
+              state: ConversationState.CONVERSATION_STATE_REQUEST,
+            ),
+          ],
+          sinceToken: 't1',
+          nextPageToken: '',
+          session: store.session,
+        );
+        await mark();
+        await repo.dropBlockedRequest(_conv);
+        expect(await repo.cachedConversation(_conv), isNull);
+        expect(await repo.cachedEverEncrypted(_conv), isTrue);
+      });
+
+      test('a dm_post_share FEATURE_DISABLED on a read leaves messaging '
+          'reads on', () async {
+        script('$_svc/ListMessages', [
+          serverError(
+            connect.Code.failedPrecondition,
+            common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+            metadata: {'feature': kFeatureDmPostShare},
+          ),
+          listAnswer(
+            [msg(1, conversationId: _conv)],
+            conversation: conv(_conv, snippet: 'hi'),
+            since: 's1',
+          ),
+        ]);
+        await expectLater(
+          repo.refreshThread(_conv),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(gate.canRead, isTrue);
+        requests.clear();
+        final snap = await repo.refreshThread(_conv);
+        expect(requests, hasLength(1));
+        expect(snap.messages, hasLength(1));
+      });
+
+      test('accept and delete with an ended session make no report', () async {
+        // The session ends while each call is in flight.
+        override = (p) {
+          switch (p) {
+            case '$_svc/AcceptMessageRequest':
+              db.sessionEpoch.end();
+              return pb.AcceptMessageRequestResponse();
+            case '$_svc/DeleteConversation':
+              db.sessionEpoch.end();
+              return pb.DeleteConversationResponse();
+          }
+          return null;
+        };
+        await repo.acceptMessageRequest(
+          idempotencyKey: _key,
+          conversationId: _conv,
+        );
+        await repo.deleteConversation(
+          idempotencyKey: _key,
+          conversationId: _conv,
+        );
+        expect(accepted, isEmpty);
+        expect(deleted, isEmpty);
       });
 
       test('sign-out clears the marker', () async {
@@ -1155,5 +1427,51 @@ void main() {
         expect(await repo.cachedEverEncrypted(_conv), isTrue);
       });
     });
+  });
+
+  test('the marker logic of a conversations page costs a constant number of '
+      'reads, whatever the page size', () async {
+    Future<int> selectsFor(int rows) async {
+      final counter = _CountSelects();
+      final counted = AppDatabase.forTesting(
+        NativeDatabase.memory().interceptWith(counter),
+      );
+      addTearDown(counted.close);
+      await counted.claimCacheFor('a');
+      final countedStore = MessagingStore(counted);
+      final ids = [for (var i = 0; i < rows; i++) hexId(100 + i)];
+      var calls = 0;
+      final r = MessagingRepository(
+        apiClient: ApiClient.withTransport(
+          FakeTransport((procedure, input) async {
+            calls++;
+            return pb.ListConversationsResponse(
+              conversations: [for (final id in ids) conv(id, snippet: 'hi')],
+              sinceToken: 't$calls',
+              requestCount: Int64(0),
+            );
+          }),
+        ),
+        store: countedStore,
+        gate: MessagingFeatureGate(isMessagingEnabled: () => true),
+        pageSize: 50,
+        rateLimitHold: RateLimitHold(monotonic: () => Duration.zero),
+      );
+      // A cold open caches the rows; one of them is marked.
+      await r.refreshConversations(Folder.FOLDER_INBOX);
+      await countedStore.markEverEncrypted({
+        ids.first,
+      }, session: countedStore.session);
+      counter.selects = 0;
+      // The since refresh every poll makes.
+      await r.refreshConversations(Folder.FOLDER_INBOX);
+      expect(calls, 2);
+      return counter.selects;
+    }
+
+    final small = await selectsFor(2);
+    final large = await selectsFor(20);
+    expect(small, greaterThan(0));
+    expect(large, small);
   });
 }
