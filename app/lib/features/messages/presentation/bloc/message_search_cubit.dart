@@ -66,6 +66,9 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
     return (_encryptedAllowed?.call() ?? false) ? port : null;
   }
 
+  /// True when a port exists and the access allows using it right now.
+  bool get encryptedUsable => _port != null;
+
   /// The screen calls this when the encryption access of this device may have
   /// changed: with access lost the decrypted hits are dropped at once.
   void accessChanged() {
@@ -145,12 +148,15 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
         // The saved copies on this device (R14): in memory only, and only
         // while the access allows it. A failure keeps the cache results.
         try {
+          // Asked BEFORE the await, while the access still holds (and so
+          // also right when the search fails).
+          _encryptedConversation = id != null && _isEncrypted(port, corpus, id);
           final hits = await port.search(query, conversationId: id);
           if (isClosed || generation != _generation) return;
-          if (_port != null) {
+          // A stale answer (the query moved on) is dropped, not published.
+          if (_port != null && query == state.query) {
             vault = groupEncryptedHits(corpus.conversations, hits, query);
           }
-          _encryptedConversation = id != null && _isEncrypted(port, corpus, id);
         } on Object catch (_, stack) {
           if (isClosed || generation != _generation) return;
           // Never the original error: it may carry the query or text.

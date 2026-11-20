@@ -87,7 +87,8 @@ class EncryptedInboxRig {
 
   late bool _flagOn = flag == E2eeFlag.on;
   final StreamController<OnboardingState> _flagChanges =
-      StreamController<OnboardingState>.broadcast();
+      // Sync: a flag flip reaches the tree before the next frame is built.
+      StreamController<OnboardingState>.broadcast(sync: true);
 
   Set<String> get features => {'messaging', if (_flagOn) kFeatureE2eeDm};
 

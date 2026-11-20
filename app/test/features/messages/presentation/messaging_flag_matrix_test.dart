@@ -9,7 +9,6 @@ import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status_banner.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:dzeroth/features/messages/domain/people_source.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
 import 'package:dzeroth/features/messages/presentation/recipient_picker_screen.dart';
@@ -19,8 +18,9 @@ import 'package:dzeroth/features/moderation/domain/reports_feature_flag.dart';
 import 'package:dzeroth/features/notifications/domain/notifications_feature_flag.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.connect.spec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_encryption_device.dart';

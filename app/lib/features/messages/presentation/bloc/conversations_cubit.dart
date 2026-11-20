@@ -381,6 +381,10 @@ class ConversationsCubit extends Cubit<ConversationsState> {
         known = <String>{};
       }
     }
+    {
+      final loadedIds = {for (final c in snapshot.conversations) c.id};
+      _previewSeq.removeWhere((id, _) => !loadedIds.contains(id));
+    }
     emit(
       state.copyWith(
         conversations: snapshot.conversations,

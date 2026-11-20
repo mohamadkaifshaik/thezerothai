@@ -19,6 +19,7 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -470,6 +471,88 @@ void main() {
         isNot(contains('canary')),
       );
       expect(corpus.messages['c1']!.map((m) => m.text), ['recent talk']);
+
+      // Every row of every table of the database: no hit text, no query.
+      final rows = <String>[];
+      for (final table in db.allTables) {
+        final read = await db
+            .customSelect('SELECT * FROM ${table.actualTableName}')
+            .get();
+        for (final row in read) {
+          rows.add(
+            row.data.values
+                .map((v) => v is List<int> ? String.fromCharCodes(v) : '$v')
+                .join('|'),
+          );
+        }
+      }
+      expect(rows, isNotEmpty, reason: 'the scan reads real rows');
+      for (final row in rows) {
+        expect(row.toLowerCase(), isNot(contains('canary')));
+      }
+    });
+
+    test('losing access while a search is pending makes no further port '
+        'call', () async {
+      final slow = _SlowPort()..local = {'c1'};
+      final rig = EncryptedSearchRig(conversations: [conv('c1')], port: slow);
+      var allowed = true;
+      final cubit = _cubit(
+        rig,
+        port: slow,
+        conversationId: 'c1',
+        allowed: () => allowed,
+      );
+      cubit.setQuery('needle');
+      while (!slow.pending.containsKey('needle')) {
+        await pumpEventQueue();
+      }
+      allowed = false;
+      slow.pending['needle']!.complete([_hit('c1', 'm1', 'a needle')]);
+      await _ready(cubit);
+      final after = slow.calls.sublist(slow.calls.indexOf('search') + 1);
+      expect(after, isEmpty, reason: 'no port call once access was lost');
+      expect(cubit.encryptedResults.value.isEmpty, isTrue);
+    });
+
+    test('a failed search on an encrypted conversation offers no older '
+        'pages', () async {
+      final rig = EncryptedSearchRig(
+        conversations: [conv('c1')],
+        messages: {
+          'c1': [msg(1, text: 'plain needle')],
+        },
+      );
+      when(() => rig.repo.olderSearchToken('c1'))
+          .thenAnswer((_) async => 'tok');
+      rig.port.local = {'c1'};
+      rig.port.failNextOn('search', StateError('x'));
+      final cubit = _cubit(rig, conversationId: 'c1');
+      cubit.setQuery('needle');
+      await _ready(cubit);
+      expect(cubit.state.canLoadOlder, isFalse);
+      expect(rig.reported.single, isA<StateError>());
+    });
+
+    test('an older query\'s hits are dropped when the query changed before the '
+        'debounce fired', () async {
+      final slow = _SlowPort();
+      final rig = EncryptedSearchRig(conversations: [conv('c1')], port: slow);
+      final cubit = _cubit(
+        rig,
+        port: slow,
+        debounce: const Duration(milliseconds: 30),
+      );
+      cubit.setQuery('old');
+      while (!slow.pending.containsKey('old')) {
+        await pumpEventQueue();
+      }
+      // Typing on: the new query's debounce has not fired yet.
+      cubit.setQuery('new');
+      slow.pending['old']!.complete([_hit('c1', 'ma', 'old answer')]);
+      await pumpEventQueue();
+      expect(cubit.state.query, 'new');
+      expect(cubit.encryptedResults.value.isEmpty, isTrue);
     });
   });
 
@@ -623,6 +706,18 @@ void main() {
       }
     }
 
+    testWidgets('a device with no port keeps today\'s subtitles', (
+      tester,
+    ) async {
+      final rig = EncryptedSearchRig(withPort: false);
+      await rig.pump(tester);
+      expect(find.text(_todayIdle), findsOneWidget);
+      expect(find.text(kSearchSavedIdleSubtitle), findsNothing);
+      await rig.type(tester, 'zzz nothing');
+      expect(find.text(_todayEmpty), findsOneWidget);
+      expect(find.text(kSearchSavedEmptySubtitle), findsNothing);
+    });
+
     testWidgets('no port in the tree: today\'s search', (tester) async {
       final rig = EncryptedSearchRig(
         withPort: false,
@@ -652,7 +747,17 @@ void main() {
       expect(_row('vault needle'), findsOneWidget);
 
       rig.setFlagOn(false);
+      // One frame: the readable text is already gone from the tree.
+      await tester.pump();
+      expect(_row('vault needle'), findsNothing);
       await tester.pumpAndSettle();
+      // And the cubit itself holds nothing readable any more.
+      final cubit = BlocProvider.of<MessageSearchCubit>(
+        tester.element(
+          find.byType(BlocBuilder<MessageSearchCubit, MessageSearchState>),
+        ),
+      );
+      expect(cubit.encryptedResults.value.isEmpty, isTrue);
       expect(_row('vault needle'), findsNothing);
       expect(_row('cache needle'), findsOneWidget);
       expect(find.text(kSearchSavedIdleSubtitle), findsNothing);

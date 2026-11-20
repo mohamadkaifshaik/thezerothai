@@ -522,7 +522,17 @@ void main() {
         final calls = rig.port.calls.length;
 
         lose();
+        // One frame: the readable text is already gone from the tree.
+        await tester.pump();
+        expect(find.text('vault words'), findsNothing);
+        expect(find.text('known words'), findsNothing);
         await tester.pumpAndSettle();
+        // And the cubit itself holds nothing readable any more.
+        final held = BlocProvider.of<ConversationsCubit>(
+          tester.element(find.byType(ConversationRow).first),
+        ).state;
+        expect(held.previews, isEmpty);
+        expect(held.knownEncrypted, isEmpty);
 
         expect(find.text('vault words'), findsNothing);
         expect(find.text('known words'), findsNothing);

@@ -153,8 +153,9 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
                     builder: (context, state) => EncryptionAccessBuilder(
                       builder: (context, access) {
                         final saved =
-                            access == EncryptionAccess.full ||
-                            access == EncryptionAccess.manage;
+                            (access == EncryptionAccess.full ||
+                                access == EncryptionAccess.manage) &&
+                            _cubit.encryptedUsable;
                         return ValueListenableBuilder<EncryptedHitGroups>(
                           valueListenable: _cubit.encryptedResults,
                           builder: (context, vault, _) {
