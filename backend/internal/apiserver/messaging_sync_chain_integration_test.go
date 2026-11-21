@@ -3,7 +3,7 @@
 package apiserver
 
 // The six encrypted-conversation procedures over the real Build chain on the emulators: the flag class of each (Commit per
-// caller; the three sync lists and AckWelcomes not globally off; none needs e2ee_dm), DEGRADED_MODE=readonly (Commit and
+// caller; the three sync lists and AckWelcomes not globally off; only ListMessageTombstones and the ordered ListEpochMessages also need e2ee_dm not globally off),DEGRADED_MODE=readonly (Commit and
 // AckWelcomes refused, the lists answer), the shared sync bucket, the commit daily cap and the reset cap as wired by Build,
 // and ListWelcomes / AckWelcomes reading the real key directory through the late-bound adapter.
 
@@ -144,7 +144,8 @@ func TestMessagingSyncChain_EndToEnd(t *testing.T) {
 }
 
 // The flag class of each procedure (proto): Commit needs messaging on for the caller; the sync lists and AckWelcomes only
-// not globally off; none needs e2ee_dm (here off for everyone).
+// not globally off; none of these needs e2ee_dm (here off for everyone); ListMessageTombstones and the ordered
+// ListEpochMessages do (not globally off), and are covered elsewhere.
 func TestMessagingSyncChain_FlagClasses(t *testing.T) {
 	w := newE2EEWorld(t)
 	for _, tt := range []struct {

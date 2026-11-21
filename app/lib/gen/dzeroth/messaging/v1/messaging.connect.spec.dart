@@ -363,7 +363,7 @@ abstract final class MessagingService {
   /// Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
   /// NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
   /// conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
-  /// instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+  /// instance, shared with ListEpochMessages, ListMessageTombstones, ListWelcomes and AckWelcomes.
   /// Cost: one read-only transaction: 1 conversation read + 1 query of at most page_size (max 50) commit records.
   /// Writes nothing.
   static const listConversationCommits = connect.Spec(

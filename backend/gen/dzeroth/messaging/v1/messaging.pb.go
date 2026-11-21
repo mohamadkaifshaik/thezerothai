@@ -109,7 +109,9 @@
 //   SendMessage: it must be on for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
 //   "e2ee_dm", before any lookup) AND for the recipient (else the byte-identical CANNOT_MESSAGE). Every other operation
 //   on an encrypted conversation (sends, CommitConversation, ListConversationCommits, ListEpochMessages,
-//   ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC, so a participant dropped
+//   ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC (the two newer surfaces,
+//   ListMessageTombstones and ListEpochMessages with order = CREATED_AT, also need e2ee_dm not globally off, never
+//   per caller), so a participant dropped
 //   from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
 //   are already members. The limits of that, from the key directory (keys.v1): (a) their devices stay visible in
 //   GetKeyDevices to a peer who shares an accepted encrypted conversation (keys.v1), but cannot be claimed for (a target with
@@ -2731,7 +2733,8 @@ type ListEpochMessagesResponse struct {
 	// committed late. Same binding and 30-day life as next_page_token.
 	ResumePageToken string `protobuf:"bytes,5,opt,name=resume_page_token,json=resumePageToken,proto3" json:"resume_page_token,omitempty"`
 	// CREATED_AT only: true when resume_page_token is positioned after the last message returned (every message of
-	// this page was created more than 60 s before this read). False: it trails, at or before the last message.
+	// this page was created more than 60 s before this read). False: it trails, at or before the last message. Vacuously
+	// true on an empty page; the resume position is then the request's position.
 	ResumeSettled bool `protobuf:"varint,6,opt,name=resume_settled,json=resumeSettled,proto3" json:"resume_settled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

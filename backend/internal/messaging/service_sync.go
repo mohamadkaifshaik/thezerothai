@@ -58,6 +58,10 @@ const (
 	// EpochResumeTrail is how far resume_page_token of an order = CREATED_AT page trails the read time: a message stamped
 	// more than this before a read was committed by then. It must stay above the Cloud Run request_timeout_seconds (30,
 	// the bound of a send's stamp-to-commit time) plus the clock skew between instances.
+	//
+	// The coupling: the trail is safe only while a SendMessage request cannot outlive it. The Cloud Run request timeout
+	// (request_timeout_seconds in infra/terraform/modules/cloud-run-api/variables.tf, 30 s today) plus the send
+	// transaction's own bound must stay well under the trail; anyone raising that timeout must raise the trail too.
 	EpochResumeTrail = 60 * time.Second
 	// MaxTombstonePage and defaultTombstonePage are ListMessageTombstones' page size bounds.
 	MaxTombstonePage     = 100
@@ -278,7 +282,11 @@ func (s *service) ListMessageTombstones(ctx context.Context, uid string, req *me
 		}
 		resp.Tombstones = append(resp.Tombstones, &messagingv1.MessageTombstone{Id: r.ID, State: st})
 	}
-	if more && lastID != "" {
+	if more && lastID == "" {
+		// A full page of invalid ids has no position to resume from; an empty token would read as "the end".
+		return nil, s.failure(ctx, kindTombstones, uid, id, errors.New("messaging: tombstone page without a valid last id"))
+	}
+	if more {
 		resp.NextPageToken = cursor.EncodeAt(s.d.CursorKey, binding, cursor.Cursor{CreatedAt: now, DocID: lastID}, now)
 	}
 	logger.SetRequestField(ctx, fieldResults, len(resp.Tombstones))

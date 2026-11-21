@@ -109,7 +109,9 @@
 //     SendMessage: it must be on for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
 //     "e2ee_dm", before any lookup) AND for the recipient (else the byte-identical CANNOT_MESSAGE). Every other operation
 //     on an encrypted conversation (sends, CommitConversation, ListConversationCommits, ListEpochMessages,
-//     ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC, so a participant dropped
+//     ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC (the two newer surfaces,
+//     ListMessageTombstones and ListEpochMessages with order = CREATED_AT, also need e2ee_dm not globally off, never
+//     per caller), so a participant dropped
 //     from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
 //     are already members. The limits of that, from the key directory (keys.v1): (a) their devices stay visible in
 //     GetKeyDevices to a peer who shares an accepted encrypted conversation (keys.v1), but cannot be claimed for (a target with
@@ -607,7 +609,7 @@ type MessagingServiceClient interface {
 	// Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
 	// NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
 	// conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
-	// instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+	// instance, shared with ListEpochMessages, ListMessageTombstones, ListWelcomes and AckWelcomes.
 	// Cost: one read-only transaction: 1 conversation read + 1 query of at most page_size (max 50) commit records.
 	// Writes nothing.
 	ListConversationCommits(context.Context, *connect.Request[v1.ListConversationCommitsRequest]) (*connect.Response[v1.ListConversationCommitsResponse], error)
@@ -1174,7 +1176,7 @@ type MessagingServiceHandler interface {
 	// Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
 	// NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
 	// conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
-	// instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+	// instance, shared with ListEpochMessages, ListMessageTombstones, ListWelcomes and AckWelcomes.
 	// Cost: one read-only transaction: 1 conversation read + 1 query of at most page_size (max 50) commit records.
 	// Writes nothing.
 	ListConversationCommits(context.Context, *connect.Request[v1.ListConversationCommitsRequest]) (*connect.Response[v1.ListConversationCommitsResponse], error)

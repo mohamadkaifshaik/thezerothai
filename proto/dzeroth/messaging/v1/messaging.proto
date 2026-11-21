@@ -105,7 +105,9 @@ syntax = "proto3";
 //   SendMessage: it must be on for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
 //   "e2ee_dm", before any lookup) AND for the recipient (else the byte-identical CANNOT_MESSAGE). Every other operation
 //   on an encrypted conversation (sends, CommitConversation, ListConversationCommits, ListEpochMessages,
-//   ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC, so a participant dropped
+//   ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC (the two newer surfaces,
+//   ListMessageTombstones and ListEpochMessages with order = CREATED_AT, also need e2ee_dm not globally off, never
+//   per caller), so a participant dropped
 //   from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
 //   are already members. The limits of that, from the key directory (keys.v1): (a) their devices stay visible in
 //   GetKeyDevices to a peer who shares an accepted encrypted conversation (keys.v1), but cannot be claimed for (a target with
@@ -552,7 +554,7 @@ service MessagingService {
   // Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
   // NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
   // conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
-  // instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+  // instance, shared with ListEpochMessages, ListMessageTombstones, ListWelcomes and AckWelcomes.
   // Cost: one read-only transaction: 1 conversation read + 1 query of at most page_size (max 50) commit records.
   // Writes nothing.
   rpc ListConversationCommits(ListConversationCommitsRequest) returns (ListConversationCommitsResponse) {
@@ -1078,7 +1080,8 @@ message ListEpochMessagesResponse {
   // committed late. Same binding and 30-day life as next_page_token.
   string resume_page_token = 5;
   // CREATED_AT only: true when resume_page_token is positioned after the last message returned (every message of
-  // this page was created more than 60 s before this read). False: it trails, at or before the last message.
+  // this page was created more than 60 s before this read). False: it trails, at or before the last message. Vacuously
+  // true on an empty page; the resume position is then the request's position.
   bool resume_settled = 6;
 }
 

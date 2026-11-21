@@ -245,6 +245,16 @@ func wantInternal(t *testing.T, err error) {
 	}
 }
 
+// wantRedacted: neither the raw uid nor the conversation id is in the error text.
+func wantRedacted(t *testing.T, err error) {
+	t.Helper()
+	for _, secret := range []string{alice, bob, aliceBobConv} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("the error carries %q: %v", secret, err)
+		}
+	}
+}
+
 // putEpochMessages stores the alice-bob conversation's messages: per pair, n messages; returns the ids by pair.
 func (r *rig) putEpochMessages(perPair map[[2]int64]int) map[[2]int64][]string {
 	if r.repo.msgs == nil {
@@ -1022,6 +1032,8 @@ func TestListEpochMessagesResumeToken(t *testing.T) {
 		{"an empty first page: no token", nil, nil, 10, 0, nil, true},
 		{"a cut below the request position: the request position", []timedMsg{{hexID(1), 10 * time.Second, ""}}, &pos{30 * time.Second, hexID(5)}, 10, 1,
 			&pos{30 * time.Second, hexID(5)}, false},
+		{"a last row exactly at the cut: the cut (before every id), not settled", []timedMsg{{hexID(1), EpochResumeTrail, ""}}, nil, 10, 1,
+			&pos{EpochResumeTrail, ""}, false},
 		{"a time-only request position above the cut: kept", []timedMsg{{hexID(1), 10 * time.Second, ""}}, &pos{30 * time.Second, ""}, 10, 1,
 			&pos{30 * time.Second, ""}, false},
 	} {
@@ -1098,7 +1110,7 @@ func TestListEpochMessagesIndexMissingFailsClosed(t *testing.T) {
 		fallback bool
 	}{
 		{"FAILED_PRECONDITION: an empty unordered page", status.Error(codes.FailedPrecondition, "The query requires an index: conversations/"+aliceBobConv), true},
-		{"another error: INTERNAL, no fallback", status.Error(codes.Unavailable, "down"), false},
+		{"another error: INTERNAL, no fallback", status.Error(codes.Unavailable, "down "+alice+" "+aliceBobConv), false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := orderRig(t)
@@ -1112,6 +1124,7 @@ func TestListEpochMessagesIndexMissingFailsClosed(t *testing.T) {
 				if code, _, _ := reasonOf(t, err); code != connect.CodeInternal {
 					t.Fatalf("err = %v, want INTERNAL", err)
 				}
+				wantRedacted(t, err)
 				if strings.Contains(logs.String(), fieldOrderFallback) {
 					t.Errorf("a non-index error logged the fallback: %s", logs.String())
 				}
@@ -1335,6 +1348,85 @@ func TestListMessageTombstonesFlag(t *testing.T) {
 				t.Fatalf("resp = %v, %v; want the one tombstone", resp, err)
 			}
 		})
+	}
+}
+
+func TestListMessageTombstonesFullPageOfInvalidIDs(t *testing.T) {
+	r := orderRig(t)
+	r.repo.tombOverride = func() ([]TombstoneRow, bool) {
+		return []TombstoneRow{{"NOT-AN-ID", msgRemoved}, {"ALSO-BAD", msgDeletedAccount}}, true
+	}
+	resp, err := r.svc.ListMessageTombstones(context.Background(), alice, tombReq(aliceBobConv, "", 2))
+	t.Run("a full page of invalid ids is an internal error, not the end", func(t *testing.T) {
+		if err == nil {
+			t.Fatalf("resp = %v, nil error; an empty token would read as the end", resp)
+		}
+		wantInternal(t, err)
+		wantRedacted(t, err)
+	})
+}
+
+// A repo failure of either new path is INTERNAL (never a wire answer) and names neither the uid nor the conversation.
+func TestSyncReadsRepoErrorIsInternalAndRedacted(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		call func(r *rig) error
+	}{
+		{"ordered listing", func(r *rig) error {
+			_, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(orderCreatedAt, "", 10))
+			return err
+		}},
+		{"tombstones", func(r *rig) error {
+			_, err := r.svc.ListMessageTombstones(context.Background(), alice, tombReq(aliceBobConv, "", 10))
+			return err
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t)
+			r.repo.syncErr = errors.New("boom " + alice + " " + aliceBobConv)
+			err := tt.call(r)
+			wantInternal(t, err)
+			wantRedacted(t, err)
+		})
+	}
+}
+
+// A time token (next or resume) replayed on another pair, conversation or user is refused as any invalid token is:
+// INVALID_ARGUMENT with the page_token violation, before any read.
+func TestListEpochMessagesTimeTokenReplayAcrossBindings(t *testing.T) {
+	r := orderRig(t)
+	r.putTimed(timedMsg{id: hexID(1), age: 3 * time.Hour}, timedMsg{id: hexID(2), age: 2 * time.Hour}, timedMsg{id: hexID(3), age: time.Hour})
+	page, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(orderCreatedAt, "", 2))
+	if err != nil || page.GetNextPageToken() == "" || page.GetResumePageToken() == "" {
+		t.Fatalf("page = %v, %v", page, err)
+	}
+	seal := func(binding string) string {
+		return cursor.EncodeAt(testCursorKey, binding, cursor.Cursor{CreatedAt: r.now.Add(-time.Hour), DocID: hexID(2)}, r.now)
+	}
+	otherConv := ConversationID(alice, "uid-x")
+	for _, tt := range []struct {
+		name string
+		tok  string
+	}{
+		{"another epoch pair", seal(epochTimePageBinding(alice, aliceBobConv, "1:2"))},
+		{"another generation", seal(epochTimePageBinding(alice, aliceBobConv, "2:1"))},
+		{"another conversation", seal(epochTimePageBinding(alice, otherConv, "1:1"))},
+		{"another user", seal(epochTimePageBinding(bob, aliceBobConv, "1:1"))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := len(r.repo.syncCalls)
+			_, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(orderCreatedAt, tt.tok, 2))
+			wantValidation(t, err, "page_token")
+			if len(r.repo.syncCalls) != calls {
+				t.Errorf("a refused token read: %v", r.repo.syncCalls[calls:])
+			}
+		})
+	}
+	// The real tokens of the same binding still work.
+	for name, tok := range map[string]string{"next": page.GetNextPageToken(), "resume": page.GetResumePageToken()} {
+		if _, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(orderCreatedAt, tok, 2)); err != nil {
+			t.Errorf("own %s token: %v", name, err)
+		}
 	}
 }
 
