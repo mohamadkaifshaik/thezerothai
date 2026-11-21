@@ -576,9 +576,10 @@ extension _Walks on MessageReceiver {
 
   /// A retired since token (§8.2): the token is cleared and the reconcile
   /// entry reset (unarmed, its listing from the top) in one transaction; a
-  /// retired anchor is cleared.
+  /// retired anchor is cleared, with the same reset of the entry.
   ///
-  /// The restart rule (step 2 carry-overs 9 and 18): EVERY retirement
+  /// The restart rule (step 2 carry-overs 9 and 18): EVERY retirement (of
+  /// the since token or of the anchor)
   /// begins the by-id listing again, since only a listing begun after the
   /// arming that follows it may disarm the entry. It is bounded: the
   /// entry's failure count is kept across the reset, and a retirement that
@@ -603,13 +604,17 @@ extension _Walks on MessageReceiver {
           const ReconcileEntry(armed: false);
       await v.transaction((tx) async {
         if (token.isEmpty) {
-          await _records.putIn(tx, id, record.copyWith(anchor: ''));
+          // A retired ANCHOR restarts the listing too (fix round 1 of step
+          // 2b): the thread changed behind a cursor that may already be
+          // past the id that changed, and tombstone ids are not in time
+          // order.
+          await _records.putIn(tx, id, record.copyWith(anchor: '', rec: reset));
           return;
         }
         await tx.putConversationSync(id, sync.copyWith(sinceToken: ''));
         await _records.putIn(tx, id, record.copyWith(rec: reset));
       });
-      gaveUp = token.isNotEmpty && counted != null && counted.gaveUp;
+      gaveUp = counted != null && counted.gaveUp;
     });
     _contexts.of(id).serial++;
     if (gaveUp) _reconcileGaveUp();

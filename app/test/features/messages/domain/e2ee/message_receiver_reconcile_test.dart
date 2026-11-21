@@ -315,6 +315,58 @@ void main() {
       await untilDisarmed();
     });
 
+    test('an anchor retirement while a multi-page listing waits for a since '
+        'token restarts the listing, and a row taken down behind its cursor '
+        'becomes removed', () async {
+      await setUpJoined();
+      await say(5);
+      await pull();
+      await retire();
+      for (var n = 10; n <= 21; n++) {
+        ghost(n);
+      }
+      rig.server.tombstonePageMax = 1;
+      // The arming pass lists past the stored row's id; its open walk
+      // cannot end, so no since token is saved and the listing spans passes.
+      rig.server.epochOrderFallback = true;
+      await pull();
+      expect((await sync()).sinceToken, '');
+      final anchor = (await record()).anchor;
+      expect(anchor, isNotEmpty);
+      final begun = (await rec())!;
+      expect(
+        (begun.armed, begun.n, begun.l),
+        (true, kReconcilePagesPerPass, _mid(19)),
+      );
+
+      // The takedown retires every older since token (the server's rule),
+      // the anchor among them; its id is behind the listing's cursor and
+      // the since listings never show it.
+      rig.server.takedownRetiresSince = true;
+      takeDownUnseen(5);
+      rig.clock.advance(kWalkBackoffMax);
+      expect((await pull()).kind, ReceiveOutcomeKind.more);
+
+      expect((await record()).anchor, '');
+      final reset = (await rec())!;
+      expect((reset.armed, reset.t, reset.n, reset.l), (false, '', 0, ''));
+      // The interrupted listing is counted, as for a retired since token.
+      expect(reset.f, 1);
+      expect((await row(5))!.state, StoredMessageState.visible);
+
+      rig.clock.advance(kWalkBackoffMax);
+      await pull();
+
+      // Still no since token: the listing from the top cleared the row.
+      expect((await sync()).sinceToken, '');
+      final r = (await row(5))!;
+      expect((r.state, r.content), (StoredMessageState.removed, null));
+
+      rig.server.epochOrderFallback = false;
+      rig.clock.advance(kWalkBackoffMax);
+      await untilDisarmed();
+    });
+
     test('the reconcile walk never ends early and continues one allowance '
         'per pass across a restart', () async {
       await setUpJoined();

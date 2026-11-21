@@ -513,7 +513,18 @@ class RigServer {
       ..reportCommitment = <int>[]
       ..ciphertextRemoved = true;
     s.seq = ++_messageSeq;
+    if (takedownRetiresSince) _sinceFloor[conversationId] = s.seq;
   }
+
+  /// The server's thread-revision rule (`service_messages.go`, "Thread
+  /// revision"): a takedown or an erasure makes every since token issued
+  /// before it invalid (VALIDATION `since_token`). Off by default: a
+  /// takedown then leaves older since tokens valid, as this rig always did.
+  bool takedownRetiresSince = false;
+
+  /// conversationId -> the change sequence of its last takedown made while
+  /// [takedownRetiresSince] was on: a since token below it is refused.
+  final Map<String, int> _sinceFloor = {};
 
   /// The messages changed after since-sequence [since], newest first.
   List<pb.Message> _changed(String conversationId, int since) {
@@ -879,7 +890,9 @@ class RigMessaging implements MessagingRepository {
       final since = sinceToken.startsWith('s:')
           ? int.tryParse(sinceToken.substring(2))
           : null;
-      if (since == null || _server.retiredSince.contains(sinceToken)) {
+      if (since == null ||
+          _server.retiredSince.contains(sinceToken) ||
+          since < (_server._sinceFloor[conversationId] ?? 0)) {
         throw const ValidationException('since', field: 'since_token');
       }
       final changed = _server._changed(conversationId, since);
