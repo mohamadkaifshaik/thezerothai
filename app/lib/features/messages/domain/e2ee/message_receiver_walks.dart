@@ -625,7 +625,8 @@ extension _Walks on MessageReceiver {
 
   /// A ruling after the design (step 2 carry-over 4, amended by fix round
   /// 1: the count is DURABLE): [slot]'s walk [w] needs no engine (mode `u`,
-  /// or its group is gone) and its own page was just refused. With the
+  /// or its group is gone; never while a PROVISIONAL group of its
+  /// generation is stored) and its own page was just refused. With the
   /// lock, in ONE `runWrite` and ONE transaction on the record read fresh:
   /// the refusal is counted on the entry (`mf`, `mfAt`), at most one per
   /// [kWalkRefusalSpacing] whatever the app run (the first at once), and at
@@ -655,9 +656,14 @@ extension _Walks on MessageReceiver {
         final now = _slotOf(record, slot);
         if (now == null || now.pair != w.pair || now.end) return null;
         final group = await v.group(id, now.pair.generation);
+        // Never under a PROVISIONAL group of the slot's generation (fix
+        // round 1): it can still become final, and an abandoned close slot
+        // is left at `end`, which must never stand for a walk of a group
+        // that is then deleted, or skipped, unwalked. Such a refusal is not
+        // counted either.
+        if (group != null && group.provisional) return null;
         final needsNoEngine =
             group == null ||
-            group.provisional ||
             (slot == _Slot.close && now.mode == WalkMode.undecryptable);
         if (!needsNoEngine) return null;
         final at = _now().microsecondsSinceEpoch;

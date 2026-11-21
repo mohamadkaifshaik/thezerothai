@@ -99,6 +99,10 @@ int _oldestFirst(DeferredItem a, DeferredItem b) {
 /// | `deadline`, describe fails or answers `unavailable` (the web's second crash of a run; amended) | `cu`; the RECEIVER-WIDE hold | promoted to `cc` once an engine call succeeds after it (also after a resume); `cu` alone is never a row |
 /// | `internal`, describe fails, the device probe answers | `gf.n`; this conversation's own hold, 1 min doubling with `gf.n` (amended) | a row at `gf.n` = 3; then the group is rowed for the run |
 /// | both probes fail, or `unavailable` on an `internal` | nothing durable; the RECEIVER-WIDE hold, 1 min doubling to 1 h, cleared by any engine success or a resume (amended: it was per conversation) | any engine success |
+/// | a 17th failure, describe answers, a `process` call on that group succeeded this run | `k` of the new item | evict the witnessed item with the most `k`, then the most `cc`, then the oldest; none witnessed: the new one is the row |
+/// | a 17th failure, describe answers, NO `process` success on that group this run (amended: it evicted) | `gf.n`; nothing evicted, nothing deferred | as the group-level row above |
+/// | a 17th unwitnessed failure | nothing; the receiver-wide hold | no eviction, no deferral |
+/// | a retry while the stored since token is empty (amended) | nothing | no engine call until a listing has re-established the token; the engine-free checks still run |
 /// | a final attempt that answers `deadline` (amended) | its own `cc` (witnessed) or `cu`; the body makes no further engine attempt and the walk does not end in it | the next end: a `cc` item is a row with no engine call |
 ///
 /// While either hold stands no engine call is made for the conversation
@@ -158,6 +162,11 @@ extension _Failures on MessageReceiver {
 
   void _breakGroup(ConversationContext context, MlsPair p) =>
       context.groupBroken['${p.generation}:${p.epoch}'] = _runId;
+
+  /// A `process` call on the group at [p] succeeded in this run (the engine
+  /// answered it with a result, whatever the message then became).
+  bool _groupWorked(ConversationContext context, MlsPair p) =>
+      context.groupWorked['${p.generation}:${p.epoch}'] == _runId;
 
   /// The deferred record, read fresh with the body's [v]. Throws
   /// [_DeferredUnreadable] (write nothing) when it does not read.
@@ -243,6 +252,8 @@ extension _Failures on MessageReceiver {
           return _Attempt.row(undecryptable());
       }
     }
+    // The witness that this group works (an eviction needs it).
+    _contexts.of(id).groupWorked['${p.generation}:${p.epoch}'] = _runId;
     final event = result.event;
     if (event is! MlsMessageEvent) {
       // A commit in a message slot: never applied outside catch-up.
@@ -734,8 +745,23 @@ extension _Failures on MessageReceiver {
       _remember(rowlessKey);
       return end();
     }
-    // 7. The engine: only for a due item.
-    if (!engine || !_retryDue(item, now)) return _Retry.kept;
+    // 7. The engine: only for a due item. A ruling after the design (fix
+    // round 1; it amends §7.4): never while the stored since token is
+    // EMPTY. A retirement cleared it and no listing has re-established it,
+    // so nothing has shown this message's state since: it may have been
+    // taken down, and its stored ciphertext would still decrypt and be
+    // stored as visible. The checks above need no engine and ran. (Step 2b
+    // extends this gate to an armed reconcile entry.)
+    // The hold is asked again HERE, inside the body: this body may have
+    // waited for the user's vault write lock behind another conversation's
+    // hanging engine call, which set the receiver-wide hold after the
+    // caller's [engine] was decided.
+    if (!engine ||
+        _engineHoldOf(context) != null ||
+        sync.sinceToken.isEmpty ||
+        !_retryDue(item, now)) {
+      return _Retry.kept;
+    }
     final deviceState = await v.deviceState();
     if (deviceState == null) return _Retry.kept;
     if (item.crashClass) _crashRetryUsed = true;
@@ -1151,6 +1177,26 @@ extension _Failures on MessageReceiver {
       la: now,
       ru: _runId,
     );
+
+    /// A group-level result: the group failure count grows durably; at its
+    /// maximum the message becomes a row (and the group is rowed for the
+    /// run), below it the pass stops for this conversation.
+    Future<_Step> groupLevel() async {
+      final next = await _groupFailure(v, id, p);
+      if (next.broken) {
+        final riding = write.record;
+        return write.commit(
+          row: undecryptable(),
+          recordOverride: (riding ?? next.record).copyWith(gf: next.record.gf),
+        );
+      }
+      // Durable before the pass stops; the page's record is not written.
+      await v.transaction((tx) => _records.putIn(tx, id, next.record));
+      context.serial++;
+      _holdGroup(context, next.record.gf!.n);
+      return _Step.stop;
+    }
+
     switch (fail.kind) {
       case _FailKind.deviceDown:
         _holdDevice();
@@ -1160,21 +1206,7 @@ extension _Failures on MessageReceiver {
         _holdDevice();
         return _Step.stop;
       case _FailKind.groupLevel:
-        final next = await _groupFailure(v, id, p);
-        if (next.broken) {
-          final riding = write.record;
-          return write.commit(
-            row: undecryptable(),
-            recordOverride: (riding ?? next.record).copyWith(
-              gf: next.record.gf,
-            ),
-          );
-        }
-        // Durable before the pass stops; the page's record is not written.
-        await v.transaction((tx) => _records.putIn(tx, id, next.record));
-        context.serial++;
-        _holdGroup(context, next.record.gf!.n);
-        return _Step.stop;
+        return groupLevel();
       case _FailKind.witnessed:
       case _FailKind.witnessedCrash:
         final crash = fail.kind == _FailKind.witnessedCrash;
@@ -1182,12 +1214,24 @@ extension _Failures on MessageReceiver {
         if (write.hidden) return write.commit();
         final d = await _readDeferred(v, id);
         final added = item(k: 1, cc: crash ? 1 : 0);
-        context.deferredEmpty = false;
         if (!d.full) {
+          final wrote = await write.commit(deferred: d.put(added));
+          // The hint only after the transaction committed.
+          context.deferredEmpty = false;
           _deferredTotal++;
-          return write.commit(deferred: d.put(added));
+          return wrote;
         }
-        // §7.6 end 3: overflow never stops a walk while the engine works.
+        // A ruling after the design (fix round 1; it amends §7.6 end 3):
+        // a full record gives up a held message, or rows this one, ONLY
+        // with a witness that the group itself works: a `process` call on
+        // it that succeeded in this run. Without one (every `process` of
+        // the group fails while `describe` answers) a 17th failure is a
+        // GROUP-LEVEL result: nothing is evicted, this message is not
+        // deferred and not rowed, the group failure count grows and the
+        // pass stops for this conversation, so honest messages never
+        // become permanent rows wholesale, one per failure.
+        if (!_groupWorked(context, p)) return groupLevel();
+        // §7.6 end 3: overflow never stops a walk while the group works.
         final victim = d.evictable();
         if (victim == null) {
           // None of the 16 is witnessed: this one alone is known to be
@@ -1195,12 +1239,14 @@ extension _Failures on MessageReceiver {
           return write.commit(row: undecryptable());
         }
         final row = await _itemRow(v, id, write.sync.clearedAtMicros, victim);
-        _deferredTotal++;
-        _evictedTotal++;
-        return write.commit(
+        final wrote = await write.commit(
           deferred: d.without([victim.id]).put(added),
           rows: [?row],
         );
+        context.deferredEmpty = false;
+        _deferredTotal++;
+        _evictedTotal++;
+        return wrote;
       case _FailKind.unwitnessedCrash:
         final d = await _readDeferred(v, id);
         if (!d.full && !write.hidden) {

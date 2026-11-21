@@ -149,6 +149,12 @@ class ConversationContext {
   /// `internal` / `deadline` answers become rows with no probe (§7.2).
   final Map<String, String> groupBroken = {};
 
+  /// `generation:epoch` -> the receiver's run id in which a `process` call
+  /// on that group last succeeded: the witness that the group itself works,
+  /// without which a full deferred record never evicts (a ruling after the
+  /// design, fix round 1).
+  final Map<String, String> groupWorked = {};
+
   /// Message id -> the receiver's count of engine successes when that
   /// message was deferred unwitnessed this run (§7.2): once the count has
   /// grown, the end of a pass promotes it.

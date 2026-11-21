@@ -641,11 +641,14 @@ class MessageReceiver implements EpochMessageSink {
           final item = held.of(mid);
           if (item == null) return _Step.skipped;
           final rest = held.without([mid]);
-          context.deferredEmpty = rest.items.isEmpty;
-          return write.commit(
+          final wrote = await write.commit(
             deferred: rest,
             rows: [?await _itemRow(v, id, cleared, item)],
           );
+          // The hint only after the transaction committed: a failed write
+          // leaves the item, and the hint must not say the record is empty.
+          context.deferredEmpty = rest.items.isEmpty;
+          return wrote;
         }
 
         StoredMessage undecryptable({bool mine = false}) => StoredMessage(

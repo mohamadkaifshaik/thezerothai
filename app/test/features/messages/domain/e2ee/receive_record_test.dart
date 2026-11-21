@@ -325,11 +325,21 @@ void main() {
           l: _hex,
         ),
         anchor: token,
+        // The group failure count and the abandoned-walk count at their
+        // maxima too.
+        gf: const GroupFailures(
+          MlsPair(kMaxPairComponent, kMaxPairComponent),
+          kGroupFailuresMax,
+        ),
+        abandoned: kAbandonedWalksMax,
       );
       final bytes = r.encode();
       expect(bytes.length, lessThan(kMaxReceiveRecordBytes));
       final again = ReceiveRecord.decode(bytes);
       expect(again.anchor, token);
+      expect(again.gf!.n, kGroupFailuresMax);
+      expect(again.gf!.pair.epoch, kMaxPairComponent);
+      expect(again.abandoned, kAbandonedWalksMax);
       for (final w in [again.open!, again.close!, again.orphan!]) {
         expect((w.mf, w.mfAt), (kWalkGiveUpAfter, kMaxPairComponent));
       }
