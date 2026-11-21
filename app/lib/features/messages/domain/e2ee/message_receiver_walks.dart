@@ -572,6 +572,11 @@ extension _Walks on MessageReceiver {
         return null;
       }
       if (take() == 0) return ReceiveOutcome.more;
+      final context = _contexts.of(id);
+      final atMax =
+          context.walkBackoff != null &&
+          context.walkBackoff! >= kWalkBackoffMax;
+      final backOffs = context.walkBackOffs;
       final step = await _walkStep(pass, id, slot, w, priority, onTokenSaved);
       switch (step.kind) {
         case _StepKind.applied:
@@ -582,9 +587,21 @@ extension _Walks on MessageReceiver {
         case _StepKind.restarted:
           break;
         case _StepKind.stop:
-          // An undecryptable walk that can never finish is given up, so it
-          // does not block every later commit for good.
-          if (await _abandonIfHopeless(pass, id, slot, w)) return null;
+          // This walk's own step backed off (never a failed or rate-limited
+          // call) with the backoff already at its maximum: one more of its
+          // failures in a row.
+          if (atMax && context.walkBackOffs != backOffs) {
+            final key = '${slot.name}:${w.pair.generation}:${w.pair.epoch}';
+            if (context.walkMaxFailsOf != key) {
+              context
+                ..walkMaxFailsOf = key
+                ..walkMaxFails = 0;
+            }
+            context.walkMaxFails++;
+            // An undecryptable walk that can never finish is given up, so
+            // it does not block every later commit for good.
+            if (await _abandonIfHopeless(pass, id, slot, w)) return null;
+          }
           return step.outcome;
       }
     }
@@ -607,7 +624,10 @@ extension _Walks on MessageReceiver {
     WalkEntry w,
   ) async {
     final context = _contexts.of(id);
-    if (slot == _Slot.open || context.walkMaxFails < kWalkGiveUpAfter) {
+    if (slot == _Slot.open ||
+        context.walkMaxFailsOf !=
+            '${slot.name}:${w.pair.generation}:${w.pair.epoch}' ||
+        context.walkMaxFails < kWalkGiveUpAfter) {
       return false;
     }
     final abandoned = await _locks.run(id, () async {
@@ -642,6 +662,7 @@ extension _Walks on MessageReceiver {
     context
       ..walkBackoff = null
       ..walkBackoffUntil = null
+      ..walkMaxFailsOf = null
       ..walkMaxFails = 0;
     _onUnexpectedError?.call(
       const E2eePipelineError('receive.walk.abandoned'),
@@ -679,11 +700,15 @@ extension _Walks on MessageReceiver {
   /// strictly below the current pair's, and that generation's group is
   /// stored, not provisional and at the entry's epoch (the conditions of the
   /// transaction that records a walk's end, [_applyPageLocked]). Anything
-  /// else writes nothing.
-  Future<void> _releaseEndedLocked(_Pass pass, String id, _Slot slot) async {
+  /// else writes nothing. A deferred message of the generation gets its
+  /// final attempt in that same transaction; FALSE: one is owed and must
+  /// wait, so the group stays (the caller must not treat the generation as
+  /// let go).
+  Future<bool> _releaseEndedLocked(_Pass pass, String id, _Slot slot) async {
     assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
-    if (slot == _Slot.open || !pass.live) return;
+    if (slot == _Slot.open || !pass.live) return true;
     var itemsEnded = false;
+    var waiting = false;
     final released = await _session.runWrite((v) async {
       pass.check(v);
       final record = await _readReceive(v, id);
@@ -708,7 +733,10 @@ extension _Walks on MessageReceiver {
         engine: true,
         generationEnds: true,
       );
-      if (plan == null) return false;
+      if (plan == null) {
+        waiting = true;
+        return false;
+      }
       final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
       await v.transaction((tx) async {
         await tx.deleteGroup(id, w.pair.generation);
@@ -724,6 +752,7 @@ extension _Walks on MessageReceiver {
     });
     if (released) _contexts.of(id).serial++;
     if (itemsEnded) _onChanged(id);
+    return !waiting;
   }
 
   /// One page of [slot] (§2 "a walk step"): [w] is the snapshot read with no
@@ -1003,7 +1032,9 @@ extension _Walks on MessageReceiver {
     if (!written) return _StepEnd.stale;
     context.serial++;
     context.walkBackoff = null;
-    context.walkMaxFails = 0;
+    context
+      ..walkMaxFailsOf = null
+      ..walkMaxFails = 0;
     // M3: the restart count is per listing, not per run, so a long run never
     // backs off for good; reset only at a listing's end, so a server that
     // refuses every continuation token still reaches the backoff.
@@ -1059,8 +1090,7 @@ extension _Walks on MessageReceiver {
   /// The walk backoff (1 min doubling to 1 h, memory).
   ReceiveOutcome _backOff(ConversationContext context) {
     final previous = context.walkBackoff;
-    // One more failure with the backoff already at its maximum.
-    if (previous != null && previous >= kWalkBackoffMax) context.walkMaxFails++;
+    context.walkBackOffs++;
     var d = previous == null ? kWalkBackoff : previous * 2;
     if (d > kWalkBackoffMax) d = kWalkBackoffMax;
     context.walkBackoff = d;

@@ -4171,6 +4171,26 @@ void main() {
       expect(await row(_mid(1)), isNull);
     });
 
+    test('a deadline whose describe probe fails while the device probe '
+        'answers is promoted at the end of the same pass', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [deadline]);
+      engine().failNext['describe'] = internal;
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      // The pass stops at the crash (unwitnessed when it was written), but
+      // the device probe that answered after it is a later engine success:
+      // the item is witnessed by the end of the pass, so its strikes run.
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(count('randomBytes'), 1);
+      final item = (await deferred()).items.single;
+      expect((item.k, item.cc, item.cu), (1, 1, 0));
+      expect(await row(_mid(2)), isNull);
+    });
+
     test('a seventeenth unwitnessed failure is neither deferred nor evicts '
         'and stops the pass', () async {
       await setUpJoined();
@@ -4838,7 +4858,25 @@ void main() {
       await keepBesideGeneration2();
       engine().failNext['process'] = unavailable;
 
-      // The engine is down: the final attempt is owed, the group stays.
+      // The engine is down: the final attempt is owed, the group stays, and
+      // the sink does not answer "walked" (catch-up would record the pair
+      // and the next join would delete the group without the attempt).
+      Object? refused;
+      await rig.locks.run(_c1, () async {
+        try {
+          await rig.receiver.completeEpoch(
+            _c1,
+            const MlsPair(1, 1),
+            priority: BudgetPriority.user,
+          );
+        } on Object catch (e) {
+          refused = e;
+        }
+      });
+      expect(refused, isA<Exception>());
+      expect(await epochOf(1), 1);
+      expect(await deferredIds(), [_mid(2)]);
+      // Nor does a pass delete it while the engine is held.
       await rig.receiver.pullLive(_c1);
       expect(await epochOf(1), 1);
       expect(await deferredIds(), [_mid(2)]);
@@ -4993,26 +5031,38 @@ void main() {
         most: 16,
       );
       expect(never, -1);
-      expect(rig.contexts.of(_c1).walkMaxFails, greaterThan(kWalkGiveUpAfter));
+      expect(rig.contexts.of(_c1).walkBackoff, kWalkBackoffMax);
       expect(rig.unexpected, isEmpty);
 
       // The group goes (a reset) with an unfinished close walk in mode u.
+      // The backoff is still at its maximum from the open walk's failures:
+      // none of those count against this walk.
       await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
       await putReceiveRecord(
         const ReceiveRecord(
           close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.undecryptable),
         ),
       );
-      rig.contexts.of(_c1)
-        ..walkBackoff = null
-        ..walkBackoffUntil = null
-        ..walkMaxFails = 0;
+      // Nor does a call that fails (the network): eight of them in a row.
+      rig.server.onCall = (c) async {
+        if (c == 'listEpochMessages') throw const NetworkException('rig');
+      };
+      for (var i = 0; i < 8; i++) {
+        rig.clock.advance(kWalkBackoffMax);
+        await rig.receiver.pullLive(_c1);
+      }
+      expect(await rig.receiver.abandonedWalks(_c1), 0);
+      // The count kept is still the open walk's own.
+      expect(rig.contexts.of(_c1).walkMaxFailsOf, 'open:1:1');
+      rig.server.onCall = null;
+      rig.clock.advance(kWalkBackoffMax);
 
+      // Its own five refused pages at the maximum backoff give it up.
       final passes = await passUntil(
         () async => await rig.receiver.abandonedWalks(_c1) > 0,
       );
 
-      expect(passes, 7 + kWalkGiveUpAfter);
+      expect(passes, kWalkGiveUpAfter);
       expect(rig.unexpected, hasLength(1));
       rig.unexpected.clear();
       expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);

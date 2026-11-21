@@ -165,9 +165,16 @@ class ConversationContext {
   /// not known.
   bool? groupFailuresNull;
 
-  /// How many times in a row a walk step failed while the walk backoff was
-  /// already at its maximum (reset by an applied page): an undecryptable
-  /// walk is abandoned at `kWalkGiveUpAfter`.
+  /// How many times the walk backoff was raised this run (every order
+  /// violation, missing order echo or restart cap; never an RPC failure).
+  int walkBackOffs = 0;
+
+  /// The walk (`slot:generation:epoch`) whose own steps, by a pass, last
+  /// backed off with the walk backoff already at its maximum, and how many
+  /// times in a row ([walkMaxFails]; reset by an applied page or another
+  /// walk's such failure): an undecryptable walk is abandoned at
+  /// `kWalkGiveUpAfter`. A failed or rate-limited call never counts.
+  String? walkMaxFailsOf;
   int walkMaxFails = 0;
 }
 

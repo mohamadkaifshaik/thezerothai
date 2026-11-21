@@ -53,8 +53,13 @@ extension _Sink on MessageReceiver {
       // Ended before the generation moved: its kept group goes now, before
       // the caller records the pair as walked (which ends the slot at its
       // next read, leaving the group to the next join).
-      if (current != null && pair.generation < current.generation) {
-        await _releaseEndedLocked(pass, id, slot);
+      if (current != null &&
+          pair.generation < current.generation &&
+          !await _releaseEndedLocked(pass, id, slot)) {
+        // A deferred message of the generation is owed its final attempt
+        // (§7.6 end 1): not walked yet for the caller, or the next join
+        // would delete the group without it.
+        throw pending();
       }
       return;
     }
