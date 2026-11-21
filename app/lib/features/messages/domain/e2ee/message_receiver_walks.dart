@@ -610,6 +610,7 @@ extension _Walks on MessageReceiver {
   Future<void> _releaseEndedLocked(_Pass pass, String id, _Slot slot) async {
     assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
     if (slot == _Slot.open || !pass.live) return;
+    var itemsEnded = false;
     final released = await _session.runWrite((v) async {
       pass.check(v);
       final record = await _readReceive(v, id);
@@ -623,13 +624,33 @@ extension _Walks on MessageReceiver {
       if (group == null || group.provisional || group.epoch != w.pair.epoch) {
         return false;
       }
+      // A deferred message of the generation is owed its final attempt
+      // first, in this same transaction; while it must wait, the group
+      // stays (§7.6 end 1).
+      final plan = await _finalAttempts(
+        v,
+        pass,
+        id,
+        w.pair,
+        engine: true,
+        generationEnds: true,
+      );
+      if (plan == null) return false;
+      final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
       await v.transaction((tx) async {
         await tx.deleteGroup(id, w.pair.generation);
+        await _writePlanIn(tx, id, plan, sync);
         await _records.putIn(tx, id, _withSlot(record, slot, null));
       });
+      final rest = plan.deferred;
+      if (rest != null) {
+        _contexts.of(id).deferredEmpty = rest.items.isEmpty;
+        itemsEnded = true;
+      }
       return true;
     });
     if (released) _contexts.of(id).serial++;
+    if (itemsEnded) _onChanged(id);
   }
 
   /// One page of [slot] (§2 "a walk step"): [w] is the snapshot read with no
@@ -812,13 +833,19 @@ extension _Walks on MessageReceiver {
         next.end &&
         end != null &&
         (context.openListingSeq ?? -1) > end.seq;
-    final orphanFinal = slot == _Slot.orphan && next.end;
+    // The end of a close or orphan walk never rides on its page's last
+    // message: it is ONE transaction of its own, after the final attempts
+    // of the pair's deferred messages ([_endWalkLocked]), so `end` is never
+    // recorded, and the group never deleted, while one is still owed.
+    final ending = next.end && slot != _Slot.open;
     var tokenWritten = false;
     // The last computed update was not stale (its transaction carries the
     // record); read only after a transaction that used it ran.
     var recordInUpdate = false;
-    Future<({ReceiveRecord record, String? sinceToken, int? deleteGroup})?>
-    update(SecureVault v, ConversationSync sync) async {
+    Future<({ReceiveRecord record, String? sinceToken})?> update(
+      SecureVault v,
+      ConversationSync sync,
+    ) async {
       recordInUpdate = false;
       tokenWritten = false;
       final record = await _readReceive(v, id);
@@ -827,22 +854,9 @@ extension _Walks on MessageReceiver {
       final token = saveEnd && sync.sinceToken == end.sentWith
           ? end.token
           : null;
-      // §6 "whoever reaches it": a close walk that ends the last epoch of a
-      // generation below the current one (read fresh here) is that
-      // generation's final step too, as the orphan walk's end is.
-      final current = slot == _Slot.close && next.end && !gone
-          ? await _currentPair(v, id)
-          : null;
-      final closeFinal =
-          current != null && w.pair.generation < current.generation;
-      final last = orphanFinal || closeFinal;
       tokenWritten = token != null;
       recordInUpdate = true;
-      return (
-        record: _withSlot(record, slot, last ? null : next),
-        sinceToken: token,
-        deleteGroup: last && !gone ? w.pair.generation : null,
-      );
+      return (record: _withSlot(record, slot, next), sinceToken: token);
     }
 
     var written = false;
@@ -856,7 +870,7 @@ extension _Walks on MessageReceiver {
         messages[i],
         mode,
         w.pair,
-        record: isLast ? update : null,
+        record: isLast && !ending ? update : null,
       );
       if (step == _Step.stop) {
         if (changed) _onChanged(id);
@@ -875,7 +889,31 @@ extension _Walks on MessageReceiver {
         if (isLast) written = recordInUpdate;
       }
     }
-    if (!written) written = await _writeAlone(pass, id, update);
+    if (ending) {
+      final walkEnd = await _endWalkLocked(
+        pass,
+        id,
+        slot,
+        w,
+        next,
+        gone: gone,
+        decrypt: mode == _Mode.epoch,
+        onItemsEnded: () => changed = true,
+      );
+      if (walkEnd == _WalkEnd.waiting) {
+        if (changed) _onChanged(id);
+        // A final attempt is owed: the walk has not ended, its group stays
+        // and the page is listed again after the hold.
+        return _StepEnd.stop(
+          ReceiveOutcome.stopped(
+            _engineHoldOf(context) ?? _now().add(kEngineBackoff),
+          ),
+        );
+      }
+      written = walkEnd == _WalkEnd.done;
+    } else if (!written) {
+      written = await _writeAlone(pass, id, update);
+    }
     if (changed) _onChanged(id);
     if (!written) return _StepEnd.stale;
     context.serial++;
@@ -902,7 +940,6 @@ extension _Walks on MessageReceiver {
         if (u == null) return false;
         final token = u.sinceToken;
         await v.transaction((tx) async {
-          if (u.deleteGroup != null) await tx.deleteGroup(id, u.deleteGroup!);
           await _records.putIn(tx, id, u.record);
           if (token != null && token.isNotEmpty && token != sync.sinceToken) {
             await tx.putConversationSync(id, sync.copyWith(sinceToken: token));

@@ -60,6 +60,29 @@ typedef _Fail = ({_FailKind kind, int stamp});
 /// stopped the pass: no later engine retry in it).
 enum _Retry { kept, changed, stop }
 
+/// What the end of a close or orphan walk did: `done` (the end is
+/// recorded), `stale` (the entry is no longer the page's; nothing written),
+/// `waiting` (a final attempt is owed; nothing written).
+enum _WalkEnd { done, stale, waiting }
+
+/// What the final attempts of a pair decided (§7.6 end 1), for the ONE
+/// transaction that records the walk's end. No `toString`.
+class _FinalPlan {
+  final List<StoredMessage> rows = [];
+  final List<String> deleteOutbox = [];
+
+  /// The group after the attempts that succeeded (null: none did).
+  GroupRecord? group;
+
+  /// The deferred record without the ended items (null: there were none).
+  DeferredRecord? deferred;
+  bool epochMustAdvance = false;
+  bool success = false;
+
+  /// The group failure count that reached its maximum here.
+  GroupFailures? broken;
+}
+
 /// Oldest first: the server's time, then the id.
 int _oldestFirst(DeferredItem a, DeferredItem b) {
   final c = a.at.compareTo(b.at);
@@ -613,6 +636,263 @@ extension _Failures on MessageReceiver {
         _holdEngine(context);
         return _Retry.stop;
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // Final attempts (§7.6 end 1)
+
+  /// The final attempts of the deferred items of [pair], inside the write
+  /// body whose ONE transaction then records the walk's end (and, for the
+  /// last epoch of a generation, deletes its group). Every item of [pair]
+  /// ends, oldest first: the engine-free checks of a retry (§7.4 checks 1
+  /// to 6); an item with a witnessed crash becomes a row with NO engine
+  /// call; every other item gets one attempt on the group state chained
+  /// from the attempt before it, where a failure with the describe probe
+  /// answering is final (a row). With [engine] false (the walk is
+  /// undecryptable, or its group is gone) every item ends as a row with no
+  /// engine call. With [generationEnds] (the group is about to be deleted)
+  /// every item of the generation ends, those of another epoch as rows.
+  ///
+  /// Null: the end must wait (the engine is down, the breaker, an
+  /// unwitnessed crash, or a group-level failure below the maximum; a hold
+  /// is set and at most a durable counter was written by a transaction of
+  /// its own): the caller writes NOTHING, so the group stays and the walk
+  /// has not ended.
+  Future<_FinalPlan?> _finalAttempts(
+    SecureVault v,
+    _Pass pass,
+    String id,
+    MlsPair pair, {
+    required bool engine,
+    required bool generationEnds,
+  }) async {
+    final context = _contexts.of(id);
+    final plan = _FinalPlan();
+    final d = await _readDeferred(v, id);
+    final items = [
+      for (final i in d.items)
+        if (i.pair == pair ||
+            (generationEnds && i.pair.generation == pair.generation))
+          i,
+    ]..sort(_oldestFirst);
+    if (items.isEmpty) return plan;
+    final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
+    final cleared = sync.clearedAtMicros;
+    final now = _now().microsecondsSinceEpoch;
+    var group = engine ? await v.group(id, pair.generation) : null;
+    if (group != null && (group.provisional || group.epoch != pair.epoch)) {
+      group = null;
+    }
+    final deviceState = group == null ? null : await v.deviceState();
+    // As the one-message rules: no device state, nothing is decided now.
+    if (group != null && deviceState == null) return null;
+    for (final item in items) {
+      Future<void> row() async {
+        final r = await _itemRow(v, id, cleared, item);
+        if (r != null) plan.rows.add(r);
+      }
+
+      // 1. A stored row (any state): the item only goes.
+      if (await v.hasMessage(id, item.id)) continue;
+      // 2-4. A tombstone seen this run, cleared_at, expiry.
+      if (context.tombstoned.containsKey(item.id) ||
+          (cleared != null && item.at <= cleared) ||
+          item.expired(now)) {
+        await row();
+        continue;
+      }
+      // 5. No keys for it.
+      if (item.pair != pair || group == null || deviceState == null) {
+        await row();
+        continue;
+      }
+      // 6. The echo of an outbox row, or this device's own send.
+      final echo = await _echoOf(v, id, item.id, item.ct);
+      if (echo != null) {
+        plan.rows.add(
+          StoredMessage(
+            conversationId: id,
+            messageId: item.id,
+            createdAtMicros: item.at,
+            mine: true,
+            state: StoredMessageState.visible,
+            generation: echo.generation,
+            epoch: echo.epoch,
+            content: echo.content,
+            senderDeviceId: pass.deviceId,
+          ),
+        );
+        plan.deleteOutbox.add(echo.idempotencyKey);
+        continue;
+      }
+      if (await v.hasSent(id, item.pair, sentDigest(item.ct))) {
+        _remember('${pass.uid}|$id|${item.id}');
+        continue;
+      }
+      // A witnessed crash: a row, never the engine again.
+      if (item.cc >= 1) {
+        await row();
+        continue;
+      }
+      final a = await _attempt(
+        v,
+        pass,
+        id,
+        group,
+        deviceState,
+        mid: item.id,
+        at: item.at,
+        ciphertext: item.ct,
+        commitment: item.rc,
+        fromSelf: item.fs,
+      );
+      final code = a.code;
+      if (code == null) {
+        final stored = a.row;
+        if (stored != null) plan.rows.add(stored);
+        final advanced = a.group;
+        if (advanced != null) {
+          group = advanced;
+          plan
+            ..group = advanced
+            ..success = true;
+          context.breakerBackoff = null;
+        }
+        if (a.epochMustAdvance) plan.epochMustAdvance = true;
+        continue;
+      }
+      if (code != MlsErrorCode.unavailable && _groupBroken(context, pair)) {
+        await row();
+        continue;
+      }
+      final fail = await _classify(code, group.state);
+      switch (fail.kind) {
+        case _FailKind.witnessed:
+        case _FailKind.witnessedCrash:
+          // The engine works: this failure is final.
+          await row();
+        case _FailKind.deviceDown:
+          _holdEngine(context);
+          return null;
+        case _FailKind.breaker:
+          _holdEngine(context, breaker: true);
+          return null;
+        case _FailKind.groupLevel:
+          final next = await _groupFailure(v, id, pair);
+          if (next.broken) {
+            plan.broken = next.record.gf;
+            await row();
+          } else {
+            await v.transaction((tx) => _records.putIn(tx, id, next.record));
+            context.serial++;
+            _holdEngine(context);
+            return null;
+          }
+        case _FailKind.unwitnessedCrash:
+          await v.transaction(
+            (tx) => _deferred.putIn(
+              tx,
+              id,
+              d.put(item.copyWith(cu: item.cu + 1, la: now, ru: _runId)),
+            ),
+          );
+          context.unwitnessed[item.id] = fail.stamp;
+          _holdEngine(context);
+          return null;
+      }
+    }
+    plan.deferred = d.without([for (final i in items) i.id]);
+    return plan;
+  }
+
+  /// Writes what [plan] decided, inside the caller's ONE transaction: the
+  /// rows, the outbox deletes, the deferred record without the ended items
+  /// and "epoch must advance". The group (its new state, or its delete)
+  /// and the receive record are the caller's.
+  Future<void> _writePlanIn(
+    VaultTx tx,
+    String id,
+    _FinalPlan plan,
+    ConversationSync sync,
+  ) async {
+    for (final row in plan.rows) {
+      await tx.putMessage(row);
+    }
+    for (final key in plan.deleteOutbox) {
+      await tx.deleteOutbox(key);
+    }
+    final rest = plan.deferred;
+    if (rest != null) await _deferred.putIn(tx, id, rest);
+    if (plan.epochMustAdvance && !sync.epochMustAdvance) {
+      await tx.putConversationSync(id, sync.copyWith(epochMustAdvance: true));
+    }
+  }
+
+  /// The end of a close or orphan walk ([next] is [w] after its last
+  /// page), with the lock held, in ONE `runWrite` and ONE transaction: the
+  /// final attempts of the pair's deferred items, their rows and removal,
+  /// the group state they left (or, for the last epoch of a generation
+  /// below the current one and for an orphan walk, the group's delete) and
+  /// the record with `end` (the slot cleared after a delete). `waiting`:
+  /// nothing was written, the walk has not ended ([_finalAttempts]).
+  Future<_WalkEnd> _endWalkLocked(
+    _Pass pass,
+    String id,
+    _Slot slot,
+    WalkEntry w,
+    WalkEntry next, {
+    required bool gone,
+    required bool decrypt,
+    required void Function() onItemsEnded,
+  }) => _session.runWrite<_WalkEnd>((v) async {
+    pass.check(v);
+    final context = _contexts.of(id);
+    final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
+    final record = await _readReceive(v, id);
+    final now = _slotOf(record, slot);
+    if (now == null || now.pair != w.pair || now.t != w.t) {
+      return _WalkEnd.stale;
+    }
+    // §6 "whoever reaches it": a close walk that ends the last epoch of a
+    // generation below the current one (read fresh here) is that
+    // generation's final step too, as the orphan walk's end is.
+    final current = slot == _Slot.close && !gone
+        ? await _currentPair(v, id)
+        : null;
+    final closeFinal =
+        current != null && w.pair.generation < current.generation;
+    final last = slot == _Slot.orphan || closeFinal;
+    final plan = await _finalAttempts(
+      v,
+      pass,
+      id,
+      w.pair,
+      engine: decrypt && !gone,
+      generationEnds: last,
+    );
+    if (plan == null) return _WalkEnd.waiting;
+    var rec = _withSlot(record, slot, last ? null : next);
+    if (plan.broken != null) {
+      rec = rec.copyWith(gf: plan.broken);
+    } else if (plan.success && rec.gf?.pair == w.pair) {
+      rec = rec.copyWith(gf: null);
+    }
+    final advanced = plan.group;
+    await v.transaction((tx) async {
+      if (last && !gone) {
+        await tx.deleteGroup(id, w.pair.generation);
+      } else if (advanced != null) {
+        await tx.putGroup(advanced);
+      }
+      await _writePlanIn(tx, id, plan, sync);
+      await _records.putIn(tx, id, rec);
+    });
+    final rest = plan.deferred;
+    if (rest != null) {
+      context.deferredEmpty = rest.items.isEmpty;
+      onItemsEnded();
+    }
+    return _WalkEnd.done;
   });
 
   /// §7.2 at first sight: the engine answered [code] on a message never

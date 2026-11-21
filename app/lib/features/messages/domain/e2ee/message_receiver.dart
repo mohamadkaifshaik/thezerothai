@@ -520,15 +520,7 @@ class MessageReceiver implements EpochMessageSink {
         final saveToken = token != null && sync.sinceToken == token.expect
             ? token.token
             : update?.sinceToken;
-        final write = _Write(
-          v,
-          id,
-          sync,
-          saveToken,
-          hidden,
-          update?.record,
-          update?.deleteGroup,
-        );
+        final write = _Write(v, id, sync, saveToken, hidden, update?.record);
 
         // 1. A tombstone clears a stored copy and stores nothing new.
         if (m.state == MessageState.MESSAGE_STATE_REMOVED ||
@@ -820,12 +812,16 @@ enum _Step { wrote, skipped, later, stop }
 typedef _TokenSave = ({String token, String expect});
 
 /// What a page's last transaction writes besides its message, computed in
-/// the write body from the record read fresh there: the record, a since
-/// token (§4 rule 2) and an orphan group to delete (§6). Null: the walk's
-/// entry is no longer the one the page was listed for; write nothing.
+/// the write body from the record read fresh there: the record and a since
+/// token (§4 rule 2). Null: the walk's entry is no longer the one the page
+/// was listed for; write nothing. (The page that ends a close or orphan
+/// walk has no such update: its end is a transaction of its own, after the
+/// final attempts of its deferred messages.)
 typedef _RecordUpdate =
-    Future<({ReceiveRecord record, String? sinceToken, int? deleteGroup})?>
-    Function(SecureVault v, ConversationSync sync);
+    Future<({ReceiveRecord record, String? sinceToken})?> Function(
+      SecureVault v,
+      ConversationSync sync,
+    );
 
 class _BatchEnd {
   const _BatchEnd({
@@ -870,18 +866,10 @@ class _Pass {
 /// The one transaction of one message, inside its runWrite body: the row
 /// (dropped at or before cleared_at), the group state, the outbox delete,
 /// the sync record (a since token, "epoch must advance"), the receive record
-/// and an orphan group's delete, all read or computed fresh in that body.
+/// and the deferred record, all read or computed fresh in that body.
 /// No `toString`.
 class _Write {
-  _Write(
-    this.vault,
-    this.id,
-    this.sync,
-    this.token,
-    this.hidden,
-    this.record,
-    this.deleteGroup,
-  );
+  _Write(this.vault, this.id, this.sync, this.token, this.hidden, this.record);
 
   final SecureVault vault;
   final String id;
@@ -889,7 +877,6 @@ class _Write {
   final String? token;
   final bool hidden;
   final ReceiveRecord? record;
-  final int? deleteGroup;
 
   /// [deferred]: the deferred record to write (an item added or removed
   /// with this message); [rows]: rows of other messages that end with this
@@ -934,7 +921,6 @@ class _Write {
         await tx.setMessageState(id, tombstone.$1, tombstone.$2);
       }
       if (deleteOutbox != null) await tx.deleteOutbox(deleteOutbox);
-      if (deleteGroup != null) await tx.deleteGroup(id, deleteGroup!);
       if (deferred != null) {
         await tx.putSetting(DeferredRecords.keyOf(id), deferred.encode());
       }

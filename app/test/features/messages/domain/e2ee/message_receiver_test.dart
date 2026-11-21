@@ -4481,6 +4481,286 @@ void main() {
       expect(engine().processed, isEmpty);
     });
   });
+
+  group('final attempts and the group-delete hold (§7.6 end 1)', () {
+    /// A final group of generation 2 at epoch 1 stored beside generation
+    /// 1's (the device moved on and kept generation 1's group).
+    Future<void> keepBesideGeneration2() async {
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      await rig.device.vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+    }
+
+    Future<int?> epochOf(int generation) async =>
+        (await rig.device.vault.group(_c1, generation))?.epoch;
+
+    test('a deferred message gets one final attempt at its close walk and '
+        'the commit applies', () async {
+      await setUpJoined();
+      final bytes = _content('decrypted at the close');
+      final m1 = await say(bobGroup(), 1, bytes: bytes);
+      await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [internal]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1)]);
+      await bobSelfUpdate();
+
+      // The same run, no spacing: the final attempt is owed regardless.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      final r = (await row(_mid(1)))!;
+      expect(r.state, StoredMessageState.visible);
+      expect(r.content, bytes);
+      expect(r.check, StoredMessageCheck.ok);
+      expect(processedCount(m1.ciphertext), 2);
+      expect(await deferredIds(), isEmpty);
+      expect(await epochOf(1), 2);
+      // The next epoch decrypts: the final attempt's group state was kept
+      // under the commit.
+      await say(bobGroup(), 3, at: seconds(2));
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+    });
+
+    test('a final attempt that fails with the engine working is a row and '
+        'the commit applies', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failAlways(m1, internal);
+      await rig.receiver.pullLive(_c1);
+      await bobSelfUpdate();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(processedCount(m1.ciphertext), 2);
+      expect(await deferredIds(), isEmpty);
+      expect(await epochOf(1), 2);
+    });
+
+    test("a crash-class item is rowed at the close walk's final attempt "
+        'without an engine call', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [deadline]);
+      await rig.receiver.pullLive(_c1);
+      expect((await deferred()).items.single.cc, 1);
+      await bobSelfUpdate();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await deferredIds(), isEmpty);
+      expect(await epochOf(1), 2);
+    });
+
+    test('a seventeenth deferral evicts the item with the most strikes to a '
+        'row and the close walk still ends', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++)
+            heldItem(n, ct: [n, n, n], k: n == 105 ? 2 : 1),
+        ]),
+      );
+      final m1 = await say(bobGroup(), 1);
+      await say(bobGroup(), 2, at: seconds(1));
+      failAlways(m1, internal);
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect((await row(_mid(105)))!.state, StoredMessageState.undecryptable);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      final ids = await deferredIds();
+      expect(ids, hasLength(kDeferredMax));
+      expect(ids, contains(_mid(1)));
+      expect(ids, isNot(contains(_mid(105))));
+
+      // The close's final attempts handle every item of the pair, whatever
+      // the record holds: the walk ends and the commit applies.
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect(await deferredIds(), isEmpty);
+      expect(await epochOf(1), 2);
+      for (var n = 101; n <= 100 + kDeferredMax; n++) {
+        expect((await row(_mid(n)))!.state, StoredMessageState.undecryptable);
+      }
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+    });
+
+    test('the close waits while the describe probe fails at a final attempt, '
+        'at most three group failures long, and the commit then '
+        'applies', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [internal]);
+      await rig.receiver.pullLive(_c1);
+      await bobSelfUpdate();
+      // From now the engine works but this group state does not.
+      engine().failState[RigEngine.key(await groupState())] = internal;
+
+      for (var n = 1; n < kGroupFailuresMax; n++) {
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        expect((await receiveRecord()).gf!.n, n);
+        expect((await receiveRecord()).close!.end, isFalse);
+        expect(await epochOf(1), 1);
+        expect(await deferredIds(), [_mid(1)]);
+        expect(await row(_mid(1)), isNull);
+        rig.clock.advance(kEngineBackoff);
+      }
+      // The commit is applied by another engine call on the same state:
+      // the group works again for it.
+      engine().failState.clear();
+      failAlways(m1, internal);
+      engine().failNext['describe'] = internal;
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(await deferredIds(), isEmpty);
+      expect(await epochOf(1), 2);
+    });
+
+    test('an unavailable engine at a final attempt writes nothing and the '
+        'close ends once it answers', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [internal, unavailable]);
+      await rig.receiver.pullLive(_c1);
+      await bobSelfUpdate();
+      final held = (await deferred()).encode();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+
+      expect((await deferred()).encode(), held);
+      expect(await row(_mid(1)), isNull);
+      expect((await receiveRecord()).close!.end, isFalse);
+      expect(await epochOf(1), 1);
+
+      rig.clock.advance(kEngineBackoff);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect(await epochOf(1), 2);
+    });
+
+    test('an undecryptable close walk rows its deferred items with no engine '
+        'call', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [internal]);
+      await rig.receiver.pullLive(_c1);
+
+      await rig.locks.run(
+        _c1,
+        () => rig.receiver.markEpochUndecryptable(
+          _c1,
+          const MlsPair(1, 1),
+          priority: BudgetPriority.user,
+        ),
+      );
+
+      expect((await receiveRecord()).close!.end, isTrue);
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test("an orphan generation's group is deleted only with its deferred "
+        "message's final attempt, in one transaction", () async {
+      await setUpJoined();
+      final bytes = _content('from the kept generation');
+      final m1 = await say(bobGroup(), 1, at: seconds(-1), bytes: bytes);
+      failNext(m1, [internal, unavailable]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1)]);
+      await keepBesideGeneration2();
+
+      // The orphan walk reaches its end while the engine is down: the final
+      // attempt is owed, so the group stays and the slot is not cleared.
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect(await epochOf(1), 1);
+      expect(await deferredIds(), [_mid(1)]);
+      expect(await row(_mid(1)), isNull);
+
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+
+      final r = (await row(_mid(1)))!;
+      expect(r.state, StoredMessageState.visible);
+      expect(r.content, bytes);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect(await deferredIds(), isEmpty);
+      expect((await receiveRecord()).orphan, isNull);
+    });
+
+    test('a close walk that ended before the generation moved makes its '
+        "deferred message's final attempt before it deletes the "
+        'group', () async {
+      await setUpJoined();
+      await say(bobGroup(), 1, at: const Duration(minutes: -10));
+      await rig.locks.run(
+        _c1,
+        () => rig.receiver.completeEpoch(
+          _c1,
+          const MlsPair(1, 1),
+          priority: BudgetPriority.user,
+        ),
+      );
+      expect((await receiveRecord()).close!.end, isTrue);
+      // A message of the pair deferred after the walk ended (the fast path
+      // is not there to list it: stored as a transaction would leave it).
+      final bytes = _content('late');
+      final late = await say(bobGroup(), 2, at: seconds(-5), bytes: bytes);
+      rig.server.rewriteEpoch = (r) =>
+          r..messages.removeWhere((m) => m.id == _mid(2));
+      rig.server.rewriteLive = (r) =>
+          r..messages.removeWhere((m) => m.id == _mid(2));
+      await putDeferred(
+        DeferredRecord([
+          DeferredItem(
+            id: _mid(2),
+            pair: const MlsPair(1, 1),
+            at: late.createdAt.toDateTime().microsecondsSinceEpoch,
+            da: rig.clock.now().microsecondsSinceEpoch,
+            ct: Uint8List.fromList(late.ciphertext),
+            rc: Uint8List.fromList(late.reportCommitment),
+            fs: false,
+            k: 1,
+            la: rig.clock.now().microsecondsSinceEpoch,
+            ru: 'bbbbbbbbbbbbbbbb',
+          ),
+        ]),
+      );
+      await keepBesideGeneration2();
+      engine().failNext['process'] = unavailable;
+
+      // The engine is down: the final attempt is owed, the group stays.
+      await rig.receiver.pullLive(_c1);
+      expect(await epochOf(1), 1);
+      expect(await deferredIds(), [_mid(2)]);
+
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+
+      final r = (await row(_mid(2)))!;
+      expect(r.state, StoredMessageState.visible);
+      expect(r.content, bytes);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect(await deferredIds(), isEmpty);
+      expect((await receiveRecord()).close, isNull);
+    });
+  });
 }
 
 /// A sink that returns without walking (a buggy sink): catch-up must not
