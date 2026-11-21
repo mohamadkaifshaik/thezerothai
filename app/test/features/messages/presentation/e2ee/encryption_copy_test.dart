@@ -40,6 +40,7 @@ void main() {
     expect(kLineUnknownDevice, 'An unknown device was added');
     expect(kStateListUnverifiableTitle, "The device list can't be checked");
     expect(kCouldNotDecryptText, "Couldn't decrypt this message");
+    expect(kWaitingToDecryptText, 'Waiting to decrypt this message');
     expect(kCouldNotVerifyText, "This message couldn't be verified");
     expect(
       kNotOnThisDeviceText,

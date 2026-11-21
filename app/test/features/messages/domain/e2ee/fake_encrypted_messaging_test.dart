@@ -215,6 +215,57 @@ void main() {
       );
     });
 
+    test('waitingToDecrypt is false unless it is asked for', () {
+      expect(
+        DecryptedMessage(id: 'a', at: _at, mine: false).waitingToDecrypt,
+        isFalse,
+      );
+    });
+
+    test('a waiting-to-decrypt row is accepted as an undecryptable row that '
+        'is not mine', () {
+      accepts(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: false,
+          state: EncryptedMessageState.undecryptable,
+          waitingToDecrypt: true,
+        ),
+      );
+    });
+
+    test('waitingToDecrypt is refused on a visible row, on a row that is '
+        'mine and on a removed row', () {
+      refuses(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: false,
+          text: 't',
+          waitingToDecrypt: true,
+        ),
+      );
+      refuses(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: true,
+          state: EncryptedMessageState.undecryptable,
+          waitingToDecrypt: true,
+        ),
+      );
+      refuses(
+        DecryptedMessage(
+          id: 'a',
+          at: _at,
+          mine: false,
+          state: EncryptedMessageState.removed,
+          waitingToDecrypt: true,
+        ),
+      );
+    });
+
     test('a problem is set only with progress notSent', () {
       refuses(
         DecryptedMessage(
