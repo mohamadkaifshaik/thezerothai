@@ -764,6 +764,34 @@ void main() {
       expect(rig.known.contains(_c1), isFalse);
     });
 
+    test('an init addresses at most 9 other devices and drops own devices '
+        'first', () async {
+      final theirs = [
+        bob,
+        for (var i = 2; i <= 8; i++) await RigPeer.create('bob$i'),
+      ];
+      person(_bob, _c1, theirs);
+      final sib = await sibling('sib');
+      final sib2 = await sibling('sib2');
+      gate = Completer<void>();
+
+      expect((await start()).result, StartResult.started);
+
+      final welcomed = (await groupOf())!.pending!.welcomeDeviceIds;
+      expect(welcomed, hasLength(9));
+      expect(
+        welcomed.toSet().containsAll([for (final p in theirs) p.idString]),
+        isTrue,
+      );
+      expect(
+        [sib.idString, sib2.idString].where(welcomed.contains),
+        hasLength(1),
+      );
+      expect(await rig.device.vault.members(_c1), hasLength(10));
+      gate!.complete();
+      await done();
+    });
+
     test('an empty claim for a listed device is not repeated the same IST '
         'day', () async {
       rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
@@ -890,6 +918,36 @@ void main() {
         ),
         isFalse,
       );
+    });
+
+    test('a STALE_EPOCH that does not name the claim\'s conversation deletes '
+        'nothing', () async {
+      for (final named in [_c2, null]) {
+        rig.server.sendScript.add((
+          error: StaleEpochException(
+            'stale',
+            generation: 1,
+            epoch: 1,
+            conversationId: named,
+          ),
+          stored: false,
+        ));
+        if (named == _c2) {
+          await start();
+        } else {
+          await starter.resumeProvisional();
+        }
+        await done();
+        expect((await groupOf())!.provisional, isTrue, reason: '$named');
+        expect((await rows()).single.init, isNotNull);
+        expect(await rig.device.vault.members(_c1), hasLength(2));
+      }
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[0].same(rig.server.sends[1]), isTrue);
+      expect(rig.unexpected.map((e) => (e as E2eePipelineError).step), [
+        'start.staleConversation',
+      ]);
+      rig.unexpected.clear();
     });
 
     test('a replay check is not confused by the loser\'s own marks', () async {
@@ -1300,6 +1358,51 @@ void main() {
       expect(record.afterPair, const MlsPair(2, 0));
       expect(record.sync.completedEpochs, isEmpty);
     });
+
+    test(
+      'an own-init settle walks an unwalked lower generation first',
+      () async {
+        // Generation 1, joined and not walked to its end.
+        await joined(_c1, bob);
+        final v = rig.device.vault;
+        final reset = rigBytes('this device reset');
+        await v.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: _c1,
+              generation: 2,
+              epoch: 1,
+              state: rigBytes('a provisional state'),
+              provisional: true,
+              provisionalCreatedAtMicros: rig.clock
+                  .now()
+                  .microsecondsSinceEpoch,
+              pending: PendingCommit(
+                kind: PendingKind.reset,
+                builtOn: const MlsPair(2, 0),
+                commit: reset,
+              ),
+            ),
+          ),
+        );
+        rig.server.addCommit(_c1, const MlsPair(2, 0), reset, fromUser: _me);
+        rig.server.epochRequests.clear();
+
+        final settled = await rig.locks.run(
+          _c1,
+          () => rig.crypto.settleOwnInitLocked(_c1, 2),
+        );
+
+        expect(settled, InitSettle.settled);
+        // The old generation's last epoch was walked before it went.
+        expect(rig.server.epochRequests.map((r) => r.pair), [
+          const MlsPair(1, 1),
+        ]);
+        expect(await v.group(_c1, 1), isNull);
+        expect((await v.group(_c1, 2))!.provisional, isFalse);
+        expect((await v.conversation(_c1))!.afterPair, const MlsPair(2, 0));
+      },
+    );
 
     test(
       'discarding a provisional group leaves the key history untouched',

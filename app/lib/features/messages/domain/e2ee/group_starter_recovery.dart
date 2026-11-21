@@ -218,11 +218,17 @@ extension _Recovery on GroupStarter {
           mlsInit: row.init,
         );
       } on StaleEpochException catch (e) {
+        // The answer of a send addressed by recipient names the
+        // conversation it landed in: it must be the claim's (K2).
         final named = e.conversationId;
-        if (named != null && named != id) {
+        final other = row.recipientUserId != null
+            ? named != id
+            : named != null && named != id;
+        if (other) {
           // Decision: the refusal names another conversation than the
-          // claim did. Nothing is deleted on it and nothing is sent again
-          // now; the stored commits decide after the expiry.
+          // claim did (or, for a recipient-addressed send, none). Nothing
+          // is deleted on it and nothing is sent again now; the stored
+          // commits decide after the expiry.
           _reportOnce('start.staleConversation');
           _unknown.add(row.localId);
           return none;
