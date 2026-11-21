@@ -82,6 +82,16 @@ void main() {
           return pb.ListConversationCommitsResponse();
         case '$_svc/ListEpochMessages':
           return pb.ListEpochMessagesResponse();
+        case '$_svc/ListMessageTombstones':
+          return pb.ListMessageTombstonesResponse(
+            tombstones: [
+              pb.MessageTombstone(
+                id: _conv,
+                state: MessageState.MESSAGE_STATE_REMOVED,
+              ),
+            ],
+            nextPageToken: 'next',
+          );
         case '$_svc/ListWelcomes':
           return pb.ListWelcomesResponse();
         case '$_svc/AckWelcomes':
@@ -298,6 +308,36 @@ void main() {
     );
     final r = requests.single as pb.ListEpochMessagesRequest;
     expect(r.order, EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT);
+  });
+
+  test('listMessageTombstones sends the conversation, page size and token '
+      'and returns the page', () async {
+    final page = await repo.listMessageTombstones(
+      conversationId: _conv,
+      pageSize: 100,
+      pageToken: 'tok',
+    );
+    final r = requests.single as pb.ListMessageTombstonesRequest;
+    expect(r.conversationId, _conv);
+    expect(r.pageSize, 100);
+    expect(r.pageToken, 'tok');
+    expect(page.tombstones.single.id, _conv);
+    expect(page.nextPageToken, 'next');
+  });
+
+  test('listMessageTombstones is allowed with messaging off for the caller '
+      'and waits at most the MLS timeout', () {
+    flagOn = false;
+    fakeAsync((async) {
+      hang = Completer<Object>();
+      Object? error;
+      repo
+          .listMessageTombstones(conversationId: _conv)
+          .then<void>((_) {}, onError: (Object e) => error = e);
+      async.elapse(kMlsRpcTimeout + const Duration(seconds: 1));
+      expect(requests, hasLength(1));
+      expect(error, isA<NetworkException>());
+    });
   });
 
   test('listWelcomes sends the device', () async {

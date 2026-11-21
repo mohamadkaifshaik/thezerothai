@@ -141,7 +141,6 @@ extension _Walks on MessageReceiver {
     if (await _currentPair(pass.vault, id) == null) {
       return _walkWithoutGroup(pass, id, priority);
     }
-    final context = _contexts.of(id);
 
     // 1. The probe. An engine hold (§7.2 as amended: the receiver-wide one
     // after device-level trouble seen by ANY conversation, or this
@@ -155,9 +154,55 @@ extension _Walks on MessageReceiver {
     if (probe.listed) onListed(pass.vault);
     if (probe.outcome != null) return probe.outcome!;
 
-    // 2. The reconcile walk: step 2 (an armed entry waits durably; it
-    // needs no engine, so it belongs here, before the hold ends the pass).
+    // 2. The reconcile walk (§8.2), right after the probe that may have
+    // armed it and before the walks: it needs no engine, so no engine hold
+    // and no walk backoff keeps it from running. Whatever it ends with,
+    // the walks still run (a tombstone listing that is refused must never
+    // stall the conversation); its own outcome only replaces a `complete`.
+    var left = kReconcilePagesPerPass;
+    int takePage() => left > 0 ? left-- : 0;
+    var reconciled = await _reconcileStep(
+      pass,
+      id,
+      priority,
+      takePage,
+      answered: true,
+    );
+    var out = await _walkSteps(pass, id, priority, probe, onWelcomes);
+    if (reconciled.awaiting &&
+        ((await pass.vault.conversation(id))?.sync.sinceToken ?? '')
+            .isNotEmpty) {
+      // The listing had reached its end with no since token to leave the
+      // conversation with, and this pass saved one: what is left of the
+      // allowance lists again (from the top when a page had been applied),
+      // and the last page disarms.
+      reconciled = await _reconcileStep(
+        pass,
+        id,
+        priority,
+        takePage,
+        answered: true,
+      );
+    }
+    if (out.kind == ReceiveOutcomeKind.complete) {
+      // Never `complete` while the entry is armed with work left.
+      out =
+          reconciled.outcome ??
+          (reconciled.awaiting ? ReceiveOutcome.more : ReceiveOutcome.complete);
+    }
+    return out;
+  }
 
+  /// Steps 3 to 5 of a pass and its end: the walks, one allowance across
+  /// them, then the end-of-pass catch-up.
+  Future<ReceiveOutcome> _walkSteps(
+    _Pass pass,
+    String id,
+    BudgetPriority priority,
+    _Probe probe,
+    void Function() onWelcomes,
+  ) async {
+    final context = _contexts.of(id);
     // 3-5. The walks, one allowance across them.
     final until = context.walkBackoffUntil;
     if (until != null && _now().isBefore(until)) {
@@ -524,29 +569,44 @@ extension _Walks on MessageReceiver {
   }
 
   /// A retired since token (§8.2): the token is cleared and the reconcile
-  /// entry reset (unarmed) in one transaction; a retired anchor is cleared.
+  /// entry reset (unarmed, its listing from the top) in one transaction; a
+  /// retired anchor is cleared.
+  ///
+  /// The restart rule (step 2 carry-overs 9 and 18): EVERY retirement
+  /// begins the by-id listing again, since only a listing begun after the
+  /// arming that follows it may disarm the entry. It is bounded: the
+  /// entry's failure count is kept across the reset, and a retirement that
+  /// interrupts a listing in progress is counted as one more failure (at
+  /// most one per spacing, [_reconcileCounted]), so a server that retires
+  /// without end reaches [kReconcileGiveUpAfter] like one that refuses.
   Future<void> _retireLocked(_Pass pass, String id, String token) async {
     if (!pass.live) return;
     _contexts.of(id).endToken = null;
+    var gaveUp = false;
     await _session.runWrite((v) async {
       pass.check(v);
       final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
       if (sync.sinceToken != token) return;
       final record = await _readReceive(v, id);
+      final had = record.rec;
+      final counted = had != null && had.armed && had.begun
+          ? _reconcileCounted(had)
+          : null;
+      final reset =
+          (counted ?? had)?.restarted(armed: false) ??
+          const ReconcileEntry(armed: false);
       await v.transaction((tx) async {
         if (token.isEmpty) {
           await _records.putIn(tx, id, record.copyWith(anchor: ''));
           return;
         }
         await tx.putConversationSync(id, sync.copyWith(sinceToken: ''));
-        await _records.putIn(
-          tx,
-          id,
-          record.copyWith(rec: const ReconcileEntry(armed: false)),
-        );
+        await _records.putIn(tx, id, record.copyWith(rec: reset));
       });
+      gaveUp = token.isNotEmpty && counted != null && counted.gaveUp;
     });
     _contexts.of(id).serial++;
+    if (gaveUp) _reconcileGaveUp();
   }
 
   /// The probe with an empty since token: [anchor] (the answer's token)
@@ -558,13 +618,11 @@ extension _Walks on MessageReceiver {
       final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
       if (sync.sinceToken.isNotEmpty) return;
       final record = await _readReceive(v, id);
-      final rec = record.rec;
-      final armed = ReconcileEntry(
-        armed: true,
-        t: rec?.t ?? '',
-        n: rec?.n ?? 0,
-        l: rec?.l ?? '',
-      );
+      // The cursor and the failure count are kept (the count bounds a
+      // server that never lets the listing finish).
+      final armed =
+          record.rec?.copyWith(armed: true) ??
+          const ReconcileEntry(armed: true);
       await v.transaction(
         (tx) => _records.putIn(
           tx,
@@ -1044,7 +1102,21 @@ extension _Walks on MessageReceiver {
           : null;
       tokenWritten = token != null;
       recordInUpdate = true;
-      return (record: _withSlot(record, slot, next), sinceToken: token);
+      var written = _withSlot(record, slot, next);
+      // §8.2 as built: a since token saved over an EMPTY one begins a
+      // reconcile listing in progress again from the top, in this same
+      // transaction, so the listing that disarms the entry began after
+      // the token the conversation is left with was issued. At most once
+      // per retirement (the token is empty only after one).
+      final rec = written.rec;
+      if (token != null &&
+          token.isNotEmpty &&
+          sync.sinceToken.isEmpty &&
+          rec != null &&
+          rec.begun) {
+        written = written.copyWith(rec: rec.restarted());
+      }
+      return (record: written, sinceToken: token);
     }
 
     var written = false;

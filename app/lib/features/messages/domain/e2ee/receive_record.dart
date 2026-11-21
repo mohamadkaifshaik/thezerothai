@@ -189,20 +189,67 @@ class WalkEntry {
   }
 }
 
-/// The reconcile cursor (§3.1 `rec`). Its listing is step 2's; step 1 only
-/// creates, resets and arms it. No `toString`.
+/// Counted reconcile failures after which a deferred message waiting for
+/// its FINAL attempt becomes a row with no engine call (a ruling after the
+/// design, step 2 carry-over 14). Also the bound of the entry's count.
+const int kReconcileGiveUpAfter = 5;
+
+/// The reconcile cursor (§3.1 `rec`, §8.2): the by-id tombstone listing
+/// that must finish before a deferred message may be given to the engine
+/// again. [armed]: an anchor probe ran since the last retirement (the
+/// listing may run); [t]: the next page token (`''`: from the top); [n]:
+/// pages applied in this listing; [l]: the last tombstone id applied in it
+/// (`''`: none).
+///
+/// [f] (0 to [kReconcileGiveUpAfter]) and [fa] (the local micros of the
+/// last counted one, 0 to 2^53 - 1) count the listings that were refused or
+/// unavailable and the retirements that interrupted a listing, ACROSS app
+/// runs and across retirements: at most one is counted per engine-backoff
+/// minute, doubling with the count. Both are optional at decode (a record
+/// written before they existed reads 0). Only the end of a complete
+/// listing (the entry becoming null) clears them. No `toString`.
 class ReconcileEntry {
   const ReconcileEntry({
     required this.armed,
     this.t = '',
     this.n = 0,
     this.l = '',
+    this.f = 0,
+    this.fa = 0,
   });
 
   final bool armed;
   final String t;
   final int n;
   final String l;
+  final int f;
+  final int fa;
+
+  /// The listing has applied a page since it last began.
+  bool get begun => t.isNotEmpty || n > 0;
+
+  /// The final attempts no longer wait for this entry.
+  bool get gaveUp => f >= kReconcileGiveUpAfter;
+
+  ReconcileEntry copyWith({
+    bool? armed,
+    String? t,
+    int? n,
+    String? l,
+    int? f,
+    int? fa,
+  }) => ReconcileEntry(
+    armed: armed ?? this.armed,
+    t: t ?? this.t,
+    n: n ?? this.n,
+    l: l ?? this.l,
+    f: f ?? this.f,
+    fa: fa ?? this.fa,
+  );
+
+  /// The listing begins again from the top; the failure count is kept.
+  ReconcileEntry restarted({bool? armed}) =>
+      copyWith(armed: armed, t: '', n: 0, l: '');
 }
 
 /// Counted group-level engine failures after which a failing message
@@ -324,7 +371,16 @@ class ReceiveRecord {
         'orphan': _walkJson(orphan, close: false),
         'rec': rec == null
             ? null
-            : {'armed': rec!.armed, 't': rec!.t, 'n': rec!.n, 'l': rec!.l},
+            : {
+                'armed': rec!.armed,
+                't': rec!.t,
+                // Clamped into the decoder's bounds, as every count and
+                // local time.
+                'n': _clamp(rec!.n, kMaxPairComponent),
+                'l': rec!.l,
+                'f': _clamp(rec!.f, kReconcileGiveUpAfter),
+                'fa': _clamp(rec!.fa, kMaxPairComponent),
+              },
         'anchor': anchor,
         // Every value written is one the decoder accepts: counts are
         // clamped into their bounds.
@@ -369,14 +425,31 @@ class ReceiveRecord {
       final armed = rec['armed'];
       final n = rec['n'];
       final l = rec['l'];
+      // Optional: a record written before the count existed has none.
+      final f = rec['f'] ?? 0;
+      final fa = rec['fa'] ?? 0;
       if (armed is! bool ||
           n is! int ||
           n < 0 ||
+          n > kMaxPairComponent ||
           l is! String ||
-          (l.isNotEmpty && !_idShape.hasMatch(l))) {
+          (l.isNotEmpty && !_idShape.hasMatch(l)) ||
+          f is! int ||
+          f < 0 ||
+          f > kReconcileGiveUpAfter ||
+          fa is! int ||
+          fa < 0 ||
+          fa > kMaxPairComponent) {
         throw const FormatException('rec');
       }
-      reconcile = ReconcileEntry(armed: armed, t: _token(rec['t']), n: n, l: l);
+      reconcile = ReconcileEntry(
+        armed: armed,
+        t: _token(rec['t']),
+        n: n,
+        l: l,
+        f: f,
+        fa: fa,
+      );
     }
     final gf = m['gf'];
     GroupFailures? failures;
@@ -426,6 +499,9 @@ class ReceiveRecord {
       abandoned: ab,
     );
   }
+
+  static int _clamp(int value, int max) =>
+      value < 0 ? 0 : (value > max ? max : value);
 
   static Object? _walkJson(
     WalkEntry? w, {

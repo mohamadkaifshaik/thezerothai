@@ -467,6 +467,32 @@ class RigServer {
   /// The read hold `rateLimitedFor` reports (null: none).
   RateLimitedException? readHold;
 
+  // --- tombstones (ListMessageTombstones) ----------------------------------
+
+  /// The page token of every ListMessageTombstones request, in order.
+  final List<String> tombstoneRequests = [];
+
+  /// The server's page size cap (the real one clamps to 100).
+  int tombstonePageMax = 100;
+
+  /// Asked at each ListMessageTombstones call: a non-null answer is thrown
+  /// instead of a page (FEATURE_DISABLED, UNIMPLEMENTED, a failed call).
+  Object? Function()? tombstoneError;
+
+  /// The next this many ListMessageTombstones calls that carry a page token
+  /// are refused (`page_token`).
+  int refuseTombstoneTokens = 0;
+
+  /// Replaces a ListMessageTombstones answer (to reorder or forge).
+  pb.ListMessageTombstonesResponse Function(
+    pb.ListMessageTombstonesResponse real,
+  )?
+  rewriteTombstones;
+
+  /// Runs after a ListMessageTombstones answer is computed and before it is
+  /// returned (a race: something happens while the page is in flight).
+  Future<void> Function()? afterTombstoneAnswer;
+
   /// Stores [m] (a send, as the server keeps it).
   void addMessage(pb.Message m) {
     final list = _messages.putIfAbsent(m.conversationId, () => []);
@@ -542,7 +568,7 @@ class _Commit {
   final DateTime createdAt;
 }
 
-/// One user's view of a [RigServer]: the six MLS repository methods and the
+/// One user's view of a [RigServer]: the seven MLS repository methods and the
 /// few cache methods the pipeline reads. Everything else throws.
 class RigMessaging implements MessagingRepository {
   RigMessaging(this._server, this.user);
@@ -779,6 +805,52 @@ class RigMessaging implements MessagingRepository {
       throw const ValidationException('ids');
     }
     byConv!.removeWhere((_, w) => ids.contains(w.id));
+  }
+
+  /// The contract as built (`service_sync.go`): ids and states only, in
+  /// ascending message id, paged by the last id; page size 0 or negative
+  /// is 50, clamped to the cap; a token that is not this conversation's is
+  /// refused (`page_token`); a next token only when more rows follow.
+  @override
+  Future<pb.ListMessageTombstonesResponse> listMessageTombstones({
+    required String conversationId,
+    int pageSize = 0,
+    String pageToken = '',
+  }) async {
+    await _server._enter('listMessageTombstones');
+    _server.tombstoneRequests.add(pageToken);
+    final error = _server.tombstoneError?.call();
+    if (error != null) throw error;
+    final prefix = 'x:$conversationId:';
+    var after = '';
+    if (pageToken.isNotEmpty) {
+      final refuse = _server.refuseTombstoneTokens > 0;
+      if (refuse) _server.refuseTombstoneTokens--;
+      if (refuse || !pageToken.startsWith(prefix)) {
+        throw const ValidationException('page_token', field: 'page_token');
+      }
+      after = pageToken.substring(prefix.length);
+    }
+    final cap = _server.tombstonePageMax;
+    final size = pageSize <= 0 ? (cap < 50 ? cap : 50) : pageSize.clamp(1, cap);
+    final rows = [
+      for (final s in _server._messages[conversationId] ?? const <_Stored>[])
+        if ((s.message.state == MessageState.MESSAGE_STATE_REMOVED ||
+                s.message.state ==
+                    MessageState.MESSAGE_STATE_DELETED_ACCOUNT) &&
+            s.message.id.compareTo(after) > 0)
+          s.message,
+    ]..sort((a, b) => a.id.compareTo(b.id));
+    final page = rows.take(size).toList();
+    final real = pb.ListMessageTombstonesResponse(
+      tombstones: [
+        for (final m in page) pb.MessageTombstone(id: m.id, state: m.state),
+      ],
+      nextPageToken: rows.length > size ? '$prefix${page.last.id}' : '',
+    );
+    final answer = _server.rewriteTombstones?.call(real) ?? real;
+    await _server.afterTombstoneAnswer?.call();
+    return answer;
   }
 
   @override

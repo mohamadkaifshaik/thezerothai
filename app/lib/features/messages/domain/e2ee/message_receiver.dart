@@ -25,6 +25,7 @@ import 'receive_record.dart';
 import 'sync_budget.dart';
 
 part 'message_receiver_failures.dart';
+part 'message_receiver_reconcile.dart';
 part 'message_receiver_sink.dart';
 part 'message_receiver_walks.dart';
 
@@ -42,6 +43,20 @@ const int kSinkPagesPerHold = 2;
 /// Walk pages one pass lists across its close, orphan and open walks (§9);
 /// twice that at user priority.
 const int kWalkPagesPerPass = 10;
+
+/// Tombstone pages one pass lists for the reconcile walk (§8.2, §9): a
+/// throttle, not a cap (the next pass continues from the sealed cursor).
+const int kReconcilePagesPerPass = 10;
+
+/// The page size asked of `ListMessageTombstones` (the contract's maximum).
+/// A page with more tombstones is refused.
+const int kTombstonePageSize = 100;
+
+/// A reconcile listing longer than this many pages (a million tombstones)
+/// is treated as one that can never complete: counted as a failure and
+/// begun again from the top (a ruling of step 2b: no sequence of server
+/// answers lists without end).
+const int kReconcilePagesMax = 10000;
 
 /// Refused page tokens a walk restarts from per run (§3.2).
 const int kWalkRestartsPerRun = 2;
@@ -363,6 +378,17 @@ class MessageReceiver implements EpochMessageSink {
     });
     return pass;
   }
+
+  /// One allowance of the reconcile walk of [conversationId] alone (§8.2:
+  /// step 2 of a pass, without its probe and its walks), for a scheduler
+  /// that wants removed text cleared while no pass is due. `complete`: no
+  /// reconcile entry is armed, or its listing ended; otherwise as a pass.
+  /// No engine call. Takes the conversation lock (never call it with the
+  /// lock held). Never throws.
+  Future<ReceiveOutcome> reconcile(
+    String conversationId, {
+    BudgetPriority priority = BudgetPriority.background,
+  }) => _reconcileAlone(conversationId, priority);
 
   /// [conversationId]'s close (or orphan) walk for [pair] reached its end
   /// (read from the receive record). True for a pair no member can have

@@ -1099,6 +1099,28 @@ class MessagingRepository {
     ),
   );
 
+  /// The tombstones of [conversationId] (ids and states only, ascending by
+  /// message id), one page. Not globally off is enough here; the server
+  /// also needs `e2ee_dm` not globally off and answers FEATURE_DISABLED
+  /// otherwise. [pageSize] 0 asks for the server's default (50; at most
+  /// 100). A refused token throws `ValidationException(field:
+  /// 'page_token')`. Nothing is written to the store.
+  Future<pb.ListMessageTombstonesResponse> listMessageTombstones({
+    required String conversationId,
+    int pageSize = 0,
+    String pageToken = '',
+  }) => _mls(
+    () => _gate.runRead(
+      () => _apiClient.messaging.listMessageTombstones(
+        pb.ListMessageTombstonesRequest(
+          conversationId: conversationId,
+          pageSize: pageSize,
+          pageToken: pageToken,
+        ),
+      ),
+    ),
+  );
+
   /// Welcomes waiting for [deviceId]. Not globally off is enough.
   Future<pb.ListWelcomesResponse> listWelcomes({required String deviceId}) =>
       _mls(

@@ -253,6 +253,48 @@ void main() {
         (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'k': 1},
         false,
       ),
+      (
+        'a reconcile failure count at its maximum with its time',
+        (r) => _slot(r, 'rec')
+          ..['f'] = kReconcileGiveUpAfter
+          ..['fa'] = kMaxPairComponent,
+        true,
+      ),
+      (
+        'a negative reconcile failure count',
+        (r) => _slot(r, 'rec')['f'] = -1,
+        false,
+      ),
+      (
+        'a reconcile failure count above its maximum',
+        (r) => _slot(r, 'rec')['f'] = kReconcileGiveUpAfter + 1,
+        false,
+      ),
+      (
+        'a string for the reconcile failure count',
+        (r) => _slot(r, 'rec')['f'] = '1',
+        false,
+      ),
+      (
+        'a negative reconcile failure time',
+        (r) => _slot(r, 'rec')['fa'] = -1,
+        false,
+      ),
+      (
+        'a reconcile failure time at 2^53',
+        (r) => _slot(r, 'rec')['fa'] = kMaxPairComponent + 1,
+        false,
+      ),
+      (
+        'a string for the reconcile failure time',
+        (r) => _slot(r, 'rec')['fa'] = 'x',
+        false,
+      ),
+      (
+        'a reconcile page count above 2^53 - 1',
+        (r) => _slot(r, 'rec')['n'] = kMaxPairComponent + 1,
+        false,
+      ),
       ('an abandoned-walk count', (r) => r['ab'] = 3, true),
       ('a negative abandoned-walk count', (r) => r['ab'] = -1, false),
       (
@@ -369,6 +411,9 @@ void main() {
           t: token,
           n: kMaxPairComponent,
           l: _hex,
+          // The reconcile failure count and its time at their maxima.
+          f: kReconcileGiveUpAfter,
+          fa: kMaxPairComponent,
         ),
         anchor: token,
         // The group failure count, the time of its last counted strike and
@@ -391,9 +436,57 @@ void main() {
       expect(again.gf!.at, kMaxPairComponent);
       expect(again.gf!.kind, GroupFailureKind.describeFailed);
       expect(again.abandoned, kAbandonedWalksMax);
+      expect(
+        (again.rec!.f, again.rec!.fa),
+        (kReconcileGiveUpAfter, kMaxPairComponent),
+      );
       for (final w in [again.open!, again.close!, again.orphan!]) {
         expect((w.mf, w.mfAt), (kWalkGiveUpAfter, kMaxPairComponent));
       }
+    });
+
+    test('the reconcile failure count round-trips, is clamped into its bounds '
+        'at encode, is kept by a restart, and a record without it reads '
+        '0', () {
+      ReconcileEntry? again(ReconcileEntry e) =>
+          ReceiveRecord.decode(ReceiveRecord(rec: e).encode()).rec;
+      const e = ReconcileEntry(
+        armed: true,
+        t: 'tok',
+        n: 4,
+        l: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        f: 3,
+        fa: 99,
+      );
+      final back = again(e)!;
+      expect((back.armed, back.t, back.n, back.l), (true, 'tok', 4, e.l));
+      expect((back.f, back.fa), (3, 99));
+      final restarted = e.restarted(armed: false);
+      expect(
+        (restarted.armed, restarted.t, restarted.n, restarted.l),
+        (false, '', 0, ''),
+      );
+      expect((restarted.f, restarted.fa), (3, 99));
+      // Every value written is one the decoder accepts.
+      final clamped = again(
+        const ReconcileEntry(armed: true, n: -4, f: 99, fa: -5),
+      )!;
+      expect((clamped.n, clamped.f, clamped.fa), (0, kReconcileGiveUpAfter, 0));
+      final high = again(
+        const ReconcileEntry(
+          armed: true,
+          n: kMaxPairComponent + 5,
+          f: -2,
+          fa: kMaxPairComponent + 5,
+        ),
+      )!;
+      expect(
+        (high.n, high.f, high.fa),
+        (kMaxPairComponent, 0, kMaxPairComponent),
+      );
+      // A record written before the count existed.
+      final old = ReceiveRecord.decode(_bytes(_record())).rec!;
+      expect((old.f, old.fa), (0, 0));
     });
 
     test('the refusal count round-trips, is clamped into its bounds at encode, '

@@ -130,6 +130,22 @@ class ConversationContext {
   int orderViolation = 0;
   int discardedPages = 0;
 
+  // --- the receiver's reconcile walk (design rev 3 §8.2; memory only) -----
+
+  /// No tombstone listing before this time (a refused, failed or
+  /// out-of-order listing); [reconcileBackoff] is its last wait, 1 min
+  /// doubling to 1 h, reset by an applied page. The failures that bound a
+  /// final attempt's wait are counted in the sealed receive record, not
+  /// here. The probe and the walks are not held by it.
+  DateTime? reconcileNotBefore;
+  Duration? reconcileBackoff;
+
+  /// Counters of this run: tombstone pages refused for their shape or
+  /// order, and tombstone pages listed without the lock that were
+  /// discarded.
+  int reconcileViolation = 0;
+  int reconcileDiscarded = 0;
+
   // --- the receiver's failure rule (design rev 3 §7; memory only) ---------
 
   /// No engine call of the receiver for THIS conversation before this time:

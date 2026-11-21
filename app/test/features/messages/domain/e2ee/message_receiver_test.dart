@@ -215,20 +215,19 @@ void main() {
   Future<void> putReceiveRecord(ReceiveRecord r) =>
       rig.device.vault.transaction((tx) => ReceiveRecords().putIn(tx, _c1, r));
 
-  /// The reconcile entry of [conversation] as step 2b's finished
-  /// reconciliation will leave it (null). Step 2a arms the entry at the
-  /// first probe of every conversation and has nothing that disarms it, and
-  /// a deferred message is never given to the engine by a retry while it is
-  /// armed (fix round 2): a test that needs an engine retry calls this once
-  /// the since token is stored (with an empty token the entry is armed
-  /// again at the next read).
+  /// The reconcile walk of [conversation] has REALLY disarmed its entry
+  /// (step 2b: the pass that saved the since token listed the tombstones
+  /// to the end, and that last page's transaction cleared the entry). A
+  /// deferred message is never given to the engine by a retry while the
+  /// entry stands (step 2a fix round 2), so a test that needs an engine
+  /// retry checks this first. It writes nothing: until step 2b this helper
+  /// wrote `rec: null` itself.
   Future<void> reconciled([String conversation = _c1]) async {
     final v = rig.device.vault;
     final r = await ReceiveRecords().read(v, conversation);
     expect((await v.conversation(conversation))!.sync.sinceToken, isNotEmpty);
-    await v.transaction(
-      (tx) => ReceiveRecords().putIn(tx, conversation, r.copyWith(rec: null)),
-    );
+    expect(r.rec, isNull, reason: 'the reconcile walk did not disarm');
+    expect(rig.server.calls, contains('listMessageTombstones'));
   }
 
   /// The ordered epoch requests for [pair] (page tokens, in order).
@@ -3236,7 +3235,9 @@ void main() {
         'entry in one transaction', () async {
       await setUpJoined();
       final token = await prime();
-      expect((await receiveRecord()).rec!.armed, isTrue);
+      // Step 2b: the first pass listed the tombstones and disarmed the
+      // entry (until then this line expected it armed).
+      expect((await receiveRecord()).rec, isNull);
       rig.server.retiredSince.add(token);
       // The record's seal fails: the token is not cleared either.
       rig.device.cipher.failSeal = (label) =>
@@ -6399,6 +6400,9 @@ void main() {
           r..messages.removeWhere((m) => m.id == _mid(1));
       rig.server.rewriteEpoch = (r) =>
           r..messages.removeWhere((m) => m.id == _mid(1));
+      // Step 2b: and the by-id listing is not available (an older server),
+      // so the entry stays armed for the whole test.
+      rig.server.tombstoneError = () => const UnknownApiException('x');
       // A later run, past the retry spacing: the item is due.
       nextRun();
 
