@@ -863,6 +863,8 @@ extension _Walks on MessageReceiver {
         w.pair,
         engine: true,
         generationEnds: true,
+        // Read fresh in this body (the sink reaches this with no probe).
+        rec: record.rec,
       );
       if (plan == null) {
         waiting = true;

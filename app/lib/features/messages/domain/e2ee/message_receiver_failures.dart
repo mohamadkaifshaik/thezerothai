@@ -849,7 +849,9 @@ extension _Failures on MessageReceiver {
         !_retryDue(item, now)) {
       return _Retry.kept;
     }
-    if ((await _readReceive(v, id)).rec?.armed ?? false) return _Retry.kept;
+    // Any entry, armed or not yet armed (the same question the final
+    // attempts ask).
+    if ((await _readReceive(v, id)).rec != null) return _Retry.kept;
     final deviceState = await v.deviceState();
     if (deviceState == null) return _Retry.kept;
     if (item.crashClass) _crashRetryUsed = true;
@@ -943,7 +945,13 @@ extension _Failures on MessageReceiver {
   /// engine call. With [generationEnds] (the group is about to be deleted)
   /// every item of the generation ends, those of another epoch as rows.
   ///
-  /// Null: the end must wait (an engine hold stands, the engine is down,
+  /// [rec] is the reconcile entry of the receive record the caller read
+  /// fresh in this body: while one stands no item is given to the engine
+  /// (step 2 carry-over 14); the end waits, or, once the entry's failure
+  /// count has reached [kReconcileGiveUpAfter], the item is a row.
+  ///
+  /// Null: the end must wait (a reconcile entry stands below its bound,
+  /// an engine hold stands, the engine is down,
   /// the breaker, a group-level failure below the maximum, or an attempt
   /// answered `deadline`; a hold is set where the rule sets one and at most
   /// a durable counter was written by a transaction of its own): the caller
@@ -963,6 +971,7 @@ extension _Failures on MessageReceiver {
     MlsPair pair, {
     required bool engine,
     required bool generationEnds,
+    required ReconcileEntry? rec,
   }) async {
     final context = _contexts.of(id);
     final plan = _FinalPlan();
@@ -1029,6 +1038,19 @@ extension _Failures on MessageReceiver {
       }
       // A witnessed crash: a row, never the engine again.
       if (item.cc >= 1) {
+        await row();
+        continue;
+      }
+      // The freshness gate (step 2 carry-over 14): no ENGINE call while a
+      // reconcile entry stands, armed or not yet armed. After a retirement
+      // only the by-id tombstone listing shows whether this message was
+      // taken down, and its stored ciphertext would still decrypt. The end
+      // waits (nothing written) until the listing has disarmed the entry.
+      // The wait is bounded durably by the entry's failure count: once it
+      // has reached [kReconcileGiveUpAfter] the item becomes a row with NO
+      // engine call (never a visible message), so the walk can end.
+      if (rec != null) {
+        if (!rec.gaveUp) return null;
         await row();
         continue;
       }
@@ -1199,6 +1221,7 @@ extension _Failures on MessageReceiver {
       w.pair,
       engine: decrypt && !gone,
       generationEnds: last,
+      rec: record.rec,
     );
     if (plan == null) return _WalkEnd.waiting;
     var rec = _withSlot(record, slot, last ? null : next);

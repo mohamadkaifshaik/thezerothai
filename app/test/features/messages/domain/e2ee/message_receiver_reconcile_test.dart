@@ -4,6 +4,7 @@ import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/deferred_record.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
@@ -808,6 +809,133 @@ void main() {
       expect(rig.device.engine.calls, calls);
       expect(processedCount(m1.ciphertext), 1);
     });
+
+    /// Bob commits a self-update on the server's current pair.
+    Future<void> bobSelfUpdate() async {
+      final g = bobGroup();
+      final at = rig.server.current(_c1);
+      final c = await bob.engine.selfUpdate(bob.state, g.state);
+      g.state = await bob.engine.confirmCommit(bob.state, c.groupState);
+      rig.server.addCommit(_c1, at, c.commit, fromUser: 'user-b');
+    }
+
+    Future<int> epoch() async => (await rig.device.vault.group(_c1, 1))!.epoch;
+
+    test('a final attempt makes no engine call while the reconcile entry '
+        'stands: the walk does not end and the commit waits', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      expect(await rec(), isNull);
+      // The entry stands and its listing is not available.
+      await putRec(const ReconcileEntry(armed: true));
+      rig.server.tombstoneError = () => const UnknownApiException('x');
+      await bobSelfUpdate();
+
+      // The sink (catch-up, with the lock held) reaches the close walk's
+      // end: the stored ciphertext is not given to the engine.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await deferredIds(), [_mid(1)]);
+      expect(await row(1), isNull);
+      expect((await record()).close!.end, isFalse);
+      expect(await epoch(), 1);
+
+      // A pass: the same, and it stops for a wait.
+      final out = await pull();
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await deferredIds(), [_mid(1)]);
+      expect((await record()).close!.end, isFalse);
+      expect((await rec())!.f, 1);
+
+      // The listing completes and disarms: the final attempt runs, the
+      // walk ends and the commit applies.
+      rig.server.tombstoneError = null;
+      rig.clock.advance(kWalkBackoff);
+      for (var i = 0; i < 4 && await epoch() == 1; i++) {
+        await pull();
+        rig.clock.advance(kWalkBackoff);
+      }
+      expect(await rec(), isNull);
+      expect(await epoch(), 2);
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test('at the fifth counted reconcile failure a deferred message waiting '
+        'for its final attempt becomes an undecryptable row with no engine '
+        'call, and the walk ends', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      rig.server.tombstoneError = () => const UnknownApiException('x');
+      await bobSelfUpdate();
+      // One below the bound: the end still waits.
+      await putRec(
+        const ReconcileEntry(armed: true, f: kReconcileGiveUpAfter - 1),
+      );
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(await deferredIds(), [_mid(1)]);
+
+      await putRec(const ReconcileEntry(armed: true, f: kReconcileGiveUpAfter));
+      final calls = [...rig.device.engine.calls];
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      final r = (await row(1))!;
+      expect((r.state, r.content), (StoredMessageState.undecryptable, null));
+      expect(r.mine, isFalse);
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), 1);
+      // The commit's own application is the only engine work (one
+      // `process`: the commit, never the stored ciphertext).
+      expect(
+        rig.device.engine.calls.skip(calls.length).where((c) => c == 'process'),
+        hasLength(1),
+      );
+      expect(await epoch(), 2);
+      // The entry still stands: only a complete listing clears it.
+      expect((await rec())!.f, kReconcileGiveUpAfter);
+    });
+
+    test(
+      'AS BUILT, NEEDS A RULING: after a retirement a healthy listing '
+      'cannot disarm without a since token, so a final attempt behind a '
+      'close walk of the current pair waits and nothing is counted',
+      () async {
+        await setUpJoined();
+        final m1 = await deferOne(1);
+        await bobSelfUpdate();
+        await retire();
+        // Something changed on the server, so its next since token is a new
+        // one (the rig's tokens are its change count).
+        ghost(90);
+        // The post-retirement entry (unarmed, nothing listed yet): no engine
+        // call either.
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        expect(processedCount(m1.ciphertext), 1);
+        expect((await record()).close!.end, isFalse);
+
+        // The tombstone server answers every call. The since token is saved
+        // only by the OPEN walk's end, and there is no open walk while the
+        // close slot holds the current pair: no pass can disarm the entry,
+        // and no failure is ever counted.
+        for (var i = 0; i < 8; i++) {
+          final out = await pull();
+          expect(out.kind, ReceiveOutcomeKind.stopped);
+          rig.clock.advance(kWalkBackoffMax);
+        }
+        expect(requests(), isNotEmpty);
+        expect((await sync()).sinceToken, '');
+        final held = (await rec())!;
+        expect((held.armed, held.f), (true, 0));
+        expect((await record()).close!.end, isFalse);
+        expect(await epoch(), 1);
+        expect(processedCount(m1.ciphertext), 1);
+        expect(await deferredIds(), [_mid(1)]);
+        expect(await row(1), isNull);
+      },
+    );
 
     test('a deferred message is retried only after the reconcile walk has '
         'disarmed the entry', () async {

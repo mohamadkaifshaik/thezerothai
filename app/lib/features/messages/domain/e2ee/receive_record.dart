@@ -621,7 +621,8 @@ class ReceiveRecord {
   /// when that is for the pair); (3) `open` is null while a close or orphan
   /// slot holds the current pair, else it is for the current pair (created
   /// from the start when missing or for another pair); (4) an empty since
-  /// token with no reconcile entry creates an armed one; (5) `gf` is null
+  /// token with no reconcile entry creates an armed one, and an unarmed
+  /// entry reads as armed once a since token is stored; (5) `gf` is null
   /// unless its pair is a stored final group's.
   ReceiveRecord normalized({
     required ConversationSync sync,
@@ -678,6 +679,14 @@ class ReceiveRecord {
     var rec = this.rec;
     if (sync.sinceToken.isEmpty && rec == null) {
       rec = const ReconcileEntry(armed: true);
+    }
+    // An unarmed entry waits for the probe that arms it, and that probe
+    // runs only while the since token is empty. With a token stored (never
+    // written so; a record put back by hand) it reads as armed, so its
+    // listing runs instead of keeping the engine from every deferred
+    // message for good.
+    if (rec != null && !rec.armed && sync.sinceToken.isNotEmpty) {
+      rec = rec.copyWith(armed: true);
     }
     // Rule 5: a failure count is kept only for a stored final group at its
     // epoch (the current pair, or a kept older generation's last epoch,

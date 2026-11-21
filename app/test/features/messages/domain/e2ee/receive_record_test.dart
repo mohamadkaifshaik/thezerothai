@@ -489,6 +489,23 @@ void main() {
       expect((old.f, old.fa), (0, 0));
     });
 
+    test('normalization reads an unarmed reconcile entry as armed once a '
+        'since token is stored, and keeps it unarmed while there is none', () {
+      const r = ReceiveRecord(
+        rec: ReconcileEntry(armed: false, t: 'tok', n: 2, f: 3, fa: 9),
+      );
+      final stored = r
+          .normalized(
+            sync: const ConversationSync(sinceToken: 's:1'),
+            groups: [],
+          )
+          .rec!;
+      expect((stored.armed, stored.t, stored.n), (true, 'tok', 2));
+      expect((stored.f, stored.fa), (3, 9));
+      final empty = r.normalized(sync: const ConversationSync(), groups: []);
+      expect(empty.rec!.armed, isFalse);
+    });
+
     test('the refusal count round-trips, is clamped into its bounds at encode, '
         'is kept by a restart and reset by an applied page', () {
       const w = WalkEntry(

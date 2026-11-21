@@ -5343,6 +5343,9 @@ void main() {
     test('sixteen final attempts on a hanging engine make one engine attempt '
         'in a lock hold', () async {
       await setUpJoined();
+      // Step 2b: a final attempt reaches the engine only once the reconcile
+      // entry is disarmed (the first pass does it).
+      await prime();
       await putDeferred(
         DeferredRecord([
           for (var n = 101; n <= 100 + kDeferredMax; n++)
@@ -5435,6 +5438,10 @@ void main() {
         'group', () async {
       await setUpJoined();
       await say(bobGroup(), 1, at: const Duration(minutes: -10));
+      // Step 2b: a final attempt reaches the engine only once the reconcile
+      // entry is disarmed (the first pass does it).
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).rec, isNull);
       await rig.locks.run(
         _c1,
         () => rig.receiver.completeEpoch(
