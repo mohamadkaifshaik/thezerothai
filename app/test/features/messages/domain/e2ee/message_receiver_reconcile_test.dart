@@ -996,6 +996,37 @@ void main() {
       },
     );
 
+    test('AS BUILT, NEEDS A RULING: the same wait with no retirement at '
+        'all, when a conversation catches up before its first since token '
+        'is saved', () async {
+      await setUpJoined();
+      // No pass has run: the since token is empty, so the entry reads as
+      // armed. The first message fails once (`internal`, the engine works)
+      // and a commit already waits.
+      final m1 = await say(1);
+      rig.device.engine.failWire[RigEngine.key(m1.ciphertext)] = [internal];
+      await bobSelfUpdate();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(await deferredIds(), [_mid(1)]);
+      expect(processedCount(m1.ciphertext), 1);
+
+      for (var i = 0; i < 8; i++) {
+        final out = await pull();
+        expect(out.kind, ReceiveOutcomeKind.stopped);
+        rig.clock.advance(kWalkBackoffMax);
+      }
+      expect(requests(), isNotEmpty);
+      expect((await sync()).sinceToken, '');
+      final held = (await rec())!;
+      expect((held.armed, held.f), (true, 0));
+      expect((await record()).close!.end, isFalse);
+      expect(await epoch(), 1);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await deferredIds(), [_mid(1)]);
+      expect(await row(1), isNull);
+    });
+
     test('a deferred message is retried only after the reconcile walk has '
         'disarmed the entry', () async {
       await setUpJoined();
