@@ -59,6 +59,8 @@ type Deps struct {
 	Flags      FlagChecker
 	// ClaimCap is the per-(caller, target) daily cap on Claim (KEYS_CLAIMS_PER_TARGET_PER_DAY), keyed by claimCapKey.
 	ClaimCap *ratelimit.DailyCap
+	// ChargeLookups reserves one unit per validated target before any permission or device read.
+	ChargeLookups func(context.Context, string, int) error
 	// ConversationID is messaging.ConversationID, injected by the composition root (keys never imports messaging).
 	// Required: newKeysModule fails when nil. A service built without it answers "" as the conversation id of a claim.
 	ConversationID func(callerUID, targetUID string) string
@@ -67,13 +69,14 @@ type Deps struct {
 }
 
 type service struct {
-	repo     Repo
-	now      func() time.Time
-	perm     Permission
-	flags    FlagChecker
-	claimCap *ratelimit.DailyCap
-	convID   func(callerUID, targetUID string) string
-	log      *slog.Logger
+	repo          Repo
+	now           func() time.Time
+	perm          Permission
+	flags         FlagChecker
+	claimCap      *ratelimit.DailyCap
+	chargeLookups func(context.Context, string, int) error
+	convID        func(callerUID, targetUID string) string
+	log           *slog.Logger
 }
 
 // New builds the service.
@@ -86,7 +89,7 @@ func New(d Deps) Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, convID: d.ConversationID, log: log}
+	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, chargeLookups: d.ChargeLookups, convID: d.ConversationID, log: log}
 }
 
 var _ Service = (*service)(nil)
@@ -271,6 +274,12 @@ func (s *service) GetDevices(ctx context.Context, uid string, userIDs []string) 
 		seen[id] = true
 	}
 	logger.SetRequestField(ctx, fieldUsers, len(userIDs))
+	if s.chargeLookups != nil {
+		if err := s.chargeLookups(ctx, uid, len(userIDs)); err != nil {
+			logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"rate_limited")
+			return nil, err
+		}
+	}
 	for _, id := range userIDs {
 		if id != uid {
 			if err := s.permit(ctx, "get_devices", uid, id); err != nil {

@@ -85,12 +85,17 @@ func (d *DailyCap) Allow(key string) bool {
 // when count + n would pass the limit nothing is counted and false is returned (so a rejected batch does not eat
 // the remaining allowance). n <= 0 is always allowed and counts nothing.
 func (d *DailyCap) AllowN(key string, n int64) bool {
+	return d.AllowNUpTo(key, n, d.limit)
+}
+
+// AllowNUpTo charges the same daily counter under a possibly lower account-tier limit.
+func (d *DailyCap) AllowNUpTo(key string, n, limit int64) bool {
 	if n <= 0 {
 		return true
 	}
 	c := d.lock(key)
 	defer c.mu.Unlock()
-	if c.count+n > d.limit {
+	if n > min(limit, d.limit)-c.count {
 		return false
 	}
 	c.count += n
