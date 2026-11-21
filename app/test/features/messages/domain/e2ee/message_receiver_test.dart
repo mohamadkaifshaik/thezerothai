@@ -1664,6 +1664,32 @@ void main() {
       expect(rig.server.epochRequests, isEmpty);
     });
 
+    test("another conversation's sink hold does not reset this hold's page "
+        'count', () async {
+      await setUpJoined();
+      await sayMany(1, 200, start: const Duration(minutes: -10));
+      await bobSelfUpdate();
+      const c2 = '22222222222222222222222222222222';
+      // While this hold's first page is in flight, the sink runs for c2
+      // under c2's own lock (one empty page).
+      rig.server.afterEpochAnswer = () async {
+        rig.server.afterEpochAnswer = null;
+        await rig.locks.run(
+          c2,
+          () => rig.receiver.completeEpoch(
+            c2,
+            const MlsPair(1, 1),
+            priority: BudgetPriority.user,
+          ),
+        );
+      };
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+
+      // Two pages for _c1's hold and one for c2's.
+      expect(orderedTokens(const MlsPair(1, 1)), hasLength(3));
+    });
+
     test('a pending close walk is reported and the next pass completes it and '
         'the commit applies', () async {
       await setUpJoined();

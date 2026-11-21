@@ -71,8 +71,9 @@ class ConversationContext {
   /// joins it. The receiver types it; null when none runs.
   Future<Object?>? running;
 
-  /// Bumped by every write of the receive record and every stored tombstone;
-  /// a page listed without the lock is applied only when it is unchanged.
+  /// Bumped by every write of the receive record (step 2's reconcile page
+  /// must bump it too); a page listed without the lock is applied only when
+  /// it is unchanged.
   int serial = 0;
 
   /// The since token of the last probe page that was not processed, with

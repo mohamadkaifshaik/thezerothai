@@ -54,10 +54,8 @@ extension _Sink on MessageReceiver {
     // 3-5: at most kSinkPagesPerHold pages per hold, never waiting.
     while (true) {
       final hold = _locks.holdToken(id);
-      if (!identical(hold, _sinkHold)) {
-        _sinkHold = hold;
-        _sinkPages = 0;
-      }
+      if (hold == null) throw _pending(context);
+      final used = _sinkPagesByHold[hold] ?? 0;
       final fresh = _slotOf(await _readReceive(pass.vault, id), slot);
       if (fresh == null || fresh.pair != pair) {
         // The orphan's final transaction ran.
@@ -67,11 +65,11 @@ extension _Sink on MessageReceiver {
       if (fresh.end) return;
       final backoff = context.walkBackoffUntil;
       if ((backoff != null && _now().isBefore(backoff)) ||
-          _sinkPages >= kSinkPagesPerHold ||
+          used >= kSinkPagesPerHold ||
           !_syncBudget.tryTake(priority)) {
         throw _pending(context);
       }
-      _sinkPages++;
+      _sinkPagesByHold[hold] = used + 1;
       final seq = ++_seq;
       final listed = await _listOrdered(id, fresh);
       if (listed.outcome != null) {

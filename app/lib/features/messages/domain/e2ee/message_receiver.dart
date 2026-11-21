@@ -167,9 +167,9 @@ class MessageReceiver implements EpochMessageSink {
   /// The receiver's call sequence (probe and listing order, §4 rule 2).
   int _seq = 0;
 
-  /// The lock hold the sink counts pages for, and its count.
-  Object? _sinkHold;
-  int _sinkPages = 0;
+  /// The sink's pages per lock hold (keyed by [ConversationLocks.holdToken],
+  /// so holds of different conversations never reset each other's count).
+  final Expando<int> _sinkPagesByHold = Expando();
 
   /// `uid|conversationId|messageId` of messages handled without a row this
   /// run (oldest first, at most [_kRowlessRemembered]).
