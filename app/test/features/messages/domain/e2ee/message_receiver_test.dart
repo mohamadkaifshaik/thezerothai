@@ -215,6 +215,22 @@ void main() {
   Future<void> putReceiveRecord(ReceiveRecord r) =>
       rig.device.vault.transaction((tx) => ReceiveRecords().putIn(tx, _c1, r));
 
+  /// The reconcile entry of [conversation] as step 2b's finished
+  /// reconciliation will leave it (null). Step 2a arms the entry at the
+  /// first probe of every conversation and has nothing that disarms it, and
+  /// a deferred message is never given to the engine by a retry while it is
+  /// armed (fix round 2): a test that needs an engine retry calls this once
+  /// the since token is stored (with an empty token the entry is armed
+  /// again at the next read).
+  Future<void> reconciled([String conversation = _c1]) async {
+    final v = rig.device.vault;
+    final r = await ReceiveRecords().read(v, conversation);
+    expect((await v.conversation(conversation))!.sync.sinceToken, isNotEmpty);
+    await v.transaction(
+      (tx) => ReceiveRecords().putIn(tx, conversation, r.copyWith(rec: null)),
+    );
+  }
+
   /// The ordered epoch requests for [pair] (page tokens, in order).
   List<String> orderedTokens(MlsPair pair) => [
     for (final r in rig.server.epochRequests)
@@ -4019,6 +4035,7 @@ void main() {
       failNext(m1, [internal]);
       await rig.receiver.pullLive(_c1);
       expect(await deferredIds(), [_mid(1)]);
+      await reconciled();
       final before = await groupState();
       rig.changed.clear();
 
@@ -4049,6 +4066,7 @@ void main() {
       final m1 = await say(bobGroup(), 1);
       failAlways(m1, internal);
       await rig.receiver.pullLive(_c1);
+      await reconciled();
       // The run that deferred it never retries it.
       rig.clock.advance(kDeferredRetrySpacing);
       await rig.receiver.pullLive(_c1);
@@ -4078,6 +4096,7 @@ void main() {
       failAlways(m1, internal);
       await rig.receiver.pullLive(_c1);
       expect((await deferred()).items.single.k, 1);
+      await reconciled();
 
       nextRun();
       await rig.receiver.pullLive(_c1);
@@ -4106,6 +4125,7 @@ void main() {
         const MlsException(MlsErrorCode.badInput, 'too late'),
       ]);
       await rig.receiver.pullLive(_c1);
+      await reconciled();
       final state = await groupState();
 
       nextRun();
@@ -4131,6 +4151,7 @@ void main() {
       final item = (await deferred()).items.single;
       expect((item.k, item.cc, item.cu), (1, 1, 0));
       expect(count('describe'), 1);
+      await reconciled();
 
       nextRun();
       await rig.receiver.pullLive(_c1);
@@ -4380,6 +4401,7 @@ void main() {
       failNext(m2, [deadline]);
       await rig.receiver.pullLive(_c1);
       expect(await deferredIds(), [_mid(1), _mid(2)]);
+      await reconciled();
 
       // Never in the run it crashed.
       rig.clock.advance(kDeferredRetrySpacing);
@@ -4421,6 +4443,7 @@ void main() {
       failNext(m1, [deadline]);
       await rig.receiver.pullLive(_c1);
       expect((await deferred()).items.single.cc, 1);
+      await reconciled();
 
       nextRun();
       final m2 = await say(bobGroup(), 2, at: seconds(1));
@@ -4443,6 +4466,10 @@ void main() {
     test('an unavailable answer stops every retry of the pass and counts no '
         'attempt', () async {
       await setUpJoined();
+      // A stored since token and no armed reconcile: the retries may reach
+      // the engine.
+      await prime();
+      await reconciled();
       await putDeferred(
         DeferredRecord([
           heldItem(1, ct: [1, 1, 1], ago: kDeferredRetrySpacing),
@@ -4466,6 +4493,7 @@ void main() {
       final m1 = await say(bobGroup(), 1);
       failAlways(m1, internal);
       await rig.receiver.pullLive(_c1);
+      await reconciled();
       final held = (await deferred()).encode();
 
       // The breaker: no strike, nothing durable, the pass's retries stop.
@@ -4495,6 +4523,7 @@ void main() {
       final m1 = await say(bobGroup(), 1);
       failNext(m1, [internal]);
       await rig.receiver.pullLive(_c1);
+      await reconciled();
       final held = (await deferred()).encode();
       engine().failState[RigEngine.key(await groupState())] = internal;
 
@@ -4509,6 +4538,11 @@ void main() {
     test('on the web a second crashing message in a run is held as an '
         'unwitnessed crash and reaches the engine twice', () async {
       await setUpJoined();
+      // The since token is stored and no reconcile is armed before the
+      // messages arrive (a retry reaches the engine only then), so the
+      // first pass below takes the fast path.
+      await prime();
+      await reconciled();
       engine().webLike = true;
       final m1 = await say(bobGroup(), 1);
       final m2 = await say(bobGroup(), 2, at: seconds(1));
@@ -4614,6 +4648,7 @@ void main() {
       final m3 = await say(bobGroup(), 3);
       failNext(m3, [internal]);
       await rig.receiver.pullLive(_c1);
+      await reconciled();
       final v = rig.device.vault;
       // Item 1 has a stored row AND a tombstone seen this run; item 2 has a
       // tombstone only; item 3 has neither.
@@ -5241,40 +5276,69 @@ void main() {
       );
     });
 
-    // No RED of its own: the rig could not be made to park the retry's body
-    // on the write lock before the hold was set, so this passed before the
-    // in-body hold check too. It pins the outcome, not that interleaving.
-    test('a pass started while another conversation\'s engine call hangs '
-        'makes no engine retry once the hold is set', () async {
+    // The hold check INSIDE the retry's write body (fix round 2 replaced a
+    // pin that proved nothing about it). The other conversation's retry is
+    // allowed by its caller while no hold stands, then waits for the user's
+    // one vault write lock behind this conversation's hanging engine call,
+    // which sets the receiver-wide hold before that body starts.
+    test('a retry that queued for the vault behind another conversation\'s '
+        'hanging engine call makes no engine call once the hold is '
+        'set', () async {
       await setUpJoined();
       final g2 = await joinSecond();
-      // The other conversation holds a deferred message, due in a new run.
+      // The other conversation holds a deferred message, due in a new run,
+      // with nothing but an engine hold to keep it from the engine.
       final n1 = await say(g2, 2, conversation: c2);
       failNext(n1, [internal]);
       await rig.receiver.pullLive(c2);
+      await reconciled(c2);
       nextRun();
       await say(bobGroup(), 1);
-      // This conversation's engine call hangs. While it is in flight (it
-      // holds the user's one vault write lock) the other conversation's
-      // pass fails its probe and goes straight to its retries, which wait
-      // for the lock; then the call runs into its deadline.
-      Future<ReceiveOutcome>? other;
+      final listed = liveCalls();
+      final parked = Completer<void>();
+      final answer = Completer<void>();
       engine().onProcessCall[engine().processed.length + 1] = () async {
-        rig.server.onCall = (c) async {
-          if (c == 'listMlsMessages') throw const NetworkException('rig');
-        };
-        other = rig.receiver.pullLive(c2);
-        await pumpEventQueue(times: 50);
-        hang();
+        // This conversation's engine call is in flight inside its write
+        // body until the test lets it run into its deadline.
+        parked.complete();
+        await answer.future;
         throw deadline;
       };
+      final running = rig.receiver.pullLive(_c1);
+      await parked.future;
+      // The other conversation's pass is started HERE, by the test (started
+      // from the engine hook it would run in the zone of the first write
+      // body, and the vault's mutex would refuse its write as re-entrant
+      // instead of queueing it). Its probe is answered with its stored
+      // token on a gap page (not processed: no write) and a walk backoff
+      // stands, so the first vault write its pass asks for is its retry.
+      rig.server.rewriteLive = (r) => r..gapPageToken = 'gap';
+      rig.contexts.of(c2).walkBackoffUntil = rig.clock.now().add(
+        kWalkBackoffMax,
+      );
+      final queued = Completer<void>();
+      rig.device.onWriteAsked = () {
+        if (!queued.isCompleted) queued.complete();
+      };
+      final other = rig.receiver.pullLive(c2);
+      await queued.future;
+      rig.device.onWriteAsked = null;
+      // The retry's write is queued behind the first body. Only now does
+      // the engine call run into its deadline, and nothing answers after
+      // it: the receiver-wide hold is set before the retry's body starts.
+      hang();
+      answer.complete();
 
-      final first = await rig.receiver.pullLive(_c1);
-      await other;
-      rig.server.onCall = null;
+      final first = await running;
+      final second = await other;
+      rig.server.rewriteLive = null;
 
       expect(first.kind, ReceiveOutcomeKind.stopped);
       expect(rig.receiver.engineHeldUntil, isNotNull);
+      expect(second.kind, ReceiveOutcomeKind.stopped);
+      // Both probes were answered (the first conversation's, then the
+      // other's with its stored token).
+      expect(liveCalls(), listed + 2);
       // The hold was set while the retry waited: it made no engine call.
       expect(processedCount(n1.ciphertext), 1);
       final item = (await DeferredRecords().read(
@@ -5284,22 +5348,37 @@ void main() {
       expect([for (final i in item) (i.k, i.cc, i.cu)], [(1, 0, 0)]);
     });
 
-    test('a pass stopped by a failed call still retries a due deferred '
-        'item', () async {
+    // Inverted in fix round 2 (it was `a pass stopped by a failed call still
+    // retries a due deferred item`): a pass that listed nothing has not
+    // seen whether the message was taken down.
+    test('a due retry in a pass whose probe failed does not reach the '
+        'engine', () async {
       await setUpJoined();
       final m1 = await say(bobGroup(), 1);
       failNext(m1, [internal]);
       await rig.receiver.pullLive(_c1);
       expect(await deferredIds(), [_mid(1)]);
-
+      // Nothing else keeps it from the engine: the since token is stored,
+      // no reconcile is armed, no hold stands and the item is due.
+      await reconciled();
       nextRun();
       rig.server.onCall = (c) async {
         if (c == 'listMlsMessages') throw const NetworkException('rig');
       };
-      final out = await rig.receiver.pullLive(_c1);
 
-      // Only an engine hold keeps a retry from the engine, not the network.
+      final out = await rig.receiver.pullLive(_c1);
+      rig.server.onCall = null;
+
       expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.receiver.engineHeldUntil, isNull);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await row(_mid(1)), isNull);
+      expect(await deferredIds(), [_mid(1)]);
+
+      // The next pass's probe is answered with the stored token: retried.
+      rig.clock.advance(kWalkBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 2);
       expect((await row(_mid(1)))!.state, StoredMessageState.visible);
       expect(await deferredIds(), isEmpty);
     });
@@ -5833,6 +5912,111 @@ void main() {
       expect(r.state, StoredMessageState.removed);
       expect(r.content, isNull);
       expect(await deferredIds(), isEmpty);
+    });
+
+    test('a deferred message is not retried while a reconcile is armed, even '
+        'after a new since token was saved', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      await reconciled();
+      final token = (await sync()).sinceToken;
+      // The message is taken down and the since token that would have
+      // listed the change is retired. No listing after the retirement
+      // carries the change: not the page of the probe that arms the
+      // reconcile entry, and not the open walk's pages. Only the by-id
+      // tombstone listing (step 2b) could show it.
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+      rig.server.retiredSince.add(token);
+      rig.server.rewriteLive = (r) =>
+          r..messages.removeWhere((m) => m.id == _mid(1));
+      rig.server.rewriteEpoch = (r) =>
+          r..messages.removeWhere((m) => m.id == _mid(1));
+      // A later run, past the retry spacing: the item is due.
+      nextRun();
+
+      // The retirement.
+      final retired = await rig.receiver.pullLive(_c1);
+      expect(retired.kind, ReceiveOutcomeKind.more);
+      expect((await sync()).sinceToken, '');
+      expect((await receiveRecord()).rec!.armed, isFalse);
+
+      // The probe with no token arms the entry, and the open walk's end
+      // saves a NEW since token: the stored token is no longer empty.
+      for (var i = 0; i < 3 && (await sync()).sinceToken.isEmpty; i++) {
+        await rig.receiver.pullLive(_c1);
+      }
+      final saved = (await sync()).sinceToken;
+      expect(saved, isNotEmpty);
+      expect(saved, isNot(token));
+      expect((await receiveRecord()).rec!.armed, isTrue);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await row(_mid(1)), isNull);
+
+      // A pass whose probe is answered with the new stored token: the
+      // armed entry alone still keeps the stored ciphertext from the
+      // engine (it would decrypt, and a removed message would be stored as
+      // visible).
+      final calls = rig.server.calls.length;
+      await rig.receiver.pullLive(_c1);
+      expect(rig.server.calls.skip(calls), contains('listMlsMessages'));
+      expect((await sync()).sinceToken, isNotEmpty);
+      expect((await receiveRecord()).rec!.armed, isTrue);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await row(_mid(1)), isNull);
+      expect(await deferredIds(), [_mid(1)]);
+    });
+
+    test('a deferred retry runs after a probe answered with the stored '
+        'token', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      await reconciled();
+      nextRun();
+      // A walk backoff alone does not skip the retry.
+      final until = rig.clock.now().add(kWalkBackoff);
+      rig.contexts.of(_c1).walkBackoffUntil = until;
+      final calls = rig.server.calls.length;
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(out.until, until);
+      expect(rig.server.calls.skip(calls), ['listMlsMessages']);
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test('a tombstone on a fast-path page whose batch stopped before it '
+        'still keeps its deferred message from the engine', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      await reconciled();
+      nextRun();
+      // The fast path's page: a new message that sorts first, then the
+      // takedown of the deferred one.
+      await say(bobGroup(), 2, at: seconds(-1));
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+      // The new message's row cannot be written: the batch stops at it,
+      // before it reaches the tombstone.
+      rig.device.cipher.failSeal = (label) =>
+          label.startsWith('vault_messages.');
+
+      await rig.receiver.pullLive(_c1);
+      rig.device.cipher.failSeal = null;
+
+      // The probe was answered with the stored token, so the retry was
+      // allowed; the page's tombstone was noted before the batch ran (the
+      // open walk's settle listing stops at the same message).
+      expect(await row(_mid(2)), isNull);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await row(_mid(1)), isNull);
+      expect(await deferredIds(), [_mid(1)]);
+
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.removed);
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), 1);
     });
 
     test('a retry with an empty since token still runs the checks that need '

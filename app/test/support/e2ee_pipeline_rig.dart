@@ -849,6 +849,32 @@ class RigMessaging implements MessagingRepository {
       throw UnimplementedError('${invocation.memberName}');
 }
 
+/// The real [VaultSession] with one observer: [onWriteAsked] runs when
+/// `runWrite` is called, then the real `runWrite` does everything else.
+class _RigVaultSession extends VaultSession {
+  _RigVaultSession({
+    required this.onWriteAsked,
+    required super.openCipher,
+    required super.openVault,
+    required super.wipeVaultFile,
+    required super.deleteVaultKey,
+    required super.createOwner,
+    required super.markers,
+    required super.supported,
+    required super.launchId,
+    super.now,
+    super.onUnexpectedError,
+  });
+
+  final void Function() onWriteAsked;
+
+  @override
+  Future<T> runWrite<T>(Future<T> Function(SecureVault vault) body) {
+    onWriteAsked();
+    return super.runWrite(body);
+  }
+}
+
 /// One user device of the rig: a real vault in a temp file, an engine, a
 /// session that is ready.
 class RigDevice {
@@ -883,6 +909,12 @@ class RigDevice {
   FakeVaultOwner? owner;
   late VaultSession session;
   late SecureVault vault;
+
+  /// Runs, synchronously, each time `session.runWrite` is ASKED for (before
+  /// the body waits for the vault's write lock): a test can tell that a
+  /// write is queued behind a body that is still running. It observes only:
+  /// the write itself is the real session's, unchanged.
+  void Function()? onWriteAsked;
 
   Uint8List get deviceId => rigBytes(deviceIdString);
 
@@ -919,7 +951,8 @@ class RigDevice {
       NativeDatabase(File('${dir.path}${Platform.pathSeparator}$uid.sqlite')),
     );
     cipher = FakeVaultCipher();
-    session = VaultSession(
+    session = _RigVaultSession(
+      onWriteAsked: () => onWriteAsked?.call(),
       openCipher: (u, {required create}) async => cipher,
       openVault: ({
         required uid,

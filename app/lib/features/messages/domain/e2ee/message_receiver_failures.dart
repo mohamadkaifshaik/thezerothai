@@ -102,7 +102,7 @@ int _oldestFirst(DeferredItem a, DeferredItem b) {
 /// | a 17th failure, describe answers, a `process` call on that group succeeded this run | `k` of the new item | evict the witnessed item with the most `k`, then the most `cc`, then the oldest; none witnessed: the new one is the row |
 /// | a 17th failure, describe answers, NO `process` success on that group this run (amended: it evicted) | `gf.n`; nothing evicted, nothing deferred | as the group-level row above |
 /// | a 17th unwitnessed failure | nothing; the receiver-wide hold | no eviction, no deferral |
-/// | a retry while the stored since token is empty (amended) | nothing | no engine call until a listing has re-established the token; the engine-free checks still run |
+/// | a retry in a pass whose probe was not answered for the stored, non-empty since token, or while that token is empty, or while the reconcile entry is armed (amended, fix round 2) | nothing | no engine call; the engine-free checks still run; the item ends by a tombstone, expiry, its lost group or its final attempt, or by a retry once step 2b's reconciliation has disarmed the entry |
 /// | a final attempt that answers `deadline` (amended) | its own `cc` (witnessed) or `cu`; the body makes no further engine attempt and the walk does not end in it | the next end: a `cc` item is a row with no engine call |
 ///
 /// While either hold stands no engine call is made for the conversation
@@ -466,6 +466,19 @@ extension _Failures on MessageReceiver {
     return (deferred: held.without([for (final i in hit) i.id]), rows: rows);
   }
 
+  /// The REMOVED / DELETED_ACCOUNT states [messages] carry for messages of
+  /// [id] (message id -> stored state name).
+  Map<String, String> _tombstoneStates(String id, List<pb.Message> messages) =>
+      {
+        for (final m in messages)
+          if (_messageIdShape.hasMatch(m.id) &&
+              (m.conversationId.isEmpty || m.conversationId == id))
+            if (m.state == MessageState.MESSAGE_STATE_REMOVED)
+              m.id: StoredMessageState.removed
+            else if (m.state == MessageState.MESSAGE_STATE_DELETED_ACCOUNT)
+              m.id: StoredMessageState.deletedAccount,
+      };
+
   /// The tombstones of a probe page that is not processed as a batch
   /// (§8.1 "in the probe"), with the lock held: one `runWrite`, ONE
   /// transaction for the deferred messages among them. Stored rows are left
@@ -475,15 +488,7 @@ extension _Failures on MessageReceiver {
     String id,
     List<pb.Message> messages,
   ) async {
-    final states = <String, String>{
-      for (final m in messages)
-        if (_messageIdShape.hasMatch(m.id) &&
-            (m.conversationId.isEmpty || m.conversationId == id))
-          if (m.state == MessageState.MESSAGE_STATE_REMOVED)
-            m.id: StoredMessageState.removed
-          else if (m.state == MessageState.MESSAGE_STATE_DELETED_ACCOUNT)
-            m.id: StoredMessageState.deletedAccount,
-    };
+    final states = _tombstoneStates(id, messages);
     if (states.isEmpty) return;
     try {
       final wrote = await _session.runWrite((v) async {
@@ -545,15 +550,21 @@ extension _Failures on MessageReceiver {
   /// then every deferred item oldest first, each in ONE `runWrite`. The
   /// checks that need no engine (§7.4 checks 1 to 6) run for every item in
   /// every pass, so an item whose row, tombstone, `cleared_at`, expiry or
-  /// lost group ends it never waits for a retry to be due; the engine runs
-  /// only for a due item and only while no engine hold stands (the
-  /// receiver-wide one, or this conversation's own). What the pass itself
-  /// ended with does not matter (fix round 1: a failed call or a walk
-  /// backoff keeps nothing from the engine). Never throws.
-  Future<void> _retryDeferred(String id) async {
+  /// lost group ends it never waits for a retry to be due. The ENGINE runs
+  /// only for a due item, only while no engine hold stands (the
+  /// receiver-wide one, or this conversation's own), and (fix round 2) only
+  /// when this pass's probe was ANSWERED for a request that sent the
+  /// stored, non-empty since token of the vault still open ([listed] is
+  /// that probe's vault, null without such an answer), so the pass has seen
+  /// what changed since that token (a takedown of a deferred message among
+  /// it). The since token and the reconcile entry are checked again in each
+  /// item's write body ([_retryOne]). A walk backoff alone keeps nothing
+  /// from the engine. Never throws.
+  Future<void> _retryDeferred(String id, {required SecureVault? listed}) async {
     try {
       final pass = await _start();
       if (pass == null) return;
+      final probed = identical(listed, pass.vault);
       final context = _contexts.of(id);
       // With no lock: only to see whether there is anything to do.
       final seen = await _deferred.read(pass.vault, id);
@@ -577,7 +588,7 @@ extension _Failures on MessageReceiver {
             pass,
             id,
             mid,
-            engine: allow && _engineHoldOf(context) == null,
+            engine: probed && allow && _engineHoldOf(context) == null,
           );
           if (end == _Retry.changed) changed = true;
           // An answer that stops the pass stops every later engine retry.
@@ -657,9 +668,12 @@ extension _Failures on MessageReceiver {
   /// (gone: nothing), then the checks IN THIS ORDER (§7.4): (1) a stored
   /// row in any state; (2) a tombstone seen this run; (3) `cleared_at`;
   /// (4) expiry; (5) its group gone, provisional or at another epoch; (6)
-  /// the outbox echo and the sent log; (7) the engine, when [engine] and
-  /// the item is due, under the §7.2 table. The item's removal or its new
-  /// counters ride in the same transaction as the row and the group state.
+  /// the outbox echo and the sent log; (7) the engine, under the §7.2
+  /// table, when [engine] (this pass's probe was answered for the stored,
+  /// non-empty since token, and no engine hold stood), the item is due,
+  /// and, read fresh in the body, the since token is not empty and the
+  /// reconcile entry is not armed. The item's removal or its new counters
+  /// ride in the same transaction as the row and the group state.
   Future<_Retry> _retryOne(
     _Pass pass,
     String id,
@@ -745,13 +759,22 @@ extension _Failures on MessageReceiver {
       _remember(rowlessKey);
       return end();
     }
-    // 7. The engine: only for a due item. A ruling after the design (fix
-    // round 1; it amends §7.4): never while the stored since token is
-    // EMPTY. A retirement cleared it and no listing has re-established it,
-    // so nothing has shown this message's state since: it may have been
-    // taken down, and its stored ciphertext would still decrypt and be
-    // stored as visible. The checks above need no engine and ran. (Step 2b
-    // extends this gate to an armed reconcile entry.)
+    // 7. The engine: only for a due item, and (a ruling after the design,
+    // fix round 2; it amends §7.4 and replaces fix round 1's gate) only
+    // when nothing says this message's state may have changed unseen. Its
+    // stored ciphertext still decrypts after a takedown, and would be
+    // stored as visible. ALL THREE must hold:
+    //  (a) [engine]: this pass's probe was ANSWERED for a request that
+    //      sent the stored, non-empty since token (the caller's `probed`;
+    //      a failed, rate-limited or retired probe, or one that sent the
+    //      anchor or no token, listed nothing since that token);
+    //  (b) the since token read fresh in THIS body is not empty (a
+    //      retirement cleared it);
+    //  (c) the receive record's reconcile entry, read fresh in this body,
+    //      is not armed: after a retirement the listings from a NEW token
+    //      never show an older message's state, only the by-id tombstone
+    //      listing does (step 2b, which disarms the entry).
+    // The checks above need no engine and ran.
     // The hold is asked again HERE, inside the body: this body may have
     // waited for the user's vault write lock behind another conversation's
     // hanging engine call, which set the receiver-wide hold after the
@@ -762,6 +785,7 @@ extension _Failures on MessageReceiver {
         !_retryDue(item, now)) {
       return _Retry.kept;
     }
+    if ((await _readReceive(v, id)).rec?.armed ?? false) return _Retry.kept;
     final deviceState = await v.deviceState();
     if (deviceState == null) return _Retry.kept;
     if (item.crashClass) _crashRetryUsed = true;

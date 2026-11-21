@@ -70,23 +70,39 @@ class _Probe {
   /// more in this pass, so the page's messages come through it.
   final bool listAgain;
   bool waitingForWelcome = false;
+
+  /// The listing was ANSWERED for a request that sent the stored, non-empty
+  /// since token (not the anchor, not an empty token): the pass has seen
+  /// what changed since that token. Only then may a deferred message be
+  /// given to the engine by a retry (fix round 2).
+  bool listed = false;
 }
 
 extension _Walks on MessageReceiver {
   /// One pass (§2). Never throws.
   Future<ReceiveOutcome> _runPass(String id, BudgetPriority priority) async {
     var welcomes = false;
+    // The vault whose stored, non-empty since token the probe was answered
+    // for (null: no such answer in this pass).
+    SecureVault? listed;
     ReceiveOutcome outcome;
     try {
-      outcome = await _passSteps(id, priority, () => welcomes = true);
+      outcome = await _passSteps(
+        id,
+        priority,
+        () => welcomes = true,
+        (vault) => listed = vault,
+      );
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'receive.live');
       outcome = ReceiveOutcome.stopped(_now().add(kWalkBackoff));
     }
     // 6. The deferred retries, after the pass's fresh work (§7.4),
-    // whatever the pass ended with: only an engine hold keeps a due item
-    // from the engine.
-    await _retryDeferred(id);
+    // whatever the pass ended with (a walk backoff alone skips nothing).
+    // Their engine-free checks always run; a due item reaches the ENGINE
+    // only when this pass's probe listed from the stored since token
+    // ([listed]), no engine hold stands, and no reconcile is armed.
+    await _retryDeferred(id, listed: listed);
     // Catch-up's held poll stops at a page that lacks the welcome: a welcome
     // it did not find is looked for by an unheld poll, after the lock is
     // released (never a public entry under a held lock).
@@ -107,6 +123,7 @@ extension _Walks on MessageReceiver {
     String id,
     BudgetPriority priority,
     void Function() onWelcomes,
+    void Function(SecureVault vault) onListed,
   ) async {
     final pass = await _start();
     if (pass == null) return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
@@ -135,6 +152,7 @@ extension _Walks on MessageReceiver {
     // it.
     final probe = await _probe(pass, id, priority);
     if (probe.waitingForWelcome) onWelcomes();
+    if (probe.listed) onListed(pass.vault);
     if (probe.outcome != null) return probe.outcome!;
 
     // 2. The reconcile walk: step 2 (an armed entry waits durably; it
@@ -416,7 +434,7 @@ extension _Walks on MessageReceiver {
     final refused = since != page.sinceToken;
     // Against the pair read before the listing (I2's later-pair trigger).
     final later = _highestAbove(page.messages, current);
-    return _locks.run(id, () async {
+    final probe = await _locks.run(id, () async {
       if (!pass.live) {
         return _Probe(
           outcome: ReceiveOutcome.stopped(_now().add(kWalkBackoff)),
@@ -439,6 +457,15 @@ extension _Walks on MessageReceiver {
         // Rule 1: the fast path (M5: `open` read again under the lock).
         final messages = [...page.messages];
         _sort(messages);
+        // Every tombstone of the page is remembered for the run BEFORE the
+        // batch: a batch that stops early (an engine answer, a later pair,
+        // a failed write) never reaches the ones after its stop, and this
+        // pass's retries must not give such a message to the engine (§7.4
+        // check 2 ends it as its tombstone row instead).
+        _tombstoneStates(
+          id,
+          messages,
+        ).forEach((mid, state) => _noteTombstone(context, mid, state));
         final end = await _runBatch(
           pass,
           id,
@@ -461,6 +488,11 @@ extension _Walks on MessageReceiver {
           : (token: since, sentWith: token, seq: seq);
       return _Probe(sawLater: later, listAgain: refused);
     });
+    // Answered for a request that sent the stored, non-empty since token
+    // (never the anchor, never an empty token): the pass has seen what
+    // changed since it, and every tombstone on the page was noted for the
+    // run before anything else was done with the page.
+    return probe..listed = token.isNotEmpty;
   }
 
   /// Under the lock: the group's current pair is still [before] and the
