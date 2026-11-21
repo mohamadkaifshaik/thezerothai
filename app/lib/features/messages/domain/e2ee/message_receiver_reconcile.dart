@@ -62,7 +62,9 @@ class _Reconciled {
 ///   doubling with the count, across app runs. A retirement that interrupts
 ///   a listing in progress is counted the same way. At
 ///   [kReconcileGiveUpAfter] the final attempts stop waiting for the entry
-///   ([_finalAttempts]); the count is reported once.
+///   ([_finalAttempts]); the count is reported once. The count is cleared
+///   by the transaction of a listing's LAST page, whether that page
+///   disarms the entry or leaves it armed for want of a since token.
 /// - **Not counted:** a rate-limited call (`held`), a paused budget, a
 ///   network failure with no answered probe just before it (the device may
 ///   be offline), a page discarded as stale, a vault that cannot be
@@ -366,9 +368,14 @@ extension _Reconcile on MessageReceiver {
         // The disarm: only with the last page of the listing, and never
         // while the since token is empty.
         final disarm = last && sync.sinceToken.isNotEmpty;
-        final writeRecord = !last || disarm;
+        // A listing that reached its end shows the tombstone server works:
+        // the failure count goes in this transaction, also while the entry
+        // stays armed for want of a since token (a kill switch or a flaky
+        // hour must not row later final attempts on a recovered server).
+        final clearCount = last && !disarm && (now.f != 0 || now.fa != 0);
+        final writeRecord = !last || disarm || clearCount;
         final next = last
-            ? null
+            ? (disarm ? null : now.copyWith(f: 0, fa: 0))
             : now.copyWith(
                 t: page.nextPageToken,
                 n: now.n + 1,

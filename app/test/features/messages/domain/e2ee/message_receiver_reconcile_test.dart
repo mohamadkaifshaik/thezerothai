@@ -481,6 +481,31 @@ void main() {
       },
     );
 
+    test('a listing that reaches its end clears the failure count while the '
+        'entry still waits for a since token', () async {
+      await setUpJoined();
+      await say(1);
+      await pull();
+      await retire();
+      // Three counted failures from a flaky hour, and no since token can
+      // be saved yet (the open walk cannot end).
+      final at = rig.clock.now().microsecondsSinceEpoch;
+      await putRec(ReconcileEntry(armed: false, f: 3, fa: at));
+      rig.server.epochOrderFallback = true;
+
+      await pull();
+
+      expect(requests(), ['']);
+      expect((await sync()).sinceToken, '');
+      final kept = (await rec())!;
+      expect((kept.armed, kept.t, kept.n), (true, '', 0));
+      expect((kept.f, kept.fa), (0, 0));
+
+      rig.server.epochOrderFallback = false;
+      rig.clock.advance(kWalkBackoffMax);
+      await untilDisarmed();
+    });
+
     test('a page listed before a reconcile step is discarded, so a message '
         'taken down meanwhile is never stored visible', () async {
       await setUpJoined();
@@ -1187,6 +1212,42 @@ void main() {
       expect(processedCount(m1.ciphertext), 2);
       expect((await row(1))!.state, StoredMessageState.visible);
       expect(await epoch(), 2);
+      await pull();
+      await expectDelivered(m1, 1);
+    });
+
+    test('after the kill switch is lifted a waiting final attempt is '
+        'delivered, not rowed', () async {
+      final m1 = await caughtUpBeforeFirstPass();
+      // The kill switch: both new surfaces answer FEATURE_DISABLED, so the
+      // tombstone listing is counted and no walk can list its epoch.
+      const off = FeatureDisabledException('off', feature: 'e2ee_dm');
+      rig.server
+        ..tombstoneError = (() => off)
+        ..onCall = (call) async {
+          if (call == 'listEpochMessages') throw off;
+        };
+      for (var i = 0; i < kReconcileGiveUpAfter; i++) {
+        await pull();
+        rig.clock.advance(kWalkBackoffMax);
+      }
+      expect((await rec())!.f, kReconcileGiveUpAfter);
+      expect(
+        (rig.unexpected.single as E2eePipelineError).step,
+        'receive.reconcile.gaveUp',
+      );
+      rig.unexpected.clear();
+      // Nothing was lost while it was on.
+      expect(await deferredIds(), [_mid(1)]);
+      expect(await row(1), isNull);
+
+      rig.server
+        ..tombstoneError = null
+        ..onCall = null;
+      await pull();
+
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
       await pull();
       await expectDelivered(m1, 1);
     });
