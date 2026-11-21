@@ -760,20 +760,31 @@ WalkPos _posOf(pb.Message m) => WalkPos(_createdMicros(m), m.id);
 final Int64 _maxSeconds = Int64(9007199254);
 
 /// A server time in microseconds since the epoch; null when it is not a
-/// time this client holds exactly (negative, nanos out of range, or past
-/// 2^53 microseconds). Never throws (a server value never reaches
-/// `DateTime`).
+/// time this client holds exactly (negative, nanos out of range, or above
+/// [kMaxPairComponent] = 2^53 - 1 microseconds, the bound the receive
+/// record's decoder holds a position time to). Never throws (a server value
+/// never reaches `DateTime`).
 int? _micros(Int64 seconds, int nanos) {
   if (seconds.isNegative || seconds > _maxSeconds) return null;
   if (nanos < 0 || nanos > 999999999) return null;
-  return seconds.toInt() * 1000000 + nanos ~/ 1000;
+  // At most 9007199254 * 10^6 + 999999, below 2^63: exact on the VM; on
+  // the web a result above 2^53 may round, but stays above the bound.
+  final micros = seconds.toInt() * 1000000 + nanos ~/ 1000;
+  return micros > kMaxPairComponent ? null : micros;
 }
 
 /// A message's `created_at` in microseconds: 0 (the oldest possible) when it
 /// is unset or out of range, so such a message sorts first and is hidden by
-/// any `cleared_at`.
+/// any `cleared_at`. An ordered epoch page never carries an out-of-range
+/// time (the order check refuses the page), so a recorded position always
+/// decodes.
 int _createdMicros(pb.Message m) =>
     m.hasCreatedAt() ? _micros(m.createdAt.seconds, m.createdAt.nanos) ?? 0 : 0;
+
+/// [m]'s `created_at` is unset or a time [_micros] holds.
+bool _timeConverts(pb.Message m) =>
+    !m.hasCreatedAt() ||
+    _micros(m.createdAt.seconds, m.createdAt.nanos) != null;
 
 bool _sameBytes(List<int> a, List<int> b) {
   if (a.length != b.length) return false;

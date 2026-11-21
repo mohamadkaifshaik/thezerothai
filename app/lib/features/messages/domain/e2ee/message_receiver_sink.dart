@@ -27,12 +27,17 @@ extension _Sink on MessageReceiver {
     if (pass == null) throw const _Stopped();
     final context = _contexts.of(id);
     final current = await _currentPair(pass.vault, id);
-    final slot = current != null && pair.generation < current.generation
-        ? _Slot.orphan
-        : _Slot.close;
 
     // 1-3: read fresh; ended; create or resume.
     final record = await _readReceive(pass.vault, id);
+    // M4: a pair the close slot already walks (its walk began before the
+    // generation moved) stays in the close slot: no second slot lists it.
+    final slot =
+        current != null &&
+            pair.generation < current.generation &&
+            record.close?.pair != pair
+        ? _Slot.orphan
+        : _Slot.close;
     final w = _slotOf(record, slot);
     if (w != null && w.pair == pair && w.end) return;
     if (slot == _Slot.orphan &&
@@ -109,8 +114,12 @@ extension _Sink on MessageReceiver {
     }
   }
 
+  /// The walk is left pending: the commit waits, so the end of a later
+  /// pass runs a catch-up once no walk of the current pair is left (also
+  /// when the walk that blocked is an older pair's, whose end does not clear
+  /// it).
   _WalkPending _pending(ConversationContext context) {
-    context.epochWalkPending = true;
+    context.catchUpDue = true;
     return const _WalkPending();
   }
 

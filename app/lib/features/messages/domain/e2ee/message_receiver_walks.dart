@@ -43,7 +43,7 @@ class _Probe {
     this.fastPath = false,
     this.pulled = false,
     this.caughtUp = false,
-    this.sawLater = false,
+    this.sawLater,
   });
 
   /// The pass stops with this (rate limited, budget paused, a failed call,
@@ -60,9 +60,9 @@ class _Probe {
   /// pair): the pass runs no other.
   final bool caughtUp;
 
-  /// The page was not processed and holds a message of a pair above the
-  /// group's current pair (as read before the listing).
-  final bool sawLater;
+  /// The page was not processed: the highest pair of its messages above the
+  /// group's current pair (as read before the listing); null: none.
+  final MlsPair? sawLater;
   bool waitingForWelcome = false;
 }
 
@@ -160,50 +160,83 @@ extension _Walks on MessageReceiver {
     }
     var after = await _readReceive(pass.vault, id);
     final current = await _currentPair(pass.vault, id);
-    if (probe.sawLater) context.laterPairSeen = true;
+    final seen = probe.sawLater;
+    final kept = context.laterPairSeen;
+    if (seen != null && (kept == null || seen.compareTo(kept) > 0)) {
+      context.laterPairSeen = seen;
+    }
+    // M7: a seen pair the current pair has reached is no longer a reason.
+    _clearLaterPairReached(context, current);
     if (!probe.caughtUp &&
         current != null &&
-        !_walksLeft(after) &&
-        (_closeEndedAt(after, current) || context.laterPairSeen)) {
-      // The pass finishes the job (I2): the walks have ended and a commit
-      // waits (the current pair's close walk ended, or the probe showed a
-      // later pair). ONE lock hold with the locked catch-up, as the fast
-      // path's batch does; its unheld welcome poll runs after the lock is
-      // released (`_runPass`). At most once per pass.
+        !_commitWalksLeft(after) &&
+        (_closeEndedAt(after, current) ||
+            context.laterPairSeen != null ||
+            context.catchUpDue)) {
+      // The pass finishes the job (I2): the walks the commit gate reads
+      // have ended and a commit waits (the current pair's close walk ended,
+      // the probe showed a later pair, or a catch-up was refused behind an
+      // older walk that has ended since). ONE lock hold with the locked
+      // catch-up, as the fast path's batch does; its unheld welcome poll
+      // runs after the lock is released (`_runPass`). At most once per pass.
       final result = await _locks.run(id, () async {
         if (!pass.live) return null;
         final fresh = await _readReceive(pass.vault, id);
-        if (_walksLeft(fresh) ||
+        if (_commitWalksLeft(fresh) ||
             await _currentPair(pass.vault, id) != current) {
           return null;
         }
         return _crypto.catchUpLocked(id, priority: priority);
       });
       if (result == CatchUpResult.waitingForWelcome) onWelcomes();
-      final moved = await _currentPair(pass.vault, id) != current;
-      // A failed (`interrupted`) catch-up keeps the fact for the next pass.
-      if (moved || (result != null && result != CatchUpResult.interrupted)) {
-        context.laterPairSeen = false;
+      final now = await _currentPair(pass.vault, id);
+      final moved = now != current;
+      // A failed (`interrupted`) catch-up keeps both facts for the next
+      // pass (its sink may have set `catchUpDue` again in this run).
+      if (result != null && result != CatchUpResult.interrupted) {
+        context
+          ..laterPairSeen = null
+          ..catchUpDue = false;
       }
+      _clearLaterPairReached(context, now);
       after = await _readReceive(pass.vault, id);
       if (!moved && !_walksLeft(after)) {
         // Nothing applied and no walk left (no commit visible yet, a
         // failed call, a later pair the server does not have): the next
         // pass waits, never an immediate `more` or a `complete` with a
         // commit left. A walk the catch-up's sink left pending is `more`.
+        // The second such run in a row waits with the doubling walk
+        // backoff (at least twice the first wait).
+        if (context.fruitlessCatchUp) {
+          context.walkBackoff ??= kWalkBackoff;
+          return _backOff(context);
+        }
+        context.fruitlessCatchUp = true;
         return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
       }
+      context.fruitlessCatchUp = false;
     }
     return pulled && !_walksLeft(after)
         ? ReceiveOutcome.complete
         : ReceiveOutcome.more;
   }
 
+  /// Clears [context]'s later pair once [current] has reached it.
+  void _clearLaterPairReached(ConversationContext context, MlsPair? current) {
+    final later = context.laterPairSeen;
+    if (later != null && current != null && later.compareTo(current) <= 0) {
+      context.laterPairSeen = null;
+    }
+  }
+
   /// A close, orphan or open walk of [r] has pages left.
-  bool _walksLeft(ReceiveRecord r) =>
-      (r.close != null && !r.close!.end) ||
-      r.orphan != null ||
-      (r.open != null && !r.open!.end);
+  bool _walksLeft(ReceiveRecord r) => r.orphan != null || _commitWalksLeft(r);
+
+  /// A close or open walk of [r] has pages left: the walks the end-of-pass
+  /// catch-up waits for. The orphan walk is left out: no commit's gate
+  /// (`epochWalkDone` for the current or a later pair) reads it.
+  bool _commitWalksLeft(ReceiveRecord r) =>
+      (r.close != null && !r.close!.end) || (r.open != null && !r.open!.end);
 
   /// [r]'s close walk for [current] has ended: its commit can apply.
   bool _closeEndedAt(ReceiveRecord r, MlsPair current) =>
@@ -294,7 +327,7 @@ extension _Walks on MessageReceiver {
     final seq = ++_seq;
     if (page.hasConversation()) _contexts.note(page.conversation);
     // Against the pair read before the listing (I2's later-pair trigger).
-    final later = _anyAbove(page.messages, current);
+    final later = _highestAbove(page.messages, current);
     return _locks.run(id, () async {
       if (!pass.live) {
         return _Probe(
@@ -352,17 +385,19 @@ extension _Walks on MessageReceiver {
     return open != null && open.pair == current && open.end;
   }
 
-  /// [messages] hold one of a pair above [current] (null: none known).
-  bool _anyAbove(List<pb.Message> messages, MlsPair? current) {
-    if (current == null) return false;
+  /// The highest pair above [current] that [messages] hold (null: none, or
+  /// [current] not known).
+  MlsPair? _highestAbove(List<pb.Message> messages, MlsPair? current) {
+    if (current == null) return null;
+    MlsPair? highest;
     for (final m in messages) {
       final g = pairComponentFromInt64(m.mlsGeneration);
       final e = pairComponentFromInt64(m.mlsEpoch);
-      if (g != null && e != null && MlsPair(g, e).compareTo(current) > 0) {
-        return true;
-      }
+      if (g == null || e == null) continue;
+      final p = MlsPair(g, e);
+      if (p.compareTo(highest ?? current) > 0) highest = p;
     }
-    return false;
+    return highest;
   }
 
   /// A retired since token (§8.2): the token is cleared and the reconcile
@@ -540,7 +575,9 @@ extension _Walks on MessageReceiver {
   }
 
   /// A refused token (§3.2): the walk lists again from the start, at most
-  /// [kWalkRestartsPerRun] times a run; then the walk backs off.
+  /// [kWalkRestartsPerRun] times a run; then the walk backs off. Past the
+  /// cap the restarted position is still written, so the attempt after the
+  /// backoff lists from the start and never sends the refused token again.
   Future<_StepEnd> _restartLocked(
     _Pass pass,
     String id,
@@ -548,9 +585,7 @@ extension _Walks on MessageReceiver {
     WalkEntry fresh,
   ) async {
     final context = _contexts.of(id);
-    if (++context.walkRestarts > kWalkRestartsPerRun) {
-      return _StepEnd.stop(_backOff(context));
-    }
+    final capped = ++context.walkRestarts > kWalkRestartsPerRun;
     await _session.runWrite((v) async {
       pass.check(v);
       final record = await _readReceive(v, id);
@@ -562,6 +597,7 @@ extension _Walks on MessageReceiver {
       );
     });
     context.serial++;
+    if (capped) return _StepEnd.stop(_backOff(context));
     return _StepEnd.restarted;
   }
 
@@ -702,7 +738,6 @@ extension _Walks on MessageReceiver {
       context.endToken = null;
       if (tokenWritten) onTokenSaved?.call();
     }
-    if (slot != _Slot.open && next.end) context.epochWalkPending = false;
     return next.end ? _StepEnd.finished : _StepEnd.advanced;
   }
 
@@ -726,15 +761,16 @@ extension _Walks on MessageReceiver {
         return true;
       });
 
-  /// §3.3: every id is 32 lower-case hex (a page position is recorded and
-  /// a record holding any other id would not decode); strictly ascending by
+  /// §3.3: every id is 32 lower-case hex and every set time one [_micros]
+  /// holds (a page position is recorded, and a record holding any other id
+  /// or a time above 2^53 - 1 would not decode); strictly ascending by
   /// (created_at, id); a continuation page starts after [w]'s last
   /// position, a listing-start page after its settle floor.
   bool _inOrder(List<pb.Message> messages, WalkEntry w) {
     if (messages.isEmpty) return true;
     WalkPos? previous;
     for (final m in messages) {
-      if (!_messageIdShape.hasMatch(m.id)) return false;
+      if (!_messageIdShape.hasMatch(m.id) || !_timeConverts(m)) return false;
       final p = _posOf(m);
       if (previous != null && p.compareTo(previous) <= 0) return false;
       previous = p;

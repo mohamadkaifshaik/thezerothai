@@ -84,14 +84,23 @@ class ConversationContext {
   /// The sequence number of the open walk's last listing start this run.
   int? openListingSeq;
 
-  /// The sink left a close (or orphan) walk unfinished: the next pass
-  /// continues it without the lock.
-  bool epochWalkPending = false;
+  /// The sink refused or left a close (or orphan) walk unfinished, so a
+  /// catch-up ended `interrupted` with a commit waiting: once no walk of the
+  /// current or a later pair is left, the end of a pass runs one catch-up,
+  /// until one answers other than `interrupted`. Not cleared when an older
+  /// walk ends (the commit that waited for it is still unapplied).
+  bool catchUpDue = false;
 
-  /// An unprocessed probe page held a message of a pair above the group's
+  /// The highest pair above the group's that an unprocessed probe page held
   /// (its since token may be saved past it): the end of a pass runs one
-  /// catch-up until one answers other than `interrupted`.
-  bool laterPairSeen = false;
+  /// catch-up while the current pair is below it, until one answers other
+  /// than `interrupted`. Null: none.
+  MlsPair? laterPairSeen;
+
+  /// The end-of-pass catch-up applied nothing and left no walk the last
+  /// time it ran: a second such run in a row waits with the doubling walk
+  /// backoff instead of the flat minute.
+  bool fruitlessCatchUp = false;
 
   /// The walk backoff after an order violation, a missing order echo, an
   /// RPC failure or the restart cap: no walk before [walkBackoffUntil];
