@@ -220,6 +220,64 @@ func TestMessagingSyncChain_SharedSyncBucket(t *testing.T) {
 	}
 }
 
+// ListMessageTombstones and ListEpochMessages with order = CREATED_AT over the real chain: both need e2ee_dm not globally
+// off (an allowlist without the caller is enough), both answer under DEGRADED_MODE=readonly, and ListMessageTombstones
+// draws on the shared sync bucket.
+func TestMessagingSyncChain_TombstonesAndOrderedEpoch(t *testing.T) {
+	w := newE2EEWorld(t)
+	ctx := context.Background()
+	tomb := func(e *dmChain) error {
+		_, err := e.msg.ListMessageTombstones(ctx, authed(w.bob.token, &messagingv1.ListMessageTombstonesRequest{ConversationId: w.conv}))
+		return err
+	}
+	ordered := func(e *dmChain) (*connect.Response[messagingv1.ListEpochMessagesResponse], error) {
+		return e.msg.ListEpochMessages(ctx, authed(w.bob.token, &messagingv1.ListEpochMessagesRequest{ConversationId: w.conv, MlsGeneration: 1, MlsEpoch: 1,
+			Order: messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_CREATED_AT}))
+	}
+	notListed := flags.Spec{Name: "e2ee_dm", Mode: flags.Allowlist, Allowlist: map[string]struct{}{"someone-else": {}}}
+	for _, tt := range []struct {
+		name string
+		spec flags.Spec
+		off  bool
+	}{
+		{"e2ee_dm off", flags.Spec{Name: "e2ee_dm", Mode: flags.Off}, true},
+		{"e2ee_dm allowlist without the caller", notListed, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newDMChain(t, func(c *config.Config) { c.FeatureE2EEDM = tt.spec })
+			terr := tomb(e)
+			resp, oerr := ordered(e)
+			if tt.off {
+				wantReason(t, terr, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "e2ee_dm")
+				wantReason(t, oerr, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "e2ee_dm")
+				return
+			}
+			if terr != nil {
+				t.Errorf("ListMessageTombstones: %v", terr)
+			}
+			if oerr != nil || resp.Msg.GetOrder() != messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_CREATED_AT || len(resp.Msg.GetMessages()) != 1 {
+				t.Errorf("ordered epoch (1, 1) = %v, %v", resp, oerr)
+			}
+		})
+	}
+	t.Run("readonly answers", func(t *testing.T) {
+		e := newDMChain(t, func(c *config.Config) { c.Degraded, c.FeatureE2EEDM = config.DegradedReadonly, notListed })
+		if err := tomb(e); err != nil {
+			t.Errorf("ListMessageTombstones under readonly: %v", err)
+		}
+	})
+	t.Run("the shared sync bucket", func(t *testing.T) {
+		e := newDMChain(t, func(c *config.Config) { c.RateLimit.MessagesSyncPerUserPerMinute, c.FeatureE2EEDM = 2, notListed })
+		if _, err := ordered(e); err != nil {
+			t.Fatalf("ListEpochMessages within the budget: %v", err)
+		}
+		if err := tomb(e); err != nil {
+			t.Fatalf("ListMessageTombstones within the budget: %v", err)
+		}
+		wantReason(t, tomb(e), connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "", "")
+	})
+}
+
 // Build wires both caps: messages_commits_daily on every CommitConversation call (a retry and a refusal included) and
 // messages_resets_daily on the resets, a reset counting against both.
 func TestMessagingSyncChain_CommitAndResetCaps(t *testing.T) {

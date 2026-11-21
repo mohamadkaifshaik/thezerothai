@@ -8,8 +8,8 @@
 // (service_send.go, repo_firestore.go) and the lifecycle (eraser.go, export.go), ListConversations
 // (service_list.go), ListMessages and MarkConversationRead (service_messages.go), AcceptMessageRequest and
 // DeleteConversation (service_accept_delete.go, repo_accept_delete.go); end-to-end encryption (MLS): mls_init in the send,
-// CommitConversation (service_mls.go) and the sync RPCs ListConversationCommits, ListEpochMessages, ListWelcomes and
-// AckWelcomes (service_sync.go), all on the commit and welcome documents of repo_mls.go.
+// CommitConversation (service_mls.go) and the sync RPCs ListConversationCommits, ListEpochMessages, ListWelcomes,
+// AckWelcomes and ListMessageTombstones (service_sync.go), on the commit, welcome and message documents of repo_mls.go.
 package messaging
 
 import (
@@ -56,12 +56,14 @@ type Service interface {
 	// Commit answers CommitConversation (a commit or a reset of an encrypted conversation): messaging on for the caller
 	// (perCaller, as Send), verified email; see service_mls.go and the RPC comment for the order of answers.
 	Commit(ctx context.Context, uid string, req *messagingv1.CommitConversationRequest) (*messagingv1.CommitConversationResponse, error)
-	// The MLS sync reads and AckWelcomes (service_sync.go): "messaging" only not globally off (a caller dropped from the
-	// allowlist keeps catching up); e2ee_dm is never needed.
+	// The five MLS sync RPCs (service_sync.go): "messaging" only not globally off (a caller dropped from the allowlist
+	// keeps catching up). ListMessageTombstones and ListEpochMessages with order = CREATED_AT also need e2ee_dm not
+	// globally off (never per caller).
 	ListCommits(ctx context.Context, uid string, req *messagingv1.ListConversationCommitsRequest) (*messagingv1.ListConversationCommitsResponse, error)
 	ListEpochMessages(ctx context.Context, uid string, req *messagingv1.ListEpochMessagesRequest) (*messagingv1.ListEpochMessagesResponse, error)
 	ListWelcomes(ctx context.Context, uid string, req *messagingv1.ListWelcomesRequest) (*messagingv1.ListWelcomesResponse, error)
 	AckWelcomes(ctx context.Context, uid string, req *messagingv1.AckWelcomesRequest) (*messagingv1.AckWelcomesResponse, error)
+	ListMessageTombstones(ctx context.Context, uid string, req *messagingv1.ListMessageTombstonesRequest) (*messagingv1.ListMessageTombstonesResponse, error)
 	// CheckPostShare answers CheckPostShare (service_share_check.go): "messaging" and "dm_share_check" on for the caller,
 	// verified email, then SendMessage's shared_post_id gate and check (the same functions); writes nothing.
 	CheckPostShare(ctx context.Context, uid string, req *messagingv1.CheckPostShareRequest) (*messagingv1.CheckPostShareResponse, error)

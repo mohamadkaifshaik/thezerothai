@@ -31,7 +31,8 @@
 // - ListConversations, ListMessages, MarkConversationRead and DeleteConversation need it only NOT GLOBALLY OFF, so a
 //   user dropped from an allowlist can still read and clean up (ReportContent of a MESSAGE target likewise).
 // - CommitConversation needs it on for the caller only (the peer's flag is not checked). ListConversationCommits,
-//   ListEpochMessages, ListWelcomes and AckWelcomes need it only not globally off.
+//   ListEpochMessages, ListWelcomes and AckWelcomes need it only not globally off. ListMessageTombstones and
+//   ListEpochMessages with order = CREATED_AT also need "e2ee_dm" not globally off (checked after "messaging").
 // - Globally off: every RPC is FEATURE_DISABLED before any lookup; clients hide the destination, its routes and the
 //   profile Message button. Clients learn the flag from IdentityService.GetMe enabled_features.
 // - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
@@ -147,8 +148,10 @@
 // - Processing order on a device: all messages of its current epoch, then that epoch's commit, then the next epoch.
 //   MLS deletes an epoch's keys when its commit is applied, so before applying the commit that ends an epoch a device
 //   calls ListEpochMessages for that epoch: once the epoch is closed, that list is complete, which is how the device
-//   proves it holds every message of the epoch. ListEpochMessages is a completeness set, not a decryption order: the
-//   device collects every page, then decrypts in created_at order, then by id. Messages of different senders may be
+//   proves it holds every message of the epoch. ListEpochMessages lists in message id order unless
+//   order = CREATED_AT, which lists oldest first and adds a resume token; completeness still needs a listing begun
+//   after the epoch closed. In message id order it is a completeness set, not a decryption order: the device collects
+//   every page, then decrypts in created_at order, then by id. Messages of different senders may be
 //   decrypted in any order; one sender's messages may be decrypted at most 50 out of their sending order (the client
 //   core's out-of-order tolerance, which covers created_at being stamped per server instance). created_at is the
 //   display order. Messages from epochs before a device joined are skipped, not shown as failures. A device that
@@ -572,6 +575,55 @@ func (x MessageSuggestionReason) Number() protoreflect.EnumNumber {
 // Deprecated: Use MessageSuggestionReason.Descriptor instead.
 func (MessageSuggestionReason) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{5}
+}
+
+// Order of a ListEpochMessages listing.
+type EpochMessageOrder int32
+
+const (
+	// Message-id order (not time order): the original behaviour, a completeness set only.
+	EpochMessageOrder_EPOCH_MESSAGE_ORDER_UNSPECIFIED EpochMessageOrder = 0
+	// created_at ascending, then message id ascending: oldest first (the reverse of ListMessages), resumable.
+	EpochMessageOrder_EPOCH_MESSAGE_ORDER_CREATED_AT EpochMessageOrder = 1
+)
+
+// Enum value maps for EpochMessageOrder.
+var (
+	EpochMessageOrder_name = map[int32]string{
+		0: "EPOCH_MESSAGE_ORDER_UNSPECIFIED",
+		1: "EPOCH_MESSAGE_ORDER_CREATED_AT",
+	}
+	EpochMessageOrder_value = map[string]int32{
+		"EPOCH_MESSAGE_ORDER_UNSPECIFIED": 0,
+		"EPOCH_MESSAGE_ORDER_CREATED_AT":  1,
+	}
+)
+
+func (x EpochMessageOrder) Enum() *EpochMessageOrder {
+	p := new(EpochMessageOrder)
+	*p = x
+	return p
+}
+
+func (x EpochMessageOrder) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EpochMessageOrder) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_messaging_v1_messaging_proto_enumTypes[6].Descriptor()
+}
+
+func (EpochMessageOrder) Type() protoreflect.EnumType {
+	return &file_dzeroth_messaging_v1_messaging_proto_enumTypes[6]
+}
+
+func (x EpochMessageOrder) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EpochMessageOrder.Descriptor instead.
+func (EpochMessageOrder) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{6}
 }
 
 type Conversation struct {
@@ -2578,7 +2630,11 @@ type ListEpochMessagesRequest struct {
 	// 0 => 20; max 50 (clamped).
 	PageSize int32 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// next_page_token of the previous page; bound to the caller, the conversation and the pair.
-	PageToken     string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	PageToken string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// UNSPECIFIED => message-id order, as before. CREATED_AT needs FEATURE_E2EE_DM not globally off (else
+	// FEATURE_DISABLED feature=e2ee_dm, before any read). A page token is bound to the order it was issued for;
+	// another order's token => VALIDATION "page_token". An unknown value => VALIDATION "order".
+	Order         EpochMessageOrder `protobuf:"varint,6,opt,name=order,proto3,enum=dzeroth.messaging.v1.EpochMessageOrder" json:"order,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2648,17 +2704,35 @@ func (x *ListEpochMessagesRequest) GetPageToken() string {
 	return ""
 }
 
+func (x *ListEpochMessagesRequest) GetOrder() EpochMessageOrder {
+	if x != nil {
+		return x.Order
+	}
+	return EpochMessageOrder_EPOCH_MESSAGE_ORDER_UNSPECIFIED
+}
+
 type ListEpochMessagesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Every message of that epoch, by message id (not time order); complete once the epoch is closed (it has a commit,
-	// or a later generation exists).
+	// Every message of that epoch, by message id (not time order) unless order = CREATED_AT; complete once the epoch is
+	// closed (it has a commit, or a later generation exists).
 	Messages []*Message `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
 	// "" => no more messages of this epoch (as of now).
 	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	// The caller's own DeleteConversation time for this conversation; unset when the caller never deleted it. A message
 	// with created_at at or before it is returned for completeness only: never show or store it (ListMessages hides the
 	// same messages). From the conversation's 60 s instance copy, like ListMessages' own filter.
-	ClearedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=cleared_at,json=clearedAt,proto3" json:"cleared_at,omitempty"`
+	ClearedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=cleared_at,json=clearedAt,proto3" json:"cleared_at,omitempty"`
+	// CREATED_AT only when it was asked for AND served in that order. Unset means unordered: the page is not a
+	// completeness answer and must not be processed as ordered (an older server, or one whose index is not ready).
+	Order EpochMessageOrder `protobuf:"varint,4,opt,name=order,proto3,enum=dzeroth.messaging.v1.EpochMessageOrder" json:"order,omitempty"`
+	// CREATED_AT only, set on every page including an empty last page ("" only when the request had no position and
+	// the page is empty). Positioned at max(the request's position, min(after the last message returned, the read time
+	// minus 60 s)). Listing from it later returns every message of the pair at or after that position, including one
+	// committed late. Same binding and 30-day life as next_page_token.
+	ResumePageToken string `protobuf:"bytes,5,opt,name=resume_page_token,json=resumePageToken,proto3" json:"resume_page_token,omitempty"`
+	// CREATED_AT only: true when resume_page_token is positioned after the last message returned (every message of
+	// this page was created more than 60 s before this read). False: it trails, at or before the last message.
+	ResumeSettled bool `protobuf:"varint,6,opt,name=resume_settled,json=resumeSettled,proto3" json:"resume_settled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2714,6 +2788,197 @@ func (x *ListEpochMessagesResponse) GetClearedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ListEpochMessagesResponse) GetOrder() EpochMessageOrder {
+	if x != nil {
+		return x.Order
+	}
+	return EpochMessageOrder_EPOCH_MESSAGE_ORDER_UNSPECIFIED
+}
+
+func (x *ListEpochMessagesResponse) GetResumePageToken() string {
+	if x != nil {
+		return x.ResumePageToken
+	}
+	return ""
+}
+
+func (x *ListEpochMessagesResponse) GetResumeSettled() bool {
+	if x != nil {
+		return x.ResumeSettled
+	}
+	return false
+}
+
+type ListMessageTombstonesRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	// 0 or negative => 50; max 100 (clamped).
+	PageSize int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// next_page_token of the previous page.
+	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMessageTombstonesRequest) Reset() {
+	*x = ListMessageTombstonesRequest{}
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMessageTombstonesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMessageTombstonesRequest) ProtoMessage() {}
+
+func (x *ListMessageTombstonesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMessageTombstonesRequest.ProtoReflect.Descriptor instead.
+func (*ListMessageTombstonesRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ListMessageTombstonesRequest) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *ListMessageTombstonesRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListMessageTombstonesRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type MessageTombstone struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 32 lower-case hex.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// MESSAGE_STATE_REMOVED or MESSAGE_STATE_DELETED_ACCOUNT.
+	State         MessageState `protobuf:"varint,2,opt,name=state,proto3,enum=dzeroth.messaging.v1.MessageState" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MessageTombstone) Reset() {
+	*x = MessageTombstone{}
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MessageTombstone) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MessageTombstone) ProtoMessage() {}
+
+func (x *MessageTombstone) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MessageTombstone.ProtoReflect.Descriptor instead.
+func (*MessageTombstone) Descriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *MessageTombstone) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *MessageTombstone) GetState() MessageState {
+	if x != nil {
+		return x.State
+	}
+	return MessageState_MESSAGE_STATE_UNSPECIFIED
+}
+
+type ListMessageTombstonesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Ascending message id.
+	Tombstones []*MessageTombstone `protobuf:"bytes,1,rep,name=tombstones,proto3" json:"tombstones,omitempty"`
+	// "" => no more tombstones as of now.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMessageTombstonesResponse) Reset() {
+	*x = ListMessageTombstonesResponse{}
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMessageTombstonesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMessageTombstonesResponse) ProtoMessage() {}
+
+func (x *ListMessageTombstonesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMessageTombstonesResponse.ProtoReflect.Descriptor instead.
+func (*ListMessageTombstonesResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ListMessageTombstonesResponse) GetTombstones() []*MessageTombstone {
+	if x != nil {
+		return x.Tombstones
+	}
+	return nil
+}
+
+func (x *ListMessageTombstonesResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 // A pending Welcome for one of the caller's devices.
 type Welcome struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2737,7 +3002,7 @@ type Welcome struct {
 
 func (x *Welcome) Reset() {
 	*x = Welcome{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[29]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2749,7 +3014,7 @@ func (x *Welcome) String() string {
 func (*Welcome) ProtoMessage() {}
 
 func (x *Welcome) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[29]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2762,7 +3027,7 @@ func (x *Welcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Welcome.ProtoReflect.Descriptor instead.
 func (*Welcome) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{29}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *Welcome) GetId() string {
@@ -2819,7 +3084,7 @@ type ListWelcomesRequest struct {
 
 func (x *ListWelcomesRequest) Reset() {
 	*x = ListWelcomesRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[30]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2831,7 +3096,7 @@ func (x *ListWelcomesRequest) String() string {
 func (*ListWelcomesRequest) ProtoMessage() {}
 
 func (x *ListWelcomesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[30]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2844,7 +3109,7 @@ func (x *ListWelcomesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWelcomesRequest.ProtoReflect.Descriptor instead.
 func (*ListWelcomesRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{30}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ListWelcomesRequest) GetDeviceId() string {
@@ -2874,7 +3139,7 @@ type ListWelcomesResponse struct {
 
 func (x *ListWelcomesResponse) Reset() {
 	*x = ListWelcomesResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[31]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2886,7 +3151,7 @@ func (x *ListWelcomesResponse) String() string {
 func (*ListWelcomesResponse) ProtoMessage() {}
 
 func (x *ListWelcomesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[31]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2899,7 +3164,7 @@ func (x *ListWelcomesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWelcomesResponse.ProtoReflect.Descriptor instead.
 func (*ListWelcomesResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{31}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ListWelcomesResponse) GetWelcomes() []*Welcome {
@@ -2929,7 +3194,7 @@ type AckWelcomesRequest struct {
 
 func (x *AckWelcomesRequest) Reset() {
 	*x = AckWelcomesRequest{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[32]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2941,7 +3206,7 @@ func (x *AckWelcomesRequest) String() string {
 func (*AckWelcomesRequest) ProtoMessage() {}
 
 func (x *AckWelcomesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[32]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2954,7 +3219,7 @@ func (x *AckWelcomesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckWelcomesRequest.ProtoReflect.Descriptor instead.
 func (*AckWelcomesRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{32}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *AckWelcomesRequest) GetIdempotencyKey() string {
@@ -2986,7 +3251,7 @@ type AckWelcomesResponse struct {
 
 func (x *AckWelcomesResponse) Reset() {
 	*x = AckWelcomesResponse{}
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[33]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2998,7 +3263,7 @@ func (x *AckWelcomesResponse) String() string {
 func (*AckWelcomesResponse) ProtoMessage() {}
 
 func (x *AckWelcomesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[33]
+	mi := &file_dzeroth_messaging_v1_messaging_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3011,7 +3276,7 @@ func (x *AckWelcomesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckWelcomesResponse.ProtoReflect.Descriptor instead.
 func (*AckWelcomesResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{33}
+	return file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP(), []int{36}
 }
 
 var File_dzeroth_messaging_v1_messaging_proto protoreflect.FileDescriptor
@@ -3175,19 +3440,36 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\acommits\x18\x01 \x03(\v2(.dzeroth.messaging.v1.ConversationCommitR\acommits\x12\x12\n" +
 	"\x04more\x18\x02 \x01(\bR\x04more\x12%\n" +
 	"\x0emls_generation\x18\x03 \x01(\x04R\rmlsGeneration\x12\x1b\n" +
-	"\tmls_epoch\x18\x04 \x01(\x04R\bmlsEpoch\"\xc3\x01\n" +
+	"\tmls_epoch\x18\x04 \x01(\x04R\bmlsEpoch\"\x82\x02\n" +
 	"\x18ListEpochMessagesRequest\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12%\n" +
 	"\x0emls_generation\x18\x02 \x01(\x04R\rmlsGeneration\x12\x1b\n" +
 	"\tmls_epoch\x18\x03 \x01(\x04R\bmlsEpoch\x12\x1b\n" +
 	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x05 \x01(\tR\tpageToken\"\xb9\x01\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\x12=\n" +
+	"\x05order\x18\x06 \x01(\x0e2'.dzeroth.messaging.v1.EpochMessageOrderR\x05order\"\xcb\x02\n" +
 	"\x19ListEpochMessagesResponse\x129\n" +
 	"\bmessages\x18\x01 \x03(\v2\x1d.dzeroth.messaging.v1.MessageR\bmessages\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x129\n" +
 	"\n" +
-	"cleared_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tclearedAt\"\xdb\x01\n" +
+	"cleared_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tclearedAt\x12=\n" +
+	"\x05order\x18\x04 \x01(\x0e2'.dzeroth.messaging.v1.EpochMessageOrderR\x05order\x12*\n" +
+	"\x11resume_page_token\x18\x05 \x01(\tR\x0fresumePageToken\x12%\n" +
+	"\x0eresume_settled\x18\x06 \x01(\bR\rresumeSettled\"\x83\x01\n" +
+	"\x1cListMessageTombstonesRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"\\\n" +
+	"\x10MessageTombstone\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x128\n" +
+	"\x05state\x18\x02 \x01(\x0e2\".dzeroth.messaging.v1.MessageStateR\x05state\"\x8f\x01\n" +
+	"\x1dListMessageTombstonesResponse\x12F\n" +
+	"\n" +
+	"tombstones\x18\x01 \x03(\v2&.dzeroth.messaging.v1.MessageTombstoneR\n" +
+	"tombstones\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xdb\x01\n" +
 	"\aWelcome\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12%\n" +
@@ -3232,7 +3514,10 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"-MESSAGE_SUGGESTION_REASON_RECENT_CONVERSATION\x10\x01\x12)\n" +
 	"%MESSAGE_SUGGESTION_REASON_MET_ON_PLAN\x10\x02\x12+\n" +
 	"'MESSAGE_SUGGESTION_REASON_MUTUAL_FOLLOW\x10\x03\x12.\n" +
-	"*MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER\x10\x042\xa3\f\n" +
+	"*MESSAGE_SUGGESTION_REASON_COMMUNITY_MEMBER\x10\x04*\\\n" +
+	"\x11EpochMessageOrder\x12#\n" +
+	"\x1fEPOCH_MESSAGE_ORDER_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eEPOCH_MESSAGE_ORDER_CREATED_AT\x10\x012\xab\r\n" +
 	"\x10MessagingService\x12b\n" +
 	"\vSendMessage\x12(.dzeroth.messaging.v1.SendMessageRequest\x1a).dzeroth.messaging.v1.SendMessageResponse\x12p\n" +
 	"\x0eCheckPostShare\x12+.dzeroth.messaging.v1.CheckPostShareRequest\x1a,.dzeroth.messaging.v1.CheckPostShareResponse\"\x03\x90\x02\x01\x12y\n" +
@@ -3246,7 +3531,8 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\x17ListConversationCommits\x124.dzeroth.messaging.v1.ListConversationCommitsRequest\x1a5.dzeroth.messaging.v1.ListConversationCommitsResponse\"\x03\x90\x02\x01\x12y\n" +
 	"\x11ListEpochMessages\x12..dzeroth.messaging.v1.ListEpochMessagesRequest\x1a/.dzeroth.messaging.v1.ListEpochMessagesResponse\"\x03\x90\x02\x01\x12j\n" +
 	"\fListWelcomes\x12).dzeroth.messaging.v1.ListWelcomesRequest\x1a*.dzeroth.messaging.v1.ListWelcomesResponse\"\x03\x90\x02\x01\x12b\n" +
-	"\vAckWelcomes\x12(.dzeroth.messaging.v1.AckWelcomesRequest\x1a).dzeroth.messaging.v1.AckWelcomesResponseBIZGgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1;messagingv1b\x06proto3"
+	"\vAckWelcomes\x12(.dzeroth.messaging.v1.AckWelcomesRequest\x1a).dzeroth.messaging.v1.AckWelcomesResponse\x12\x85\x01\n" +
+	"\x15ListMessageTombstones\x122.dzeroth.messaging.v1.ListMessageTombstonesRequest\x1a3.dzeroth.messaging.v1.ListMessageTombstonesResponse\"\x03\x90\x02\x01BIZGgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1;messagingv1b\x06proto3"
 
 var (
 	file_dzeroth_messaging_v1_messaging_proto_rawDescOnce sync.Once
@@ -3260,8 +3546,8 @@ func file_dzeroth_messaging_v1_messaging_proto_rawDescGZIP() []byte {
 	return file_dzeroth_messaging_v1_messaging_proto_rawDescData
 }
 
-var file_dzeroth_messaging_v1_messaging_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_dzeroth_messaging_v1_messaging_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_dzeroth_messaging_v1_messaging_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_dzeroth_messaging_v1_messaging_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
 var file_dzeroth_messaging_v1_messaging_proto_goTypes = []any{
 	(ConversationKind)(0),                   // 0: dzeroth.messaging.v1.ConversationKind
 	(ConversationState)(0),                  // 1: dzeroth.messaging.v1.ConversationState
@@ -3269,107 +3555,117 @@ var file_dzeroth_messaging_v1_messaging_proto_goTypes = []any{
 	(ConversationEncryption)(0),             // 3: dzeroth.messaging.v1.ConversationEncryption
 	(MessageState)(0),                       // 4: dzeroth.messaging.v1.MessageState
 	(MessageSuggestionReason)(0),            // 5: dzeroth.messaging.v1.MessageSuggestionReason
-	(*Conversation)(nil),                    // 6: dzeroth.messaging.v1.Conversation
-	(*MessagePreview)(nil),                  // 7: dzeroth.messaging.v1.MessagePreview
-	(*Message)(nil),                         // 8: dzeroth.messaging.v1.Message
-	(*MessageContent)(nil),                  // 9: dzeroth.messaging.v1.MessageContent
-	(*SendMessageRequest)(nil),              // 10: dzeroth.messaging.v1.SendMessageRequest
-	(*MlsInit)(nil),                         // 11: dzeroth.messaging.v1.MlsInit
-	(*SendMessageResponse)(nil),             // 12: dzeroth.messaging.v1.SendMessageResponse
-	(*CheckPostShareRequest)(nil),           // 13: dzeroth.messaging.v1.CheckPostShareRequest
-	(*CheckPostShareResponse)(nil),          // 14: dzeroth.messaging.v1.CheckPostShareResponse
-	(*ListConversationsRequest)(nil),        // 15: dzeroth.messaging.v1.ListConversationsRequest
-	(*ListConversationsResponse)(nil),       // 16: dzeroth.messaging.v1.ListConversationsResponse
-	(*ListMessagesRequest)(nil),             // 17: dzeroth.messaging.v1.ListMessagesRequest
-	(*ListMessagesResponse)(nil),            // 18: dzeroth.messaging.v1.ListMessagesResponse
-	(*MarkConversationReadRequest)(nil),     // 19: dzeroth.messaging.v1.MarkConversationReadRequest
-	(*MarkConversationReadResponse)(nil),    // 20: dzeroth.messaging.v1.MarkConversationReadResponse
-	(*AcceptMessageRequestRequest)(nil),     // 21: dzeroth.messaging.v1.AcceptMessageRequestRequest
-	(*AcceptMessageRequestResponse)(nil),    // 22: dzeroth.messaging.v1.AcceptMessageRequestResponse
-	(*DeleteConversationRequest)(nil),       // 23: dzeroth.messaging.v1.DeleteConversationRequest
-	(*DeleteConversationResponse)(nil),      // 24: dzeroth.messaging.v1.DeleteConversationResponse
-	(*ListMessageSuggestionsRequest)(nil),   // 25: dzeroth.messaging.v1.ListMessageSuggestionsRequest
-	(*MessageSuggestion)(nil),               // 26: dzeroth.messaging.v1.MessageSuggestion
-	(*ListMessageSuggestionsResponse)(nil),  // 27: dzeroth.messaging.v1.ListMessageSuggestionsResponse
-	(*CommitConversationRequest)(nil),       // 28: dzeroth.messaging.v1.CommitConversationRequest
-	(*CommitConversationResponse)(nil),      // 29: dzeroth.messaging.v1.CommitConversationResponse
-	(*ConversationCommit)(nil),              // 30: dzeroth.messaging.v1.ConversationCommit
-	(*ListConversationCommitsRequest)(nil),  // 31: dzeroth.messaging.v1.ListConversationCommitsRequest
-	(*ListConversationCommitsResponse)(nil), // 32: dzeroth.messaging.v1.ListConversationCommitsResponse
-	(*ListEpochMessagesRequest)(nil),        // 33: dzeroth.messaging.v1.ListEpochMessagesRequest
-	(*ListEpochMessagesResponse)(nil),       // 34: dzeroth.messaging.v1.ListEpochMessagesResponse
-	(*Welcome)(nil),                         // 35: dzeroth.messaging.v1.Welcome
-	(*ListWelcomesRequest)(nil),             // 36: dzeroth.messaging.v1.ListWelcomesRequest
-	(*ListWelcomesResponse)(nil),            // 37: dzeroth.messaging.v1.ListWelcomesResponse
-	(*AckWelcomesRequest)(nil),              // 38: dzeroth.messaging.v1.AckWelcomesRequest
-	(*AckWelcomesResponse)(nil),             // 39: dzeroth.messaging.v1.AckWelcomesResponse
-	(*v1.AuthorSnapshot)(nil),               // 40: dzeroth.common.v1.AuthorSnapshot
-	(*timestamppb.Timestamp)(nil),           // 41: google.protobuf.Timestamp
-	(*v11.EmbeddedPost)(nil),                // 42: dzeroth.posts.v1.EmbeddedPost
-	(v12.BeaconActivity)(0),                 // 43: dzeroth.beacons.v1.BeaconActivity
+	(EpochMessageOrder)(0),                  // 6: dzeroth.messaging.v1.EpochMessageOrder
+	(*Conversation)(nil),                    // 7: dzeroth.messaging.v1.Conversation
+	(*MessagePreview)(nil),                  // 8: dzeroth.messaging.v1.MessagePreview
+	(*Message)(nil),                         // 9: dzeroth.messaging.v1.Message
+	(*MessageContent)(nil),                  // 10: dzeroth.messaging.v1.MessageContent
+	(*SendMessageRequest)(nil),              // 11: dzeroth.messaging.v1.SendMessageRequest
+	(*MlsInit)(nil),                         // 12: dzeroth.messaging.v1.MlsInit
+	(*SendMessageResponse)(nil),             // 13: dzeroth.messaging.v1.SendMessageResponse
+	(*CheckPostShareRequest)(nil),           // 14: dzeroth.messaging.v1.CheckPostShareRequest
+	(*CheckPostShareResponse)(nil),          // 15: dzeroth.messaging.v1.CheckPostShareResponse
+	(*ListConversationsRequest)(nil),        // 16: dzeroth.messaging.v1.ListConversationsRequest
+	(*ListConversationsResponse)(nil),       // 17: dzeroth.messaging.v1.ListConversationsResponse
+	(*ListMessagesRequest)(nil),             // 18: dzeroth.messaging.v1.ListMessagesRequest
+	(*ListMessagesResponse)(nil),            // 19: dzeroth.messaging.v1.ListMessagesResponse
+	(*MarkConversationReadRequest)(nil),     // 20: dzeroth.messaging.v1.MarkConversationReadRequest
+	(*MarkConversationReadResponse)(nil),    // 21: dzeroth.messaging.v1.MarkConversationReadResponse
+	(*AcceptMessageRequestRequest)(nil),     // 22: dzeroth.messaging.v1.AcceptMessageRequestRequest
+	(*AcceptMessageRequestResponse)(nil),    // 23: dzeroth.messaging.v1.AcceptMessageRequestResponse
+	(*DeleteConversationRequest)(nil),       // 24: dzeroth.messaging.v1.DeleteConversationRequest
+	(*DeleteConversationResponse)(nil),      // 25: dzeroth.messaging.v1.DeleteConversationResponse
+	(*ListMessageSuggestionsRequest)(nil),   // 26: dzeroth.messaging.v1.ListMessageSuggestionsRequest
+	(*MessageSuggestion)(nil),               // 27: dzeroth.messaging.v1.MessageSuggestion
+	(*ListMessageSuggestionsResponse)(nil),  // 28: dzeroth.messaging.v1.ListMessageSuggestionsResponse
+	(*CommitConversationRequest)(nil),       // 29: dzeroth.messaging.v1.CommitConversationRequest
+	(*CommitConversationResponse)(nil),      // 30: dzeroth.messaging.v1.CommitConversationResponse
+	(*ConversationCommit)(nil),              // 31: dzeroth.messaging.v1.ConversationCommit
+	(*ListConversationCommitsRequest)(nil),  // 32: dzeroth.messaging.v1.ListConversationCommitsRequest
+	(*ListConversationCommitsResponse)(nil), // 33: dzeroth.messaging.v1.ListConversationCommitsResponse
+	(*ListEpochMessagesRequest)(nil),        // 34: dzeroth.messaging.v1.ListEpochMessagesRequest
+	(*ListEpochMessagesResponse)(nil),       // 35: dzeroth.messaging.v1.ListEpochMessagesResponse
+	(*ListMessageTombstonesRequest)(nil),    // 36: dzeroth.messaging.v1.ListMessageTombstonesRequest
+	(*MessageTombstone)(nil),                // 37: dzeroth.messaging.v1.MessageTombstone
+	(*ListMessageTombstonesResponse)(nil),   // 38: dzeroth.messaging.v1.ListMessageTombstonesResponse
+	(*Welcome)(nil),                         // 39: dzeroth.messaging.v1.Welcome
+	(*ListWelcomesRequest)(nil),             // 40: dzeroth.messaging.v1.ListWelcomesRequest
+	(*ListWelcomesResponse)(nil),            // 41: dzeroth.messaging.v1.ListWelcomesResponse
+	(*AckWelcomesRequest)(nil),              // 42: dzeroth.messaging.v1.AckWelcomesRequest
+	(*AckWelcomesResponse)(nil),             // 43: dzeroth.messaging.v1.AckWelcomesResponse
+	(*v1.AuthorSnapshot)(nil),               // 44: dzeroth.common.v1.AuthorSnapshot
+	(*timestamppb.Timestamp)(nil),           // 45: google.protobuf.Timestamp
+	(*v11.EmbeddedPost)(nil),                // 46: dzeroth.posts.v1.EmbeddedPost
+	(v12.BeaconActivity)(0),                 // 47: dzeroth.beacons.v1.BeaconActivity
 }
 var file_dzeroth_messaging_v1_messaging_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.messaging.v1.Conversation.kind:type_name -> dzeroth.messaging.v1.ConversationKind
-	40, // 1: dzeroth.messaging.v1.Conversation.peer:type_name -> dzeroth.common.v1.AuthorSnapshot
+	44, // 1: dzeroth.messaging.v1.Conversation.peer:type_name -> dzeroth.common.v1.AuthorSnapshot
 	1,  // 2: dzeroth.messaging.v1.Conversation.state:type_name -> dzeroth.messaging.v1.ConversationState
 	2,  // 3: dzeroth.messaging.v1.Conversation.folder:type_name -> dzeroth.messaging.v1.Folder
-	7,  // 4: dzeroth.messaging.v1.Conversation.last_message:type_name -> dzeroth.messaging.v1.MessagePreview
-	41, // 5: dzeroth.messaging.v1.Conversation.updated_at:type_name -> google.protobuf.Timestamp
-	41, // 6: dzeroth.messaging.v1.Conversation.peer_read_at:type_name -> google.protobuf.Timestamp
+	8,  // 4: dzeroth.messaging.v1.Conversation.last_message:type_name -> dzeroth.messaging.v1.MessagePreview
+	45, // 5: dzeroth.messaging.v1.Conversation.updated_at:type_name -> google.protobuf.Timestamp
+	45, // 6: dzeroth.messaging.v1.Conversation.peer_read_at:type_name -> google.protobuf.Timestamp
 	3,  // 7: dzeroth.messaging.v1.Conversation.encryption:type_name -> dzeroth.messaging.v1.ConversationEncryption
 	4,  // 8: dzeroth.messaging.v1.MessagePreview.state:type_name -> dzeroth.messaging.v1.MessageState
-	41, // 9: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
+	45, // 9: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
 	4,  // 10: dzeroth.messaging.v1.Message.state:type_name -> dzeroth.messaging.v1.MessageState
-	41, // 11: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	42, // 12: dzeroth.messaging.v1.Message.shared_post:type_name -> dzeroth.posts.v1.EmbeddedPost
-	11, // 13: dzeroth.messaging.v1.SendMessageRequest.mls_init:type_name -> dzeroth.messaging.v1.MlsInit
-	8,  // 14: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
-	6,  // 15: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
+	45, // 11: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
+	46, // 12: dzeroth.messaging.v1.Message.shared_post:type_name -> dzeroth.posts.v1.EmbeddedPost
+	12, // 13: dzeroth.messaging.v1.SendMessageRequest.mls_init:type_name -> dzeroth.messaging.v1.MlsInit
+	9,  // 14: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
+	7,  // 15: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
 	2,  // 16: dzeroth.messaging.v1.ListConversationsRequest.folder:type_name -> dzeroth.messaging.v1.Folder
-	6,  // 17: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
-	8,  // 18: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
-	6,  // 19: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
-	40, // 20: dzeroth.messaging.v1.MessageSuggestion.user:type_name -> dzeroth.common.v1.AuthorSnapshot
+	7,  // 17: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
+	9,  // 18: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
+	7,  // 19: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
+	44, // 20: dzeroth.messaging.v1.MessageSuggestion.user:type_name -> dzeroth.common.v1.AuthorSnapshot
 	5,  // 21: dzeroth.messaging.v1.MessageSuggestion.reason:type_name -> dzeroth.messaging.v1.MessageSuggestionReason
-	43, // 22: dzeroth.messaging.v1.MessageSuggestion.plan_activity:type_name -> dzeroth.beacons.v1.BeaconActivity
-	26, // 23: dzeroth.messaging.v1.ListMessageSuggestionsResponse.suggestions:type_name -> dzeroth.messaging.v1.MessageSuggestion
-	41, // 24: dzeroth.messaging.v1.ConversationCommit.created_at:type_name -> google.protobuf.Timestamp
-	30, // 25: dzeroth.messaging.v1.ListConversationCommitsResponse.commits:type_name -> dzeroth.messaging.v1.ConversationCommit
-	8,  // 26: dzeroth.messaging.v1.ListEpochMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
-	41, // 27: dzeroth.messaging.v1.ListEpochMessagesResponse.cleared_at:type_name -> google.protobuf.Timestamp
-	41, // 28: dzeroth.messaging.v1.Welcome.created_at:type_name -> google.protobuf.Timestamp
-	35, // 29: dzeroth.messaging.v1.ListWelcomesResponse.welcomes:type_name -> dzeroth.messaging.v1.Welcome
-	10, // 30: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
-	13, // 31: dzeroth.messaging.v1.MessagingService.CheckPostShare:input_type -> dzeroth.messaging.v1.CheckPostShareRequest
-	15, // 32: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
-	17, // 33: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
-	19, // 34: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
-	21, // 35: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
-	23, // 36: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
-	25, // 37: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:input_type -> dzeroth.messaging.v1.ListMessageSuggestionsRequest
-	28, // 38: dzeroth.messaging.v1.MessagingService.CommitConversation:input_type -> dzeroth.messaging.v1.CommitConversationRequest
-	31, // 39: dzeroth.messaging.v1.MessagingService.ListConversationCommits:input_type -> dzeroth.messaging.v1.ListConversationCommitsRequest
-	33, // 40: dzeroth.messaging.v1.MessagingService.ListEpochMessages:input_type -> dzeroth.messaging.v1.ListEpochMessagesRequest
-	36, // 41: dzeroth.messaging.v1.MessagingService.ListWelcomes:input_type -> dzeroth.messaging.v1.ListWelcomesRequest
-	38, // 42: dzeroth.messaging.v1.MessagingService.AckWelcomes:input_type -> dzeroth.messaging.v1.AckWelcomesRequest
-	12, // 43: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
-	14, // 44: dzeroth.messaging.v1.MessagingService.CheckPostShare:output_type -> dzeroth.messaging.v1.CheckPostShareResponse
-	16, // 45: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
-	18, // 46: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
-	20, // 47: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
-	22, // 48: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
-	24, // 49: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
-	27, // 50: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:output_type -> dzeroth.messaging.v1.ListMessageSuggestionsResponse
-	29, // 51: dzeroth.messaging.v1.MessagingService.CommitConversation:output_type -> dzeroth.messaging.v1.CommitConversationResponse
-	32, // 52: dzeroth.messaging.v1.MessagingService.ListConversationCommits:output_type -> dzeroth.messaging.v1.ListConversationCommitsResponse
-	34, // 53: dzeroth.messaging.v1.MessagingService.ListEpochMessages:output_type -> dzeroth.messaging.v1.ListEpochMessagesResponse
-	37, // 54: dzeroth.messaging.v1.MessagingService.ListWelcomes:output_type -> dzeroth.messaging.v1.ListWelcomesResponse
-	39, // 55: dzeroth.messaging.v1.MessagingService.AckWelcomes:output_type -> dzeroth.messaging.v1.AckWelcomesResponse
-	43, // [43:56] is the sub-list for method output_type
-	30, // [30:43] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	47, // 22: dzeroth.messaging.v1.MessageSuggestion.plan_activity:type_name -> dzeroth.beacons.v1.BeaconActivity
+	27, // 23: dzeroth.messaging.v1.ListMessageSuggestionsResponse.suggestions:type_name -> dzeroth.messaging.v1.MessageSuggestion
+	45, // 24: dzeroth.messaging.v1.ConversationCommit.created_at:type_name -> google.protobuf.Timestamp
+	31, // 25: dzeroth.messaging.v1.ListConversationCommitsResponse.commits:type_name -> dzeroth.messaging.v1.ConversationCommit
+	6,  // 26: dzeroth.messaging.v1.ListEpochMessagesRequest.order:type_name -> dzeroth.messaging.v1.EpochMessageOrder
+	9,  // 27: dzeroth.messaging.v1.ListEpochMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
+	45, // 28: dzeroth.messaging.v1.ListEpochMessagesResponse.cleared_at:type_name -> google.protobuf.Timestamp
+	6,  // 29: dzeroth.messaging.v1.ListEpochMessagesResponse.order:type_name -> dzeroth.messaging.v1.EpochMessageOrder
+	4,  // 30: dzeroth.messaging.v1.MessageTombstone.state:type_name -> dzeroth.messaging.v1.MessageState
+	37, // 31: dzeroth.messaging.v1.ListMessageTombstonesResponse.tombstones:type_name -> dzeroth.messaging.v1.MessageTombstone
+	45, // 32: dzeroth.messaging.v1.Welcome.created_at:type_name -> google.protobuf.Timestamp
+	39, // 33: dzeroth.messaging.v1.ListWelcomesResponse.welcomes:type_name -> dzeroth.messaging.v1.Welcome
+	11, // 34: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
+	14, // 35: dzeroth.messaging.v1.MessagingService.CheckPostShare:input_type -> dzeroth.messaging.v1.CheckPostShareRequest
+	16, // 36: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
+	18, // 37: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
+	20, // 38: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
+	22, // 39: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
+	24, // 40: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
+	26, // 41: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:input_type -> dzeroth.messaging.v1.ListMessageSuggestionsRequest
+	29, // 42: dzeroth.messaging.v1.MessagingService.CommitConversation:input_type -> dzeroth.messaging.v1.CommitConversationRequest
+	32, // 43: dzeroth.messaging.v1.MessagingService.ListConversationCommits:input_type -> dzeroth.messaging.v1.ListConversationCommitsRequest
+	34, // 44: dzeroth.messaging.v1.MessagingService.ListEpochMessages:input_type -> dzeroth.messaging.v1.ListEpochMessagesRequest
+	40, // 45: dzeroth.messaging.v1.MessagingService.ListWelcomes:input_type -> dzeroth.messaging.v1.ListWelcomesRequest
+	42, // 46: dzeroth.messaging.v1.MessagingService.AckWelcomes:input_type -> dzeroth.messaging.v1.AckWelcomesRequest
+	36, // 47: dzeroth.messaging.v1.MessagingService.ListMessageTombstones:input_type -> dzeroth.messaging.v1.ListMessageTombstonesRequest
+	13, // 48: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
+	15, // 49: dzeroth.messaging.v1.MessagingService.CheckPostShare:output_type -> dzeroth.messaging.v1.CheckPostShareResponse
+	17, // 50: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
+	19, // 51: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
+	21, // 52: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
+	23, // 53: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
+	25, // 54: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
+	28, // 55: dzeroth.messaging.v1.MessagingService.ListMessageSuggestions:output_type -> dzeroth.messaging.v1.ListMessageSuggestionsResponse
+	30, // 56: dzeroth.messaging.v1.MessagingService.CommitConversation:output_type -> dzeroth.messaging.v1.CommitConversationResponse
+	33, // 57: dzeroth.messaging.v1.MessagingService.ListConversationCommits:output_type -> dzeroth.messaging.v1.ListConversationCommitsResponse
+	35, // 58: dzeroth.messaging.v1.MessagingService.ListEpochMessages:output_type -> dzeroth.messaging.v1.ListEpochMessagesResponse
+	41, // 59: dzeroth.messaging.v1.MessagingService.ListWelcomes:output_type -> dzeroth.messaging.v1.ListWelcomesResponse
+	43, // 60: dzeroth.messaging.v1.MessagingService.AckWelcomes:output_type -> dzeroth.messaging.v1.AckWelcomesResponse
+	38, // 61: dzeroth.messaging.v1.MessagingService.ListMessageTombstones:output_type -> dzeroth.messaging.v1.ListMessageTombstonesResponse
+	48, // [48:62] is the sub-list for method output_type
+	34, // [34:48] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_messaging_v1_messaging_proto_init() }
@@ -3386,8 +3682,8 @@ func file_dzeroth_messaging_v1_messaging_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_messaging_v1_messaging_proto_rawDesc), len(file_dzeroth_messaging_v1_messaging_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   34,
+			NumEnums:      7,
+			NumMessages:   37,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

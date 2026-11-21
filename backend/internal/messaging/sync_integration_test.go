@@ -20,6 +20,7 @@ import (
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
 func (e *itEnv) listCommitsOn(svc *service, uid, convID string, g, ep uint64, size int32) *messagingv1.ListConversationCommitsResponse {
@@ -352,5 +353,138 @@ func TestSyncIT_Welcomes(t *testing.T) {
 	_, err := e.svc.AckWelcomes(ctx, alice, &messagingv1.AckWelcomesRequest{IdempotencyKey: "ack-key-0000000002", DeviceId: devBob2, Ids: []string{a2[0].GetId()}})
 	if _, _, meta := reasonOf(t, err); meta["field"] != "device_id" {
 		t.Errorf("ack through another user's device = %v", err)
+	}
+}
+
+// putRawConv writes the alice-bob conversation document as MLS at (1, 2); putRawMsg writes one message document of it
+// directly (the ordered and tombstone queries read what the send path stores; the send path itself is tested above).
+func (e *itEnv) putRawConv() {
+	e.t.Helper()
+	c := ConvDoc{Kind: kindDirect, Participants: sortedPair(alice, bob), State: stateAccepted, Encryption: encMLS, MlsGen: 1, MlsEpoch: 2, CreatedAt: e.now().Add(-time.Hour)}
+	if _, err := e.fs.Collection("conversations").Doc(aliceBobConv).Set(context.Background(), c); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func (e *itEnv) putRawMsg(id, key, state string, at time.Time) {
+	e.t.Helper()
+	m := MsgDoc{SenderID: bob, State: state, CreatedAt: at, Ciphertext: []byte("ct " + id), MlsKey: key}
+	if state == msgRemoved {
+		m.RemovedAt, m.Ciphertext = at.Add(time.Minute), nil
+	}
+	if _, err := e.fs.Collection("conversations").Doc(aliceBobConv).Collection(messagesCollection).Doc(id).Set(context.Background(), m); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func rowIDs(rows []MessageRow) []string {
+	out := []string{}
+	for _, r := range rows {
+		out = append(out, r.ID)
+	}
+	return out
+}
+
+// The ordered epoch query on the emulator: createdAt ascending, ties by id, StartAfter a full position, StartAt a
+// time-only cut (inclusive), Limit, and only the asked pair (mlsKey). The emulator enforces no composite index, so the
+// index itself is checked against dev (Task 16's smoke test asserts order == CREATED_AT).
+func TestListEpochMessagesByTimeOnEmulator(t *testing.T) {
+	e := newIT(t, nil)
+	ctx := context.Background()
+	base := e.now().Add(-time.Hour)
+	for _, m := range []struct {
+		id, key string
+		at      time.Duration
+	}{
+		{hexID(5), "1:1", 0}, {hexID(2), "1:1", time.Minute}, {hexID(4), "1:1", time.Minute}, {hexID(1), "1:1", 2 * time.Minute},
+		{hexID(3), "1:2", time.Minute}, {hexID(6), "2:1", 0},
+	} {
+		e.putRawMsg(m.id, m.key, msgVisible, base.Add(m.at))
+	}
+	for _, tt := range []struct {
+		name  string
+		after cursor.Cursor
+		limit int
+		want  []string
+	}{
+		{"from the start", cursor.Cursor{}, 10, []string{hexID(5), hexID(2), hexID(4), hexID(1)}},
+		{"limit", cursor.Cursor{}, 2, []string{hexID(5), hexID(2)}},
+		{"after a full position: ties after its id", cursor.Cursor{CreatedAt: base.Add(time.Minute), DocID: hexID(2)}, 10, []string{hexID(4), hexID(1)}},
+		{"at a time-only cut: every id at that time", cursor.Cursor{CreatedAt: base.Add(time.Minute)}, 10, []string{hexID(2), hexID(4), hexID(1)}},
+		{"a cut between rows", cursor.Cursor{CreatedAt: base.Add(90 * time.Second)}, 10, []string{hexID(1)}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rows, err := e.repo.ListEpochMessagesByTime(ctx, aliceBobConv, "1:1", tt.after, tt.limit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := rowIDs(rows); !slices.Equal(got, tt.want) {
+				t.Errorf("ids = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// A message committed after a listing but stamped inside the trail (before the read time) is returned from that listing's
+// resume token: the token trails by EpochResumeTrail, the next page token does not.
+func TestListEpochMessagesResumeFindsLateCommit(t *testing.T) {
+	e := newIT(t, nil)
+	e.putRawConv()
+	ctx := context.Background()
+	now := e.now()
+	e.putRawMsg(hexID(1), "1:1", msgVisible, now.Add(-10*time.Minute))
+	e.putRawMsg(hexID(3), "1:1", msgVisible, now.Add(-10*time.Second))
+	req := &messagingv1.ListEpochMessagesRequest{ConversationId: aliceBobConv, MlsGeneration: 1, MlsEpoch: 1, Order: messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_CREATED_AT}
+	first, err := e.svc.ListEpochMessages(ctx, alice, req)
+	if err != nil || len(first.GetMessages()) != 2 || first.GetResumeSettled() || first.GetResumePageToken() == "" || first.GetOrder() != messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_CREATED_AT {
+		t.Fatalf("first listing = %v, %v; want 2 messages, an unsettled resume token", first, err)
+	}
+	// The late commit: stamped 20 s before the first read, written after it.
+	e.putRawMsg(hexID(2), "1:1", msgVisible, now.Add(-20*time.Second))
+	e.tick(time.Second)
+	req.PageToken = first.GetResumePageToken()
+	again, err := e.svc.ListEpochMessages(ctx, alice, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range again.GetMessages() {
+		got = append(got, m.GetId())
+	}
+	if want := []string{hexID(2), hexID(3)}; !slices.Equal(got, want) {
+		t.Errorf("from the resume token = %v, want %v (the late commit, then the one inside the trail)", got, want)
+	}
+}
+
+// The tombstone queries on the emulator: both states, ascending ids, other states and the other conversation left out,
+// StartAfter, the merge cut and more; state only is read (Select), so no removedAt reaches the row.
+func TestListTombstonesQueryOnEmulator(t *testing.T) {
+	e := newIT(t, nil)
+	ctx := context.Background()
+	at := e.now().Add(-time.Hour)
+	for i, st := range []string{msgRemoved, msgDeletedAccount, msgVisible, msgDeletedAccount, msgRemoved, msgRemoved} {
+		e.putRawMsg(hexID(i+1), "1:1", st, at)
+	}
+	other := ConversationID(alice, "uid-x")
+	if _, err := e.fs.Collection("conversations").Doc(other).Collection(messagesCollection).Doc(hexID(9)).Set(ctx, MsgDoc{State: msgRemoved, CreatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	all, more, err := e.repo.ListTombstones(ctx, aliceBobConv, "", 10)
+	want := []TombstoneRow{{hexID(1), msgRemoved}, {hexID(2), msgDeletedAccount}, {hexID(4), msgDeletedAccount}, {hexID(5), msgRemoved}, {hexID(6), msgRemoved}}
+	if err != nil || more || !slices.Equal(all, want) {
+		t.Fatalf("all = %v more %v err %v; want %v, no more", all, more, err, want)
+	}
+	// limit 2: the removed query is full (1, 5), the deleted one too (2, 4): the merge keeps 1, 2 and says more.
+	page, more, err := e.repo.ListTombstones(ctx, aliceBobConv, "", 2)
+	if err != nil || !more || !slices.Equal(page, want[:2]) {
+		t.Fatalf("page 1 = %v more %v err %v", page, more, err)
+	}
+	page, more, err = e.repo.ListTombstones(ctx, aliceBobConv, hexID(2), 2)
+	if err != nil || !more || !slices.Equal(page, want[2:4]) {
+		t.Fatalf("page 2 = %v more %v err %v", page, more, err)
+	}
+	page, more, err = e.repo.ListTombstones(ctx, aliceBobConv, hexID(5), 2)
+	if err != nil || more || !slices.Equal(page, want[4:]) {
+		t.Fatalf("page 3 = %v more %v err %v", page, more, err)
 	}
 }

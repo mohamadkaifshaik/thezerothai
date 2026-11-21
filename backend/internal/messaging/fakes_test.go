@@ -81,6 +81,10 @@ type fakeRepo struct {
 	welcomeRows map[string][]WelcomeRow
 	syncCalls   []string
 	syncErr     error
+	// orderErr is the raw Firestore error ListEpochMessagesByTime gets (passed through the repo's orderIndexErr, as the
+	// Firestore repo does); tombOverride, when set, replaces ListTombstones' answer (rows the queries could never match).
+	orderErr     error
+	tombOverride func() ([]TombstoneRow, bool)
 }
 
 func (f *fakeRepo) findEntry(uid, folder, convID string) (int, bool) {

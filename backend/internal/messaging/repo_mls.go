@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -306,6 +307,45 @@ func (r *FirestoreRepo) ListEpochMessages(ctx context.Context, convID, key, afte
 	if err != nil {
 		return nil, fmt.Errorf("messaging: list epoch messages: %w", err)
 	}
+	return messageRows(docs)
+}
+
+// lowestMessageID sorts at or before every message document id (32 lower-case hex): StartAt(t, lowestMessageID) is "at
+// time t, before every id". The Go client needs one cursor value per OrderBy, so a time-only position cannot be passed
+// as StartAt(t) on a query ordered by createdAt then document id.
+const lowestMessageID = "00000000000000000000000000000000"
+
+// ListEpochMessagesByTime implements Repo: conversations/{id}/messages where mlsKey == key ordered by createdAt, then
+// document id (both ascending), served by the composite index messages (mlsKey ASC, createdAt ASC) with its implicit
+// __name__ ASC. A full position (after.DocID set) resumes StartAfter it; a time-only position (DocID "", CreatedAt set)
+// StartAt that time before every id; a zero position reads from the start. Limit limit. A FAILED_PRECONDITION (the index
+// is missing or not READY) is ErrOrderIndex (orderIndexErr).
+func (r *FirestoreRepo) ListEpochMessagesByTime(ctx context.Context, convID, key string, after cursor.Cursor, limit int) ([]MessageRow, error) {
+	query := r.convRef(convID).Collection(messagesCollection).Where("mlsKey", "==", key).OrderBy("createdAt", firestore.Asc).OrderBy(firestore.DocumentID, firestore.Asc)
+	switch {
+	case after.DocID != "":
+		query = query.StartAfter(after.CreatedAt, after.DocID)
+	case !after.CreatedAt.IsZero():
+		query = query.StartAt(after.CreatedAt, lowestMessageID)
+	}
+	docs, err := query.Limit(limit).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, orderIndexErr(err)
+	}
+	return messageRows(docs)
+}
+
+// orderIndexErr wraps an error of the ordered epoch query with context: a FAILED_PRECONDITION (the composite index is
+// missing or not READY) also wraps ErrOrderIndex, checked on the raw Firestore error before any wrapping.
+func orderIndexErr(err error) error {
+	if status.Code(err) == codes.FailedPrecondition {
+		return fmt.Errorf("messaging: list epoch messages by time: %w: %w", ErrOrderIndex, err)
+	}
+	return fmt.Errorf("messaging: list epoch messages by time: %w", err)
+}
+
+// messageRows decodes a page of message documents.
+func messageRows(docs []*firestore.DocumentSnapshot) ([]MessageRow, error) {
 	out := make([]MessageRow, 0, len(docs))
 	for _, d := range docs {
 		var m MsgDoc
@@ -315,6 +355,56 @@ func (r *FirestoreRepo) ListEpochMessages(ctx context.Context, convID, key, afte
 		out = append(out, MessageRow{ID: d.Ref.ID, MsgDoc: m})
 	}
 	return out, nil
+}
+
+// ListTombstones implements Repo: two equality queries on conversations/{id}/messages, state == REMOVED and state ==
+// DELETED_ACCOUNT, each ordered by document id after afterID, Select("state"), Limit limit (each served by the automatic
+// single-field index on state plus __name__, no composite; an `in` query with a __name__ order is not used), merged by
+// mergeTombstones. At most 2 * limit documents read.
+func (r *FirestoreRepo) ListTombstones(ctx context.Context, convID, afterID string, limit int) ([]TombstoneRow, bool, error) {
+	var lists [2][]TombstoneRow
+	for i, st := range [2]string{msgRemoved, msgDeletedAccount} {
+		query := r.convRef(convID).Collection(messagesCollection).Where("state", "==", st).OrderBy(firestore.DocumentID, firestore.Asc)
+		if afterID != "" {
+			query = query.StartAfter(afterID)
+		}
+		docs, err := query.Select("state").Limit(limit).Documents(ctx).GetAll()
+		if err != nil {
+			return nil, false, fmt.Errorf("messaging: list tombstones: %w", err)
+		}
+		for _, d := range docs {
+			s, _ := d.Data()["state"].(string)
+			lists[i] = append(lists[i], TombstoneRow{ID: d.Ref.ID, State: s})
+		}
+	}
+	rows, more := mergeTombstones(lists[0], lists[1], limit)
+	return rows, more, nil
+}
+
+// mergeTombstones merges the two per-state pages (each ascending by id, at most limit rows) into the first limit rows by
+// id. more is true when either page was full (that state may have more) or the merge was cut: then every tombstone up to
+// the last returned id has been read (a full page's last id is at or after the limit-th smallest of the union), so the
+// next page starts after it without a skip; rows past the cut are read again then.
+func mergeTombstones(a, b []TombstoneRow, limit int) ([]TombstoneRow, bool) {
+	more := len(a) >= limit || len(b) >= limit
+	out := make([]TombstoneRow, 0, min(len(a)+len(b), limit))
+	i, j := 0, 0
+	for i < len(a) || j < len(b) {
+		var next TombstoneRow
+		switch {
+		case j >= len(b) || (i < len(a) && a[i].ID < b[j].ID):
+			next, i = a[i], i+1
+		case i >= len(a) || b[j].ID < a[i].ID:
+			next, j = b[j], j+1
+		default: // the same id in both (not possible: one document has one state); keep one
+			next, i, j = a[i], i+1, j+1
+		}
+		if len(out) == limit {
+			return out, true
+		}
+		out = append(out, next)
+	}
+	return out, more
 }
 
 // ListWelcomes implements Repo: users/{uid}/dmWelcomes where deviceId == deviceID ordered by document id, Limit limit (the

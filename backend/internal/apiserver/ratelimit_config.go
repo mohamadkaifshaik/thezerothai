@@ -158,8 +158,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// reset and a recognised retry included. The per-(uid, conversation) cap "messages_commits_per_conversation_daily"
 	// (MESSAGES_COMMITS_PER_CONVERSATION_PER_DAY, 20) and the reset cap "messages_resets_daily" (MESSAGES_RESETS_PER_DAY, 10)
 	// are drawn on by the messaging service (they need the request's conversation id and reset field), after the flag and the
-	// request's form, so a reset counts against all three. The four sync RPCs
-	// (ListConversationCommits, ListEpochMessages, ListWelcomes, AckWelcomes) share ONE bucket
+	// request's form, so a reset counts against all three. The five sync RPCs
+	// (ListConversationCommits, ListEpochMessages, ListWelcomes, AckWelcomes, ListMessageTombstones) share ONE bucket
 	// (RATE_LIMIT_MESSAGES_SYNC_PER_MIN, 60/min); no daily cap (AckWelcomes only deletes the caller's own welcomes).
 	rlMessagesCommit := ratelimit.NewLimiter(cfg.RateLimit.MessagesCommitPerUserPerMinute, idleBucketTTL)
 	rlMessagesSync := ratelimit.NewLimiter(cfg.RateLimit.MessagesSyncPerUserPerMinute, idleBucketTTL)
@@ -301,6 +301,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceListEpochMessagesProcedure:        rlMessagesSync,
 			messagingv1connect.MessagingServiceListWelcomesProcedure:             rlMessagesSync,
 			messagingv1connect.MessagingServiceAckWelcomesProcedure:              rlMessagesSync,
+			messagingv1connect.MessagingServiceListMessageTombstonesProcedure:    rlMessagesSync,
 			notificationsv1connect.NotificationServiceListNotificationsProcedure: rlNotificationsList,
 			listsv1connect.ListServiceCreateListProcedure:                        rlListsWrite,
 			listsv1connect.ListServiceUpdateListProcedure:                        rlListsWrite,

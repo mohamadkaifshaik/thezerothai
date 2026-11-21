@@ -109,3 +109,8 @@ func (s *Server) ListWelcomes(ctx context.Context, req *connect.Request[messagin
 func (s *Server) AckWelcomes(ctx context.Context, req *connect.Request[messagingv1.AckWelcomesRequest]) (*connect.Response[messagingv1.AckWelcomesResponse], error) {
 	return call(ctx, req, s.svc.AckWelcomes)
 }
+
+// ListMessageTombstones implements the RPC; the rules are Service.ListMessageTombstones.
+func (s *Server) ListMessageTombstones(ctx context.Context, req *connect.Request[messagingv1.ListMessageTombstonesRequest]) (*connect.Response[messagingv1.ListMessageTombstonesResponse], error) {
+	return call(ctx, req, s.svc.ListMessageTombstones)
+}

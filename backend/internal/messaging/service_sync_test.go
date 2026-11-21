@@ -5,20 +5,28 @@ package messaging
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // mlsConv stores the alice-bob conversation as MLS at (gen, epoch), created an hour before the rig's clock.
@@ -737,5 +745,650 @@ func TestCommit_CapOrder(t *testing.T) {
 	wantCapLimit(t, err, limitCommitsPerConvDaily)
 	if !r.svc.resets.Allow(alice) {
 		t.Error("a reset refused by the per-conversation cap drew on the reset cap")
+	}
+}
+
+// --- ListEpochMessages order = CREATED_AT and ListMessageTombstones (receive walks, Part B) ---
+
+const (
+	orderUnspecified = messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_UNSPECIFIED
+	orderCreatedAt   = messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_CREATED_AT
+)
+
+// e2eeSpec is the e2ee_dm flag in a mode, with the given uids allowlisted.
+func e2eeSpec(mode flags.Mode, allow ...string) flags.Spec {
+	m := map[string]struct{}{}
+	for _, u := range allow {
+		m[u] = struct{}{}
+	}
+	return flags.Spec{Name: keys.FlagName, Mode: mode, Allowlist: m}
+}
+
+// orderRig is the alice-bob MLS conversation at (1, 2) under the given flags (default: messaging and e2ee_dm on).
+func orderRig(t *testing.T, specs ...flags.Spec) *rig {
+	t.Helper()
+	if len(specs) == 0 {
+		specs = []flags.Spec{{Name: FlagName, Mode: flags.On}, e2eeSpec(flags.On)}
+	}
+	r := newRig(t, func(r *rig) { r.reg = flags.NewRegistry(specs...) })
+	r.mlsConv(1, 2)
+	return r
+}
+
+// timedMsg is one stored message of the alice-bob conversation at the pair (1, 1), created age before the rig's clock.
+type timedMsg struct {
+	id    string
+	age   time.Duration
+	state string
+}
+
+func (r *rig) putTimed(msgs ...timedMsg) {
+	if r.repo.msgs == nil {
+		r.repo.msgs = map[string][]MessageRow{}
+	}
+	for _, m := range msgs {
+		st := m.state
+		if st == "" {
+			st = msgVisible
+		}
+		r.repo.msgs[aliceBobConv] = append(r.repo.msgs[aliceBobConv], MessageRow{ID: m.id, MsgDoc: MsgDoc{
+			SenderID: bob, State: st, CreatedAt: r.now.Add(-m.age), Ciphertext: []byte("ct"), Commitment: bytes.Repeat([]byte{1}, CommitmentBytes),
+			MlsGen: 1, MlsEpoch: 1, MlsKey: "1:1",
+		}})
+	}
+}
+
+// hexID is a message id (32 lower-case hex) that sorts by n.
+func hexID(n int) string { return fmt.Sprintf("%032x", n) }
+
+func epochReq(order messagingv1.EpochMessageOrder, tok string, size int32) *messagingv1.ListEpochMessagesRequest {
+	return &messagingv1.ListEpochMessagesRequest{ConversationId: aliceBobConv, MlsGeneration: 1, MlsEpoch: 1, PageSize: size, PageToken: tok, Order: order}
+}
+
+// timeTok seals an order = CREATED_AT position of alice at (1, 1); id "" is a time-only position.
+func (r *rig) timeTok(at time.Time, id string) string {
+	if id == "" {
+		id = trailDocID
+	}
+	return cursor.EncodeAt(testCursorKey, epochTimePageBinding(alice, aliceBobConv, "1:1"), cursor.Cursor{CreatedAt: at, DocID: id}, r.now)
+}
+
+// openTime opens an order = CREATED_AT token of alice at (1, 1) into its position (DocID "" for a time-only one).
+func (r *rig) openTime(t *testing.T, tok string) cursor.Cursor {
+	t.Helper()
+	c, err := cursor.DecodeAtTTL(testCursorKey, epochTimePageBinding(alice, aliceBobConv, "1:1"), tok, r.now, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("open token %q: %v", tok, err)
+	}
+	if c.DocID == trailDocID {
+		c.DocID = ""
+	}
+	return c
+}
+
+func epochIDs(resp *messagingv1.ListEpochMessagesResponse) []string {
+	out := []string{}
+	for _, m := range resp.GetMessages() {
+		out = append(out, m.GetId())
+	}
+	return out
+}
+
+func wantFeatureDisabled(t *testing.T, err error, feature string) {
+	t.Helper()
+	code, reason, meta := reasonOf(t, err)
+	if code != connect.CodeFailedPrecondition || reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || meta["feature"] != feature {
+		t.Fatalf("err = %v (%v %v %v), want FEATURE_DISABLED feature=%s", err, code, reason, meta, feature)
+	}
+}
+
+func TestListEpochMessagesOrderEcho(t *testing.T) {
+	r := orderRig(t)
+	r.putTimed(timedMsg{id: hexID(3), age: 3 * time.Hour}, timedMsg{id: hexID(1), age: time.Hour}, timedMsg{id: hexID(4), age: 2 * time.Hour}, timedMsg{id: hexID(2), age: 2 * time.Hour})
+	for _, tt := range []struct {
+		name  string
+		order messagingv1.EpochMessageOrder
+		want  []string
+	}{
+		{"unspecified: id order, no echo, no resume", orderUnspecified, []string{hexID(1), hexID(2), hexID(3), hexID(4)}},
+		{"created_at: oldest first, ties by id, echoed", orderCreatedAt, []string{hexID(3), hexID(2), hexID(4), hexID(1)}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(tt.order, "", 10))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := epochIDs(resp); !slices.Equal(got, tt.want) {
+				t.Errorf("ids = %v, want %v", got, tt.want)
+			}
+			if resp.GetOrder() != tt.order {
+				t.Errorf("order echo = %v, want %v", resp.GetOrder(), tt.order)
+			}
+			if tt.order == orderUnspecified && (resp.GetResumePageToken() != "" || resp.GetResumeSettled()) {
+				t.Errorf("id order carries resume %q settled %v", resp.GetResumePageToken(), resp.GetResumeSettled())
+			}
+		})
+	}
+}
+
+func TestListEpochMessagesUnknownOrderIsValidation(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		specs []flags.Spec
+	}{
+		{"e2ee_dm on", nil},
+		{"e2ee_dm off: the value is checked first", []flags.Spec{{Name: FlagName, Mode: flags.On}, e2eeSpec(flags.Off)}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t, tt.specs...)
+			_, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(messagingv1.EpochMessageOrder(7), "", 10))
+			wantValidation(t, err, "order")
+			if r.repo.gets != 0 || len(r.repo.syncCalls) != 0 {
+				t.Errorf("an unknown order read: gets %d sync %v", r.repo.gets, r.repo.syncCalls)
+			}
+		})
+	}
+}
+
+func TestListEpochMessagesCreatedAtFlag(t *testing.T) {
+	msgOn := flags.Spec{Name: FlagName, Mode: flags.On}
+	for _, tt := range []struct {
+		name    string
+		specs   []flags.Spec
+		order   messagingv1.EpochMessageOrder
+		feature string // "" = served
+	}{
+		{"e2ee_dm globally off", []flags.Spec{msgOn, e2eeSpec(flags.Off)}, orderCreatedAt, keys.FlagName},
+		{"e2ee_dm not registered", []flags.Spec{msgOn}, orderCreatedAt, keys.FlagName},
+		{"e2ee_dm allowlist without the caller: served", []flags.Spec{msgOn, e2eeSpec(flags.Allowlist, bob)}, orderCreatedAt, ""},
+		{"e2ee_dm percent 0: served", []flags.Spec{msgOn, {Name: keys.FlagName, Mode: flags.Percent}}, orderCreatedAt, ""},
+		{"messaging globally off", []flags.Spec{{Name: FlagName, Mode: flags.Off}, e2eeSpec(flags.On)}, orderCreatedAt, FlagName},
+		{"messaging allowlist without the caller: served", []flags.Spec{{Name: FlagName, Mode: flags.Allowlist}, e2eeSpec(flags.On)}, orderCreatedAt, ""},
+		{"id order with e2ee_dm off: unaffected", []flags.Spec{msgOn, e2eeSpec(flags.Off)}, orderUnspecified, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t, tt.specs...)
+			r.putTimed(timedMsg{id: hexID(1), age: time.Hour})
+			resp, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(tt.order, "", 10))
+			if tt.feature != "" {
+				wantFeatureDisabled(t, err, tt.feature)
+				if r.repo.gets != 0 || len(r.repo.syncCalls) != 0 {
+					t.Errorf("a disabled call read: gets %d sync %v", r.repo.gets, r.repo.syncCalls)
+				}
+				return
+			}
+			if err != nil || len(resp.GetMessages()) != 1 || resp.GetOrder() != tt.order {
+				t.Fatalf("resp = %v, %v; want one message, order %v", resp, err, tt.order)
+			}
+		})
+	}
+}
+
+func TestListEpochMessagesTokenBoundToOrder(t *testing.T) {
+	r := orderRig(t)
+	r.putTimed(timedMsg{id: hexID(1), age: 3 * time.Hour}, timedMsg{id: hexID(2), age: 2 * time.Hour}, timedMsg{id: hexID(3), age: time.Hour})
+	ctx := context.Background()
+	idPage, err := r.svc.ListEpochMessages(ctx, alice, epochReq(orderUnspecified, "", 2))
+	if err != nil || idPage.GetNextPageToken() == "" {
+		t.Fatalf("id page = %v, %v", idPage, err)
+	}
+	timePage, err := r.svc.ListEpochMessages(ctx, alice, epochReq(orderCreatedAt, "", 2))
+	if err != nil || timePage.GetNextPageToken() == "" || timePage.GetResumePageToken() == "" {
+		t.Fatalf("created_at page = %v, %v", timePage, err)
+	}
+	for _, tt := range []struct {
+		name string
+		req  *messagingv1.ListEpochMessagesRequest
+	}{
+		{"an id-order token in created_at order", epochReq(orderCreatedAt, idPage.GetNextPageToken(), 2)},
+		{"a created_at next token in id order", epochReq(orderUnspecified, timePage.GetNextPageToken(), 2)},
+		{"a created_at resume token in id order", epochReq(orderUnspecified, timePage.GetResumePageToken(), 2)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := len(r.repo.syncCalls)
+			_, err := r.svc.ListEpochMessages(ctx, alice, tt.req)
+			wantValidation(t, err, "page_token")
+			if len(r.repo.syncCalls) != calls {
+				t.Errorf("a refused token read: %v", r.repo.syncCalls[calls:])
+			}
+		})
+	}
+	// Each order's own token still works.
+	if _, err := r.svc.ListEpochMessages(ctx, alice, epochReq(orderCreatedAt, timePage.GetNextPageToken(), 2)); err != nil {
+		t.Errorf("created_at next token in created_at order: %v", err)
+	}
+	if _, err := r.svc.ListEpochMessages(ctx, alice, epochReq(orderUnspecified, idPage.GetNextPageToken(), 2)); err != nil {
+		t.Errorf("id-order token in id order: %v", err)
+	}
+}
+
+func TestListEpochMessagesTimeOnlyTokenOnlyInTimeMode(t *testing.T) {
+	r := orderRig(t)
+	at := r.now.Add(-time.Hour)
+	idBinding, timeBinding := epochPageBinding(alice, aliceBobConv, "1:1"), epochTimePageBinding(alice, aliceBobConv, "1:1")
+	seal := func(binding string, c cursor.Cursor) string { return cursor.EncodeAt(testCursorKey, binding, c, r.now) }
+	for _, tt := range []struct {
+		name string
+		req  *messagingv1.ListEpochMessagesRequest
+		call string // the recorded query; "" = refused (VALIDATION page_token)
+	}{
+		{"a time-only position in id order", epochReq(orderUnspecified, seal(idBinding, cursor.Cursor{CreatedAt: at, DocID: trailDocID}), 10), ""},
+		{"a time-only position without a time", epochReq(orderCreatedAt, seal(timeBinding, cursor.Cursor{DocID: trailDocID}), 10), ""},
+		{"a position whose id is not a message id", epochReq(orderCreatedAt, seal(timeBinding, cursor.Cursor{CreatedAt: at, DocID: "zz"}), 10), ""},
+		{"a time-only position in created_at order", epochReq(orderCreatedAt, r.timeTok(at, ""), 10),
+			"epochtime|" + aliceBobConv + "|1:1|" + strconv.FormatInt(at.UnixMicro(), 10) + "||10"},
+		{"a full position in created_at order", epochReq(orderCreatedAt, r.timeTok(at, hexID(5)), 10),
+			"epochtime|" + aliceBobConv + "|1:1|" + strconv.FormatInt(at.UnixMicro(), 10) + "|" + hexID(5) + "|10"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := len(r.repo.syncCalls)
+			_, err := r.svc.ListEpochMessages(context.Background(), alice, tt.req)
+			if tt.call == "" {
+				wantValidation(t, err, "page_token")
+				if len(r.repo.syncCalls) != calls {
+					t.Errorf("a refused token read: %v", r.repo.syncCalls[calls:])
+				}
+				return
+			}
+			if err != nil || len(r.repo.syncCalls) != calls+1 || r.repo.syncCalls[calls] != tt.call {
+				t.Fatalf("err %v, calls %v; want the query %q", err, r.repo.syncCalls[calls:], tt.call)
+			}
+		})
+	}
+}
+
+func TestListEpochMessagesResumeToken(t *testing.T) {
+	type pos struct {
+		age time.Duration
+		id  string
+	}
+	for _, tt := range []struct {
+		name    string
+		msgs    []timedMsg
+		from    *pos // the request's position; nil = from the start; id "" = time-only
+		size    int32
+		rows    int
+		resume  *pos // nil = ""
+		settled bool
+	}{
+		{"full page settled: after its last row", []timedMsg{{hexID(1), 3 * time.Hour, ""}, {hexID(2), 2 * time.Hour, ""}, {hexID(3), time.Hour, ""}}, nil, 2, 2,
+			&pos{2 * time.Hour, hexID(2)}, true},
+		{"last page settled: after its last row", []timedMsg{{hexID(1), 3 * time.Hour, ""}, {hexID(2), 2 * time.Hour, ""}, {hexID(3), time.Hour, ""}}, nil, 10, 3,
+			&pos{time.Hour, hexID(3)}, true},
+		{"a last row inside the trail: the cut, not settled", []timedMsg{{hexID(1), 5 * time.Minute, ""}, {hexID(2), 10 * time.Second, ""}}, nil, 10, 2,
+			&pos{EpochResumeTrail, ""}, false},
+		{"an empty page with a position: the position", []timedMsg{{hexID(1), time.Hour, ""}}, &pos{30 * time.Minute, hexID(9)}, 10, 0,
+			&pos{30 * time.Minute, hexID(9)}, true},
+		{"an empty first page: no token", nil, nil, 10, 0, nil, true},
+		{"a cut below the request position: the request position", []timedMsg{{hexID(1), 10 * time.Second, ""}}, &pos{30 * time.Second, hexID(5)}, 10, 1,
+			&pos{30 * time.Second, hexID(5)}, false},
+		{"a time-only request position above the cut: kept", []timedMsg{{hexID(1), 10 * time.Second, ""}}, &pos{30 * time.Second, ""}, 10, 1,
+			&pos{30 * time.Second, ""}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t)
+			r.putTimed(tt.msgs...)
+			tok := ""
+			if tt.from != nil {
+				tok = r.timeTok(r.now.Add(-tt.from.age), tt.from.id)
+			}
+			resp, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(orderCreatedAt, tok, tt.size))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.GetMessages()) != tt.rows || resp.GetResumeSettled() != tt.settled {
+				t.Fatalf("rows %d settled %v, want %d %v", len(resp.GetMessages()), resp.GetResumeSettled(), tt.rows, tt.settled)
+			}
+			if tt.resume == nil {
+				if resp.GetResumePageToken() != "" {
+					t.Fatalf("resume = %q, want none", resp.GetResumePageToken())
+				}
+				return
+			}
+			got := r.openTime(t, resp.GetResumePageToken())
+			if want := r.now.Add(-tt.resume.age); !got.CreatedAt.Equal(want) || got.DocID != tt.resume.id {
+				t.Errorf("resume at (%v, %q), want (%v, %q)", got.CreatedAt, got.DocID, want, tt.resume.id)
+			}
+		})
+	}
+}
+
+func TestListEpochMessagesNextTokenOnlyOnFullPage(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		n    int
+		next bool
+	}{
+		{"no messages", 0, false},
+		{"a short page", 1, false},
+		{"a full page", 2, true},
+		{"a full page with more", 3, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t)
+			for i := range tt.n {
+				r.putTimed(timedMsg{id: hexID(i + 1), age: time.Duration(10-i) * time.Hour})
+			}
+			resp, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(orderCreatedAt, "", 2))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (resp.GetNextPageToken() != "") != tt.next {
+				t.Fatalf("next token %q, want set = %v", resp.GetNextPageToken(), tt.next)
+			}
+			if !tt.next {
+				return
+			}
+			last := resp.GetMessages()[len(resp.GetMessages())-1]
+			if got := r.openTime(t, resp.GetNextPageToken()); got.DocID != last.GetId() || !got.CreatedAt.Equal(last.GetCreatedAt().AsTime()) {
+				t.Errorf("next token at %+v, want the last row %s", got, last.GetId())
+			}
+			rest, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(orderCreatedAt, resp.GetNextPageToken(), 2))
+			if err != nil || len(rest.GetMessages()) != tt.n-2 || rest.GetNextPageToken() != "" {
+				t.Errorf("the next page = %v, %v; want the other %d, no token", rest, err, tt.n-2)
+			}
+		})
+	}
+}
+
+func TestListEpochMessagesIndexMissingFailsClosed(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		repoErr  error
+		fallback bool
+	}{
+		{"FAILED_PRECONDITION: an empty unordered page", status.Error(codes.FailedPrecondition, "The query requires an index: conversations/"+aliceBobConv), true},
+		{"another error: INTERNAL, no fallback", status.Error(codes.Unavailable, "down"), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t)
+			r.repo.convs[aliceBobConv] = func(c ConvDoc) ConvDoc { c.ClearedAt = map[string]time.Time{alice: r.now.Add(-time.Hour)}; return c }(r.repo.convs[aliceBobConv])
+			r.putTimed(timedMsg{id: hexID(1), age: 2 * time.Hour})
+			var logs bytes.Buffer
+			r.svc.d.Log = slog.New(slog.NewJSONHandler(&logs, nil))
+			r.repo.orderErr = tt.repoErr
+			resp, err := r.svc.ListEpochMessages(context.Background(), alice, epochReq(orderCreatedAt, r.timeTok(r.now.Add(-3*time.Hour), hexID(7)), 10))
+			if !tt.fallback {
+				if code, _, _ := reasonOf(t, err); code != connect.CodeInternal {
+					t.Fatalf("err = %v, want INTERNAL", err)
+				}
+				if strings.Contains(logs.String(), fieldOrderFallback) {
+					t.Errorf("a non-index error logged the fallback: %s", logs.String())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.GetMessages()) != 0 || resp.GetOrder() != orderUnspecified || resp.GetNextPageToken() != "" || resp.GetResumePageToken() != "" || resp.GetResumeSettled() {
+				t.Errorf("fallback page = %v; want empty, order unset, no tokens, not settled", resp)
+			}
+			if c := resp.GetClearedAt(); c == nil || !c.AsTime().Equal(r.now.Add(-time.Hour)) {
+				t.Errorf("cleared_at = %v, want as usual", c)
+			}
+			var errorLines []map[string]any
+			for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+				var rec map[string]any
+				if json.Unmarshal([]byte(line), &rec) == nil && rec["level"] == "ERROR" {
+					errorLines = append(errorLines, rec)
+				}
+			}
+			if len(errorLines) != 1 {
+				t.Fatalf("ERROR lines = %d (%s), want exactly one", len(errorLines), logs.String())
+			}
+			rec := errorLines[0]
+			if rec[fieldOrderFallback] != true || rec[fieldConvHash] != logger.HashConversation(aliceBobConv) || rec[fieldKind] != kindEpochMessages {
+				t.Errorf("ERROR line = %v; want %s=true, the conversation hash and the kind", rec, fieldOrderFallback)
+			}
+			for _, secret := range []string{alice, bob, aliceBobConv, hexID(1), hexID(7)} {
+				if strings.Contains(logs.String(), secret) {
+					t.Errorf("the fallback log names %q: %s", secret, logs.String())
+				}
+			}
+		})
+	}
+}
+
+func tombReq(conv, tok string, size int32) *messagingv1.ListMessageTombstonesRequest {
+	return &messagingv1.ListMessageTombstonesRequest{ConversationId: conv, PageSize: size, PageToken: tok}
+}
+
+func tombIDs(resp *messagingv1.ListMessageTombstonesResponse) []string {
+	out := []string{}
+	for _, ts := range resp.GetTombstones() {
+		out = append(out, ts.GetId())
+	}
+	return out
+}
+
+func TestListMessageTombstonesBothStatesByID(t *testing.T) {
+	r := orderRig(t)
+	r.repo.convs[aliceBobConv] = func(c ConvDoc) ConvDoc { c.ClearedAt = map[string]time.Time{alice: r.now}; return c }(r.repo.convs[aliceBobConv])
+	r.putTimed(
+		timedMsg{hexID(5), time.Hour, msgRemoved}, timedMsg{hexID(2), time.Hour, msgDeletedAccount}, timedMsg{hexID(3), time.Hour, msgVisible},
+		timedMsg{hexID(1), 40 * 24 * time.Hour, msgRemoved}, timedMsg{hexID(4), time.Minute, msgDeletedAccount},
+	)
+	other := ConversationID(alice, "uid-x")
+	r.repo.msgs[other] = []MessageRow{{ID: hexID(6), MsgDoc: MsgDoc{State: msgRemoved}}}
+	resp, err := r.svc.ListMessageTombstones(context.Background(), alice, tombReq(aliceBobConv, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{hexID(1), hexID(2), hexID(4), hexID(5)}
+	wantStates := []messagingv1.MessageState{messagingv1.MessageState_MESSAGE_STATE_REMOVED, messagingv1.MessageState_MESSAGE_STATE_DELETED_ACCOUNT,
+		messagingv1.MessageState_MESSAGE_STATE_DELETED_ACCOUNT, messagingv1.MessageState_MESSAGE_STATE_REMOVED}
+	if got := tombIDs(resp); !slices.Equal(got, want) || resp.GetNextPageToken() != "" {
+		t.Fatalf("tombstones %v next %q, want %v (the cleared one included) and no token", got, resp.GetNextPageToken(), want)
+	}
+	for i, ts := range resp.GetTombstones() {
+		if ts.GetState() != wantStates[i] {
+			t.Errorf("%s: state %v, want %v", ts.GetId(), ts.GetState(), wantStates[i])
+		}
+	}
+}
+
+func TestListMessageTombstonesMergePaging(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		removed, deleted  int
+		size              int32
+		firstLen          int
+		firstHasNextToken bool
+	}{
+		{"one state full", 5, 0, 5, 5, true},
+		{"neither full but the merge cut (60 + 70 at 100)", 60, 70, 100, 100, true},
+		{"both short: one page", 3, 4, 10, 7, false},
+		{"interleaved across many pages", 7, 8, 4, 4, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t)
+			var all []string
+			removed, deleted := tt.removed, tt.deleted
+			for i := 0; removed+deleted > 0; i++ {
+				st := msgRemoved
+				if removed == 0 || (deleted > 0 && i%2 == 1) {
+					st, deleted = msgDeletedAccount, deleted-1
+				} else {
+					removed--
+				}
+				r.putTimed(timedMsg{hexID(i + 1), time.Hour, st})
+				all = append(all, hexID(i+1))
+			}
+			r.putTimed(timedMsg{hexID(10_000), time.Hour, msgVisible})
+			var got []string
+			tok := ""
+			for page := 0; ; page++ {
+				if page > 50 {
+					t.Fatal("paging does not end")
+				}
+				resp, err := r.svc.ListMessageTombstones(context.Background(), alice, tombReq(aliceBobConv, tok, tt.size))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if page == 0 && (len(resp.GetTombstones()) != tt.firstLen || (resp.GetNextPageToken() != "") != tt.firstHasNextToken) {
+					t.Errorf("first page: %d rows, token %q; want %d, token %v", len(resp.GetTombstones()), resp.GetNextPageToken(), tt.firstLen, tt.firstHasNextToken)
+				}
+				got = append(got, tombIDs(resp)...)
+				if tok = resp.GetNextPageToken(); tok == "" {
+					break
+				}
+			}
+			if !slices.Equal(got, all) {
+				t.Errorf("paged %d ids, want the %d tombstones once each in id order (no duplicate, no skip)", len(got), len(all))
+			}
+		})
+	}
+}
+
+func TestListMessageTombstonesParticipantOnly(t *testing.T) {
+	r := orderRig(t)
+	r.putTimed(timedMsg{hexID(1), time.Hour, msgRemoved})
+	ctx := context.Background()
+	_, stranger := r.svc.ListMessageTombstones(ctx, "uid-stranger", tombReq(aliceBobConv, "", 0))
+	_, missing := r.svc.ListMessageTombstones(ctx, alice, tombReq(ConversationID(alice, "uid-nobody"), "", 0))
+	_, viaEpoch := r.svc.ListEpochMessages(ctx, "uid-stranger", &messagingv1.ListEpochMessagesRequest{ConversationId: aliceBobConv, MlsGeneration: 1, MlsEpoch: 1})
+	if code, _, _ := reasonOf(t, stranger); code != connect.CodeNotFound || !bytes.Equal(wireBytes(t, stranger), wireBytes(t, missing)) || !bytes.Equal(wireBytes(t, stranger), wireBytes(t, viaEpoch)) {
+		t.Errorf("non-participant / missing / ListEpochMessages NOT_FOUND differ: %v / %v / %v", stranger, missing, viaEpoch)
+	}
+	for _, c := range r.repo.syncCalls {
+		if strings.HasPrefix(c, "tombstones|") {
+			t.Errorf("a refused caller ran the tombstone query: %s", c)
+		}
+	}
+	if resp, err := r.svc.ListMessageTombstones(ctx, bob, tombReq(aliceBobConv, "", 0)); err != nil || len(resp.GetTombstones()) != 1 {
+		t.Errorf("the other participant: %v, %v", resp, err)
+	}
+}
+
+func TestListMessageTombstonesValidation(t *testing.T) {
+	r := orderRig(t)
+	ctx := context.Background()
+	seal := func(binding, id string, issued time.Time) string {
+		return cursor.EncodeAt(testCursorKey, binding, cursor.Cursor{CreatedAt: r.now, DocID: id}, issued)
+	}
+	good := seal(tombstonePageBinding(alice, aliceBobConv), hexID(1), r.now)
+	for _, tt := range []struct {
+		name  string
+		req   *messagingv1.ListMessageTombstonesRequest
+		field string
+	}{
+		{"conversation id", tombReq("x", "", 0), "conversation_id"},
+		{"upper-case conversation id", tombReq(strings.ToUpper(aliceBobConv), "", 0), "conversation_id"},
+		{"a foreign token (another caller)", tombReq(aliceBobConv, seal(tombstonePageBinding(bob, aliceBobConv), hexID(1), r.now), 0), "page_token"},
+		{"another conversation's token", tombReq(aliceBobConv, seal(tombstonePageBinding(alice, ConversationID(alice, "uid-x")), hexID(1), r.now), 0), "page_token"},
+		{"a tampered token", tombReq(aliceBobConv, good+"x", 0), "page_token"},
+		{"an expired token", tombReq(aliceBobConv, seal(tombstonePageBinding(alice, aliceBobConv), hexID(1), r.now.Add(-31*24*time.Hour)), 0), "page_token"},
+		{"a ListEpochMessages token", tombReq(aliceBobConv, seal(epochPageBinding(alice, aliceBobConv, "1:1"), hexID(1), r.now), 0), "page_token"},
+		{"a token whose id is not a message id", tombReq(aliceBobConv, seal(tombstonePageBinding(alice, aliceBobConv), "zz", r.now), 0), "page_token"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			gets, calls := r.repo.gets, len(r.repo.syncCalls)
+			_, err := r.svc.ListMessageTombstones(ctx, alice, tt.req)
+			wantValidation(t, err, tt.field)
+			if r.repo.gets != gets || len(r.repo.syncCalls) != calls {
+				t.Errorf("a refused request read")
+			}
+		})
+	}
+	if _, err := r.svc.ListMessageTombstones(ctx, alice, tombReq(aliceBobConv, good, 0)); err != nil {
+		t.Errorf("a good token: %v", err)
+	}
+	for _, tt := range []struct {
+		in   int32
+		want int
+	}{{0, 50}, {-3, 50}, {7, 7}, {100, 100}, {101, 100}, {5000, 100}} {
+		if _, err := r.svc.ListMessageTombstones(ctx, alice, tombReq(aliceBobConv, "", tt.in)); err != nil {
+			t.Fatal(err)
+		}
+		if last := r.repo.syncCalls[len(r.repo.syncCalls)-1]; !strings.HasSuffix(last, "|"+strconv.Itoa(tt.want)) {
+			t.Errorf("page_size %d: query %q, want limit %d", tt.in, last, tt.want)
+		}
+	}
+}
+
+func TestListMessageTombstonesFlag(t *testing.T) {
+	msgOn := flags.Spec{Name: FlagName, Mode: flags.On}
+	for _, tt := range []struct {
+		name    string
+		specs   []flags.Spec
+		feature string // "" = served
+	}{
+		{"messaging globally off", []flags.Spec{{Name: FlagName, Mode: flags.Off}, e2eeSpec(flags.On)}, FlagName},
+		{"both off: messaging first", []flags.Spec{{Name: FlagName, Mode: flags.Off}, e2eeSpec(flags.Off)}, FlagName},
+		{"e2ee_dm globally off", []flags.Spec{msgOn, e2eeSpec(flags.Off)}, keys.FlagName},
+		{"e2ee_dm not registered", []flags.Spec{msgOn}, keys.FlagName},
+		{"e2ee_dm allowlist without the caller: served", []flags.Spec{msgOn, e2eeSpec(flags.Allowlist, bob)}, ""},
+		{"messaging allowlist without the caller: served", []flags.Spec{{Name: FlagName, Mode: flags.Allowlist}, e2eeSpec(flags.On)}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t, tt.specs...)
+			r.putTimed(timedMsg{hexID(1), time.Hour, msgRemoved})
+			resp, err := r.svc.ListMessageTombstones(context.Background(), alice, tombReq(aliceBobConv, "", 0))
+			if tt.feature != "" {
+				wantFeatureDisabled(t, err, tt.feature)
+				if r.repo.gets != 0 || len(r.repo.syncCalls) != 0 {
+					t.Errorf("a disabled call read: gets %d sync %v", r.repo.gets, r.repo.syncCalls)
+				}
+				return
+			}
+			if err != nil || len(resp.GetTombstones()) != 1 {
+				t.Fatalf("resp = %v, %v; want the one tombstone", resp, err)
+			}
+		})
+	}
+}
+
+func TestListMessageTombstonesIDsAndStatesOnly(t *testing.T) {
+	// The wire shape: a tombstone carries an id and a state, nothing else (never a time, an actor or a sender).
+	if fields := (&messagingv1.MessageTombstone{}).ProtoReflect().Descriptor().Fields(); fields.Len() != 2 || fields.ByName("id") == nil || fields.ByName("state") == nil {
+		t.Fatalf("MessageTombstone has %d fields, want exactly id and state", fields.Len())
+	}
+	for _, tt := range []struct {
+		name    string
+		rows    []TombstoneRow
+		more    bool
+		want    []string
+		dropped int
+		next    string // the id the next token is at; "" = none
+	}{
+		{"a stored state other than the two and a malformed id are skipped",
+			[]TombstoneRow{{hexID(1), msgRemoved}, {"NOT-AN-ID", msgRemoved}, {hexID(2), msgVisible}, {hexID(3), msgDeletedAccount}}, false,
+			[]string{hexID(1), hexID(3)}, 2, ""},
+		{"a skipped last row still advances the token",
+			[]TombstoneRow{{hexID(1), msgRemoved}, {hexID(4), "SOMETHING"}}, true,
+			[]string{hexID(1)}, 1, hexID(4)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := orderRig(t)
+			r.repo.tombOverride = func() ([]TombstoneRow, bool) { return tt.rows, tt.more }
+			ctx, info := logger.WithRequestInfo(context.Background())
+			resp, err := r.svc.ListMessageTombstones(ctx, alice, tombReq(aliceBobConv, "", 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := tombIDs(resp); !slices.Equal(got, tt.want) {
+				t.Errorf("ids = %v, want %v", got, tt.want)
+			}
+			for _, ts := range resp.GetTombstones() {
+				n := 0
+				ts.ProtoReflect().Range(func(protoreflect.FieldDescriptor, protoreflect.Value) bool { n++; return true })
+				if n != 2 {
+					t.Errorf("%s carries %d fields, want id and state", ts.GetId(), n)
+				}
+			}
+			if v, _ := info.Get(fieldTombDropped); v != int64(tt.dropped) { // slog stores an int as int64
+				t.Errorf("dropped = %v, want %d", v, tt.dropped)
+			}
+			if tt.next == "" {
+				if resp.GetNextPageToken() != "" {
+					t.Errorf("next token %q, want none", resp.GetNextPageToken())
+				}
+				return
+			}
+			c, err := cursor.DecodeAtTTL(testCursorKey, tombstonePageBinding(alice, aliceBobConv), resp.GetNextPageToken(), r.now, 30*24*time.Hour)
+			if err != nil || c.DocID != tt.next {
+				t.Errorf("next token at %q (%v), want %q", c.DocID, err, tt.next)
+			}
+		})
 	}
 }

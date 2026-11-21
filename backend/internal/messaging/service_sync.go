@@ -1,9 +1,11 @@
 package messaging
 
-// The MLS sync RPCs of an encrypted conversation: ListConversationCommits, ListEpochMessages, ListWelcomes and AckWelcomes
-// (proto, each RPC comment), and the service caps of CommitConversation (commitCaps). Flag: "messaging" not globally off
-// for all four (a caller dropped from the allowlist keeps catching up); e2ee_dm is never needed. Request lines carry
-// counts and enums only: never commit, welcome or message bytes, a device id or a uid.
+// The five MLS sync RPCs of an encrypted conversation: ListConversationCommits, ListEpochMessages, ListWelcomes,
+// AckWelcomes and ListMessageTombstones (proto, each RPC comment), and the service caps of CommitConversation
+// (commitCaps). Flag: "messaging" not globally off for all five (a caller dropped from the allowlist keeps catching up);
+// ListMessageTombstones and ListEpochMessages with order = CREATED_AT also need e2ee_dm not globally off (never per
+// caller, for the same reason). Request lines carry counts and enums only: never commit, welcome or message bytes, a
+// device id or a uid.
 
 import (
 	"context"
@@ -11,7 +13,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
+	"strings"
+	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -19,6 +24,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -48,6 +54,23 @@ const (
 	maxDocPart = 9_999_999_999
 	// afterEverything sorts after every commit document id (all digits and "_"): StartAfter it reads nothing.
 	afterEverything = "~"
+
+	// EpochResumeTrail is how far resume_page_token of an order = CREATED_AT page trails the read time: a message stamped
+	// more than this before a read was committed by then. It must stay above the Cloud Run request_timeout_seconds (30,
+	// the bound of a send's stamp-to-commit time) plus the clock skew between instances.
+	EpochResumeTrail = 60 * time.Second
+	// MaxTombstonePage and defaultTombstonePage are ListMessageTombstones' page size bounds.
+	MaxTombstonePage     = 100
+	defaultTombstonePage = 50
+
+	kindTombstones     = "list_message_tombstones"
+	fieldOrderFallback = "epoch_order_fallback"
+	// fieldTombDropped counts ListMessageTombstones rows skipped for a state other than the two or a malformed id.
+	fieldTombDropped = "dropped"
+
+	// trailDocID is the document id a time-only position (a resume token's trail cut) is sealed with: the cursor codec
+	// refuses an empty id, and this one is never a message id (not hex), so it cannot collide with a full position.
+	trailDocID = "-"
 )
 
 // commitCaps draws on CommitConversation's two service caps, in this order, after the flag, the verified email and the
@@ -171,11 +194,129 @@ func epochPageBinding(uid, convID, key string) string {
 	return "messaging|epoch|page|" + uid + "|" + convID + "|" + key
 }
 
+// epochTimePageBinding binds an order = CREATED_AT page or resume token: the id-order binding plus "|t", so a token of
+// one order is refused by the other.
+func epochTimePageBinding(uid, convID, key string) string {
+	return epochPageBinding(uid, convID, key) + "|t"
+}
+
+// tombstonePageBinding binds a ListMessageTombstones page token to the caller and the conversation.
+func tombstonePageBinding(uid, convID string) string {
+	return "messaging|tombstones|page|" + uid + "|" + convID
+}
+
+// guardNotGloballyOff is the not-globally-off gate on one named flag (the shape of guardFlag): FAILED_PRECONDITION +
+// FEATURE_DISABLED with metadata["feature"] = name, before any lookup. A nil checker is off.
+func (s *service) guardNotGloballyOff(ctx context.Context, name string) error {
+	err := flags.Guard(ctx, func(_, name string) bool { return s.flags != nil && !s.flags.GloballyOff(name) }, "", name)
+	if err == nil {
+		return nil
+	}
+	logger.SetRequestField(ctx, "feature", name)
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		return ae.WithMeta("feature", name)
+	}
+	return err
+}
+
+// ListMessageTombstones implements Service.ListMessageTombstones.
+//
+// Gates, before any read, in this order: "messaging" not globally off, then "e2ee_dm" not globally off (never per caller:
+// a user dropped from the allowlist keeps clearing removed text). Validation: conversation_id (32 lower-case hex);
+// page_size (0 or negative => 50, max 100); the page token (tombstonePageBinding, 30 days, a message id: anything else is
+// VALIDATION page_token). Then the participant check through the 60 s instance copy (the one NOT_FOUND, as
+// ListEpochMessages), then Repo.ListTombstones (two queries of at most page_size documents, state only). The answer holds
+// ids and states only: a stored state other than REMOVED / DELETED_ACCOUNT, or an id that is not a message id, is skipped
+// (the "dropped" request field). next_page_token, when more, is at the page's last message id (a skipped one included, so
+// the walk always advances).
+func (s *service) ListMessageTombstones(ctx context.Context, uid string, req *messagingv1.ListMessageTombstonesRequest) (*messagingv1.ListMessageTombstonesResponse, error) {
+	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
+		return nil, err
+	}
+	if err := s.guardNotGloballyOff(ctx, keys.FlagName); err != nil {
+		return nil, err
+	}
+	logger.SetRequestField(ctx, fieldKind, kindTombstones)
+	id := req.GetConversationId()
+	if !ValidID(id) {
+		return nil, apierr.Validation("conversation_id", "conversation_id must be 32 lower-case hex characters")
+	}
+	limit := tombstonePageSize(req.GetPageSize())
+	if s.d.Repo == nil || len(s.d.CursorKey) == 0 {
+		return nil, errors.New("messaging: list message tombstones is not configured")
+	}
+	binding := tombstonePageBinding(uid, id)
+	now := s.d.Now()
+	var after string
+	if tok := req.GetPageToken(); tok != "" {
+		c, err := cursor.DecodeAtTTL(s.d.CursorKey, binding, tok, now, s.tokenTTL())
+		if err != nil || !ValidID(c.DocID) {
+			return nil, invalidPageToken()
+		}
+		after = c.DocID
+	}
+	if _, err := s.participantConv(ctx, kindTombstones, uid, id); err != nil {
+		return nil, err
+	}
+	rows, more, err := s.d.Repo.ListTombstones(ctx, id, after, limit)
+	if err != nil {
+		return nil, s.failure(ctx, kindTombstones, uid, id, err)
+	}
+	resp := &messagingv1.ListMessageTombstonesResponse{Tombstones: make([]*messagingv1.MessageTombstone, 0, len(rows))}
+	dropped, lastID := 0, ""
+	for _, r := range rows {
+		if !ValidID(r.ID) {
+			dropped++
+			continue
+		}
+		lastID = r.ID
+		st, ok := tombstoneState(r.State)
+		if !ok {
+			dropped++
+			continue
+		}
+		resp.Tombstones = append(resp.Tombstones, &messagingv1.MessageTombstone{Id: r.ID, State: st})
+	}
+	if more && lastID != "" {
+		resp.NextPageToken = cursor.EncodeAt(s.d.CursorKey, binding, cursor.Cursor{CreatedAt: now, DocID: lastID}, now)
+	}
+	logger.SetRequestField(ctx, fieldResults, len(resp.Tombstones))
+	logger.SetRequestField(ctx, fieldMore, resp.NextPageToken != "")
+	if dropped > 0 {
+		logger.SetRequestField(ctx, fieldTombDropped, dropped)
+	}
+	return resp, nil
+}
+
+// tombstoneState maps a stored tombstone state to the wire; ok is false for any other state.
+func tombstoneState(state string) (messagingv1.MessageState, bool) {
+	switch state {
+	case msgRemoved:
+		return messagingv1.MessageState_MESSAGE_STATE_REMOVED, true
+	case msgDeletedAccount:
+		return messagingv1.MessageState_MESSAGE_STATE_DELETED_ACCOUNT, true
+	}
+	return messagingv1.MessageState_MESSAGE_STATE_UNSPECIFIED, false
+}
+
+// tombstonePageSize is ListMessageTombstones' page size: 0 or negative => defaultTombstonePage, at most MaxTombstonePage.
+func tombstonePageSize(n int32) int {
+	switch {
+	case n <= 0:
+		return defaultTombstonePage
+	case n > MaxTombstonePage:
+		return MaxTombstonePage
+	}
+	return int(n)
+}
+
 // ListEpochMessages implements Service.ListEpochMessages.
 //
 // Validation before any read, in this order: conversation_id; mls_generation >= 1; mls_epoch >= 1; page_size (0 => 20, max
-// 50); the page token (sealed, bound to caller, conversation and pair, 30 days: a foreign, tampered, expired or other-pair
-// token is VALIDATION page_token). Then the participant check through the 60 s instance copy (the one NOT_FOUND), then ONE
+// 50); order (an unknown value is VALIDATION order; CREATED_AT continues in listEpochByTime after the e2ee_dm
+// not-globally-off gate); the page token (sealed, bound to caller, conversation and pair, 30 days: a foreign, tampered,
+// expired, other-pair or other-order token is VALIDATION page_token). Then the participant check through the 60 s instance copy (the one NOT_FOUND), then ONE
 // query: messages where mlsKey == "gen:epoch" in document-id order after the token's id, Limit page_size. The query runs
 // even when the cached copy says NONE (it can be 60 s stale, and an empty answer reads as "complete"). Messages at or
 // before the caller's clearedAt ARE returned (completeness counting; the client never shows or stores them) and that
@@ -203,16 +344,52 @@ func (s *service) ListEpochMessages(ctx context.Context, uid string, req *messag
 		return nil, errors.New("messaging: list epoch messages is not configured")
 	}
 	key := strconv.FormatUint(gen, 10) + ":" + strconv.FormatUint(epoch, 10) // = mlsKey for every stored pair
-	binding := epochPageBinding(uid, id, key)
 	now := s.d.Now()
+	switch req.GetOrder() {
+	case messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_UNSPECIFIED:
+	case messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_CREATED_AT:
+		if err := s.guardNotGloballyOff(ctx, keys.FlagName); err != nil {
+			return nil, err
+		}
+		return s.listEpochByTime(ctx, uid, id, key, req.GetPageToken(), limit, now)
+	default:
+		return nil, apierr.Validation("order", "order must be EPOCH_MESSAGE_ORDER_UNSPECIFIED or EPOCH_MESSAGE_ORDER_CREATED_AT")
+	}
+	binding := epochPageBinding(uid, id, key)
 	var after string
 	if tok := req.GetPageToken(); tok != "" {
 		c, err := cursor.DecodeAtTTL(s.d.CursorKey, binding, tok, now, s.tokenTTL())
 		if err != nil || !ValidID(c.DocID) {
-			return nil, apierr.Validation("page_token", "invalid or expired page_token")
+			return nil, invalidPageToken()
 		}
 		after = c.DocID
 	}
+	conv, err := s.participantConv(ctx, kindEpochMessages, uid, id)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.d.Repo.ListEpochMessages(ctx, id, key, after, limit)
+	if err != nil {
+		return nil, s.failure(ctx, kindEpochMessages, uid, id, err)
+	}
+	resp := epochPage(conv, id, uid, rows)
+	if len(rows) == limit {
+		last := rows[len(rows)-1]
+		resp.NextPageToken = cursor.EncodeAt(s.d.CursorKey, binding, cursor.Cursor{CreatedAt: last.CreatedAt, DocID: last.ID}, now)
+	}
+	logger.SetRequestField(ctx, fieldResults, len(rows))
+	return resp, nil
+}
+
+// invalidPageToken is the one VALIDATION page_token answer of the sync lists.
+func invalidPageToken() *apierr.Error {
+	return apierr.Validation("page_token", "invalid or expired page_token")
+}
+
+// participantConv is the participant check of ListEpochMessages and ListMessageTombstones: the conversation through the
+// 60 s instance copy (conversationHit), and the one NOT_FOUND for a missing conversation or a non-participant. It logs the
+// conversation hash and whether the copy was cached.
+func (s *service) participantConv(ctx context.Context, op, uid, id string) (ConvDoc, error) {
 	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(id))
 	conv, hit, err := s.conversationHit(ctx, uid, id)
 	logger.SetRequestField(ctx, fieldCacheHit, hit)
@@ -220,27 +397,117 @@ func (s *service) ListEpochMessages(ctx context.Context, uid string, req *messag
 		err = ErrNotFound
 	}
 	if err != nil {
-		return nil, s.failure(ctx, kindEpochMessages, uid, id, err)
+		return ConvDoc{}, s.failure(ctx, op, uid, id, err)
 	}
-	rows, err := s.d.Repo.ListEpochMessages(ctx, id, key, after, limit)
-	if err != nil {
-		return nil, s.failure(ctx, kindEpochMessages, uid, id, err)
-	}
+	return conv, nil
+}
+
+// epochPage is a ListEpochMessages answer of rows, with cleared_at: the caller's own DeleteConversation time from the
+// conversation already read for the participant check (the 60 s instance copy, like ListMessages' own filter); no extra
+// read.
+func epochPage(conv ConvDoc, convID, uid string, rows []MessageRow) *messagingv1.ListEpochMessagesResponse {
 	resp := &messagingv1.ListEpochMessagesResponse{Messages: make([]*messagingv1.Message, 0, len(rows))}
-	// cleared_at: the caller's own DeleteConversation time from the conversation already read for the participant check
-	// (the 60 s instance copy, like ListMessages' own filter); no extra read.
 	if c := conv.ClearedAt[uid]; !c.IsZero() {
 		resp.ClearedAt = timestamppb.New(c)
 	}
 	for _, r := range rows {
-		resp.Messages = append(resp.Messages, messageOf(r, id, uid))
+		resp.Messages = append(resp.Messages, messageOf(r, convID, uid))
 	}
-	if len(rows) == limit {
+	return resp
+}
+
+// listEpochByTime is ListEpochMessages with order = CREATED_AT, after the flags and the request validation.
+//
+// The token (epochTimePageBinding, 30 days) holds a position (createdAt, id): a full position resumes after that message;
+// a time-only one (sealed with trailDocID, accepted only with a non-zero time) resumes at that time, before every id. Any
+// other token is VALIDATION page_token, before any read. Then the participant check (the one NOT_FOUND), then ONE query
+// (Repo.ListEpochMessagesByTime): messages of the pair by (createdAt, id) ascending from the position, Limit page_size.
+//
+// next_page_token (a full page only) is at the last row. resume_page_token is at R = max(request position, min(a, cut)),
+// with a = after the last row (the request position on an empty page) and cut = (read time - EpochResumeTrail, before
+// every id); positions compare on (createdAt, id) with "" first. resume_settled = (R == a). R is "" only when the request
+// had no position and no row came back.
+//
+// Without the index (ErrOrderIndex) it fails closed: an empty page with order unset, no next or resume token, not settled,
+// cleared_at as usual, and one ERROR line epoch_order_fallback=true with the conversation hash and the kind (no uid, no id).
+func (s *service) listEpochByTime(ctx context.Context, uid, id, key, tok string, limit int, now time.Time) (*messagingv1.ListEpochMessagesResponse, error) {
+	binding := epochTimePageBinding(uid, id, key)
+	var after cursor.Cursor
+	if tok != "" {
+		c, err := cursor.DecodeAtTTL(s.d.CursorKey, binding, tok, now, s.tokenTTL())
+		switch {
+		case err != nil:
+			return nil, invalidPageToken()
+		case c.DocID == trailDocID && !c.CreatedAt.IsZero():
+			c.DocID = ""
+		case !ValidID(c.DocID):
+			return nil, invalidPageToken()
+		}
+		after = c
+	}
+	conv, err := s.participantConv(ctx, kindEpochMessages, uid, id)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.d.Repo.ListEpochMessagesByTime(ctx, id, key, after, limit)
+	if errors.Is(err, ErrOrderIndex) {
+		logger.SetRequestField(ctx, fieldOrderFallback, true)
+		logger.SetRequestField(ctx, fieldResults, 0)
+		s.d.Log.ErrorContext(ctx, "messaging_"+fieldOrderFallback, slog.Bool(fieldOrderFallback, true),
+			slog.String(fieldConvHash, logger.HashConversation(id)), slog.String(fieldKind, kindEpochMessages))
+		return epochPage(conv, id, uid, nil), nil
+	}
+	if err != nil {
+		return nil, s.failure(ctx, kindEpochMessages, uid, id, err)
+	}
+	resp := epochPage(conv, id, uid, rows)
+	a := after
+	if len(rows) > 0 {
 		last := rows[len(rows)-1]
-		resp.NextPageToken = cursor.EncodeAt(s.d.CursorKey, binding, cursor.Cursor{CreatedAt: last.CreatedAt, DocID: last.ID}, now)
+		a = cursor.Cursor{CreatedAt: last.CreatedAt, DocID: last.ID}
+		if len(rows) == limit {
+			resp.NextPageToken = s.sealTimePos(binding, a, now)
+		}
 	}
+	cut := cursor.Cursor{CreatedAt: now.Add(-EpochResumeTrail).Truncate(time.Microsecond)}
+	r := maxPos(after, minPos(a, cut))
+	resp.ResumeSettled = comparePos(r, a) == 0
+	if !cursor.IsFirstPage(r) {
+		resp.ResumePageToken = s.sealTimePos(binding, r, now)
+	}
+	resp.Order = messagingv1.EpochMessageOrder_EPOCH_MESSAGE_ORDER_CREATED_AT
 	logger.SetRequestField(ctx, fieldResults, len(rows))
 	return resp, nil
+}
+
+// sealTimePos seals an order = CREATED_AT position; a time-only one (DocID "") is sealed with trailDocID.
+func (s *service) sealTimePos(binding string, p cursor.Cursor, now time.Time) string {
+	if p.DocID == "" {
+		p.DocID = trailDocID
+	}
+	return cursor.EncodeAt(s.d.CursorKey, binding, p, now)
+}
+
+// comparePos orders two listing positions on (createdAt, id), "" (a time-only position) before every id.
+func comparePos(a, b cursor.Cursor) int {
+	if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+		return c
+	}
+	return strings.Compare(a.DocID, b.DocID)
+}
+
+func minPos(a, b cursor.Cursor) cursor.Cursor {
+	if comparePos(a, b) <= 0 {
+		return a
+	}
+	return b
+}
+
+func maxPos(a, b cursor.Cursor) cursor.Cursor {
+	if comparePos(a, b) >= 0 {
+		return a
+	}
+	return b
 }
 
 // deviceIDInvalid is the one VALIDATION device_id answer of ListWelcomes and AckWelcomes: a malformed id and an id that is

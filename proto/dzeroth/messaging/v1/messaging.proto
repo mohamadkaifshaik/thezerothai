@@ -27,7 +27,8 @@ syntax = "proto3";
 // - ListConversations, ListMessages, MarkConversationRead and DeleteConversation need it only NOT GLOBALLY OFF, so a
 //   user dropped from an allowlist can still read and clean up (ReportContent of a MESSAGE target likewise).
 // - CommitConversation needs it on for the caller only (the peer's flag is not checked). ListConversationCommits,
-//   ListEpochMessages, ListWelcomes and AckWelcomes need it only not globally off.
+//   ListEpochMessages, ListWelcomes and AckWelcomes need it only not globally off. ListMessageTombstones and
+//   ListEpochMessages with order = CREATED_AT also need "e2ee_dm" not globally off (checked after "messaging").
 // - Globally off: every RPC is FEATURE_DISABLED before any lookup; clients hide the destination, its routes and the
 //   profile Message button. Clients learn the flag from IdentityService.GetMe enabled_features.
 // - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
@@ -143,8 +144,10 @@ syntax = "proto3";
 // - Processing order on a device: all messages of its current epoch, then that epoch's commit, then the next epoch.
 //   MLS deletes an epoch's keys when its commit is applied, so before applying the commit that ends an epoch a device
 //   calls ListEpochMessages for that epoch: once the epoch is closed, that list is complete, which is how the device
-//   proves it holds every message of the epoch. ListEpochMessages is a completeness set, not a decryption order: the
-//   device collects every page, then decrypts in created_at order, then by id. Messages of different senders may be
+//   proves it holds every message of the epoch. ListEpochMessages lists in message id order unless
+//   order = CREATED_AT, which lists oldest first and adds a resume token; completeness still needs a listing begun
+//   after the epoch closed. In message id order it is a completeness set, not a decryption order: the device collects
+//   every page, then decrypts in created_at order, then by id. Messages of different senders may be
 //   decrypted in any order; one sender's messages may be decrypted at most 50 out of their sending order (the client
 //   core's out-of-order tolerance, which covers created_at being stamped per server instance). created_at is the
 //   display order. Messages from epochs before a device joined are skipped, not shown as failures. A device that
@@ -556,12 +559,14 @@ service MessagingService {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
-  // Every message of one (generation, epoch) of an encrypted conversation, in message id order (not time order),
-  // paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later generation exists after a
-  // reset; ListConversationCommits) no message can join it, so the full list is complete: a device calls this before
-  // applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS deletes the epoch's
-  // keys on commit). It is a completeness set, not a decryption order: collect every page, then decrypt in created_at
-  // order, then by id (file comment, "Processing order"). Skip ids already processed.
+  // Every message of one (generation, epoch) of an encrypted conversation, in message id order unless
+  // order = CREATED_AT, which lists oldest first and adds a resume token; completeness still needs a listing begun
+  // after the epoch closed. Paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later
+  // generation exists after a reset; ListConversationCommits) no message can join it, so the full list is complete: a
+  // device calls this before applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS
+  // deletes the epoch's keys on commit). In message id order it is a completeness set, not a decryption order: collect
+  // every page, then decrypt in created_at order, then by id (file comment, "Processing order"). Skip ids already
+  // processed.
   // Messages at or before the caller's own DeleteConversation time (cleared_at in the response) ARE returned, unlike
   // ListMessages, for completeness counting only: the client does not show or store them (it may decrypt and discard
   // them; skipping their decryption would spend the forward limit). The tombstone rules are the same (DELETED_ACCOUNT
@@ -613,6 +618,22 @@ service MessagingService {
   // RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
   // Cost: the device check (1 query of at most 5 device documents) + at most 50 deletes, no other read.
   rpc AckWelcomes(AckWelcomesRequest) returns (AckWelcomesResponse);
+
+  // The tombstones of one conversation: every message whose state is REMOVED or DELETED_ACCOUNT, as ids and states
+  // only (never when or why it was removed, never a sender), in ascending message id, so a device that keeps
+  // decrypted copies clears them after a retired since token in O(tombstones). Messages at or before the caller's
+  // cleared_at are included.
+  // Flag: "messaging" not globally off AND "e2ee_dm" not globally off (FEATURE_DISABLED with feature = the flag
+  // name, before any read). Validation: conversation_id (32 lower-case hex); page_size 0 or negative => 50, max 100
+  // (clamped); page_token: sealed, bound to the caller and the conversation, 30 days; an expired, foreign or tampered
+  // token => VALIDATION "page_token". Participant check and the one NOT_FOUND as ListEpochMessages (the 60 s
+  // instance copy). Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
+  // next_page_token "" => no more tombstones as of now.
+  // Cost: at most 1 conversation read (cache-first) + 2 queries of at most page_size documents each (max 200
+  // reads). Writes nothing.
+  rpc ListMessageTombstones(ListMessageTombstonesRequest) returns (ListMessageTombstonesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 // Additive: a group conversation would be a new value (stage ladder).
@@ -1024,11 +1045,23 @@ message ListEpochMessagesRequest {
   int32 page_size = 4;
   // next_page_token of the previous page; bound to the caller, the conversation and the pair.
   string page_token = 5;
+  // UNSPECIFIED => message-id order, as before. CREATED_AT needs FEATURE_E2EE_DM not globally off (else
+  // FEATURE_DISABLED feature=e2ee_dm, before any read). A page token is bound to the order it was issued for;
+  // another order's token => VALIDATION "page_token". An unknown value => VALIDATION "order".
+  EpochMessageOrder order = 6;
+}
+
+// Order of a ListEpochMessages listing.
+enum EpochMessageOrder {
+  // Message-id order (not time order): the original behaviour, a completeness set only.
+  EPOCH_MESSAGE_ORDER_UNSPECIFIED = 0;
+  // created_at ascending, then message id ascending: oldest first (the reverse of ListMessages), resumable.
+  EPOCH_MESSAGE_ORDER_CREATED_AT = 1;
 }
 
 message ListEpochMessagesResponse {
-  // Every message of that epoch, by message id (not time order); complete once the epoch is closed (it has a commit,
-  // or a later generation exists).
+  // Every message of that epoch, by message id (not time order) unless order = CREATED_AT; complete once the epoch is
+  // closed (it has a commit, or a later generation exists).
   repeated Message messages = 1;
   // "" => no more messages of this epoch (as of now).
   string next_page_token = 2;
@@ -1036,6 +1069,39 @@ message ListEpochMessagesResponse {
   // with created_at at or before it is returned for completeness only: never show or store it (ListMessages hides the
   // same messages). From the conversation's 60 s instance copy, like ListMessages' own filter.
   google.protobuf.Timestamp cleared_at = 3;
+  // CREATED_AT only when it was asked for AND served in that order. Unset means unordered: the page is not a
+  // completeness answer and must not be processed as ordered (an older server, or one whose index is not ready).
+  EpochMessageOrder order = 4;
+  // CREATED_AT only, set on every page including an empty last page ("" only when the request had no position and
+  // the page is empty). Positioned at max(the request's position, min(after the last message returned, the read time
+  // minus 60 s)). Listing from it later returns every message of the pair at or after that position, including one
+  // committed late. Same binding and 30-day life as next_page_token.
+  string resume_page_token = 5;
+  // CREATED_AT only: true when resume_page_token is positioned after the last message returned (every message of
+  // this page was created more than 60 s before this read). False: it trails, at or before the last message.
+  bool resume_settled = 6;
+}
+
+message ListMessageTombstonesRequest {
+  string conversation_id = 1;
+  // 0 or negative => 50; max 100 (clamped).
+  int32 page_size = 2;
+  // next_page_token of the previous page.
+  string page_token = 3;
+}
+
+message MessageTombstone {
+  // 32 lower-case hex.
+  string id = 1;
+  // MESSAGE_STATE_REMOVED or MESSAGE_STATE_DELETED_ACCOUNT.
+  MessageState state = 2;
+}
+
+message ListMessageTombstonesResponse {
+  // Ascending message id.
+  repeated MessageTombstone tombstones = 1;
+  // "" => no more tombstones as of now.
+  string next_page_token = 2;
 }
 
 // A pending Welcome for one of the caller's devices.

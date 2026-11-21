@@ -219,6 +219,61 @@ func TestServer_CheckPostShare(t *testing.T) {
 	})
 }
 
+// TestServer_ListMessageTombstones drives ListMessageTombstones over the wire: no identity is UNAUTHENTICATED; messaging
+// off is FEATURE_DISABLED messaging; e2ee_dm off (or not registered) is FEATURE_DISABLED e2ee_dm; e2ee_dm on an allowlist
+// without the caller reaches the service's VALIDATION of the empty request, under DEGRADED_MODE=readonly too
+// (NO_SIDE_EFFECTS).
+func TestServer_ListMessageTombstones(t *testing.T) {
+	ctx := context.Background()
+	notListed := flags.Spec{Name: "e2ee_dm", Mode: flags.Allowlist, Allowlist: map[string]struct{}{"someone-else": {}}}
+	served := flags.NewRegistry(flags.Spec{Name: messaging.FlagName, Mode: flags.On}, notListed)
+	list := func(c messagingv1connect.MessagingServiceClient, uid string) error {
+		_, err := c.ListMessageTombstones(ctx, withUID(&messagingv1.ListMessageTombstonesRequest{}, uid))
+		return err
+	}
+	for _, tt := range []struct {
+		name    string
+		reg     *flags.Registry
+		uid     string
+		code    connect.Code
+		feature string
+	}{
+		{"no identity", served, "", connect.CodeUnauthenticated, ""},
+		{"messaging off", flags.NewRegistry(flags.Spec{Name: messaging.FlagName, Mode: flags.Off}, notListed), inList, connect.CodeFailedPrecondition, "messaging"},
+		{"e2ee_dm not registered", registry(flags.On, 0), inList, connect.CodeFailedPrecondition, "e2ee_dm"},
+		{"e2ee_dm off", flags.NewRegistry(flags.Spec{Name: messaging.FlagName, Mode: flags.On}, flags.Spec{Name: "e2ee_dm", Mode: flags.Off}), inList, connect.CodeFailedPrecondition, "e2ee_dm"},
+		{"e2ee_dm allowlist without the caller", served, inList, connect.CodeInvalidArgument, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := list(newClient(t, tt.reg), tt.uid)
+			if connect.CodeOf(err) != tt.code {
+				t.Fatalf("code = %v (%v), want %v", connect.CodeOf(err), err, tt.code)
+			}
+			if tt.feature == "" {
+				return
+			}
+			if reason, meta := reasonOf(t, err); reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || meta["feature"] != tt.feature {
+				t.Fatalf("reason = %v meta = %v, want FEATURE_DISABLED feature=%s", reason, meta, tt.feature)
+			}
+		})
+	}
+	t.Run("answers under readonly", func(t *testing.T) {
+		uidOf := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+			return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+				return next(authn.WithClaims(ctx, authn.Claims{UID: inList, SignInProvider: authn.SignInProviderGoogle}), req)
+			}
+		})
+		mux := http.NewServeMux()
+		mux.Handle(messagingv1connect.NewMessagingServiceHandler(messaging.NewServer(messaging.New(served, messaging.Deps{})),
+			connect.WithInterceptors(degraded.Interceptor(config.DegradedReadonly, nil), uidOf, mw.ErrorMapping(slog.New(slog.NewTextHandler(io.Discard, nil))))))
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		if err := list(messagingv1connect.NewMessagingServiceClient(srv.Client(), srv.URL), ""); connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Fatalf("under readonly: code = %v (%v), want the service's InvalidArgument", connect.CodeOf(err), err)
+		}
+	})
+}
+
 func wantDisabled(t *testing.T, err error) {
 	t.Helper()
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
