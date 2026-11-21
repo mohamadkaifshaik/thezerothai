@@ -3066,32 +3066,82 @@ void main() {
       expect(await rig.device.vault.group(_c1, 1), isNull);
     });
 
-    test('a conversation with no final group still finishes its undecryptable '
-        'walk', () async {
+    test('a pass with no final group probes as a detector and processes no '
+        'message', () async {
       await setUpJoined();
+      final token = await prime();
       await sayMany(1, 120, start: const Duration(minutes: -10));
       await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      rig.server.calls.clear();
+      rig.changed.clear();
+      final processed = rig.device.engine.processed.length;
+      final engineCalls = [...rig.device.engine.calls];
+
+      // No walk is left: the pass is its probe alone, and the probe's page
+      // (the newest of the 120 messages) is not processed.
+      final probed = await rig.receiver.pullLive(_c1);
+
+      expect(rig.server.calls, ['listMlsMessages']);
+      expect(probed.kind, ReceiveOutcomeKind.complete);
+      for (var i = 1; i <= 120; i++) {
+        expect(await row(_mid(i)), isNull);
+      }
+      expect(rig.device.engine.processed, hasLength(processed));
+      expect(rig.device.engine.calls, engineCalls);
+      expect(rig.changed, isEmpty);
+      // The stored since token stays, and nothing is kept for §4 rule 2.
+      expect((await sync()).sinceToken, token);
+      expect(rig.contexts.of(_c1).endToken, isNull);
+      expect((await receiveRecord()).rec, isNull);
+
+      // An undecryptable walk left over from the group that is gone is
+      // still finished, after the probe.
       await putReceiveRecord(
         const ReceiveRecord(
           close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.undecryptable),
         ),
       );
       rig.server.calls.clear();
-      final processed = rig.device.engine.processed.length;
 
       final out = await rig.receiver.pullLive(_c1);
 
+      expect(rig.server.calls.first, 'listMlsMessages');
+      expect(rig.server.calls.where((c) => c == 'listMlsMessages'), [
+        'listMlsMessages',
+      ]);
       for (var i = 1; i <= 120; i++) {
         expect((await row(_mid(i)))!.state, StoredMessageState.undecryptable);
       }
       expect(rig.device.engine.processed, hasLength(processed));
       expect((await receiveRecord()).close!.end, isTrue);
       expect(out.kind, ReceiveOutcomeKind.complete);
-      // No probe without a final group; done once ended.
-      expect(rig.server.calls, isNot(contains('listMlsMessages')));
+      expect((await sync()).sinceToken, token);
+      // Done once ended: a later pass is one probe.
       rig.server.calls.clear();
       expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
-      expect(epochCalls(), 0);
+      expect(rig.server.calls, ['listMlsMessages']);
+    });
+
+    test('a takedown after the group is gone removes the stored row', () async {
+      await setUpJoined();
+      await say(bobGroup(), 1);
+      await say(bobGroup(), 2, at: seconds(1));
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      await reconciled();
+      // No final group is left (a reset, or this device was removed).
+      await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+      final engineCalls = [...rig.device.engine.calls];
+      rig.changed.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      final r = (await row(_mid(1)))!;
+      expect((r.state, r.content), (StoredMessageState.removed, null));
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      expect(rig.changed, contains(_c1));
+      expect(rig.device.engine.calls, engineCalls);
     });
 
     test('a page listed by a pass is discarded when the sink advanced the same '
@@ -5995,8 +6045,8 @@ void main() {
       expect(rig.unexpected, isEmpty);
     });
 
-    test('an abandoned undecryptable walk with no final group left ends the '
-        'pass complete, and a decrypting walk is never abandoned', () async {
+    test('an abandoned undecryptable walk with no final group left leaves no '
+        'walk to list, and a decrypting walk is never abandoned', () async {
       await setUpJoined();
       await sayMany(1, 3, start: const Duration(minutes: -10));
       rig.server.rewriteEpoch = (real) => real.deepCopy()..clearOrder();
@@ -6042,7 +6092,17 @@ void main() {
       expect(passes, kWalkGiveUpAfter);
       expect(rig.unexpected, hasLength(1));
       rig.unexpected.clear();
-      expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
+      // No walk is left. No since token was ever saved, so the reconcile
+      // entry stays armed and the pass waits (never `complete`, never an
+      // immediate next pass).
+      rig.server.epochRequests.clear();
+      final rest = await rig.receiver.pullLive(_c1);
+      expect(
+        (rest.kind, rest.until),
+        (ReceiveOutcomeKind.stopped, rig.clock.now().add(kWalkBackoff)),
+      );
+      expect(rig.server.epochRequests, isEmpty);
+      expect((await receiveRecord()).close!.end, isTrue);
       expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
     });
 
@@ -6097,7 +6157,12 @@ void main() {
       expect((close.end, close.mf, close.mfAt), (true, 0, 0));
       // No row for messages that were never listed.
       expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
-      expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
+      // No walk is left; with no since token the reconcile entry stays
+      // armed, so the pass waits instead of answering `complete`.
+      rig.server.epochRequests.clear();
+      final rest = await rig.receiver.pullLive(_c1);
+      expect(rest.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.server.epochRequests, isEmpty);
       expect(await rig.receiver.abandonedWalks(_c1), 1);
     });
 

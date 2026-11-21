@@ -27,6 +27,13 @@ class _Reconciled {
 /// - **Arming.** A retirement resets the entry unarmed, from the top; the
 ///   next probe with an empty since token arms it. An entry is created
 ///   armed when the since token is empty and there is none (§3.4).
+/// - **No final group** (a ruling after the design). A pass of a
+///   conversation with no final group still probes (as a detector: its page
+///   is never processed) and still runs this walk, so a retirement is seen,
+///   the entry armed and stored rows cleared by id. No walk of such a
+///   conversation saves a since token, so an armed entry rests at its last
+///   page: every pass lists that page again and ends `stopped` for
+///   [kWalkBackoff], never `complete`.
 /// - **Listing.** `ListMessageTombstones`, [kTombstonePageSize] a page, at
 ///   most [kReconcilePagesPerPass] pages a pass, each listed WITHOUT the
 ///   lock on the sync budget and applied under it in ONE transaction, only

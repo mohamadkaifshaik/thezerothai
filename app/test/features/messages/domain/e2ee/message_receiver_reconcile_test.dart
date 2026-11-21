@@ -999,6 +999,117 @@ void main() {
     });
   });
 
+  group('a conversation with no final group (a ruling after the design)', () {
+    /// No final group is left (a reset, or this device was removed).
+    Future<void> loseGroup() =>
+        rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+
+    int probes() =>
+        rig.server.calls.where((c) => c == 'listMlsMessages').length;
+
+    test('a retirement with no final group arms the entry and lists the '
+        'tombstones by id', () async {
+      await setUpJoined();
+      await say(1);
+      await say(2, at: _seconds(1));
+      await pull();
+      expect(await rec(), isNull);
+      await loseGroup();
+      takeDownUnseen(1);
+      final token = (await sync()).sinceToken;
+      rig.server.retiredSince.add(token);
+
+      // The detector probe meets the refusal: the token is retired.
+      expect((await pull()).kind, ReceiveOutcomeKind.more);
+      expect((await sync()).sinceToken, '');
+      expect((await rec())!.armed, isFalse);
+      // The anchor is that same token: refused and cleared too.
+      expect((await pull()).kind, ReceiveOutcomeKind.more);
+      expect((await record()).anchor, '');
+      requests().clear();
+      final engineCalls = [...rig.device.engine.calls];
+
+      // The probe with no token arms the entry; the listing runs at once.
+      final armed = await pull();
+
+      expect(requests(), ['']);
+      final r1 = (await row(1))!;
+      expect((r1.state, r1.content), (StoredMessageState.removed, null));
+      expect((await row(2))!.state, StoredMessageState.visible);
+      expect(rig.device.engine.calls, engineCalls);
+      // The resting state: no walk will save a since token, so the entry
+      // stays armed at its last page and the pass waits; never `complete`,
+      // never an immediate next pass.
+      expect((await sync()).sinceToken, '');
+      final kept = (await rec())!;
+      expect((kept.armed, kept.t, kept.n, kept.f), (true, '', 0, 0));
+      expect(
+        (armed.kind, armed.until),
+        (ReceiveOutcomeKind.stopped, rig.clock.now().add(kWalkBackoff)),
+      );
+
+      // Each later pass costs one probe and one tombstone page.
+      rig.clock.advance(kWalkBackoff);
+      final before = probes();
+      final rest = await pull();
+      expect(rest.kind, ReceiveOutcomeKind.stopped);
+      expect(probes(), before + 1);
+      expect(requests(), ['', '']);
+
+      // A takedown in that state is still cleared by id: it retires the
+      // anchor (the server's rule), and the pass after that lists from the
+      // top.
+      rig.server.takedownRetiresSince = true;
+      takeDownUnseen(2);
+      rig.clock.advance(kWalkBackoff);
+      expect((await pull()).kind, ReceiveOutcomeKind.more);
+      expect((await record()).anchor, '');
+      expect((await row(2))!.state, StoredMessageState.visible);
+      await pull();
+      final r2 = (await row(2))!;
+      expect((r2.state, r2.content), (StoredMessageState.removed, null));
+      expect(rig.device.engine.calls, engineCalls);
+    });
+
+    test('a pass with no final group is not complete while the reconcile '
+        'listing has pages left', () async {
+      await setUpJoined();
+      await say(40);
+      await pull();
+      expect(await rec(), isNull);
+      for (var n = 1; n <= 24; n++) {
+        ghost(n);
+      }
+      takeDownUnseen(40);
+      rig.server.tombstonePageMax = 1;
+      await loseGroup();
+      final token = (await sync()).sinceToken;
+      rig.server.retiredSince.add(token);
+      expect((await pull()).kind, ReceiveOutcomeKind.more);
+      expect((await pull()).kind, ReceiveOutcomeKind.more);
+      expect((await record()).anchor, '');
+      requests().clear();
+
+      // One allowance a pass, and `more` while pages are left.
+      final first = await pull();
+      expect(first.kind, ReceiveOutcomeKind.more);
+      expect(requests(), hasLength(kReconcilePagesPerPass));
+      expect((await rec())!.n, kReconcilePagesPerPass);
+      final second = await pull();
+      expect(second.kind, ReceiveOutcomeKind.more);
+      expect((await rec())!.n, 2 * kReconcilePagesPerPass);
+      expect((await row(40))!.state, StoredMessageState.visible);
+
+      // The listing reaches its end: the row is cleared, the entry waits
+      // for a since token, and the pass waits (not `complete`).
+      final last = await pull();
+      expect(last.kind, ReceiveOutcomeKind.stopped);
+      expect(requests(), hasLength(2 * kReconcilePagesPerPass + 5));
+      expect((await row(40))!.state, StoredMessageState.removed);
+      expect((await rec())!.armed, isTrue);
+    });
+  });
+
   group('the budgets (§9)', () {
     test('every call of a pass takes its unit in the conversation\'s lane: '
         'the probe on the read budget, tombstone and walk pages on the sync '

@@ -139,12 +139,13 @@ extension _Walks on MessageReceiver {
     } else {
       _contexts.of(id).deferredEmpty = held0.record.items.isEmpty;
     }
-    // A provisional group only, or none: catch-up and the welcomes own the
-    // current pair; an undecryptable (`u`) close or orphan walk left over
-    // from a group that is gone is still finished, with no probe.
-    if (await _currentPair(pass.vault, id) == null) {
-      return _walkWithoutGroup(pass, id, priority);
-    }
+    // A provisional group only, or none (after a reset, after this device
+    // was removed, before the conversation is set up again): catch-up and
+    // the welcomes own the current pair, and no message can be processed.
+    // A ruling after the design: such a pass still probes, as a DETECTOR
+    // only, and still runs the reconcile step, so a takedown or an erased
+    // account clears stored text also while no group is stored.
+    final grouped = await _currentPair(pass.vault, id) != null;
 
     // 1. The probe. An engine hold (§7.2 as amended: the receiver-wide one
     // after device-level trouble seen by ANY conversation, or this
@@ -152,8 +153,8 @@ extension _Walks on MessageReceiver {
     // listing: the probe still detects a retired token, arms the reconcile
     // entry and ends a taken-down deferred message. The hold gates the
     // engine: the fast path's batch stops at the first message that needs
-    // it.
-    final probe = await _probe(pass, id, priority);
+    // it. With no final group the probe's page is never processed.
+    final probe = await _probe(pass, id, priority, detector: !grouped);
     if (probe.waitingForWelcome) onWelcomes();
     if (probe.listed) onListed(pass.vault);
     if (probe.outcome != null) return probe.outcome!;
@@ -172,6 +173,23 @@ extension _Walks on MessageReceiver {
       takePage,
       answered: true,
     );
+    if (!grouped) {
+      // 3. With no final group: an undecryptable (`u`) close or orphan walk
+      // left over from a group that is gone is still finished (§3.4).
+      final walked = await _walkWithoutGroup(pass, id, priority);
+      if (walked.kind != ReceiveOutcomeKind.complete) return walked;
+      // Never `complete` while the reconcile entry has work left. A listing
+      // that reached its end and only waits for a since token rests here:
+      // no walk of a conversation without a group saves one, so the pass
+      // waits (it never asks for an immediate next pass). Each later pass
+      // is one probe and that listing's last page again, and a takedown
+      // still clears its stored row by id (it shows on the probe's page, or
+      // it retires the anchor and the listing begins again from the top).
+      return reconciled.outcome ??
+          (reconciled.awaiting
+              ? ReceiveOutcome.stopped(_now().add(kWalkBackoff))
+              : ReceiveOutcome.complete);
+    }
     var out = await _walkSteps(pass, id, priority, probe, onWelcomes);
     if (reconciled.awaiting &&
         ((await pass.vault.conversation(id))?.sync.sinceToken ?? '')
@@ -392,10 +410,12 @@ extension _Walks on MessageReceiver {
   bool _closeEndedAt(ReceiveRecord r, MlsPair current) =>
       r.close != null && r.close!.end && r.close!.pair == current;
 
-  /// A pass with no final group (§3.4 keeps a `u` close or orphan slot whose
-  /// group is gone): those walks only, no probe, no catch-up. A pass that
-  /// moved neither slot stops (a provisional group at the slot's generation
-  /// discards its pages) rather than asking for an immediate next pass.
+  /// The walks of a pass with no final group (§3.4 keeps a `u` close or
+  /// orphan slot whose group is gone): those walks only, no open walk, no
+  /// catch-up (the pass's detector probe and its reconcile step ran before
+  /// this). A pass that moved neither slot stops (a provisional group at
+  /// the slot's generation discards its pages) rather than asking for an
+  /// immediate next pass.
   Future<ReceiveOutcome> _walkWithoutGroup(
     _Pass pass,
     String id,
@@ -437,7 +457,20 @@ extension _Walks on MessageReceiver {
   // -------------------------------------------------------------------------
   // The probe (§4)
 
-  Future<_Probe> _probe(_Pass pass, String id, BudgetPriority priority) async {
+  /// [detector] (a pass with no final group; a ruling after the design):
+  /// the probe only detects. Its page's messages are never processed (no
+  /// fast path, so no engine call, no row for a message and no since token
+  /// saved), and nothing of it is kept for §4 rule 2 (no open walk exists
+  /// to save it); its tombstones are noted and applied to stored rows and
+  /// deferred copies as for any page that is not processed, a refused
+  /// token is retired and an empty since token arms the reconcile entry.
+  /// It is never the witness an engine retry needs.
+  Future<_Probe> _probe(
+    _Pass pass,
+    String id,
+    BudgetPriority priority, {
+    bool detector = false,
+  }) async {
     final context = _contexts.of(id);
     final limited = _messaging.rateLimitedFor();
     if (limited != null) {
@@ -500,12 +533,14 @@ extension _Walks on MessageReceiver {
         ).forEach((mid, state) => _noteTombstone(context, mid, state));
         await _armLocked(pass, id, since);
         await _tombstonesSeenLocked(pass, id, page.messages);
+        if (detector) return _Probe();
         context.endToken = since.isEmpty
             ? null
             : (token: since, sentWith: '', seq: seq);
         return _Probe(sawLater: later, listAgain: refused);
       }
-      if (page.gapPageToken.isEmpty &&
+      if (!detector &&
+          page.gapPageToken.isEmpty &&
           openEnded &&
           context.serial == serial &&
           await _openEndedNow(vault, id, current)) {
@@ -538,6 +573,7 @@ extension _Walks on MessageReceiver {
       // its token is saved by rule 2 once that walk ends. A tombstone on it
       // still ends a deferred copy of its message now (§8.1).
       await _tombstonesSeenLocked(pass, id, page.messages);
+      if (detector) return _Probe();
       context.endToken = since.isEmpty
           ? null
           : (token: since, sentWith: token, seq: seq);
@@ -546,8 +582,9 @@ extension _Walks on MessageReceiver {
     // Answered for a request that sent the stored, non-empty since token
     // (never the anchor, never an empty token): the pass has seen what
     // changed since it, and every tombstone on the page was noted for the
-    // run before anything else was done with the page.
-    return probe..listed = token.isNotEmpty;
+    // run before anything else was done with the page. Never a detector
+    // probe: with no final group nothing may reach the engine.
+    return probe..listed = token.isNotEmpty && !detector;
   }
 
   /// Under the lock: the group's current pair is still [before] and the
