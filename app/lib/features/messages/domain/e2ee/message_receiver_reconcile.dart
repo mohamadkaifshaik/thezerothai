@@ -108,7 +108,7 @@ extension _Reconcile on MessageReceiver {
       }
       if (take() == 0) return const _Reconciled(ReceiveOutcome.more);
       final serial = context.serial;
-      if (!await _takeUnit(_syncBudget, priority)) {
+      if (!await _takeUnit(_syncBudget, priority, id)) {
         return _Reconciled(ReceiveOutcome.held(_now().add(kWalkBackoff)));
       }
       pb.ListMessageTombstonesResponse? page;

@@ -10,6 +10,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/receive_record.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:fixnum/fixnum.dart';
@@ -750,6 +751,64 @@ void main() {
     });
   });
 
+  group('the budgets (§9)', () {
+    test('every call of a pass takes its unit in the conversation\'s lane: '
+        'the probe on the read budget, tombstone and walk pages on the sync '
+        'budget', () async {
+      await setUpJoined();
+      await say(1);
+      final syncTakes = <(BudgetPriority, Object?)>[];
+      final readTakes = <(BudgetPriority, Object?)>[];
+      rig
+        ..syncBudget = _SpyBudget(rig.clock.now, syncTakes)
+        ..readBudget = _SpyBudget(rig.clock.now, readTakes);
+      await rig.restart();
+      final before = rig.server.calls.length;
+
+      final out = await rig.receiver.pullLive(
+        _c1,
+        priority: BudgetPriority.live,
+      );
+
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect(readTakes, [(BudgetPriority.live, _c1)]);
+      // Two tombstone pages (before and after the since token is saved)
+      // and the open walk's page.
+      expect(syncTakes, List.filled(3, (BudgetPriority.live, _c1)));
+      expect(rig.server.calls.skip(before), [
+        'listMlsMessages',
+        'listMessageTombstones',
+        'listEpochMessages',
+        'listMessageTombstones',
+      ]);
+    });
+
+    test('a pass whose budget is paused is held and makes no call', () async {
+      await setUpJoined();
+      await say(1);
+      await pull();
+      takeDownUnseen(1);
+      await putRec(const ReconcileEntry(armed: true));
+      final until = rig.clock.now().add(const Duration(minutes: 3));
+      rig.syncBudget.pauseUntil(until);
+      requests().clear();
+
+      // The probe draws on the read budget and still runs; the tombstone
+      // listing draws on the paused sync budget.
+      final out = await pull();
+
+      expect(out.kind, ReceiveOutcomeKind.held);
+      expect(requests(), isEmpty);
+      final kept = (await rec())!;
+      expect((kept.armed, kept.f), (true, 0));
+      expect((await row(1))!.state, StoredMessageState.visible);
+
+      rig.clock.advance(const Duration(minutes: 3));
+      await untilDisarmed();
+      expect((await row(1))!.state, StoredMessageState.removed);
+    });
+  });
+
   group('reconciliation and deferred messages (§8.1, carry-overs 12, 15 to '
       '18)', () {
     const internal = MlsException(MlsErrorCode.internal, 'x');
@@ -971,6 +1030,20 @@ void main() {
       expect(await deferredIds(), isEmpty);
     });
   });
+}
+
+/// A real budget (a limit no test reaches) that records each unit taken.
+class _SpyBudget extends SyncBudget {
+  _SpyBudget(DateTime Function() now, this.takes)
+    : super(perMinute: 100000, ownDeviceCount: () => 1, now: now);
+
+  final List<(BudgetPriority, Object?)> takes;
+
+  @override
+  Future<void> take(BudgetPriority priority, {Object? lane}) {
+    takes.add((priority, lane));
+    return super.take(priority, lane: lane);
+  }
 }
 
 extension<T> on T {

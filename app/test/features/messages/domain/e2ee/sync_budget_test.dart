@@ -33,8 +33,12 @@ class _Rig {
 
   DateTime now() => _epoch.add(async.elapsed).add(skew);
 
-  void take(String label, [BudgetPriority p = BudgetPriority.background]) {
-    budget.take(p).then((_) => served.add(label));
+  void take(
+    String label, [
+    BudgetPriority p = BudgetPriority.background,
+    Object? lane,
+  ]) {
+    budget.take(p, lane: lane).then((_) => served.add(label));
   }
 
   void settle() => async.flushMicrotasks();
@@ -46,7 +50,8 @@ void main() {
     fakeAsync((async) {
       final rig = _Rig(async);
       for (var i = 0; i < 61; i++) {
-        rig.take('c$i');
+        // The limit itself: user calls (other calls leave the reserve).
+        rig.take('c$i', BudgetPriority.user);
       }
       rig.settle();
       expect(rig.served, hasLength(60));
@@ -61,7 +66,8 @@ void main() {
     fakeAsync((async) {
       final rig = _Rig(async, own: () => 5);
       for (var i = 0; i < 13; i++) {
-        rig.take('c$i');
+        // The limit itself: user calls (other calls leave the reserve).
+        rig.take('c$i', BudgetPriority.user);
       }
       rig.settle();
       expect(rig.served, hasLength(12));
@@ -142,7 +148,8 @@ void main() {
       expect(directory.ownDeviceCount, 5);
       final rig = _Rig(async, own: () => directory.ownDeviceCount);
       for (var i = 0; i < 13; i++) {
-        rig.take('c$i');
+        // The limit itself: user calls (other calls leave the reserve).
+        rig.take('c$i', BudgetPriority.user);
       }
       rig.settle();
       expect(rig.served, hasLength(12));
@@ -153,8 +160,8 @@ void main() {
     fakeAsync((async) {
       final rig = _Rig(async, perMinute: 2);
       expect(async.pendingTimers, isEmpty);
-      rig.take('a');
-      rig.take('b');
+      rig.take('a', BudgetPriority.user);
+      rig.take('b', BudgetPriority.user);
       rig.settle();
       expect(async.pendingTimers, isEmpty);
       rig.budget.pauseUntil(rig.now().add(const Duration(minutes: 5)));
@@ -172,8 +179,8 @@ void main() {
     fakeAsync((async) {
       final rig = _Rig(async, perMinute: 2);
       rig.skew = const Duration(hours: 2);
-      rig.take('a');
-      rig.take('b');
+      rig.take('a', BudgetPriority.user);
+      rig.take('b', BudgetPriority.user);
       rig.settle();
       expect(rig.served, ['a', 'b']);
       // The clock is set back two hours: the stamps are now in the future.
@@ -305,6 +312,174 @@ void main() {
       expect(rig.budget.tryTake(BudgetPriority.user), isFalse);
       async.elapse(const Duration(minutes: 4));
       expect(rig.budget.tryTake(BudgetPriority.user), isTrue);
+    });
+  });
+
+  group('lanes, live and the reserve (receive-walks design §9)', () {
+    test('background lanes are served round-robin', () {
+      fakeAsync((async) {
+        // A limit of 2: one unit a minute for background work.
+        final rig = _Rig(async, perMinute: 2);
+        // Lane a asks for four calls before lanes b and c ask for theirs.
+        for (final label in ['a1', 'a2', 'a3', 'a4']) {
+          rig.take(label, BudgetPriority.background, 'a');
+        }
+        rig.take('b1', BudgetPriority.background, 'b');
+        rig.take('b2', BudgetPriority.background, 'b');
+        rig.take('c1', BudgetPriority.background, 'c');
+        rig.settle();
+        expect(rig.served, ['a1']);
+        for (var i = 0; i < 6; i++) {
+          async.elapse(const Duration(minutes: 1));
+        }
+        // One per lane in turn, first in first out within a lane.
+        // (Lane a's second call was waiting before the other lanes came.)
+        expect(rig.served, ['a1', 'a2', 'b1', 'c1', 'a3', 'b2', 'a4']);
+        expect(async.pendingTimers, isEmpty);
+      });
+    });
+
+    test('a call with no lane shares one lane with the other such calls', () {
+      fakeAsync((async) {
+        final rig = _Rig(async, perMinute: 2);
+        rig.take('n0');
+        rig.take('n1');
+        rig.take('n2');
+        rig.take('a1', BudgetPriority.background, 'a');
+        rig.settle();
+        for (var i = 0; i < 3; i++) {
+          async.elapse(const Duration(minutes: 1));
+        }
+        expect(rig.served, ['n0', 'n1', 'a1', 'n2']);
+      });
+    });
+
+    test('one unit a minute is kept for user priority', () {
+      fakeAsync((async) {
+        final rig = _Rig(async, perMinute: 3);
+        rig.take('l0', BudgetPriority.live);
+        for (var i = 0; i < 3; i++) {
+          rig.take('b$i', BudgetPriority.background, 'lane$i');
+        }
+        rig.settle();
+        // Live and background together take at most limit - 1.
+        expect(rig.served, ['l0', 'b0']);
+        // The kept unit is there for a user call at once.
+        rig.take('u0', BudgetPriority.user);
+        rig.settle();
+        expect(rig.served, ['l0', 'b0', 'u0']);
+        // The limit itself still holds for users.
+        rig.take('u1', BudgetPriority.user);
+        rig.settle();
+        expect(rig.served, hasLength(3));
+        async.elapse(const Duration(minutes: 1));
+        expect(rig.served, ['l0', 'b0', 'u0', 'u1', 'b1', 'b2']);
+        expect(async.pendingTimers, isEmpty);
+        // User calls may use the whole limit when nothing else ran.
+        async.elapse(const Duration(minutes: 1));
+        for (var i = 0; i < 4; i++) {
+          rig.take('v$i', BudgetPriority.user);
+        }
+        rig.settle();
+        expect(rig.served.skip(6), ['v0', 'v1', 'v2']);
+      });
+    });
+
+    test('a limit of one keeps no reserve and serves users first', () {
+      fakeAsync((async) {
+        final rig = _Rig(async, perMinute: 1);
+        rig.take('b0');
+        rig.settle();
+        // No reserve: the one unit goes to background work.
+        expect(rig.served, ['b0']);
+        rig.take('b1');
+        rig.take('l1', BudgetPriority.live);
+        rig.take('u1', BudgetPriority.user);
+        rig.settle();
+        for (var i = 0; i < 3; i++) {
+          async.elapse(const Duration(minutes: 1));
+        }
+        expect(rig.served, ['b0', 'u1', 'l1', 'b1']);
+        expect(rig.budget.tryTake(BudgetPriority.background), isFalse);
+        async.elapse(const Duration(minutes: 1));
+        expect(rig.budget.tryTake(BudgetPriority.background), isTrue);
+      });
+    });
+
+    test('live is served before background', () {
+      fakeAsync((async) {
+        final rig = _Rig(async, perMinute: 2);
+        rig.take('b0', BudgetPriority.background, 'a');
+        rig.settle();
+        rig.take('b1', BudgetPriority.background, 'a');
+        rig.take('b2', BudgetPriority.background, 'b');
+        rig.take('l1', BudgetPriority.live, 'a');
+        rig.take('l2', BudgetPriority.live, 'b');
+        rig.settle();
+        expect(rig.served, ['b0']);
+        for (var i = 0; i < 4; i++) {
+          async.elapse(const Duration(minutes: 1));
+        }
+        expect(rig.served, ['b0', 'l1', 'l2', 'b1', 'b2']);
+      });
+    });
+
+    test('tryTake leaves the reserve to user priority', () {
+      fakeAsync((async) {
+        final rig = _Rig(async, perMinute: 3);
+        expect(rig.budget.tryTake(BudgetPriority.background), isTrue);
+        expect(rig.budget.tryTake(BudgetPriority.live), isTrue);
+        // The last unit of the minute is the reserve.
+        expect(rig.budget.tryTake(BudgetPriority.background), isFalse);
+        expect(rig.budget.tryTake(BudgetPriority.live), isFalse);
+        expect(rig.budget.tryTake(BudgetPriority.user), isTrue);
+        expect(rig.budget.tryTake(BudgetPriority.user), isFalse);
+        expect(async.pendingTimers, isEmpty);
+        // A minute later the same again; a user call that used a unit
+        // leaves background work what is left under the limit.
+        async.elapse(const Duration(minutes: 1));
+        expect(rig.budget.tryTake(BudgetPriority.user), isTrue);
+        expect(rig.budget.tryTake(BudgetPriority.user), isTrue);
+        expect(rig.budget.tryTake(BudgetPriority.background), isTrue);
+        expect(rig.budget.tryTake(BudgetPriority.background), isFalse);
+      });
+    });
+
+    test('a pause and a reset release live and laned waiters too', () {
+      fakeAsync((async) {
+        final rig = _Rig(async, perMinute: 1);
+        rig.take('b0');
+        rig.settle();
+        final errors = <Object>[];
+        for (final (p, lane) in [
+          (BudgetPriority.live, 'a'),
+          (BudgetPriority.background, 'a'),
+          (BudgetPriority.background, 'b'),
+        ]) {
+          rig.budget
+              .take(p, lane: lane)
+              .then<void>((_) {}, onError: errors.add);
+        }
+        rig.budget.pauseUntil(rig.now().add(const Duration(minutes: 5)));
+        rig.settle();
+        expect(errors, hasLength(3));
+        expect(errors, everyElement(isA<BudgetPaused>()));
+        async.elapse(const Duration(minutes: 6));
+        rig.take('b1');
+        rig.settle();
+        errors.clear();
+        rig.budget
+            .take(BudgetPriority.live, lane: 'a')
+            .then<void>((_) {}, onError: errors.add);
+        rig.budget
+            .take(BudgetPriority.background, lane: 'b')
+            .then<void>((_) {}, onError: errors.add);
+        rig.budget.reset();
+        rig.settle();
+        expect(errors, hasLength(2));
+        expect(errors, everyElement(isA<StateError>()));
+        expect(async.pendingTimers, isEmpty);
+      });
     });
   });
 }

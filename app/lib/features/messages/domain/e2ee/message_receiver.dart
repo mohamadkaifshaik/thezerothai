@@ -444,7 +444,7 @@ class MessageReceiver implements EpochMessageSink {
       if (pass == null) return;
       final pair = await _currentPair(pass.vault, id);
       if (pair == null || pair.epoch < 1) return;
-      if (!await _takeUnit(_syncBudget, BudgetPriority.user)) return;
+      if (!await _takeUnit(_syncBudget, BudgetPriority.user, id)) return;
       final pb.ListEpochMessagesResponse page;
       try {
         page = await _messaging.listEpochMessages(
@@ -885,12 +885,18 @@ class MessageReceiver implements EpochMessageSink {
     return current;
   }
 
-  /// One unit of [budget] (waiting is allowed: call with no lock held);
+  /// One unit of [budget] for the conversation [lane] (waiting is allowed:
+  /// call with no lock held; background calls are served round-robin by
+  /// conversation, and one unit a minute is left to user priority, §9);
   /// false (make no call) while paused or after a reset.
-  Future<bool> _takeUnit(SyncBudget budget, BudgetPriority priority) async {
+  Future<bool> _takeUnit(
+    SyncBudget budget,
+    BudgetPriority priority,
+    String lane,
+  ) async {
     if (budget.paused) return false;
     try {
-      await budget.take(priority);
+      await budget.take(priority, lane: lane);
       return true;
     } on BudgetPaused {
       return false;

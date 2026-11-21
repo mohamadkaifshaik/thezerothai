@@ -439,7 +439,7 @@ extension _Walks on MessageReceiver {
     if (limited != null) {
       return _Probe(outcome: ReceiveOutcome.held(_retryAt(limited)));
     }
-    if (!await _takeUnit(_readBudget, priority)) {
+    if (!await _takeUnit(_readBudget, priority, id)) {
       return _Probe(outcome: ReceiveOutcome.held(_now().add(kWalkBackoff)));
     }
     final vault = pass.vault;
@@ -901,7 +901,7 @@ extension _Walks on MessageReceiver {
   ) async {
     final context = _contexts.of(id);
     final serial = context.serial;
-    if (!await _takeUnit(_syncBudget, priority)) {
+    if (!await _takeUnit(_syncBudget, priority, id)) {
       return _StepEnd.stop(ReceiveOutcome.held(_now().add(kWalkBackoff)));
     }
     final seq = ++_seq;

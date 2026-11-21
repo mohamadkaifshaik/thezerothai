@@ -62,9 +62,9 @@ class _CountingBudget extends SyncBudget {
   int taken = 0;
 
   @override
-  Future<void> take(BudgetPriority priority) {
+  Future<void> take(BudgetPriority priority, {Object? lane}) {
     taken++;
-    return super.take(priority);
+    return super.take(priority, lane: lane);
   }
 }
 

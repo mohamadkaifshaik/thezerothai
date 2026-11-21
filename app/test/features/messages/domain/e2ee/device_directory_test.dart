@@ -61,9 +61,9 @@ class _CountingBudget extends SyncBudget {
   final List<DateTime> pauses = [];
 
   @override
-  Future<void> take(BudgetPriority priority) {
+  Future<void> take(BudgetPriority priority, {Object? lane}) {
     taken.add(priority);
-    return super.take(priority);
+    return super.take(priority, lane: lane);
   }
 
   @override
@@ -483,7 +483,9 @@ void main() {
       );
       var served = 0;
       for (var i = 0; i < 13; i++) {
-        budget.take(BudgetPriority.background).then((_) => served++);
+        // The limit itself: user calls (step 2b: other calls leave one
+        // unit a minute to them).
+        budget.take(BudgetPriority.user).then((_) => served++);
       }
       async.flushMicrotasks();
       expect(served, 12);
