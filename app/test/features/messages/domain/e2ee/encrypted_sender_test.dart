@@ -7,6 +7,7 @@ import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/core/vault/vault_cipher.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
@@ -1709,6 +1710,87 @@ void main() {
       await Future.wait([user, ...joined]);
       expect(atListing, [BudgetPriority.user, BudgetPriority.live]);
       expect(rig.server.sends, hasLength(1));
+    });
+  });
+
+  group('a failed outbox read (code review I3)', () {
+    /// 'l1' waits at stage plain with no drain running and every gate of
+    /// an encrypt open (so `outgoing` shows what the last drain left).
+    Future<void> waitingRow() async {
+      await rig.receiver.pullLive(_c1);
+      expect(rig.contexts.of(_c1).syncedSinceStart, isTrue);
+      final release = Completer<void>();
+      final held = rig.locks.run(_c1, () => release.future);
+      await rig.sender.enqueue(
+        localId: 'l1',
+        conversationId: _c1,
+        text: 'kept',
+      );
+      rig.removedElsewhere = true;
+      release.complete();
+      await held;
+      await rig.sender.settled(_c1);
+      rig.removedElsewhere = false;
+      expect((await outbox()).single.stage, OutboxStage.plain);
+    }
+
+    test('outgoing throws the vault\'s key exception during a keystore '
+        'outage, and the rows are reported and sent once after it', () async {
+      await setUpJoined();
+      await waitingRow();
+      rig.device.cipher.unavailable = true;
+      await expectLater(
+        rig.sender.outgoing(_c1),
+        throwsA(isA<VaultKeyException>()),
+      );
+      await drain();
+      expect(rig.server.sends, isEmpty);
+      rig.device.cipher.unavailable = false;
+      final out = (await rig.sender.outgoing(_c1)).single;
+      expect(out.localId, 'l1');
+      expect(textOf(out.content), 'kept');
+      expect(out.status, OutgoingStatus5a.waiting);
+      expect(out.waitingOn, SendBlock.unavailable);
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+      expect(await outbox(), isEmpty);
+      expect([for (final m in await stored()) textOf(m.content!)], ['kept']);
+      expect(await rig.sender.outgoing(_c1), isEmpty);
+    });
+
+    test('a drain that dies on a failed read leaves unavailable as the '
+        'reason', () async {
+      await setUpJoined();
+      await waitingRow();
+      // A trigger with every gate open would clear the earlier reason.
+      var reads = 0;
+      rig.device.onOutbox = () async {
+        reads++;
+        throw const VaultKeyException(VaultKeyFailure.unavailable);
+      };
+      await expectLater(
+        rig.sender.outgoing(_c1),
+        throwsA(isA<VaultKeyException>()),
+      );
+      reads = 0;
+      await drain();
+      expect(reads, 1, reason: 'the drain read the outbox and died');
+      rig.device.onOutbox = null;
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.unavailable,
+      );
+      expect(encrypts(), 0);
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('outgoing throws StateError while the vault is not open', () async {
+      await setUpJoined();
+      await waitingRow();
+      rig.device.owner!.steal();
+      await expectLater(rig.sender.outgoing(_c1), throwsStateError);
     });
   });
 }

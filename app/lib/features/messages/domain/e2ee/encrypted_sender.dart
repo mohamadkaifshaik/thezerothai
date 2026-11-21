@@ -322,11 +322,21 @@ class EncryptedSender {
 
   /// The waiting rows of [conversationId], oldest first: `failed` (the
   /// typed error only while this run remembers it), `sending` (stage
-  /// encrypted) or `waiting` with the gate that holds it. Reads only; empty
-  /// when the vault is closed.
+  /// encrypted, or `waiting` while audit M2 holds it) or `waiting` with the
+  /// gate that holds it. Reads only.
+  ///
+  /// An empty list always means "no rows", never a failed read (a ruling:
+  /// a screen that got an empty list during a keystore outage would drop
+  /// its pending bubbles, and the user would send the text twice). A read
+  /// that fails throws instead, and the caller keeps what it shows:
+  /// [StateError] when the vault is not open (or was closed meanwhile),
+  /// [VaultKeyException] when the vault's cipher cannot run, and any other
+  /// exception of the vault's reads as it is. A programming error is
+  /// reported by its step name first. (A single row that no longer opens
+  /// is not listed; the drain stops at it.)
   Future<List<OutgoingRow>> outgoing(String conversationId) async {
     final vault = _session.vault;
-    if (vault == null) return const [];
+    if (vault == null) throw StateError('The vault is not ready.');
     try {
       final rows = (await vault.outbox(conversationId: conversationId)).items;
       if (rows.isEmpty) return const [];
@@ -352,7 +362,7 @@ class EncryptedSender {
       ];
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.outgoing');
-      return const [];
+      rethrow;
     }
   }
 
@@ -424,6 +434,9 @@ class EncryptedSender {
       }
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.drain');
+      // A failed read (a keystore outage) ended the drain: the rows wait,
+      // and `outgoing` says why once it can read again.
+      if (e is! Error) _stop(id, SendBlock.unavailable);
     } finally {
       // With no await after the loop's last check: a trigger that comes
       // now starts a new drain, and none is lost.

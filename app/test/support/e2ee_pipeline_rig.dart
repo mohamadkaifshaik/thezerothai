@@ -1084,14 +1084,16 @@ class _RigVaultSession extends VaultSession {
 }
 
 /// The real vault with one hook: [confirm] replaces the answer of
-/// `confirmStored` (the real answer is passed in). Everything else is the
-/// real vault's, unchanged.
+/// `confirmStored` (the real answer is passed in), and [_beforeOutbox] runs
+/// before every `outbox` read (it may throw). Everything else is the real
+/// vault's, unchanged.
 class _RigVault implements SecureVault {
-  _RigVault(this._inner, this._confirm);
+  _RigVault(this._inner, this._confirm, this._beforeOutbox);
 
   final SecureVault _inner;
   final Future<bool> Function(String key, Future<bool> Function() real)
   _confirm;
+  final Future<void> Function() _beforeOutbox;
 
   @override
   Future<bool> confirmStored(String idempotencyKey) =>
@@ -1147,8 +1149,11 @@ class _RigVault implements SecureVault {
   Future<bool> hasMessage(String conversationId, String messageId) =>
       _inner.hasMessage(conversationId, messageId);
   @override
-  Future<OutboxRead> outbox({String? conversationId}) =>
-      _inner.outbox(conversationId: conversationId);
+  Future<OutboxRead> outbox({String? conversationId}) async {
+    await _beforeOutbox();
+    return _inner.outbox(conversationId: conversationId);
+  }
+
   @override
   Future<Uint8List?> setting(String key) => _inner.setting(key);
   @override
@@ -1215,6 +1220,10 @@ class RigDevice {
   /// The key of every `confirmStored` call, in order.
   final List<String> confirmStoredCalls = [];
 
+  /// Runs before every `outbox` read of the vault; throw to fail that read
+  /// (the vault's own read is not made then). Null: the real read.
+  Future<void> Function()? onOutbox;
+
   Future<bool> _confirmStored(String key, Future<bool> Function() real) {
     confirmStoredCalls.add(key);
     final hook = onConfirmStored;
@@ -1276,6 +1285,7 @@ class RigDevice {
           }) async => _RigVault(
             await openVaultOnDatabase(_db, uid: uid, cipher: cipher),
             _confirmStored,
+            () async => onOutbox?.call(),
           ),
       wipeVaultFile: ({required alias, String? expectedStorage}) async {},
       deleteVaultKey: ({required alias}) async {},
