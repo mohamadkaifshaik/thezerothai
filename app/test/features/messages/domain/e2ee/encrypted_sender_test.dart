@@ -1403,4 +1403,116 @@ void main() {
       expect(await outbox(), isEmpty);
     });
   });
+
+  group('an encrypted row while a member is not attributable (audit M2)', () {
+    /// Bob's pin is stored with [side] (what attribution, or a verdict that
+    /// takes it back, leaves in the vault).
+    Future<void> pinBob(String side) async {
+      final v = rig.device.vault;
+      final m = (await v.members(_c1))
+          .singleWhere((m) => rigEq(m.deviceId, bob.id));
+      await v.transaction(
+        (tx) => tx.putMember(
+          MemberRecord(
+            conversationId: _c1,
+            deviceId: m.deviceId,
+            signatureKey: m.signatureKey,
+            side: side,
+            since: m.since,
+          ),
+        ),
+      );
+    }
+
+    /// 'l1' is encrypted and was never sent (the barrier answered false).
+    Future<OutboxItem> encryptedNeverSent() async {
+      rig.device.onConfirmStored = (_, _) async => false;
+      await send('l1', 'first');
+      rig.device.onConfirmStored = null;
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(rig.server.sends, isEmpty);
+      return row;
+    }
+
+    test('it is not sent while a member is unattributed, nothing is sent '
+        'past it, and it goes out byte for byte once attribution '
+        'returns', () async {
+      await setUpJoined();
+      final row = await encryptedNeverSent();
+      // This device no longer knows whose bob's device is.
+      await pinBob(MemberSide.unattributed);
+      await send('l2', 'second');
+      await drain();
+      await rig.sender.retry('l1');
+      await rig.sender.settled(_c1);
+      expect(rig.server.sends, isEmpty);
+      expect(encrypts(), 1, reason: 'nothing is encrypted past it');
+      var out = await rig.sender.outgoing(_c1);
+      expect(out.map((r) => r.localId), ['l1', 'l2']);
+      expect(out.map((r) => r.status), [
+        OutgoingStatus5a.waiting,
+        OutgoingStatus5a.waiting,
+      ]);
+      // The reason the plain row's gate gives.
+      expect(out.map((r) => r.waitingOn), [
+        SendBlock.notSynced,
+        SendBlock.notSynced,
+      ]);
+      // Never encrypted again for this: the bytes and the key stay.
+      final kept = (await outbox()).first;
+      expect(kept.stage, OutboxStage.encrypted);
+      expect(kept.idempotencyKey, row.idempotencyKey);
+      expect(kept.ciphertext, row.ciphertext);
+
+      await pinBob(MemberSide.theirs);
+      out = await rig.sender.outgoing(_c1);
+      expect(out.first.status, OutgoingStatus5a.sending);
+      await drain();
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[0].key, row.idempotencyKey);
+      expect(rig.server.sends[0].ciphertext, row.ciphertext);
+      expect(rig.server.sends[0].pair, const MlsPair(1, 1));
+      expect(rig.server.sends[1].key, isNot(row.idempotencyKey));
+      expect(encrypts(), 2);
+      expect(await outbox(), isEmpty);
+      expect(
+        {for (final m in await stored()) textOf(m.content!)},
+        {'first', 'second'},
+      );
+    });
+
+    test('it is not sent while attribution is pending, and the drain\'s own '
+        'catch-up lets it go', () async {
+      await setUpJoined();
+      final row = await encryptedNeverSent();
+      // A new member is not attributed yet, and the catch-up that would
+      // conclude it cannot run.
+      rig.contexts.of(_c1).attributionPending = true;
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') throw lost.error;
+      };
+      await drain();
+      expect(rig.server.sends, isEmpty);
+      final out = (await rig.sender.outgoing(_c1)).single;
+      expect(out.status, OutgoingStatus5a.waiting);
+      expect(out.waitingOn, SendBlock.notSynced);
+      rig.server.onCall = null;
+      await drain();
+      expect(rig.contexts.of(_c1).attributionPending, isFalse);
+      expect(rig.server.sends.single.key, row.idempotencyKey);
+      expect(rig.server.sends.single.ciphertext, row.ciphertext);
+      expect(encrypts(), 1);
+      expect(await outbox(), isEmpty);
+    });
+
+    test('epoch must advance does not hold a resend', () async {
+      await setUpJoined();
+      final row = await encryptedNeverSent();
+      await updateSync((s) => s.copyWith(epochMustAdvance: true));
+      await drain();
+      expect(rig.server.sends.single.key, row.idempotencyKey);
+      expect(await outbox(), isEmpty);
+    });
+  });
 }

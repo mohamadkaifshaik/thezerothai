@@ -43,7 +43,12 @@ final Int64 _maxSeconds = Int64(9007199254);
 /// web, persistence before send remains a stated limit. A stage-`encrypted` row
 /// is resent byte for byte under the same key until the server answers; it
 /// goes back to stage `plain` only after a `STALE_EPOCH` whose catch-up
-/// moved this device's pair past the one it was encrypted for.
+/// moved this device's pair past the one it was encrypted for. One
+/// condition holds it (audit M2, a ruling): it is not sent, for the first
+/// time or again, while a member is unattributed (an unknown device is) or
+/// attribution is pending. It is never encrypted again for that: the same
+/// bytes go out once the condition clears, and a server that moved on
+/// answers `STALE_EPOCH` as above. `epochMustAdvance` holds no resend.
 ///
 /// Keys. Every ciphertext goes out under a key made for it at the encrypt
 /// (16 random bytes as 32 hex), never under the key its plain row was
@@ -315,10 +320,17 @@ class EncryptedSender {
       final waitingOn = gate.block != SendBlock.none
           ? gate.block
           : _held[conversationId] ?? SendBlock.none;
+      // Audit M2: an encrypted row held for attribution waits, with the
+      // reason the plain row's gate gives.
+      final owed =
+          rows.any((r) => r.stage == OutboxStage.encrypted) &&
+          await _attributionOwed(vault, conversationId);
       return [
         for (final r in rows)
           if (r.lastError != null)
             _outgoing(r, OutgoingStatus5a.failed, SendBlock.none)
+          else if (r.stage == OutboxStage.encrypted && owed)
+            _outgoing(r, OutgoingStatus5a.waiting, _owedReason(gate.block))
           else if (r.stage == OutboxStage.encrypted)
             _outgoing(r, OutgoingStatus5a.sending, SendBlock.none)
           else
@@ -440,7 +452,15 @@ class EncryptedSender {
         break;
       }
     }
-    if (row.stage == OutboxStage.encrypted) return _send(op, id, row, run);
+    // Audit M2: an encrypted row is held while a member is not attributable
+    // (never encrypted again for it). The sync step below may conclude the
+    // attribution, as for a plain row; then every fact is read again.
+    final owed =
+        row.stage == OutboxStage.encrypted &&
+        await _attributionOwed(op.vault, id);
+    if (row.stage == OutboxStage.encrypted && !owed) {
+      return _send(op, id, row, run);
+    }
 
     // The gates of an encrypt, in order; the accept call is the last one.
     final context = _contexts.of(id);
@@ -457,6 +477,7 @@ class EncryptedSender {
       run.catchUp = await _crypto.catchUpLocked(id, priority: run.priority);
       return _Next.pull;
     }
+    if (owed) return _stop(id, _owedReason(gate.block));
     if (gate.block != SendBlock.none) return _stop(id, gate.block);
     if (gate.needsAccept) {
       // M3: every other gate holds, and this run saw the server say REQUEST
@@ -524,6 +545,16 @@ class EncryptedSender {
     }
     return held(SendBlock.none);
   }
+
+  /// Audit M2 (a controller ruling): whether a member of [id] is not
+  /// attributable now, the part of the encrypt gate that also holds a
+  /// stage-encrypted row: a stored unattributed pin (an unknown device is
+  /// one), or an attribution this run has not concluded. Reads the pins
+  /// fresh; a failed read throws (nothing is sent on a guess).
+  /// `epochMustAdvance` is no part of it.
+  Future<bool> _attributionOwed(SecureVault vault, String id) async =>
+      _contexts.of(id).attributionPending ||
+      (await vault.members(id)).any((m) => m.side == MemberSide.unattributed);
 
   // -------------------------------------------------------------------------
   // Encrypt
@@ -633,6 +664,11 @@ class EncryptedSender {
   Future<_Next> _send(_Op op, String id, OutboxItem row, _Run run) async {
     if (_removedElsewhere()) return _stop(id, SendBlock.unavailable);
     if (!_contexts.of(id).canReply) return _stop(id, SendBlock.cannotMessage);
+    // Audit M2: these bytes are not handed over, for the first time or
+    // again, while a member is not attributable.
+    if (await _attributionOwed(op.vault, id)) {
+      return _stop(id, SendBlock.notSynced);
+    }
     final notBefore = _notBefore[row.localId];
     if (notBefore != null && _now().isBefore(notBefore)) return _stop(id);
     final key = row.idempotencyKey;
@@ -1033,6 +1069,11 @@ int? _serverMicros(pb.Message m) {
   final micros = seconds.toInt() * 1000000 + nanos ~/ 1000;
   return micros > kMaxPairComponent ? null : micros;
 }
+
+/// What `outgoing` says of an encrypted row held for attribution: the plain
+/// row's gate answer [gate] (it is never `none` then; `notSynced` if so).
+SendBlock _owedReason(SendBlock gate) =>
+    gate == SendBlock.none ? SendBlock.notSynced : gate;
 
 String _hexOf(Uint8List b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
