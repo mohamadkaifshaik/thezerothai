@@ -363,7 +363,7 @@ abstract final class MessagingService {
   /// Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
   /// NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
   /// conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
-  /// instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+  /// instance, shared with ListEpochMessages, ListMessageTombstones, ListWelcomes and AckWelcomes.
   /// Cost: one read-only transaction: 1 conversation read + 1 query of at most page_size (max 50) commit records.
   /// Writes nothing.
   static const listConversationCommits = connect.Spec(
@@ -374,12 +374,14 @@ abstract final class MessagingService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
-  /// Every message of one (generation, epoch) of an encrypted conversation, in message id order (not time order),
-  /// paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later generation exists after a
-  /// reset; ListConversationCommits) no message can join it, so the full list is complete: a device calls this before
-  /// applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS deletes the epoch's
-  /// keys on commit). It is a completeness set, not a decryption order: collect every page, then decrypt in created_at
-  /// order, then by id (file comment, "Processing order"). Skip ids already processed.
+  /// Every message of one (generation, epoch) of an encrypted conversation, in message id order unless
+  /// order = CREATED_AT, which lists oldest first and adds a resume token; completeness still needs a listing begun
+  /// after the epoch closed. Paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later
+  /// generation exists after a reset; ListConversationCommits) no message can join it, so the full list is complete: a
+  /// device calls this before applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS
+  /// deletes the epoch's keys on commit). In message id order it is a completeness set, not a decryption order: collect
+  /// every page, then decrypt in created_at order, then by id (file comment, "Processing order"). Skip ids already
+  /// processed.
   /// Messages at or before the caller's own DeleteConversation time (cleared_at in the response) ARE returned, unlike
   /// ListMessages, for completeness counting only: the client does not show or store them (it may decrypt and discard
   /// them; skipping their decryption would spend the forward limit). The tombstone rules are the same (DELETED_ACCOUNT
@@ -443,5 +445,25 @@ abstract final class MessagingService {
     connect.StreamType.unary,
     dzerothmessagingv1messaging.AckWelcomesRequest.new,
     dzerothmessagingv1messaging.AckWelcomesResponse.new,
+  );
+
+  /// The tombstones of one conversation: every message whose state is REMOVED or DELETED_ACCOUNT, as ids and states
+  /// only (never when or why it was removed, never a sender), in ascending message id, so a device that keeps
+  /// decrypted copies clears them after a retired since token in O(tombstones). Messages at or before the caller's
+  /// cleared_at are included.
+  /// Flag: "messaging" not globally off AND "e2ee_dm" not globally off (FEATURE_DISABLED with feature = the flag
+  /// name, before any read). Validation: conversation_id (32 lower-case hex); page_size 0 or negative => 50, max 100
+  /// (clamped); page_token: sealed, bound to the caller and the conversation, 30 days; an expired, foreign or tampered
+  /// token => VALIDATION "page_token". Participant check and the one NOT_FOUND as ListEpochMessages (the 60 s
+  /// instance copy). Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
+  /// next_page_token "" => no more tombstones as of now.
+  /// Cost: at most 1 conversation read (cache-first) + 2 queries of at most page_size documents each (max 200
+  /// reads). Writes nothing.
+  static const listMessageTombstones = connect.Spec(
+    '/$name/ListMessageTombstones',
+    connect.StreamType.unary,
+    dzerothmessagingv1messaging.ListMessageTombstonesRequest.new,
+    dzerothmessagingv1messaging.ListMessageTombstonesResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
   );
 }

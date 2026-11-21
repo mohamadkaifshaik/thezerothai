@@ -27,6 +27,9 @@ var (
 	ErrNotFound = errors.New("messaging: not found")
 	// ErrEncryptionRequired is a plaintext send into an end-to-end encrypted (MLS) conversation.
 	ErrEncryptionRequired = errors.New("messaging: conversation is end-to-end encrypted")
+	// ErrOrderIndex is Firestore's FAILED_PRECONDITION on the created_at-ordered epoch query: the composite index
+	// messages (mlsKey ASC, createdAt ASC) is missing or not READY. ListEpochMessages answers it fail-closed.
+	ErrOrderIndex = errors.New("messaging: the epoch order index is not ready")
 )
 
 // errNeedsInit is an encrypted send without mls_init into a plaintext conversation or one that does not exist yet: the

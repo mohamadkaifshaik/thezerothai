@@ -119,6 +119,20 @@ final $typed_data.Uint8List messageSuggestionReasonDescriptor = $convert.base64D
     '1FU1NBR0VfU1VHR0VTVElPTl9SRUFTT05fTVVUVUFMX0ZPTExPVxADEi4KKk1FU1NBR0VfU1VH'
     'R0VTVElPTl9SRUFTT05fQ09NTVVOSVRZX01FTUJFUhAE');
 
+@$core.Deprecated('Use epochMessageOrderDescriptor instead')
+const EpochMessageOrder$json = {
+  '1': 'EpochMessageOrder',
+  '2': [
+    {'1': 'EPOCH_MESSAGE_ORDER_UNSPECIFIED', '2': 0},
+    {'1': 'EPOCH_MESSAGE_ORDER_CREATED_AT', '2': 1},
+  ],
+};
+
+/// Descriptor for `EpochMessageOrder`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List epochMessageOrderDescriptor = $convert.base64Decode(
+    'ChFFcG9jaE1lc3NhZ2VPcmRlchIjCh9FUE9DSF9NRVNTQUdFX09SREVSX1VOU1BFQ0lGSUVEEA'
+    'ASIgoeRVBPQ0hfTUVTU0FHRV9PUkRFUl9DUkVBVEVEX0FUEAE=');
+
 @$core.Deprecated('Use conversationDescriptor instead')
 const Conversation$json = {
   '1': 'Conversation',
@@ -838,6 +852,14 @@ const ListEpochMessagesRequest$json = {
     {'1': 'mls_epoch', '3': 3, '4': 1, '5': 4, '10': 'mlsEpoch'},
     {'1': 'page_size', '3': 4, '4': 1, '5': 5, '10': 'pageSize'},
     {'1': 'page_token', '3': 5, '4': 1, '5': 9, '10': 'pageToken'},
+    {
+      '1': 'order',
+      '3': 6,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.messaging.v1.EpochMessageOrder',
+      '10': 'order'
+    },
   ],
 };
 
@@ -846,7 +868,8 @@ final $typed_data.Uint8List listEpochMessagesRequestDescriptor = $convert.base64
     'ChhMaXN0RXBvY2hNZXNzYWdlc1JlcXVlc3QSJwoPY29udmVyc2F0aW9uX2lkGAEgASgJUg5jb2'
     '52ZXJzYXRpb25JZBIlCg5tbHNfZ2VuZXJhdGlvbhgCIAEoBFINbWxzR2VuZXJhdGlvbhIbCglt'
     'bHNfZXBvY2gYAyABKARSCG1sc0Vwb2NoEhsKCXBhZ2Vfc2l6ZRgEIAEoBVIIcGFnZVNpemUSHQ'
-    'oKcGFnZV90b2tlbhgFIAEoCVIJcGFnZVRva2Vu');
+    'oKcGFnZV90b2tlbhgFIAEoCVIJcGFnZVRva2VuEj0KBW9yZGVyGAYgASgOMicuZHplcm90aC5t'
+    'ZXNzYWdpbmcudjEuRXBvY2hNZXNzYWdlT3JkZXJSBW9yZGVy');
 
 @$core.Deprecated('Use listEpochMessagesResponseDescriptor instead')
 const ListEpochMessagesResponse$json = {
@@ -869,6 +892,16 @@ const ListEpochMessagesResponse$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'clearedAt'
     },
+    {
+      '1': 'order',
+      '3': 4,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.messaging.v1.EpochMessageOrder',
+      '10': 'order'
+    },
+    {'1': 'resume_page_token', '3': 5, '4': 1, '5': 9, '10': 'resumePageToken'},
+    {'1': 'resume_settled', '3': 6, '4': 1, '5': 8, '10': 'resumeSettled'},
   ],
 };
 
@@ -877,7 +910,70 @@ final $typed_data.Uint8List listEpochMessagesResponseDescriptor = $convert.base6
     'ChlMaXN0RXBvY2hNZXNzYWdlc1Jlc3BvbnNlEjkKCG1lc3NhZ2VzGAEgAygLMh0uZHplcm90aC'
     '5tZXNzYWdpbmcudjEuTWVzc2FnZVIIbWVzc2FnZXMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJ'
     'Ug1uZXh0UGFnZVRva2VuEjkKCmNsZWFyZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVG'
-    'ltZXN0YW1wUgljbGVhcmVkQXQ=');
+    'ltZXN0YW1wUgljbGVhcmVkQXQSPQoFb3JkZXIYBCABKA4yJy5kemVyb3RoLm1lc3NhZ2luZy52'
+    'MS5FcG9jaE1lc3NhZ2VPcmRlclIFb3JkZXISKgoRcmVzdW1lX3BhZ2VfdG9rZW4YBSABKAlSD3'
+    'Jlc3VtZVBhZ2VUb2tlbhIlCg5yZXN1bWVfc2V0dGxlZBgGIAEoCFINcmVzdW1lU2V0dGxlZA==');
+
+@$core.Deprecated('Use listMessageTombstonesRequestDescriptor instead')
+const ListMessageTombstonesRequest$json = {
+  '1': 'ListMessageTombstonesRequest',
+  '2': [
+    {'1': 'conversation_id', '3': 1, '4': 1, '5': 9, '10': 'conversationId'},
+    {'1': 'page_size', '3': 2, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 3, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `ListMessageTombstonesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listMessageTombstonesRequestDescriptor =
+    $convert.base64Decode(
+        'ChxMaXN0TWVzc2FnZVRvbWJzdG9uZXNSZXF1ZXN0EicKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCV'
+        'IOY29udmVyc2F0aW9uSWQSGwoJcGFnZV9zaXplGAIgASgFUghwYWdlU2l6ZRIdCgpwYWdlX3Rv'
+        'a2VuGAMgASgJUglwYWdlVG9rZW4=');
+
+@$core.Deprecated('Use messageTombstoneDescriptor instead')
+const MessageTombstone$json = {
+  '1': 'MessageTombstone',
+  '2': [
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+    {
+      '1': 'state',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.messaging.v1.MessageState',
+      '10': 'state'
+    },
+  ],
+};
+
+/// Descriptor for `MessageTombstone`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List messageTombstoneDescriptor = $convert.base64Decode(
+    'ChBNZXNzYWdlVG9tYnN0b25lEg4KAmlkGAEgASgJUgJpZBI4CgVzdGF0ZRgCIAEoDjIiLmR6ZX'
+    'JvdGgubWVzc2FnaW5nLnYxLk1lc3NhZ2VTdGF0ZVIFc3RhdGU=');
+
+@$core.Deprecated('Use listMessageTombstonesResponseDescriptor instead')
+const ListMessageTombstonesResponse$json = {
+  '1': 'ListMessageTombstonesResponse',
+  '2': [
+    {
+      '1': 'tombstones',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.messaging.v1.MessageTombstone',
+      '10': 'tombstones'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `ListMessageTombstonesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listMessageTombstonesResponseDescriptor =
+    $convert.base64Decode(
+        'Ch1MaXN0TWVzc2FnZVRvbWJzdG9uZXNSZXNwb25zZRJGCgp0b21ic3RvbmVzGAEgAygLMiYuZH'
+        'plcm90aC5tZXNzYWdpbmcudjEuTWVzc2FnZVRvbWJzdG9uZVIKdG9tYnN0b25lcxImCg9uZXh0'
+        'X3BhZ2VfdG9rZW4YAiABKAlSDW5leHRQYWdlVG9rZW4=');
 
 @$core.Deprecated('Use welcomeDescriptor instead')
 const Welcome$json = {
@@ -1040,6 +1136,12 @@ const $core.Map<$core.String, $core.dynamic> MessagingServiceBase$json = {
       '2': '.dzeroth.messaging.v1.AckWelcomesRequest',
       '3': '.dzeroth.messaging.v1.AckWelcomesResponse'
     },
+    {
+      '1': 'ListMessageTombstones',
+      '2': '.dzeroth.messaging.v1.ListMessageTombstonesRequest',
+      '3': '.dzeroth.messaging.v1.ListMessageTombstonesResponse',
+      '4': {'34': 1},
+    },
   ],
 };
 
@@ -1102,6 +1204,11 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.messaging.v1.Welcome': Welcome$json,
   '.dzeroth.messaging.v1.AckWelcomesRequest': AckWelcomesRequest$json,
   '.dzeroth.messaging.v1.AckWelcomesResponse': AckWelcomesResponse$json,
+  '.dzeroth.messaging.v1.ListMessageTombstonesRequest':
+      ListMessageTombstonesRequest$json,
+  '.dzeroth.messaging.v1.ListMessageTombstonesResponse':
+      ListMessageTombstonesResponse$json,
+  '.dzeroth.messaging.v1.MessageTombstone': MessageTombstone$json,
 };
 
 /// Descriptor for `MessagingService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -1134,4 +1241,6 @@ final $typed_data.Uint8List messagingServiceDescriptor = $convert.base64Decode(
     'RoLm1lc3NhZ2luZy52MS5MaXN0V2VsY29tZXNSZXF1ZXN0GiouZHplcm90aC5tZXNzYWdpbmcu'
     'djEuTGlzdFdlbGNvbWVzUmVzcG9uc2UiA5ACARJiCgtBY2tXZWxjb21lcxIoLmR6ZXJvdGgubW'
     'Vzc2FnaW5nLnYxLkFja1dlbGNvbWVzUmVxdWVzdBopLmR6ZXJvdGgubWVzc2FnaW5nLnYxLkFj'
-    'a1dlbGNvbWVzUmVzcG9uc2U=');
+    'a1dlbGNvbWVzUmVzcG9uc2UShQEKFUxpc3RNZXNzYWdlVG9tYnN0b25lcxIyLmR6ZXJvdGgubW'
+    'Vzc2FnaW5nLnYxLkxpc3RNZXNzYWdlVG9tYnN0b25lc1JlcXVlc3QaMy5kemVyb3RoLm1lc3Nh'
+    'Z2luZy52MS5MaXN0TWVzc2FnZVRvbWJzdG9uZXNSZXNwb25zZSIDkAIB');

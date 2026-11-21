@@ -52,6 +52,14 @@ type Repo interface {
 	// ListEpochMessages reads one page of conversations/{id}/messages where mlsKey == key, in document-id order, after
 	// afterID ("" = from the start), at most limit rows.
 	ListEpochMessages(ctx context.Context, convID, key, afterID string, limit int) ([]MessageRow, error)
+	// ListEpochMessagesByTime reads one page of conversations/{id}/messages where mlsKey == key, by createdAt then
+	// document id (both ascending), after the position "after" (zero = from the start; an empty DocID = at that time,
+	// inclusive), at most limit rows. Without the composite index (Firestore FAILED_PRECONDITION) it answers an error
+	// wrapping ErrOrderIndex.
+	ListEpochMessagesByTime(ctx context.Context, convID, key string, after cursor.Cursor, limit int) ([]MessageRow, error)
+	// ListTombstones reads the messages of conversations/{id}/messages whose state is REMOVED or DELETED_ACCOUNT, by
+	// document id after afterID ("" = from the start), state only, at most limit rows; more is true when more may exist.
+	ListTombstones(ctx context.Context, convID, afterID string, limit int) (rows []TombstoneRow, more bool, err error)
 	// ListWelcomes reads one page of users/{uid}/dmWelcomes where deviceId == deviceID, in document-id order, at most limit.
 	ListWelcomes(ctx context.Context, uid, deviceID string, limit int) ([]WelcomeRow, error)
 	// AckWelcomes deletes users/{uid}/dmWelcomes/{id} for each id (a missing document is a no-op), in one batch.
@@ -161,6 +169,12 @@ type DeleteResult struct {
 type MessageRow struct {
 	ID string
 	MsgDoc
+}
+
+// TombstoneRow is one REMOVED or DELETED_ACCOUNT message of ListTombstones: its id and stored state, nothing else.
+type TombstoneRow struct {
+	ID    string
+	State string
 }
 
 // MessageQuery is one page of ListMessages: `createdAt DESC, __name__ DESC`, Limit rows. Before resumes below a position

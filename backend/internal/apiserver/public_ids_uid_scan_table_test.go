@@ -544,6 +544,10 @@ func uidScanCaseTable() map[string]uidScanCase {
 		messagingv1connect.MessagingServiceListEpochMessagesProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
 			return &messagingv1.ListEpochMessagesRequest{ConversationId: w.ConvA, MlsGeneration: 1, MlsEpoch: 1, PageSize: 20}
 		}},
+		// Ids and states only; the seeded plaintext conversation has no tombstones, so the answer is an empty page.
+		messagingv1connect.MessagingServiceListMessageTombstonesProcedure: {Phase: uidScanRead, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+			return &messagingv1.ListMessageTombstonesRequest{ConversationId: w.ConvA, PageSize: 20}
+		}},
 		messagingv1connect.MessagingServiceListWelcomesProcedure: {Phase: uidScanRead, Want: "error",
 			Why: "the scanner registers its key device in the write phase (KeyService.RegisterKeyDevice), so in the read phase " +
 				"uidScanKeyDevice is not one of its devices: VALIDATION device_id; AckWelcomes (write phase, after the registration) is the success path",
