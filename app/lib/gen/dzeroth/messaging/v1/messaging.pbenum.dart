@@ -203,5 +203,30 @@ class MessageSuggestionReason extends $pb.ProtobufEnum {
   const MessageSuggestionReason._(super.value, super.name);
 }
 
+/// Order of a ListEpochMessages listing.
+class EpochMessageOrder extends $pb.ProtobufEnum {
+  /// Message-id order (not time order): the original behaviour, a completeness set only.
+  static const EpochMessageOrder EPOCH_MESSAGE_ORDER_UNSPECIFIED =
+      EpochMessageOrder._(
+          0, _omitEnumNames ? '' : 'EPOCH_MESSAGE_ORDER_UNSPECIFIED');
+
+  /// created_at ascending, then message id ascending: oldest first (the reverse of ListMessages), resumable.
+  static const EpochMessageOrder EPOCH_MESSAGE_ORDER_CREATED_AT =
+      EpochMessageOrder._(
+          1, _omitEnumNames ? '' : 'EPOCH_MESSAGE_ORDER_CREATED_AT');
+
+  static const $core.List<EpochMessageOrder> values = <EpochMessageOrder>[
+    EPOCH_MESSAGE_ORDER_UNSPECIFIED,
+    EPOCH_MESSAGE_ORDER_CREATED_AT,
+  ];
+
+  static final $core.List<EpochMessageOrder?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 1);
+  static EpochMessageOrder? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const EpochMessageOrder._(super.value, super.name);
+}
+
 const $core.bool _omitEnumNames =
     $core.bool.fromEnvironment('protobuf.omit_enum_names');

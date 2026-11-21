@@ -47,6 +47,8 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $4.ListWelcomesRequest request);
   $async.Future<$4.AckWelcomesResponse> ackWelcomes(
       $pb.ServerContext ctx, $4.AckWelcomesRequest request);
+  $async.Future<$4.ListMessageTombstonesResponse> listMessageTombstones(
+      $pb.ServerContext ctx, $4.ListMessageTombstonesRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -76,6 +78,8 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
         return $4.ListWelcomesRequest();
       case 'AckWelcomes':
         return $4.AckWelcomesRequest();
+      case 'ListMessageTombstones':
+        return $4.ListMessageTombstonesRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -114,6 +118,9 @@ abstract class MessagingServiceBase extends $pb.GeneratedService {
         return listWelcomes(ctx, request as $4.ListWelcomesRequest);
       case 'AckWelcomes':
         return ackWelcomes(ctx, request as $4.AckWelcomesRequest);
+      case 'ListMessageTombstones':
+        return listMessageTombstones(
+            ctx, request as $4.ListMessageTombstonesRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

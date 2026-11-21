@@ -817,7 +817,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// Messaging: SendMessage, AcceptMessageRequest and CommitConversation behind FEATURE_MESSAGING per caller (Send and Accept
 	// also per recipient); the lists, MarkConversationRead, DeleteConversation and the MLS sync RPCs (ListConversationCommits,
-	// ListEpochMessages, ListWelcomes, AckWelcomes) need it not globally off. Badge evicts identity's cached
+	// ListEpochMessages, ListMessageTombstones, ListWelcomes, AckWelcomes) need it not globally off (ListMessageTombstones and
+	// the ordered ListEpochMessages also need e2ee_dm not globally off). Badge evicts identity's cached
 	// unread_conversation_count; the push event is adapted to notifications.Emitter (a no-op until it ships adds the type).
 	// F30: the plan and community sources of ListMessageSuggestions are bound once beacons and communities exist (below).
 	suggestPlans, suggestCommunities := &latePlanMates{}, &lateCommunityMates{}

@@ -29,7 +29,8 @@
 //   - ListConversations, ListMessages, MarkConversationRead and DeleteConversation need it only NOT GLOBALLY OFF, so a
 //     user dropped from an allowlist can still read and clean up (ReportContent of a MESSAGE target likewise).
 //   - CommitConversation needs it on for the caller only (the peer's flag is not checked). ListConversationCommits,
-//     ListEpochMessages, ListWelcomes and AckWelcomes need it only not globally off.
+//     ListEpochMessages, ListWelcomes and AckWelcomes need it only not globally off. ListMessageTombstones and
+//     ListEpochMessages with order = CREATED_AT also need "e2ee_dm" not globally off (checked after "messaging").
 //   - Globally off: every RPC is FEATURE_DISABLED before any lookup; clients hide the destination, its routes and the
 //     profile Message button. Clients learn the flag from IdentityService.GetMe enabled_features.
 //   - ListMessageSuggestions needs it on for the caller AND FEATURE_DM_SUGGESTIONS (wire name "dm_suggestions", default
@@ -108,7 +109,9 @@
 //     SendMessage: it must be on for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
 //     "e2ee_dm", before any lookup) AND for the recipient (else the byte-identical CANNOT_MESSAGE). Every other operation
 //     on an encrypted conversation (sends, CommitConversation, ListConversationCommits, ListEpochMessages,
-//     ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC, so a participant dropped
+//     ListWelcomes, AckWelcomes, reports) needs only the "messaging" flag class of its RPC (the two newer surfaces,
+//     ListMessageTombstones and ListEpochMessages with order = CREATED_AT, also need e2ee_dm not globally off, never
+//     per caller), so a participant dropped
 //     from the e2ee_dm allowlist keeps reading and sending in an already encrypted conversation with the devices that
 //     are already members. The limits of that, from the key directory (keys.v1): (a) their devices stay visible in
 //     GetKeyDevices to a peer who shares an accepted encrypted conversation (keys.v1), but cannot be claimed for (a target with
@@ -147,8 +150,10 @@
 //   - Processing order on a device: all messages of its current epoch, then that epoch's commit, then the next epoch.
 //     MLS deletes an epoch's keys when its commit is applied, so before applying the commit that ends an epoch a device
 //     calls ListEpochMessages for that epoch: once the epoch is closed, that list is complete, which is how the device
-//     proves it holds every message of the epoch. ListEpochMessages is a completeness set, not a decryption order: the
-//     device collects every page, then decrypts in created_at order, then by id. Messages of different senders may be
+//     proves it holds every message of the epoch. ListEpochMessages lists in message id order unless
+//     order = CREATED_AT, which lists oldest first and adds a resume token; completeness still needs a listing begun
+//     after the epoch closed. In message id order it is a completeness set, not a decryption order: the device collects
+//     every page, then decrypts in created_at order, then by id. Messages of different senders may be
 //     decrypted in any order; one sender's messages may be decrypted at most 50 out of their sending order (the client
 //     core's out-of-order tolerance, which covers created_at being stamped per server instance). created_at is the
 //     display order. Messages from epochs before a device joined are skipped, not shown as failures. A device that
@@ -299,6 +304,9 @@ const (
 	// MessagingServiceAckWelcomesProcedure is the fully-qualified name of the MessagingService's
 	// AckWelcomes RPC.
 	MessagingServiceAckWelcomesProcedure = "/dzeroth.messaging.v1.MessagingService/AckWelcomes"
+	// MessagingServiceListMessageTombstonesProcedure is the fully-qualified name of the
+	// MessagingService's ListMessageTombstones RPC.
+	MessagingServiceListMessageTombstonesProcedure = "/dzeroth.messaging.v1.MessagingService/ListMessageTombstones"
 )
 
 // MessagingServiceClient is a client for the dzeroth.messaging.v1.MessagingService service.
@@ -601,16 +609,18 @@ type MessagingServiceClient interface {
 	// Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
 	// NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
 	// conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
-	// instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+	// instance, shared with ListEpochMessages, ListMessageTombstones, ListWelcomes and AckWelcomes.
 	// Cost: one read-only transaction: 1 conversation read + 1 query of at most page_size (max 50) commit records.
 	// Writes nothing.
 	ListConversationCommits(context.Context, *connect.Request[v1.ListConversationCommitsRequest]) (*connect.Response[v1.ListConversationCommitsResponse], error)
-	// Every message of one (generation, epoch) of an encrypted conversation, in message id order (not time order),
-	// paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later generation exists after a
-	// reset; ListConversationCommits) no message can join it, so the full list is complete: a device calls this before
-	// applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS deletes the epoch's
-	// keys on commit). It is a completeness set, not a decryption order: collect every page, then decrypt in created_at
-	// order, then by id (file comment, "Processing order"). Skip ids already processed.
+	// Every message of one (generation, epoch) of an encrypted conversation, in message id order unless
+	// order = CREATED_AT, which lists oldest first and adds a resume token; completeness still needs a listing begun
+	// after the epoch closed. Paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later
+	// generation exists after a reset; ListConversationCommits) no message can join it, so the full list is complete: a
+	// device calls this before applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS
+	// deletes the epoch's keys on commit). In message id order it is a completeness set, not a decryption order: collect
+	// every page, then decrypt in created_at order, then by id (file comment, "Processing order"). Skip ids already
+	// processed.
 	// Messages at or before the caller's own DeleteConversation time (cleared_at in the response) ARE returned, unlike
 	// ListMessages, for completeness counting only: the client does not show or store them (it may decrypt and discard
 	// them; skipping their decryption would spend the forward limit). The tombstone rules are the same (DELETED_ACCOUNT
@@ -656,6 +666,19 @@ type MessagingServiceClient interface {
 	// RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
 	// Cost: the device check (1 query of at most 5 device documents) + at most 50 deletes, no other read.
 	AckWelcomes(context.Context, *connect.Request[v1.AckWelcomesRequest]) (*connect.Response[v1.AckWelcomesResponse], error)
+	// The tombstones of one conversation: every message whose state is REMOVED or DELETED_ACCOUNT, as ids and states
+	// only (never when or why it was removed, never a sender), in ascending message id, so a device that keeps
+	// decrypted copies clears them after a retired since token in O(tombstones). Messages at or before the caller's
+	// cleared_at are included.
+	// Flag: "messaging" not globally off AND "e2ee_dm" not globally off (FEATURE_DISABLED with feature = the flag
+	// name, before any read). Validation: conversation_id (32 lower-case hex); page_size 0 or negative => 50, max 100
+	// (clamped); page_token: sealed, bound to the caller and the conversation, 30 days; an expired, foreign or tampered
+	// token => VALIDATION "page_token". Participant check and the one NOT_FOUND as ListEpochMessages (the 60 s
+	// instance copy). Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
+	// next_page_token "" => no more tombstones as of now.
+	// Cost: at most 1 conversation read (cache-first) + 2 queries of at most page_size documents each (max 200
+	// reads). Writes nothing.
+	ListMessageTombstones(context.Context, *connect.Request[v1.ListMessageTombstonesRequest]) (*connect.Response[v1.ListMessageTombstonesResponse], error)
 }
 
 // NewMessagingServiceClient constructs a client for the dzeroth.messaging.v1.MessagingService
@@ -754,6 +777,13 @@ func NewMessagingServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(messagingServiceMethods.ByName("AckWelcomes")),
 			connect.WithClientOptions(opts...),
 		),
+		listMessageTombstones: connect.NewClient[v1.ListMessageTombstonesRequest, v1.ListMessageTombstonesResponse](
+			httpClient,
+			baseURL+MessagingServiceListMessageTombstonesProcedure,
+			connect.WithSchema(messagingServiceMethods.ByName("ListMessageTombstones")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -772,6 +802,7 @@ type messagingServiceClient struct {
 	listEpochMessages       *connect.Client[v1.ListEpochMessagesRequest, v1.ListEpochMessagesResponse]
 	listWelcomes            *connect.Client[v1.ListWelcomesRequest, v1.ListWelcomesResponse]
 	ackWelcomes             *connect.Client[v1.AckWelcomesRequest, v1.AckWelcomesResponse]
+	listMessageTombstones   *connect.Client[v1.ListMessageTombstonesRequest, v1.ListMessageTombstonesResponse]
 }
 
 // SendMessage calls dzeroth.messaging.v1.MessagingService.SendMessage.
@@ -837,6 +868,11 @@ func (c *messagingServiceClient) ListWelcomes(ctx context.Context, req *connect.
 // AckWelcomes calls dzeroth.messaging.v1.MessagingService.AckWelcomes.
 func (c *messagingServiceClient) AckWelcomes(ctx context.Context, req *connect.Request[v1.AckWelcomesRequest]) (*connect.Response[v1.AckWelcomesResponse], error) {
 	return c.ackWelcomes.CallUnary(ctx, req)
+}
+
+// ListMessageTombstones calls dzeroth.messaging.v1.MessagingService.ListMessageTombstones.
+func (c *messagingServiceClient) ListMessageTombstones(ctx context.Context, req *connect.Request[v1.ListMessageTombstonesRequest]) (*connect.Response[v1.ListMessageTombstonesResponse], error) {
+	return c.listMessageTombstones.CallUnary(ctx, req)
 }
 
 // MessagingServiceHandler is an implementation of the dzeroth.messaging.v1.MessagingService
@@ -1140,16 +1176,18 @@ type MessagingServiceHandler interface {
 	// Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
 	// NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
 	// conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
-	// instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+	// instance, shared with ListEpochMessages, ListMessageTombstones, ListWelcomes and AckWelcomes.
 	// Cost: one read-only transaction: 1 conversation read + 1 query of at most page_size (max 50) commit records.
 	// Writes nothing.
 	ListConversationCommits(context.Context, *connect.Request[v1.ListConversationCommitsRequest]) (*connect.Response[v1.ListConversationCommitsResponse], error)
-	// Every message of one (generation, epoch) of an encrypted conversation, in message id order (not time order),
-	// paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later generation exists after a
-	// reset; ListConversationCommits) no message can join it, so the full list is complete: a device calls this before
-	// applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS deletes the epoch's
-	// keys on commit). It is a completeness set, not a decryption order: collect every page, then decrypt in created_at
-	// order, then by id (file comment, "Processing order"). Skip ids already processed.
+	// Every message of one (generation, epoch) of an encrypted conversation, in message id order unless
+	// order = CREATED_AT, which lists oldest first and adds a resume token; completeness still needs a listing begun
+	// after the epoch closed. Paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later
+	// generation exists after a reset; ListConversationCommits) no message can join it, so the full list is complete: a
+	// device calls this before applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS
+	// deletes the epoch's keys on commit). In message id order it is a completeness set, not a decryption order: collect
+	// every page, then decrypt in created_at order, then by id (file comment, "Processing order"). Skip ids already
+	// processed.
 	// Messages at or before the caller's own DeleteConversation time (cleared_at in the response) ARE returned, unlike
 	// ListMessages, for completeness counting only: the client does not show or store them (it may decrypt and discard
 	// them; skipping their decryption would spend the forward limit). The tombstone rules are the same (DELETED_ACCOUNT
@@ -1195,6 +1233,19 @@ type MessagingServiceHandler interface {
 	// RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
 	// Cost: the device check (1 query of at most 5 device documents) + at most 50 deletes, no other read.
 	AckWelcomes(context.Context, *connect.Request[v1.AckWelcomesRequest]) (*connect.Response[v1.AckWelcomesResponse], error)
+	// The tombstones of one conversation: every message whose state is REMOVED or DELETED_ACCOUNT, as ids and states
+	// only (never when or why it was removed, never a sender), in ascending message id, so a device that keeps
+	// decrypted copies clears them after a retired since token in O(tombstones). Messages at or before the caller's
+	// cleared_at are included.
+	// Flag: "messaging" not globally off AND "e2ee_dm" not globally off (FEATURE_DISABLED with feature = the flag
+	// name, before any read). Validation: conversation_id (32 lower-case hex); page_size 0 or negative => 50, max 100
+	// (clamped); page_token: sealed, bound to the caller and the conversation, 30 days; an expired, foreign or tampered
+	// token => VALIDATION "page_token". Participant check and the one NOT_FOUND as ListEpochMessages (the 60 s
+	// instance copy). Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
+	// next_page_token "" => no more tombstones as of now.
+	// Cost: at most 1 conversation read (cache-first) + 2 queries of at most page_size documents each (max 200
+	// reads). Writes nothing.
+	ListMessageTombstones(context.Context, *connect.Request[v1.ListMessageTombstonesRequest]) (*connect.Response[v1.ListMessageTombstonesResponse], error)
 }
 
 // NewMessagingServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1289,6 +1340,13 @@ func NewMessagingServiceHandler(svc MessagingServiceHandler, opts ...connect.Han
 		connect.WithSchema(messagingServiceMethods.ByName("AckWelcomes")),
 		connect.WithHandlerOptions(opts...),
 	)
+	messagingServiceListMessageTombstonesHandler := connect.NewUnaryHandler(
+		MessagingServiceListMessageTombstonesProcedure,
+		svc.ListMessageTombstones,
+		connect.WithSchema(messagingServiceMethods.ByName("ListMessageTombstones")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.messaging.v1.MessagingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MessagingServiceSendMessageProcedure:
@@ -1317,6 +1375,8 @@ func NewMessagingServiceHandler(svc MessagingServiceHandler, opts ...connect.Han
 			messagingServiceListWelcomesHandler.ServeHTTP(w, r)
 		case MessagingServiceAckWelcomesProcedure:
 			messagingServiceAckWelcomesHandler.ServeHTTP(w, r)
+		case MessagingServiceListMessageTombstonesProcedure:
+			messagingServiceListMessageTombstonesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1376,4 +1436,8 @@ func (UnimplementedMessagingServiceHandler) ListWelcomes(context.Context, *conne
 
 func (UnimplementedMessagingServiceHandler) AckWelcomes(context.Context, *connect.Request[v1.AckWelcomesRequest]) (*connect.Response[v1.AckWelcomesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.messaging.v1.MessagingService.AckWelcomes is not implemented"))
+}
+
+func (UnimplementedMessagingServiceHandler) ListMessageTombstones(context.Context, *connect.Request[v1.ListMessageTombstonesRequest]) (*connect.Response[v1.ListMessageTombstonesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.messaging.v1.MessagingService.ListMessageTombstones is not implemented"))
 }

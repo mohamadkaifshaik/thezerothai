@@ -2828,6 +2828,7 @@ class ListEpochMessagesRequest extends $pb.GeneratedMessage {
     $fixnum.Int64? mlsEpoch,
     $core.int? pageSize,
     $core.String? pageToken,
+    EpochMessageOrder? order,
   }) {
     final result = ListEpochMessagesRequest._();
     if (conversationId != null) result.conversationId = conversationId;
@@ -2835,6 +2836,7 @@ class ListEpochMessagesRequest extends $pb.GeneratedMessage {
     if (mlsEpoch != null) result.mlsEpoch = mlsEpoch;
     if (pageSize != null) result.pageSize = pageSize;
     if (pageToken != null) result.pageToken = pageToken;
+    if (order != null) result.order = order;
     return result;
   }
 
@@ -2861,6 +2863,8 @@ class ListEpochMessagesRequest extends $pb.GeneratedMessage {
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..aI(4, _omitFieldNames ? '' : 'pageSize')
     ..aOS(5, _omitFieldNames ? '' : 'pageToken')
+    ..aE<EpochMessageOrder>(6, _omitFieldNames ? '' : 'order',
+        enumValues: EpochMessageOrder.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2935,6 +2939,18 @@ class ListEpochMessagesRequest extends $pb.GeneratedMessage {
   $core.bool hasPageToken() => $_has(4);
   @$pb.TagNumber(5)
   void clearPageToken() => $_clearField(5);
+
+  /// UNSPECIFIED => message-id order, as before. CREATED_AT needs FEATURE_E2EE_DM not globally off (else
+  /// FEATURE_DISABLED feature=e2ee_dm, before any read). A page token is bound to the order it was issued for;
+  /// another order's token => VALIDATION "page_token". An unknown value => VALIDATION "order".
+  @$pb.TagNumber(6)
+  EpochMessageOrder get order => $_getN(5);
+  @$pb.TagNumber(6)
+  set order(EpochMessageOrder value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasOrder() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearOrder() => $_clearField(6);
 }
 
 class ListEpochMessagesResponse extends $pb.GeneratedMessage {
@@ -2942,11 +2958,17 @@ class ListEpochMessagesResponse extends $pb.GeneratedMessage {
     $core.Iterable<Message>? messages,
     $core.String? nextPageToken,
     $1.Timestamp? clearedAt,
+    EpochMessageOrder? order,
+    $core.String? resumePageToken,
+    $core.bool? resumeSettled,
   }) {
     final result = ListEpochMessagesResponse._();
     if (messages != null) result.messages.addAll(messages);
     if (nextPageToken != null) result.nextPageToken = nextPageToken;
     if (clearedAt != null) result.clearedAt = clearedAt;
+    if (order != null) result.order = order;
+    if (resumePageToken != null) result.resumePageToken = resumePageToken;
+    if (resumeSettled != null) result.resumeSettled = resumeSettled;
     return result;
   }
 
@@ -2969,6 +2991,10 @@ class ListEpochMessagesResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
     ..aOM<$1.Timestamp>(3, _omitFieldNames ? '' : 'clearedAt',
         subBuilder: $1.Timestamp.$_createMessage)
+    ..aE<EpochMessageOrder>(4, _omitFieldNames ? '' : 'order',
+        enumValues: EpochMessageOrder.values)
+    ..aOS(5, _omitFieldNames ? '' : 'resumePageToken')
+    ..aOB(6, _omitFieldNames ? '' : 'resumeSettled')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2997,8 +3023,8 @@ class ListEpochMessagesResponse extends $pb.GeneratedMessage {
           ListEpochMessagesResponse.$_createMessage);
   static ListEpochMessagesResponse? _defaultInstance;
 
-  /// Every message of that epoch, by message id (not time order); complete once the epoch is closed (it has a commit,
-  /// or a later generation exists).
+  /// Every message of that epoch, by message id (not time order) unless order = CREATED_AT; complete once the epoch is
+  /// closed (it has a commit, or a later generation exists).
   @$pb.TagNumber(1)
   $pb.PbList<Message> get messages => $_getList(0);
 
@@ -3025,6 +3051,278 @@ class ListEpochMessagesResponse extends $pb.GeneratedMessage {
   void clearClearedAt() => $_clearField(3);
   @$pb.TagNumber(3)
   $1.Timestamp ensureClearedAt() => $_ensure(2);
+
+  /// CREATED_AT only when it was asked for AND served in that order. Unset means unordered: the page is not a
+  /// completeness answer and must not be processed as ordered (an older server, or one whose index is not ready).
+  @$pb.TagNumber(4)
+  EpochMessageOrder get order => $_getN(3);
+  @$pb.TagNumber(4)
+  set order(EpochMessageOrder value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasOrder() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearOrder() => $_clearField(4);
+
+  /// CREATED_AT only, set on every page including an empty last page ("" only when the request had no position and
+  /// the page is empty). Positioned at max(the request's position, min(after the last message returned, the read time
+  /// minus 60 s)). Listing from it later returns every message of the pair at or after that position, including one
+  /// committed late. Same binding and 30-day life as next_page_token.
+  @$pb.TagNumber(5)
+  $core.String get resumePageToken => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set resumePageToken($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasResumePageToken() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearResumePageToken() => $_clearField(5);
+
+  /// CREATED_AT only: true when resume_page_token is positioned after the last message returned (every message of
+  /// this page was created more than 60 s before this read). False: it trails, at or before the last message. Vacuously
+  /// true on an empty page; the resume position is then the request's position.
+  @$pb.TagNumber(6)
+  $core.bool get resumeSettled => $_getBF(5);
+  @$pb.TagNumber(6)
+  set resumeSettled($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasResumeSettled() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearResumeSettled() => $_clearField(6);
+}
+
+class ListMessageTombstonesRequest extends $pb.GeneratedMessage {
+  factory ListMessageTombstonesRequest({
+    $core.String? conversationId,
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = ListMessageTombstonesRequest._();
+    if (conversationId != null) result.conversationId = conversationId;
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ListMessageTombstonesRequest._();
+
+  factory ListMessageTombstonesRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListMessageTombstonesRequest()..mergeFromBuffer(data, registry);
+  factory ListMessageTombstonesRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListMessageTombstonesRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListMessageTombstonesRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.messaging.v1'),
+      createEmptyInstance: ListMessageTombstonesRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'conversationId')
+    ..aI(2, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(3, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListMessageTombstonesRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListMessageTombstonesRequest copyWith(
+          void Function(ListMessageTombstonesRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListMessageTombstonesRequest))
+          as ListMessageTombstonesRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListMessageTombstonesRequest() / ListMessageTombstonesRequest.new instead')
+  static ListMessageTombstonesRequest create() =>
+      ListMessageTombstonesRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListMessageTombstonesRequest._();
+  @$core.override
+  ListMessageTombstonesRequest createEmptyInstance() =>
+      ListMessageTombstonesRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListMessageTombstonesRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListMessageTombstonesRequest>(
+          ListMessageTombstonesRequest.$_createMessage);
+  static ListMessageTombstonesRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get conversationId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set conversationId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasConversationId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearConversationId() => $_clearField(1);
+
+  /// 0 or negative => 50; max 100 (clamped).
+  @$pb.TagNumber(2)
+  $core.int get pageSize => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set pageSize($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageSize() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageSize() => $_clearField(2);
+
+  /// next_page_token of the previous page.
+  @$pb.TagNumber(3)
+  $core.String get pageToken => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set pageToken($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPageToken() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPageToken() => $_clearField(3);
+}
+
+class MessageTombstone extends $pb.GeneratedMessage {
+  factory MessageTombstone({
+    $core.String? id,
+    MessageState? state,
+  }) {
+    final result = MessageTombstone._();
+    if (id != null) result.id = id;
+    if (state != null) result.state = state;
+    return result;
+  }
+
+  MessageTombstone._();
+
+  factory MessageTombstone.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      MessageTombstone()..mergeFromBuffer(data, registry);
+  factory MessageTombstone.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      MessageTombstone()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'MessageTombstone',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.messaging.v1'),
+      createEmptyInstance: MessageTombstone.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'id')
+    ..aE<MessageState>(2, _omitFieldNames ? '' : 'state',
+        enumValues: MessageState.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageTombstone clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MessageTombstone copyWith(void Function(MessageTombstone) updates) =>
+      super.copyWith((message) => updates(message as MessageTombstone))
+          as MessageTombstone;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use MessageTombstone() / MessageTombstone.new instead')
+  static MessageTombstone create() => MessageTombstone._();
+  static $pb.GeneratedMessage $_createMessage() => MessageTombstone._();
+  @$core.override
+  MessageTombstone createEmptyInstance() => MessageTombstone._();
+  @$core.pragma('dart2js:noInline')
+  static MessageTombstone getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<MessageTombstone>(
+          MessageTombstone.$_createMessage);
+  static MessageTombstone? _defaultInstance;
+
+  /// 32 lower-case hex.
+  @$pb.TagNumber(1)
+  $core.String get id => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set id($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearId() => $_clearField(1);
+
+  /// MESSAGE_STATE_REMOVED or MESSAGE_STATE_DELETED_ACCOUNT.
+  @$pb.TagNumber(2)
+  MessageState get state => $_getN(1);
+  @$pb.TagNumber(2)
+  set state(MessageState value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasState() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearState() => $_clearField(2);
+}
+
+class ListMessageTombstonesResponse extends $pb.GeneratedMessage {
+  factory ListMessageTombstonesResponse({
+    $core.Iterable<MessageTombstone>? tombstones,
+    $core.String? nextPageToken,
+  }) {
+    final result = ListMessageTombstonesResponse._();
+    if (tombstones != null) result.tombstones.addAll(tombstones);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  ListMessageTombstonesResponse._();
+
+  factory ListMessageTombstonesResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListMessageTombstonesResponse()..mergeFromBuffer(data, registry);
+  factory ListMessageTombstonesResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListMessageTombstonesResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListMessageTombstonesResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.messaging.v1'),
+      createEmptyInstance: ListMessageTombstonesResponse.$_createMessage)
+    ..pPM<MessageTombstone>(1, _omitFieldNames ? '' : 'tombstones',
+        subBuilder: MessageTombstone.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListMessageTombstonesResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListMessageTombstonesResponse copyWith(
+          void Function(ListMessageTombstonesResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListMessageTombstonesResponse))
+          as ListMessageTombstonesResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListMessageTombstonesResponse() / ListMessageTombstonesResponse.new instead')
+  static ListMessageTombstonesResponse create() =>
+      ListMessageTombstonesResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListMessageTombstonesResponse._();
+  @$core.override
+  ListMessageTombstonesResponse createEmptyInstance() =>
+      ListMessageTombstonesResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListMessageTombstonesResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListMessageTombstonesResponse>(
+          ListMessageTombstonesResponse.$_createMessage);
+  static ListMessageTombstonesResponse? _defaultInstance;
+
+  /// Ascending message id.
+  @$pb.TagNumber(1)
+  $pb.PbList<MessageTombstone> get tombstones => $_getList(0);
+
+  /// "" => no more tombstones as of now.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
 }
 
 /// A pending Welcome for one of the caller's devices.
@@ -3759,7 +4057,7 @@ class MessagingServiceApi {
   /// Flag: "messaging" not globally off (a user dropped from an allowlist can still read). Participant check and the one
   /// NOT_FOUND as ListMessages; a NONE conversation answers an empty list with the pair (0, 0). Validation:
   /// conversation_id; page_size as the file comment. Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN 60/min/uid per
-  /// instance, shared with ListEpochMessages, ListWelcomes and AckWelcomes.
+  /// instance, shared with ListEpochMessages, ListMessageTombstones, ListWelcomes and AckWelcomes.
   /// Cost: one read-only transaction: 1 conversation read + 1 query of at most page_size (max 50) commit records.
   /// Writes nothing.
   $async.Future<ListConversationCommitsResponse> listConversationCommits(
@@ -3771,12 +4069,14 @@ class MessagingServiceApi {
           request,
           ListConversationCommitsResponse());
 
-  /// Every message of one (generation, epoch) of an encrypted conversation, in message id order (not time order),
-  /// paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later generation exists after a
-  /// reset; ListConversationCommits) no message can join it, so the full list is complete: a device calls this before
-  /// applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS deletes the epoch's
-  /// keys on commit). It is a completeness set, not a decryption order: collect every page, then decrypt in created_at
-  /// order, then by id (file comment, "Processing order"). Skip ids already processed.
+  /// Every message of one (generation, epoch) of an encrypted conversation, in message id order unless
+  /// order = CREATED_AT, which lists oldest first and adds a resume token; completeness still needs a listing begun
+  /// after the epoch closed. Paged with an opaque page_token. Once the epoch is closed (it has a commit, or a later
+  /// generation exists after a reset; ListConversationCommits) no message can join it, so the full list is complete: a
+  /// device calls this before applying the commit that ends an epoch, to prove it holds every message of the epoch (MLS
+  /// deletes the epoch's keys on commit). In message id order it is a completeness set, not a decryption order: collect
+  /// every page, then decrypt in created_at order, then by id (file comment, "Processing order"). Skip ids already
+  /// processed.
   /// Messages at or before the caller's own DeleteConversation time (cleared_at in the response) ARE returned, unlike
   /// ListMessages, for completeness counting only: the client does not show or store them (it may decrypt and discard
   /// them; skipping their decryption would spend the forward limit). The tombstone rules are the same (DELETED_ACCOUNT
@@ -3833,6 +4133,23 @@ class MessagingServiceApi {
           $pb.ClientContext? ctx, AckWelcomesRequest request) =>
       _client.invoke<AckWelcomesResponse>(ctx, 'MessagingService',
           'AckWelcomes', request, AckWelcomesResponse());
+
+  /// The tombstones of one conversation: every message whose state is REMOVED or DELETED_ACCOUNT, as ids and states
+  /// only (never when or why it was removed, never a sender), in ascending message id, so a device that keeps
+  /// decrypted copies clears them after a retired since token in O(tombstones). Messages at or before the caller's
+  /// cleared_at are included.
+  /// Flag: "messaging" not globally off AND "e2ee_dm" not globally off (FEATURE_DISABLED with feature = the flag
+  /// name, before any read). Validation: conversation_id (32 lower-case hex); page_size 0 or negative => 50, max 100
+  /// (clamped); page_token: sealed, bound to the caller and the conversation, 30 days; an expired, foreign or tampered
+  /// token => VALIDATION "page_token". Participant check and the one NOT_FOUND as ListEpochMessages (the 60 s
+  /// instance copy). Rate limit: RATE_LIMIT_MESSAGES_SYNC_PER_MIN (shared, see ListConversationCommits).
+  /// next_page_token "" => no more tombstones as of now.
+  /// Cost: at most 1 conversation read (cache-first) + 2 queries of at most page_size documents each (max 200
+  /// reads). Writes nothing.
+  $async.Future<ListMessageTombstonesResponse> listMessageTombstones(
+          $pb.ClientContext? ctx, ListMessageTombstonesRequest request) =>
+      _client.invoke<ListMessageTombstonesResponse>(ctx, 'MessagingService',
+          'ListMessageTombstones', request, ListMessageTombstonesResponse());
 }
 
 const $core.bool _omitFieldNames =

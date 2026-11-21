@@ -271,8 +271,8 @@ func TestMessagingDailyCapWiring(t *testing.T) {
 }
 
 // The encrypted-conversation procedures: CommitConversation on its own bucket and the daily call cap
-// messages_commits_daily; ListConversationCommits, ListEpochMessages, ListWelcomes and AckWelcomes on ONE shared sync
-// bucket and no daily cap.
+// messages_commits_daily; ListConversationCommits, ListEpochMessages, ListWelcomes, AckWelcomes and
+// ListMessageTombstones on ONE shared sync bucket and no daily cap.
 var (
 	messagesCommitProcedure = messagingv1connect.MessagingServiceCommitConversationProcedure
 	messagesSyncProcedures  = []string{
@@ -280,6 +280,7 @@ var (
 		messagingv1connect.MessagingServiceListEpochMessagesProcedure,
 		messagingv1connect.MessagingServiceListWelcomesProcedure,
 		messagingv1connect.MessagingServiceAckWelcomesProcedure,
+		messagingv1connect.MessagingServiceListMessageTombstonesProcedure,
 	}
 )
 
