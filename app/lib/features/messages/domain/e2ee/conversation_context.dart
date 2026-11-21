@@ -88,6 +88,11 @@ class ConversationContext {
   /// continues it without the lock.
   bool epochWalkPending = false;
 
+  /// An unprocessed probe page held a message of a pair above the group's
+  /// (its since token may be saved past it): the end of a pass runs one
+  /// catch-up until one answers other than `interrupted`.
+  bool laterPairSeen = false;
+
   /// The walk backoff after an order violation, a missing order echo, an
   /// RPC failure or the restart cap: no walk before [walkBackoffUntil];
   /// [walkBackoff] doubles from 1 min to 1 h, reset by an applied page.

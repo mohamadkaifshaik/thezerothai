@@ -160,10 +160,11 @@ extension _Walks on MessageReceiver {
     }
     var after = await _readReceive(pass.vault, id);
     final current = await _currentPair(pass.vault, id);
+    if (probe.sawLater) context.laterPairSeen = true;
     if (!probe.caughtUp &&
         current != null &&
         !_walksLeft(after) &&
-        (_closeEndedAt(after, current) || probe.sawLater)) {
+        (_closeEndedAt(after, current) || context.laterPairSeen)) {
       // The pass finishes the job (I2): the walks have ended and a commit
       // waits (the current pair's close walk ended, or the probe showed a
       // later pair). ONE lock hold with the locked catch-up, as the fast
@@ -179,13 +180,19 @@ extension _Walks on MessageReceiver {
         return _crypto.catchUpLocked(id, priority: priority);
       });
       if (result == CatchUpResult.waitingForWelcome) onWelcomes();
-      if (await _currentPair(pass.vault, id) == current) {
-        // Nothing applied (no commit visible yet, a failed call, a later
-        // pair the server does not have): the next pass waits, never an
-        // immediate `more` or a `complete` with a commit left.
-        return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+      final moved = await _currentPair(pass.vault, id) != current;
+      // A failed (`interrupted`) catch-up keeps the fact for the next pass.
+      if (moved || (result != null && result != CatchUpResult.interrupted)) {
+        context.laterPairSeen = false;
       }
       after = await _readReceive(pass.vault, id);
+      if (!moved && !_walksLeft(after)) {
+        // Nothing applied and no walk left (no commit visible yet, a
+        // failed call, a later pair the server does not have): the next
+        // pass waits, never an immediate `more` or a `complete` with a
+        // commit left. A walk the catch-up's sink left pending is `more`.
+        return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+      }
     }
     return pulled && !_walksLeft(after)
         ? ReceiveOutcome.complete

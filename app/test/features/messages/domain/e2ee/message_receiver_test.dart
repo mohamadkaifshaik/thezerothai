@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
@@ -2028,6 +2029,160 @@ void main() {
 
       expect((await row(_mid(2)))!.state, StoredMessageState.visible);
       expect(rig.server.calls, isNot(contains('listConversationCommits')));
+    });
+
+    test('a pass whose catch-up leaves the close walk pending asks for '
+        'more', () async {
+      await setUpJoined();
+      final token = await prime();
+      // 150 messages inside the 60 s trail: the open walk ends but its
+      // settle token stays before all of them.
+      await sayMany(1, 150);
+      await bobSelfUpdate();
+      await say(bobGroup(), 151, at: seconds(1));
+      rig.server.livePageSize = 1;
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      // The catch-up's sink adopted the open walk at s and listed its 2
+      // pages; the close walk is pending: work is left, not a wait.
+      expect((await sync()).sinceToken, isNot(token));
+      expect(out.kind, ReceiveOutcomeKind.more);
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
+      expect((await receiveRecord()).close!.end, isFalse);
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+    });
+
+    test('a later pair seen on the probe is caught up at the next pass when '
+        'the catch-up failed', () async {
+      await setUpJoined();
+      await prime();
+      await say(bobGroup(), 1);
+      await bobSelfUpdate();
+      await say(bobGroup(), 2, at: seconds(1));
+      rig.server.livePageSize = 1;
+      // The pass's one catch-up fails at its commit listing.
+      var failed = false;
+      rig.server.onCall = (c) async {
+        if (c == 'listConversationCommits' && !failed) {
+          failed = true;
+          throw const NetworkException('rig');
+        }
+      };
+
+      final first = await rig.receiver.pullLive(_c1);
+
+      expect(failed, isTrue);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
+
+      // The token was saved past message 2, so this probe sees nothing new;
+      // the pass still runs the catch-up the last one could not finish.
+      rig.server.calls.clear();
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.server.calls, contains('listConversationCommits'));
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+    });
+
+    test('a catch-up that applies nothing makes the pass wait, once', () async {
+      await setUpJoined();
+      await prime();
+      await say(bobGroup(), 1);
+      // A message of a pair the server has no commit for.
+      rig.server.addMessage(
+        pb.Message(
+          id: _mid(2),
+          conversationId: _c1,
+          state: MessageState.MESSAGE_STATE_VISIBLE,
+          createdAt: ts.Timestamp.fromDateTime(t0.add(seconds(1))),
+          ciphertext: [1, 2, 3],
+          reportCommitment: List.filled(32, 1),
+          mlsGeneration: Int64(1),
+          mlsEpoch: Int64(5),
+        ),
+      );
+      rig.server.livePageSize = 1;
+      rig.server.calls.clear();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(
+        rig.server.calls.where((c) => c == 'listConversationCommits'),
+        hasLength(1),
+      );
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(out.until, rig.clock.now().add(kWalkBackoff));
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+
+      rig.server.calls.clear();
+      expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
+      expect(rig.server.calls, isNot(contains('listConversationCommits')));
+    });
+
+    test(
+      'a provisional group at a close walk\'s generation reads as gone',
+      () async {
+        await setUpJoined();
+        await sayMany(1, 60, start: const Duration(minutes: -10));
+        // Generation 1 is being set up again: only a provisional group.
+        final g1 = (await rig.device.vault.group(_c1, 1))!;
+        await rig.device.vault.transaction((tx) async {
+          await tx.deleteGroup(_c1, 1);
+          await tx.putGroup(
+            GroupRecord(
+              conversationId: _c1,
+              generation: 1,
+              epoch: 0,
+              state: g1.state,
+              provisional: true,
+              provisionalCreatedAtMicros: t0.microsecondsSinceEpoch,
+            ),
+          );
+        });
+        await putReceiveRecord(
+          const ReceiveRecord(
+            close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.undecryptable),
+          ),
+        );
+        final processed = rig.device.engine.processed.length;
+
+        await rig.receiver.pullLive(_c1);
+
+        for (var i = 1; i <= 60; i++) {
+          expect((await row(_mid(i)))!.state, StoredMessageState.undecryptable);
+        }
+        expect(rig.device.engine.processed, hasLength(processed));
+        expect((await receiveRecord()).close!.end, isTrue);
+        // The provisional group is kept.
+        expect((await rig.device.vault.group(_c1, 1))!.provisional, isTrue);
+      },
+    );
+
+    test('a pass with no final group that moves no walk waits instead of '
+        'asking for more', () async {
+      await setUpJoined();
+      await sayMany(1, 60, start: const Duration(minutes: -10));
+      await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      await putReceiveRecord(
+        const ReceiveRecord(
+          close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.undecryptable),
+        ),
+      );
+      // Every page goes stale while in flight.
+      rig.server.afterEpochAnswer = () async {
+        rig.contexts.of(_c1).serial++;
+      };
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(out.until, rig.clock.now().add(kWalkBackoff));
+      expect(rig.contexts.of(_c1).discardedPages, kWalkPagesPerPass);
+      expect(await row(_mid(1)), isNull);
     });
 
     test(
