@@ -16,6 +16,14 @@ extension _Sink on MessageReceiver {
   /// transaction of an orphan walk, or of a close walk of a generation below
   /// the current one, deletes its group; a walk met already at its end takes
   /// that step here, [_releaseEndedLocked]); otherwise throws [_WalkPending].
+  ///
+  /// The sink runs as a pass of its own ([_start]), whoever called catch-up
+  /// (a scheduler, the welcome poll, or a receive pass's own catch-up): it
+  /// never holds a running pass's freshness facts, so a final attempt that
+  /// needs the ENGINE always waits here ([_finalAttempts]): the walk stays
+  /// unfinished, the pending signal is thrown and the next pass's own walk
+  /// makes the attempt. A final attempt that needs no engine (a row) and a
+  /// walk with no deferred message end here as before.
   Future<void> _sinkWalk(
     String id,
     MlsPair pair,

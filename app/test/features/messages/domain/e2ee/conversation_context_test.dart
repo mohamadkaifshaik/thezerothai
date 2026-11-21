@@ -55,4 +55,69 @@ void main() {
 
     expect(context.listedToEndIn(pass), isFalse);
   });
+
+  // The freshness witness of a deferred message's engine call while no
+  // reconcile entry stands (the whole-branch fix wave): this pass's probe
+  // was answered for the stored, non-empty since token.
+  group('the answered-probe witness', () {
+    test('holds for the noting pass and the token its probe sent, and for no '
+        'other pass or token', () {
+      final context = ConversationContext();
+      final pass = Object();
+      expect(context.probeAnsweredIn(pass, 'token-a'), isFalse);
+
+      context.noteProbeAnswered(pass, 'token-a');
+
+      expect(context.probeAnsweredIn(pass, 'token-a'), isTrue);
+      // The sink's own pass, or a later one.
+      expect(context.probeAnsweredIn(Object(), 'token-a'), isFalse);
+      // The stored token is another one, or was cleared by a retirement.
+      expect(context.probeAnsweredIn(pass, 'token-b'), isFalse);
+      expect(context.probeAnsweredIn(pass, ''), isFalse);
+    });
+
+    test('a probe that sent no since token is never a witness', () {
+      final context = ConversationContext();
+      final pass = Object();
+
+      context.noteProbeAnswered(pass, '');
+
+      expect(context.probeAnsweredIn(pass, ''), isFalse);
+      expect(context.probeAnsweredIn(pass, 'token-a'), isFalse);
+    });
+
+    test('follows only the witnessed pass\'s own save over the witnessed '
+        'token', () {
+      final context = ConversationContext();
+      final pass = Object();
+      context.noteProbeAnswered(pass, 'token-a');
+
+      // Another pass's save, a save over another token, and an empty token
+      // move nothing.
+      context
+        ..noteSinceTokenSaved(Object(), 'token-a', 'token-b')
+        ..noteSinceTokenSaved(pass, 'token-x', 'token-b')
+        ..noteSinceTokenSaved(pass, 'token-a', '');
+      expect(context.probeAnsweredIn(pass, 'token-a'), isTrue);
+      expect(context.probeAnsweredIn(pass, 'token-b'), isFalse);
+
+      context.noteSinceTokenSaved(pass, 'token-a', 'token-b');
+
+      expect(context.probeAnsweredIn(pass, 'token-b'), isTrue);
+      expect(context.probeAnsweredIn(pass, 'token-a'), isFalse);
+    });
+
+    test('a retirement or the end of the pass takes the witness with it', () {
+      final context = ConversationContext();
+      final pass = Object();
+      context
+        ..noteProbeAnswered(pass, 'token-a')
+        ..clearProbeAnswered();
+
+      expect(context.probeAnsweredIn(pass, 'token-a'), isFalse);
+      // A save without a witness creates none.
+      context.noteSinceTokenSaved(pass, 'token-a', 'token-b');
+      expect(context.probeAnsweredIn(pass, 'token-b'), isFalse);
+    });
+  });
 }

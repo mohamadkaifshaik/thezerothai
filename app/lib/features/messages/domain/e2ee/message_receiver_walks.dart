@@ -74,7 +74,10 @@ class _Probe {
   /// The listing was ANSWERED for a request that sent the stored, non-empty
   /// since token (not the anchor, not an empty token): the pass has seen
   /// what changed since that token. Only then may a deferred message be
-  /// given to the engine by a retry (fix round 2).
+  /// given to the engine by a retry (fix round 2) or, while no reconcile
+  /// entry stands, by a final attempt (the whole-branch fix wave). The
+  /// witness itself is the context's
+  /// ([ConversationContext.noteProbeAnswered]).
   bool listed = false;
 }
 
@@ -82,31 +85,38 @@ extension _Walks on MessageReceiver {
   /// One pass (§2). Never throws.
   Future<ReceiveOutcome> _runPass(String id, BudgetPriority priority) async {
     var welcomes = false;
-    // The vault whose stored, non-empty since token the probe was answered
-    // for (null: no such answer in this pass).
-    SecureVault? listed;
+    // The pass whose probe was answered for the stored, non-empty since
+    // token (null: no such answer in this pass).
+    _Pass? listed;
     ReceiveOutcome outcome;
     try {
-      outcome = await _passSteps(
-        id,
-        priority,
-        () => welcomes = true,
-        (vault) => listed = vault,
-      );
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'receive.live');
-      outcome = ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+      try {
+        outcome = await _passSteps(
+          id,
+          priority,
+          () => welcomes = true,
+          (pass) => listed = pass,
+        );
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'receive.live');
+        outcome = ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+      }
+      // 6. The deferred retries, after the pass's fresh work (§7.4),
+      // whatever the pass ended with (a walk backoff alone skips nothing).
+      // Their engine-free checks always run; a due item reaches the ENGINE
+      // only with this pass's freshness witness (its probe was answered
+      // for the stored since token, [listed]), while no engine hold stands
+      // and no reconcile entry exists.
+      await _retryDeferred(id, listed: listed);
     } finally {
-      // The pass is over, however it ended: the fact that ITS listing
-      // reached the end (the final-attempt gate) has no life beyond it.
-      _contexts.of(id).clearListedToEnd();
+      // The pass is over, however it ended: the facts that are ITS own
+      // (its listing reached the end; its probe was answered for the
+      // stored since token) have no life beyond it. The welcome poll below
+      // and any catch-up outside a pass never have them.
+      _contexts.of(id)
+        ..clearListedToEnd()
+        ..clearProbeAnswered();
     }
-    // 6. The deferred retries, after the pass's fresh work (§7.4),
-    // whatever the pass ended with (a walk backoff alone skips nothing).
-    // Their engine-free checks always run; a due item reaches the ENGINE
-    // only when this pass's probe listed from the stored since token
-    // ([listed]), no engine hold stands, and no reconcile is armed.
-    await _retryDeferred(id, listed: listed);
     // Catch-up's held poll stops at a page that lacks the welcome: a welcome
     // it did not find is looked for by an unheld poll, after the lock is
     // released (never a public entry under a held lock).
@@ -127,7 +137,7 @@ extension _Walks on MessageReceiver {
     String id,
     BudgetPriority priority,
     void Function() onWelcomes,
-    void Function(SecureVault vault) onListed,
+    void Function(_Pass pass) onListed,
   ) async {
     final pass = await _start();
     if (pass == null) return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
@@ -156,7 +166,7 @@ extension _Walks on MessageReceiver {
     // it. With no final group the probe's page is never processed.
     final probe = await _probe(pass, id, priority, detector: !grouped);
     if (probe.waitingForWelcome) onWelcomes();
-    if (probe.listed) onListed(pass.vault);
+    if (probe.listed) onListed(pass);
     if (probe.outcome != null) return probe.outcome!;
 
     // 2. The reconcile walk (§8.2), right after the probe that may have
@@ -556,6 +566,9 @@ extension _Walks on MessageReceiver {
           id,
           messages,
         ).forEach((mid, state) => _noteTombstone(context, mid, state));
+        // The freshness witness, noted before the batch (its last
+        // transaction may save the answer's token over the one sent).
+        context.noteProbeAnswered(pass, token);
         final end = await _runBatch(
           pass,
           id,
@@ -564,10 +577,12 @@ extension _Walks on MessageReceiver {
           token: (token: since, expect: token),
         );
         return _Probe(
-          fastPath: true,
-          pulled: end.completed,
-          caughtUp: end.caughtUp,
-        )..waitingForWelcome = end.waitingForWelcome;
+            fastPath: true,
+            pulled: end.completed,
+            caughtUp: end.caughtUp,
+          )
+          ..waitingForWelcome = end.waitingForWelcome
+          ..listed = true;
       }
       // Not processed: its messages come through the open walk, in order;
       // its token is saved by rule 2 once that walk ends. A tombstone on it
@@ -577,14 +592,19 @@ extension _Walks on MessageReceiver {
       context.endToken = since.isEmpty
           ? null
           : (token: since, sentWith: token, seq: seq);
-      return _Probe(sawLater: later, listAgain: refused);
+      // The freshness witness: every tombstone of the page was noted for
+      // the run (and applied) just above.
+      context.noteProbeAnswered(pass, token);
+      return _Probe(sawLater: later, listAgain: refused)..listed = true;
     });
-    // Answered for a request that sent the stored, non-empty since token
-    // (never the anchor, never an empty token): the pass has seen what
-    // changed since it, and every tombstone on the page was noted for the
-    // run before anything else was done with the page. Never a detector
-    // probe: with no final group nothing may reach the engine.
-    return probe..listed = token.isNotEmpty && !detector;
+    // `listed` (and the witness in the context) is set only where the
+    // listing was ANSWERED for a request that sent the stored, non-empty
+    // since token (never the anchor, never an empty token) and applied
+    // under the lock with the vault still open: the pass has seen what
+    // changed since that token, and every tombstone on the page was noted
+    // for the run before anything else was done with the page. Never by a
+    // detector probe: with no final group nothing may reach the engine.
+    return probe;
   }
 
   /// Under the lock: the group's current pair is still [before] and the
@@ -629,8 +649,11 @@ extension _Walks on MessageReceiver {
   /// without end reaches [kReconcileGiveUpAfter] like one that refuses.
   Future<void> _retireLocked(_Pass pass, String id, String token) async {
     // Whatever this pass listed before no longer says what the thread
-    // holds: the final-attempt gate closes at once.
-    _contexts.of(id).clearListedToEnd();
+    // holds: the final-attempt gate closes at once, for an entry that
+    // stands (the listing's end) and for a null one (the answered probe).
+    _contexts.of(id)
+      ..clearListedToEnd()
+      ..clearProbeAnswered();
     if (!pass.live) return;
     _contexts.of(id).endToken = null;
     var gaveUp = false;
@@ -921,7 +944,8 @@ extension _Walks on MessageReceiver {
         w.pair,
         engine: true,
         generationEnds: true,
-        // Read fresh in this body (the sink reaches this with no probe).
+        // Read fresh in this body (the sink reaches this with no probe,
+        // and then no item is given to the engine).
         rec: record.rec,
       );
       if (plan == null) {
@@ -1255,22 +1279,29 @@ extension _Walks on MessageReceiver {
 
   /// A page's record update in a transaction of its own (its last message
   /// wrote nothing, or the page is empty). False: nothing was written.
-  Future<bool> _writeAlone(_Pass pass, String id, _RecordUpdate update) =>
-      _session.runWrite((v) async {
-        pass.check(v);
-        final sync =
-            (await v.conversation(id))?.sync ?? const ConversationSync();
-        final u = await update(v, sync);
-        if (u == null) return false;
-        final token = u.sinceToken;
-        await v.transaction((tx) async {
-          await _records.putIn(tx, id, u.record);
-          if (token != null && token.isNotEmpty && token != sync.sinceToken) {
-            await tx.putConversationSync(id, sync.copyWith(sinceToken: token));
-          }
-        });
-        return true;
-      });
+  Future<bool> _writeAlone(
+    _Pass pass,
+    String id,
+    _RecordUpdate update,
+  ) => _session.runWrite((v) async {
+    pass.check(v);
+    final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
+    final u = await update(v, sync);
+    if (u == null) return false;
+    final token = u.sinceToken;
+    final saves = token != null && token.isNotEmpty && token != sync.sinceToken;
+    await v.transaction((tx) async {
+      await _records.putIn(tx, id, u.record);
+      if (saves) {
+        await tx.putConversationSync(id, sync.copyWith(sinceToken: token));
+      }
+    });
+    // The pass's own save: its freshness witness follows the token.
+    if (saves) {
+      _contexts.of(id).noteSinceTokenSaved(pass, sync.sinceToken, token);
+    }
+    return true;
+  });
 
   /// §3.3: every id is 32 lower-case hex and every set time one [_micros]
   /// holds (a page position is recorded, and a record holding any other id

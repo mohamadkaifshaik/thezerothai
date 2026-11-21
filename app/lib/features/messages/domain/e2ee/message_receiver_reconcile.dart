@@ -53,7 +53,11 @@ class _Reconciled {
 ///   memory only ([ConversationContext.noteListedToEnd]): until the record
 ///   is next written or the pass ends, its final attempts may reach the
 ///   engine although the entry still waits for a since token
-///   ([_finalAttempts]). The disarm itself is unchanged.
+///   ([_finalAttempts]). The disarm itself is unchanged. With NO entry a
+///   final attempt reaches the engine only in a running pass whose probe
+///   was answered for the stored since token (the witness of an engine
+///   retry, [_probeWitnessed]): a catch-up or a welcome poll outside a pass
+///   never does.
 /// - **Begun after the token.** The transaction that saves a since token
 ///   over an empty one begins a listing in progress again from the top
 ///   ([_applyPageLocked]), so the listing that disarms began after the

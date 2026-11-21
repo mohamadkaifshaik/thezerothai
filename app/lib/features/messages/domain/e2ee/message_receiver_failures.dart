@@ -661,16 +661,16 @@ extension _Failures on MessageReceiver {
   /// receiver-wide one, or this conversation's own), and (fix round 2) only
   /// when this pass's probe was ANSWERED for a request that sent the
   /// stored, non-empty since token of the vault still open ([listed] is
-  /// that probe's vault, null without such an answer), so the pass has seen
-  /// what changed since that token (a takedown of a deferred message among
-  /// it). The since token and the reconcile entry are checked again in each
-  /// item's write body ([_retryOne]). A walk backoff alone keeps nothing
-  /// from the engine. Never throws.
-  Future<void> _retryDeferred(String id, {required SecureVault? listed}) async {
+  /// that pass, null without such an answer), so the pass has seen what
+  /// changed since that token (a takedown of a deferred message among it).
+  /// That witness and the reconcile entry are asked in each item's write
+  /// body ([_retryOne]); the retries run as [listed] itself while its vault
+  /// is still the session's, since the witness is that pass's alone. A walk
+  /// backoff alone keeps nothing from the engine. Never throws.
+  Future<void> _retryDeferred(String id, {required _Pass? listed}) async {
     try {
-      final pass = await _start();
+      final pass = listed != null && listed.live ? listed : await _start();
       if (pass == null) return;
-      final probed = identical(listed, pass.vault);
       final context = _contexts.of(id);
       // With no lock: only to see whether there is anything to do.
       final seen = await _deferred.read(pass.vault, id);
@@ -694,7 +694,7 @@ extension _Failures on MessageReceiver {
             pass,
             id,
             mid,
-            engine: probed && allow && _engineHoldOf(context) == null,
+            engine: allow && _engineHoldOf(context) == null,
           );
           if (end == _Retry.changed) changed = true;
           // An answer that stops the pass stops every later engine retry.
@@ -740,6 +740,23 @@ extension _Failures on MessageReceiver {
     return wrote;
   }
 
+  /// The freshness witness of an engine call on a DEFERRED message while
+  /// no reconcile entry stands, asked inside the write body that would make
+  /// the call, with [sync] read fresh there: [pass] is the RUNNING pass
+  /// whose probe was answered for a request that sent the stored,
+  /// non-empty since token, and the stored token is still that one (or the
+  /// one that pass saved over it). The ONE check of a deferred retry
+  /// ([_retryOne]) and of a final attempt with no reconcile entry
+  /// ([_finalAttempts]). The sink's own pass, the public reconcile step, a
+  /// detector probe's pass and anything after the pass ended never have it;
+  /// a retirement clears it. Memory only
+  /// ([ConversationContext.probeAnsweredIn]).
+  bool _probeWitnessed(
+    ConversationContext context,
+    _Pass pass,
+    ConversationSync sync,
+  ) => context.probeAnsweredIn(pass, sync.sinceToken);
+
   /// A deferred item may be given to the engine now (§7.4): not attempted
   /// in this run, its last attempt at least [kDeferredRetrySpacing] away
   /// (either way: a local clock set back does not hold it for good), and
@@ -775,11 +792,12 @@ extension _Failures on MessageReceiver {
   /// row in any state; (2) a tombstone seen this run; (3) `cleared_at`;
   /// (4) expiry; (5) its group gone, provisional or at another epoch; (6)
   /// the outbox echo and the sent log; (7) the engine, under the §7.2
-  /// table, when [engine] (this pass's probe was answered for the stored,
-  /// non-empty since token, and no engine hold stood), the item is due,
-  /// and, read fresh in the body, the since token is not empty and the
-  /// reconcile entry is not armed. The item's removal or its new counters
-  /// ride in the same transaction as the row and the group state.
+  /// table, when [engine] (no engine hold stood, and no earlier item's
+  /// answer stopped the pass), the item is due, [pass] holds the freshness
+  /// witness for the since token read fresh in the body
+  /// ([_probeWitnessed]), and no reconcile entry exists, read fresh in the
+  /// body too. The item's removal or its new counters ride in the same
+  /// transaction as the row and the group state.
   Future<_Retry> _retryOne(
     _Pass pass,
     String id,
@@ -870,24 +888,28 @@ extension _Failures on MessageReceiver {
     // when nothing says this message's state may have changed unseen. Its
     // stored ciphertext still decrypts after a takedown, and would be
     // stored as visible. ALL THREE must hold:
-    //  (a) [engine]: this pass's probe was ANSWERED for a request that
-    //      sent the stored, non-empty since token (the caller's `probed`;
-    //      a failed, rate-limited or retired probe, or one that sent the
-    //      anchor or no token, listed nothing since that token);
-    //  (b) the since token read fresh in THIS body is not empty (a
+    //  (a) this pass's probe was ANSWERED for a request that sent the
+    //      stored, non-empty since token (a failed, rate-limited or
+    //      retired probe, one that sent the anchor or no token, and a
+    //      detector probe listed nothing since that token for the engine);
+    //  (b) the since token read fresh in THIS body is still that
+    //      non-empty token, or the one this pass saved over it (a
     //      retirement cleared it);
-    //  (c) the receive record's reconcile entry, read fresh in this body,
-    //      is not armed: after a retirement the listings from a NEW token
-    //      never show an older message's state, only the by-id tombstone
-    //      listing does (step 2b, which disarms the entry).
-    // The checks above need no engine and ran.
+    //  (c) the receive record holds NO reconcile entry, read fresh in
+    //      this body (armed or not yet armed): after a retirement the
+    //      listings from a NEW token never show an older message's state,
+    //      only the by-id tombstone listing does (step 2b, which clears
+    //      the entry).
+    // (a) and (b) are the freshness witness, shared with the final
+    // attempts ([_probeWitnessed]). The checks above need no engine and
+    // ran.
     // The hold is asked again HERE, inside the body: this body may have
     // waited for the user's vault write lock behind another conversation's
     // hanging engine call, which set the receiver-wide hold after the
     // caller's [engine] was decided.
     if (!engine ||
         _engineHoldOf(context) != null ||
-        sync.sinceToken.isEmpty ||
+        !_probeWitnessed(context, pass, sync) ||
         !_retryDue(item, now)) {
       return _Retry.kept;
     }
@@ -993,10 +1015,14 @@ extension _Failures on MessageReceiver {
   /// the end after its probe was answered
   /// ([ConversationContext.listedToEndIn]); the end waits, or, once the
   /// entry's failure count has reached [kReconcileGiveUpAfter], the item
-  /// is a row.
+  /// is a row. With NO entry an item is given to the engine only when
+  /// [pass] is the running pass whose probe was answered for the stored
+  /// since token ([_probeWitnessed], the witness of an engine retry);
+  /// otherwise the end waits.
   ///
   /// Null: the end must wait (a reconcile entry stands below its bound
-  /// and this pass has not listed to the end,
+  /// and this pass has not listed to the end, no entry stands and this
+  /// pass has no answered probe for the stored since token,
   /// an engine hold stands, the engine is down,
   /// the breaker, a group-level failure below the maximum, or an attempt
   /// answered `deadline`; a hold is set where the rule sets one and at most
@@ -1088,15 +1114,25 @@ extension _Failures on MessageReceiver {
         continue;
       }
       // The freshness gate (step 2 carry-over 14, as ruled in fix round 1
-      // of step 2b): the ENGINE may run when no reconcile entry stands, OR
-      // when THIS pass's own reconcile step reached the end of the by-id
-      // tombstone listing after this pass's probe was answered (a fact of
-      // that pass, in memory, gone at the first write of the record after
-      // it and when the pass ends; the sink outside a pass and the public
-      // reconcile step never have it). After a retirement only that listing
-      // shows whether this message was taken down, and its stored
-      // ciphertext would still decrypt. Otherwise the end waits (nothing
-      // written). With the entry's failure count at
+      // of step 2b and tightened by the whole-branch fix wave). The ENGINE
+      // may run only when one of these holds, read in this body:
+      //  (i) NO reconcile entry stands, and THIS running pass holds the
+      //      freshness witness an engine retry needs ([_probeWitnessed]):
+      //      its probe was answered for the stored, non-empty since token,
+      //      which is still the stored one. A null entry is durable and has
+      //      no age: without that probe, a message taken down while the
+      //      app was closed would be decrypted and stored visible here.
+      //  (ii) an entry stands, and THIS pass's own reconcile step reached
+      //      the end of the by-id tombstone listing after this pass's
+      //      probe was answered (a fact of that pass, in memory, gone at
+      //      the first write of the record after it and when the pass
+      //      ends). After a retirement only that listing shows whether
+      //      this message was taken down, and its stored ciphertext would
+      //      still decrypt.
+      // Otherwise the end waits (nothing written): the sink outside a
+      // pass, the sink of a pass's own catch-up (it runs as a pass of its
+      // own) and the public reconcile step never reach the engine here; the
+      // next pass's walk does. With the entry's failure count at
       // [kReconcileGiveUpAfter] the item becomes a row with NO engine call
       // (never a visible message), so the walk can end.
       if (rec != null) {
@@ -1105,6 +1141,8 @@ extension _Failures on MessageReceiver {
           continue;
         }
         if (!context.listedToEndIn(pass)) return null;
+      } else if (!_probeWitnessed(context, pass, sync)) {
+        return null;
       }
       // No engine call while an engine hold stands: the end waits.
       if (_engineHoldOf(context) != null) return null;

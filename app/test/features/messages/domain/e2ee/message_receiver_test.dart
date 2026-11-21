@@ -5181,6 +5181,18 @@ void main() {
     Future<int?> epochOf(int generation) async =>
         (await rig.device.vault.group(_c1, generation))?.epoch;
 
+    /// A catch-up outside a pass meets the waiting commit: its sink walks
+    /// the close walk to its end, where a final attempt that needs the
+    /// engine WAITS (the whole-branch fix wave: with no reconcile entry the
+    /// engine runs only in a pass whose probe was answered for the stored
+    /// since token). The passes after it make the attempt.
+    Future<void> commitMet() async {
+      final processed = engine().processed.length;
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(engine().processed, hasLength(processed));
+      expect((await receiveRecord()).close!.end, isFalse);
+    }
+
     test('a deferred message gets one final attempt at its close walk and '
         'the commit applies', () async {
       await setUpJoined();
@@ -5191,9 +5203,11 @@ void main() {
       await rig.receiver.pullLive(_c1);
       expect(await deferredIds(), [_mid(1)]);
       await bobSelfUpdate();
+      await commitMet();
 
       // The same run, no spacing: the final attempt is owed regardless.
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      // The pass's close walk makes it, and its catch-up applies the commit.
+      await rig.receiver.pullLive(_c1);
 
       final r = (await row(_mid(1)))!;
       expect(r.state, StoredMessageState.visible);
@@ -5216,8 +5230,9 @@ void main() {
       failAlways(m1, internal);
       await rig.receiver.pullLive(_c1);
       await bobSelfUpdate();
+      await commitMet();
 
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await rig.receiver.pullLive(_c1);
 
       expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
       expect(processedCount(m1.ciphertext), 2);
@@ -5270,7 +5285,8 @@ void main() {
       // The close's final attempts handle every item of the pair, whatever
       // the record holds: the walk ends and the commit applies.
       await bobSelfUpdate();
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await commitMet();
+      await rig.receiver.pullLive(_c1);
 
       expect(await deferredIds(), isEmpty);
       expect(await epochOf(1), 2);
@@ -5290,9 +5306,11 @@ void main() {
       await bobSelfUpdate();
       // From now the engine works but this group state does not.
       engine().failState[RigEngine.key(await groupState())] = internal;
+      await commitMet();
 
       for (var n = 1; n < kGroupFailuresMax; n++) {
-        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        final out = await rig.receiver.pullLive(_c1);
+        expect(out.kind, ReceiveOutcomeKind.stopped);
         expect((await receiveRecord()).gf!.n, n);
         expect((await receiveRecord()).close!.end, isFalse);
         expect(await epochOf(1), 1);
@@ -5300,7 +5318,8 @@ void main() {
         expect(await row(_mid(1)), isNull);
         // The conversation's own wait doubles with the count: 1 min, 2.
         rig.clock.advance(kEngineBackoff * n - seconds(1));
-        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        final held = await rig.receiver.pullLive(_c1);
+        expect(held.kind, ReceiveOutcomeKind.stopped);
         expect((await receiveRecord()).gf!.n, n);
         rig.clock.advance(seconds(1));
       }
@@ -5309,7 +5328,7 @@ void main() {
       engine().failState.clear();
       failAlways(m1, internal);
       engine().failNext['describe'] = internal;
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await rig.receiver.pullLive(_c1);
 
       expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
       expect(await deferredIds(), isEmpty);
@@ -5328,8 +5347,10 @@ void main() {
       await bobSelfUpdate();
       // From now the engine works but this group state does not.
       engine().failState[RigEngine.key(await groupState())] = internal;
+      await commitMet();
       for (var n = 1; n < kGroupFailuresMax; n++) {
-        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        final out = await rig.receiver.pullLive(_c1);
+        expect(out.kind, ReceiveOutcomeKind.stopped);
         final gf = (await receiveRecord()).gf!;
         expect((gf.n, gf.kind), (n, GroupFailureKind.describeFailed));
         rig.clock.advance(kEngineBackoff * n);
@@ -5346,7 +5367,7 @@ void main() {
       failAlways(m2, internal);
       engine().failNext['describe'] = internal;
       final from = engine().calls.length;
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await rig.receiver.pullLive(_c1);
 
       expect(rig.contexts.of(_c1).groupBroken, hasLength(1));
       // The two final attempts, and one probe pair between them only.
@@ -5377,16 +5398,19 @@ void main() {
       await rig.receiver.pullLive(_c1);
       await bobSelfUpdate();
       final held = (await deferred()).encode();
+      await commitMet();
 
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      final down = await rig.receiver.pullLive(_c1);
 
+      expect(down.kind, ReceiveOutcomeKind.stopped);
+      expect(processedCount(m1.ciphertext), 2);
       expect((await deferred()).encode(), held);
       expect(await row(_mid(1)), isNull);
       expect((await receiveRecord()).close!.end, isFalse);
       expect(await epochOf(1), 1);
 
       rig.clock.advance(kEngineBackoff);
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await rig.receiver.pullLive(_c1);
       expect((await row(_mid(1)))!.state, StoredMessageState.visible);
       expect(await epochOf(1), 2);
     });
@@ -5404,11 +5428,13 @@ void main() {
       // From now both hang; the describe probe answers.
       failAlways(m1, deadline);
       failAlways(m2, deadline);
+      await commitMet();
 
       // The first hangs: its crash is counted (durably, so it never reaches
       // the engine again), nothing is written for the second, which is not
       // tried in this body, and the walk has not ended.
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
       expect(processedCount(m1.ciphertext), 2);
       expect(processedCount(m2.ciphertext), 1);
       var items = (await deferred()).items;
@@ -5423,14 +5449,16 @@ void main() {
 
       // The next one: the first is a row with no engine call (in the end's
       // transaction, so not yet), the second hangs once.
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      final second = await rig.receiver.pullLive(_c1);
+      expect(second.kind, ReceiveOutcomeKind.stopped);
       expect(processedCount(m1.ciphertext), 2);
       expect(processedCount(m2.ciphertext), 2);
       items = (await deferred()).items;
       expect([for (final i in items) i.cc], [1, 1]);
       expect(await epochOf(1), 1);
 
-      // Then the walk ends with no engine call and the commit applies.
+      // Then the walk ends with no engine call and the commit applies. A
+      // bare catch-up may do it: neither item needs the engine any more.
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       expect(processedCount(m1.ciphertext), 2);
       expect(processedCount(m2.ciphertext), 2);
@@ -5471,7 +5499,14 @@ void main() {
         return refused;
       }
 
+      // The bare sink reaches the walk's end and makes no engine call at
+      // all (no pass has answered a probe for it): the end waits.
       expect(await close(), isA<Exception>());
+      expect(engine().processed, isEmpty);
+      expect((await receiveRecord()).close!.end, isFalse);
+
+      // A pass's close walk makes the attempts, under the lock.
+      await rig.receiver.pullLive(_c1);
       // One attempt and its describe probe, not sixteen of each.
       expect(engine().processed, hasLength(1));
       expect(count('describe'), 1);
@@ -5479,7 +5514,7 @@ void main() {
       expect(await deferredIds(), hasLength(kDeferredMax));
       expect(await rig.device.vault.messages(_c1, limit: 20), isEmpty);
 
-      expect(await close(), isA<Exception>());
+      await rig.receiver.pullLive(_c1);
       expect(engine().processed, hasLength(2));
     });
 

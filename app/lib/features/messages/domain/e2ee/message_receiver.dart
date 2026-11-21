@@ -604,6 +604,8 @@ class MessageReceiver implements EpochMessageSink {
       (tx) =>
           tx.putConversationSync(id, sync.copyWith(sinceToken: token.token)),
     );
+    // The pass's own save: its freshness witness follows the token.
+    _contexts.of(id).noteSinceTokenSaved(pass, sync.sinceToken, token.token);
   });
 
   // -------------------------------------------------------------------------
@@ -650,7 +652,16 @@ class MessageReceiver implements EpochMessageSink {
         final saveToken = token != null && sync.sinceToken == token.expect
             ? token.token
             : update?.sinceToken;
-        final write = _Write(v, id, sync, saveToken, hidden, update?.record);
+        final write = _Write(
+          v,
+          id,
+          sync,
+          saveToken,
+          hidden,
+          update?.record,
+          // The pass's own save: its freshness witness follows the token.
+          (to) => context.noteSinceTokenSaved(pass, sync.sinceToken, to),
+        );
 
         // 1. A tombstone clears a stored copy and stores nothing new.
         if (m.state == MessageState.MESSAGE_STATE_REMOVED ||
@@ -1029,7 +1040,15 @@ class _Pass {
 /// and the deferred record, all read or computed fresh in that body.
 /// No `toString`.
 class _Write {
-  _Write(this.vault, this.id, this.sync, this.token, this.hidden, this.record);
+  _Write(
+    this.vault,
+    this.id,
+    this.sync,
+    this.token,
+    this.hidden,
+    this.record,
+    this.onTokenSaved,
+  );
 
   final SecureVault vault;
   final String id;
@@ -1037,6 +1056,10 @@ class _Write {
   final String? token;
   final bool hidden;
   final ReceiveRecord? record;
+
+  /// Called with the since token a transaction of [commit] saved over
+  /// [sync]'s, once that transaction committed.
+  final void Function(String token) onTokenSaved;
 
   /// [deferred]: the deferred record to write (an item added or removed
   /// with this message); [rows]: rows of other messages that end with this
@@ -1097,6 +1120,9 @@ class _Write {
         );
       }
     });
+    if (newToken != null && newToken != sync.sinceToken) {
+      onTokenSaved(newToken);
+    }
     return _Step.wrote;
   }
 }

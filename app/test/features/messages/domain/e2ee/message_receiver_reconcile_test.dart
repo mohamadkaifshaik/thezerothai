@@ -1655,6 +1655,164 @@ void main() {
       expect((await row(1))!.state, StoredMessageState.visible);
       expect(await deferredIds(), isEmpty);
     });
+
+    test('a catch-up outside a pass makes no final attempt on a null entry, '
+        'and the next pass delivers it', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      // No reconcile entry, a since token stored, a commit waiting.
+      expect(await rec(), isNull);
+      expect((await sync()).sinceToken, isNotEmpty);
+      await bobSelfUpdate();
+      final context = rig.contexts.of(_c1);
+
+      // The sink reaches the close walk's end outside a pass: no probe
+      // has shown what changed since the stored token, so the stored
+      // ciphertext is not given to the engine and the commit waits.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await deferredIds(), [_mid(1)]);
+      expect(await row(1), isNull);
+      expect((await record()).close!.end, isFalse);
+      expect(await epoch(), 1);
+      expect(context.catchUpDueAt, isNotNull);
+      // Nor does a second one, nor an unheld welcome poll.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      await rig.crypto.processWelcomes();
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await row(1), isNull);
+
+      // The next pass: its probe is answered for the stored token, its
+      // close walk ends with the final attempt, and the commit applies.
+      await pull();
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(await epoch(), 2);
+      await pull();
+      await expectDelivered(m1, 1);
+    });
+
+    test('a deferred message taken down while no pass ran is rowed as '
+        'removed, never decrypted, when its epoch closes', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      expect(await rec(), isNull);
+      await bobSelfUpdate();
+      // The app is closed. The message is taken down (the server's rule:
+      // that retires every since token issued before it), and only the
+      // by-id tombstone listing shows it.
+      rig.server.takedownRetiresSince = true;
+      takeDownUnseen(1);
+      await rig.restart();
+
+      // The next start: a catch-up closes the epoch before any probe.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await row(1), isNull);
+      expect(await deferredIds(), [_mid(1)]);
+      expect(await epoch(), 1);
+
+      // The passes: the token and the anchor are refused, the entry is
+      // armed, the by-id listing ends the item as its removed row, and
+      // the epoch closes.
+      for (
+        var i = 0;
+        i < 6 && (await epoch() == 1 || await rec() != null);
+        i++
+      ) {
+        await pull();
+      }
+
+      expect(processedCount(m1.ciphertext), 1);
+      final r = (await row(1))!;
+      expect((r.state, r.content), (StoredMessageState.removed, null));
+      expect(await deferredIds(), isEmpty);
+      expect(await epoch(), 2);
+      expect(await rec(), isNull);
+      expect((await sync()).sinceToken, isNotEmpty);
+    });
+
+    test('a final attempt with a null entry runs in a pass whose probe was '
+        'answered for the stored since token', () async {
+      await setUpJoined();
+      await say(1, at: const Duration(minutes: -10));
+      await pull();
+      // The device moved on to generation 2 (generation 1's last epoch is
+      // walked and its group let go), and the fast path is open.
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      await rig.device.vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+      await pull();
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect(await rec(), isNull);
+      final token = (await sync()).sinceToken;
+      expect(token, isNotEmpty);
+      // Generation 1's group is kept after all, its close walk at its end,
+      // with a message of the pair deferred after that walk ended: the
+      // ended walk owes a final attempt before the group goes.
+      final late = await say(2, at: _seconds(-5));
+      rig.server
+        ..rewriteEpoch = ((r) =>
+            r..messages.removeWhere((m) => m.id == _mid(2)))
+        ..rewriteLive = ((r) =>
+            r..messages.removeWhere((m) => m.id == _mid(2)));
+      final now = rig.clock.now().microsecondsSinceEpoch;
+      final stored = await record();
+      await rig.device.vault.transaction((tx) async {
+        await tx.putGroup(g1);
+        await ReceiveRecords().putIn(
+          tx,
+          _c1,
+          stored.copyWith(
+            close: const WalkEntry(
+              pair: MlsPair(1, 1),
+              end: true,
+              mode: WalkMode.decrypt,
+            ),
+          ),
+        );
+        await DeferredRecords().putIn(
+          tx,
+          _c1,
+          DeferredRecord([
+            DeferredItem(
+              id: _mid(2),
+              pair: const MlsPair(1, 1),
+              at: late.createdAt.toDateTime().microsecondsSinceEpoch,
+              da: now,
+              ct: Uint8List.fromList(late.ciphertext),
+              rc: Uint8List.fromList(late.reportCommitment),
+              fs: false,
+              k: 1,
+              la: now,
+              ru: 'bbbbbbbbbbbbbbbb',
+            ),
+          ]),
+        );
+      });
+      // Something changed on the server: this pass's probe is answered for
+      // the stored token, and its fast path saves the answer's NEW token
+      // before the walks reach the final attempt.
+      ghost(90);
+
+      await pull();
+
+      expect((await sync()).sinceToken, isNot(token));
+      expect(await rec(), isNull);
+      expect(processedCount(late.ciphertext), 1);
+      expect((await row(2))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), isEmpty);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect((await record()).close, isNull);
+    });
   });
 }
 

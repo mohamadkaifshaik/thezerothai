@@ -178,6 +178,59 @@ class ConversationContext {
     return identical(noted.pass, pass);
   }
 
+  /// The pass whose probe was ANSWERED for a request that sent the stored,
+  /// non-empty since token, with that token: the pass has seen what changed
+  /// since it (a takedown among it). The freshness witness of every engine
+  /// call on a DEFERRED message while no reconcile entry stands: a retry,
+  /// and a final attempt. A fact of that one pass, in memory only and never
+  /// in a sealed record (a stored mark would have no age).
+  ///
+  /// The token follows that pass's own saves: when the pass itself saves a
+  /// since token over exactly this one (the fast path, §4 rule 2: both by
+  /// compare-and-set on the token its probe was answered for), the witness
+  /// holds for the token it saved ([noteSinceTokenSaved]). Any other stored
+  /// token, an empty one above all, is not witnessed.
+  ({Object pass, String token})? _probeAnswered;
+
+  /// [pass]'s probe was answered for a request that sent the stored since
+  /// token [token] (call with the lock held, after every tombstone of the
+  /// answer was noted for the run). An empty token is never a witness.
+  void noteProbeAnswered(Object pass, String token) {
+    if (token.isNotEmpty) _probeAnswered = (pass: pass, token: token);
+  }
+
+  /// [pass] saved the since token [to] over [from] in a transaction that
+  /// committed. Only the witnessed pass's own save over the witnessed token
+  /// moves the witness; an empty [to] never does.
+  void noteSinceTokenSaved(Object pass, String from, String to) {
+    final noted = _probeAnswered;
+    if (noted == null ||
+        to.isEmpty ||
+        !identical(noted.pass, pass) ||
+        noted.token != from) {
+      return;
+    }
+    _probeAnswered = (pass: pass, token: to);
+  }
+
+  /// The witness is gone: the pass ended, or a since token or an anchor was
+  /// retired.
+  void clearProbeAnswered() => _probeAnswered = null;
+
+  /// Whether [pass] itself holds the witness for [sinceToken], the since
+  /// token read fresh in the write body that asks: this running pass's
+  /// probe was answered for a request that sent the stored, non-empty since
+  /// token, and the stored token is still that one (or the one this pass
+  /// saved over it). Another pass (the sink's own, a later one) is only
+  /// answered no.
+  bool probeAnsweredIn(Object pass, String sinceToken) {
+    final noted = _probeAnswered;
+    return noted != null &&
+        identical(noted.pass, pass) &&
+        sinceToken.isNotEmpty &&
+        noted.token == sinceToken;
+  }
+
   // --- the receiver's failure rule (design rev 3 §7; memory only) ---------
 
   /// No engine call of the receiver for THIS conversation before this time:
