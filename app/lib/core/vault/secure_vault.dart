@@ -336,6 +336,21 @@ abstract interface class SecureVault {
   /// A value stored with [VaultTx.putSetting], or null.
   Future<Uint8List?> setting(String key);
 
+  /// The check an encrypted send makes after its outbox row was committed
+  /// and before any network call (addendum R7): true only when this vault
+  /// holds the outbox row [idempotencyKey] at stage `encrypted`. Read-only;
+  /// reads no sealed column.
+  ///
+  /// STATED LIMIT (R7 allows it): this is NOT the web persistence barrier.
+  /// The read goes through this vault's own connection, so on the web
+  /// (`sharedIndexedDb`, whose writes reach IndexedDB asynchronously after a
+  /// commit) a true answer does not prove the row has reached the persistent
+  /// store. A second, independent, read-only connection is what the barrier
+  /// needs, and drift 2.35 cannot open one (see `vault_open_web.dart`). On
+  /// Android a SQLite commit is durable when `transaction()` returns, so the
+  /// answer is exact there.
+  Future<bool> confirmStored(String idempotencyKey);
+
   /// Deletes every row (one transaction), compacts the file (`VACUUM`; with
   /// `secure_delete` on, freed pages are zeroed), then destroys the cipher
   /// (its platform key). From the start every other call is refused, so no
@@ -1280,6 +1295,19 @@ class _DriftSecureVault implements SecureVault {
     )..where((t) => t.settingKey.equals(key))).getSingleOrNull();
     if (row == null) return null;
     return _openOrCorrupt(_tSettings, 'value', [key], row.value);
+  }
+
+  @override
+  Future<bool> confirmStored(String idempotencyKey) async {
+    _checkOpen();
+    final row = await _db
+        .customSelect(
+          'SELECT stage FROM vault_outbox WHERE idempotency_key = ?',
+          variables: [Variable.withString(idempotencyKey)],
+          readsFrom: {_db.vaultOutbox},
+        )
+        .getSingleOrNull();
+    return row != null && row.read<String>('stage') == OutboxStage.encrypted;
   }
 
   @override

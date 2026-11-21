@@ -68,6 +68,24 @@ Future<(DatabaseConnection, String)> openPlatformVaultConnection(
   return (await probed.open(chosen, name), chosen.name);
 }
 
+// The web persistence barrier (addendum R7) is a STATED LIMIT: there is no
+// second-connection opener here, and `SecureVault.confirmStored` reads
+// through the vault's own connection. The barrier needs the same database
+// name and storage opened READ-ONLY on a worker that is not the vault's, and
+// drift 2.35.4 offers no such open:
+//
+// - its worker protocol (`ServeDriftDatabase`) carries no open mode, so every
+//   connection is read-write and runs sqlite's hot-journal recovery when it
+//   opens;
+// - a new `WasmDatabase.probe` does start a new dedicated worker, but for a
+//   vault on `sharedIndexedDb` that worker can only open the name as
+//   `unsafeIndexedDb`: a second read-write copy with no coordination with the
+//   shared worker, which may roll back a transaction the vault has in flight
+//   and flush that to IndexedDB (the reason `chooseVaultWebStorage` refuses
+//   that storage);
+// - for a vault on `opfsShared` the file is held by an exclusive sync access
+//   handle, so no second worker can open it while the vault is open.
+
 /// Web: every drift database named [name] loses its rows (opened with any
 /// storage of its API, the unsafe IndexedDB one included, for this one
 /// short operation) and is rebuilt (`VACUUM`, `secure_delete` on). Then:
