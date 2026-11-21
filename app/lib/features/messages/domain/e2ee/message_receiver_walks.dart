@@ -573,9 +573,6 @@ extension _Walks on MessageReceiver {
       }
       if (take() == 0) return ReceiveOutcome.more;
       final context = _contexts.of(id);
-      final atMax =
-          context.walkBackoff != null &&
-          context.walkBackoff! >= kWalkBackoffMax;
       final backOffs = context.walkBackOffs;
       final step = await _walkStep(pass, id, slot, w, priority, onTokenSaved);
       switch (step.kind) {
@@ -587,83 +584,96 @@ extension _Walks on MessageReceiver {
         case _StepKind.restarted:
           break;
         case _StepKind.stop:
-          // This walk's own step backed off (never a failed or rate-limited
-          // call) with the backoff already at its maximum: one more of its
-          // failures in a row.
-          if (atMax && context.walkBackOffs != backOffs) {
-            final key = '${slot.name}:${w.pair.generation}:${w.pair.epoch}';
-            if (context.walkMaxFailsOf != key) {
-              context
-                ..walkMaxFailsOf = key
-                ..walkMaxFails = 0;
-            }
-            context.walkMaxFails++;
-            // An undecryptable walk that can never finish is given up, so
-            // it does not block every later commit for good.
-            if (await _abandonIfHopeless(pass, id, slot, w)) return null;
+          // This walk's own page was refused (an order violation, a missing
+          // order echo or the restart cap; never a failed or rate-limited
+          // call): counted in the sealed record, and an undecryptable walk
+          // that can never finish is given up, so it does not block every
+          // later commit for good.
+          if (context.walkBackOffs != backOffs &&
+              await _countRefusal(pass, id, slot, w)) {
+            return null;
           }
           return step.outcome;
       }
     }
   }
 
-  /// A ruling after the design (step 2 carry-over 4): [slot]'s walk [w]
-  /// needs no engine (mode `u`, or its group is gone) and its steps failed
-  /// [kWalkGiveUpAfter] times in a row with the walk backoff already at
-  /// its maximum. It is ABANDONED in one transaction: a close slot is left
-  /// at its `end` (so the commit gate reads the walk as over and the sink
-  /// may take the slot; cleared, the sink would only create it again), an
-  /// orphan slot is cleared, and the record's abandoned-walk count grows.
-  /// Reported once as a fixed pipeline error naming the step. No row is
-  /// written for messages that were never listed. True: abandoned (the walk
-  /// backoff is cleared with it).
-  Future<bool> _abandonIfHopeless(
+  /// A ruling after the design (step 2 carry-over 4, amended by fix round
+  /// 1: the count is DURABLE): [slot]'s walk [w] needs no engine (mode `u`,
+  /// or its group is gone) and its own page was just refused. With the
+  /// lock, in ONE `runWrite` and ONE transaction on the record read fresh:
+  /// the refusal is counted on the entry (`mf`, `mfAt`), at most one per
+  /// [kWalkRefusalSpacing] whatever the app run (the first at once), and at
+  /// [kWalkGiveUpAfter] the walk is ABANDONED in that same transaction: a
+  /// close slot is left at its `end` (so the commit gate reads the walk as
+  /// over and the sink may take the slot; cleared, the sink would only
+  /// create it again), an orphan slot is cleared, and the record's
+  /// abandoned-walk count grows. Reported once as a fixed pipeline error
+  /// naming the step. No row is written for messages that were never
+  /// listed. The open walk and a walk that decrypts are never counted. An
+  /// applied page resets the count ([WalkEntry.afterPage]). True: abandoned
+  /// (the walk backoff is cleared with it).
+  Future<bool> _countRefusal(
     _Pass pass,
     String id,
     _Slot slot,
     WalkEntry w,
   ) async {
+    if (slot == _Slot.open) return false;
     final context = _contexts.of(id);
-    if (slot == _Slot.open ||
-        context.walkMaxFailsOf !=
-            '${slot.name}:${w.pair.generation}:${w.pair.epoch}' ||
-        context.walkMaxFails < kWalkGiveUpAfter) {
-      return false;
-    }
-    final abandoned = await _locks.run(id, () async {
-      if (!pass.live) return false;
-      return _session.runWrite((v) async {
+    // Null: nothing written; else whether the walk was abandoned.
+    final abandoned = await _locks.run<bool?>(id, () async {
+      if (!pass.live) return null;
+      return _session.runWrite<bool?>((v) async {
         pass.check(v);
         final record = await _readReceive(v, id);
         final now = _slotOf(record, slot);
-        if (now == null || now.pair != w.pair || now.end) return false;
+        if (now == null || now.pair != w.pair || now.end) return null;
         final group = await v.group(id, now.pair.generation);
         final needsNoEngine =
             group == null ||
             group.provisional ||
             (slot == _Slot.close && now.mode == WalkMode.undecryptable);
-        if (!needsNoEngine) return false;
+        if (!needsNoEngine) return null;
+        final at = _now().microsecondsSinceEpoch;
+        // Either way: a local clock set back does not stop the count.
+        final counted =
+            now.mf < 1 ||
+            (at - now.mfAt).abs() >= kWalkRefusalSpacing.inMicroseconds;
+        final mf = now.mf + (counted ? 1 : 0);
+        if (mf >= kWalkGiveUpAfter) {
+          await v.transaction(
+            (tx) => _records.putIn(
+              tx,
+              id,
+              _withSlot(
+                record,
+                slot,
+                slot == _Slot.close
+                    ? now.copyWith(end: true, mf: 0, mfAt: 0)
+                    : null,
+              ).copyWith(abandoned: record.abandoned + 1),
+            ),
+          );
+          return true;
+        }
+        if (!counted) return null;
         await v.transaction(
           (tx) => _records.putIn(
             tx,
             id,
-            _withSlot(
-              record,
-              slot,
-              slot == _Slot.close ? now.copyWith(end: true) : null,
-            ).copyWith(abandoned: record.abandoned + 1),
+            _withSlot(record, slot, now.copyWith(mf: mf, mfAt: at)),
           ),
         );
-        return true;
+        return false;
       });
     });
-    if (!abandoned) return false;
+    if (abandoned == null) return false;
     context.serial++;
+    if (!abandoned) return false;
     context
       ..walkBackoff = null
-      ..walkBackoffUntil = null
-      ..walkMaxFailsOf = null
-      ..walkMaxFails = 0;
+      ..walkBackoffUntil = null;
     _onUnexpectedError?.call(
       const E2eePipelineError('receive.walk.abandoned'),
       StackTrace.current,
@@ -1032,9 +1042,6 @@ extension _Walks on MessageReceiver {
     if (!written) return _StepEnd.stale;
     context.serial++;
     context.walkBackoff = null;
-    context
-      ..walkMaxFailsOf = null
-      ..walkMaxFails = 0;
     // M3: the restart count is per listing, not per run, so a long run never
     // backs off for good; reset only at a listing's end, so a server that
     // refuses every continuation token still reaches the backoff.

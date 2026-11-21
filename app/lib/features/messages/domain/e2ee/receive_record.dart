@@ -76,6 +76,8 @@ class WalkEntry {
     this.f,
     this.lt,
     this.mode,
+    this.mf = 0,
+    this.mfAt = 0,
   });
 
   final MlsPair pair;
@@ -89,6 +91,15 @@ class WalkEntry {
   final int? lt;
   final WalkMode? mode;
 
+  /// The refusal count (`mf`, 0 to [kWalkGiveUpAfter]) and the local micros
+  /// of the last counted refusal (`mfAt`): how many times this walk's own
+  /// pages were refused while it needed no engine, at most one counted an
+  /// hour, ACROSS app runs (it is in the sealed record, so a restart does
+  /// not begin again). Kept by a restart from a refused token, reset by an
+  /// applied page. Optional at decode (an older record has none).
+  final int mf;
+  final int mfAt;
+
   WalkEntry copyWith({
     String? t,
     String? s,
@@ -99,6 +110,8 @@ class WalkEntry {
     Object? f = _keep,
     Object? lt = _keep,
     Object? mode = _keep,
+    int? mf,
+    int? mfAt,
   }) => WalkEntry(
     pair: pair,
     t: t ?? this.t,
@@ -110,9 +123,12 @@ class WalkEntry {
     f: identical(f, _keep) ? this.f : f as WalkPos?,
     lt: identical(lt, _keep) ? this.lt : lt as int?,
     mode: identical(mode, _keep) ? this.mode : mode as WalkMode?,
+    mf: mf ?? this.mf,
+    mfAt: mfAt ?? this.mfAt,
   );
 
-  /// A refused page token (§3.2): the walk lists again from the start.
+  /// A refused page token (§3.2): the walk lists again from the start (its
+  /// refusal count is kept: a refused token is not an applied page).
   WalkEntry restarted() =>
       copyWith(t: '', s: '', r: true, c: true, l: null, f: null);
 
@@ -124,7 +140,8 @@ class WalkEntry {
   /// The entry after one applied page (§3.2). [last]: the page's last
   /// message (null for an empty page); [nowLocal]: set as [lt] when this
   /// page starts a listing and [open] is true (0 for a local clock before
-  /// 1970, which the decoder would refuse).
+  /// 1970, which the decoder would refuse). An applied page resets the
+  /// refusal count ([mf], [mfAt]).
   WalkEntry afterPage({
     required String next,
     required String resume,
@@ -166,6 +183,8 @@ class WalkEntry {
       f: f,
       lt: lt,
       mode: mode,
+      mf: 0,
+      mfAt: 0,
     );
   }
 }
@@ -189,6 +208,12 @@ class ReconcileEntry {
 /// Group-level engine failures after which a failing message becomes a row
 /// and its group is rowed for the run (§7.2).
 const int kGroupFailuresMax = 3;
+
+/// An undecryptable walk whose own pages were refused this many times, each
+/// counted at most once an hour across app runs, is abandoned (a ruling
+/// after the design, step 2 carry-over 4 as amended by fix round 1). Also
+/// the bound of a walk entry's refusal count.
+const int kWalkGiveUpAfter = 5;
 
 /// The bound of the abandoned-walk count; a count above it is written as
 /// the bound.
@@ -366,6 +391,11 @@ class ReceiveRecord {
       'f': _posJson(w.f),
       if (lt) 'lt': w.lt,
       if (close) 'm': w.mode == WalkMode.undecryptable ? 'u' : 'c',
+      // Clamped into the decoder's bounds, as every count and local time.
+      'mf': w.mf < 0 ? 0 : (w.mf > kWalkGiveUpAfter ? kWalkGiveUpAfter : w.mf),
+      'mfAt': w.mfAt < 0
+          ? 0
+          : (w.mfAt > kMaxPairComponent ? kMaxPairComponent : w.mfAt),
     };
   }
 
@@ -402,6 +432,17 @@ class ReceiveRecord {
         _ => throw const FormatException('m'),
       };
     }
+    // Optional: a record written before the refusal count existed has none.
+    final mf = raw['mf'] ?? 0;
+    final mfAt = raw['mfAt'] ?? 0;
+    if (mf is! int ||
+        mf < 0 ||
+        mf > kWalkGiveUpAfter ||
+        mfAt is! int ||
+        mfAt < 0 ||
+        mfAt > kMaxPairComponent) {
+      throw const FormatException('mf');
+    }
     return WalkEntry(
       pair: MlsPair(g, e),
       t: _token(raw['t']),
@@ -413,6 +454,8 @@ class ReceiveRecord {
       f: _pos(raw['f'], timeOnly: true),
       lt: close ? null : lt as int?,
       mode: mode,
+      mf: mf,
+      mfAt: mfAt,
     );
   }
 

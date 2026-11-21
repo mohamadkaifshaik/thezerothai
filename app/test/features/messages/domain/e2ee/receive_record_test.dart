@@ -216,6 +216,35 @@ void main() {
       ),
       ('a string for the abandoned-walk count', (r) => r['ab'] = '1', false),
       (
+        'a refusal count at its maximum with its time',
+        (r) => _slot(r, 'close')
+          ..['mf'] = kWalkGiveUpAfter
+          ..['mfAt'] = kMaxPairComponent,
+        true,
+      ),
+      ('a negative refusal count', (r) => _slot(r, 'close')['mf'] = -1, false),
+      (
+        'a refusal count above its maximum',
+        (r) => _slot(r, 'orphan')['mf'] = kWalkGiveUpAfter + 1,
+        false,
+      ),
+      (
+        'a string for the refusal count',
+        (r) => _slot(r, 'close')['mf'] = '1',
+        false,
+      ),
+      ('a negative refusal time', (r) => _slot(r, 'close')['mfAt'] = -1, false),
+      (
+        'a refusal time at 2^53',
+        (r) => _slot(r, 'orphan')['mfAt'] = kMaxPairComponent + 1,
+        false,
+      ),
+      (
+        'a string for the refusal time',
+        (r) => _slot(r, 'close')['mfAt'] = 'x',
+        false,
+      ),
+      (
         'an old orphan entry with lt',
         (r) => _slot(r, 'orphan')['lt'] = 9,
         true,
@@ -281,6 +310,9 @@ void main() {
         f: pos,
         lt: lt,
         mode: mode,
+        // The refusal count and its time at their maxima.
+        mf: kWalkGiveUpAfter,
+        mfAt: kMaxPairComponent,
       );
       final r = ReceiveRecord(
         open: walk(lt: kMaxPairComponent),
@@ -296,7 +328,49 @@ void main() {
       );
       final bytes = r.encode();
       expect(bytes.length, lessThan(kMaxReceiveRecordBytes));
-      expect(ReceiveRecord.decode(bytes).anchor, token);
+      final again = ReceiveRecord.decode(bytes);
+      expect(again.anchor, token);
+      for (final w in [again.open!, again.close!, again.orphan!]) {
+        expect((w.mf, w.mfAt), (kWalkGiveUpAfter, kMaxPairComponent));
+      }
+    });
+
+    test('the refusal count round-trips, is clamped into its bounds at encode, '
+        'is kept by a restart and reset by an applied page', () {
+      const w = WalkEntry(
+        pair: MlsPair(1, 1),
+        mode: WalkMode.undecryptable,
+        mf: 3,
+        mfAt: 77,
+      );
+      final again = ReceiveRecord.decode(
+        const ReceiveRecord(close: w).encode(),
+      );
+      expect((again.close!.mf, again.close!.mfAt), (3, 77));
+      // A record written before the count existed has none.
+      final old = ReceiveRecord.decode(_bytes(_record()));
+      expect((old.close!.mf, old.close!.mfAt), (0, 0));
+      const over = WalkEntry(
+        pair: MlsPair(1, 1),
+        mf: kWalkGiveUpAfter + 3,
+        mfAt: -4,
+      );
+      final clamped = ReceiveRecord.decode(
+        const ReceiveRecord(orphan: over).encode(),
+      );
+      expect((clamped.orphan!.mf, clamped.orphan!.mfAt), (kWalkGiveUpAfter, 0));
+      // A refused token is not an applied page.
+      expect((w.restarted().mf, w.restarted().mfAt), (3, 77));
+      expect(w.copyWith(end: true).mf, 3);
+      final applied = w.afterPage(
+        next: 'tok',
+        resume: 'tok',
+        settled: true,
+        last: null,
+        open: false,
+        nowLocal: 5,
+      );
+      expect((applied.mf, applied.mfAt), (0, 0));
     });
 
     test('a local clock before 1970 is written as lt 0 and decodes', () {

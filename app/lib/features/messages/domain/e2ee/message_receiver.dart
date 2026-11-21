@@ -51,10 +51,10 @@ const int kWalkRestartsPerRun = 2;
 const Duration kWalkBackoff = Duration(minutes: 1);
 const Duration kWalkBackoffMax = Duration(hours: 1);
 
-/// An undecryptable walk whose steps failed this many times in a row with
-/// the walk backoff already at [kWalkBackoffMax] is abandoned (a ruling
-/// after the design, step 2 carry-over 4).
-const int kWalkGiveUpAfter = 5;
+/// At most one refused page of an undecryptable walk is counted towards its
+/// abandonment per this long, across app runs (`kWalkGiveUpAfter` in the
+/// receive record's file; a ruling after the design).
+const Duration kWalkRefusalSpacing = Duration(hours: 1);
 
 /// When the next pass may try after an engine answer that stopped a pass
 /// (§7.2: the device is down, an unwitnessed crash, a group-level failure;

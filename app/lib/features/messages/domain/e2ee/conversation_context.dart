@@ -167,15 +167,10 @@ class ConversationContext {
 
   /// How many times the walk backoff was raised this run (every order
   /// violation, missing order echo or restart cap; never an RPC failure).
+  /// The receiver reads it around a walk step to tell the walk's own
+  /// refusal from a failed or rate-limited call; the refusals that lead to
+  /// an abandonment are counted in the sealed receive record, not here.
   int walkBackOffs = 0;
-
-  /// The walk (`slot:generation:epoch`) whose own steps, by a pass, last
-  /// backed off with the walk backoff already at its maximum, and how many
-  /// times in a row ([walkMaxFails]; reset by an applied page or another
-  /// walk's such failure): an undecryptable walk is abandoned at
-  /// `kWalkGiveUpAfter`. A failed or rate-limited call never counts.
-  String? walkMaxFailsOf;
-  int walkMaxFails = 0;
 }
 
 /// The [ConversationContext] of every conversation, by id.

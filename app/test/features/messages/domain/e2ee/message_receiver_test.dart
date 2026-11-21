@@ -4960,9 +4960,9 @@ void main() {
       expect(await row(_mid(3)), isNull);
     });
 
-    test('an undecryptable walk that fails five times at the maximum backoff '
-        'is abandoned: counted, reported once, no row invented, and the '
-        'waiting commit applies', () async {
+    test('an undecryptable walk refused for hours in one run is abandoned: '
+        'counted, reported once, no row invented, and the waiting commit '
+        'applies', () async {
       await setUpJoined();
       // This device joins generation 2; generation 1's group is then gone
       // with its close walk of (1, 1) unfinished in mode u.
@@ -4994,9 +4994,12 @@ void main() {
         () async => await rig.receiver.abandonedWalks(_c1) > 0,
       );
 
-      // 1, 2, 4, 8, 16, 32 min and the first hour reach the maximum; five
-      // more failures there give it up.
-      expect(passes, 7 + kWalkGiveUpAfter);
+      // In one run the refused pages come 1, 2, 4, 8, 16, 32 minutes and
+      // then an hour apart. The first pass waits out the sink's backoff; the
+      // refusal of the second is counted at once, the next five fall inside
+      // its hour, and the four after them (each more than an hour after the
+      // last counted one) make five: the tenth pass gives the walk up.
+      expect(passes, 10);
       expect(await rig.receiver.abandonedWalks(_c1), 1);
       expect(rig.unexpected, hasLength(1));
       final e = rig.unexpected.single as E2eePipelineError;
@@ -5052,12 +5055,13 @@ void main() {
         await rig.receiver.pullLive(_c1);
       }
       expect(await rig.receiver.abandonedWalks(_c1), 0);
-      // The count kept is still the open walk's own.
-      expect(rig.contexts.of(_c1).walkMaxFailsOf, 'open:1:1');
+      // Nothing was counted against it: not the open walk's refusals, not
+      // the failed calls.
+      expect((await receiveRecord()).close!.mf, 0);
       rig.server.onCall = null;
       rig.clock.advance(kWalkBackoffMax);
 
-      // Its own five refused pages at the maximum backoff give it up.
+      // Its own five refused pages, an hour apart, give it up.
       final passes = await passUntil(
         () async => await rig.receiver.abandonedWalks(_c1) > 0,
       );
@@ -5067,6 +5071,123 @@ void main() {
       rig.unexpected.clear();
       expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
       expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
+    });
+
+    /// Generation 1's group is gone with its close walk of (1, 1)
+    /// unfinished in mode u ([mf] refusals counted so far), and three
+    /// messages of the pair on the server.
+    Future<void> goneWithClose({
+      int pageSize = kEpochPageSize,
+      int mf = 0,
+    }) async {
+      await setUpJoined(pageSize: pageSize);
+      await sayMany(1, 3, start: const Duration(minutes: -10));
+      await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      await putReceiveRecord(
+        ReceiveRecord(
+          close: WalkEntry(
+            pair: const MlsPair(1, 1),
+            mode: WalkMode.undecryptable,
+            mf: mf,
+            mfAt: mf == 0 ? 0 : rig.clock.now().microsecondsSinceEpoch,
+          ),
+        ),
+      );
+    }
+
+    test('an undecryptable walk refused across five app runs an hour apart '
+        'is abandoned', () async {
+      await goneWithClose();
+      // The server never serves (1, 1) in order.
+      rig.server.rewriteEpoch = (real) => real.deepCopy()..clearOrder();
+
+      for (var run = 1; run <= kWalkGiveUpAfter; run++) {
+        expect(await rig.receiver.abandonedWalks(_c1), 0);
+        // One pass per run: the walk backoff (memory) never passes its
+        // first minute.
+        await rig.receiver.pullLive(_c1);
+        if (run == kWalkGiveUpAfter) break;
+        final close = (await receiveRecord()).close!;
+        expect(close.mf, run);
+        expect(close.end, isFalse);
+        expect(rig.unexpected, isEmpty);
+        await rig.restart();
+        rig.clock.advance(kWalkRefusalSpacing);
+      }
+
+      expect(await rig.receiver.abandonedWalks(_c1), 1);
+      expect(rig.unexpected, hasLength(1));
+      final e = rig.unexpected.single as E2eePipelineError;
+      expect(e.step, 'receive.walk.abandoned');
+      rig.unexpected.clear();
+      final close = (await receiveRecord()).close!;
+      expect((close.end, close.mf, close.mfAt), (true, 0, 0));
+      // No row for messages that were never listed.
+      expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
+      expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
+      expect(await rig.receiver.abandonedWalks(_c1), 1);
+    });
+
+    test('refusals within the same hour count once', () async {
+      await goneWithClose();
+      rig.server.rewriteEpoch = (real) => real.deepCopy()..clearOrder();
+      final start = rig.clock.now();
+
+      // Four refused pages in the first quarter of an hour (the backoff of
+      // 1, 2 and 4 minutes between them), and a restart in the middle.
+      for (var n = 0; n < 4; n++) {
+        await rig.receiver.pullLive(_c1);
+        final close = (await receiveRecord()).close!;
+        expect(close.mf, 1);
+        expect(close.mfAt, start.microsecondsSinceEpoch);
+        if (n == 1) await rig.restart();
+        rig.clock.value =
+            rig.contexts.of(_c1).walkBackoffUntil ??
+            rig.clock.now().add(kWalkBackoff);
+      }
+      expect(rig.contexts.of(_c1).orderMissing, greaterThan(1));
+      expect(rig.clock.now().difference(start), lessThan(kWalkRefusalSpacing));
+
+      // One second short of the hour: still one.
+      rig.clock.value = start.add(kWalkRefusalSpacing - seconds(1));
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).close!.mf, 1);
+      // A call that fails (the network) is no refusal, whenever it comes.
+      rig.clock.value = start.add(kWalkRefusalSpacing * 2);
+      rig.server.onCall = (c) async {
+        if (c == 'listEpochMessages') throw const NetworkException('rig');
+      };
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).close!.mf, 1);
+      rig.server.onCall = null;
+
+      rig.clock.advance(kWalkBackoffMax);
+      await rig.receiver.pullLive(_c1);
+      final close = (await receiveRecord()).close!;
+      expect(close.mf, 2);
+      expect(close.mfAt, rig.clock.now().microsecondsSinceEpoch);
+      expect(await rig.receiver.abandonedWalks(_c1), 0);
+    });
+
+    test('an applied page resets the abandonment count', () async {
+      await goneWithClose(pageSize: 2, mf: kWalkGiveUpAfter - 1);
+      expect((await receiveRecord()).close!.mf, kWalkGiveUpAfter - 1);
+      // The first page is served, every later one is refused.
+      var served = 0;
+      rig.server.rewriteEpoch = (real) =>
+          served++ == 0 ? real : (real.deepCopy()..clearOrder());
+
+      await rig.receiver.pullLive(_c1);
+
+      // The applied page reset the count; the refused one after it is the
+      // first of a new streak, not the fifth of the old one.
+      final close = (await receiveRecord()).close!;
+      expect(close.end, isFalse);
+      expect(close.t, isNotEmpty);
+      expect(close.mf, 1);
+      expect(await rig.receiver.abandonedWalks(_c1), 0);
+      expect(rig.unexpected, isEmpty);
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
     });
 
     test('a complete pass between two fruitless catch-ups at one pair does '
