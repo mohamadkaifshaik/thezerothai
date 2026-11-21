@@ -143,7 +143,9 @@ class EncryptedSender {
   /// Local ids whose outcome stayed unknown after the automatic resend:
   /// each later trigger makes one attempt.
   final Set<String> _unknown = {};
-  bool _reportedResponseId = false;
+
+  /// The step names [_reportOnce] reported in this run.
+  final Set<String> _reported = {};
 
   /// Local id -> no send before this time (the server's retry time).
   final Map<String, DateTime> _notBefore = {};
@@ -161,7 +163,7 @@ class EncryptedSender {
     _again.clear();
     _errors.clear();
     _unknown.clear();
-    _reportedResponseId = false;
+    _reported.clear();
     _notBefore.clear();
     _sendCalls.clear();
     _held.clear();
@@ -176,7 +178,9 @@ class EncryptedSender {
   /// the report key and the row's key) and no RPC. [ArgumentError] when an
   /// unsent row already has that local id, the conversation id is invalid,
   /// or the content is over [kMaxMessageContentBytes]; [StateError] when
-  /// the vault is not ready. A random-source failure propagates before a row is saved.
+  /// the vault is not ready, or when the random source answers another
+  /// length than was asked (audit L6). A random-source failure propagates.
+  /// Nothing is saved in any of these cases.
   Future<void> enqueue({
     required String localId,
     required String conversationId,
@@ -187,14 +191,20 @@ class EncryptedSender {
     if (!isConversationId(conversationId)) {
       throw ArgumentError('Invalid conversation id.');
     }
-    final engine = _engine();
+    final Uint8List reportKey;
+    final String key;
+    try {
+      reportKey = await _random(kReportKeyBytes);
+      key = _hexOf(await _random(16));
+    } on _BadRandom {
+      throw StateError('The random source answered another length.');
+    }
     // The report key and the exact bytes are fixed here, once.
     final content = encodeMessageContent(
       text: text,
       sharedPostId: sharedPostId,
-      reportKey: await engine.randomBytes(kReportKeyBytes),
+      reportKey: reportKey,
     );
-    final key = _hexOf(await engine.randomBytes(16));
     final op = await _start();
     if (op == null) throw StateError('The vault is not ready.');
     await _session.runWrite((v) async {
@@ -572,7 +582,7 @@ class EncryptedSender {
         (row: null, block: block);
     try {
       // The key this ciphertext goes out under: never one a row carried.
-      final key = _hexOf(await _engine().randomBytes(16));
+      final key = _hexOf(await _random(16));
       return await _session.runWrite((v) async {
         op.check(v);
         final groups = await v.groups(id);
@@ -641,6 +651,9 @@ class EncryptedSender {
         return (row: item, block: SendBlock.none);
       });
     } on _Stopped {
+      return held(SendBlock.unavailable);
+    } on _BadRandom {
+      _reportOnce('send.encrypt.random');
       return held(SendBlock.unavailable);
     } on MlsException catch (e) {
       return held(
@@ -742,14 +755,8 @@ class EncryptedSender {
   ) async {
     final message = response.message;
     final messageId = row.expectedMessageId;
-    if (message.id.isNotEmpty &&
-        message.id != messageId &&
-        !_reportedResponseId) {
-      _reportedResponseId = true;
-      _onUnexpectedError?.call(
-        const E2eePipelineError('send.responseId'),
-        StackTrace.current,
-      );
+    if (message.id.isNotEmpty && message.id != messageId) {
+      _reportOnce('send.responseId');
     }
     final at = _serverMicros(message) ?? _now().microsecondsSinceEpoch;
     try {
@@ -866,7 +873,7 @@ class EncryptedSender {
     // another generation), and the walk of that pair found no echo: back to
     // plain under a NEW key and a new expected id, in one transaction.
     try {
-      final next = _hexOf(await _engine().randomBytes(16));
+      final next = _hexOf(await _random(16));
       await _session.runWrite((v) async {
         op.check(v);
         final fresh = await _rowOf(v, id, key);
@@ -891,6 +898,9 @@ class EncryptedSender {
           );
         });
       });
+    } on _BadRandom {
+      _reportOnce('send.stale.random');
+      return _stop(id, SendBlock.unavailable);
     } on Object catch (e, s) {
       // The row stays encrypted: the next drain meets the refusal again.
       _reportIfBug(e, s, 'send.stale');
@@ -995,6 +1005,21 @@ class EncryptedSender {
     final wait = e is ScreeningUnavailableException ? e.retryAfter : null;
     if (wait == null || wait <= Duration.zero) return null;
     return wait > kMaxServerRetryWait ? kMaxServerRetryWait : wait;
+  }
+
+  /// [length] bytes of the engine's CSPRNG. Audit L6: an answer of another
+  /// length is [_BadRandom], before anything is stored or encrypted with it.
+  Future<Uint8List> _random(int length) async {
+    final bytes = await _engine().randomBytes(length);
+    if (bytes.length != length) throw const _BadRandom();
+    return bytes;
+  }
+
+  /// Reports [step] (a name only) the first time in this run.
+  void _reportOnce(String step) {
+    if (_reported.add(step)) {
+      _onUnexpectedError?.call(E2eePipelineError(step), StackTrace.current);
+    }
   }
 
   /// Reports a programming error (never an expected failure) by its step
@@ -1108,6 +1133,11 @@ class _Run {
 /// The vault the operation started with is no longer the session's.
 class _Stopped implements Exception {
   const _Stopped();
+}
+
+/// The random source answered another length than was asked.
+class _BadRandom implements Exception {
+  const _BadRandom();
 }
 
 /// One step's vault, user and device; no `toString`.

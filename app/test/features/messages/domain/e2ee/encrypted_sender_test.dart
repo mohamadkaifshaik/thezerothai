@@ -60,6 +60,19 @@ class _RandomEngine extends RigEngine {
   }
 }
 
+/// Cuts `randomBytes` answers: [cut] answers how many bytes of a
+/// [length]-byte answer are kept (null: all of them).
+class _CutRandomEngine extends RigEngine {
+  int? Function(int length)? cut;
+
+  @override
+  Future<Uint8List> randomBytes(int length) async {
+    final bytes = await super.randomBytes(length);
+    final keep = cut?.call(length);
+    return keep == null ? bytes : bytes.sublist(0, keep);
+  }
+}
+
 void main() {
   late RigCrypto rig;
   late RigPeer bob;
@@ -1512,6 +1525,101 @@ void main() {
       await updateSync((s) => s.copyWith(epochMustAdvance: true));
       await drain();
       expect(rig.server.sends.single.key, row.idempotencyKey);
+      expect(await outbox(), isEmpty);
+    });
+  });
+
+  group('random output of another length (audit L6)', () {
+    late _CutRandomEngine engine;
+
+    /// The reports so far, as step names; the list is emptied.
+    List<String> takeReports() {
+      final steps = [
+        for (final e in rig.unexpected) (e as E2eePipelineError).step,
+      ];
+      rig.unexpected.clear();
+      return steps;
+    }
+
+    test('enqueue stores nothing and throws StateError', () async {
+      engine = _CutRandomEngine();
+      await setUpJoined(engine: engine);
+      for (final length in [kReportKeyBytes, 16]) {
+        for (final keep in [length - 1, 0]) {
+          engine.cut = (n) => n == length ? keep : null;
+          await expectLater(
+            rig.sender.enqueue(localId: 'l1', conversationId: _c1, text: 'a'),
+            throwsStateError,
+            reason: '$keep of $length bytes',
+          );
+          await rig.sender.settled(_c1);
+          expect(await outbox(), isEmpty);
+        }
+      }
+      expect(rig.server.calls, isEmpty);
+      expect(encrypts(), 0);
+      engine.cut = null;
+      await send('l1');
+      expect(rig.server.sends, hasLength(1));
+    });
+
+    test('the encrypt stops the row as unavailable, stores nothing and '
+        'reports once', () async {
+      engine = _CutRandomEngine();
+      await setUpJoined(engine: engine);
+      rig.removedElsewhere = true;
+      await send('l1');
+      rig.removedElsewhere = false;
+      final plain = (await outbox()).single;
+      final groupBefore = (await rig.device.vault.group(_c1, 1))!.state;
+      for (final keep in [15, 0]) {
+        engine.cut = (n) => n == 16 ? keep : null;
+        await drain();
+        expect(encrypts(), 0, reason: '$keep bytes');
+        expect(rig.server.sends, isEmpty);
+        final row = (await outbox()).single;
+        expect(row.stage, OutboxStage.plain);
+        expect(row.idempotencyKey, plain.idempotencyKey);
+        expect((await rig.device.vault.group(_c1, 1))!.state, groupBefore);
+        expect(
+          (await rig.sender.outgoing(_c1)).single.waitingOn,
+          SendBlock.unavailable,
+        );
+      }
+      expect(takeReports(), ['send.encrypt.random']);
+      engine.cut = null;
+      await drain();
+      expect(rig.server.sends.single.key, matches(_keyShape));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('the return to plain after STALE_EPOCH keeps the encrypted row and '
+        'reports once', () async {
+      engine = _CutRandomEngine();
+      await setUpJoined(engine: engine);
+      rig.server.beforeSend = (_) async {
+        if (rig.server.sends.length != 1) return;
+        await bobSelfUpdate();
+        engine.cut = (n) => n == 16 ? 15 : null;
+      };
+      await send('l1');
+      final first = rig.server.sends.single;
+      var row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.idempotencyKey, first.key);
+      expect(row.ciphertext, first.ciphertext);
+      engine.cut = (n) => n == 16 ? 0 : null;
+      await drain();
+      row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.idempotencyKey, first.key);
+      expect(encrypts(), 1);
+      expect(takeReports(), ['send.stale.random']);
+      engine.cut = null;
+      await drain();
+      expect(rig.server.sends.last.pair, const MlsPair(1, 2));
+      expect(rig.server.sends.last.key, isNot(first.key));
+      expect(rig.server.sends.last.key, matches(_keyShape));
       expect(await outbox(), isEmpty);
     });
   });
