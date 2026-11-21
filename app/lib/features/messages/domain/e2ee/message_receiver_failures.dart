@@ -947,10 +947,14 @@ extension _Failures on MessageReceiver {
   ///
   /// [rec] is the reconcile entry of the receive record the caller read
   /// fresh in this body: while one stands no item is given to the engine
-  /// (step 2 carry-over 14); the end waits, or, once the entry's failure
-  /// count has reached [kReconcileGiveUpAfter], the item is a row.
+  /// (step 2 carry-over 14) unless [pass] itself listed the tombstones to
+  /// the end after its probe was answered
+  /// ([ConversationContext.listedToEndIn]); the end waits, or, once the
+  /// entry's failure count has reached [kReconcileGiveUpAfter], the item
+  /// is a row.
   ///
-  /// Null: the end must wait (a reconcile entry stands below its bound,
+  /// Null: the end must wait (a reconcile entry stands below its bound
+  /// and this pass has not listed to the end,
   /// an engine hold stands, the engine is down,
   /// the breaker, a group-level failure below the maximum, or an attempt
   /// answered `deadline`; a hold is set where the rule sets one and at most
@@ -1041,18 +1045,24 @@ extension _Failures on MessageReceiver {
         await row();
         continue;
       }
-      // The freshness gate (step 2 carry-over 14): no ENGINE call while a
-      // reconcile entry stands, armed or not yet armed. After a retirement
-      // only the by-id tombstone listing shows whether this message was
-      // taken down, and its stored ciphertext would still decrypt. The end
-      // waits (nothing written) until the listing has disarmed the entry.
-      // The wait is bounded durably by the entry's failure count: once it
-      // has reached [kReconcileGiveUpAfter] the item becomes a row with NO
-      // engine call (never a visible message), so the walk can end.
+      // The freshness gate (step 2 carry-over 14, as ruled in fix round 1
+      // of step 2b): the ENGINE may run when no reconcile entry stands, OR
+      // when THIS pass's own reconcile step reached the end of the by-id
+      // tombstone listing after this pass's probe was answered (a fact of
+      // that pass, in memory, gone at the first write of the record after
+      // it and when the pass ends; the sink outside a pass and the public
+      // reconcile step never have it). After a retirement only that listing
+      // shows whether this message was taken down, and its stored
+      // ciphertext would still decrypt. Otherwise the end waits (nothing
+      // written). With the entry's failure count at
+      // [kReconcileGiveUpAfter] the item becomes a row with NO engine call
+      // (never a visible message), so the walk can end.
       if (rec != null) {
-        if (!rec.gaveUp) return null;
-        await row();
-        continue;
+        if (rec.gaveUp) {
+          await row();
+          continue;
+        }
+        if (!context.listedToEndIn(pass)) return null;
       }
       // No engine call while an engine hold stands: the end waits.
       if (_engineHoldOf(context) != null) return null;

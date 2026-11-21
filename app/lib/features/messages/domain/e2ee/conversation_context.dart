@@ -146,6 +146,38 @@ class ConversationContext {
   int reconcileViolation = 0;
   int reconcileDiscarded = 0;
 
+  /// The pass whose own reconcile step applied the LAST page of the by-id
+  /// tombstone listing after its probe was answered, with [serial] as that
+  /// page left it. A fact of that one pass, in memory only and never in
+  /// the receive record (a stored mark would have no age: a later reader
+  /// could not tell a takedown made since). While it holds, that pass's
+  /// final attempts may reach the engine although the reconcile entry
+  /// still waits for a since token.
+  ({Object pass, int serial})? _listedToEnd;
+
+  /// [pass]'s reconcile step just applied the listing's last page (call
+  /// after that page's own change of [serial], with the lock held).
+  void noteListedToEnd(Object pass) =>
+      _listedToEnd = (pass: pass, serial: serial);
+
+  /// The fact is gone: the pass ended, a since token or an anchor was
+  /// retired, the entry was armed, or the listing began again.
+  void clearListedToEnd() => _listedToEnd = null;
+
+  /// Whether [pass] itself listed the tombstones to the end and nothing
+  /// has written the receive record since ([serial] is unchanged). A
+  /// changed [serial] forgets the fact for good; another pass (the sink's,
+  /// the public reconcile's) is only answered no.
+  bool listedToEndIn(Object pass) {
+    final noted = _listedToEnd;
+    if (noted == null) return false;
+    if (noted.serial != serial) {
+      _listedToEnd = null;
+      return false;
+    }
+    return identical(noted.pass, pass);
+  }
+
   // --- the receiver's failure rule (design rev 3 §7; memory only) ---------
 
   /// No engine call of the receiver for THIS conversation before this time:

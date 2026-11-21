@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/crypto/mls_derivations.dart';
+import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
@@ -1009,74 +1010,274 @@ void main() {
       expect((await rec())!.f, kReconcileGiveUpAfter);
     });
 
-    test(
-      'AS BUILT, NEEDS A RULING: after a retirement a healthy listing '
-      'cannot disarm without a since token, so a final attempt behind a '
-      'close walk of the current pair waits and nothing is counted',
-      () async {
-        await setUpJoined();
-        final m1 = await deferOne(1);
-        await bobSelfUpdate();
-        await retire();
-        // Something changed on the server, so its next since token is a new
-        // one (the rig's tokens are its change count).
-        ghost(90);
-        // The post-retirement entry (unarmed, nothing listed yet): no engine
-        // call either.
-        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
-        expect(processedCount(m1.ciphertext), 1);
-        expect((await record()).close!.end, isFalse);
-
-        // The tombstone server answers every call. The since token is saved
-        // only by the OPEN walk's end, and there is no open walk while the
-        // close slot holds the current pair: no pass can disarm the entry,
-        // and no failure is ever counted.
-        for (var i = 0; i < 8; i++) {
-          final out = await pull();
-          expect(out.kind, ReceiveOutcomeKind.stopped);
-          rig.clock.advance(kWalkBackoffMax);
-        }
-        expect(requests(), isNotEmpty);
-        expect((await sync()).sinceToken, '');
-        final held = (await rec())!;
-        expect((held.armed, held.f), (true, 0));
-        expect((await record()).close!.end, isFalse);
-        expect(await epoch(), 1);
-        expect(processedCount(m1.ciphertext), 1);
-        expect(await deferredIds(), [_mid(1)]);
-        expect(await row(1), isNull);
-      },
-    );
-
-    test('AS BUILT, NEEDS A RULING: the same wait with no retirement at '
-        'all, when a conversation catches up before its first since token '
-        'is saved', () async {
+    /// A conversation that catches up before its first pass: no since token
+    /// (the entry reads as armed), message 1 deferred by the sink's close
+    /// walk (it failed once, the engine works), and a commit waiting behind
+    /// that walk's final attempt.
+    Future<pb.Message> caughtUpBeforeFirstPass() async {
       await setUpJoined();
-      // No pass has run: the since token is empty, so the entry reads as
-      // armed. The first message fails once (`internal`, the engine works)
-      // and a commit already waits.
       final m1 = await say(1);
       rig.device.engine.failWire[RigEngine.key(m1.ciphertext)] = [internal];
       await bobSelfUpdate();
-
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
       expect(await deferredIds(), [_mid(1)]);
       expect(processedCount(m1.ciphertext), 1);
-
-      for (var i = 0; i < 8; i++) {
-        final out = await pull();
-        expect(out.kind, ReceiveOutcomeKind.stopped);
-        rig.clock.advance(kWalkBackoffMax);
-      }
-      expect(requests(), isNotEmpty);
-      expect((await sync()).sinceToken, '');
-      final held = (await rec())!;
-      expect((held.armed, held.f), (true, 0));
       expect((await record()).close!.end, isFalse);
-      expect(await epoch(), 1);
+      return m1;
+    }
+
+    /// The message was decrypted and is readable, the commit applied, a
+    /// since token is saved and the entry is disarmed.
+    Future<void> expectDelivered(pb.Message m, int n) async {
+      expect(processedCount(m.ciphertext), 2);
+      final r = (await row(n))!;
+      expect(r.state, StoredMessageState.visible);
+      expect(r.content, isNotNull);
+      expect(await deferredIds(), isEmpty);
+      expect(await epoch(), 2);
+      expect((await sync()).sinceToken, isNotEmpty);
+      expect(await rec(), isNull);
+    }
+
+    test('after a retirement a final attempt behind a close walk of the '
+        'current pair is delivered by the pass whose listing reached its '
+        'end, and the next pass saves a since token and disarms', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      await bobSelfUpdate();
+      await retire();
+      // Something changed on the server, so its next since token is a new
+      // one (the rig's tokens are its change count).
+      ghost(90);
+      // The post-retirement entry (unarmed, nothing listed yet): the sink
+      // makes no engine call.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(processedCount(m1.ciphertext), 1);
+      expect((await record()).close!.end, isFalse);
+
+      // The pass: its probe arms the entry, its listing reaches the end
+      // (no since token: the entry stays armed), and its close walk's final
+      // attempt runs the engine; the commit applies at its end.
+      final first = await pull();
+      expect(first.kind, ReceiveOutcomeKind.more);
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(await epoch(), 2);
+      expect((await rec())!.armed, isTrue);
+
+      // The next pass: the open walk saves the token, the last page disarms.
+      await pull();
+      await expectDelivered(m1, 1);
+    });
+
+    test('a conversation that catches up before its first since token is '
+        'saved delivers the waiting final attempt in its first pass and '
+        'disarms in its second', () async {
+      final m1 = await caughtUpBeforeFirstPass();
+
+      final first = await pull();
+      expect(first.kind, ReceiveOutcomeKind.more);
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(await epoch(), 2);
+
+      await pull();
+      await expectDelivered(m1, 1);
+    });
+
+    test('a final attempt behind an orphan walk with no since token is '
+        'delivered once this pass\'s listing reaches its end', () async {
+      await setUpJoined();
+      final m1 = await say(1, at: _seconds(-1));
+      rig.device.engine.failWire[RigEngine.key(m1.ciphertext)] = [internal];
+      await pull();
+      expect(await deferredIds(), [_mid(1)]);
+      await retire();
+      ghost(90);
+      // The device moved on to generation 2 and kept generation 1's group:
+      // its last epoch is the orphan walk's.
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      await rig.device.vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+
+      await pull();
+
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), isEmpty);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect((await record()).orphan, isNull);
+      await untilDisarmed(max: 3);
+      expect((await sync()).sinceToken, isNotEmpty);
+    });
+
+    test('a message taken down between the listing\'s end and the final '
+        'attempt is cleared by id at the next listing', () async {
+      final m1 = await caughtUpBeforeFirstPass();
+      // The server's rule: the takedown retires every older since token.
+      rig.server.takedownRetiresSince = true;
+      var taken = false;
+      rig.server.afterTombstoneAnswer = () async {
+        if (taken) return;
+        taken = true;
+        // After the listing's last page was computed, before the walk.
+        takeDownUnseen(1);
+      };
+
+      await pull();
+
+      // The stated window of the ruling: the listing had ended, so the
+      // final attempt ran and the message is readable for now.
+      expect(taken, isTrue);
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
+      // The entry still stands, so the next listing is owed.
+      expect(await rec(), isNotNull);
+
+      // The anchor is retired by the takedown; the pass after that arms
+      // the entry and lists by id from the top.
+      for (var i = 0; i < 3; i++) {
+        await pull();
+        if ((await row(1))!.state != StoredMessageState.visible) break;
+      }
+      final r = (await row(1))!;
+      expect((r.state, r.content), (StoredMessageState.removed, null));
+      await untilDisarmed();
+      expect((await row(1))!.state, StoredMessageState.removed);
+    });
+
+    test('a catch-up outside a pass makes no final attempt while the entry '
+        'stands, and the next pass delivers it', () async {
+      final m1 = await caughtUpBeforeFirstPass();
+      final context = rig.contexts.of(_c1);
+      expect(context.catchUpDueAt, isNotNull);
+
+      // A pass whose listing reaches its end, but whose close walk is kept
+      // from the engine: nothing is delivered, and the fact that this pass
+      // listed to the end goes with the pass.
+      context.engineHoldUntil = rig.clock.now().add(kEngineBackoff);
+      final held = await pull();
+      expect(held.kind, ReceiveOutcomeKind.stopped);
+      expect(requests(), isNotEmpty);
+      expect(processedCount(m1.ciphertext), 1);
+      context.engineHoldUntil = null;
+
+      // The bare sink, right after that pass: still no engine call.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
       expect(processedCount(m1.ciphertext), 1);
       expect(await deferredIds(), [_mid(1)]);
       expect(await row(1), isNull);
+      expect((await record()).close!.end, isFalse);
+      expect(await epoch(), 1);
+      expect(context.catchUpDueAt, isNotNull);
+      // Nor does the public reconcile step open the gate for it.
+      await rig.receiver.reconcile(_c1);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(processedCount(m1.ciphertext), 1);
+
+      await pull();
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(await epoch(), 2);
+      await pull();
+      await expectDelivered(m1, 1);
+    });
+
+    test('a listing that is rate limited or held in this pass does not open '
+        'the final-attempt gate', () async {
+      await setUpJoined();
+      await say(1, at: const Duration(minutes: -10));
+      await pull();
+      expect(await rec(), isNull);
+      await rig.locks.run(
+        _c1,
+        () => rig.receiver.completeEpoch(
+          _c1,
+          const MlsPair(1, 1),
+          priority: BudgetPriority.user,
+        ),
+      );
+      expect((await record()).close!.end, isTrue);
+      // A message of the pair deferred after the walk ended, and the device
+      // moved on to generation 2: the ended close walk owes a final attempt
+      // before generation 1's group goes, and reaching it needs no listing.
+      final late = await say(2, at: _seconds(-5));
+      rig.server
+        ..rewriteEpoch = ((r) =>
+            r..messages.removeWhere((m) => m.id == _mid(2)))
+        ..rewriteLive = ((r) =>
+            r..messages.removeWhere((m) => m.id == _mid(2)));
+      final now = rig.clock.now().microsecondsSinceEpoch;
+      await rig.device.vault.transaction(
+        (tx) => DeferredRecords().putIn(
+          tx,
+          _c1,
+          DeferredRecord([
+            DeferredItem(
+              id: _mid(2),
+              pair: const MlsPair(1, 1),
+              at: late.createdAt.toDateTime().microsecondsSinceEpoch,
+              da: now,
+              ct: Uint8List.fromList(late.ciphertext),
+              rc: Uint8List.fromList(late.reportCommitment),
+              fs: false,
+              k: 1,
+              la: now,
+              ru: 'bbbbbbbbbbbbbbbb',
+            ),
+          ]),
+        ),
+      );
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      await rig.device.vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+      // The entry stands, and its listing is rate limited.
+      await putRec(const ReconcileEntry(armed: true));
+      RateLimitedException? limited = const RateLimitedException(
+        'slow',
+        retryAfter: Duration(seconds: 30),
+      );
+      rig.server.tombstoneError = () => limited;
+      requests().clear();
+
+      final first = await pull();
+      expect(first.kind, ReceiveOutcomeKind.held);
+      expect(requests(), hasLength(1));
+      expect(processedCount(late.ciphertext), 0);
+      expect(await rig.device.vault.group(_c1, 1), isNotNull);
+      expect(await deferredIds(), [_mid(2)]);
+
+      // The server would answer now, but the budget is still paused: the
+      // listing is held, no call is made, and the gate stays closed.
+      limited = null;
+      final second = await pull();
+      expect(second.kind, ReceiveOutcomeKind.held);
+      expect(requests(), hasLength(1));
+      expect(processedCount(late.ciphertext), 0);
+      expect(await rig.device.vault.group(_c1, 1), isNotNull);
+      expect((await rec())!.f, 0);
+
+      rig.clock.advance(const Duration(seconds: 30));
+      await pull();
+      expect(processedCount(late.ciphertext), 1);
+      expect((await row(2))!.state, StoredMessageState.visible);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
     });
 
     test('a deferred message is retried only after the reconcile walk has '

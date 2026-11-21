@@ -41,6 +41,12 @@ class _Reconciled {
 ///   when the since token read in that body is not empty. With an empty
 ///   token the last page is applied, the entry stays armed with its cursor
 ///   unmoved, and the page is listed again by a later step.
+/// - **The final-attempt gate.** A last page applied by a pass's own step
+///   (after that pass's probe was answered) is noted for that pass, in
+///   memory only ([ConversationContext.noteListedToEnd]): until the record
+///   is next written or the pass ends, its final attempts may reach the
+///   engine although the entry still waits for a since token
+///   ([_finalAttempts]). The disarm itself is unchanged.
 /// - **Begun after the token.** The transaction that saves a since token
 ///   over an empty one begins a listing in progress again from the top
 ///   ([_applyPageLocked]), so the listing that disarms began after the
@@ -152,7 +158,22 @@ extension _Reconcile on MessageReceiver {
           context.reconcileViolation++;
           return _reconcileFailedLocked(pass, id, restart: tooLong);
         }
-        return _applyTombstonesLocked(pass, id, fresh, listed, states);
+        final applied = await _applyTombstonesLocked(
+          pass,
+          id,
+          fresh,
+          listed,
+          states,
+        );
+        // The final-attempt gate (fix round 1 of step 2b): THIS pass's
+        // listing reached its end (the last page passed the check and was
+        // applied for the entry and serial it was listed for) after this
+        // pass's probe was answered. Noted after the page's own change of
+        // the serial, still under the lock; never by the public step.
+        if (answered && applied == _RecStep.awaiting) {
+          context.noteListedToEnd(pass);
+        }
+        return applied;
       });
       switch (step) {
         case _RecStep.stale:
@@ -283,7 +304,13 @@ extension _Reconcile on MessageReceiver {
         gaveUp = counted != null && counted.gaveUp;
         return true;
       });
-      if (wrote) _contexts.of(id).serial++;
+      if (wrote) {
+        // A counted failure or a restart of the listing: the record was
+        // written, and the final-attempt gate closes with it.
+        final context = _contexts.of(id);
+        context.serial++;
+        context.clearListedToEnd();
+      }
       if (gaveUp) _reconcileGaveUp();
     } on _Stopped {
       // The vault changed: nothing is counted.

@@ -96,6 +96,10 @@ extension _Walks on MessageReceiver {
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'receive.live');
       outcome = ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+    } finally {
+      // The pass is over, however it ended: the fact that ITS listing
+      // reached the end (the final-attempt gate) has no life beyond it.
+      _contexts.of(id).clearListedToEnd();
     }
     // 6. The deferred retries, after the pass's fresh work (§7.4),
     // whatever the pass ended with (a walk backoff alone skips nothing).
@@ -587,6 +591,9 @@ extension _Walks on MessageReceiver {
   /// most one per spacing, [_reconcileCounted]), so a server that retires
   /// without end reaches [kReconcileGiveUpAfter] like one that refuses.
   Future<void> _retireLocked(_Pass pass, String id, String token) async {
+    // Whatever this pass listed before no longer says what the thread
+    // holds: the final-attempt gate closes at once.
+    _contexts.of(id).clearListedToEnd();
     if (!pass.live) return;
     _contexts.of(id).endToken = null;
     var gaveUp = false;
@@ -624,6 +631,9 @@ extension _Walks on MessageReceiver {
   /// becomes the anchor and the reconcile entry is armed, in one
   /// transaction (§8.2).
   Future<void> _armLocked(_Pass pass, String id, String anchor) async {
+    // An arming closes the final-attempt gate (the listing that may open
+    // it again is the one this pass makes after it).
+    _contexts.of(id).clearListedToEnd();
     await _session.runWrite((v) async {
       pass.check(v);
       final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
@@ -1196,7 +1206,12 @@ extension _Walks on MessageReceiver {
     if (next.end) context.walkRestarts = 0;
     if (saveEnd) {
       context.endToken = null;
-      if (tokenWritten) onTokenSaved?.call();
+      if (tokenWritten) {
+        // A since token saved over an empty one begins the listing again:
+        // the gate is the entry's alone from here (null once disarmed).
+        context.clearListedToEnd();
+        onTokenSaved?.call();
+      }
     }
     return next.end ? _StepEnd.finished : _StepEnd.advanced;
   }
