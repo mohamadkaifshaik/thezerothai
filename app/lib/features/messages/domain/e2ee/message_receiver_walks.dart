@@ -101,10 +101,9 @@ extension _Walks on MessageReceiver {
         _reportIfBug(e, s, 'receive.welcomes');
       }
     }
-    // A complete pass (every return site): nothing waits, the streak ends.
-    if (outcome.kind == ReceiveOutcomeKind.complete) {
-      _resetCatchUpWait(_contexts.of(id));
-    }
+    // A `complete` pass does NOT end a fruitless-catch-up streak (a ruling
+    // after the design): only the pair moving does, or a catch-up there
+    // that applies something or leaves a walk.
     return outcome;
   }
 
@@ -583,9 +582,72 @@ extension _Walks on MessageReceiver {
         case _StepKind.restarted:
           break;
         case _StepKind.stop:
+          // An undecryptable walk that can never finish is given up, so it
+          // does not block every later commit for good.
+          if (await _abandonIfHopeless(pass, id, slot, w)) return null;
           return step.outcome;
       }
     }
+  }
+
+  /// A ruling after the design (step 2 carry-over 4): [slot]'s walk [w]
+  /// needs no engine (mode `u`, or its group is gone) and its steps failed
+  /// [kWalkGiveUpAfter] times in a row with the walk backoff already at
+  /// its maximum. It is ABANDONED in one transaction: a close slot is left
+  /// at its `end` (so the commit gate reads the walk as over and the sink
+  /// may take the slot; cleared, the sink would only create it again), an
+  /// orphan slot is cleared, and the record's abandoned-walk count grows.
+  /// Reported once as a fixed pipeline error naming the step. No row is
+  /// written for messages that were never listed. True: abandoned (the walk
+  /// backoff is cleared with it).
+  Future<bool> _abandonIfHopeless(
+    _Pass pass,
+    String id,
+    _Slot slot,
+    WalkEntry w,
+  ) async {
+    final context = _contexts.of(id);
+    if (slot == _Slot.open || context.walkMaxFails < kWalkGiveUpAfter) {
+      return false;
+    }
+    final abandoned = await _locks.run(id, () async {
+      if (!pass.live) return false;
+      return _session.runWrite((v) async {
+        pass.check(v);
+        final record = await _readReceive(v, id);
+        final now = _slotOf(record, slot);
+        if (now == null || now.pair != w.pair || now.end) return false;
+        final group = await v.group(id, now.pair.generation);
+        final needsNoEngine =
+            group == null ||
+            group.provisional ||
+            (slot == _Slot.close && now.mode == WalkMode.undecryptable);
+        if (!needsNoEngine) return false;
+        await v.transaction(
+          (tx) => _records.putIn(
+            tx,
+            id,
+            _withSlot(
+              record,
+              slot,
+              slot == _Slot.close ? now.copyWith(end: true) : null,
+            ).copyWith(abandoned: record.abandoned + 1),
+          ),
+        );
+        return true;
+      });
+    });
+    if (!abandoned) return false;
+    context.serial++;
+    context
+      ..walkBackoff = null
+      ..walkBackoffUntil = null
+      ..walkMaxFails = 0;
+    _onUnexpectedError?.call(
+      const E2eePipelineError('receive.walk.abandoned'),
+      StackTrace.current,
+    );
+    return true;
   }
 
   /// A pass met [slot]'s walk [w] already at its end (no lock held). When it
@@ -797,7 +859,20 @@ extension _Walks on MessageReceiver {
       context.orderMissing++;
       return _StepEnd.stop(_backOff(context));
     }
-    if (!_inOrder(page.messages, w)) {
+    // A message whose time this client cannot hold and that already has a
+    // row (the live path stored it at time 0) is skipped by id: it takes no
+    // part in the order check or in the recorded position, so its walk can
+    // finish. Without a row such a message still refuses the page.
+    final messages = <pb.Message>[];
+    for (final m in page.messages) {
+      if (!_timeConverts(m) &&
+          _messageIdShape.hasMatch(m.id) &&
+          await pass.vault.hasMessage(id, m.id)) {
+        continue;
+      }
+      messages.add(m);
+    }
+    if (!_inOrder(messages, w)) {
       context.orderViolation++;
       return _StepEnd.stop(_backOff(context));
     }
@@ -828,7 +903,7 @@ extension _Walks on MessageReceiver {
     final cleared = _clearedAtOf(page);
     if (cleared != null) await _saveClearedAt(pass, id, cleared);
 
-    final last = page.messages.isEmpty ? null : _posOf(page.messages.last);
+    final last = messages.isEmpty ? null : _posOf(messages.last);
     final next = entry.afterPage(
       next: page.nextPageToken,
       resume: page.resumePageToken,
@@ -872,7 +947,6 @@ extension _Walks on MessageReceiver {
 
     var written = false;
     var changed = false;
-    final messages = page.messages;
     for (var i = 0; i < messages.length; i++) {
       final isLast = i == messages.length - 1;
       final step = await _one(
@@ -929,6 +1003,7 @@ extension _Walks on MessageReceiver {
     if (!written) return _StepEnd.stale;
     context.serial++;
     context.walkBackoff = null;
+    context.walkMaxFails = 0;
     // M3: the restart count is per listing, not per run, so a long run never
     // backs off for good; reset only at a listing's end, so a server that
     // refuses every continuation token still reaches the backoff.
@@ -984,6 +1059,8 @@ extension _Walks on MessageReceiver {
   /// The walk backoff (1 min doubling to 1 h, memory).
   ReceiveOutcome _backOff(ConversationContext context) {
     final previous = context.walkBackoff;
+    // One more failure with the backoff already at its maximum.
+    if (previous != null && previous >= kWalkBackoffMax) context.walkMaxFails++;
     var d = previous == null ? kWalkBackoff : previous * 2;
     if (d > kWalkBackoffMax) d = kWalkBackoffMax;
     context.walkBackoff = d;

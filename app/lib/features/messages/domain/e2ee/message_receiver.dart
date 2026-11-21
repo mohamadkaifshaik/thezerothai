@@ -51,8 +51,14 @@ const int kWalkRestartsPerRun = 2;
 const Duration kWalkBackoff = Duration(minutes: 1);
 const Duration kWalkBackoffMax = Duration(hours: 1);
 
-/// When the next pass may try after a transient engine answer (as built:
-/// nothing stored, the cursor kept).
+/// An undecryptable walk whose steps failed this many times in a row with
+/// the walk backoff already at [kWalkBackoffMax] is abandoned (a ruling
+/// after the design, step 2 carry-over 4).
+const int kWalkGiveUpAfter = 5;
+
+/// When the next pass may try after an engine answer that stopped a pass
+/// (§7.2: the device is down, an unwitnessed crash, a group-level failure;
+/// the device-level breaker doubles it up to [kWalkBackoffMax]).
 const Duration kEngineBackoff = Duration(minutes: 1);
 
 /// The open walk runs one listing from its settle token on a fast-path pass
@@ -233,6 +239,22 @@ class MessageReceiver implements EpochMessageSink {
     _runId = _newRunId();
     _crashRetryUsed = false;
     _deadlineThisRun = false;
+  }
+
+  /// How many undecryptable walks of [conversationId] were given up (step
+  /// 2 carry-over 4; the count is in the sealed receive record, bounded):
+  /// messages of an epoch this device could not decrypt anyway, whose ids
+  /// the server never gave, are counted here and never shown. 0 when the
+  /// vault is closed.
+  Future<int> abandonedWalks(String conversationId) async {
+    final vault = _session.vault;
+    if (vault == null) return 0;
+    try {
+      return (await _records.read(vault, conversationId)).abandoned;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'receive.walk.abandoned.read');
+      return 0;
+    }
   }
 
   /// §10: what the screens need to draw the placeholder rows of

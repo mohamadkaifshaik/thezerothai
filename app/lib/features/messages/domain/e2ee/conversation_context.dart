@@ -104,8 +104,9 @@ class ConversationContext {
   /// The group pair at which the end-of-pass catch-up last applied nothing
   /// and left no walk: a second such run at the same pair waits twice as
   /// long, doubling up to the walk backoff's cap. Reset (with the two
-  /// fields below) when the pair moves, a catch-up there applies something
-  /// or leaves a walk, or a pass returns `complete`. Null: no streak.
+  /// fields below) when the pair moves, or a catch-up there applies
+  /// something or leaves a walk; never by a pass that returns `complete`.
+  /// Null: no streak.
   MlsPair? fruitlessCatchUpAt;
 
   /// The end-of-pass catch-up's own wait (never the walks'): no end-of-pass

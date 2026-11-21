@@ -4762,6 +4762,193 @@ void main() {
     });
   });
 
+  group('walks that could never finish (step 2 carry-overs 3 to 5)', () {
+    /// Out of range, not a date: 2^53 microseconds is about 9.0e9 s.
+    final far = ts.Timestamp()..seconds = Int64(10) * Int64(1000000000000);
+
+    /// Passes, each after the walk backoff of the one before, until [done]
+    /// or [most] passes.
+    Future<int> passUntil(Future<bool> Function() done, {int most = 20}) async {
+      for (var n = 1; n <= most; n++) {
+        await rig.receiver.pullLive(_c1);
+        if (await done()) return n;
+        final until = rig.contexts.of(_c1).walkBackoffUntil;
+        if (until != null && rig.clock.now().isBefore(until)) {
+          rig.clock.value = until;
+        }
+      }
+      return -1;
+    }
+
+    test('a message the live path stored at time 0 is skipped by id in its '
+        'epoch walk, which ends, and the commit applies', () async {
+      await setUpJoined();
+      await prime();
+      await say(bobGroup(), 1, at: seconds(1));
+      final m2 = await say(bobGroup(), 2, at: seconds(2));
+      // The server gives message 2 a time this client cannot hold, on every
+      // listing.
+      pb.ListMessagesResponse live(pb.ListMessagesResponse real) {
+        final out = real.deepCopy();
+        for (final m in out.messages) {
+          if (m.id == _mid(2) || m.id == _mid(4)) m.createdAt = far;
+        }
+        return out;
+      }
+
+      pb.ListEpochMessagesResponse epoch(pb.ListEpochMessagesResponse real) {
+        final out = real.deepCopy();
+        for (final m in out.messages) {
+          if (m.id == _mid(2) || m.id == _mid(4)) m.createdAt = far;
+        }
+        return out;
+      }
+
+      rig.server.rewriteLive = live;
+      rig.server.rewriteEpoch = epoch;
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(2)))!.createdAtMicros, 0);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect(rig.contexts.of(_c1).orderViolation, 0);
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+      expect(processedCount(m2.ciphertext), 1);
+      // The walk's recorded position is one the record's decoder accepts.
+      expect(rig.unexpected, isEmpty);
+
+      // A message with such a time that has NO row is still refused (its
+      // position could not be recorded): nothing of the page is processed.
+      await say(bobGroup(), 3, at: seconds(3));
+      await say(bobGroup(), 4, at: seconds(4));
+      rig.server.rewriteLive = (r) => live(r)..gapPageToken = 'gap';
+      await rig.receiver.pullLive(_c1);
+      expect(rig.contexts.of(_c1).orderViolation, 1);
+      expect(await row(_mid(3)), isNull);
+    });
+
+    test('an undecryptable walk that fails five times at the maximum backoff '
+        'is abandoned: counted, reported once, no row invented, and the '
+        'waiting commit applies', () async {
+      await setUpJoined();
+      // This device joins generation 2; generation 1's group is then gone
+      // with its close walk of (1, 1) unfinished in mode u.
+      final offer2 = await rig.offer(_c1, bob, generation: 2);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      await sayMany(1, 5, start: const Duration(minutes: -10));
+      await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      await putReceiveRecord(
+        const ReceiveRecord(
+          close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.undecryptable),
+        ),
+      );
+      // The server never serves (1, 1) in order.
+      rig.server.rewriteEpoch = (real) =>
+          rig.server.epochRequests.last.pair == const MlsPair(1, 1)
+          ? (real.deepCopy()..clearOrder())
+          : real;
+      // Bob commits on generation 2: the commit waits behind (1, 1).
+      final epoch = (await rig.device.vault.group(_c1, 2))!.epoch;
+      final at = rig.server.current(_c1);
+      final g2 = offer2.add.group;
+      final c = await bob.engine.selfUpdate(bob.state, g2.state);
+      g2.state = await bob.engine.confirmCommit(bob.state, c.groupState);
+      rig.server.addCommit(_c1, at, c.commit, fromUser: 'user-b');
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(await rig.receiver.abandonedWalks(_c1), 0);
+
+      final passes = await passUntil(
+        () async => await rig.receiver.abandonedWalks(_c1) > 0,
+      );
+
+      // 1, 2, 4, 8, 16, 32 min and the first hour reach the maximum; five
+      // more failures there give it up.
+      expect(passes, 7 + kWalkGiveUpAfter);
+      expect(await rig.receiver.abandonedWalks(_c1), 1);
+      expect(rig.unexpected, hasLength(1));
+      final e = rig.unexpected.single as E2eePipelineError;
+      expect(e.step, 'receive.walk.abandoned');
+      rig.unexpected.clear();
+      // No row for messages that were never listed.
+      for (var i = 1; i <= 5; i++) {
+        expect(await row(_mid(i)), isNull);
+      }
+      // The commit that waited behind it applies, by passes alone (the slot
+      // is free for its close walk).
+      final n = await passUntil(
+        () async => (await rig.device.vault.group(_c1, 2))!.epoch == epoch + 1,
+        most: 3,
+      );
+      expect(n, isNot(-1));
+      // Neither the record's normalization nor the sink brings it back.
+      expect((await receiveRecord()).close?.pair, isNot(const MlsPair(1, 1)));
+      expect(await rig.receiver.abandonedWalks(_c1), 1);
+      expect(rig.unexpected, isEmpty);
+    });
+
+    test('an abandoned undecryptable walk with no final group left ends the '
+        'pass complete, and a decrypting walk is never abandoned', () async {
+      await setUpJoined();
+      await sayMany(1, 3, start: const Duration(minutes: -10));
+      rig.server.rewriteEpoch = (real) => real.deepCopy()..clearOrder();
+
+      // The open walk decrypts: however long the server refuses, it waits.
+      final never = await passUntil(
+        () async => await rig.receiver.abandonedWalks(_c1) > 0,
+        most: 16,
+      );
+      expect(never, -1);
+      expect(rig.contexts.of(_c1).walkMaxFails, greaterThan(kWalkGiveUpAfter));
+      expect(rig.unexpected, isEmpty);
+
+      // The group goes (a reset) with an unfinished close walk in mode u.
+      await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      await putReceiveRecord(
+        const ReceiveRecord(
+          close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.undecryptable),
+        ),
+      );
+      rig.contexts.of(_c1)
+        ..walkBackoff = null
+        ..walkBackoffUntil = null
+        ..walkMaxFails = 0;
+
+      final passes = await passUntil(
+        () async => await rig.receiver.abandonedWalks(_c1) > 0,
+      );
+
+      expect(passes, 7 + kWalkGiveUpAfter);
+      expect(rig.unexpected, hasLength(1));
+      rig.unexpected.clear();
+      expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
+      expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
+    });
+
+    test('a complete pass between two fruitless catch-ups at one pair does '
+        'not end the streak', () async {
+      await setUpJoined();
+      await prime();
+      await say(bobGroup(), 1);
+      noCommitMessage(2, 5, seconds(1));
+      rig.server.livePageSize = 1;
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.until, rig.clock.now().add(kWalkBackoff));
+      // Nothing waits: a complete pass.
+      expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
+
+      rig.clock.advance(kWalkBackoff);
+      await say(bobGroup(), 3, at: seconds(2));
+      noCommitMessage(4, 6, seconds(3));
+      final second = await rig.receiver.pullLive(_c1);
+
+      // The same pair: the second fruitless catch-up waits twice as long.
+      expect(second.kind, ReceiveOutcomeKind.stopped);
+      expect(second.until, rig.clock.now().add(kWalkBackoff * 2));
+    });
+  });
+
   group('a deferred message that is taken down, cleared or unreadable '
       '(§7.3, §7.6, §8.1)', () {
     /// Message [n] is deferred by a first pull (the since token is saved).
