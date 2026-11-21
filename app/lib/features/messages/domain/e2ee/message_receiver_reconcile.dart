@@ -218,11 +218,15 @@ extension _Reconcile on MessageReceiver {
   /// cursor, before anything of it is used: at most [kTombstonePageSize]
   /// tombstones; every id 32 lower-case hex; every state REMOVED or
   /// DELETED_ACCOUNT; ids strictly ascending and after the last id applied
-  /// in this listing; a next token of the one token shape, and never on a
-  /// page with no tombstone (the cursor could not be checked to move; the
-  /// server skips a malformed row but then still returns the others of a
-  /// full page). Null: refused. Otherwise message id -> stored state name,
-  /// ascending.
+  /// in this listing; a next token of the one token shape. A page with NO
+  /// tombstone and a next token is the server's answer by contract when it
+  /// skipped a full page of rows for their state or id (its next token is
+  /// then at the page's last row): it is accepted when that token differs
+  /// from the one the page was listed with (the cursor moves; `l` is kept),
+  /// and refused when it is the same token (the listing would not move).
+  /// [kReconcilePagesMax] bounds a server that answers such pages without
+  /// end. Null: refused. Otherwise message id -> stored state name,
+  /// ascending (empty for such a page).
   Map<String, String>? _tombstonePage(
     pb.ListMessageTombstonesResponse page,
     ReconcileEntry rec,
@@ -230,7 +234,7 @@ extension _Reconcile on MessageReceiver {
     final next = page.nextPageToken;
     if (page.tombstones.length > kTombstonePageSize ||
         !isTokenShape(next) ||
-        (page.tombstones.isEmpty && next.isNotEmpty)) {
+        (page.tombstones.isEmpty && next.isNotEmpty && next == rec.t)) {
       return null;
     }
     final states = <String, String>{};
@@ -339,7 +343,13 @@ extension _Reconcile on MessageReceiver {
     // Remembered for the run BEFORE the write is asked for: when the write
     // never starts, this pass's retries must still not give such a message
     // to the engine (§7.4 check 2).
+    final news = states.keys.any((mid) => !context.tombstoned.containsKey(mid));
     states.forEach((mid, state) => _noteTombstone(context, mid, state));
+    // A tombstone not noted before: an epoch page listed without the lock
+    // before this may still hold that message as readable, so it is
+    // discarded and listed again, whether or not this page writes the
+    // record (a last page with no since token may write nothing).
+    if (news) context.serial++;
     final last = page.nextPageToken.isEmpty;
     var changed = false;
     var recordWritten = false;
@@ -357,14 +367,10 @@ extension _Reconcile on MessageReceiver {
             now.n != listed.n) {
           return _RecStep.stale;
         }
-        final plan = await _tombstoneDeferred(v, id, states);
-        final marks = <String, String>{};
-        for (final e in states.entries) {
-          final stored = await v.message(id, e.key);
-          if (stored != null && stored.state != e.value) {
-            marks[e.key] = e.value;
-          }
-        }
+        // Shared with the probe page that is not processed.
+        final writes = await _tombstoneWrites(v, id, states);
+        final plan = writes?.plan;
+        final marks = writes?.marks ?? const <String, String>{};
         // The disarm: only with the last page of the listing, and never
         // while the since token is empty.
         final disarm = last && sync.sinceToken.isNotEmpty;
@@ -379,19 +385,15 @@ extension _Reconcile on MessageReceiver {
             : now.copyWith(
                 t: page.nextPageToken,
                 n: now.n + 1,
-                l: states.keys.last,
+                // An empty page (a full page of rows the server skipped)
+                // moves the cursor only: the last id applied is kept.
+                l: states.isEmpty ? now.l : states.keys.last,
               );
-        if (plan == null && marks.isEmpty && !writeRecord) {
+        if (writes == null && !writeRecord) {
           return _RecStep.awaiting;
         }
         await v.transaction((tx) async {
-          for (final row in plan?.rows ?? const <StoredMessage>[]) {
-            await tx.putMessage(row);
-          }
-          for (final e in marks.entries) {
-            await tx.setMessageState(id, e.key, e.value);
-          }
-          if (plan != null) await _deferred.putIn(tx, id, plan.deferred);
+          await _writeTombstonesIn(tx, id, marks, plan);
           if (writeRecord) {
             await _records.putIn(tx, id, record.copyWith(rec: next));
           }

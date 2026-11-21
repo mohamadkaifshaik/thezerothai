@@ -524,6 +524,48 @@ extension _Failures on MessageReceiver {
     return (deferred: held.without([for (final i in hit) i.id]), rows: rows);
   }
 
+  /// Everything ONE transaction writes for a set of tombstones [states]
+  /// (message id -> `removed` / `deletedAccount`), inside a write body:
+  /// `marks`, the stored rows whose state differs (the new state, their
+  /// content gone, whatever their time), and `plan`, the deferred messages
+  /// among them ([_tombstoneDeferred]). Null: nothing to write. Shared by
+  /// the reconcile page and the probe page that is not processed, so a
+  /// takedown clears a stored row the same way wherever it is seen. No
+  /// engine call.
+  Future<
+    ({
+      Map<String, String> marks,
+      ({DeferredRecord deferred, List<StoredMessage> rows})? plan,
+    })?
+  >
+  _tombstoneWrites(SecureVault v, String id, Map<String, String> states) async {
+    final plan = await _tombstoneDeferred(v, id, states);
+    final marks = <String, String>{};
+    for (final e in states.entries) {
+      final stored = await v.message(id, e.key);
+      if (stored != null && stored.state != e.value) marks[e.key] = e.value;
+    }
+    if (plan == null && marks.isEmpty) return null;
+    return (marks: marks, plan: plan);
+  }
+
+  /// Writes what [_tombstoneWrites] planned, inside the caller's ONE
+  /// transaction.
+  Future<void> _writeTombstonesIn(
+    VaultTx tx,
+    String id,
+    Map<String, String> marks,
+    ({DeferredRecord deferred, List<StoredMessage> rows})? plan,
+  ) async {
+    for (final row in plan?.rows ?? const <StoredMessage>[]) {
+      await tx.putMessage(row);
+    }
+    for (final e in marks.entries) {
+      await tx.setMessageState(id, e.key, e.value);
+    }
+    if (plan != null) await _deferred.putIn(tx, id, plan.deferred);
+  }
+
   /// The REMOVED / DELETED_ACCOUNT states [messages] carry for messages of
   /// [id] (message id -> stored state name).
   Map<String, String> _tombstoneStates(String id, List<pb.Message> messages) =>
@@ -539,8 +581,10 @@ extension _Failures on MessageReceiver {
 
   /// The tombstones of a probe page that is not processed as a batch
   /// (§8.1 "in the probe"), with the lock held: one `runWrite`, ONE
-  /// transaction for the deferred messages among them. Stored rows are left
-  /// to the walk or the reconcile listing, as built.
+  /// transaction for the deferred messages among them AND the stored rows
+  /// among them (marked removed, their content gone, exactly as a reconcile
+  /// page does: the open walk lists by creation time and would not show
+  /// such a takedown again). No engine call.
   Future<void> _tombstonesSeenLocked(
     _Pass pass,
     String id,
@@ -557,15 +601,13 @@ extension _Failures on MessageReceiver {
     try {
       final wrote = await _session.runWrite((v) async {
         pass.check(v);
-        final plan = await _tombstoneDeferred(v, id, states);
-        if (plan == null) return false;
-        await v.transaction((tx) async {
-          for (final row in plan.rows) {
-            await tx.putMessage(row);
-          }
-          await _deferred.putIn(tx, id, plan.deferred);
-        });
-        _contexts.of(id).deferredEmpty = plan.deferred.items.isEmpty;
+        final w = await _tombstoneWrites(v, id, states);
+        if (w == null) return false;
+        final plan = w.plan;
+        await v.transaction((tx) => _writeTombstonesIn(tx, id, w.marks, plan));
+        if (plan != null) {
+          _contexts.of(id).deferredEmpty = plan.deferred.items.isEmpty;
+        }
         return true;
       });
       if (wrote) _onChanged(id);

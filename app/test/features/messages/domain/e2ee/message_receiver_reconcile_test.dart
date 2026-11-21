@@ -297,7 +297,9 @@ void main() {
         ReconcileEntry(armed: true, t: 'x:$_c1:${_mid(1)}', n: 1, l: _mid(1)),
       );
       rig.server.tombstonePageMax = 1;
-      requests().clear();
+      int listings() =>
+          rig.server.calls.where((c) => c == 'listMessageTombstones').length;
+      final before = listings();
 
       await retire();
 
@@ -306,7 +308,9 @@ void main() {
       // An interrupted listing is counted (the bound on a server that
       // retires without end).
       expect(reset.f, 1);
-      expect(requests(), isEmpty);
+      // The retiring passes listed no tombstones (the server's own call
+      // log: `retire()` clears the request list).
+      expect(listings(), before);
 
       await pull();
 
@@ -599,12 +603,6 @@ void main() {
             (r) => r.nextPageToken = 'a\u0001b',
           ),
           (
-            'no tombstone and a next token',
-            (r) => r
-              ..tombstones.clear()
-              ..nextPageToken = 'x:$_c1:${_mid(1)}',
-          ),
-          (
             'more tombstones than a page holds',
             (r) => r.tombstones.addAll([
               for (var n = 100; n < 100 + kTombstonePageSize; n++)
@@ -628,6 +626,178 @@ void main() {
         expect((kept.armed, kept.t, kept.n, kept.f), (true, '', 0, 1));
       });
     }
+
+    test('an empty tombstone page with a new next token advances the '
+        'listing', () async {
+      await setUpJoined();
+      await say(3);
+      await pull();
+      // A full page of rows the server skips for their state, then the
+      // stored message's tombstone.
+      ghost(1);
+      ghost(2);
+      rig.server.tombstoneSkipped.addAll([_mid(1), _mid(2)]);
+      takeDownUnseen(3);
+      rig.server.tombstonePageMax = 2;
+      await retire();
+
+      await pull();
+
+      expect(requests().take(2), ['', 'x:$_c1:${_mid(2)}']);
+      expect(rig.contexts.of(_c1).reconcileViolation, 0);
+      final r = (await row(3))!;
+      expect((r.state, r.content), (StoredMessageState.removed, null));
+      await untilDisarmed();
+    });
+
+    test('an empty tombstone page between passes advances the cursor and '
+        'keeps the last id', () async {
+      await setUpJoined();
+      await pull();
+      ghost(1);
+      ghost(2);
+      ghost(3);
+      rig.server.tombstoneSkipped.addAll([_mid(2)]);
+      rig.server.tombstonePageMax = 1;
+      // A listing in progress with a stored since token, past the first id.
+      await putRec(
+        ReconcileEntry(armed: true, t: 'x:$_c1:${_mid(1)}', n: 1, l: _mid(1)),
+      );
+      requests().clear();
+      // One page only: the cursor after the empty page is read back.
+      final until = rig.clock.now().add(const Duration(minutes: 5));
+      rig.server.afterTombstoneAnswer = () async =>
+          rig.syncBudget.pauseUntil(until);
+
+      await pull();
+
+      expect(requests(), ['x:$_c1:${_mid(1)}']);
+      final moved = (await rec())!;
+      expect(
+        (moved.armed, moved.t, moved.n, moved.l),
+        (true, 'x:$_c1:${_mid(2)}', 2, _mid(1)),
+      );
+      rig.server.afterTombstoneAnswer = null;
+      rig.clock.advance(const Duration(minutes: 5));
+      await untilDisarmed();
+    });
+
+    test('an empty tombstone page whose next token is the one it was listed '
+        'with is discarded and counted', () async {
+      await setUpJoined();
+      await say(1);
+      await pull();
+      takeDownUnseen(1);
+      final token = 'x:$_c1:${_mid(0)}';
+      await putRec(ReconcileEntry(armed: true, t: token, n: 1, l: _mid(0)));
+      rig.server.rewriteTombstones = (r) => r.deepCopy()
+        ..tombstones.clear()
+        ..nextPageToken = token;
+
+      await pull();
+
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(rig.contexts.of(_c1).reconcileViolation, 1);
+      final kept = (await rec())!;
+      expect((kept.armed, kept.t, kept.n, kept.f), (true, token, 1, 1));
+    });
+
+    test('a stored row at time 0 is marked removed by the reconcile '
+        'listing', () async {
+      await setUpJoined();
+      await pull();
+      // A server time this client cannot hold: the live path stores the
+      // message at time 0, and the epoch walk skips it by id.
+      final g = bobGroup();
+      final content = _content('at time 0');
+      final e = await g.owner.engine.encrypt(g.owner.state, g.state, content);
+      g.state = e.groupState;
+      rig.server.addMessage(
+        pb.Message(
+          id: _mid(7),
+          conversationId: _c1,
+          state: MessageState.MESSAGE_STATE_VISIBLE,
+          // Out of range, not a date: 2^53 microseconds is about 9.0e9 s.
+          createdAt: ts.Timestamp()..seconds = Int64(10) * Int64(1000000000000),
+          ciphertext: e.ciphertext,
+          mlsGeneration: Int64(1),
+          mlsEpoch: Int64(e.epoch),
+          reportCommitment: reportCommitment(content),
+        ),
+      );
+      await pull();
+      final stored = (await row(7))!;
+      expect(
+        (stored.state, stored.createdAtMicros),
+        (StoredMessageState.visible, 0),
+      );
+      takeDownUnseen(7);
+      await retire();
+
+      await untilDisarmed();
+
+      final r = (await row(7))!;
+      expect((r.state, r.content), (StoredMessageState.removed, null));
+    });
+
+    test('a takedown of a stored message seen only on a probe page that is '
+        'not processed removes the row', () async {
+      await setUpJoined();
+      await say(1);
+      await pull();
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(await rec(), isNull);
+      // The since listing carries the takedown, but its page is not
+      // processed as a batch (a gap), and the open walk lists by creation
+      // time: it does not show the message again.
+      rig.server.tombstone(_c1, _mid(1), _removed);
+      rig.server
+        ..rewriteLive = ((r) => r..gapPageToken = 'gap')
+        ..rewriteEpoch = ((r) =>
+            r..messages.removeWhere((m) => m.id == _mid(1)));
+      final calls = [...rig.device.engine.calls];
+      rig.changed.clear();
+      requests().clear();
+
+      await pull();
+
+      final r = (await row(1))!;
+      expect((r.state, r.content), (StoredMessageState.removed, null));
+      expect(rig.changed, contains(_c1));
+      // By the probe page alone: no tombstone listing, no engine call.
+      expect(requests(), isEmpty);
+      expect(rig.device.engine.calls, calls);
+    });
+
+    test('a last tombstone page applied with no since token discards an '
+        'epoch page listed before it, so a message taken down meanwhile is '
+        'never stored visible', () async {
+      await setUpJoined();
+      await pull();
+      await retire();
+      final m = await say(50, at: _seconds(1));
+      // While the open walk's page (the new message, still readable) is in
+      // flight, the message is taken down and a reconcile step lists it on
+      // a last page that cannot disarm: no since token is stored.
+      var raced = false;
+      rig.server.afterEpochAnswer = () async {
+        if (raced) return;
+        raced = true;
+        rig.server.tombstone(_c1, _mid(50), _removed);
+        await rig.receiver.reconcile(_c1);
+        expect((await sync()).sinceToken, '');
+        expect((await rec())!.armed, isTrue);
+      };
+
+      await pull();
+
+      expect(raced, isTrue);
+      expect(rig.contexts.of(_c1).discardedPages, 1);
+      expect(await row(50), isNull);
+      expect(processedCount(m.ciphertext), 0);
+      await untilDisarmed();
+      expect(await row(50), isNull);
+    });
 
     test('a listing longer than the page bound is counted and begun again '
         'from the top', () async {

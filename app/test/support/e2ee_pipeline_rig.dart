@@ -483,6 +483,13 @@ class RigServer {
   /// are refused (`page_token`).
   int refuseTombstoneTokens = 0;
 
+  /// Ids of tombstone rows the server reads but leaves out of its answer
+  /// (`service_sync.go`: a row whose stored state or id is malformed is
+  /// skipped, and the next token is still at the page's last row, a
+  /// skipped one included). A full page of them is an EMPTY page with a
+  /// next token.
+  final Set<String> tombstoneSkipped = {};
+
   /// Replaces a ListMessageTombstones answer (to reorder or forge).
   pb.ListMessageTombstonesResponse Function(
     pb.ListMessageTombstonesResponse real,
@@ -821,7 +828,8 @@ class RigMessaging implements MessagingRepository {
   /// The contract as built (`service_sync.go`): ids and states only, in
   /// ascending message id, paged by the last id; page size 0 or negative
   /// is 50, clamped to the cap; a token that is not this conversation's is
-  /// refused (`page_token`); a next token only when more rows follow.
+  /// refused (`page_token`); a next token only when more rows follow, at
+  /// the page's last row ([RigServer.tombstoneSkipped] rows included).
   @override
   Future<pb.ListMessageTombstonesResponse> listMessageTombstones({
     required String conversationId,
@@ -855,7 +863,9 @@ class RigMessaging implements MessagingRepository {
     final page = rows.take(size).toList();
     final real = pb.ListMessageTombstonesResponse(
       tombstones: [
-        for (final m in page) pb.MessageTombstone(id: m.id, state: m.state),
+        for (final m in page)
+          if (!_server.tombstoneSkipped.contains(m.id))
+            pb.MessageTombstone(id: m.id, state: m.state),
       ],
       nextPageToken: rows.length > size ? '$prefix${page.last.id}' : '',
     );
